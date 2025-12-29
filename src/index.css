@@ -253,6 +253,15 @@
   .hover-lift {
     @apply transition-all duration-200 hover:-translate-y-1 hover:shadow-medium;
   }
+  /* Sound Wave Animation */
+  @keyframes soundWave {
+    0%, 100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(1.8);
+    }
+  }
 }
 
 @layer utilities {
