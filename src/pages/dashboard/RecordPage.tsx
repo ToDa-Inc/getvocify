@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Mic, Square, Upload, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import SimpleWaveform from "@/components/dashboard/SimpleWaveform";
 
 type RecordingState = "idle" | "recording" | "processing";
 
@@ -39,7 +40,6 @@ const RecordPage = () => {
       setSeconds(0);
     } else if (state === "recording") {
       setState("processing");
-      // Simulate processing
       setTimeout(() => {
         window.location.href = "/dashboard/memos/new";
       }, 2000);
@@ -59,7 +59,6 @@ const RecordPage = () => {
 
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
-      {/* Back Link */}
       <Link 
         to="/dashboard" 
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8"
@@ -68,51 +67,35 @@ const RecordPage = () => {
         Back to Dashboard
       </Link>
 
-      {/* Recording Interface */}
-      <div className="bg-card rounded-3xl shadow-medium p-8 text-center">
+      <div className="bg-card rounded-3xl shadow-medium p-12 text-center">
         {/* Status */}
-        <p className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider">
+        <p className={`text-sm font-medium mb-6 uppercase tracking-wider transition-colors ${
+          state === "recording" ? "text-destructive" : "text-muted-foreground"
+        }`}>
           {getStatusText()}
         </p>
 
-        {/* Waveform Circle */}
-        <div className="relative w-64 h-64 mx-auto mb-8">
-          {/* Outer ring animation when recording */}
+        {/* Simple waveform visualization */}
+        <div className="relative w-48 h-48 mx-auto mb-8 rounded-full bg-secondary flex items-center justify-center">
+          {/* Recording ring */}
           {state === "recording" && (
-            <div className="absolute inset-0 rounded-full border-4 border-destructive/30 animate-ping" />
+            <div className="absolute inset-0 rounded-full border-4 border-destructive/40 animate-ping" />
+          )}
+          {state === "recording" && (
+            <div className="absolute inset-0 rounded-full border-2 border-destructive/60" />
           )}
           
-          {/* Main circle */}
-          <div 
-            className={`
-              absolute inset-4 rounded-full flex items-center justify-center
-              transition-all duration-300
-              ${state === "recording" ? "bg-destructive/10" : "bg-secondary"}
-              ${state === "processing" ? "animate-pulse" : ""}
-            `}
-          >
-            {/* Waveform bars */}
-            {state === "recording" && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                {Array.from({ length: 24 }).map((_, i) => {
-                  const angle = (i / 24) * 360;
-                  return (
-                    <div
-                      key={i}
-                      className="absolute w-1 bg-destructive/60 rounded-full"
-                      style={{
-                        height: `${20 + Math.random() * 40}%`,
-                        transform: `rotate(${angle}deg) translateY(-50%)`,
-                        animation: `waveform 0.8s ease-in-out ${i * 0.05}s infinite`,
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            )}
-
+          {/* Inner content */}
+          <div className="flex flex-col items-center gap-4">
+            <SimpleWaveform 
+              isRecording={state === "recording"} 
+              isProcessing={state === "processing"} 
+            />
+            
             {/* Timer */}
-            <div className="relative z-10 text-4xl font-bold text-foreground">
+            <div className={`text-4xl font-bold transition-colors ${
+              state === "recording" ? "text-destructive" : "text-foreground"
+            }`}>
               {formatTime(seconds)}
             </div>
           </div>
@@ -124,15 +107,14 @@ const RecordPage = () => {
           size="icon-xl"
           onClick={handleRecordClick}
           disabled={state === "processing"}
-          className={`
-            rounded-full mx-auto
-            ${state === "recording" ? "animate-pulse" : ""}
-          `}
+          className="rounded-full mx-auto"
         >
           {state === "recording" ? (
-            <Square className="h-8 w-8" />
+            <Square className="h-6 w-6" />
+          ) : state === "processing" ? (
+            <div className="w-6 h-6 border-2 border-cream border-t-transparent rounded-full animate-spin" />
           ) : (
-            <Mic className="h-8 w-8" />
+            <Mic className="h-6 w-6" />
           )}
         </Button>
 
@@ -144,9 +126,9 @@ const RecordPage = () => {
 
         {/* Upload Option */}
         {state === "idle" && (
-          <div className="mt-8 pt-8 border-t border-border">
+          <div className="mt-10 pt-8 border-t border-border">
             <p className="text-sm text-muted-foreground mb-4">Or upload an audio file</p>
-            <div className="border-2 border-dashed border-border rounded-2xl p-8 hover:border-primary/50 transition-colors cursor-pointer">
+            <div className="border-2 border-dashed border-border rounded-2xl p-8 hover:border-beige/50 transition-colors cursor-pointer">
               <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm font-medium text-foreground">
                 Drop your file here or click to browse

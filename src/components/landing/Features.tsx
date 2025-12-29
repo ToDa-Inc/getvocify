@@ -1,59 +1,71 @@
-import { Mic, Sparkles, Rocket } from "lucide-react";
+import { Zap, Target, Shield, Globe, Smartphone, Plug, Users, Edit } from "lucide-react";
 
 const features = [
   {
-    icon: Mic,
-    title: "Speak",
-    description: "Record a 60-second voice memo after your meeting",
-    gradient: "from-beige/10 to-transparent",
+    icon: Zap,
+    title: "Fast",
+    description: "60-second updates. Not 10 minutes of typing.",
   },
   {
-    icon: Sparkles,
-    title: "Review",
-    description: "AI extracts deals, contacts, and next steps automatically",
-    gradient: "from-beige/10 to-transparent",
+    icon: Target,
+    title: "Accurate",
+    description: "AI understands sales terminology. Extracts deals, contacts, next steps automatically.",
   },
   {
-    icon: Rocket,
-    title: "Done",
-    description: "Approve and watch your CRM update in real-time",
-    gradient: "from-beige/10 to-transparent",
+    icon: Shield,
+    title: "Secure",
+    description: "GDPR compliant. EU data storage. SOC 2 Type II in progress.",
+  },
+  {
+    icon: Globe,
+    title: "Multi-Language",
+    description: "Works in English, Spanish, French, German, Italian, Portuguese.",
+  },
+  {
+    icon: Smartphone,
+    title: "Mobile-First",
+    description: "Record on your phone between meetings. Syncs everywhere.",
+  },
+  {
+    icon: Plug,
+    title: "Integrates with Your CRM",
+    description: "HubSpot, Salesforce, Pipedrive. More coming soon.",
+  },
+  {
+    icon: Users,
+    title: "Team Features",
+    description: "Shared terminology. Team analytics. Manager visibility.",
+  },
+  {
+    icon: Edit,
+    title: "Always Editable",
+    description: "Review before it updates. Edit anything. You're in control.",
   },
 ];
 
 const Features = () => {
   return (
-    <section id="features" className="py-24 bg-secondary/50 grain-overlay">
+    <section id="features" className="py-24 bg-background grain-overlay">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            How Vocify Works
+            Everything You Need. Nothing You Don't.
           </h2>
-          <p className="text-muted-foreground max-w-lg mx-auto">
-            Three simple steps to transform your sales workflow
-          </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          {features.map((feature, index) => (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+          {features.map((feature) => (
             <div
               key={feature.title}
-              className="card-elevated bg-card hover-lift group"
+              className="card-elevated bg-card hover-lift p-6"
             >
-              <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${feature.gradient} bg-beige/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300`}>
-                <feature.icon className="w-7 h-7 text-beige" />
+              <div className="w-12 h-12 rounded-xl bg-beige/10 flex items-center justify-center mb-4">
+                <feature.icon className="w-6 h-6 text-beige" />
               </div>
-              
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold text-foreground">
-                  {index + 1}
-                </span>
-                <h3 className="text-xl font-semibold text-foreground">
-                  {feature.title}
-                </h3>
-              </div>
-              
-              <p className="text-muted-foreground leading-relaxed">
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                {feature.title}
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
                 {feature.description}
               </p>
             </div>

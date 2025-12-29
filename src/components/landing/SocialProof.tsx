@@ -1,41 +1,64 @@
-const companies = [
-  "TechCorp", "SalesForce", "GrowthCo", "ScaleUp", "CloseDeal", "WinMore"
+const testimonials = [
+  {
+    quote: "I used to spend 45 minutes at end of day doing CRM. Now it takes 5 minutes.",
+    author: "Carlos M.",
+    role: "Account Executive",
+    company: "SaaS Company (150 employees)",
+    initials: "CM",
+  },
+  {
+    quote: "My team's CRM compliance went from 60% to 95% in two weeks.",
+    author: "Ana R.",
+    role: "Head of Sales",
+    company: "Tech Startup",
+    initials: "AR",
+  },
+  {
+    quote: "I log deals while walking between meetings. My manager thinks I'm a CRM machine.",
+    author: "David L.",
+    role: "Field Sales Rep",
+    company: "",
+    initials: "DL",
+  },
+  {
+    quote: "Finally, a tool that actually saves time instead of creating more work.",
+    author: "Maria S.",
+    role: "Sales Manager",
+    company: "",
+    initials: "MS",
+  },
 ];
 
 const SocialProof = () => {
   return (
-    <section className="py-20 bg-background grain-overlay">
+    <section className="py-20 bg-secondary/50 grain-overlay">
       <div className="container mx-auto px-6 relative z-10">
-        <p className="text-center text-sm font-medium text-muted-foreground mb-10 uppercase tracking-wider">
-          Trusted by modern sales teams
-        </p>
+        <h2 className="text-3xl md:text-4xl font-bold text-foreground text-center mb-12">
+          Sales Teams Love Voicfy
+        </h2>
 
-        {/* Company logos */}
-        <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12 mb-16 opacity-50">
-          {companies.map((company) => (
+        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+          {testimonials.map((testimonial, index) => (
             <div
-              key={company}
-              className="text-xl md:text-2xl font-bold text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              key={index}
+              className="bg-card rounded-2xl p-6 shadow-soft border border-border"
             >
-              {company}
+              <blockquote className="text-foreground mb-4 leading-relaxed">
+                "{testimonial.quote}"
+              </blockquote>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-beige/20 flex items-center justify-center">
+                  <span className="text-sm font-semibold text-beige">{testimonial.initials}</span>
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-sm">{testimonial.author}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {testimonial.role}{testimonial.company && `, ${testimonial.company}`}
+                  </p>
+                </div>
+              </div>
             </div>
           ))}
-        </div>
-
-        {/* Testimonial */}
-        <div className="max-w-3xl mx-auto text-center">
-          <blockquote className="text-xl md:text-2xl font-medium text-foreground leading-relaxed mb-6">
-            "Vocify saves me 6 hours every week. I update my pipeline while driving between meetings."
-          </blockquote>
-          <div className="flex items-center justify-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-beige/20 flex items-center justify-center">
-              <span className="text-lg font-semibold text-beige">MR</span>
-            </div>
-            <div className="text-left">
-              <p className="font-semibold text-foreground">Michael Roberts</p>
-              <p className="text-sm text-muted-foreground">VP of Sales, TechCorp</p>
-            </div>
-          </div>
         </div>
       </div>
     </section>
