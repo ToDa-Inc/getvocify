@@ -14,29 +14,34 @@ import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 import UsagePage from "./pages/dashboard/UsagePage";
 
+import { LanguageProvider } from "@/lib/i18n";
+
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<DashboardHome />} />
-            <Route path="record" element={<RecordPage />} />
-            <Route path="memos" element={<MemosPage />} />
-            <Route path="memos/:id" element={<MemoDetail />} />
-            <Route path="integrations" element={<IntegrationsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="usage" element={<UsagePage />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <LanguageProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/es" element={<Index />} />
+            <Route path="/dashboard" element={<DashboardLayout />}>
+              <Route index element={<DashboardHome />} />
+              <Route path="record" element={<RecordPage />} />
+              <Route path="memos" element={<MemosPage />} />
+              <Route path="memos/:id" element={<MemoDetail />} />
+              <Route path="integrations" element={<IntegrationsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="usage" element={<UsagePage />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </LanguageProvider>
   </QueryClientProvider>
 );
 

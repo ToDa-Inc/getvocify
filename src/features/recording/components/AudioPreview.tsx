@@ -6,7 +6,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Play, Pause, RotateCcw } from 'lucide-react';
-import { Button } from '@/ui/button';
+import { Button } from '@/components/ui/button';
 import type { RecordedAudio } from '../types';
 import { formatFileSize } from '../types';
 

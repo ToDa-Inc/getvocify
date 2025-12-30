@@ -5,7 +5,7 @@
  */
 
 import { AlertCircle, RefreshCw } from 'lucide-react';
-import { Button } from '@/ui/button';
+import { Button } from '@/components/ui/button';
 import { getRecordingErrorMessage } from '../types';
 import type { RecordingError } from '../types';
 

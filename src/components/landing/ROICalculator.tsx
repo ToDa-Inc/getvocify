@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, TrendingUp, Clock, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
+import { useLanguage } from "@/lib/i18n";
 
 const ROICalculator = () => {
+  const { t } = useLanguage();
   const [reps, setReps] = useState(10);
   const [salary, setSalary] = useState(50000);
 
@@ -12,91 +15,124 @@ const ROICalculator = () => {
   const totalHours = hoursPerWeek * reps * weeksPerYear;
   const hourlyRate = salary / (weeksPerYear * 40);
   const wastedCost = Math.round(totalHours * hourlyRate);
-  const voicfyCost = 25 * reps * 12;
-  const savings = wastedCost - voicfyCost;
-  const roi = Math.round((savings / voicfyCost) * 100);
+  const vocifyCost = 25 * reps * 12;
+  const savings = wastedCost - vocifyCost;
+  const roi = Math.round((savings / vocifyCost) * 100);
 
   return (
-    <section className="py-24 bg-background grain-overlay">
+    <section className="py-32 bg-secondary/10 relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Your Time is Worth More Than CRM Data Entry
-            </h2>
-            <p className="text-muted-foreground">Tell us about your team</p>
+        <div className="max-w-5xl auto">
+          <div className="text-center mb-16">
+            <motion.h2 
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance"
+            >
+              {t.roi.title1} <span className="font-serif italic font-medium text-beige">{t.roi.title2}</span>
+            </motion.h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              {t.roi.subtitle}
+            </p>
           </div>
 
-          <div className="bg-card rounded-2xl p-8 shadow-medium border border-border">
-            <div className="grid md:grid-cols-2 gap-6 mb-8">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Number of sales reps
-                </label>
-                <input
-                  type="number"
-                  value={reps}
-                  onChange={(e) => setReps(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-beige/50"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Average salary per rep (€)
-                </label>
-                <input
-                  type="number"
-                  value={salary}
-                  onChange={(e) => setSalary(Math.max(1000, parseInt(e.target.value) || 1000))}
-                  className="w-full px-4 py-3 rounded-xl border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-beige/50"
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-8 space-y-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Time Wasted Per Year:</span>
-                <span className="font-medium text-foreground">
-                  {hoursPerWeek}h/week × {reps} reps × {weeksPerYear} weeks = {totalHours.toLocaleString()} hours
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Cost of Wasted Time:</span>
-                <span className="font-medium text-foreground">
-                  €{wastedCost.toLocaleString()}/year
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Voicfy Cost:</span>
-                <span className="font-medium text-foreground">
-                  €25/month × {reps} reps × 12 = €{voicfyCost.toLocaleString()}/year
-                </span>
-              </div>
+          <div className="grid lg:grid-cols-5 gap-8 items-start">
+            <motion.div 
+              initial={{ opacity: 0, x: -20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              className="lg:col-span-2 glass-morphism rounded-[3rem] p-10 border border-border/50 shadow-large bg-white/60"
+            >
+              <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-beige mb-8">Team Details</h3>
               
-              <div className="border-t border-border pt-4 mt-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-lg font-semibold text-foreground">YOUR SAVINGS:</span>
-                  <span className="text-2xl font-bold text-green-600">
-                    €{savings.toLocaleString()}/year
-                  </span>
+              <div className="space-y-8">
+                <div>
+                  <div className="flex justify-between mb-4">
+                    <label className="text-sm font-bold text-foreground uppercase tracking-widest">{t.roi.label1}</label>
+                    <span className="text-beige font-black">{reps}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    value={reps}
+                    onChange={(e) => setReps(parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-beige/20 rounded-lg appearance-none cursor-pointer accent-beige"
+                  />
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-lg font-semibold text-foreground">ROI:</span>
-                  <span className="text-2xl font-bold text-beige">
-                    {roi.toLocaleString()}%
-                  </span>
+                
+                <div>
+                  <div className="flex justify-between mb-4">
+                    <label className="text-sm font-bold text-foreground uppercase tracking-widest">{t.roi.label2}</label>
+                    <span className="text-beige font-black">€{salary.toLocaleString()}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="30000"
+                    max="200000"
+                    step="5000"
+                    value={salary}
+                    onChange={(e) => setSalary(parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-beige/20 rounded-lg appearance-none cursor-pointer accent-beige"
+                  />
+                </div>
+
+                <div className="pt-6 border-t border-border/50">
+                  <div className="flex items-center gap-3 text-muted-foreground mb-2">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-xs font-medium">{t.roi.note1}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <Wallet className="w-4 h-4" />
+                    <span className="text-xs font-medium">{t.roi.note2}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
 
-            <div className="mt-8 text-center">
-              <Button variant="hero" size="lg" asChild className="group">
-                <Link to="/dashboard">
-                  Start Saving Now
-                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-                </Link>
-              </Button>
-            </div>
+            <motion.div 
+              initial={{ opacity: 0, x: 20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              className="lg:col-span-3 bg-beige rounded-[3rem] p-12 text-cream shadow-large relative overflow-hidden"
+            >
+              <div className="relative z-10">
+                <div className="grid sm:grid-cols-2 gap-12 mb-12">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-2">{t.roi.saved}</p>
+                    <p className="text-4xl font-black tracking-tight">{totalHours.toLocaleString()}h <span className="text-lg font-serif italic opacity-80">{t.roi.perYear}</span></p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-2">{t.roi.potential}</p>
+                    <p className="text-4xl font-black tracking-tight flex items-center gap-2">
+                      {roi.toLocaleString()}%
+                      <TrendingUp className="w-8 h-8 opacity-40" />
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white/10 rounded-[2.5rem] p-10 border border-white/10 backdrop-blur-sm mb-12">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-4">{t.roi.yearly}</p>
+                  <p className="text-6xl md:text-7xl font-black tracking-tighter mb-4">€{savings.toLocaleString()}</p>
+                  <p className="text-sm font-medium opacity-80 italic font-serif leading-relaxed">
+                    {t.roi.equivalent} <span className="underline decoration-cream/30">{(savings / salary).toFixed(1)} {t.roi.additional}</span> {t.roi.byEliminating}
+                  </p>
+                </div>
+
+                <div className="text-center">
+                  <Button size="xl" asChild className="group bg-cream text-beige hover:bg-white rounded-full px-12 shadow-large">
+                    <Link to="/dashboard">
+                      {t.roi.cta}
+                      <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Decorative background circle */}
+              <div className="absolute top-0 right-0 w-80 h-80 bg-white/5 rounded-full blur-3xl -z-10" />
+            </motion.div>
           </div>
         </div>
       </div>

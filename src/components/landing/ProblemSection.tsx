@@ -1,75 +1,239 @@
-import { X } from "lucide-react";
-import { motion } from "framer-motion";
+import { X, Car, Clock, FileWarning, MessageCircle, TrendingDown, AlertCircle } from "lucide-react";
+import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { useLanguage } from "@/lib/i18n";
+import { useRef, useState, useEffect } from "react";
 
-const painPoints = [
-  "Sitting in your car after meetings, frantically typing notes before you forget",
-  "End-of-day CRM catch-up when you just want to go home",
-  'Incomplete records because you "forgot to log it"',
-  '"Why isn\'t your CRM updated?" — Manager',
-  "Lost deals because you missed a follow-up you never wrote down",
-];
+const RollingNumber = ({ value }: { value: number }) => {
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    let start = 0;
+    const end = value;
+    const duration = 2000;
+    const startTime = performance.now();
+
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function (easeOutExpo)
+      const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      
+      const current = Math.floor(easeProgress * end);
+      setDisplayValue(current);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [value]);
+
+  return <span>{displayValue.toLocaleString()}</span>;
+};
 
 const ProblemSection = () => {
+  const { t } = useLanguage();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const rightCardRef = useRef<HTMLDivElement>(null);
+
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ["start end", "end start"]
+  });
+
+  const lineHeight = useTransform(scrollYProgress, [0.2, 0.5], ["0%", "100%"]);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!rightCardRef.current) return;
+    const rect = rightCardRef.current.getBoundingClientRect();
+    setMousePos({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+
+  const painPoints = [
+    { text: t.problem.p1, icon: Car },
+    { text: t.problem.p2, icon: Clock },
+    { text: t.problem.p3, icon: FileWarning },
+    { text: t.problem.p4, icon: MessageCircle },
+    { text: t.problem.p5, icon: TrendingDown },
+  ];
+
   return (
-    <section className="py-32 bg-secondary/20 relative overflow-hidden">
+    <section 
+      ref={containerRef}
+      className="py-32 bg-secondary/20 relative overflow-hidden border-t border-border/50"
+    >
       <div className="container mx-auto px-6 relative z-10">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-            className="text-center mb-16"
+            transition={{ duration: 0.8 }}
+            className="text-center mb-20"
           >
-            <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance">
-              You're Wasting <span className="font-serif italic font-medium text-beige">5+ Hours Every Week</span> on This:
+            <h2 className="text-4xl md:text-6xl font-black text-foreground mb-8 tracking-tighter leading-tight text-balance">
+              {t.problem.title1} <br />
+              <span className="font-serif italic font-medium text-beige">{t.problem.title2}</span> {t.problem.title3}
             </h2>
           </motion.div>
 
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="space-y-4">
-              {painPoints.map((point, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, x: -20 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                  className="flex items-start gap-4 p-5 rounded-2xl bg-white shadow-soft border border-destructive/5 hover:border-destructive/20 transition-colors"
-                >
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-destructive/10 flex items-center justify-center mt-0.5">
-                    <X className="w-4 h-4 text-destructive" />
-                  </div>
-                  <p className="text-foreground font-medium leading-relaxed">{point}</p>
-                </motion.div>
-              ))}
+          <div className="grid lg:grid-cols-5 gap-12 items-start">
+            <div className="lg:col-span-3 relative">
+              {/* The "Waste Line" Connector - Aligned to center of icons */}
+              <div className="absolute left-[36px] top-8 bottom-8 w-px bg-beige/10 hidden md:block">
+                <motion.div 
+                  style={{ height: lineHeight }}
+                  className="w-full bg-gradient-to-b from-beige/20 via-beige to-beige/20 origin-top shadow-[0_0_15px_rgba(var(--beige),0.5)]"
+                />
+              </div>
+
+              <div className="space-y-10 relative z-10">
+                {painPoints.map((point, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, x: -20 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true, margin: "-100px" }}
+                    transition={{ duration: 0.5, delay: index * 0.1 }}
+                    onMouseEnter={() => setHoveredPoint(index)}
+                    onMouseLeave={() => setHoveredPoint(null)}
+                    className="flex items-center gap-8 group cursor-default"
+                  >
+                    {/* The Dot/Icon Hub */}
+                    <div className="relative flex-shrink-0">
+                      <div className={`w-[72px] h-[72px] rounded-full flex items-center justify-center transition-all duration-700
+                        ${hoveredPoint === index 
+                          ? "bg-beige text-cream scale-110 shadow-large ring-4 ring-beige/10" 
+                          : "bg-white text-beige shadow-soft ring-1 ring-border/50"
+                        }`}>
+                        <point.icon className="w-7 h-7" />
+                      </div>
+                      {/* Interaction ripple */}
+                      <AnimatePresence>
+                        {hoveredPoint === index && (
+                          <motion.div 
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1.5, opacity: 0.2 }}
+                            exit={{ scale: 2, opacity: 0 }}
+                            className="absolute inset-0 bg-beige rounded-full -z-10"
+                          />
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className={`flex-1 p-8 rounded-[2.5rem] transition-all duration-500 will-change-transform
+                      ${hoveredPoint === index 
+                        ? "bg-white shadow-large -translate-y-1 border-beige/10" 
+                        : "bg-white/30 hover:bg-white/50 border-transparent"
+                      } border`}>
+                      <p className={`text-xl font-bold leading-snug transition-colors duration-500
+                        ${hoveredPoint === index ? "text-foreground" : "text-foreground/60"}`}>
+                        {point.text}
+                      </p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
             </div>
 
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.7 }}
-              className="relative p-10 rounded-[3rem] bg-beige text-cream shadow-large overflow-hidden"
-            >
-              <div className="relative z-10">
-                <h3 className="text-2xl font-bold mb-6 italic font-serif">The bottom line:</h3>
-                <p className="text-lg leading-relaxed mb-6 opacity-90">
-                  Your manager thinks you're not working. Your pipeline is a mess. And you're spending <span className="underline decoration-cream/30 underline-offset-4 font-medium">selling time</span> doing admin work.
-                </p>
-                <div className="flex items-center gap-4 pt-6 border-t border-cream/20">
-                  <div className="w-12 h-12 rounded-full bg-cream/20 flex items-center justify-center">
-                    <span className="text-xl font-bold">!</span>
+            <div className="lg:col-span-2">
+              <motion.div 
+                ref={rightCardRef}
+                onMouseMove={handleMouseMove}
+                initial={{ opacity: 0, y: 40 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.8 }}
+                className="sticky top-32 relative p-12 md:p-14 rounded-[4rem] bg-[#2D241E] text-cream shadow-2xl overflow-hidden group/card border border-white/5"
+              >
+                {/* Spotlight Effect */}
+                <div 
+                  className="absolute inset-0 opacity-0 group-hover/card:opacity-100 transition-opacity duration-700 pointer-events-none"
+                  style={{
+                    background: `radial-gradient(800px circle at ${mousePos.x}px ${mousePos.y}px, rgba(217,119,6,0.15), transparent 40%)`
+                  }}
+                />
+
+                <div className="relative z-10 space-y-10">
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-beige/30 border border-white/10 text-[10px] font-black uppercase tracking-[0.3em]">
+                      <AlertCircle className="w-3 h-3 text-beige-light" />
+                      Insight
+                    </div>
+                    <h3 className="text-4xl font-black italic font-serif leading-none tracking-tight text-white">
+                      {t.problem.bottomLine}
+                    </h3>
                   </div>
-                  <p className="text-xs font-bold uppercase tracking-widest opacity-80">
-                    Average revenue loss: $12,400 / year / rep
-                  </p>
+
+                  <div className="space-y-8">
+                    <p className="text-2xl leading-relaxed text-cream/95 font-medium tracking-tight">
+                      {t.problem.result1}{" "}
+                      <span className="relative inline-block px-1">
+                        <span className="relative z-10 text-white">{t.problem.result2}</span>
+                        <motion.svg
+                          viewBox="0 0 100 20"
+                          className="absolute -bottom-1 left-0 w-full h-4 text-beige-light/60 -z-0"
+                          initial={{ pathLength: 0 }}
+                          whileInView={{ pathLength: 1 }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 1.2, delay: 0.8, ease: "easeInOut" }}
+                        >
+                          <motion.path
+                            d="M2,15 Q50,25 98,15"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="12"
+                            strokeLinecap="round"
+                          />
+                        </motion.svg>
+                      </span>{" "}
+                      {t.problem.result3}
+                    </p>
+                  </div>
+
+                  <div className="pt-12 border-t border-white/10">
+                    <div className="flex flex-col gap-6">
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-cream/40">
+                          {t.problem.drainLabel}
+                        </p>
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="text-4xl md:text-5xl font-black tracking-tighter text-white">
+                            €<RollingNumber value={12400} />
+                          </span>
+                          <span className="text-sm md:text-xl font-serif italic text-cream/40">
+                            {t.problem.perYearRep}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className={`p-6 rounded-3xl bg-white/5 border border-white/10 transition-all duration-700
+                        ${hoveredPoint !== null ? "bg-white/10 border-beige/30" : ""}`}>
+                        <div className="flex items-start gap-4">
+                          <div className="w-10 h-10 rounded-full bg-beige/20 flex items-center justify-center flex-shrink-0">
+                            <TrendingDown className="w-5 h-5 text-beige-light" />
+                          </div>
+                          <p className="text-xs font-bold leading-tight text-cream/80">
+                            {t.problem.drainNote}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              
-              {/* Decorative circle */}
-              <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-cream/10 rounded-full blur-3xl" />
-            </motion.div>
+                
+                {/* Decorative background shape */}
+                <div className={`absolute -bottom-20 -right-20 w-80 h-80 bg-beige/10 rounded-full blur-[100px] transition-all duration-1000
+                  ${hoveredPoint !== null ? "scale-150 opacity-30" : "scale-100 opacity-10"}`} />
+              </motion.div>
+            </div>
           </div>
         </div>
       </div>

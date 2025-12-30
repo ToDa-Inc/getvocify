@@ -1,38 +1,42 @@
 import { motion } from "framer-motion";
 import { Quote } from "lucide-react";
 
-const testimonials = [
-  {
-    quote: "I used to spend 45 minutes at end of day doing CRM. Now it takes 5 minutes.",
-    author: "Carlos M.",
-    role: "Account Executive",
-    company: "SaaS Company",
-    initials: "CM",
-  },
-  {
-    quote: "My team's CRM compliance went from 60% to 95% in two weeks. It's a game changer.",
-    author: "Ana R.",
-    role: "Head of Sales",
-    company: "Tech Startup",
-    initials: "AR",
-  },
-  {
-    quote: "I log deals while walking between meetings. My manager thinks I'm a CRM machine.",
-    author: "David L.",
-    role: "Field Sales Rep",
-    company: "Industrial Logistics",
-    initials: "DL",
-  },
-  {
-    quote: "Finally, a tool that actually saves time instead of creating more work.",
-    author: "Maria S.",
-    role: "Sales Manager",
-    company: "Financial Services",
-    initials: "MS",
-  },
-];
+import { useLanguage } from "@/lib/i18n";
 
 const SocialProof = () => {
+  const { t } = useLanguage();
+
+  const testimonials = [
+    {
+      quote: t.socialProof.q1,
+      author: "Carlos M.",
+      role: "Account Executive",
+      company: "SaaS Company",
+      initials: "CM",
+    },
+    {
+      quote: t.socialProof.q2,
+      author: "Ana R.",
+      role: "Head of Sales",
+      company: "Tech Startup",
+      initials: "AR",
+    },
+    {
+      quote: t.socialProof.q3,
+      author: "David L.",
+      role: "Field Sales Rep",
+      company: "Industrial Logistics",
+      initials: "DL",
+    },
+    {
+      quote: t.socialProof.q4,
+      author: "Maria S.",
+      role: "Sales Manager",
+      company: "Financial Services",
+      initials: "MS",
+    },
+  ];
+
   return (
     <section className="py-32 bg-secondary/30 relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
@@ -43,7 +47,7 @@ const SocialProof = () => {
           className="text-center mb-16"
         >
           <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight">
-            Elite Sales Teams <span className="font-serif italic font-medium text-beige">Trust Vocify.</span>
+            {t.socialProof.title1} <span className="font-serif italic font-medium text-beige">{t.socialProof.title2}</span>
           </h2>
         </motion.div>
 

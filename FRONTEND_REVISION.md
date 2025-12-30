@@ -260,7 +260,7 @@ pages/dashboard/MemoDetail.tsx → pages/dashboard/memos/[id].tsx
 
 **Found in:** Some files use `@/components/ui/`, others use relative
 
-**Solution:** Standardize to `@/ui/` for design system
+**Solution:** Standardize to `@/components/ui/` for design system
 
 ### 4. Unused imports
 

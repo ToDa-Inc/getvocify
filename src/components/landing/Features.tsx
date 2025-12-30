@@ -1,134 +1,100 @@
-import { Zap, Target, Shield, Globe, Smartphone, Plug, Users, Edit } from "lucide-react";
+import { Clock, Sparkles, Smartphone, Activity, Globe, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
-
-const features = [
-  {
-    icon: Zap,
-    title: "Instant Processing",
-    description: "60-second updates. Not 10 minutes of typing.",
-    className: "md:col-span-2 md:row-span-1",
-    iconBg: "bg-amber-100",
-    iconColor: "text-amber-600",
-  },
-  {
-    icon: Target,
-    title: "AI Precision",
-    description: "AI understands sales terminology. Extracts deals, contacts, and next steps automatically.",
-    className: "md:col-span-1 md:row-span-1",
-    iconBg: "bg-blue-100",
-    iconColor: "text-blue-600",
-  },
-  {
-    icon: Smartphone,
-    title: "Mobile-First",
-    description: "Record on your phone between meetings. Syncs everywhere.",
-    className: "md:col-span-1 md:row-span-2",
-    iconBg: "bg-purple-100",
-    iconColor: "text-purple-600",
-  },
-  {
-    icon: Plug,
-    title: "CRM Sync",
-    description: "Direct integration with HubSpot, Salesforce, and Pipedrive.",
-    className: "md:col-span-1 md:row-span-1",
-    iconBg: "bg-green-100",
-    iconColor: "text-green-600",
-  },
-  {
-    icon: Globe,
-    title: "Multi-Language",
-    description: "English, Spanish, French, German, Italian, Portuguese.",
-    className: "md:col-span-1 md:row-span-1",
-    iconBg: "bg-orange-100",
-    iconColor: "text-orange-600",
-  },
-  {
-    icon: Shield,
-    title: "Enterprise Security",
-    description: "GDPR compliant. EU data storage. SOC 2 Type II in progress.",
-    className: "md:col-span-2 md:row-span-1",
-    iconBg: "bg-slate-100",
-    iconColor: "text-slate-600",
-  },
-];
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1,
-    },
-  },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.5,
-      ease: "easeOut",
-    },
-  },
-};
+import { useLanguage } from "@/lib/i18n";
 
 const Features = () => {
+  const { t } = useLanguage();
+
+  const features = [
+    {
+      icon: Clock,
+      title: t.features.f1.title,
+      description: t.features.f1.desc,
+      color: "#D97706", // amber-600
+    },
+    {
+      icon: Sparkles,
+      title: t.features.f2.title,
+      description: t.features.f2.desc,
+      color: "#2563EB", // blue-600
+    },
+    {
+      icon: Smartphone,
+      title: t.features.f3.title,
+      description: t.features.f3.desc,
+      color: "#7C3AED", // purple-600
+    },
+    {
+      icon: Activity,
+      title: t.features.f4.title,
+      description: t.features.f4.desc,
+      color: "#059669", // emerald-600
+    },
+    {
+      icon: Globe,
+      title: t.features.f5.title,
+      description: t.features.f5.desc,
+      color: "#EA580C", // orange-600
+    },
+    {
+      icon: ShieldCheck,
+      title: t.features.f6.title,
+      description: t.features.f6.desc,
+      color: "#475569", // slate-600
+    },
+  ];
+  
   return (
-    <section id="features" className="py-32 bg-background relative overflow-hidden">
+    <section id="features" className="py-32 bg-white relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-20">
-          <motion.h2 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-            className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight"
+            transition={{ duration: 0.8 }}
           >
-            Everything You Need. <span className="font-serif italic font-medium text-beige">Nothing You Don't.</span>
-          </motion.h2>
-          <motion.p 
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-lg text-muted-foreground max-w-2xl mx-auto"
-          >
-            Powerful tools designed for elite sales teams who value their time.
-          </motion.p>
+            <h2 className="text-4xl md:text-5xl font-black text-foreground mb-6 tracking-tighter leading-tight">
+              {t.features.title1} <br />
+              <span className="font-serif italic font-medium text-beige">{t.features.title2}</span>
+            </h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+              {t.features.subtitle}
+            </p>
+          </motion.div>
         </div>
 
-        <motion.div 
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-100px" }}
-          className="grid grid-cols-1 md:grid-cols-4 gap-6 max-w-6xl mx-auto"
-        >
-          {features.map((feature) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          {features.map((feature, index) => (
             <motion.div
               key={feature.title}
-              variants={itemVariants}
-              className={`group glass-morphism p-8 rounded-[2rem] hover-lift transition-all duration-500 ${feature.className}`}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-100px" }}
+              transition={{ duration: 0.5, delay: index * 0.1 }}
+              whileHover={{ y: -5 }}
+              className="p-8 rounded-[2rem] border border-border/50 bg-secondary/5 hover:bg-white hover:border-beige/30 transition-all duration-300 group will-change-transform"
             >
-              <div className={`w-14 h-14 rounded-2xl ${feature.iconBg} flex items-center justify-center mb-6 transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3`}>
-                <feature.icon className={`w-7 h-7 ${feature.iconColor}`} />
+              <div 
+                className="w-12 h-12 rounded-2xl flex items-center justify-center mb-6 shadow-soft group-hover:scale-110 transition-transform"
+                style={{ backgroundColor: `${feature.color}15` }}
+              >
+                <feature.icon className="w-6 h-6" style={{ color: feature.color }} strokeWidth={1.5} />
               </div>
-              <h3 className="text-xl font-bold text-foreground mb-3 tracking-tight">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-foreground/40 mb-3 group-hover:text-foreground transition-colors">
                 {feature.title}
               </h3>
-              <p className="text-muted-foreground leading-relaxed">
+              <p className="text-base font-bold text-foreground/80 leading-snug group-hover:text-foreground transition-colors">
                 {feature.description}
               </p>
             </motion.div>
           ))}
-        </motion.div>
+        </div>
       </div>
 
-      {/* Background accents */}
-      <div className="absolute top-1/2 left-0 w-[500px] h-[500px] bg-beige/5 rounded-full blur-[120px] -z-10" />
-      <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-accent/5 rounded-full blur-[120px] -z-10" />
+      {/* Subtle background accents */}
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-beige/5 rounded-full blur-[120px] -z-10" />
+      <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-accent/5 rounded-full blur-[100px] -z-10" />
     </section>
   );
 };

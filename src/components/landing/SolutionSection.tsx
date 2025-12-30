@@ -1,38 +1,41 @@
 import { ArrowDown, Mic, Eye, Check, Rocket, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
-
-const steps = [
-  {
-    number: 1,
-    title: "RECORD",
-    time: "30s",
-    icon: Mic,
-    description: "Walk to your car. Tap record. Talk naturally:",
-    example: `"Just met Sarah at Acme Corp. She's interested in Enterprise. Budget is €50K. Decision by Q1. She wants demo next Tuesday. Also mentioned competitor DataCo."`,
-  },
-  {
-    number: 2,
-    title: "EXTRACT",
-    time: "20s",
-    icon: Sparkles,
-    description: "AI extracts structured data instantly:",
-    data: [
-      { label: "Contact", value: "Sarah Chen" },
-      { label: "Company", value: "Acme Corp" },
-      { label: "Deal Value", value: "€50,000" },
-      { label: "Next Step", value: "Demo Tuesday" },
-    ],
-  },
-  {
-    number: 3,
-    title: "SYNC",
-    time: "10s",
-    icon: Rocket,
-    description: "CRM updated automatically. Drive to your next meeting.",
-  },
-];
+import { useLanguage } from "@/lib/i18n";
 
 const SolutionSection = () => {
+  const { t } = useLanguage();
+
+  const steps = [
+    {
+      number: 1,
+      title: t.solution.s1.title,
+      time: t.solution.s1.time,
+      icon: Mic,
+      description: t.solution.s1.desc,
+      example: t.solution.example1,
+    },
+    {
+      number: 2,
+      title: t.solution.s2.title,
+      time: t.solution.s2.time,
+      icon: Sparkles,
+      description: t.solution.s2.desc,
+      data: [
+        { label: t.solution.label1, value: "Sarah Chen" },
+        { label: t.solution.label2, value: "Acme Corp" },
+        { label: t.solution.label3, value: "€50,000" },
+        { label: t.solution.label4, value: "Demo Tuesday" },
+      ],
+    },
+    {
+      number: 3,
+      title: t.solution.s3.title,
+      time: t.solution.s3.time,
+      icon: Rocket,
+      description: t.solution.s3.desc,
+    },
+  ];
+
   return (
     <section className="py-32 bg-background relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
@@ -43,10 +46,10 @@ const SolutionSection = () => {
             viewport={{ once: true }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance"
           >
-            From Voice to <span className="font-serif italic font-medium text-beige">CRM Data</span> in 60 Seconds.
+            {t.solution.title1} <span className="font-serif italic font-medium text-beige">{t.solution.title2}</span> {t.solution.title3}
           </motion.h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            A frictionless workflow that keeps your pipeline updated without opening your laptop.
+            {t.solution.subtitle}
           </p>
         </div>
 
@@ -118,7 +121,7 @@ const SolutionSection = () => {
         >
           <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-beige text-cream font-bold text-sm shadow-medium">
             <Check className="w-4 h-4" />
-            Zero manual entry required.
+            {t.solution.badge}
           </div>
         </motion.div>
       </div>

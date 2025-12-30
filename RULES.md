@@ -67,7 +67,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
 // 3. Internal - absolute imports (@/)
-import { Button } from '@/ui/button';
+import { Button } from '@/components/ui/button';
 import { api } from '@/shared/lib/api-client';
 
 // 4. Internal - relative imports (same feature)
@@ -110,7 +110,7 @@ const value = maybeNull ?? defaultValue;  // GOOD
 ```typescript
 // 1. Imports (in order above)
 import { useState } from 'react';
-import { Button } from '@/ui/button';
+import { Button } from '@/components/ui/button';
 import type { Memo } from '../types';
 
 // 2. Types (if component-specific)
