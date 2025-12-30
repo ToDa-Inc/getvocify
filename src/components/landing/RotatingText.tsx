@@ -1,3 +1,5 @@
+import { motion } from "framer-motion";
+
 const phrases = [
   "Save 5 hours per week",
   "Never miss a detail", 
@@ -6,25 +8,34 @@ const phrases = [
 ];
 
 const RotatingText = () => {
-  const totalChars = phrases.join(" • ").length + (phrases.length * 3);
   const text = phrases.join(" • ") + " • ";
   
   return (
-    <div className="absolute inset-0 animate-rotate-slow">
+    <motion.div 
+      initial={{ rotate: 0 }}
+      animate={{ rotate: 360 }}
+      transition={{ 
+        duration: 30, 
+        repeat: Infinity, 
+        ease: "linear" 
+      }}
+      whileHover={{ scale: 1.05 }}
+      className="absolute inset-0 z-10"
+    >
       <svg viewBox="0 0 300 300" className="w-full h-full">
         <defs>
           <path
             id="circlePath"
-            d="M 150, 150 m -120, 0 a 120,120 0 1,1 240,0 a 120,120 0 1,1 -240,0"
+            d="M 150, 150 m -130, 0 a 130,130 0 1,1 260,0 a 130,130 0 1,1 -260,0"
           />
         </defs>
-        <text className="text-[11px] fill-muted-foreground font-medium tracking-widest uppercase">
+        <text className="text-[10px] fill-beige/60 font-bold tracking-[0.2em] uppercase">
           <textPath href="#circlePath" startOffset="0%">
             {text}{text}
           </textPath>
         </text>
       </svg>
-    </div>
+    </motion.div>
   );
 };
 
