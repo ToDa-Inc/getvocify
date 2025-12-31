@@ -70,16 +70,22 @@ export const memosApi = {
 
   /**
    * Upload audio with progress tracking
+   * 
+   * @param audioBlob - Audio file to upload
+   * @param onProgress - Progress callback (0-100)
+   * @param transcript - Optional pre-transcribed text (from real-time WebSocket)
    */
   uploadWithProgress: (
     audioBlob: Blob,
-    onProgress: (progress: number) => void
+    onProgress: (progress: number) => void,
+    transcript?: string
   ): Promise<UploadMemoResponse> => {
     return api.uploadWithProgress<UploadMemoResponse>(
       '/memos/upload',
       audioBlob,
       'audio',
-      onProgress
+      onProgress,
+      transcript ? { transcript } : undefined
     );
   },
 

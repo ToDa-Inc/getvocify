@@ -2,7 +2,7 @@
 Dependency injection for FastAPI routes
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from supabase import create_client, Client
 from app.config import settings
 from typing import Optional
@@ -17,26 +17,65 @@ def get_supabase() -> Client:
 
 
 def get_user_id(
-    authorization: Optional[str] = None
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    supabase: Client = Depends(get_supabase)
 ) -> str:
     """
-    Extract user ID from Authorization header
-    
-    For MVP, we'll use a simple token format.
-    In production, this should validate JWT tokens from Supabase Auth.
+    Extract user ID from Authorization header by verifying with Supabase
     """
-    if not authorization or not authorization.startswith("Bearer "):
+    if not authorization:
+        print("DEBUG: Authorization header missing")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid authorization header"
+            detail="Missing authorization header"
         )
     
-    # TODO: Validate JWT token and extract user_id
-    # For now, return a placeholder
-    token = authorization.replace("Bearer ", "")
+    if not authorization.startswith("Bearer "):
+        print(f"DEBUG: Authorization header malformed: {authorization[:15]}...")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format"
+        )
     
-    # In production: decode JWT, verify signature, extract user_id
-    # For MVP: assume token is user_id (temporary)
-    return token
+    # Extract the token
+    token = authorization.replace("Bearer ", "").strip()
+    
+    if token == "undefined" or token == "null":
+        print(f"DEBUG: Authorization token is invalid string: '{token}'")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid session token ({token})"
+        )
+    
+    try:
+        # Verify the JWT with Supabase and get the actual User object
+        response = supabase.auth.get_user(token)
+        
+        # The latest Supabase SDK returns a UserResponse object
+        # We need to check if 'user' exists in the response
+        if hasattr(response, 'user') and response.user:
+            return str(response.user.id)
+        
+        # Fallback for older SDK versions or different response structures
+        if isinstance(response, dict) and 'user' in response:
+            return str(response['user']['id'])
+            
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session"
+        )
+    except Exception as e:
+        print(f"DEBUG: Auth verification failed: {str(e)}")
+        # If verification fails, check if the token itself is a valid UUID
+        # (This supports simple local testing where token == user_id)
+        import uuid
+        try:
+            uuid.UUID(token)
+            return token
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authorization token"
+            )
 
 

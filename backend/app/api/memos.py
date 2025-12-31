@@ -3,16 +3,31 @@ Voice memo API endpoints
 """
 
 import asyncio
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from uuid import UUID
+from typing import Optional
 from app.deps import get_supabase, get_user_id
 from app.services.storage import StorageService
 from app.services.transcription import TranscriptionService
 from app.services.extraction import ExtractionService
 from app.services.crm_updates import CRMUpdatesService
+from app.services.crm_config import CRMConfigurationService
+from app.services.hubspot import (
+    HubSpotClient,
+    HubSpotSchemaService,
+    HubSpotSearchService,
+    HubSpotDealService,
+    HubSpotMatchingService,
+    HubSpotPreviewService,
+    HubSpotContactService,
+    HubSpotCompanyService,
+    HubSpotAssociationService,
+    HubSpotSyncService,
+)
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
 from app.models.crm_update import CRMUpdate
+from app.models.approval import ApprovalPreview, DealMatch
 from supabase import Client
 from typing import Optional, List
 from datetime import datetime
@@ -21,12 +36,43 @@ from datetime import datetime
 router = APIRouter(prefix="/api/v1/memos", tags=["memos"])
 
 
+async def extract_memo_async(
+    memo_id: str,
+    transcript: str,
+    supabase: Client,
+    extraction_service: ExtractionService,
+    allowed_fields: Optional[list[str]] = None
+):
+    """
+    Background task to extract structured data from pre-transcribed memo
+    """
+    try:
+        # Extract structured data
+        extraction = await extraction_service.extract(transcript, allowed_fields)
+        
+        # Update with extraction and mark as pending_review
+        from datetime import datetime
+        supabase.table("memos").update({
+            "status": "pending_review",
+            "extraction": extraction.model_dump(),
+            "processed_at": datetime.utcnow().isoformat(),
+        }).eq("id", memo_id).execute()
+        
+    except Exception as e:
+        # Update status to failed
+        supabase.table("memos").update({
+            "status": "failed",
+            "error_message": str(e)
+        }).eq("id", memo_id).execute()
+
+
 async def process_memo_async(
     memo_id: str,
     audio_url: str,
     supabase: Client,
     transcription_service: TranscriptionService,
-    extraction_service: ExtractionService
+    extraction_service: ExtractionService,
+    allowed_fields: Optional[list[str]] = None
 ):
     """
     Background task to process memo: transcribe → extract → update status
@@ -64,7 +110,7 @@ async def process_memo_async(
         }).eq("id", memo_id).execute()
         
         # Extract structured data
-        extraction = await extraction_service.extract(transcription.transcript)
+        extraction = await extraction_service.extract(transcription.transcript, allowed_fields)
         
         # Update with extraction and mark as pending_review
         from datetime import datetime
@@ -85,6 +131,7 @@ async def process_memo_async(
 @router.post("/upload", response_model=UploadResponse)
 async def upload_memo(
     audio: UploadFile = File(...),
+    transcript: Optional[str] = Form(None),
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -93,9 +140,15 @@ async def upload_memo(
     
     Flow:
     1. Store audio in Supabase Storage
-    2. Create memo record with status 'uploading'
-    3. Start background processing (transcribe → extract)
+    2. Create memo record with status 'uploading' or 'extracting' (if transcript provided)
+    3. Start background processing:
+       - If transcript provided: Skip Deepgram, go directly to extraction
+       - If no transcript: Transcribe → Extract
     4. Return memo ID for polling
+    
+    Args:
+        audio: Audio file to upload
+        transcript: Optional pre-transcribed text (from real-time WebSocket)
     """
     # Validate file type
     if not audio.content_type or not audio.content_type.startswith("audio/"):
@@ -127,44 +180,83 @@ async def upload_memo(
     # In production, use ffprobe or similar
     estimated_duration = len(audio_bytes) / (1024 * 1024) * 60  # rough estimate
     
-    # Create memo record
-    memo_data = {
-        "user_id": user_id,
-        "audio_url": audio_url,
-        "audio_duration": estimated_duration,
-        "status": "uploading",
-    }
+    # Get user's CRM configuration to know which fields to extract
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = config.allowed_deal_fields if config else None
     
-    result = supabase.table("memos").insert(memo_data).execute()
-    
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create memo record"
+    # If transcript is provided, skip transcription step
+    if transcript and transcript.strip():
+        # Create memo record with transcript already populated
+        memo_data = {
+            "user_id": user_id,
+            "audio_url": audio_url,
+            "audio_duration": estimated_duration,
+            "status": "extracting",  # Skip 'transcribing' - already have transcript!
+            "transcript": transcript.strip(),
+            "transcript_confidence": 0.95,  # Real-time doesn't provide overall confidence
+        }
+        
+        result = supabase.table("memos").insert(memo_data).execute()
+        
+        if not result.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create memo record"
+            )
+        
+        memo_id = result.data[0]["id"]
+        
+        # Start extraction directly (skip transcription)
+        extraction_service = ExtractionService()
+        asyncio.create_task(
+            extract_memo_async(memo_id, transcript.strip(), supabase, extraction_service, allowed_fields)
         )
-    
-    memo_id = result.data[0]["id"]
-    
-    # Start background processing
-    transcription_service = TranscriptionService()
-    extraction_service = ExtractionService()
-    
-    # Run processing in background
-    asyncio.create_task(
-        process_memo_async(
-            memo_id,
-            audio_url,
-            supabase,
-            transcription_service,
-            extraction_service
+        
+        return UploadResponse(
+            id=str(memo_id),
+            status="extracting",
+            statusUrl=f"/api/v1/memos/{memo_id}"
         )
-    )
-    
-    return UploadResponse(
-        id=str(memo_id),
-        status="uploading",
-        statusUrl=f"/api/v1/memos/{memo_id}"
-    )
+    else:
+        # No transcript provided - use normal flow
+        memo_data = {
+            "user_id": user_id,
+            "audio_url": audio_url,
+            "audio_duration": estimated_duration,
+            "status": "uploading",
+        }
+        
+        result = supabase.table("memos").insert(memo_data).execute()
+        
+        if not result.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create memo record"
+            )
+        
+        memo_id = result.data[0]["id"]
+        
+        # Start background processing (transcribe → extract)
+        transcription_service = TranscriptionService()
+        extraction_service = ExtractionService()
+        
+        asyncio.create_task(
+            process_memo_async(
+                memo_id,
+                audio_url,
+                supabase,
+                transcription_service,
+                extraction_service,
+                allowed_fields
+            )
+        )
+        
+        return UploadResponse(
+            id=str(memo_id),
+            status="uploading",
+            statusUrl=f"/api/v1/memos/{memo_id}"
+        )
 
 
 @router.get("/{memo_id}", response_model=Memo)
@@ -251,7 +343,7 @@ async def approve_memo(
     4. Create CRM update records for audit trail
     """
     # Get memo
-    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).execute()
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
     
     if not memo_result.data:
         raise HTTPException(
@@ -259,7 +351,7 @@ async def approve_memo(
             detail="Memo not found"
         )
     
-    memo_data = memo_result.data[0]
+    memo_data = memo_result.data
     
     # Use provided extraction (if edited) or stored extraction
     if payload and payload.extraction:
@@ -273,54 +365,82 @@ async def approve_memo(
             detail="No extraction data available. Please wait for processing to complete."
         )
     
-    # Get user's CRM connection (for now, just check if exists)
-    # TODO: When HubSpot service is implemented, use it here
-    crm_result = supabase.table("crm_connections").select("*").eq("user_id", user_id).eq("status", "connected").limit(1).execute()
+    # Get user's CRM connection
+    crm_result = supabase.table("crm_connections").select("*").eq(
+        "user_id", user_id
+    ).eq("status", "connected").limit(1).execute()
     
     if not crm_result.data:
         # No CRM connected - just mark as approved without pushing
         supabase.table("memos").update({
             "status": "approved",
             "approved_at": datetime.utcnow().isoformat(),
-            "extraction": extraction_data,  # Update extraction if edited
+            "extraction": extraction_data,
         }).eq("id", str(memo_id)).execute()
     else:
-        # CRM connected - push to CRM and track updates
+        # CRM connected - sync to HubSpot
         crm_connection = crm_result.data[0]
-        crm_updates_service = CRMUpdatesService(supabase)
         
-        # TODO: When HubSpot service is implemented:
-        # hubspot_service = HubSpotService(crm_connection)
-        # 
-        # # Create/update deal
-        # if extraction_data.get("companyName") or extraction_data.get("dealAmount"):
-        #     deal_data = map_extraction_to_hubspot_deal(extraction_data)
-        #     update_id = await crm_updates_service.create_update(
-        #         str(memo_id), user_id, crm_connection["id"],
-        #         "create_deal" if not existing_deal else "update_deal",
-        #         "deal", deal_data
-        #     )
-        #     try:
-        #         result = await hubspot_service.create_or_update_deal(deal_data)
-        #         await crm_updates_service.mark_success(update_id, result["id"], result)
-        #     except Exception as e:
-        #         await crm_updates_service.mark_failed(update_id, str(e))
-        # 
-        # # Create/update contact
-        # if extraction_data.get("contactName"):
-        #     contact_data = map_extraction_to_hubspot_contact(extraction_data)
-        #     update_id = await crm_updates_service.create_update(
-        #         str(memo_id), user_id, crm_connection["id"],
-        #         "create_contact", "contact", contact_data
-        #     )
-        #     try:
-        #         result = await hubspot_service.create_or_update_contact(contact_data)
-        #         await crm_updates_service.mark_success(update_id, result["id"], result)
-        #     except Exception as e:
-        #         await crm_updates_service.mark_failed(update_id, str(e))
+        if crm_connection["provider"] == "hubspot":
+            # Get configuration
+            config_service = CRMConfigurationService(supabase)
+            config = await config_service.get_configuration(user_id)
+            allowed_fields = config.allowed_deal_fields if config else ["dealname", "amount", "description", "closedate"]
+            
+            # Initialize HubSpot services
+            client = HubSpotClient(crm_connection["access_token"])
+            schema_service = HubSpotSchemaService(client, supabase, crm_connection["id"])
+            search_service = HubSpotSearchService(client)
+            deal_service = HubSpotDealService(client, search_service, schema_service)
+            association_service = HubSpotAssociationService(client)
+            crm_updates_service = CRMUpdatesService(supabase)
+            
+            sync_service = HubSpotSyncService(
+                client=client,
+                contacts=HubSpotContactService(client, search_service),
+                companies=HubSpotCompanyService(client, search_service),
+                deals=deal_service,
+                associations=association_service,
+                crm_updates=crm_updates_service,
+            )
+            
+            # Parse extraction
+            extraction = MemoExtraction(**extraction_data)
+            
+            # Determine deal_id and is_new_deal
+            # Priority: 1. Payload, 2. Database
+            deal_id = None
+            is_new_deal = False
+            
+            if payload:
+                if payload.is_new_deal:
+                    is_new_deal = True
+                    deal_id = None
+                else:
+                    deal_id = payload.deal_id or memo_data.get("matched_deal_id")
+                    is_new_deal = False
+            else:
+                deal_id = memo_data.get("matched_deal_id")
+                is_new_deal = memo_data.get("is_new_deal", False) if not deal_id else False
+            
+            # Sync to HubSpot
+            sync_result = await sync_service.sync_memo(
+                memo_id=str(memo_id),
+                user_id=user_id,
+                connection_id=crm_connection["id"],
+                extraction=extraction,
+                deal_id=deal_id,
+                is_new_deal=is_new_deal,
+                allowed_fields=allowed_fields,
+            )
+            
+            if not sync_result.success:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=sync_result.error or "Failed to sync to CRM",
+                )
         
-        # For now, just mark as approved
-        # When HubSpot integration is added, the above code will execute
+        # Mark memo as approved
         supabase.table("memos").update({
             "status": "approved",
             "approved_at": datetime.utcnow().isoformat(),
@@ -328,8 +448,8 @@ async def approve_memo(
         }).eq("id", str(memo_id)).execute()
     
     # Return updated memo
-    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
-    updated_memo = updated_result.data[0]
+    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+    updated_memo = updated_result.data
     
     return Memo(
         id=updated_memo["id"],
@@ -387,4 +507,211 @@ async def get_memo_crm_updates(
         ))
     
     return updates
+
+
+def get_hubspot_client_from_connection(
+    user_id: str,
+    supabase: Client,
+) -> tuple[HubSpotClient, str]:
+    """Get HubSpot client and connection ID from user's connection"""
+    try:
+        result = supabase.table("crm_connections").select("*").eq(
+            "user_id", user_id
+        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
+        
+        if not result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found",
+            )
+        
+        connection = result.data
+        return HubSpotClient(connection["access_token"]), connection["id"]
+    except Exception as e:
+        error_str = str(e)
+        if "no rows" in error_str.lower() or "PGRST116" in error_str:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found",
+            )
+        raise
+
+
+@router.post("/{memo_id}/match", response_model=list[DealMatch])
+async def match_memo_to_deals(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Find matching HubSpot deals for a memo.
+    
+    Searches for existing deals based on company name, contact info,
+    or deal name from the extraction.
+    
+    Returns top 3 matches with confidence scores.
+    """
+    # Get memo
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    
+    memo_data = memo_result.data
+    extraction_data = memo_data.get("extraction")
+    
+    if not extraction_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memo extraction not available. Please wait for processing to complete.",
+        )
+    
+    # Check if HubSpot is connected
+    try:
+        conn_result = supabase.table("crm_connections").select("*").eq(
+            "user_id", user_id
+        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
+        
+        if not conn_result.data:
+            return []  # No matches if not connected
+            
+        access_token = conn_result.data["access_token"]
+    except Exception as e:
+        error_str = str(e)
+        if "no rows" in error_str.lower() or "PGRST116" in error_str:
+            return []  # No matches if not connected
+        raise
+    
+    # Get configuration for pipeline filter
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    pipeline_id = config.default_pipeline_id if config else None
+    
+    # Initialize services
+    client = HubSpotClient(access_token)
+    search_service = HubSpotSearchService(client)
+    matching_service = HubSpotMatchingService(client, search_service)
+    
+    # Parse extraction
+    extraction = MemoExtraction(**extraction_data)
+    
+    # Find matches
+    matches = await matching_service.find_matching_deals(
+        extraction,
+        limit=3,
+        pipeline_id=pipeline_id,
+    )
+    
+    return matches
+
+
+@router.get("/{memo_id}/preview", response_model=ApprovalPreview)
+async def get_approval_preview(
+    memo_id: UUID,
+    deal_id: Optional[str] = None,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Get approval preview showing what will be updated in CRM.
+    
+    Shows proposed field changes comparing extraction to current deal.
+    If deal_id is None, shows preview for creating a new deal.
+    
+    Args:
+        memo_id: Memo ID
+        deal_id: Optional deal ID to update (None or empty = create new)
+    """
+    # Handle empty string from query param
+    if deal_id == "":
+        deal_id = None
+        
+    # Get memo
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    
+    memo_data = memo_result.data
+    extraction_data = memo_data.get("extraction")
+    transcript = memo_data.get("transcript", "")
+    
+    if not extraction_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memo extraction not available",
+        )
+    
+    # Check if HubSpot is connected
+    try:
+        conn_result = supabase.table("crm_connections").select("*").eq(
+            "user_id", user_id
+        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
+        
+        if not conn_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found",
+            )
+        
+        connection_id = conn_result.data["id"]
+        access_token = conn_result.data["access_token"]
+    except Exception as e:
+        error_str = str(e)
+        if "no rows" in error_str.lower() or "PGRST116" in error_str:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found",
+            )
+        raise
+    
+    # Get configuration
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = config.allowed_deal_fields if config else ["dealname", "amount", "description", "closedate"]
+    
+    # Initialize services
+    client = HubSpotClient(access_token)
+    schema_service = HubSpotSchemaService(client, supabase, connection_id)
+    search_service = HubSpotSearchService(client)
+    deal_service = HubSpotDealService(client, search_service, schema_service)
+    preview_service = HubSpotPreviewService(client, deal_service, schema_service)
+    
+    # Get matches
+    matching_service = HubSpotMatchingService(client, search_service)
+    extraction = MemoExtraction(**extraction_data)
+    pipeline_id = config.default_pipeline_id if config else None
+    matches = await matching_service.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+    
+    # Build preview
+    preview = await preview_service.build_preview(
+        memo_id=memo_id,
+        transcript=transcript,
+        extraction=extraction,
+        matched_deals=matches,
+        selected_deal_id=deal_id,
+        allowed_fields=allowed_fields,
+    )
+    
+    # If a deal was explicitly selected, persist it to the memo record
+    if deal_id:
+        supabase.table("memos").update({
+            "matched_deal_id": deal_id,
+            "matched_deal_name": preview.selected_deal.deal_name if preview.selected_deal else None,
+            "is_new_deal": False
+        }).eq("id", str(memo_id)).execute()
+    elif deal_id == "": # Explicitly "Create New"
+        supabase.table("memos").update({
+            "matched_deal_id": None,
+            "matched_deal_name": None,
+            "is_new_deal": True
+        }).eq("id", str(memo_id)).execute()
+    
+    return preview
 

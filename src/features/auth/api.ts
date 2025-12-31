@@ -29,20 +29,36 @@ export const authApi = {
   /**
    * Sign up a new user
    */
-  signup: (data: SignupData): Promise<AuthResponse> => {
-    return api.post<AuthResponse>('/auth/signup', {
+  signup: async (data: SignupData): Promise<AuthResponse> => {
+    const raw = await api.post<Record<string, unknown>>('/auth/signup', {
       email: data.email,
       password: data.password,
       full_name: data.fullName,
       company_name: data.companyName,
     });
+    
+    // Map snake_case from backend to camelCase expected by frontend
+    return {
+      user: raw.user as User,
+      accessToken: raw.access_token as string,
+      refreshToken: raw.refresh_token as string,
+      expiresIn: (raw.expires_in as number) || 3600,
+    };
   },
 
   /**
    * Log in with email and password
    */
-  login: (credentials: LoginCredentials): Promise<AuthResponse> => {
-    return api.post<AuthResponse>('/auth/login', credentials);
+  login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
+    const raw = await api.post<Record<string, unknown>>('/auth/login', credentials);
+    
+    // Map snake_case from backend to camelCase expected by frontend
+    return {
+      user: raw.user as User,
+      accessToken: raw.access_token as string,
+      refreshToken: raw.refresh_token as string,
+      expiresIn: (raw.expires_in as number) || 3600,
+    };
   },
 
   /**

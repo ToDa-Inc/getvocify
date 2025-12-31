@@ -3,7 +3,7 @@ Deepgram transcription service
 """
 
 import asyncio
-from deepgram import DeepgramClient, PrerecordedOptions, FileSource
+from deepgram import DeepgramClient
 from app.config import settings
 from app.models.memo import TranscriptionResult
 from typing import Optional
@@ -13,7 +13,7 @@ class TranscriptionService:
     """Service for transcribing audio using Deepgram"""
     
     def __init__(self):
-        self.client = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        self.client = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
     
     async def transcribe(
         self,
@@ -31,28 +31,19 @@ class TranscriptionService:
             TranscriptionResult with transcript, confidence, and duration
         """
         try:
-            # Create file source
-            payload: FileSource = {
-                "buffer": audio_bytes,
-            }
-            
-            # Configure options for best accuracy
-            options = PrerecordedOptions(
+            # Transcribe using the new v5.x API
+            # model="nova-2" is valid for MediaTranscribeRequestModel
+            response = self.client.listen.v1.media.transcribe_file(
+                request=audio_bytes,
                 model="nova-2",
                 language="en",
                 punctuate=True,
                 paragraphs=True,
-                diarize=False,  # Speaker diarization (optional)
+                diarize=False,
                 smart_format=True,
             )
             
-            # Transcribe
-            response = self.client.listen.rest.v("1").transcribe_file(
-                payload,
-                options
-            )
-            
-            # Extract results
+            # Extract results from the response
             if not response.results:
                 raise Exception("No transcription results returned")
             

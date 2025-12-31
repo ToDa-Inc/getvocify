@@ -46,7 +46,7 @@ const SolutionSection = () => {
             viewport={{ once: true }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance"
           >
-            {t.solution.title1} <span className="font-serif italic font-medium text-beige">{t.solution.title2}</span> {t.solution.title3}
+            {t.solution.title1} <span className="text-beige font-black">{t.solution.title2}</span> {t.solution.title3}
           </motion.h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             {t.solution.subtitle}
@@ -69,7 +69,7 @@ const SolutionSection = () => {
                     <div className="w-14 h-14 rounded-2xl bg-beige text-cream flex items-center justify-center shadow-medium group-hover:scale-110 transition-transform">
                       <step.icon className="w-7 h-7" />
                     </div>
-                    <span className="text-5xl font-serif italic text-beige/10 font-bold group-hover:text-beige/20 transition-colors leading-none">
+                    <span className="text-5xl text-beige/10 font-black group-hover:text-beige/20 transition-colors leading-none">
                       {step.number}
                     </span>
                   </div>
@@ -83,7 +83,7 @@ const SolutionSection = () => {
                   
                   <div className="mt-auto">
                     {step.example && (
-                      <div className="bg-secondary/40 rounded-2xl p-4 italic text-muted-foreground text-sm border border-border/50">
+                      <div className="bg-secondary/40 rounded-2xl p-4 text-muted-foreground text-sm border border-border/50">
                         "{step.example}"
                       </div>
                     )}

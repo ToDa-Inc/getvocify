@@ -139,7 +139,48 @@ CREATE TABLE crm_connections (
   UNIQUE(user_id, provider)
 );
 
--- 3. VOICE MEMOS
+-- 3. CRM CONFIGURATIONS
+CREATE TABLE crm_configurations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  
+  -- Pipeline scope
+  default_pipeline_id TEXT NOT NULL,
+  default_pipeline_name TEXT NOT NULL,
+  default_stage_id TEXT NOT NULL,
+  default_stage_name TEXT NOT NULL,
+  
+  -- Field control (whitelist approach)
+  allowed_deal_fields TEXT[] DEFAULT ARRAY['dealname', 'amount', 'description', 'closedate'],
+  allowed_contact_fields TEXT[] DEFAULT ARRAY['firstname', 'lastname', 'email', 'phone'],
+  allowed_company_fields TEXT[] DEFAULT ARRAY['name', 'domain'],
+  
+  -- Behavior settings
+  auto_create_contacts BOOLEAN DEFAULT true,
+  auto_create_companies BOOLEAN DEFAULT true,
+  
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  UNIQUE(connection_id)
+);
+
+-- 4. CRM SCHEMAS CACHE
+CREATE TABLE crm_schemas (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
+  object_type TEXT NOT NULL CHECK (object_type IN ('deals', 'contacts', 'companies')),
+  
+  properties JSONB NOT NULL,
+  pipelines JSONB, -- Only for deals
+  
+  fetched_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  UNIQUE(connection_id, object_type)
+);
+
+-- 5. VOICE MEMOS
 CREATE TABLE memos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -156,6 +197,11 @@ CREATE TABLE memos (
   
   extraction JSONB,
   
+  -- Deal matching fields
+  matched_deal_id TEXT,
+  matched_deal_name TEXT,
+  is_new_deal BOOLEAN DEFAULT false,
+  
   error_message TEXT,
   
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -169,6 +215,9 @@ CREATE TABLE memos (
 
 CREATE INDEX idx_memos_user_status ON memos(user_id, status);
 CREATE INDEX idx_memos_user_created ON memos(user_id, created_at DESC);
+CREATE INDEX idx_crm_configurations_user ON crm_configurations(user_id);
+CREATE INDEX idx_crm_configurations_connection ON crm_configurations(connection_id);
+CREATE INDEX idx_crm_schemas_connection ON crm_schemas(connection_id);
 
 -- ============================================
 -- ROW LEVEL SECURITY
@@ -176,6 +225,8 @@ CREATE INDEX idx_memos_user_created ON memos(user_id, created_at DESC);
 
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_connections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crm_configurations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crm_schemas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE memos ENABLE ROW LEVEL SECURITY;
 
 -- User Profiles Policies
@@ -195,6 +246,20 @@ CREATE POLICY "Users can insert own profile"
 CREATE POLICY "Users can manage own connections"
   ON crm_connections FOR ALL
   USING (auth.uid() = user_id);
+
+-- CRM Configurations Policies
+CREATE POLICY "Users can manage own configurations"
+  ON crm_configurations FOR ALL
+  USING (auth.uid() = user_id);
+
+-- CRM Schemas Policies
+CREATE POLICY "Users can view own schemas"
+  ON crm_schemas FOR ALL
+  USING (
+    connection_id IN (
+      SELECT id FROM crm_connections WHERE user_id = auth.uid()
+    )
+  );
 
 -- Memos Policies
 CREATE POLICY "Users can manage own memos"
@@ -219,6 +284,10 @@ CREATE TRIGGER user_profiles_updated_at
 
 CREATE TRIGGER crm_connections_updated_at
   BEFORE UPDATE ON crm_connections
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER crm_configurations_updated_at
+  BEFORE UPDATE ON crm_configurations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================

@@ -128,8 +128,10 @@ export interface UseMediaRecorderReturn {
   audio: RecordedAudio | null;
   /** Audio visualization data for waveform */
   visualization: AudioVisualization;
+  /** The active MediaStream (shared with transcription) */
+  stream: MediaStream | null;
   /** Start recording */
-  start: () => Promise<void>;
+  start: () => Promise<MediaStream | null>;
   /** Stop recording */
   stop: () => void;
   /** Cancel recording (discard audio) */
@@ -143,7 +145,7 @@ export interface UseMediaRecorderReturn {
  */
 export interface UseAudioUploadReturn {
   /** Upload the recorded audio */
-  upload: (audio: RecordedAudio) => Promise<string>;
+  upload: (audio: RecordedAudio, transcript?: string) => Promise<string>;
   /** Current upload progress */
   progress: UploadProgress | null;
   /** Whether upload is in progress */
@@ -151,6 +153,41 @@ export interface UseAudioUploadReturn {
   /** Upload error */
   error: string | null;
   /** Reset upload state */
+  reset: () => void;
+}
+
+/**
+ * Transcript data for a specific provider
+ */
+export interface ProviderTranscript {
+  interim: string;
+  final: string;
+  full: string;
+}
+
+/**
+ * Return type for useRealtimeTranscription hook
+ */
+export interface UseRealtimeTranscriptionReturn {
+  /** Whether WebSocket is connected */
+  isConnected: boolean;
+  /** Whether transcription is active */
+  isTranscribing: boolean;
+  /** Error message if any */
+  error: string | null;
+  /** Primary interim transcript (Deepgram) */
+  interimTranscript: string;
+  /** Primary final transcript (Deepgram) */
+  finalTranscript: string;
+  /** Primary full transcript (Deepgram) */
+  fullTranscript: string;
+  /** Multi-provider transcripts (deepgram, speechmatics, etc.) */
+  providerTranscripts: Record<string, ProviderTranscript>;
+  /** Start real-time transcription */
+  start: (stream?: MediaStream) => Promise<void>;
+  /** Stop real-time transcription */
+  stop: () => void;
+  /** Reset transcription state */
   reset: () => void;
 }
 

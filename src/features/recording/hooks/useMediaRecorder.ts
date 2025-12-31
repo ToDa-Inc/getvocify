@@ -125,12 +125,12 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
   }, [state]);
 
   // Start recording
-  const start = useCallback(async () => {
+  const start = useCallback(async (): Promise<MediaStream | null> => {
     // Check support
     if (!isMediaRecorderSupported()) {
       setError('not_supported');
       setState('error');
-      return;
+      return null;
     }
 
     try {
@@ -229,6 +229,8 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
       // Start visualization
       updateVisualization();
 
+      return stream;
+
     } catch (err) {
       console.error('Failed to start recording:', err);
 
@@ -246,6 +248,7 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
 
       setState('error');
       cleanup();
+      return null;
     }
   }, [cleanup, updateVisualization]);
 
@@ -254,8 +257,19 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
-    cleanup();
-  }, [cleanup]);
+    
+    // We DON'T call cleanup() here anymore because it stops the stream tracks
+    // and closes the AudioContext, which kills the realtime transcription.
+    // Instead, we just stop the timer and visualization.
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  }, []);
 
   // Cancel recording
   const cancel = useCallback(() => {
@@ -287,6 +301,7 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
     error,
     audio,
     visualization,
+    stream: streamRef.current,
     start,
     stop,
     cancel,

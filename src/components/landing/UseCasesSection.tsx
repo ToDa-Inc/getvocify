@@ -65,7 +65,7 @@ const UseCasesSection = () => {
             >
               <h2 className="text-4xl md:text-6xl font-black text-foreground mb-8 tracking-tighter leading-none">
                 {t.useCases.title1} <br />
-                <span className="font-serif italic font-medium text-beige">{t.useCases.title2}</span>
+                <span className="text-beige font-black">{t.useCases.title2}</span>
               </h2>
               <p className="text-xl text-muted-foreground max-w-lg leading-relaxed mb-12">
                 {t.useCases.subtitle}

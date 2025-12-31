@@ -6,5 +6,6 @@ export { AudioWaveform } from './AudioWaveform';
 export { AudioPreview } from './AudioPreview';
 export { UploadProgress } from './UploadProgress';
 export { RecordingError } from './RecordingError';
+export { LiveTranscript } from './LiveTranscript';
 
 

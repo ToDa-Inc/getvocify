@@ -47,7 +47,7 @@ const Pricing = () => {
             viewport={{ once: true, margin: "-100px" }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight"
           >
-            {t.pricing.title1} <span className="font-serif italic font-medium text-beige">{t.pricing.title2}</span>
+            {t.pricing.title1} <span className="text-beige font-black">{t.pricing.title2}</span>
           </motion.h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             {t.pricing.subtitle}
@@ -79,7 +79,7 @@ const Pricing = () => {
                   <span className="text-5xl font-bold text-foreground tracking-tight">{plan.price}</span>
                   <span className="text-sm text-muted-foreground font-medium">{plan.period}</span>
                 </div>
-                <p className="text-sm text-muted-foreground italic font-serif leading-relaxed">{plan.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{plan.description}</p>
               </div>
 
               <ul className="space-y-4 mb-10 flex-1">
@@ -114,7 +114,7 @@ const Pricing = () => {
           viewport={{ once: true }}
           className="text-center text-xs font-bold uppercase tracking-widest text-muted-foreground/60"
         >
-          {t.pricing.badge1} <span className="text-beige italic font-serif capitalize tracking-normal">{t.pricing.badge2}</span>
+          {t.pricing.badge1} <span className="text-beige font-black">{t.pricing.badge2}</span>
         </motion.p>
       </div>
     </section>

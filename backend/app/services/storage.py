@@ -34,22 +34,23 @@ class StorageService:
         filename = f"{user_id}/{file_id}.webm"
         
         # Upload to storage
-        response = self.supabase.storage.from_(self.BUCKET_NAME).upload(
-            path=filename,
-            file=audio_bytes,
-            file_options={
-                "content-type": content_type,
-                "upsert": False
-            }
-        )
-        
-        if response.error:
-            raise Exception(f"Storage upload failed: {response.error}")
+        try:
+            self.supabase.storage.from_(self.BUCKET_NAME).upload(
+                path=filename,
+                file=audio_bytes,
+                file_options={
+                    "content-type": content_type,
+                    "upsert": "false"
+                }
+            )
+        except Exception as e:
+            # If it's already a 400/404/500 from Supabase, it will raise here
+            raise Exception(f"Storage upload failed: {str(e)}")
         
         # Get public URL
         url_response = self.supabase.storage.from_(self.BUCKET_NAME).get_public_url(filename)
         
-        return url_response
+        return str(url_response)
     
     async def delete_audio(self, audio_url: str) -> None:
         """Delete audio file from storage"""

@@ -16,6 +16,26 @@ from .crm_update import (
     CRMUpdateCreate,
     CRMUpdateUpdate,
 )
+from .hubspot import (
+    ConnectHubSpotRequest,
+    ConnectHubSpotResponse,
+    TestConnectionResponse,
+    HubSpotConnection,
+    CreateDealRequest,
+    UpdateDealRequest,
+)
+from .crm_config import (
+    CRMConfigurationRequest,
+    CRMConfigurationResponse,
+    PipelineOption,
+    StageOption,
+)
+from .approval import (
+    DealMatch,
+    ProposedUpdate,
+    ApprovalPreview,
+    ApproveRequest,
+)
 
 __all__ = [
     "Memo",
@@ -28,5 +48,19 @@ __all__ = [
     "CRMUpdate",
     "CRMUpdateCreate",
     "CRMUpdateUpdate",
+    "ConnectHubSpotRequest",
+    "ConnectHubSpotResponse",
+    "TestConnectionResponse",
+    "HubSpotConnection",
+    "CreateDealRequest",
+    "UpdateDealRequest",
+    "CRMConfigurationRequest",
+    "CRMConfigurationResponse",
+    "PipelineOption",
+    "StageOption",
+    "DealMatch",
+    "ProposedUpdate",
+    "ApprovalPreview",
+    "ApproveRequest",
 ]
 

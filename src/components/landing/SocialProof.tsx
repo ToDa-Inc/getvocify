@@ -47,7 +47,7 @@ const SocialProof = () => {
           className="text-center mb-16"
         >
           <h2 className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight">
-            {t.socialProof.title1} <span className="font-serif italic font-medium text-beige">{t.socialProof.title2}</span>
+            {t.socialProof.title1} <span className="text-beige font-black">{t.socialProof.title2}</span>
           </h2>
         </motion.div>
 
@@ -64,7 +64,7 @@ const SocialProof = () => {
               <div className="mb-6">
                 <Quote className="w-10 h-10 text-beige/20" />
               </div>
-              <blockquote className="text-lg font-medium text-foreground mb-8 leading-relaxed italic font-serif">
+              <blockquote className="text-lg font-bold text-foreground mb-8 leading-relaxed">
                 "{testimonial.quote}"
               </blockquote>
               <div className="mt-auto flex items-center gap-4">

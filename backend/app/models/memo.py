@@ -91,5 +91,7 @@ class UploadResponse(BaseModel):
 
 class ApproveMemoRequest(BaseModel):
     """Request body for approving a memo"""
+    deal_id: Optional[str] = Field(None, description="Deal ID to update (None = create new)")
+    is_new_deal: bool = Field(default=False, description="Whether to create a new deal")
     extraction: Optional[MemoExtraction] = None
 

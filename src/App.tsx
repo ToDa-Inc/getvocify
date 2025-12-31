@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import LoginPage from "./pages/auth/LoginPage";
+import SignupPage from "./pages/auth/SignupPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
 import DashboardHome from "./pages/dashboard/DashboardHome";
 import RecordPage from "./pages/dashboard/RecordPage";
@@ -15,12 +17,33 @@ import SettingsPage from "./pages/dashboard/SettingsPage";
 import UsagePage from "./pages/dashboard/UsagePage";
 
 import { LanguageProvider } from "@/lib/i18n";
+import { AuthProvider, useAuth } from "@/features/auth";
+import { Navigate } from "react-router-dom";
+
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-cream">
+        <div className="w-8 h-8 border-4 border-beige border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return <>{children}</>;
+};
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <LanguageProvider>
+    <AuthProvider>
+      <LanguageProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
@@ -28,7 +51,13 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/es" element={<Index />} />
-            <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <DashboardLayout />
+              </ProtectedRoute>
+            }>
               <Route index element={<DashboardHome />} />
               <Route path="record" element={<RecordPage />} />
               <Route path="memos" element={<MemosPage />} />
@@ -42,7 +71,8 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </LanguageProvider>
-  </QueryClientProvider>
+  </AuthProvider>
+</QueryClientProvider>
 );
 
 export default App;

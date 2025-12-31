@@ -48,20 +48,20 @@ const Features = () => {
     <section id="features" className="py-32 bg-white relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-20">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.8 }}
-          >
-            <h2 className="text-4xl md:text-5xl font-black text-foreground mb-6 tracking-tighter leading-tight">
-              {t.features.title1} <br />
-              <span className="font-serif italic font-medium text-beige">{t.features.title2}</span>
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              {t.features.subtitle}
-            </p>
-          </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.8 }}
+              >
+                <h2 className="text-4xl md:text-5xl font-black text-foreground mb-6 tracking-tighter leading-tight">
+                  {t.features.title1} <br />
+                  <span className="text-beige font-black">{t.features.title2}</span>
+                </h2>
+                <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+                  {t.features.subtitle}
+                </p>
+              </motion.div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">

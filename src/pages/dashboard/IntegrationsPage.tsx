@@ -1,7 +1,12 @@
-import { useState } from "react";
-import { Check, X, RefreshCw } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Check, X, RefreshCw, Loader2, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
+import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { crmApi } from "@/lib/api/crm";
 
 interface Integration {
   id: string;
@@ -17,153 +22,258 @@ interface Integration {
   };
 }
 
-const integrations: Integration[] = [
+const initialIntegrations: Integration[] = [
   {
     id: "hubspot",
     name: "HubSpot",
     description: "Update deals, contacts, and activities",
-    logo: "🟠",
-    connected: true,
-    lastSync: "2 hours ago",
-    details: {
-      portal: "Acme Corp",
-      email: "john@acme.com",
-      permissions: ["Deals", "Contacts", "Activities"],
-    },
+    logo: "https://cdn.worldvectorlogo.com/logos/hubspot.svg",
+    connected: false,
   },
   {
     id: "salesforce",
     name: "Salesforce",
     description: "Sync opportunities and contacts",
-    logo: "☁️",
+    logo: "https://cdn.worldvectorlogo.com/logos/salesforce-2.svg",
     connected: false,
   },
   {
     id: "pipedrive",
     name: "Pipedrive",
     description: "Manage deals and pipeline",
-    logo: "🟢",
+    logo: "https://cdn.worldvectorlogo.com/logos/pipedrive.svg",
     connected: false,
   },
   {
-    id: "gohighlevel",
-    name: "GoHighLevel",
-    description: "Update contacts and opportunities",
-    logo: "🔵",
+    id: "slack",
+    name: "Slack",
+    description: "Send memos directly to channels",
+    logo: "https://cdn.worldvectorlogo.com/logos/slack-new-logo.svg",
     connected: false,
   },
 ];
 
 const IntegrationsPage = () => {
-  const [items, setItems] = useState(integrations);
+  const [items, setItems] = useState(initialIntegrations);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleConnect = (id: string) => {
-    setItems(items.map(item => 
-      item.id === id ? { ...item, connected: true, lastSync: "Just now" } : item
-    ));
-    toast.success(`Connected to ${items.find(i => i.id === id)?.name}`);
+  const fetchConnections = useCallback(async () => {
+    try {
+      const config = await crmApi.getConfiguration();
+      
+      setItems(prevItems => prevItems.map(item => {
+        if (item.id === "hubspot" && config) {
+          return { 
+            ...item, 
+            connected: true, 
+            lastSync: "Active",
+            details: {
+              portal: config.default_pipeline_name,
+              permissions: ["Deals", "Contacts", "Companies"]
+            }
+          };
+        }
+        return item;
+      }));
+    } catch (error) {
+      console.error("Failed to check connections", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
+
+  const handleConnectClick = (id: string) => {
+    if (id !== "hubspot") {
+      toast.info(`${initialIntegrations.find(i => i.id === id)?.name} integration coming soon!`);
+      return;
+    }
+    setSelectedIntegrationId(id);
+    setIsConnectModalOpen(true);
+  };
+
+  const handleConnected = () => {
+    fetchConnections();
+    setIsConnectModalOpen(false);
+    // Automatically open configuration after connection
+    setTimeout(() => setIsConfigModalOpen(true), 500);
+  };
+
+  const handleConfigureClick = (id: string) => {
+    setSelectedIntegrationId(id);
+    setIsConfigModalOpen(true);
   };
 
   const handleDisconnect = (id: string) => {
-    setItems(items.map(item => 
+    setItems(prevItems => prevItems.map(item => 
       item.id === id ? { ...item, connected: false, lastSync: undefined, details: undefined } : item
     ));
     toast.success(`Disconnected from ${items.find(i => i.id === id)?.name}`);
   };
 
-  const handleTestConnection = (id: string) => {
-    toast.success("Connection test successful!");
-  };
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <Loader2 className="h-10 w-10 animate-spin text-beige" />
+        <p className={THEME_TOKENS.typography.capsLabel}>Checking Connections...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-4xl mx-auto animate-fade-in">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground">CRM Connections</h1>
-        <p className="text-muted-foreground">
-          Connect your CRM to start updating deals with voice memos
+    <div className={`max-w-4xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
+      <div className={V_PATTERNS.dashboardHeader}>
+        <h1 className={THEME_TOKENS.typography.pageTitle}>
+          CRM <span className={THEME_TOKENS.typography.accentTitle}>Connections</span>
+        </h1>
+        <p className={THEME_TOKENS.typography.body}>
+          Seamlessly sync your voice memos with your existing stack.
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid sm:grid-cols-2 gap-8 mt-12">
         {items.map((integration) => (
           <div
             key={integration.id}
-            className="bg-card rounded-2xl shadow-soft p-6 hover:shadow-medium transition-shadow"
+            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 ${THEME_TOKENS.cards.hover} group`}
           >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">{integration.logo}</span>
+            <div className="flex items-start justify-between mb-8">
+              <div className="flex items-center gap-6">
+                <div className="w-16 h-16 rounded-2xl bg-secondary/5 flex items-center justify-center p-4 group-hover:scale-110 transition-transform">
+                  <img src={integration.logo} alt={integration.name} className="w-full h-full object-contain grayscale group-hover:grayscale-0 transition-all duration-500" />
+                </div>
                 <div>
-                  <h3 className="font-semibold text-foreground">{integration.name}</h3>
+                  <h3 className="font-bold text-foreground text-xl">{integration.name}</h3>
                   {integration.connected ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-success">
-                      <span className="w-1.5 h-1.5 rounded-full bg-success" />
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-success">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
                       Connected
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                      Not connected
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">
+                      Available
                     </span>
                   )}
                 </div>
               </div>
             </div>
 
-            <p className="text-sm text-muted-foreground mb-4">{integration.description}</p>
+            <p className="text-sm text-muted-foreground mb-8 leading-relaxed font-medium">{integration.description}</p>
 
-            {integration.connected && integration.details && (
-              <div className="bg-secondary/50 rounded-xl p-3 mb-4 text-sm">
-                <p className="text-foreground font-medium">{integration.details.portal}</p>
-                <p className="text-muted-foreground">{integration.details.email}</p>
-                <div className="flex items-center gap-2 mt-2">
-                  {integration.details.permissions?.map((perm) => (
-                    <span key={perm} className="inline-flex items-center gap-1 text-xs text-success">
-                      <Check className="h-3 w-3" />
-                      {perm}
-                    </span>
-                  ))}
+            {integration.connected && (
+              <div className={`rounded-3xl p-6 mb-8 border transition-all ${
+                integration.details?.portal 
+                  ? 'bg-secondary/5 border-border/20' 
+                  : 'bg-beige/5 border-beige/20 animate-pulse'
+              }`}>
+                <div className="flex justify-between items-center">
+                  <div className="space-y-1">
+                    <p className={`font-bold text-sm ${integration.details?.portal ? 'text-foreground' : 'text-beige'}`}>
+                      {integration.details?.portal || "Pending Configuration"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {integration.details?.portal 
+                        ? (integration.details?.email || "Automatic background sync") 
+                        : "Click configure to set up your pipeline"}
+                    </p>
+                  </div>
+                  {integration.details?.portal && (
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      {(integration.details?.permissions || ["Deals", "Sync"]).map((perm) => (
+                        <span key={perm} className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest bg-success/10 text-success px-2 py-1 rounded-full border border-success/20">
+                          <Check className="h-2.5 w-2.5" />
+                          {perm}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
-            {integration.connected ? (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              {integration.connected ? (
+                <>
+                  <Button 
+                    size="lg"
+                    variant={integration.details?.portal ? "default" : "hero"}
+                    className={`flex-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-medium h-12 transition-all ${
+                      integration.details?.portal 
+                        ? 'bg-beige text-cream hover:bg-beige-dark' 
+                        : 'bg-beige text-cream hover:bg-beige-dark scale-[1.05] shadow-large'
+                    }`}
+                    onClick={() => handleConfigureClick(integration.id)}
+                  >
+                    <Settings2 className="h-4 w-4 mr-2" />
+                    {integration.details?.portal ? "Configure" : "Set Up Pipeline"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="w-12 h-12 rounded-full border-border/50 hover:bg-destructive/5 hover:text-destructive hover:border-destructive/20"
+                    onClick={() => handleDisconnect(integration.id)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </>
+              ) : (
                 <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="flex-1"
-                  onClick={() => handleDisconnect(integration.id)}
+                  size="lg" 
+                  className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-medium hover:scale-[1.02] transition-all h-12"
+                  onClick={() => handleConnectClick(integration.id)}
                 >
-                  Disconnect
+                  Connect {integration.name}
                 </Button>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => handleTestConnection(integration.id)}
-                >
-                  <RefreshCw className="h-4 w-4 mr-1" />
-                  Test
-                </Button>
-              </div>
-            ) : (
-              <Button 
-                size="sm" 
-                className="w-full"
-                onClick={() => handleConnect(integration.id)}
-              >
-                Connect
-              </Button>
-            )}
+              )}
+            </div>
 
             {integration.lastSync && (
-              <p className="text-xs text-muted-foreground mt-3 text-center">
-                Last synced {integration.lastSync}
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/20 mt-6 text-center">
+                Last activity: {integration.lastSync}
               </p>
             )}
           </div>
         ))}
       </div>
+
+      <Dialog open={isConnectModalOpen} onOpenChange={setIsConnectModalOpen}>
+        <DialogContent className={`${THEME_TOKENS.radius.container} border-none p-10 bg-white shadow-large max-w-lg`}>
+          <DialogHeader className="mb-8">
+            <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
+              Connect <span className="text-beige">HubSpot</span>
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed">
+              Authenticate using a Private App Access Token to enable secure, direct access to your CRM objects.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <HubSpotConnection onConnected={handleConnected} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isConfigModalOpen} onOpenChange={setIsConfigModalOpen}>
+        <DialogContent className={`${THEME_TOKENS.radius.container} border-none p-10 bg-white shadow-large max-w-2xl max-h-[90vh] overflow-y-auto`}>
+          <DialogHeader className="mb-8">
+            <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
+              Configure <span className="text-beige">{items.find(i => i.id === selectedIntegrationId)?.name}</span>
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed">
+              Set up your default pipeline and select which fields the AI can update.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <HubSpotConfiguration onSaved={() => {
+            setIsConfigModalOpen(false);
+            fetchConnections();
+          }} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -80,79 +80,82 @@ const getStatusBadge = (status: string) => {
   }
 };
 
+import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+
 const DashboardHome = () => {
   return (
-    <div className="max-w-5xl mx-auto space-y-8 animate-fade-in">
+    <div className={`max-w-5xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
       {/* Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Welcome back, John</h1>
-          <p className="text-muted-foreground">Ready to update your CRM?</p>
+        <div className={V_PATTERNS.dashboardHeader}>
+          <h1 className={THEME_TOKENS.typography.pageTitle}>
+            Welcome back, <span className={THEME_TOKENS.typography.accentTitle}>John</span>
+          </h1>
+          <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
         </div>
         <div className="flex items-center gap-3">
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="flex items-center gap-2 px-3 py-2 bg-card rounded-xl shadow-soft"
+              className={`flex items-center gap-2 px-4 py-2 ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.pill}`}
             >
               <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              <span className="text-sm font-medium text-foreground">{stat.label}</span>
+              <span className={THEME_TOKENS.typography.capsLabel}>{stat.label}</span>
             </div>
           ))}
         </div>
       </div>
 
       {/* Record Card */}
-      <div className="bg-card rounded-3xl shadow-medium p-8 text-center">
-        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-primary flex items-center justify-center">
-          <Mic className="h-10 w-10 text-primary-foreground" />
+      <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} ${V_PATTERNS.focusBox}`}>
+        {/* Animated background glow */}
+        <div className="absolute inset-0 bg-gradient-to-tr from-beige/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+        
+        <div className="relative z-10">
+          <div className={`w-20 h-20 mx-auto mb-8 ${THEME_TOKENS.radius.pill} bg-beige text-cream flex items-center justify-center shadow-large transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3`}>
+            <Mic className="h-10 w-10" />
+          </div>
+          <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-6`}>Record your meeting notes</h2>
+          <Button variant="hero" size="xl" asChild className="px-10 rounded-full shadow-large hover:scale-105 active:scale-95 transition-transform">
+            <Link to="/dashboard/record">
+              <Mic className="h-5 w-5 mr-2" />
+              Start Recording
+            </Link>
+          </Button>
+          <p className={`text-sm ${THEME_TOKENS.colors.muted} mt-6 font-medium`}>
+            Speak for 30-120 seconds about your meeting
+          </p>
         </div>
-        <Button variant="hero" size="xl" asChild>
-          <Link to="/dashboard/record">
-            <Mic className="h-5 w-5 mr-2" />
-            Record Voice Memo
-          </Link>
-        </Button>
-        <p className="text-sm text-muted-foreground mt-4">
-          Speak for 30-120 seconds about your meeting
-        </p>
-        <Link 
-          to="/dashboard/record" 
-          className="text-sm text-primary hover:underline inline-flex items-center gap-1 mt-2"
-        >
-          <Upload className="h-4 w-4" />
-          Or upload audio file
-        </Link>
       </div>
 
       {/* Recent Memos */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">Recent Memos</h2>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>Recent Memos</h2>
           <Link 
             to="/dashboard/memos" 
-            className="text-sm text-primary hover:underline"
+            className={`${THEME_TOKENS.typography.capsLabel} text-beige hover:underline`}
           >
             View all
           </Link>
         </div>
-        <div className="space-y-3">
+        <div className="space-y-4">
           {recentMemos.map((memo) => (
             <Link
               key={memo.id}
               to={`/dashboard/memos/${memo.id}`}
-              className="block bg-card rounded-2xl p-4 shadow-soft hover:shadow-medium transition-shadow"
+              className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${THEME_TOKENS.cards.hover} ${V_PATTERNS.listItem} group`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-foreground">{memo.company}</h3>
-                  <p className="text-sm text-muted-foreground truncate mt-1">
+                  <h3 className="font-bold text-foreground text-lg group-hover:text-beige transition-colors">{memo.company}</h3>
+                  <p className="text-sm text-muted-foreground truncate mt-1 leading-relaxed">
                     {memo.preview}
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-2">
+                <div className="flex flex-col items-end gap-3">
                   {getStatusBadge(memo.status)}
-                  <span className="text-xs text-muted-foreground">{memo.time}</span>
+                  <span className={THEME_TOKENS.typography.capsLabel}>{memo.time}</span>
                 </div>
               </div>
             </Link>
@@ -161,16 +164,16 @@ const DashboardHome = () => {
       </div>
 
       {/* Quick Stats */}
-      <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">Quick Stats</h2>
-        <div className="grid grid-cols-3 gap-4">
+      <div className="space-y-6">
+        <h2 className={THEME_TOKENS.typography.sectionTitle}>Quick Stats</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {quickStats.map((stat) => (
             <div
               key={stat.label}
-              className="bg-card rounded-2xl p-4 shadow-soft text-center"
+              className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center hover:shadow-medium transition-all`}
             >
-              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-              <p className="text-sm text-muted-foreground">{stat.label}</p>
+              <p className="text-3xl font-black tracking-tighter text-foreground mb-1">{stat.value}</p>
+              <p className={THEME_TOKENS.typography.capsLabel}>{stat.label}</p>
             </div>
           ))}
         </div>

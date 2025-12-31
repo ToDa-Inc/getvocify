@@ -6,6 +6,6 @@
 export * from './types';
 
 // Hooks
-export { useMediaRecorder, useAudioUpload } from './hooks';
+export { useMediaRecorder, useAudioUpload, useRealtimeTranscription } from './hooks';
 
 

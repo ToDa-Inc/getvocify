@@ -63,7 +63,7 @@ const FAQSection = () => {
             viewport={{ once: true }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight"
           >
-            {t.faq.title1} <span className="font-serif italic font-medium text-beige">{t.faq.title2}</span>
+            {t.faq.title1} <span className="text-beige font-black">{t.faq.title2}</span>
           </motion.h2>
         </div>
 

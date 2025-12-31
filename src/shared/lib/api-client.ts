@@ -8,8 +8,7 @@
  * - File upload support
  */
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
-
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
 /**
  * Custom error class for API errors
  * Provides structured access to error details
@@ -66,28 +65,45 @@ export class ApiError extends Error {
  * ```
  */
 class ApiClient {
-  private token: string | null = null;
+  /**
+   * Helper to get token with direct localStorage access
+   * This is the "Senior" way to ensure we never have an out-of-sync singleton state
+   */
+  private getAuthToken(): string | null {
+    const stored = localStorage.getItem('vocify_token');
+    
+    // Guard against literal 'undefined' string which causes 500 errors in backend
+    if (!stored || stored === 'undefined' || stored === 'null') {
+      return null;
+    }
+    
+    return stored;
+  }
 
   /**
    * Set the authentication token
-   * Call this after login/signup or when restoring session
+   * We still keep this for manual overrides, but preference is localStorage
    */
   setToken(token: string | null): void {
-    this.token = token;
+    if (token) {
+      localStorage.setItem('vocify_token', token);
+    } else {
+      localStorage.removeItem('vocify_token');
+    }
   }
 
   /**
    * Get current token (for debugging/testing)
    */
   getToken(): string | null {
-    return this.token;
+    return this.getAuthToken();
   }
 
   /**
    * Clear the token (logout)
    */
   clearToken(): void {
-    this.token = null;
+    localStorage.removeItem('vocify_token');
   }
 
   /**
@@ -98,10 +114,11 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${API_BASE}${endpoint}`;
+    const token = this.getAuthToken();
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      ...(this.token && { Authorization: `Bearer ${this.token}` }),
+      ...(token && { Authorization: `Bearer ${token}` }),
       ...options.headers,
     };
 
@@ -184,6 +201,7 @@ class ApiClient {
     fieldName = 'file'
   ): Promise<T> {
     const url = `${API_BASE}${endpoint}`;
+    const token = this.getAuthToken();
 
     const formData = new FormData();
     formData.append(fieldName, file);
@@ -191,7 +209,7 @@ class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        ...(this.token && { Authorization: `Bearer ${this.token}` }),
+        ...(token && { Authorization: `Bearer ${token}` }),
         // Note: Don't set Content-Type for FormData, browser sets it with boundary
       },
       body: formData,
@@ -219,7 +237,8 @@ class ApiClient {
    *   '/memos/upload',
    *   audioBlob,
    *   'audio',
-   *   (progress) => setUploadProgress(progress)
+   *   (progress) => setUploadProgress(progress),
+   *   { transcript: 'pre-transcribed text' }
    * );
    * ```
    */
@@ -227,13 +246,23 @@ class ApiClient {
     endpoint: string,
     file: Blob,
     fieldName = 'file',
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    additionalFields?: Record<string, string>
   ): Promise<T> {
     return new Promise((resolve, reject) => {
       const url = `${API_BASE}${endpoint}`;
 
       const formData = new FormData();
       formData.append(fieldName, file);
+      
+      // Add additional form fields (e.g., transcript)
+      if (additionalFields) {
+        Object.entries(additionalFields).forEach(([key, value]) => {
+          if (value) {
+            formData.append(key, value);
+          }
+        });
+      }
 
       const xhr = new XMLHttpRequest();
 
@@ -267,8 +296,12 @@ class ApiClient {
       });
 
       xhr.open('POST', url);
-      if (this.token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+      
+      const token = this.getAuthToken();
+      console.log('API Client: Uploading with token:', token ? `${token.substring(0, 8)}...` : 'MISSING');
+      
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       }
       xhr.send(formData);
     });

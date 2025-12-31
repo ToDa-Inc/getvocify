@@ -20,8 +20,14 @@ export function useAudioUpload(): UseAudioUploadReturn {
   /**
    * Upload the recorded audio
    * Returns the created memo ID
+   * 
+   * @param audio - Recorded audio data
+   * @param transcript - Optional pre-transcribed text (from real-time WebSocket)
    */
-  const upload = useCallback(async (audio: RecordedAudio): Promise<string> => {
+  const upload = useCallback(async (
+    audio: RecordedAudio,
+    transcript?: string
+  ): Promise<string> => {
     setIsUploading(true);
     setError(null);
     setProgress({
@@ -41,7 +47,8 @@ export function useAudioUpload(): UseAudioUploadReturn {
             total: audio.size,
             complete: percent >= 100,
           });
-        }
+        },
+        transcript
       );
 
       setProgress(prev => prev ? { ...prev, complete: true } : null);
