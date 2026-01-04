@@ -20,7 +20,7 @@ const FinalCTA = () => {
           >
             <h2 className="text-4xl md:text-6xl font-bold text-cream mb-8 tracking-tighter leading-tight text-balance">
               {t.finalCta.title1} <br />
-              <span className="text-white font-black">{t.finalCta.title2}</span>
+              <span className="text-white font-serif italic font-medium">{t.finalCta.title2}</span>
             </h2>
             <p className="text-cream/80 text-lg md:text-xl mb-12 max-w-2xl mx-auto leading-relaxed">
               {t.finalCta.subtitle}
@@ -53,7 +53,7 @@ const FinalCTA = () => {
                   <div className="w-20 h-20 rounded-full bg-cream flex items-center justify-center mb-6 shadow-large">
                     <ArrowRight className="w-10 h-10 text-beige" />
                   </div>
-                  <p className="text-2xl font-black mb-2">{t.finalCta.trial}</p>
+                  <p className="text-2xl font-serif italic font-medium mb-2">{t.finalCta.trial}</p>
                   <p className="text-sm opacity-60">{t.finalCta.noCredit}</p>
                 </div>
                 {/* Decorative glow */}

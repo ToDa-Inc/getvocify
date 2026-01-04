@@ -12,7 +12,8 @@ This system is built using **Design Tokens**. Instead of hardcoding colors and s
 ## 🏗️ Core Tokens (`THEME_TOKENS`)
 
 ### 1. Typography
-*   `pageTitle`: Clean, black-weight Inter. No italics.
+*   `pageTitle`: Clean, black-weight Inter for the **Dashboard**.
+*   `editorialHeader`: The signature **Serif Italic** font used specifically for the **Landing Page** to maintain a premium, editorial feel.
 *   `accentTitle`: Used for the second word in headers (The "Beige" word).
 *   `capsLabel`: Small, uppercase, tracked-out labels for metadata.
 

@@ -17,7 +17,7 @@ const IntegrationsCarousel = () => {
     <div className="w-full py-20 overflow-hidden bg-white/5 border-y border-border/50">
       <div className="container mx-auto px-6 mb-16">
         <p className="text-center text-sm md:text-lg font-bold uppercase tracking-[0.4em] text-muted-foreground/60">
-          {t.integrations.text1} <span className="font-black text-beige opacity-80 text-lg md:text-2xl ml-1 mr-1">{t.integrations.text2}</span> {t.integrations.text3}
+          {t.integrations.text1} <span className="font-serif italic font-medium text-beige opacity-80 text-lg md:text-2xl ml-1 mr-1">{t.integrations.text2}</span> {t.integrations.text3}
         </p>
       </div>
       

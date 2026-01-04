@@ -282,3 +282,42 @@ class HubSpotSchemaService:
         """Get deal schema (includes pipelines)"""
         return await self.get_schema("deals", use_cache)
 
+    async def get_curated_field_specs(
+        self,
+        object_type: Literal["contacts", "companies", "deals"],
+        field_names: list[str],
+    ) -> list[dict]:
+        """
+        Get curated metadata for specific fields to use in LLM prompts.
+        
+        Strips away API noise and keeps only reasoning-critical info:
+        - name (key)
+        - label
+        - description
+        - type
+        - options (for enums)
+        """
+        schema = await self.get_schema(object_type)
+        all_props = {p.name: p for p in schema.properties}
+        
+        curated_specs = []
+        for name in field_names:
+            if name not in all_props:
+                continue
+                
+            prop = all_props[name]
+            spec = {
+                "name": prop.name,
+                "label": prop.label,
+                "type": prop.type,
+                "description": prop.description or "",
+            }
+            
+            # For enumerations, provide labels for better LLM reasoning
+            if prop.type in ["enumeration", "checkbox", "radio", "select"] and prop.options:
+                spec["options"] = [opt.label for opt in prop.options if not opt.hidden]
+            
+            curated_specs.append(spec)
+            
+        return curated_specs
+

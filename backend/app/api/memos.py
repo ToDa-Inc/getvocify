@@ -6,7 +6,7 @@ import asyncio
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List, Union
 from app.deps import get_supabase, get_user_id
 from app.services.storage import StorageService
 from app.services.transcription import TranscriptionService
@@ -24,6 +24,7 @@ from app.services.hubspot import (
     HubSpotCompanyService,
     HubSpotAssociationService,
     HubSpotSyncService,
+    SyncResult,
 )
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
 from app.models.crm_update import CRMUpdate
@@ -41,14 +42,14 @@ async def extract_memo_async(
     transcript: str,
     supabase: Client,
     extraction_service: ExtractionService,
-    allowed_fields: Optional[list[str]] = None
+    field_specs: Optional[list[dict]] = None
 ):
     """
     Background task to extract structured data from pre-transcribed memo
     """
     try:
         # Extract structured data
-        extraction = await extraction_service.extract(transcript, allowed_fields)
+        extraction = await extraction_service.extract(transcript, field_specs)
         
         # Update with extraction and mark as pending_review
         from datetime import datetime
@@ -72,7 +73,7 @@ async def process_memo_async(
     supabase: Client,
     transcription_service: TranscriptionService,
     extraction_service: ExtractionService,
-    allowed_fields: Optional[list[str]] = None
+    field_specs: Optional[list[dict]] = None
 ):
     """
     Background task to process memo: transcribe → extract → update status
@@ -86,7 +87,7 @@ async def process_memo_async(
         # Download audio from storage
         # Extract path from URL
         # Supabase URLs format: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
-        parts = audio_url.split("/public/")
+        parts = audio_url.split("/public/voice-memos/")
         if len(parts) < 2:
             raise Exception("Invalid audio URL")
         
@@ -110,7 +111,7 @@ async def process_memo_async(
         }).eq("id", memo_id).execute()
         
         # Extract structured data
-        extraction = await extraction_service.extract(transcription.transcript, allowed_fields)
+        extraction = await extraction_service.extract(transcription.transcript, field_specs)
         
         # Update with extraction and mark as pending_review
         from datetime import datetime
@@ -185,32 +186,35 @@ async def upload_memo(
     config = await config_service.get_configuration(user_id)
     allowed_fields = config.allowed_deal_fields if config else None
     
+    # Get curated field specs for high-accuracy extraction
+    field_specs = None
+    if allowed_fields:
+        try:
+            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
+            schema_service = HubSpotSchemaService(client, supabase, connection_id)
+            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
+        except Exception:
+            # Fallback to None if connection fails
+            field_specs = None
+
     # If transcript is provided, skip transcription step
     if transcript and transcript.strip():
-        # Create memo record with transcript already populated
-        memo_data = {
+        # Create memo record in database
+        result = supabase.table("memos").insert({
             "user_id": user_id,
             "audio_url": audio_url,
             "audio_duration": estimated_duration,
-            "status": "extracting",  # Skip 'transcribing' - already have transcript!
+            "status": "extracting",
             "transcript": transcript.strip(),
-            "transcript_confidence": 0.95,  # Real-time doesn't provide overall confidence
-        }
-        
-        result = supabase.table("memos").insert(memo_data).execute()
-        
-        if not result.data:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create memo record"
-            )
+            "transcript_confidence": 1.0, # High confidence for pre-transcribed text
+        }).execute()
         
         memo_id = result.data[0]["id"]
         
         # Start extraction directly (skip transcription)
         extraction_service = ExtractionService()
         asyncio.create_task(
-            extract_memo_async(memo_id, transcript.strip(), supabase, extraction_service, allowed_fields)
+            extract_memo_async(memo_id, transcript.strip(), supabase, extraction_service, field_specs)
         )
         
         return UploadResponse(
@@ -220,20 +224,13 @@ async def upload_memo(
         )
     else:
         # No transcript provided - use normal flow
-        memo_data = {
+        # Create memo record in database
+        result = supabase.table("memos").insert({
             "user_id": user_id,
             "audio_url": audio_url,
             "audio_duration": estimated_duration,
             "status": "uploading",
-        }
-        
-        result = supabase.table("memos").insert(memo_data).execute()
-        
-        if not result.data:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create memo record"
-            )
+        }).execute()
         
         memo_id = result.data[0]["id"]
         
@@ -248,7 +245,7 @@ async def upload_memo(
                 supabase,
                 transcription_service,
                 extraction_service,
-                allowed_fields
+                field_specs
             )
         )
         
@@ -323,7 +320,7 @@ async def list_memos(
     return memos
 
 
-@router.post("/{memo_id}/approve", response_model=Memo)
+@router.post("/{memo_id}/approve", response_model=Union[Memo, SyncResult])
 async def approve_memo(
     memo_id: UUID,
     payload: Optional[ApproveMemoRequest] = None,
@@ -402,6 +399,7 @@ async def approve_memo(
                 deals=deal_service,
                 associations=association_service,
                 crm_updates=crm_updates_service,
+                supabase=supabase,
             )
             
             # Parse extraction
@@ -439,15 +437,24 @@ async def approve_memo(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=sync_result.error or "Failed to sync to CRM",
                 )
+            
+            # Mark memo as approved
+            supabase.table("memos").update({
+                "status": "approved",
+                "approved_at": datetime.utcnow().isoformat(),
+                "extraction": extraction_data,
+            }).eq("id", str(memo_id)).execute()
+            
+            return sync_result
         
-        # Mark memo as approved
+        # Mark memo as approved for non-HubSpot (not implemented)
         supabase.table("memos").update({
             "status": "approved",
             "approved_at": datetime.utcnow().isoformat(),
             "extraction": extraction_data,
         }).eq("id", str(memo_id)).execute()
     
-    # Return updated memo
+    # Return updated memo for non-HubSpot cases
     updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
     updated_memo = updated_result.data
     

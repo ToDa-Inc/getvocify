@@ -12,6 +12,7 @@ export const THEME_TOKENS = {
     pageTitle: "text-3xl md:text-4xl font-black tracking-tighter text-foreground leading-tight",
     sectionTitle: "text-xl font-bold tracking-tight text-foreground",
     accentTitle: "text-beige font-black",
+    editorialHeader: "font-serif italic font-medium",
     capsLabel: "text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/60",
     body: "text-base leading-relaxed text-muted-foreground",
   },

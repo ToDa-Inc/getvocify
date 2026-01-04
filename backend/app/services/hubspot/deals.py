@@ -135,18 +135,13 @@ class HubSpotDealService:
         """
         properties: dict[str, any] = {}
         
+        # 1. Handle Legacy / Standard Fields (Backward Compatibility)
         # Deal name (required)
         properties["dealname"] = deal_name or self._generate_deal_name(extraction)
         
         # Amount
         if extraction.dealAmount is not None:
             properties["amount"] = str(extraction.dealAmount)
-        
-        # Currency - Only set if provided and not just a default guess
-        # Note: We omit this by default to use the HubSpot Portal's default currency
-        # to avoid "INVALID_OPTION" errors for unsupported currency codes.
-        # if extraction.dealCurrency:
-        #     properties["deal_currency_code"] = extraction.dealCurrency
         
         # Close date
         if extraction.closeDate:
@@ -157,6 +152,32 @@ class HubSpotDealService:
         # Description (summary)
         if extraction.summary:
             properties["description"] = extraction.summary
+
+        # 2. Handle Dynamic CRM Fields (The "Gold Standard")
+        # If we have raw_extraction, use it as the source of truth for CRM fields
+        if extraction.raw_extraction:
+            # Fields we already handled in step 1 or that are not CRM properties
+            skip_fields = [
+                "dealname", "amount", "closedate", "description",
+                "summary", "painPoints", "nextSteps", "competitors", 
+                "objections", "decisionMakers", "confidence"
+            ]
+            
+            for key, value in extraction.raw_extraction.items():
+                if key in skip_fields or value is None:
+                    continue
+                
+                # Special handling for dates if they are in raw_extraction
+                if key == "closedate" and isinstance(value, str):
+                    ts = self._to_hubspot_timestamp(value)
+                    if ts:
+                        properties[key] = ts
+                # Special handling for numbers
+                elif isinstance(value, (int, float)):
+                    properties[key] = str(value)
+                # Everything else is passed through
+                else:
+                    properties[key] = value
         
         return properties
     

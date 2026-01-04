@@ -45,6 +45,7 @@ class HubSpotSyncService:
         deals: HubSpotDealService,
         associations: HubSpotAssociationService,
         crm_updates: CRMUpdatesService,
+        supabase=None,
     ):
         self.client = client
         self.contacts = contacts
@@ -52,6 +53,7 @@ class HubSpotSyncService:
         self.deals = deals
         self.associations = associations
         self.crm_updates = crm_updates
+        self.supabase = supabase
     
     def _filter_properties(
         self,
@@ -263,6 +265,21 @@ class HubSpotSyncService:
             
             # Success!
             result.success = True
+            
+            # Generate deal name and URL for frontend
+            if deal_id and self.supabase:
+                result.deal_name = extraction.companyName or "New Deal"
+                
+                # Get connection metadata for portal_id and region
+                conn = self.supabase.table("crm_connections").select("metadata").eq("id", str(connection_id)).single().execute()
+                if conn.data:
+                    metadata = conn.data.get("metadata", {})
+                    portal_id = metadata.get("portal_id")
+                    region = metadata.get("region", "na1")
+                    
+                    if portal_id:
+                        region_prefix = f"-{region}" if region != "na1" else ""
+                        result.deal_url = f"https://app{region_prefix}.hubspot.com/contacts/{portal_id}/record/0-3/{deal_id}"
             
         except HubSpotAuthError as e:
             result.error = f"HubSpot authentication failed: {e.message}"

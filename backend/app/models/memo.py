@@ -34,6 +34,9 @@ class MemoExtraction(BaseModel):
     
     # Confidence
     confidence: dict = Field(default_factory=lambda: {"overall": 0.0, "fields": {}})
+    
+    # Raw extraction for dynamic fields
+    raw_extraction: Optional[dict] = Field(default_factory=dict)
 
 
 class TranscriptionResult(BaseModel):

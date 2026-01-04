@@ -177,6 +177,7 @@ class ValidationResult(BaseModel):
     """Result of token validation"""
     valid: bool
     portal_id: str | None = None
+    region: str | None = "na1"  # eu1, na1, etc.
     scopes_ok: bool = False
     error: str | None = None
     error_code: str | None = None
@@ -189,6 +190,8 @@ class SyncResult(BaseModel):
     company_id: str | None = None
     contact_id: str | None = None
     deal_id: str | None = None
+    deal_name: str | None = None
+    deal_url: str | None = None
     error: str | None = None
     error_code: str | None = None
 

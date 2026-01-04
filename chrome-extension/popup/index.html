@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vocify</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 1. RECORD SCREEN (Idle/Recording) -->
+    <div id="screen-record" class="screen" style="display: none;">
+      <div class="header">
+        <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
+        <p id="record-header-subtitle" class="subtitle">Ready to record</p>
+      </div>
+
+      <div class="record-container">
+        <button id="record-button" class="record-btn">
+          <div class="record-icon"></div>
+        </button>
+        <p id="record-status-label" class="record-label">Tap to record</p>
+      </div>
+
+      <!-- Live Transcript -->
+      <div id="live-transcript-container" class="transcript-container" style="display: none;">
+        <p class="transcript-label">Transcribing live...</p>
+        <div id="live-transcript-text" class="transcript-text"></div>
+      </div>
+      
+      <!-- Shortcut Info -->
+      <div id="shortcut-box" class="shortcut-box">
+        <div class="shortcut-row">
+          <div class="os-group">
+            <span class="os-label">macOS</span>
+            <div class="hotkey-display">
+              <span class="kbd">⌥</span><span class="kbd">⇧</span><span class="kbd">V</span>
+            </div>
+          </div>
+          <div class="os-divider"></div>
+          <div class="os-group">
+            <span class="os-label">Windows</span>
+            <div class="hotkey-display">
+              <span class="kbd">Alt</span><span class="kbd">⇧</span><span class="kbd">V</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="user-info">
+        <div class="user-name" id="user-name">...</div>
+        <div class="user-email" id="user-email">...</div>
+      </div>
+
+      <!-- Recent Memos Section -->
+      <div id="recent-memos-section" class="recent-memos-section">
+        <p class="caps-label" style="margin-bottom: 12px;">Recent Memos</p>
+        <div id="recent-memos-list" class="recent-memos-list">
+          <p class="body-muted" style="text-align: center; padding: 10px;">Loading...</p>
+        </div>
+      </div>
+      
+      <div class="actions">
+        <button id="logout-button" class="btn btn-secondary">Log Out</button>
+      </div>
+    </div>
+
+    <!-- 2. PROCESSING SCREEN -->
+    <div id="screen-processing" class="screen" style="display: none;">
+      <div class="header">
+        <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
+        <p class="subtitle">Analyzing</p>
+      </div>
+      <div class="center-content">
+        <div class="spinner"></div>
+        <h2 class="title-large">AI is working...</h2>
+        <p class="body-muted">Extracting deal details from your voice memo.</p>
+      </div>
+    </div>
+
+    <!-- 3. REVIEW SCREEN -->
+    <div id="screen-review" class="screen" style="display: none;">
+      <div class="header-review">
+        <img src="../icons/logo_transparent.png" alt="Vocify" class="logo-small">
+        <p class="subtitle">Review Updates</p>
+      </div>
+
+      <div class="review-scroll-area">
+        <!-- Deal Search / Target -->
+        <div id="deal-target-section">
+          <div class="section-header">
+            <p class="caps-label">Deal Target</p>
+            <button id="btn-change-deal" class="text-btn">Change Deal</button>
+          </div>
+          
+          <div id="deal-search-box" class="search-box" style="display: none;">
+            <div class="input-with-icon">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="deal-search-input" placeholder="Search deals...">
+            </div>
+            <div id="search-results" class="search-results"></div>
+          </div>
+
+          <div id="deal-card" class="card-glass success-glow">
+            <div class="card-content">
+              <h3 id="target-deal-name" class="deal-title">Loading...</h3>
+              <p id="target-deal-reason" class="deal-subtitle"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Proposed Changes -->
+        <p class="caps-label" style="margin: 20px 0 12px 4px;">Proposed Changes</p>
+        <div id="proposed-updates-list" class="updates-list">
+          <!-- Injected via JS -->
+        </div>
+      </div>
+
+      <div class="actions-fixed">
+        <button id="approve-sync-button" class="btn btn-primary">Confirm & Update CRM</button>
+        <button id="discard-button" class="btn btn-secondary">Discard</button>
+      </div>
+    </div>
+
+    <!-- 4. SUCCESS SCREEN -->
+    <div id="screen-success" class="screen" style="display: none;">
+      <div class="center-content">
+        <div class="success-icon-container">
+          <div class="success-checkmark">✓</div>
+        </div>
+        <h2 class="title-large">Sync Successful</h2>
+        <p id="success-message" class="body-muted">Updated deal in HubSpot.</p>
+        
+        <div class="actions" style="margin-top: 32px; width: 100%;">
+          <a id="view-in-hubspot" href="#" target="_blank" class="btn btn-primary">View in HubSpot</a>
+          <button id="success-done-button" class="btn btn-secondary">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGIN SCREEN -->
+    <div id="screen-login" class="screen" style="display: none;">
+      <div class="header">
+        <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
+        <h1>Vocify</h1>
+        <p class="subtitle">Voice to CRM</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label>Email address</label>
+          <input type="email" id="login-email" required placeholder="john@example.com">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="login-password" required placeholder="••••••••">
+        </div>
+        <div id="login-error" class="error-box" style="display: none;"></div>
+        <button type="submit" class="btn btn-primary">Log In</button>
+      </form>
+    </div>
+
+    <!-- LOADING SCREEN -->
+    <div id="screen-loading" class="screen">
+      <div class="center-content">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

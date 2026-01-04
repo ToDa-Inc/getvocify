@@ -23,7 +23,7 @@ const Hero = () => {
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold tracking-tighter leading-[1.05] mb-6 text-balance">
             {t.hero.title1}
             <br />
-            <span className="text-beige font-black">{t.hero.title2}</span>
+            <span className="text-beige font-serif italic font-medium">{t.hero.title2}</span>
           </h1>
 
           {/* Subheadline */}
@@ -35,7 +35,7 @@ const Hero = () => {
           >
             {t.hero.subtitle1}
             <br className="hidden md:block" />
-            <span className="font-bold">{t.hero.subtitle2}</span> {t.hero.subtitle3}
+            <span className="font-serif italic font-medium">{t.hero.subtitle2}</span> {t.hero.subtitle3}
           </motion.p>
 
           {/* CTA Buttons */}

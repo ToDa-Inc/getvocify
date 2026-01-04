@@ -108,9 +108,19 @@ class HubSpotValidationService:
         # Step 3: Test required scopes by making actual API calls
         scopes_ok = await self._test_scopes()
         
+        # Determine region from token if possible
+        region = "na1"
+        token = self.client.access_token
+        if token.startswith("pat-"):
+            # Format: pat-region-uuid or pat-uuid
+            parts = token.split("-")
+            if len(parts) >= 3 and not parts[1][0].isdigit():
+                region = parts[1]
+        
         return ValidationResult(
             valid=True,
             portal_id=portal_id,
+            region=region,
             scopes_ok=scopes_ok,
         )
     

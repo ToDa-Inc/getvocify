@@ -46,7 +46,7 @@ const SolutionSection = () => {
             viewport={{ once: true }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance"
           >
-            {t.solution.title1} <span className="text-beige font-black">{t.solution.title2}</span> {t.solution.title3}
+            {t.solution.title1} <span className="text-beige font-serif italic font-medium">{t.solution.title2}</span> {t.solution.title3}
           </motion.h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             {t.solution.subtitle}

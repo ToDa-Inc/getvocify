@@ -47,7 +47,7 @@ const Pricing = () => {
             viewport={{ once: true, margin: "-100px" }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight"
           >
-            {t.pricing.title1} <span className="text-beige font-black">{t.pricing.title2}</span>
+            {t.pricing.title1} <span className="text-beige font-serif italic font-medium">{t.pricing.title2}</span>
           </motion.h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             {t.pricing.subtitle}

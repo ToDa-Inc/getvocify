@@ -67,7 +67,7 @@ const ComparisonSection = () => {
             viewport={{ once: true }}
             className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight"
           >
-            {t.comparison.title1} <span className="text-beige font-black">{t.comparison.title2}</span>
+            {t.comparison.title1} <span className="text-beige font-serif italic font-medium">{t.comparison.title2}</span>
           </motion.h2>
         </div>
 

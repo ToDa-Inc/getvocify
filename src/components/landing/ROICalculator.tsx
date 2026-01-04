@@ -30,7 +30,7 @@ const ROICalculator = () => {
               viewport={{ once: true }}
               className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance"
             >
-              {t.roi.title1} <span className="text-beige font-black">{t.roi.title2}</span>
+              {t.roi.title1} <span className="text-beige font-serif italic font-medium">{t.roi.title2}</span>
             </motion.h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
               {t.roi.subtitle}
@@ -101,7 +101,7 @@ const ROICalculator = () => {
                 <div className="grid sm:grid-cols-2 gap-12 mb-12">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-2">{t.roi.saved}</p>
-                    <p className="text-4xl font-black tracking-tight">{totalHours.toLocaleString()}h <span className="text-lg font-bold opacity-80">{t.roi.perYear}</span></p>
+                    <p className="text-4xl font-black tracking-tight">{totalHours.toLocaleString()}h <span className="text-lg font-serif italic font-medium opacity-80">{t.roi.perYear}</span></p>
                   </div>
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-2">{t.roi.potential}</p>
@@ -115,7 +115,7 @@ const ROICalculator = () => {
                 <div className="bg-white/10 rounded-[2.5rem] p-10 border border-white/10 backdrop-blur-sm mb-12">
                   <p className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-4">{t.roi.yearly}</p>
                   <p className="text-6xl md:text-7xl font-black tracking-tighter mb-4">€{savings.toLocaleString()}</p>
-                  <p className="text-sm font-bold opacity-80 leading-relaxed">
+                  <p className="text-sm font-serif italic font-medium opacity-80 leading-relaxed">
                     {t.roi.equivalent} <span className="underline decoration-cream/30">{(savings / salary).toFixed(1)} {t.roi.additional}</span> {t.roi.byEliminating}
                   </p>
                 </div>

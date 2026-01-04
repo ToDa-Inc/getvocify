@@ -56,7 +56,7 @@ const Features = () => {
               >
                 <h2 className="text-4xl md:text-5xl font-black text-foreground mb-6 tracking-tighter leading-tight">
                   {t.features.title1} <br />
-                  <span className="text-beige font-black">{t.features.title2}</span>
+                  <span className="text-beige font-serif italic font-medium">{t.features.title2}</span>
                 </h2>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
                   {t.features.subtitle}

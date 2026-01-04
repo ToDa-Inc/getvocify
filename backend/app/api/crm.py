@@ -138,6 +138,7 @@ async def connect_hubspot(
         "token_expires_at": None,  # Private app tokens don't expire
         "metadata": {
             "portal_id": validation_result.portal_id,
+            "region": validation_result.region,
         },
     }
     

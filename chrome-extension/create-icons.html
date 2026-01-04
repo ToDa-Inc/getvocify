@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Vocify Icon Generator</title>
+</head>
+<body>
+  <h1>Vocify Icon Generator</h1>
+  <p>Right-click each canvas and "Save image as..." to create icon files.</p>
+  
+  <canvas id="icon16" width="16" height="16"></canvas>
+  <label>icon16.png</label><br><br>
+  
+  <canvas id="icon48" width="48" height="48"></canvas>
+  <label>icon48.png</label><br><br>
+  
+  <canvas id="icon128" width="128" height="128"></canvas>
+  <label>icon128.png</label>
+  
+  <script>
+    function createIcon(canvasId, size) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      
+      // Background
+      ctx.fillStyle = '#0066cc';
+      ctx.fillRect(0, 0, size, size);
+      
+      // Rounded corners (simple approximation)
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.beginPath();
+      const radius = size * 0.1875; // ~24px for 128px icon
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(size - radius, 0);
+      ctx.quadraticCurveTo(size, 0, size, radius);
+      ctx.lineTo(size, size - radius);
+      ctx.quadraticCurveTo(size, size, size - radius, size);
+      ctx.lineTo(radius, size);
+      ctx.quadraticCurveTo(0, size, 0, size - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.globalCompositeOperation = 'source-over';
+      
+      // Letter "V"
+      ctx.fillStyle = 'white';
+      ctx.font = `bold ${size * 0.625}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('V', size / 2, size / 2);
+    }
+    
+    createIcon('icon16', 16);
+    createIcon('icon48', 48);
+    createIcon('icon128', 128);
+  </script>
+</body>
+</html>

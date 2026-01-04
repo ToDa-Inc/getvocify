@@ -80,7 +80,7 @@ const ProblemSection = () => {
           >
             <h2 className="text-4xl md:text-6xl font-black text-foreground mb-8 tracking-tighter leading-tight text-balance">
               {t.problem.title1} <br />
-              <span className="text-beige font-black">{t.problem.title2}</span> {t.problem.title3}
+              <span className="text-beige font-serif italic font-medium">{t.problem.title2}</span> {t.problem.title3}
             </h2>
           </motion.div>
 
