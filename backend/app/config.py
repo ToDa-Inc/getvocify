@@ -4,6 +4,7 @@ Application configuration from environment variables
 
 import os
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional
 from pathlib import Path
 
@@ -18,7 +19,7 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: str
     SPEECHMATICS_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: str
-    EXTRACTION_MODEL: str = "openai/gpt-5-mini"
+    EXTRACTION_MODEL: str = "x-ai/grok-4.1-fast"
     
     # Supabase
     SUPABASE_URL: str
@@ -28,6 +29,32 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:5173"
     
+    @field_validator('SUPABASE_URL')
+    @classmethod
+    def validate_supabase_url(cls, v: str) -> str:
+        """Validate SUPABASE_URL format"""
+        if not v or not v.strip():
+            raise ValueError(
+                "SUPABASE_URL is empty. Please set it in your .env file. "
+                "Format: https://your-project.supabase.co"
+            )
+        v = v.strip()
+        if not v.startswith('http://') and not v.startswith('https://'):
+            raise ValueError(
+                f"SUPABASE_URL must start with http:// or https://. Got: {v[:20]}..."
+            )
+        return v
+    
+    @field_validator('SUPABASE_SERVICE_ROLE_KEY')
+    @classmethod
+    def validate_supabase_key(cls, v: str) -> str:
+        """Validate SUPABASE_SERVICE_ROLE_KEY is not empty"""
+        if not v or not v.strip():
+            raise ValueError(
+                "SUPABASE_SERVICE_ROLE_KEY is empty. Please set it in your .env file."
+            )
+        return v.strip()
+    
     class Config:
         env_file = str(ENV_FILE)
         case_sensitive = True
@@ -35,6 +62,17 @@ class Settings(BaseSettings):
 
 
 # Global settings instance
-settings = Settings()
+try:
+    settings = Settings()
+except Exception as e:
+    import sys
+    print(f"\n❌ Configuration Error: {e}\n", file=sys.stderr)
+    print(f"Please check your .env file at: {ENV_FILE}", file=sys.stderr)
+    print("Required variables:", file=sys.stderr)
+    print("  - SUPABASE_URL (e.g., https://your-project.supabase.co)", file=sys.stderr)
+    print("  - SUPABASE_SERVICE_ROLE_KEY", file=sys.stderr)
+    print("  - DEEPGRAM_API_KEY", file=sys.stderr)
+    print("  - OPENROUTER_API_KEY", file=sys.stderr)
+    sys.exit(1)
 
 

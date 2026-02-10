@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node start.js",
-    "start:all": "node start.js"
+    "start:all": "node start.js",
+    "server": "node start.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

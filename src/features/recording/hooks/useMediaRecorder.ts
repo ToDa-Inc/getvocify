@@ -64,6 +64,7 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   // Cleanup function
@@ -85,6 +86,14 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
       mediaRecorderRef.current.stop();
     }
     mediaRecorderRef.current = null;
+
+    // Close AudioContext (CRITICAL: prevents memory leak)
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch((err) => {
+        console.warn('Failed to close AudioContext:', err);
+      });
+      audioContextRef.current = null;
+    }
 
     // Stop media stream
     if (streamRef.current) {
@@ -149,6 +158,7 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
 
       // Set up audio analyser for visualization
       const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;  // Store for cleanup
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
@@ -173,6 +183,14 @@ export function useMediaRecorder(): UseMediaRecorderReturn {
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(blob);
         const recordingDuration = (Date.now() - startTimeRef.current) / 1000;
+
+        // Close AudioContext when recording stops (prevents memory leak)
+        if (audioContextRef.current) {
+          audioContextRef.current.close().catch((err) => {
+            console.warn('Failed to close AudioContext on stop:', err);
+          });
+          audioContextRef.current = null;
+        }
 
         // Validate duration
         if (recordingDuration < AUDIO.MIN_DURATION_SECONDS) {

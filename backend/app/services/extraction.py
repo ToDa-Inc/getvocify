@@ -18,7 +18,7 @@ class ExtractionService:
         self.api_key = settings.OPENROUTER_API_KEY
         self.model = settings.EXTRACTION_MODEL
     
-    def _build_prompt(self, transcript: str, field_specs: Optional[list[dict]] = None) -> str:
+    def _build_prompt(self, transcript: str, field_specs: Optional[list[dict]] = None, glossary_text: str = "") -> str:
         """Build the extraction prompt dynamically based on field specifications"""
         
         # Default fields that are always extracted for meeting intelligence
@@ -70,8 +70,28 @@ class ExtractionService:
         json_structure += "}"
 
         schema_text = "\n".join(schema_description) if schema_description else ""
+        
+        # STRUCTURED GLOSSARY Logic with Phonetic Physics
+        glossary_section = ""
+        if glossary_text:
+            glossary_section = f"""
+### GROUND TRUTH GLOSSARY (User-Specific Terms)
+{glossary_text}
+
+### DYNAMIC PHONETIC CORRECTION RULES:
+You must perform "Sound-Alike Matching" for every word in the Glossary above. 
+The transcript often contains "Phonetic Collisions" where English business terms are misheard as Spanish words.
+
+Apply these Collision Patterns to the Glossary items:
+1. **Acronym Collision**: Acronyms (like FTES, CRM, ROI) are often heard as Spanish-sounding fragments (FT is, Se erre eme, Erre oi) or similar-sounding acronyms (FPS, FTS).
+2. **Vowel Flattening**: English "ee" or "ea" sounds (Cobee, Deal) are often transcribed as Spanish "i" (Cobi, Dil).
+3. **Consonant Softening**: Terminal "k", "t", or "d" sounds (50k, Target, Edenred) are often dropped or replaced by "s", "sh", or "ch" (50 cash, Targe, En red).
+4. **Entity Priority**: If a transcript phrase sounds like a word in the Glossary, ALWAYS prioritize the Glossary term.
+"""
 
         return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
+
+{glossary_section}
 
 TRANSCRIPT:
 \"\"\"
@@ -92,13 +112,14 @@ TRANSCRIPT:
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
-    async def extract(self, transcript: str, field_specs: Optional[list[dict]] = None) -> MemoExtraction:
+    async def extract(self, transcript: str, field_specs: Optional[list[dict]] = None, glossary_text: str = "") -> MemoExtraction:
         """
         Extract structured CRM data from transcript
         
         Args:
             transcript: The transcript text from Deepgram
             field_specs: Optional list of curated field specifications
+            glossary_text: Optional text describing custom vocabulary for correction
             
         Returns:
             MemoExtraction with extracted data and confidence scores
@@ -110,7 +131,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 confidence={"overall": 0.0, "fields": {}}
             )
         
-        prompt = self._build_prompt(transcript, field_specs)
+        prompt = self._build_prompt(transcript, field_specs, glossary_text)
         
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:

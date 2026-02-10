@@ -34,6 +34,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from deepgram import AsyncDeepgramClient
 from deepgram.listen.v1.socket_client import ListenV1ControlMessage
 from app.config import settings
+from app.services.glossary import GlossaryService
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,10 @@ class SpeechmaticsProxy:
     Surgical Proxy for Speechmatics Real-time API.
     Handles bi-directional streaming between Client and Speechmatics.
     """
-    def __init__(self, language: str = "multi"):
+    def __init__(self, language: str = "multi", glossary: List[dict] = None):
         # Map multi to es for now as Speechmatics prefers specific codes
         self.language = "es" if language == "multi" else language
+        self.glossary = glossary or []
         # ROBUST KEY FETCH: settings -> os.environ -> direct fallback
         self.api_key = (
             settings.SPEECHMATICS_API_KEY or 
@@ -73,9 +75,10 @@ class SpeechmaticsProxy:
 
         try:
             # Connect to Speechmatics with Authorization Header
+            # NOTE: For websockets v15.0.1, additional_headers is used
             async with websockets.connect(
                 connection_url,
-                extra_headers={"Authorization": f"Bearer {self.api_key}"}
+                additional_headers={"Authorization": f"Bearer {self.api_key}"}
             ) as sm_ws:
                 logger.info("Speechmatics connection handshake successful")
                 
@@ -95,6 +98,14 @@ class SpeechmaticsProxy:
                         "max_delay": 1.0,
                     }
                 }
+                
+                # INJECT CUSTOM VOCABULARY
+                if self.glossary:
+                    service = GlossaryService()
+                    # AS PER DOCS: Field name is 'additional_vocab'
+                    config["transcription_config"]["additional_vocab"] = service.format_for_speechmatics(self.glossary)
+                    logger.info(f"Injected {len(self.glossary)} glossary terms into Speechmatics")
+
                 await sm_ws.send(json.dumps(config))
                 
                 # Internal state to wait for RecognitionStarted
@@ -161,24 +172,36 @@ class DeepgramProxy:
     Surgical Proxy using the official Deepgram SDK v5.3.0 (Async).
     Handles bi-directional streaming between Client and Deepgram.
     """
-    def __init__(self, language: str = "multi"):
+    def __init__(self, language: str = "multi", glossary: List[dict] = None):
         self.language = language
+        self.glossary = glossary or []
         self.client = AsyncDeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
         
     async def proxy_session(self, client_ws: WebSocket, audio_queue: asyncio.Queue):
         try:
-            async with self.client.listen.v1.connect(
-                model="nova-3",
-                language=self.language,
-                interim_results="true",
-                smart_format="true",
-                punctuate="true",
-                utterance_end_ms="1000",
-                vad_events="true",
-                endpointing="300",
-                encoding="linear16",
-                sample_rate="16000",
-            ) as dg_ws:
+            # Format keywords for Deepgram
+            dg_keywords = []
+            if self.glossary:
+                service = GlossaryService()
+                dg_keywords = service.format_for_deepgram(self.glossary)
+                logger.info(f"Injected {len(dg_keywords)} glossary keywords into Deepgram: {dg_keywords}")
+
+            # NOVA-3 MISSION: Using a more stable parameter set for Nova-3 Spanish
+            options = {
+                "model": "nova-3",
+                "language": "es",
+                "encoding": "linear16",    # Essential for raw PCM
+                "sample_rate": 16000,      # Essential for raw PCM
+                "interim_results": True,
+                "smart_format": True,
+            }
+            
+            # Reverting to 'keywords' as 'keyterm' may not be supported in SDK 5.3.0 yet
+            if dg_keywords:
+                options["keywords"] = dg_keywords
+                logger.info(f"Using 'keywords' for Nova-3: {dg_keywords}")
+
+            async with self.client.listen.v1.connect(**options) as dg_ws:
                 
                 logger.info("Deepgram connection established")
                 
@@ -206,12 +229,13 @@ class MultiProviderProxy:
     """
     Orchestrates both Deepgram and Speechmatics simultaneously.
     """
-    def __init__(self, language: str = "multi"):
+    def __init__(self, language: str = "multi", glossary: List[dict] = None):
         self.language = language
+        self.glossary = glossary or []
         self.dg_queue = asyncio.Queue()
         self.sm_queue = asyncio.Queue()
-        self.dg_proxy = DeepgramProxy(language)
-        self.sm_proxy = SpeechmaticsProxy(language)
+        self.dg_proxy = DeepgramProxy(language, glossary=self.glossary)
+        self.sm_proxy = SpeechmaticsProxy(language, glossary=self.glossary)
 
     async def proxy_session(self, client_ws: WebSocket):
         try:
@@ -257,6 +281,17 @@ async def live_transcription(
     """
     await websocket.accept()
     language = websocket.query_params.get("language", "multi")
+    user_id = websocket.query_params.get("user_id")
     
-    proxy = MultiProviderProxy(language=language)
+    # FETCH USER GLOSSARY IF USER_ID IS PROVIDED
+    glossary = []
+    if user_id:
+        try:
+            glossary_service = GlossaryService()
+            glossary = await glossary_service.get_user_glossary(user_id)
+            logger.info(f"Loaded {len(glossary)} glossary terms for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to load glossary: {e}")
+
+    proxy = MultiProviderProxy(language=language, glossary=glossary)
     await proxy.proxy_session(websocket)

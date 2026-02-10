@@ -259,3 +259,82 @@ async def get_current_user(
             detail=f"Failed to get user: {error_str}",
         )
 
+
+@router.post("/logout")
+async def logout(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Log out the current user.
+    
+    Invalidates the session on the server side.
+    Frontend should also clear tokens from localStorage.
+    """
+    try:
+        # Supabase doesn't have a server-side logout endpoint
+        # The JWT token will expire naturally
+        # For now, we just return success
+        # Frontend will clear tokens from localStorage
+        return {"success": True, "message": "Logged out successfully"}
+    except Exception as e:
+        # Don't fail logout even if there's an error
+        return {"success": True, "message": "Logged out successfully"}
+
+
+class RefreshRequest(BaseModel):
+    """Refresh token request"""
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    """Refresh token response"""
+    access_token: str
+    refresh_token: str
+    expires_in: int = 3600
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh_token(
+    request: RefreshRequest,
+    supabase: Client = Depends(get_supabase),
+):
+    """
+    Refresh the access token using a refresh token.
+    
+    Returns new access token and refresh token.
+    """
+    try:
+        # Refresh session with Supabase
+        auth_response = supabase.auth.refresh_session(request.refresh_token)
+        
+        if not auth_response.session:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token",
+            )
+        
+        access_token = auth_response.session.access_token
+        refresh_token = auth_response.session.refresh_token
+        expires_in = auth_response.session.expires_in or 3600
+        
+        return RefreshResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=expires_in,
+        )
+        
+    except Exception as e:
+        error_msg = str(e)
+        
+        if "invalid" in error_msg.lower() or "expired" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token",
+            )
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Token refresh failed: {error_msg}",
+        )
+

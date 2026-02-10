@@ -181,6 +181,21 @@ class HubSpotDealService:
         
         return properties
     
+    def _normalize_enum_value(
+        self, value: any, options: list
+    ) -> any:
+        """
+        Map label to value for HubSpot enum fields.
+        LLM extraction returns labels (e.g. 'High'); HubSpot API expects values (e.g. 'high').
+        """
+        if not isinstance(value, str) or not options:
+            return value
+        for opt in options:
+            if opt.label.lower() == value.strip().lower():
+                return opt.value
+        # Fallback: lowercase often works for standard enums like hs_priority
+        return value.lower()
+
     async def map_extraction_to_properties_with_stage(
         self,
         extraction: MemoExtraction,
@@ -205,7 +220,18 @@ class HubSpotDealService:
             stage_id = await self._resolve_stage_id(extraction.dealStage)
             if stage_id:
                 properties["dealstage"] = stage_id
-        
+
+        # Normalize enum fields: LLM returns labels, HubSpot API expects values
+        try:
+            schema = await self.schema.get_deal_schema()
+            prop_map = {p.name: p for p in schema.properties}
+            for key in list(properties.keys()):
+                prop = prop_map.get(key)
+                if prop and prop.type in ("enumeration", "radio", "select") and prop.options:
+                    properties[key] = self._normalize_enum_value(properties[key], prop.options)
+        except Exception:
+            pass  # If schema fetch fails, properties stay as-is
+
         return properties
     
     async def get(self, deal_id: str) -> HubSpotDeal:

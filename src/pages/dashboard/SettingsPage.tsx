@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
+import { UserGlossary } from "@/components/dashboard/glossary/UserGlossary";
 import { crmApi } from "@/lib/api/crm";
 
 const SettingsPage = () => {
@@ -67,6 +68,11 @@ const SettingsPage = () => {
           <HubSpotConfiguration />
         </div>
       )}
+
+      {/* AI Glossary / Custom Vocabulary */}
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 border-2 border-beige/10 bg-gradient-to-br from-white to-beige/5`}>
+        <UserGlossary />
+      </div>
 
       {/* Profile */}
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>

@@ -11,6 +11,7 @@ from app.deps import get_supabase, get_user_id
 from app.services.storage import StorageService
 from app.services.transcription import TranscriptionService
 from app.services.extraction import ExtractionService
+from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
 from app.services.hubspot import (
@@ -39,6 +40,7 @@ router = APIRouter(prefix="/api/v1/memos", tags=["memos"])
 
 async def extract_memo_async(
     memo_id: str,
+    user_id: str,
     transcript: str,
     supabase: Client,
     extraction_service: ExtractionService,
@@ -47,28 +49,47 @@ async def extract_memo_async(
     """
     Background task to extract structured data from pre-transcribed memo
     """
+    from datetime import datetime
+    
     try:
+        # Mark processing started
+        supabase.table("memos").update({
+            "status": "extracting",
+            "processing_started_at": datetime.utcnow().isoformat(),
+        }).eq("id", memo_id).execute()
+        
+        # Fetch user glossary for LLM correction
+        glossary_service = GlossaryService(supabase)
+        glossary = await glossary_service.get_user_glossary(user_id)
+        glossary_text = glossary_service.format_for_llm(glossary)
+
         # Extract structured data
-        extraction = await extraction_service.extract(transcript, field_specs)
+        extraction = await extraction_service.extract(
+            transcript, 
+            field_specs, 
+            glossary_text=glossary_text
+        )
         
         # Update with extraction and mark as pending_review
-        from datetime import datetime
         supabase.table("memos").update({
             "status": "pending_review",
             "extraction": extraction.model_dump(),
             "processed_at": datetime.utcnow().isoformat(),
+            "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
         
     except Exception as e:
-        # Update status to failed
+        # Update status to failed and clear processing_started_at
         supabase.table("memos").update({
             "status": "failed",
-            "error_message": str(e)
+            "error_message": str(e),
+            "processing_started_at": None,
         }).eq("id", memo_id).execute()
 
 
 async def process_memo_async(
     memo_id: str,
+    user_id: str,
     audio_url: str,
     supabase: Client,
     transcription_service: TranscriptionService,
@@ -78,15 +99,22 @@ async def process_memo_async(
     """
     Background task to process memo: transcribe → extract → update status
     """
+    from datetime import datetime
+    
     try:
-        # Update status to transcribing
+        # Mark processing started
         supabase.table("memos").update({
-            "status": "transcribing"
+            "status": "transcribing",
+            "processing_started_at": datetime.utcnow().isoformat(),
         }).eq("id", memo_id).execute()
         
+        # Fetch user glossary for LLM correction
+        glossary_service = GlossaryService(supabase)
+        glossary = await glossary_service.get_user_glossary(user_id)
+        glossary_text = glossary_service.format_for_llm(glossary)
+
         # Download audio from storage
-        # Extract path from URL
-        # Supabase URLs format: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+        # ... parts ...
         parts = audio_url.split("/public/voice-memos/")
         if len(parts) < 2:
             raise Exception("Invalid audio URL")
@@ -111,21 +139,22 @@ async def process_memo_async(
         }).eq("id", memo_id).execute()
         
         # Extract structured data
-        extraction = await extraction_service.extract(transcription.transcript, field_specs)
+        extraction = await extraction_service.extract(transcription.transcript, field_specs, glossary_text=glossary_text)
         
         # Update with extraction and mark as pending_review
-        from datetime import datetime
         supabase.table("memos").update({
             "status": "pending_review",
             "extraction": extraction.model_dump(),
             "processed_at": datetime.utcnow().isoformat(),
+            "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
         
     except Exception as e:
-        # Update status to failed
+        # Update status to failed and clear processing_started_at
         supabase.table("memos").update({
             "status": "failed",
-            "error_message": str(e)
+            "error_message": str(e),
+            "processing_started_at": None,
         }).eq("id", memo_id).execute()
 
 
@@ -214,7 +243,7 @@ async def upload_memo(
         # Start extraction directly (skip transcription)
         extraction_service = ExtractionService()
         asyncio.create_task(
-            extract_memo_async(memo_id, transcript.strip(), supabase, extraction_service, field_specs)
+            extract_memo_async(memo_id, user_id, transcript.strip(), supabase, extraction_service, field_specs)
         )
         
         return UploadResponse(
@@ -241,6 +270,7 @@ async def upload_memo(
         asyncio.create_task(
             process_memo_async(
                 memo_id,
+                user_id,
                 audio_url,
                 supabase,
                 transcription_service,
@@ -333,6 +363,8 @@ async def approve_memo(
     If extraction is provided in payload, it will be used instead of the stored extraction.
     This allows users to edit the extraction before approving.
     
+    Idempotency: If memo is already approved and extraction hasn't changed, returns existing result.
+    
     When HubSpot integration is implemented, this will:
     1. Get user's CRM connection
     2. Map extraction to CRM fields
@@ -361,6 +393,29 @@ async def approve_memo(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No extraction data available. Please wait for processing to complete."
         )
+    
+    # Idempotency check: If already approved and extraction hasn't changed, return existing
+    if memo_data.get("status") == "approved" and memo_data.get("approved_at"):
+        # Check if extraction was edited (re-approval with changes)
+        if payload and payload.extraction:
+            # Extraction was edited, allow re-approval
+            pass
+        else:
+            # Same extraction, already approved - return existing memo (idempotent)
+            return Memo(
+                id=memo_data["id"],
+                userId=memo_data["user_id"],
+                audioUrl=memo_data["audio_url"],
+                audioDuration=memo_data["audio_duration"],
+                status=memo_data["status"],
+                transcript=memo_data.get("transcript"),
+                transcriptConfidence=memo_data.get("transcript_confidence"),
+                extraction=memo_data.get("extraction"),
+                errorMessage=memo_data.get("error_message"),
+                createdAt=memo_data["created_at"],
+                processedAt=memo_data.get("processed_at"),
+                approvedAt=memo_data.get("approved_at"),
+            )
     
     # Get user's CRM connection
     crm_result = supabase.table("crm_connections").select("*").eq(
@@ -721,4 +776,316 @@ async def get_approval_preview(
         }).eq("id", str(memo_id)).execute()
     
     return preview
+
+
+@router.post("/{memo_id}/cleanup-orphans")
+async def cleanup_orphans(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Clean up orphaned CRM records for a memo.
+    
+    Finds company/contact records created for this memo that don't have
+    an associated deal (orphans) and optionally deletes them from HubSpot.
+    
+    This is useful when a sync fails partway through, leaving orphaned records.
+    """
+    # Verify memo belongs to user
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    
+    memo_data = memo_result.data
+    
+    # Check if HubSpot is connected
+    try:
+        conn_result = supabase.table("crm_connections").select("*").eq(
+            "user_id", user_id
+        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
+        
+        if not conn_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found",
+            )
+        
+        connection_id = conn_result.data["id"]
+        access_token = conn_result.data["access_token"]
+    except Exception as e:
+        error_str = str(e)
+        if "no rows" in error_str.lower() or "PGRST116" in error_str:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found",
+            )
+        raise
+    
+    # Get CRM updates for this memo
+    crm_updates_service = CRMUpdatesService(supabase)
+    updates_data = await crm_updates_service.get_memo_updates(str(memo_id))
+    
+    # Find successful company/contact creations without successful deal creation
+    company_id = None
+    contact_id = None
+    deal_created = False
+    
+    for update in updates_data:
+        if update.get("status") == "success":
+            action_type = update.get("action_type")
+            data = update.get("data", {})
+            
+            if action_type == "upsert_company" and "company_id" in data:
+                company_id = data["company_id"]
+            elif action_type == "upsert_contact" and "contact_id" in data:
+                contact_id = data["contact_id"]
+            elif action_type in ["create_deal", "update_deal"]:
+                deal_created = True
+    
+    # If deal was created, no orphans exist
+    if deal_created:
+        return {
+            "message": "No orphans found - deal was successfully created",
+            "orphans_cleaned": 0,
+        }
+    
+    # Clean up orphans
+    cleaned = []
+    
+    if company_id:
+        try:
+            client = HubSpotClient(access_token)
+            await client.delete(f"/crm/v3/objects/companies/{company_id}")
+            cleaned.append({"type": "company", "id": company_id})
+        except Exception as e:
+            # Log but don't fail
+            pass
+    
+    if contact_id:
+        try:
+            client = HubSpotClient(access_token)
+            await client.delete(f"/crm/v3/objects/contacts/{contact_id}")
+            cleaned.append({"type": "contact", "id": contact_id})
+        except Exception as e:
+            # Log but don't fail
+            pass
+    
+    return {
+        "message": f"Cleaned up {len(cleaned)} orphaned records",
+        "orphans_cleaned": len(cleaned),
+        "cleaned": cleaned,
+    }
+
+
+@router.post("/{memo_id}/reject", response_model=Memo)
+async def reject_memo(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Reject a memo.
+    
+    Marks the memo as rejected. No CRM update happens.
+    This is a final state - rejected memos cannot be approved later.
+    """
+    # Get memo
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    
+    memo_data = memo_result.data
+    
+    # Check if already rejected
+    if memo_data.get("status") == "rejected":
+        # Already rejected, return existing (idempotent)
+        return Memo(
+            id=memo_data["id"],
+            userId=memo_data["user_id"],
+            audioUrl=memo_data["audio_url"],
+            audioDuration=memo_data["audio_duration"],
+            status=memo_data["status"],
+            transcript=memo_data.get("transcript"),
+            transcriptConfidence=memo_data.get("transcript_confidence"),
+            extraction=memo_data.get("extraction"),
+            errorMessage=memo_data.get("error_message"),
+            createdAt=memo_data["created_at"],
+            processedAt=memo_data.get("processed_at"),
+            approvedAt=memo_data.get("approved_at"),
+        )
+    
+    # Check if already approved (cannot reject approved memos)
+    if memo_data.get("status") == "approved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reject an already approved memo",
+        )
+    
+    # Update status to rejected
+    from datetime import datetime
+    supabase.table("memos").update({
+        "status": "rejected",
+    }).eq("id", str(memo_id)).execute()
+    
+    # Return updated memo
+    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+    updated_memo = updated_result.data
+    
+    return Memo(
+        id=updated_memo["id"],
+        userId=updated_memo["user_id"],
+        audioUrl=updated_memo["audio_url"],
+        audioDuration=updated_memo["audio_duration"],
+        status=updated_memo["status"],
+        transcript=updated_memo.get("transcript"),
+        transcriptConfidence=updated_memo.get("transcript_confidence"),
+        extraction=updated_memo.get("extraction"),
+        errorMessage=updated_memo.get("error_message"),
+        createdAt=updated_memo["created_at"],
+        processedAt=updated_memo.get("processed_at"),
+        approvedAt=updated_memo.get("approved_at"),
+    )
+
+
+@router.delete("/{memo_id}")
+async def delete_memo(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Delete a memo and its audio file.
+    
+    Permanently removes the memo record and associated audio file from storage.
+    CRM updates are preserved for audit trail.
+    """
+    # Get memo
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    
+    memo_data = memo_result.data
+    audio_url = memo_data.get("audio_url")
+    
+    # Delete audio file from storage
+    if audio_url:
+        try:
+            from app.services.storage import StorageService
+            storage_service = StorageService(supabase)
+            await storage_service.delete_audio(audio_url)
+        except Exception as e:
+            # Log error but continue with memo deletion
+            print(f"Failed to delete audio file: {e}")
+    
+    # Delete memo record
+    supabase.table("memos").delete().eq("id", str(memo_id)).execute()
+    
+    return {"success": True, "message": "Memo deleted"}
+
+
+@router.post("/{memo_id}/re-extract", response_model=Memo)
+async def re_extract_memo(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Re-extract structured data from a memo's transcript.
+    
+    Re-runs the GPT-5-mini extraction on the existing transcript.
+    Useful when the initial extraction was incorrect or incomplete.
+    
+    Requires:
+    - Memo must have a transcript
+    - Memo must not be approved (to prevent overwriting approved data)
+    """
+    # Get memo
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    
+    memo_data = memo_result.data
+    transcript = memo_data.get("transcript")
+    
+    if not transcript:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memo does not have a transcript. Cannot re-extract.",
+        )
+    
+    # Check if already approved (prevent overwriting approved data)
+    if memo_data.get("status") == "approved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot re-extract an approved memo. Please reject it first if you need to change the extraction.",
+        )
+    
+    # Get user's CRM configuration for field specs
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = config.allowed_deal_fields if config else None
+    
+    # Get curated field specs
+    field_specs = None
+    if allowed_fields:
+        try:
+            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
+            schema_service = HubSpotSchemaService(client, supabase, connection_id)
+            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
+        except Exception:
+            # Fallback to None if connection fails
+            field_specs = None
+    
+    # Fetch user glossary for LLM correction
+    glossary_service = GlossaryService(supabase)
+    glossary = await glossary_service.get_user_glossary(user_id)
+    glossary_text = glossary_service.format_for_llm(glossary)
+
+    # Re-run extraction
+    extraction_service = ExtractionService()
+    extraction = await extraction_service.extract(transcript, field_specs, glossary_text=glossary_text)
+    
+    # Update memo with new extraction
+    from datetime import datetime
+    supabase.table("memos").update({
+        "status": "pending_review",
+        "extraction": extraction.model_dump(),
+        "processed_at": datetime.utcnow().isoformat(),
+    }).eq("id", str(memo_id)).execute()
+    
+    # Return updated memo
+    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+    updated_memo = updated_result.data
+    
+    return Memo(
+        id=updated_memo["id"],
+        userId=updated_memo["user_id"],
+        audioUrl=updated_memo["audio_url"],
+        audioDuration=updated_memo["audio_duration"],
+        status=updated_memo["status"],
+        transcript=updated_memo.get("transcript"),
+        transcriptConfidence=updated_memo.get("transcript_confidence"),
+        extraction=updated_memo.get("extraction"),
+        errorMessage=updated_memo.get("error_message"),
+        createdAt=updated_memo["created_at"],
+        processedAt=updated_memo.get("processed_at"),
+        approvedAt=updated_memo.get("approved_at"),
+    )
 

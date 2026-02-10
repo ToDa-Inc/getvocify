@@ -40,7 +40,7 @@ class StorageService:
                 file=audio_bytes,
                 file_options={
                     "content-type": content_type,
-                    "upsert": "false"
+                    "upsert": False
                 }
             )
         except Exception as e:

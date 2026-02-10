@@ -88,6 +88,9 @@ class HubSpotSyncService:
         Supports both creating new deals and updating existing deals.
         Filters properties based on allowed_fields whitelist.
         
+        On retry, reuses existing company/contact IDs from previous attempts
+        to prevent orphan creation.
+        
         Args:
             memo_id: Voice memo ID
             user_id: User ID
@@ -106,27 +109,54 @@ class HubSpotSyncService:
         if allowed_fields is None:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
         
-        company_id = None
-        contact_id = None
+        # Check for existing company/contact IDs from previous failed attempts
+        # This prevents creating duplicates on retry
+        existing_company_id = None
+        existing_contact_id = None
+        
+        if self.supabase:
+            try:
+                # Get previous CRM updates for this memo
+                previous_updates = await self.crm_updates.get_memo_updates(str(memo_id))
+                
+                # Find successful company/contact creations
+                for update in previous_updates:
+                    if update.get("status") == "success":
+                        data = update.get("data", {})
+                        if update.get("action_type") == "upsert_company" and "company_id" in data:
+                            existing_company_id = data["company_id"]
+                        elif update.get("action_type") == "upsert_contact" and "contact_id" in data:
+                            existing_contact_id = data["contact_id"]
+            except Exception:
+                # If we can't check, proceed normally (not critical)
+                pass
+        
+        company_id = existing_company_id
+        contact_id = existing_contact_id
         
         try:
             # Step 1: Company (if we have company name and auto-create enabled)
             # Note: For update mode, we still create/update company if needed
             if extraction.companyName:
                 try:
-                    company = await self.companies.create_or_update(extraction)
-                    if company:
-                        company_id = company.id
+                    # Reuse existing company ID if available (prevents duplicates on retry)
+                    if existing_company_id:
+                        company_id = existing_company_id
                         result.company_id = company_id
-                        
-                        await self.crm_updates.create_update(
-                            memo_id=str(memo_id),
-                            user_id=user_id,
-                            crm_connection_id=str(connection_id),
-                            action_type="upsert_company",
-                            resource_type="company",
-                            data={"company_id": company_id, "name": extraction.companyName},
-                        )
+                    else:
+                        company = await self.companies.create_or_update(extraction)
+                        if company:
+                            company_id = company.id
+                            result.company_id = company_id
+                            
+                            await self.crm_updates.create_update(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="upsert_company",
+                                resource_type="company",
+                                data={"company_id": company_id, "name": extraction.companyName},
+                            )
                 except Exception as e:
                     # Log error but continue
                     await self.crm_updates.create_update(
@@ -141,19 +171,24 @@ class HubSpotSyncService:
             # Step 2: Contact (if we have email or name)
             if extraction.contactEmail or extraction.contactName:
                 try:
-                    contact = await self.contacts.create_or_update(extraction)
-                    if contact:
-                        contact_id = contact.id
+                    # Reuse existing contact ID if available (prevents duplicates on retry)
+                    if existing_contact_id:
+                        contact_id = existing_contact_id
                         result.contact_id = contact_id
-                        
-                        await self.crm_updates.create_update(
-                            memo_id=str(memo_id),
-                            user_id=user_id,
-                            crm_connection_id=str(connection_id),
-                            action_type="upsert_contact",
-                            resource_type="contact",
-                            data={"contact_id": contact_id, "email": extraction.contactEmail},
-                        )
+                    else:
+                        contact = await self.contacts.create_or_update(extraction)
+                        if contact:
+                            contact_id = contact.id
+                            result.contact_id = contact_id
+                            
+                            await self.crm_updates.create_update(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="upsert_contact",
+                                resource_type="contact",
+                                data={"contact_id": contact_id, "email": extraction.contactEmail},
+                            )
                 except Exception as e:
                     # Log error but continue
                     await self.crm_updates.create_update(

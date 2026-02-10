@@ -70,6 +70,27 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.on_event("startup")
+async def startup_event():
+    """
+    Startup event handler.
+    Recovers stuck memo processing tasks on server startup.
+    """
+    try:
+        from app.deps import get_supabase
+        from app.services.recovery import RecoveryService
+        
+        supabase = get_supabase()
+        recovery_service = RecoveryService(supabase)
+        result = await recovery_service.recover_all_stuck_memos()
+        
+        if result["found"] > 0:
+            print(f"Startup recovery: Found {result['found']} stuck memos, recovered {result['recovered']}")
+    except Exception as e:
+        # Don't fail startup if recovery fails
+        print(f"Startup recovery failed: {e}")
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""

@@ -6,14 +6,50 @@ from fastapi import Depends, HTTPException, status, Header
 from supabase import create_client, Client
 from app.config import settings
 from typing import Optional
+import threading
+
+
+# Singleton Supabase client (thread-safe)
+_supabase_client: Optional[Client] = None
+_supabase_lock = threading.Lock()
 
 
 def get_supabase() -> Client:
-    """Get Supabase client instance"""
-    return create_client(
-        settings.SUPABASE_URL,
-        settings.SUPABASE_SERVICE_ROLE_KEY
-    )
+    """
+    Get Supabase client instance (singleton pattern).
+    
+    Creates client once and reuses it for all requests.
+    Thread-safe initialization.
+    """
+    global _supabase_client
+    
+    if _supabase_client is None:
+        with _supabase_lock:
+            # Double-check pattern
+            if _supabase_client is None:
+                try:
+                    _supabase_client = create_client(
+                        settings.SUPABASE_URL,
+                        settings.SUPABASE_SERVICE_ROLE_KEY
+                    )
+                except Exception as e:
+                    error_msg = str(e)
+                    # Check for DNS/connection errors
+                    if "nodename nor servname" in error_msg or "not known" in error_msg:
+                        raise RuntimeError(
+                            f"Failed to connect to Supabase. DNS resolution failed for URL: {settings.SUPABASE_URL}\n"
+                            f"Please verify:\n"
+                            f"  1. SUPABASE_URL is correct in your .env file\n"
+                            f"  2. The URL is accessible from your network\n"
+                            f"  3. The URL format is: https://your-project.supabase.co\n"
+                            f"Error: {error_msg}"
+                        )
+                    raise RuntimeError(
+                        f"Failed to initialize Supabase client: {error_msg}\n"
+                        f"Please check your SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env"
+                    )
+    
+    return _supabase_client
 
 
 def get_user_id(
@@ -27,7 +63,7 @@ def get_user_id(
         print("DEBUG: Authorization header missing")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization header"
+            detail="Missing authorization header. Please sign up or log in first to get an access token."
         )
     
     if not authorization.startswith("Bearer "):
