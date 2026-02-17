@@ -5,6 +5,8 @@ Fetches properties and pipelines with intelligent caching.
 Supports both in-memory and database caching.
 """
 
+from __future__ import annotations
+
 from typing import Literal, Optional
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -47,7 +49,7 @@ class HubSpotSchemaService:
         age = datetime.utcnow() - self._cache_timestamps[object_type]
         return age.total_seconds() < self.CACHE_TTL_SECONDS
     
-    def _get_from_cache(self, object_type: str) -> CRMSchema | None:
+    def _get_from_cache(self, object_type: Optional[str]) -> Optional[CRMSchema]:
         """Get schema from cache if valid"""
         if self._is_cache_valid(object_type) and object_type in self._cache:
             return self._cache[object_type]
@@ -58,7 +60,7 @@ class HubSpotSchemaService:
         self._cache[object_type] = schema
         self._cache_timestamps[object_type] = datetime.utcnow()
     
-    def invalidate_cache(self, object_type: str | None = None) -> None:
+    def invalidate_cache(self, object_type: Optional[str] = None) -> None:
         """
         Invalidate schema cache.
         

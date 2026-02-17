@@ -5,6 +5,8 @@ Handles creating, updating, and finding contacts with proper
 field mapping from MemoExtraction to HubSpot properties.
 """
 
+from typing import Any, Optional
+
 from .client import HubSpotClient
 from .exceptions import HubSpotError, HubSpotConflictError
 from .types import HubSpotContact, CreateObjectRequest, UpdateObjectRequest
@@ -51,7 +53,7 @@ class HubSpotContactService:
     def map_extraction_to_properties(
         self,
         extraction: MemoExtraction,
-    ) -> dict[str, any]:
+    ) -> dict[str, Any]:
         """
         Convert MemoExtraction fields to HubSpot contact properties.
         
@@ -61,7 +63,7 @@ class HubSpotContactService:
         Returns:
             Dictionary of HubSpot property names to values
         """
-        properties: dict[str, any] = {}
+        properties: dict[str, Any] = {}
         
         # Email (unique identifier, required for contacts)
         if extraction.contactEmail:
@@ -115,7 +117,7 @@ class HubSpotContactService:
                 raise
             raise HubSpotError(f"Failed to get contact: {str(e)}")
     
-    async def create(self, properties: dict[str, any]) -> HubSpotContact:
+    async def create(self, properties: dict[str, Any]) -> HubSpotContact:
         """
         Create a new contact.
         
@@ -156,7 +158,7 @@ class HubSpotContactService:
     async def update(
         self,
         contact_id: str,
-        properties: dict[str, any],
+        properties: dict[str, Any],
     ) -> HubSpotContact:
         """
         Update an existing contact.
@@ -190,36 +192,57 @@ class HubSpotContactService:
                 raise
             raise HubSpotError(f"Failed to update contact: {str(e)}")
     
+    def _placeholder_email(self, extraction: MemoExtraction) -> str:
+        """
+        Generate a placeholder email when we have contactName but no email.
+        HubSpot requires email - we use a deterministic placeholder so we can
+        find/update the same contact later.
+        """
+        import re
+        firstname, lastname = self._parse_name(extraction.contactName or "")
+        slug_parts = [p for p in [firstname, lastname] if p]
+        contact_slug = re.sub(r"[^a-z0-9]", "", "".join(slug_parts).lower()) or "unknown"
+        company_slug = re.sub(r"[^a-z0-9]", "", (extraction.companyName or "").lower())[:20] or "company"
+        return f"{contact_slug}.{company_slug}@vocify.placeholder"
+    
     async def create_or_update(
         self,
         extraction: MemoExtraction,
-    ) -> HubSpotContact | None:
+    ) -> Optional[HubSpotContact]:
         """
         Create or update a contact based on extraction data.
         
         Logic:
-        1. If email exists, find existing contact
-        2. If found, update it with new data
-        3. If not found, create new contact
-        4. If no email, return None (can't create contact without email)
+        1. If email exists, find existing contact by email
+        2. If contactName but no email: use placeholder email (HubSpot requires email)
+        3. If found, update it with new data
+        4. If not found, create new contact
+        5. If no contactName and no email, return None
         
         Args:
             extraction: MemoExtraction with contact data
             
         Returns:
-            HubSpotContact if created/updated, None if no email provided
+            HubSpotContact if created/updated, None if no contact data
             
         Raises:
             HubSpotError for API errors
         """
-        # Can't create contact without email
-        if not extraction.contactEmail:
+        # Need at least contactName or email
+        if not extraction.contactName and not extraction.contactEmail:
             return None
         
-        properties = self.map_extraction_to_properties(extraction)
+        # HubSpot requires email - use placeholder when we only have name
+        email = extraction.contactEmail
+        if not email and extraction.contactName:
+            email = self._placeholder_email(extraction)
+        
+        # Build extraction with resolved email for mapping
+        extraction_with_email = extraction.model_copy(update={"contactEmail": email})
+        properties = self.map_extraction_to_properties(extraction_with_email)
         
         # Try to find existing contact by email
-        existing = await self.search.find_contact_by_email(extraction.contactEmail)
+        existing = await self.search.find_contact_by_email(email)
         
         if existing:
             # Update existing contact

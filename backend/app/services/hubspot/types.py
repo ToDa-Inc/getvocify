@@ -4,8 +4,10 @@ Pydantic models for HubSpot API types.
 Mirrors HubSpot's API response structures and request formats.
 """
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 from datetime import datetime
 
 
@@ -18,7 +20,7 @@ class PropertyOption(BaseModel):
     label: str
     value: str
     hidden: bool = False
-    description: str | None = None
+    description: Optional[str] = None
 
 
 class HubSpotProperty(BaseModel):
@@ -32,7 +34,7 @@ class HubSpotProperty(BaseModel):
     required: bool = False
     readOnlyValue: bool = False
     hidden: bool = False
-    description: str | None = None
+    description: Optional[str] = None
     
     class Config:
         # HubSpot uses camelCase in API responses
@@ -108,10 +110,21 @@ class HubSpotDeal(HubSpotObject):
 # REQUEST TYPES
 # ============================================================================
 
+class AssociationTo(BaseModel):
+    """Target object for an association (HubSpot format)"""
+    id: str | int  # HubSpot accepts string or int for object IDs
+
+
+class AssociationTypeSpec(BaseModel):
+    """Association type specification (HubSpot format)"""
+    associationCategory: str = "HUBSPOT_DEFINED"
+    associationTypeId: int  # 3 = deal-to-contact, 5 = deal-to-company
+
+
 class AssociationSpec(BaseModel):
-    """Specification for creating an association"""
-    to_object_id: str
-    association_type: str = "3"  # Default: deal to contact
+    """Specification for creating an association (HubSpot create-object format)"""
+    to: AssociationTo
+    types: list[AssociationTypeSpec]
 
 
 class CreateObjectRequest(BaseModel):
@@ -147,7 +160,7 @@ class Filter(BaseModel):
         "CONTAINS_TOKEN",   # Contains token (text search)
         "NOT_CONTAINS_TOKEN",
     ]
-    value: str | int | float | list[str | int | float] | None = None
+    value: Optional[str | int | float | list[str | int | float]] = None
 
 
 class FilterGroup(BaseModel):
@@ -160,13 +173,13 @@ class SearchRequest(BaseModel):
     filterGroups: list[FilterGroup] = Field(default_factory=list)
     properties: list[str] = Field(default_factory=list)  # Properties to return
     limit: int = Field(default=10, ge=1, le=100)
-    after: str | None = None  # Pagination cursor
+    after: Optional[str] = None  # Pagination cursor
 
 
 class SearchResponse(BaseModel):
     """Response from HubSpot search API"""
     results: list[dict[str, Any]] = Field(default_factory=list)
-    paging: dict[str, Any] | None = None
+    paging: Optional[dict[str, Any]] = None
 
 
 # ============================================================================
@@ -176,22 +189,22 @@ class SearchResponse(BaseModel):
 class ValidationResult(BaseModel):
     """Result of token validation"""
     valid: bool
-    portal_id: str | None = None
-    region: str | None = "na1"  # eu1, na1, etc.
+    portal_id: Optional[str] = None
+    region: Optional[str] = "na1"  # eu1, na1, etc.
     scopes_ok: bool = False
-    error: str | None = None
-    error_code: str | None = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
 
 
 class SyncResult(BaseModel):
     """Result of syncing a memo to HubSpot"""
     memo_id: str
     success: bool = False
-    company_id: str | None = None
-    contact_id: str | None = None
-    deal_id: str | None = None
-    deal_name: str | None = None
-    deal_url: str | None = None
-    error: str | None = None
-    error_code: str | None = None
+    company_id: Optional[str] = None
+    contact_id: Optional[str] = None
+    deal_id: Optional[str] = None
+    deal_name: Optional[str] = None
+    deal_url: Optional[str] = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
 

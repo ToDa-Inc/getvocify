@@ -5,9 +5,11 @@ Handles authentication, request/response processing, error handling,
 rate limiting, and retries.
 """
 
+from __future__ import annotations
+
 import asyncio
 import httpx
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime, timedelta
 
 from .exceptions import (
@@ -95,7 +97,7 @@ class HubSpotClient:
     def _handle_error_response(
         self,
         status_code: int,
-        response_data: dict[str, Any] | None,
+        response_data: Optional[dict[str, Any]],
     ) -> None:
         """
         Convert HTTP error response to appropriate exception.
@@ -175,10 +177,10 @@ class HubSpotClient:
         self,
         method: str,
         endpoint: str,
-        data: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
+        data: Optional[dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
         retry_count: int = 0,
-    ) -> dict[str, Any] | None:
+    ) -> Optional[dict[str, Any]]:
         """
         Make HTTP request to HubSpot API with retry logic.
         
@@ -254,16 +256,16 @@ class HubSpotClient:
     async def get(
         self,
         endpoint: str,
-        params: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
+        params: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
         """GET request"""
         return await self._request("GET", endpoint, params=params)
     
     async def post(
         self,
         endpoint: str,
-        data: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
+        data: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
         """POST request"""
         return await self._request("POST", endpoint, data=data)
     
@@ -271,15 +273,15 @@ class HubSpotClient:
         self,
         endpoint: str,
         data: dict[str, Any],
-    ) -> dict[str, Any] | None:
+    ) -> Optional[dict[str, Any]]:
         """PATCH request"""
         return await self._request("PATCH", endpoint, data=data)
     
     async def put(
         self,
         endpoint: str,
-        data: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
+        data: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
         """PUT request"""
         return await self._request("PUT", endpoint, data=data)
     

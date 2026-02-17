@@ -6,9 +6,19 @@ field mapping from MemoExtraction to HubSpot properties.
 Includes pipeline stage resolution.
 """
 
+from __future__ import annotations
+from typing import Optional
+
 from .client import HubSpotClient
 from .exceptions import HubSpotError
-from .types import HubSpotDeal, CreateObjectRequest, UpdateObjectRequest
+from .types import (
+    HubSpotDeal,
+    CreateObjectRequest,
+    UpdateObjectRequest,
+    AssociationSpec,
+    AssociationTo,
+    AssociationTypeSpec,
+)
 from .search import HubSpotSearchService
 from .schema import HubSpotSchemaService
 from app.models.memo import MemoExtraction
@@ -41,7 +51,7 @@ class HubSpotDealService:
     def _generate_deal_name(
         self,
         extraction: MemoExtraction,
-        contact_name: str | None = None,
+        contact_name: Optional[str] = None,
     ) -> str:
         """
         Generate a deal name from extraction data.
@@ -67,7 +77,7 @@ class HubSpotDealService:
         else:
             return "New Deal"
     
-    def _to_hubspot_timestamp(self, iso_date: str) -> str | None:
+    def _to_hubspot_timestamp(self, iso_date: Optional[str]) -> str:
         """
         Convert ISO date string to HubSpot timestamp (milliseconds since epoch).
         
@@ -91,7 +101,7 @@ class HubSpotDealService:
         except Exception:
             return None
     
-    async def _resolve_stage_id(self, stage_name: str) -> str | None:
+    async def _resolve_stage_id(self, stage_name: Optional[str]) -> str:
         """
         Resolve pipeline stage name to stage ID.
         
@@ -121,8 +131,8 @@ class HubSpotDealService:
     def map_extraction_to_properties(
         self,
         extraction: MemoExtraction,
-        deal_name: str | None = None,
-    ) -> dict[str, any]:
+        deal_name: Optional[str] = None,
+    ) -> dict[str, Any]:
         """
         Convert MemoExtraction fields to HubSpot deal properties.
         
@@ -133,7 +143,7 @@ class HubSpotDealService:
         Returns:
             Dictionary of HubSpot property names to values
         """
-        properties: dict[str, any] = {}
+        properties: dict[str, Any] = {}
         
         # 1. Handle Legacy / Standard Fields (Backward Compatibility)
         # Deal name (required)
@@ -156,11 +166,12 @@ class HubSpotDealService:
         # 2. Handle Dynamic CRM Fields (The "Gold Standard")
         # If we have raw_extraction, use it as the source of truth for CRM fields
         if extraction.raw_extraction:
-            # Fields we already handled in step 1 or that are not CRM properties
+            # Fields we already handled in step 1 or that are not CRM deal properties
             skip_fields = [
                 "dealname", "amount", "closedate", "description",
                 "summary", "painPoints", "nextSteps", "competitors", 
-                "objections", "decisionMakers", "confidence"
+                "objections", "decisionMakers", "confidence",
+                "contactName", "companyName", "contactEmail",  # Used for associations, not deal props
             ]
             
             for key, value in extraction.raw_extraction.items():
@@ -199,8 +210,8 @@ class HubSpotDealService:
     async def map_extraction_to_properties_with_stage(
         self,
         extraction: MemoExtraction,
-        deal_name: str | None = None,
-    ) -> dict[str, any]:
+        deal_name: Optional[str] = None,
+    ) -> dict[str, Any]:
         """
         Convert MemoExtraction to HubSpot properties, including stage resolution.
         
@@ -268,9 +279,9 @@ class HubSpotDealService:
     
     async def create(
         self,
-        properties: dict[str, any],
-        contact_id: str | None = None,
-        company_id: str | None = None,
+        properties: dict[str, Any],
+        contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
     ) -> HubSpotDeal:
         """
         Create a new deal with optional associations.
@@ -291,14 +302,20 @@ class HubSpotDealService:
         
         request = CreateObjectRequest(properties=properties)
         
-        # Add associations if provided
+        # Add associations if provided (HubSpot format: to.id + types)
         if contact_id:
             request.associations.append(
-                {"to_object_id": contact_id, "association_type": "3"}
+                AssociationSpec(
+                    to=AssociationTo(id=contact_id),
+                    types=[AssociationTypeSpec(associationTypeId=3)],  # deal to contact
+                )
             )
         if company_id:
             request.associations.append(
-                {"to_object_id": company_id, "association_type": "5"}
+                AssociationSpec(
+                    to=AssociationTo(id=company_id),
+                    types=[AssociationTypeSpec(associationTypeId=5)],  # deal to company
+                )
             )
         
         try:
@@ -320,7 +337,7 @@ class HubSpotDealService:
     async def update(
         self,
         deal_id: str,
-        properties: dict[str, any],
+        properties: dict[str, Any],
     ) -> HubSpotDeal:
         """
         Update an existing deal.
@@ -357,8 +374,8 @@ class HubSpotDealService:
     async def create_or_update(
         self,
         extraction: MemoExtraction,
-        contact_id: str | None = None,
-        company_id: str | None = None,
+        contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
     ) -> HubSpotDeal:
         """
         Create a new deal based on extraction data.

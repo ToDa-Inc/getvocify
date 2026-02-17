@@ -100,20 +100,9 @@ class HubSpotMatchingService:
         limit: int = 3,
         pipeline_id: Optional[str] = None,
     ) -> list[DealMatch]:
-        """Find deals associated with a company"""
+        """Find deals by company name (searches deal name and company records)"""
         try:
-            # First, find the company
-            company = await self.search.find_company_by_name(company_name)
-            
-            if not company:
-                return []
-            
-            # Then find deals associated with this company
-            # Note: HubSpot search doesn't directly support association filters
-            # We'll search deals and filter by association in a follow-up call
-            # For MVP, we'll use a simpler approach: search deals by name
-            
-            # Search deals with company name in deal name
+            # Search deals where deal name contains company name (e.g. "Cobee" matches "Cobee Deal")
             filters = [
                 Filter(
                     propertyName="dealname",
@@ -173,23 +162,9 @@ class HubSpotMatchingService:
         limit: int = 3,
         pipeline_id: Optional[str] = None,
     ) -> list[DealMatch]:
-        """Find deals associated with a contact"""
+        """Find deals by contact name or email (searches deal name)"""
         try:
-            contact = None
-            
-            # Find contact by email first (more reliable)
-            if contact_email:
-                contact = await self.search.find_contact_by_email(contact_email)
-            
-            # Fallback to name search
-            if not contact and contact_name:
-                contact = await self.search.find_contact_by_name(contact_name)
-            
-            if not contact:
-                return []
-            
-            # Search deals with contact name in deal name
-            search_term = contact_name or contact_email or ""
+            search_term = (contact_name or contact_email or "").strip()
             if not search_term:
                 return []
             

@@ -6,6 +6,9 @@ to HubSpot CRM, including creating/updating contacts, companies, deals,
 and associations.
 """
 
+from __future__ import annotations
+from typing import Any, Optional
+
 from uuid import UUID
 
 from .client import HubSpotClient
@@ -57,9 +60,9 @@ class HubSpotSyncService:
     
     def _filter_properties(
         self,
-        properties: dict[str, any],
+        properties: dict[str, Any],
         allowed_fields: list[str],
-    ) -> dict[str, any]:
+    ) -> dict[str, Any]:
         """
         Filter properties to only include allowed fields.
         
@@ -78,9 +81,9 @@ class HubSpotSyncService:
         user_id: str,
         connection_id: UUID | str,
         extraction: MemoExtraction,
-        deal_id: str | None = None,
+        deal_id: Optional[str] = None,
         is_new_deal: bool = False,
-        allowed_fields: list[str] | None = None,
+        allowed_fields: Optional[list[str]] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -282,21 +285,21 @@ class HubSpotSyncService:
                 
                 return result
             
-            # Step 5: Associate deal → contact, deal → company (only for new deals)
-            if is_new_deal or not deal_id:
-                if contact_id:
-                    try:
-                        await self.associations.associate_deal_to_contact(deal_id, contact_id)
-                    except Exception:
-                        # Log but don't fail
-                        pass
-                
-                if company_id:
-                    try:
-                        await self.associations.associate_deal_to_company(deal_id, company_id)
-                    except Exception:
-                        # Log but don't fail
-                        pass
+            # Step 5: Associate deal → contact, deal → company (always when we have them)
+            # Applies to both new deals and existing deals being updated
+            if deal_id and contact_id:
+                try:
+                    await self.associations.associate_deal_to_contact(deal_id, contact_id)
+                except Exception:
+                    # Log but don't fail
+                    pass
+            
+            if deal_id and company_id:
+                try:
+                    await self.associations.associate_deal_to_company(deal_id, company_id)
+                except Exception:
+                    # Log but don't fail
+                    pass
             
             # Success!
             result.success = True

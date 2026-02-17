@@ -5,6 +5,9 @@ Provides granular error handling with specific exception types
 for different failure scenarios.
 """
 
+from __future__ import annotations
+from typing import Optional
+
 
 class HubSpotError(Exception):
     """Base exception for all HubSpot-related errors"""
@@ -12,8 +15,8 @@ class HubSpotError(Exception):
     def __init__(
         self,
         message: str,
-        status_code: int | None = None,
-        response_data: dict | None = None,
+        status_code: Optional[int] = None,
+        response_data: Optional[dict] = None,
     ):
         super().__init__(message)
         self.message = message
@@ -44,9 +47,9 @@ class HubSpotScopeError(HubSpotError):
     def __init__(
         self,
         message: str,
-        required_scope: str | None = None,
-        status_code: int | None = None,
-        response_data: dict | None = None,
+        required_scope: Optional[str] = None,
+        status_code: Optional[int] = None,
+        response_data: Optional[dict] = None,
     ):
         super().__init__(message, status_code, response_data)
         self.required_scope = required_scope
@@ -86,9 +89,9 @@ class HubSpotRateLimitError(HubSpotError):
     def __init__(
         self,
         message: str,
-        retry_after: int | None = None,
-        status_code: int | None = None,
-        response_data: dict | None = None,
+        retry_after: Optional[int] = None,
+        status_code: Optional[int] = None,
+        response_data: Optional[dict] = None,
     ):
         super().__init__(message, status_code, response_data)
         self.retry_after = retry_after

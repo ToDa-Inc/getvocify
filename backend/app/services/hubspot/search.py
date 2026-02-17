@@ -4,7 +4,9 @@ Search and deduplication service for HubSpot objects.
 Finds existing records before creating duplicates.
 """
 
-from typing import Literal
+from __future__ import annotations
+
+from typing import Literal, Optional
 
 from .client import HubSpotClient
 from .exceptions import HubSpotError
@@ -40,9 +42,9 @@ class HubSpotSearchService:
         self,
         object_type: Literal["contacts", "companies", "deals"],
         filters: list[Filter],
-        properties: list[str] | None = None,
+        properties: Optional[list[str]] = None,
         limit: int = 10,
-    ) -> list[dict[str, any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search for objects using filters.
         
@@ -79,7 +81,7 @@ class HubSpotSearchService:
         except Exception as e:
             raise HubSpotError(f"Search failed for {object_type}: {str(e)}")
     
-    async def find_contact_by_email(self, email: str) -> HubSpotContact | None:
+    async def find_contact_by_email(self, email: Optional[str]) -> HubSpotContact:
         """
         Find contact by email address.
         
@@ -114,8 +116,53 @@ class HubSpotSearchService:
             return HubSpotContact(**results[0])
         except Exception:
             return None
-    
-    async def find_company_by_name(self, name: str) -> HubSpotCompany | None:
+
+    async def find_contact_by_name(self, name: Optional[str]) -> Optional[HubSpotContact]:
+        """
+        Find contact by name (firstname or lastname contains the search term).
+        """
+        if not name or not name.strip():
+            return None
+        search_term = name.strip()
+        filters = [
+            Filter(
+                propertyName="firstname",
+                operator="CONTAINS_TOKEN",
+                value=search_term,
+            )
+        ]
+        results = await self.search(
+            self.CONTACTS,
+            filters,
+            properties=["email", "firstname", "lastname", "phone"],
+            limit=1,
+        )
+        if results:
+            try:
+                return HubSpotContact(**results[0])
+            except Exception:
+                pass
+        filters = [
+            Filter(
+                propertyName="lastname",
+                operator="CONTAINS_TOKEN",
+                value=search_term,
+            )
+        ]
+        results = await self.search(
+            self.CONTACTS,
+            filters,
+            properties=["email", "firstname", "lastname", "phone"],
+            limit=1,
+        )
+        if not results:
+            return None
+        try:
+            return HubSpotContact(**results[0])
+        except Exception:
+            return None
+
+    async def find_company_by_name(self, name: Optional[str]) -> Optional[HubSpotCompany]:
         """
         Find company by name (exact match).
         
@@ -131,7 +178,7 @@ class HubSpotSearchService:
         filters = [
             Filter(
                 propertyName="name",
-                operator="EQ",
+                operator="CONTAINS_TOKEN",
                 value=name.strip(),
             )
         ]
@@ -151,7 +198,7 @@ class HubSpotSearchService:
         except Exception:
             return None
     
-    async def find_company_by_domain(self, domain: str) -> HubSpotCompany | None:
+    async def find_company_by_domain(self, domain: Optional[str]) -> Optional[HubSpotCompany]:
         """
         Find company by domain name.
         
@@ -196,8 +243,8 @@ class HubSpotSearchService:
     async def find_deal_by_name(
         self,
         deal_name: str,
-        contact_id: str | None = None,
-    ) -> HubSpotDeal | None:
+        contact_id: Optional[str] = None,
+    ) -> Optional[HubSpotDeal]:
         """
         Find deal by name, optionally filtered by contact.
         
@@ -242,8 +289,8 @@ class HubSpotSearchService:
         self,
         query: str,
         limit: int = 10,
-        pipeline_id: str | None = None,
-    ) -> list[dict[str, any]]:
+        pipeline_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
         """
         Search for deals using a text query (matches name).
         """

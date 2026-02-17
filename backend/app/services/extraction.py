@@ -2,6 +2,8 @@
 OpenRouter LLM extraction service
 """
 
+from __future__ import annotations
+
 import json
 import httpx
 from app.config import settings
@@ -22,7 +24,12 @@ class ExtractionService:
         """Build the extraction prompt dynamically based on field specifications"""
         
         # Default fields that are always extracted for meeting intelligence
+        # companyName and contactName are CRITICAL for deal matching - always extract
         standard_fields = {
+            "companyName": "string (company/client name mentioned, e.g. Cobee, Acme Corp)",
+            "contactName": "string (name of person spoken to, e.g. Tony, Maria)",
+            "contactEmail": "string | null (email if mentioned in transcript)",
+            "contactPhone": "string | null (phone if mentioned in transcript)",
             "summary": "string (2-3 sentences about the meeting)",
             "painPoints": "string[]",
             "nextSteps": "string[]",
@@ -179,10 +186,23 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                         raise Exception("Failed to parse JSON from LLM response")
                 
                 # Map back to MemoExtraction model
-                # Note: We keep the internal HubSpot names as keys in the JSON
-                # Mapping legacy fields for backward compatibility in the UI
+                # companyName: explicit field first, fallback to dealname if it looks like "X Deal"
+                company = extracted.get("companyName")
+                if not company and extracted.get("dealname"):
+                    dn = str(extracted.get("dealname", ""))
+                    if " deal" in dn.lower():
+                        company = dn.replace(" Deal", "").replace(" deal", "").strip()
+                    else:
+                        company = dn
+                # contactName, contactEmail, contactPhone: explicit extraction
+                contact = extracted.get("contactName")
+                contact_email = extracted.get("contactEmail") or None
+                contact_phone = extracted.get("contactPhone") or None
                 return MemoExtraction(
-                    companyName=extracted.get("dealname"),
+                    companyName=company or None,
+                    contactName=contact or None,
+                    contactEmail=contact_email,
+                    contactPhone=contact_phone,
                     dealAmount=extracted.get("amount"),
                     dealCurrency=extracted.get("deal_currency_code", "EUR"),
                     dealStage=extracted.get("dealstage"),

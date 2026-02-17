@@ -204,6 +204,7 @@ export const UserGlossary = () => {
                 onChange={(e) => setNewCategory(e.target.value)}
               >
                 <option value="Company">Company</option>
+                <option value="Competitor">Competitor</option>
                 <option value="Product">Product</option>
                 <option value="Technical">Technical</option>
                 <option value="Slang">Slang/Lingo</option>
@@ -251,6 +252,7 @@ export const UserGlossary = () => {
               <div className="flex items-center gap-4">
                 <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter ${
                   item.category === 'Company' ? 'bg-blue-100 text-blue-700' :
+                  item.category === 'Competitor' ? 'bg-red-100 text-red-700' :
                   item.category === 'Product' ? 'bg-purple-100 text-purple-700' :
                   item.category === 'Slang' ? 'bg-orange-100 text-orange-700' :
                   'bg-gray-100 text-gray-700'

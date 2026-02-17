@@ -16,6 +16,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
   const [matching, setMatching] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [preview, setPreview] = useState<any>(null);
+  const [extractionError, setExtractionError] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -36,16 +37,34 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
   useEffect(() => {
     const init = async () => {
       setMatching(true);
+      setLoading(true);
       try {
-        const matches = await crmApi.findMatches(memoId);
+        let matches: any[] = [];
+        try {
+          matches = await crmApi.findMatches(memoId);
+        } catch (matchErr: any) {
+          if (matchErr?.status === 400 && String(matchErr?.data?.detail || "").includes("extraction not available")) {
+            setExtractionError(true);
+            toast.error("Extraction not ready. Please wait for processing or try re-extract.");
+            return;
+          }
+          toast.error("Failed to find matching deals");
+        }
         const topDealId = Array.isArray(matches) && matches.length > 0 
           ? matches[0].deal_id 
           : undefined;
         await fetchPreview(topDealId);
-      } catch (error) {
-        toast.error("Failed to analyze memo for CRM updates");
+      } catch (error: any) {
+        if (error?.status === 400 && error?.data?.detail?.includes("extraction not available")) {
+          setExtractionError(true);
+          toast.error("Extraction not available. Wait for processing or use Re-extract.");
+        } else {
+          toast.error("Failed to load preview");
+        }
+        setPreview(null);
       } finally {
         setMatching(false);
+        setLoading(false);
       }
     };
     init();
@@ -88,6 +107,24 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
       setSyncing(false);
     }
   };
+
+  if (extractionError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-6">
+        <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
+          <AlertCircle className="h-8 w-8 text-destructive" />
+        </div>
+        <div className="text-center space-y-2 max-w-sm">
+          <p className="text-sm font-black uppercase tracking-widest text-foreground">
+            Extraction Not Available
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Processing may have failed or is still in progress. Check the memo status and try Re-extract if you have a transcript.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading && !preview) {
     return (

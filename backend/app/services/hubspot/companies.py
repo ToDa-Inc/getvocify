@@ -5,6 +5,8 @@ Handles creating, updating, and finding companies with proper
 field mapping from MemoExtraction to HubSpot properties.
 """
 
+from typing import Any, Optional
+
 from .client import HubSpotClient
 from .exceptions import HubSpotError
 from .types import HubSpotCompany, CreateObjectRequest, UpdateObjectRequest
@@ -31,7 +33,7 @@ class HubSpotCompanyService:
     def map_extraction_to_properties(
         self,
         extraction: MemoExtraction,
-    ) -> dict[str, any]:
+    ) -> dict[str, Any]:
         """
         Convert MemoExtraction fields to HubSpot company properties.
         
@@ -41,7 +43,7 @@ class HubSpotCompanyService:
         Returns:
             Dictionary of HubSpot property names to values
         """
-        properties: dict[str, any] = {}
+        properties: dict[str, Any] = {}
         
         # Company name (required)
         if extraction.companyName:
@@ -82,7 +84,7 @@ class HubSpotCompanyService:
                 raise
             raise HubSpotError(f"Failed to get company: {str(e)}")
     
-    async def create(self, properties: dict[str, any]) -> HubSpotCompany:
+    async def create(self, properties: dict[str, Any]) -> HubSpotCompany:
         """
         Create a new company.
         
@@ -119,7 +121,7 @@ class HubSpotCompanyService:
     async def update(
         self,
         company_id: str,
-        properties: dict[str, any],
+        properties: dict[str, Any],
     ) -> HubSpotCompany:
         """
         Update an existing company.
@@ -156,7 +158,7 @@ class HubSpotCompanyService:
     async def create_or_update(
         self,
         extraction: MemoExtraction,
-    ) -> HubSpotCompany | None:
+    ) -> Optional[HubSpotCompany]:
         """
         Create or update a company based on extraction data.
         

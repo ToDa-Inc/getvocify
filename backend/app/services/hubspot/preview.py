@@ -1,9 +1,13 @@
 """
 Approval preview service for showing proposed CRM updates.
+
+Uses the same property mapping as sync (map_extraction_to_properties) so that
+proposed_updates reflects exactly what the config's allowed_deal_fields specify,
+and what the LLM extracted from the transcript.
 """
 
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Any
 from app.models.memo import MemoExtraction
 from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch
 from .client import HubSpotClient
@@ -12,14 +16,25 @@ from .deals import HubSpotDealService
 from .schema import HubSpotSchemaService
 
 
+def _format_value_for_display(value: Any) -> str:
+    """Format a value for display in ProposedUpdate.new_value/current_value"""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    if isinstance(value, (int, float)):
+        return str(value)
+    return str(value)
+
+
 class HubSpotPreviewService:
     """
     Builds approval previews showing what will be updated in HubSpot.
     
-    Compares extraction data to existing deal properties and generates
-    a list of proposed changes.
+    Uses map_extraction_to_properties (same as sync) so proposed_updates
+    reflects config's allowed_deal_fields and LLM extraction.
     """
-    
+
     def __init__(
         self,
         client: HubSpotClient,
@@ -29,7 +44,7 @@ class HubSpotPreviewService:
         self.client = client
         self.deals = deal_service
         self.schema = schema_service
-    
+
     async def build_preview(
         self,
         memo_id: UUID,
@@ -42,42 +57,57 @@ class HubSpotPreviewService:
         """
         Build approval preview with proposed updates.
         
-        Args:
-            memo_id: Memo ID
-            transcript: Full transcript text
-            extraction: Extracted data
-            matched_deals: List of matched deals from matching service
-            selected_deal_id: Deal ID user selected (None = create new)
-            allowed_fields: List of field names user allows AI to update
-            
-        Returns:
-            ApprovalPreview with proposed changes
+        Uses config's allowed_deal_fields and the same mapping as sync.
+        Shows what the LLM extracted for each allowed field.
         """
-        # Get transcript summary (first 200 chars)
         transcript_summary = transcript[:200] + "..." if len(transcript) > 200 else transcript
-        
-        # Default allowed fields if not provided
+
         if allowed_fields is None:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
-        
-        # Determine if creating new deal or updating existing
+
         is_new_deal = selected_deal_id is None
-        
         selected_deal: Optional[DealMatch] = None
         proposed_updates: list[ProposedUpdate] = []
-        
+
+        # Get properties using same logic as sync (uses extraction + raw_extraction)
+        properties = self.deals.map_extraction_to_properties(extraction)
+
+        # Filter by allowed_fields - only show what config permits
+        filtered_properties = {k: v for k, v in properties.items() if k in allowed_fields}
+
+        # Get field labels from schema
+        field_specs = await self.schema.get_curated_field_specs("deals", list(filtered_properties.keys()))
+        field_labels = {s["name"]: s["label"] for s in field_specs}
+
+        # For display: use human-readable extraction values when available
+        def _display_value(field_name: str, value: Any) -> str:
+            if value is None or value == "":
+                return ""
+            if field_name == "closedate" and extraction.closeDate:
+                return extraction.closeDate  # ISO date more readable than timestamp
+            return _format_value_for_display(value)
+
         if is_new_deal:
-            # Creating new deal - no current values
-            proposed_updates = self._build_new_deal_updates(extraction, allowed_fields)
+            # New deal: all values are "new", no current values
+            for field_name, new_value in filtered_properties.items():
+                if new_value is None or new_value == "":
+                    continue
+                label = field_labels.get(field_name, field_name.replace("_", " ").title())
+                confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
+                proposed_updates.append(ProposedUpdate(
+                    field_name=field_name,
+                    field_label=label,
+                    current_value=None,
+                    new_value=_display_value(field_name, new_value),
+                    extraction_confidence=confidence,
+                ))
         else:
-            # Updating existing deal - fetch current values
-            # Try to find in matched deals first
+            # Update existing deal: compare with current values
             selected_deal = next(
                 (d for d in matched_deals if d.deal_id == selected_deal_id),
                 None
             )
-            
-            # If not in matched deals (manual selection), fetch basic info
+
             if not selected_deal:
                 try:
                     deal = await self.deals.get(selected_deal_id)
@@ -88,19 +118,44 @@ class HubSpotPreviewService:
                         match_confidence=1.0,
                         stage=deal.properties.get("dealstage"),
                         amount=deal.properties.get("amount"),
-                        last_updated=deal.properties.get("hs_lastmodifieddate", "")
+                        last_updated=deal.properties.get("hs_lastmodifieddate", ""),
                     )
                 except Exception:
-                    # Fallback if deal not found
                     pass
-            
+
             if selected_deal:
-                proposed_updates = await self._build_update_preview(
-                    selected_deal_id,
-                    extraction,
-                    allowed_fields,
-                )
-        
+                try:
+                    current_deal = await self.deals.get(selected_deal_id)
+                    current_props = current_deal.properties
+
+                    for field_name, new_value in filtered_properties.items():
+                        if new_value is None or new_value == "":
+                            continue
+
+                        current_value = current_props.get(field_name)
+
+                        # For description, append mode (same as sync)
+                        if field_name == "description" and current_value:
+                            new_display = f"{current_value}\n\n{_format_value_for_display(new_value)}"
+                        else:
+                            new_display = _display_value(field_name, new_value)
+
+                        current_display = _display_value(field_name, current_value)
+
+                        # Only show if there's a change
+                        if current_display != new_display:
+                            label = field_labels.get(field_name, field_name.replace("_", " ").title())
+                            confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
+                            proposed_updates.append(ProposedUpdate(
+                                field_name=field_name,
+                                field_label=label,
+                                current_value=current_display or "(empty)",
+                                new_value=new_display,
+                                extraction_confidence=confidence,
+                            ))
+                except Exception:
+                    pass
+
         return ApprovalPreview(
             memo_id=memo_id,
             transcript_summary=transcript_summary,
@@ -109,150 +164,3 @@ class HubSpotPreviewService:
             is_new_deal=is_new_deal,
             proposed_updates=proposed_updates,
         )
-    
-    def _build_new_deal_updates(
-        self,
-        extraction: MemoExtraction,
-        allowed_fields: list[str],
-    ) -> list[ProposedUpdate]:
-        """Build proposed updates for a new deal"""
-        updates = []
-        
-        # Get schema for field labels
-        # Note: We'll need to fetch this, but for MVP we'll use common field names
-        field_labels = {
-            "dealname": "Deal Name",
-            "amount": "Amount",
-            "description": "Description",
-            "closedate": "Close Date",
-        }
-        
-        # Deal name
-        if "dealname" in allowed_fields and extraction.companyName:
-            deal_name = f"{extraction.companyName} Deal"
-            updates.append(ProposedUpdate(
-                field_name="dealname",
-                field_label=field_labels.get("dealname", "Deal Name"),
-                current_value=None,
-                new_value=deal_name,
-                extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
-            ))
-        
-        # Amount
-        if "amount" in allowed_fields and extraction.dealAmount is not None:
-            updates.append(ProposedUpdate(
-                field_name="amount",
-                field_label=field_labels.get("amount", "Amount"),
-                current_value=None,
-                new_value=str(extraction.dealAmount),
-                extraction_confidence=extraction.confidence.get("fields", {}).get("dealAmount", 0.7),
-            ))
-        
-        # Description (summary)
-        if "description" in allowed_fields and extraction.summary:
-            updates.append(ProposedUpdate(
-                field_name="description",
-                field_label=field_labels.get("description", "Description"),
-                current_value=None,
-                new_value=extraction.summary,
-                extraction_confidence=extraction.confidence.get("fields", {}).get("summary", 0.8),
-            ))
-        
-        # Close date
-        if "closedate" in allowed_fields and extraction.closeDate:
-            updates.append(ProposedUpdate(
-                field_name="closedate",
-                field_label=field_labels.get("closedate", "Close Date"),
-                current_value=None,
-                new_value=extraction.closeDate,
-                extraction_confidence=extraction.confidence.get("fields", {}).get("closeDate", 0.7),
-            ))
-        
-        return updates
-    
-    async def _build_update_preview(
-        self,
-        deal_id: str,
-        extraction: MemoExtraction,
-        allowed_fields: list[str],
-    ) -> list[ProposedUpdate]:
-        """Build proposed updates for an existing deal"""
-        updates = []
-        
-        try:
-            # Fetch current deal
-            current_deal = await self.deals.get(deal_id)
-            current_props = current_deal.properties
-            
-            # Field labels
-            field_labels = {
-                "dealname": "Deal Name",
-                "amount": "Amount",
-                "description": "Description",
-                "closedate": "Close Date",
-            }
-            
-            # Compare extraction to current values
-            # Deal name
-            if "dealname" in allowed_fields and extraction.companyName:
-                current_name = current_props.get("dealname")
-                new_name = f"{extraction.companyName} Deal"
-                if current_name != new_name:
-                    updates.append(ProposedUpdate(
-                        field_name="dealname",
-                        field_label=field_labels.get("dealname", "Deal Name"),
-                        current_value=current_name,
-                        new_value=new_name,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
-                    ))
-            
-            # Amount
-            if "amount" in allowed_fields and extraction.dealAmount is not None:
-                current_amount = current_props.get("amount")
-                new_amount = str(extraction.dealAmount)
-                if current_amount != new_amount:
-                    updates.append(ProposedUpdate(
-                        field_name="amount",
-                        field_label=field_labels.get("amount", "Amount"),
-                        current_value=current_amount,
-                        new_value=new_amount,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("dealAmount", 0.7),
-                    ))
-            
-            # Description
-            if "description" in allowed_fields and extraction.summary:
-                current_desc = current_props.get("description")
-                # Append to description if it exists, otherwise set it
-                if current_desc:
-                    new_desc = f"{current_desc}\n\n{extraction.summary}"
-                else:
-                    new_desc = extraction.summary
-                
-                if current_desc != new_desc:
-                    updates.append(ProposedUpdate(
-                        field_name="description",
-                        field_label=field_labels.get("description", "Description"),
-                        current_value=current_desc or "(empty)",
-                        new_value=new_desc,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("summary", 0.8),
-                    ))
-            
-            # Close date
-            if "closedate" in allowed_fields and extraction.closeDate:
-                current_date = current_props.get("closedate")
-                if current_date != extraction.closeDate:
-                    updates.append(ProposedUpdate(
-                        field_name="closedate",
-                        field_label=field_labels.get("closedate", "Close Date"),
-                        current_value=current_date,
-                        new_value=extraction.closeDate,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("closeDate", 0.7),
-                    ))
-            
-        except Exception as e:
-            # If we can't fetch current deal, return empty updates
-            # The sync will handle the error
-            pass
-        
-        return updates
-
