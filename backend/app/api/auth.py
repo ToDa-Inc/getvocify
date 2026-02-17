@@ -42,7 +42,16 @@ class UserResponse(BaseModel):
     full_name: Optional[str] = None
     company_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    phone: Optional[str] = None
     created_at: str
+
+
+class UpdateProfileRequest(BaseModel):
+    """Profile update request"""
+    full_name: Optional[str] = None
+    company_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class AuthResponse(BaseModel):
@@ -244,6 +253,7 @@ async def get_current_user(
             full_name=profile.get("full_name"),
             company_name=profile.get("company_name"),
             avatar_url=profile.get("avatar_url"),
+            phone=profile.get("phone"),
             created_at=profile.get("created_at", ""),
         )
         
@@ -255,9 +265,35 @@ async def get_current_user(
                 detail="User profile not found",
             )
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get user: {error_str}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to get user: {error_str}",
         )
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_profile(
+    request: UpdateProfileRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Update current user profile. Include phone for WhatsApp sender lookup."""
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    supabase.table("user_profiles").update(updates).eq("id", user_id).execute()
+    profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
+    if not profile_result.data:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    p = profile_result.data
+    return UserResponse(
+        id=user_id,
+        email="",
+        full_name=p.get("full_name"),
+        company_name=p.get("company_name"),
+        avatar_url=p.get("avatar_url"),
+        phone=p.get("phone"),
+        created_at=p.get("created_at", ""),
+    )
 
 
 @router.post("/logout")

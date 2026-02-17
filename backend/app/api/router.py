@@ -3,7 +3,7 @@ Main API router combining all route modules
 """
 
 from fastapi import APIRouter
-from app.api import health, memos, crm, transcription, auth, glossary
+from app.api import health, memos, crm, transcription, auth, glossary, webhooks
 
 api_router = APIRouter()
 
@@ -14,5 +14,6 @@ api_router.include_router(memos.router)
 api_router.include_router(crm.router)
 api_router.include_router(transcription.router)
 api_router.include_router(glossary.router)
+api_router.include_router(webhooks.router, prefix="/webhooks")
 
 

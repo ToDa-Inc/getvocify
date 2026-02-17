@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
+import { useAuth } from "@/features/auth";
+import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
 import { 
   Home, 
   Mic, 
@@ -34,6 +36,7 @@ const navItems = [
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const { user } = useAuth();
 
   const isActive = (path: string) => {
     if (path === "/dashboard") {
@@ -140,15 +143,21 @@ const DashboardLayout = () => {
           {/* User Menu */}
           <div className="flex items-center gap-4">
             <div className="hidden md:block text-right mr-2">
-              <p className="text-xs font-bold text-foreground leading-none">John Doe</p>
-              <p className="text-[10px] font-medium text-muted-foreground mt-1">Enterprise Plan</p>
+              <p className="text-xs font-bold text-foreground leading-none">
+                {user ? getUserDisplayName(user) : 'User'}
+              </p>
+              <p className="text-[10px] font-medium text-muted-foreground mt-1">
+                {user?.companyName || 'Free Plan'}
+              </p>
             </div>
             
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0 border border-border/40 shadow-soft overflow-hidden group">
                   <div className="absolute inset-0 bg-beige/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <span className="text-xs font-black text-beige">JD</span>
+                  <span className="text-xs font-black text-beige">
+                    {user ? getUserInitials(user) : 'U'}
+                  </span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 mt-2 rounded-2xl border-border/40 shadow-large p-2">

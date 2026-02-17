@@ -4,17 +4,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
 import { UserGlossary } from "@/components/dashboard/glossary/UserGlossary";
 import { crmApi } from "@/lib/api/crm";
+import { useAuth } from "@/features/auth";
+import { authApi, authKeys } from "@/features/auth/api";
+import { getUserInitials } from "@/features/auth/types";
 
 const SettingsPage = () => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [autoApprove, setAutoApprove] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [slackNotifications, setSlackNotifications] = useState(false);
   const [isHubSpotConnected, setIsHubSpotConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [fullName, setFullName] = useState(user?.fullName ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setFullName(user.fullName ?? "");
+      setPhone(user.phone ?? "");
+    }
+  }, [user]);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -30,8 +46,20 @@ const SettingsPage = () => {
     checkConnection();
   }, []);
 
-  const handleSave = () => {
-    toast.success("Settings saved successfully");
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const updates: { fullName?: string; phone?: string } = {};
+      if (fullName.trim()) updates.fullName = fullName.trim();
+      updates.phone = phone.trim();  // Always send so user can clear WhatsApp phone
+      const updated = await authApi.updateProfile(updates);
+      queryClient.setQueryData(authKeys.me(), updated);
+      toast.success("Profile saved successfully");
+    } catch (error) {
+      toast.error("Failed to save profile");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (isLoading) {
@@ -81,7 +109,9 @@ const SettingsPage = () => {
         <div className="flex items-center gap-8 mb-8 pb-8 border-b border-border/40">
           <div className="relative">
             <div className={`w-24 h-24 ${THEME_TOKENS.radius.pill} bg-secondary/10 flex items-center justify-center border-4 border-white shadow-medium`}>
-              <span className="text-3xl font-black text-beige">JD</span>
+              <span className="text-3xl font-black text-beige">
+                {user ? getUserInitials(user) : "?"}
+              </span>
             </div>
             <button className={`absolute -bottom-1 -right-1 w-10 h-10 ${THEME_TOKENS.radius.pill} bg-beige text-cream flex items-center justify-center shadow-medium hover:bg-beige-dark transition-colors border-4 border-white`}>
               <Camera className="h-4 w-4" />
@@ -96,21 +126,50 @@ const SettingsPage = () => {
         <div className="grid sm:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Full Name</label>
-            <Input defaultValue="John Doe" className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold" />
+            <Input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Your name"
+              className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
+            />
           </div>
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Email</label>
-            <Input defaultValue="john@company.com" disabled className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold opacity-50" />
+            <Input
+              value={user?.email || ""}
+              disabled
+              placeholder="Email from account"
+              className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold opacity-50"
+            />
           </div>
           <div className="sm:col-span-2 space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Phone (optional)</label>
-            <Input placeholder="+1 (555) 000-0000" className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold" />
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 (555) 000-0000"
+              className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Add your WhatsApp number for voice-to-CRM via WhatsApp
+            </p>
           </div>
         </div>
 
         <div className="mt-10">
-          <Button onClick={handleSave} className="rounded-full px-8 h-12 bg-beige text-cream shadow-medium hover:scale-105 transition-transform">
-            Save Changes
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="rounded-full px-8 h-12 bg-beige text-cream shadow-medium hover:scale-105 transition-transform"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save Changes"
+            )}
           </Button>
         </div>
       </div>

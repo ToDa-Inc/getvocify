@@ -307,7 +307,7 @@ async def get_memo(
     return Memo(
         id=memo_data["id"],
         userId=memo_data["user_id"],
-        audioUrl=memo_data["audio_url"],
+        audioUrl=memo_data.get("audio_url") or "",
         audioDuration=memo_data["audio_duration"],
         status=memo_data["status"],
         transcript=memo_data.get("transcript"),
@@ -335,7 +335,7 @@ async def list_memos(
         memos.append(Memo(
             id=memo_data["id"],
             userId=memo_data["user_id"],
-            audioUrl=memo_data["audio_url"],
+            audioUrl=memo_data.get("audio_url") or "",
             audioDuration=memo_data["audio_duration"],
             status=memo_data["status"],
             transcript=memo_data.get("transcript"),
@@ -405,7 +405,7 @@ async def approve_memo(
             return Memo(
                 id=memo_data["id"],
                 userId=memo_data["user_id"],
-                audioUrl=memo_data["audio_url"],
+                audioUrl=memo_data.get("audio_url") or "",
                 audioDuration=memo_data["audio_duration"],
                 status=memo_data["status"],
                 transcript=memo_data.get("transcript"),
@@ -911,7 +911,7 @@ async def reject_memo(
         return Memo(
             id=memo_data["id"],
             userId=memo_data["user_id"],
-            audioUrl=memo_data["audio_url"],
+            audioUrl=memo_data.get("audio_url") or "",
             audioDuration=memo_data["audio_duration"],
             status=memo_data["status"],
             transcript=memo_data.get("transcript"),
