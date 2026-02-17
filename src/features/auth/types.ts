@@ -27,6 +27,8 @@ export interface User {
   companyName: Nullable<string>;
   /** Avatar URL (from OAuth or uploaded) */
   avatarUrl: Nullable<string>;
+  /** Phone (E.164) for WhatsApp */
+  phone?: Nullable<string>;
   /** When the user was created */
   createdAt: ISODateString;
 }
@@ -36,7 +38,8 @@ export interface User {
  */
 export function getUserDisplayName(user: User): string {
   if (user.fullName) return user.fullName;
-  return user.email.split('@')[0];
+  if (user.email) return user.email.split('@')[0];
+  return 'User';
 }
 
 /**
@@ -109,6 +112,8 @@ export interface UpdateProfileData {
   companyName?: string;
   /** Avatar URL */
   avatarUrl?: string;
+  /** Phone (E.164) for WhatsApp sender lookup */
+  phone?: string;
 }
 
 // ============================================

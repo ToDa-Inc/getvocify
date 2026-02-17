@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import { Mic, Flame, Clock, Upload } from "lucide-react";
+import { useAuth } from "@/features/auth";
+import { getUserDisplayName } from "@/features/auth/types";
 import { Button } from "@/components/ui/button";
 
 const stats = [
@@ -83,13 +85,16 @@ const getStatusBadge = (status: string) => {
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
 const DashboardHome = () => {
+  const { user } = useAuth();
+  const displayName = user ? getUserDisplayName(user) : 'User';
+
   return (
     <div className={`max-w-5xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
       {/* Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className={V_PATTERNS.dashboardHeader}>
           <h1 className={THEME_TOKENS.typography.pageTitle}>
-            Welcome back, <span className={THEME_TOKENS.typography.accentTitle}>John</span>
+            Welcome back, <span className={THEME_TOKENS.typography.accentTitle}>{displayName.split(' ')[0]}</span>
           </h1>
           <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
         </div>

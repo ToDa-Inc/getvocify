@@ -17,21 +17,36 @@ class StorageService:
     def __init__(self, supabase: Client):
         self.supabase = supabase
     
+    _EXTENSION_BY_MIME: dict = {
+        "audio/webm": "webm",
+        "audio/ogg": "ogg",
+        "audio/opus": "ogg",
+        "audio/mpeg": "mp3",
+        "audio/mp4": "m4a",
+        "audio/wav": "wav",
+    }
+
     async def upload_audio(
         self,
         audio_bytes: bytes,
         user_id: str,
-        content_type: str = "audio/webm"
+        content_type: str = "audio/webm",
+        file_extension: str | None = None,
     ) -> str:
         """
         Upload audio file to Supabase Storage
-        
+
+        Args:
+            file_extension: Override extension (e.g. "ogg" for WhatsApp voice notes).
+                If None, derived from content_type.
         Returns:
             Public URL of the uploaded file
         """
-        # Generate unique filename
+        ext = file_extension or self._EXTENSION_BY_MIME.get(
+            content_type.split(";")[0].strip(), "webm"
+        )
         file_id = str(uuid.uuid4())
-        filename = f"{user_id}/{file_id}.webm"
+        filename = f"{user_id}/{file_id}.{ext}"
         
         # Upload to storage
         try:

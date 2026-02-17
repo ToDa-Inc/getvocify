@@ -14,6 +14,19 @@ import type {
   UpdateProfileData,
 } from './types';
 
+/** Map backend snake_case user to frontend camelCase User */
+function mapRawUser(raw: Record<string, unknown>): User {
+  return {
+    id: raw.id as string,
+    email: (raw.email as string) || '',
+    fullName: (raw.full_name as string) ?? null,
+    companyName: (raw.company_name as string) ?? null,
+    avatarUrl: (raw.avatar_url as string) ?? null,
+    phone: (raw.phone as string) ?? null,
+    createdAt: (raw.created_at as string) || '',
+  };
+}
+
 /**
  * Query keys for TanStack Query
  */
@@ -37,9 +50,8 @@ export const authApi = {
       company_name: data.companyName,
     });
     
-    // Map snake_case from backend to camelCase expected by frontend
     return {
-      user: raw.user as User,
+      user: mapRawUser((raw.user as Record<string, unknown>) ?? {}),
       accessToken: raw.access_token as string,
       refreshToken: raw.refresh_token as string,
       expiresIn: (raw.expires_in as number) || 3600,
@@ -52,9 +64,8 @@ export const authApi = {
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
     const raw = await api.post<Record<string, unknown>>('/auth/login', credentials);
     
-    // Map snake_case from backend to camelCase expected by frontend
     return {
-      user: raw.user as User,
+      user: mapRawUser((raw.user as Record<string, unknown>) ?? {}),
       accessToken: raw.access_token as string,
       refreshToken: raw.refresh_token as string,
       expiresIn: (raw.expires_in as number) || 3600,
@@ -80,19 +91,22 @@ export const authApi = {
   /**
    * Get the current authenticated user
    */
-  me: (): Promise<User> => {
-    return api.get<User>('/auth/me');
+  me: async (): Promise<User> => {
+    const raw = await api.get<Record<string, unknown>>('/auth/me');
+    return mapRawUser(raw);
   },
 
   /**
    * Update the current user's profile
    */
-  updateProfile: (data: UpdateProfileData): Promise<User> => {
-    return api.patch<User>('/auth/me', {
+  updateProfile: async (data: UpdateProfileData): Promise<User> => {
+    const raw = await api.patch<Record<string, unknown>>('/auth/me', {
       full_name: data.fullName,
       company_name: data.companyName,
       avatar_url: data.avatarUrl,
+      phone: data.phone,
     });
+    return mapRawUser(raw);
   },
 
   /**

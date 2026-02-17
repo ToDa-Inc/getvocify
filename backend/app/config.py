@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # Application
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:5173"
+
+    # WhatsApp (optional - app runs without these)
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_VERIFY_TOKEN: Optional[str] = None
     
     @field_validator('SUPABASE_URL')
     @classmethod

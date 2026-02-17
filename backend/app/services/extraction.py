@@ -1,24 +1,19 @@
 """
-OpenRouter LLM extraction service
+CRM extraction service using LLM.
 """
 
 from __future__ import annotations
 
-import json
-import httpx
-from app.config import settings
 from app.models.memo import MemoExtraction
+from app.services.llm import LLMClient
 from typing import Optional
 
 
 class ExtractionService:
-    """Service for extracting structured data using OpenRouter/LLM"""
-    
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
-    def __init__(self):
-        self.api_key = settings.OPENROUTER_API_KEY
-        self.model = settings.EXTRACTION_MODEL
+    """Service for extracting structured CRM data from transcripts via LLM."""
+
+    def __init__(self) -> None:
+        self.llm = LLMClient()
     
     def _build_prompt(self, transcript: str, field_specs: Optional[list[dict]] = None, glossary_text: str = "") -> str:
         """Build the extraction prompt dynamically based on field specifications"""
@@ -139,87 +134,43 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             )
         
         prompt = self._build_prompt(transcript, field_specs, glossary_text)
-        
+        messages = [
+            {"role": "system", "content": "You are a precise CRM data extraction engine. You always output valid JSON following the requested schema."},
+            {"role": "user", "content": prompt},
+        ]
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                response = await client.post(
-                    self.OPENROUTER_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": settings.FRONTEND_URL,
-                        "X-Title": "Vocify CRM Extraction",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You are a precise CRM data extraction engine. You always output valid JSON following the requested schema."
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "temperature": 0.0,  # Zero temperature for maximum precision
-                        "response_format": {"type": "json_object"},  # Force JSON output
-                    }
-                )
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                # Extract content from response
-                content = data["choices"][0]["message"]["content"]
-                
-                # Parse JSON
-                try:
-                    extracted = json.loads(content)
-                except json.JSONDecodeError:
-                    # Try to extract JSON from markdown code blocks
-                    import re
-                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-                    if json_match:
-                        extracted = json.loads(json_match.group(1))
-                    else:
-                        raise Exception("Failed to parse JSON from LLM response")
-                
-                # Map back to MemoExtraction model
-                # companyName: explicit field first, fallback to dealname if it looks like "X Deal"
-                company = extracted.get("companyName")
-                if not company and extracted.get("dealname"):
-                    dn = str(extracted.get("dealname", ""))
-                    if " deal" in dn.lower():
-                        company = dn.replace(" Deal", "").replace(" deal", "").strip()
-                    else:
-                        company = dn
-                # contactName, contactEmail, contactPhone: explicit extraction
-                contact = extracted.get("contactName")
-                contact_email = extracted.get("contactEmail") or None
-                contact_phone = extracted.get("contactPhone") or None
-                return MemoExtraction(
-                    companyName=company or None,
-                    contactName=contact or None,
-                    contactEmail=contact_email,
-                    contactPhone=contact_phone,
-                    dealAmount=extracted.get("amount"),
-                    dealCurrency=extracted.get("deal_currency_code", "EUR"),
-                    dealStage=extracted.get("dealstage"),
-                    closeDate=extracted.get("closedate"),
-                    summary=extracted.get("summary", ""),
-                    painPoints=extracted.get("painPoints", []),
-                    nextSteps=extracted.get("nextSteps", []),
-                    competitors=extracted.get("competitors", []),
-                    objections=extracted.get("objections", []),
-                    decisionMakers=extracted.get("decisionMakers", []),
-                    confidence=extracted.get("confidence", {"overall": 0.5, "fields": {}}),
-                    raw_extraction=extracted
-                )
-                
-        except httpx.HTTPStatusError as e:
-            raise Exception(f"OpenRouter API error: {e.response.status_code} - {e.response.text}")
+            extracted = await self.llm.chat_json(messages, temperature=0.0)
+            # companyName: explicit field first, fallback to dealname if it looks like "X Deal"
+            company = extracted.get("companyName")
+            if not company and extracted.get("dealname"):
+                dn = str(extracted.get("dealname", ""))
+                if " deal" in dn.lower():
+                    company = dn.replace(" Deal", "").replace(" deal", "").strip()
+                else:
+                    company = dn
+            # contactName, contactEmail, contactPhone: explicit extraction
+            contact = extracted.get("contactName")
+            contact_email = extracted.get("contactEmail") or None
+            contact_phone = extracted.get("contactPhone") or None
+            return MemoExtraction(
+                companyName=company or None,
+                contactName=contact or None,
+                contactEmail=contact_email,
+                contactPhone=contact_phone,
+                dealAmount=extracted.get("amount"),
+                dealCurrency=extracted.get("deal_currency_code", "EUR"),
+                dealStage=extracted.get("dealstage"),
+                closeDate=extracted.get("closedate"),
+                summary=extracted.get("summary", ""),
+                painPoints=extracted.get("painPoints", []),
+                nextSteps=extracted.get("nextSteps", []),
+                competitors=extracted.get("competitors", []),
+                objections=extracted.get("objections", []),
+                decisionMakers=extracted.get("decisionMakers", []),
+                confidence=extracted.get("confidence", {"overall": 0.5, "fields": {}}),
+                raw_extraction=extracted,
+            )
         except Exception as e:
-            raise Exception(f"Extraction failed: {str(e)}")
+            raise Exception(f"Extraction failed: {str(e)}") from e
 
 
