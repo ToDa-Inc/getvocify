@@ -1,0 +1,40 @@
+{
+  "uid": "vocify",
+  "type": "app",
+  "config": {
+    "name": "Vocify",
+    "description": "Voice to CRM in 60 seconds. Turn voice memos into HubSpot deals, contacts, and companies with AI-powered extraction.",
+    "distribution": "private",
+    "auth": {
+      "type": "oauth",
+      "redirectUrls": [
+        "https://api.getvocify.com/api/v1/crm/hubspot/callback",
+        "http://localhost:8000/api/v1/crm/hubspot/callback"
+      ],
+      "requiredScopes": [
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write",
+        "crm.objects.companies.read",
+        "crm.objects.companies.write",
+        "crm.objects.deals.read",
+        "crm.objects.deals.write",
+        "crm.schemas.contacts.read",
+        "crm.schemas.companies.read",
+        "crm.schemas.deals.read"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": ["https://api.hubapi.com"],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "support@getvocify.com",
+      "documentationUrl": "https://getvocify.com/docs",
+      "supportUrl": "https://getvocify.com/support",
+      "supportPhone": "+15551234567"
+    }
+  }
+}
