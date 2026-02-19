@@ -48,6 +48,7 @@ const RecordPage = () => {
 
   const {
     upload,
+    uploadTranscriptOnly,
     progress,
     isUploading,
     error: uploadError,
@@ -74,8 +75,8 @@ const RecordPage = () => {
     if (progress?.complete && uploadedMemoId) {
       setTimeout(() => {
         navigate(ROUTES.MEMO_DETAIL(uploadedMemoId));
-        toast.success("Voice memo uploaded! Processing will take about 30 seconds.");
-      }, 1000);
+        toast.success("Memo created! AI is extracting CRM fields...");
+      }, 800);
     }
   }, [progress?.complete, uploadedMemoId, navigate]);
 
@@ -96,14 +97,21 @@ const RecordPage = () => {
   };
 
   const handleUpload = async () => {
-    if (!audio) return;
     try {
-      const transcript = fullTranscript || undefined;
-      const memoId = await upload(audio, transcript);
-      setUploadedMemoId(memoId);
-      resetTranscription();
+      if (fullTranscript?.trim()) {
+        // Transcript-only: real-time transcription produced the text, no audio sent
+        const memoId = await uploadTranscriptOnly(fullTranscript);
+        setUploadedMemoId(memoId);
+        resetTranscription();
+      } else if (audio) {
+        // Fallback: no real-time transcript, send audio for server-side transcription
+        const memoId = await upload(audio);
+        setUploadedMemoId(memoId);
+      } else {
+        toast.error("No transcript available. Please try recording again.");
+      }
     } catch (err) {
-      toast.error(uploadError || "Failed to upload audio");
+      toast.error(uploadError || "Failed to upload");
     }
   };
 
@@ -211,7 +219,10 @@ const RecordPage = () => {
     );
   }
 
-  if (state === "stopped" && audio) {
+  const hasTranscript = !!fullTranscript?.trim();
+  const showReview = state === "stopped" && (hasTranscript || audio);
+
+  if (showReview) {
     return (
       <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
         <Link 
@@ -224,47 +235,57 @@ const RecordPage = () => {
 
         <div className={V_PATTERNS.dashboardHeader}>
           <h1 className={THEME_TOKENS.typography.pageTitle}>
-            Review <span className={THEME_TOKENS.typography.accentTitle}>Recording</span>
+            Review <span className={THEME_TOKENS.typography.accentTitle}>Transcript</span>
           </h1>
-          <p className={THEME_TOKENS.typography.body}>Preview your transcript and extracted CRM fields.</p>
+          <p className={THEME_TOKENS.typography.body}>
+            {hasTranscript
+              ? "Review your transcript below. When ready, accept to extract CRM fields and sync."
+              : "Waiting for transcript... If it doesn't appear, you can upload the recording for server-side transcription."}
+          </p>
         </div>
 
         <div className="grid lg:grid-cols-5 gap-8">
-          {/* Left Column - Playback & Transcripts */}
+          {/* Left Column - Transcript (and optional audio for fallback) */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Audio Player Card */}
-            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
-              <AudioPreview audio={audio} onReRecord={handleReRecord} onUpload={handleUpload} />
-            </div>
-
-            {/* Transcription Comparison/Preview */}
-            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-              <div className="flex items-center justify-between mb-8">
-                <h3 className={THEME_TOKENS.typography.capsLabel}>Captured Transcripts</h3>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-success/10 text-success">
-                  <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
-                  Real-time processed
-                </span>
-              </div>
-              
-              <div className="space-y-6">
-                {Object.entries(providerTranscripts).map(([provider, data]) => (
-                  <div key={provider} className="space-y-2">
-                    <div className="flex items-center gap-2 px-1">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">{provider}</span>
-                    </div>
-                    <div className="rounded-2xl bg-secondary/[0.03] p-5 border border-border/20 max-h-[250px] overflow-y-auto scrollbar-thin">
-                      <p className="text-sm leading-relaxed text-muted-foreground/80 font-medium tracking-tight">
-                        {data.full || "No transcript captured for this provider."}
-                      </p>
-                    </div>
+            {hasTranscript ? (
+              <>
+                {/* Transcript Card - primary when we have transcript */}
+                <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className={THEME_TOKENS.typography.capsLabel}>Your Transcript</h3>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-success/10 text-success">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+                      Real-time
+                    </span>
                   </div>
-                ))}
+                  <div className="rounded-2xl bg-secondary/[0.03] p-6 border border-border/20 max-h-[400px] overflow-y-auto scrollbar-thin">
+                    <p className="text-sm leading-relaxed text-muted-foreground/90 font-medium tracking-tight whitespace-pre-wrap">
+                      {fullTranscript}
+                    </p>
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <Button variant="outline" onClick={handleReRecord} className="flex-1 rounded-full">
+                      Re-record
+                    </Button>
+                    <Button
+                      variant="hero"
+                      onClick={handleUpload}
+                      className="flex-1 rounded-full bg-beige text-cream"
+                    >
+                      Accept & Continue
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : audio ? (
+              /* Fallback: no transcript, show audio for server-side transcription */
+              <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
+                <AudioPreview audio={audio} onReRecord={handleReRecord} onUpload={handleUpload} />
               </div>
-            </div>
+            ) : null}
           </div>
 
-          {/* Right Column - Extraction Schema Preview */}
+          {/* Right Column - Next step preview */}
           <div className="lg:col-span-3">
             <div className={cn(
               THEME_TOKENS.cards.base,
@@ -276,76 +297,43 @@ const RecordPage = () => {
               </div>
 
               <div className="relative z-10">
-                <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-10`}>CRM Field Preview</h3>
-                
-                <div className="space-y-10">
-                  {/* Deal Details */}
-                  <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10 flex items-center gap-2">
-                      <Building2 className="h-3.5 w-3.5" />
-                      Deal Details
-                    </h4>
-                    <div className="grid sm:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className={`${THEME_TOKENS.typography.capsLabel} ml-1 !text-foreground/30`}>Company</label>
-                        <div className="h-12 w-full rounded-full border border-dashed border-border/40 bg-secondary/[0.02] flex items-center px-6 text-xs text-muted-foreground/40 font-medium italic">
-                          Waiting for extraction...
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className={`${THEME_TOKENS.typography.capsLabel} ml-1 !text-foreground/30`}>Deal Amount</label>
-                        <div className="h-12 w-full rounded-full border border-dashed border-border/40 bg-secondary/[0.02] flex items-center px-6 text-xs text-muted-foreground/40 font-medium italic">
-                          Waiting for extraction...
-                        </div>
-                      </div>
+                <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-6`}>What happens next</h3>
+                <div className="space-y-6">
+                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-secondary/5 border border-border/20">
+                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-beige/20 text-beige flex items-center justify-center text-sm font-black">1</span>
+                    <div>
+                      <p className="font-bold text-foreground">AI extracts CRM fields</p>
+                      <p className="text-sm text-muted-foreground">Company, contact, deal amount, next steps, etc.</p>
                     </div>
                   </div>
-
-                  {/* Contact Person */}
-                  <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10 flex items-center gap-2">
-                      <User className="h-3.5 w-3.5" />
-                      Contact Person
-                    </h4>
-                    <div className="grid sm:grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <label className={`${THEME_TOKENS.typography.capsLabel} ml-1 !text-foreground/30`}>Full Name</label>
-                        <div className="h-12 w-full rounded-full border border-dashed border-border/40 bg-secondary/[0.02] flex items-center px-6 text-xs text-muted-foreground/40 font-medium italic">
-                          Waiting for extraction...
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className={`${THEME_TOKENS.typography.capsLabel} ml-1 !text-foreground/30`}>Email Address</label>
-                        <div className="h-12 w-full rounded-full border border-dashed border-border/40 bg-secondary/[0.02] flex items-center px-6 text-xs text-muted-foreground/40 font-medium italic">
-                          Waiting for extraction...
-                        </div>
-                      </div>
+                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-secondary/5 border border-border/20">
+                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-beige/20 text-beige flex items-center justify-center text-sm font-black">2</span>
+                    <div>
+                      <p className="font-bold text-foreground">You review & approve</p>
+                      <p className="text-sm text-muted-foreground">Edit any fields before syncing to HubSpot.</p>
                     </div>
                   </div>
-
-                  {/* Placeholder for more schemas */}
-                  <div className="pt-10 border-t border-border/40">
-                    <div className="flex flex-col items-center justify-center py-12 px-6 rounded-[2rem] border border-dashed border-border/30 bg-muted/5">
-                      <Sparkles className="h-8 w-8 text-beige/20 mb-4" />
-                      <p className="text-sm font-bold text-foreground/40 mb-1">AI Extraction Ready</p>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/20 text-center max-w-[200px]">
-                        Our model will analyze your conversation and populate these fields automatically.
-                      </p>
+                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-secondary/5 border border-border/20">
+                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-beige/20 text-beige flex items-center justify-center text-sm font-black">3</span>
+                    <div>
+                      <p className="font-bold text-foreground">Update to CRM</p>
+                      <p className="text-sm text-muted-foreground">Deal, contact, and tasks sync to your HubSpot.</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Final Action */}
-                <div className="mt-12 pt-10 border-t border-border/40 flex justify-end">
-                  <Button 
-                    variant="hero" 
-                    size="xl"
-                    onClick={handleUpload}
-                    className="rounded-full px-12 h-16 text-[10px] font-black uppercase tracking-widest bg-beige text-cream shadow-large hover:scale-105 active:scale-95 transition-all"
-                  >
-                    Confirm & Start AI Extraction
-                  </Button>
-                </div>
+                {hasTranscript && (
+                  <div className="mt-12 pt-10 border-t border-border/40 flex justify-end">
+                    <Button 
+                      variant="hero" 
+                      size="xl"
+                      onClick={handleUpload}
+                      className="rounded-full px-12 h-16 text-[10px] font-black uppercase tracking-widest bg-beige text-cream shadow-large hover:scale-105 active:scale-95 transition-all"
+                    >
+                      Accept & Continue
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

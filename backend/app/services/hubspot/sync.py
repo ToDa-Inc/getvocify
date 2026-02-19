@@ -7,8 +7,9 @@ and associations.
 """
 
 from __future__ import annotations
-from typing import Any, Optional
 
+import logging
+from typing import Any, Optional, Union
 from uuid import UUID
 
 from .client import HubSpotClient
@@ -18,8 +19,67 @@ from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService
 from .associations import HubSpotAssociationService
+from .tasks import HubSpotTasksService
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
+
+logger = logging.getLogger(__name__)
+
+
+async def _get_hubspot_owner_id_for_user(
+    client: HubSpotClient,
+    supabase,
+    user_id: str,
+    connection_id: Union[UUID, str],
+) -> Optional[str]:
+    """
+    Resolve HubSpot owner ID from SaaS user.
+    Matches user email (from auth) to HubSpot owner email.
+    Caches result in crm_connections.metadata.
+    """
+    if not supabase:
+        return None
+    try:
+        # Check cache in connection metadata
+        conn_result = supabase.table("crm_connections").select("metadata").eq(
+            "id", str(connection_id)
+        ).single().execute()
+        conn_data = conn_result.data if conn_result else None
+        if conn_data:
+            meta = conn_data.get("metadata") or {}
+            cached = meta.get("hubspot_owner_id")
+            if cached:
+                return str(cached)
+
+        # Get user email from Supabase auth (admin API)
+        auth_user = supabase.auth.admin.get_user_by_id(user_id)
+        if not auth_user or not getattr(auth_user, "user", None):
+            return None
+        user = auth_user.user if hasattr(auth_user, "user") else auth_user
+        email = (getattr(user, "email", None) or (user.get("email") if isinstance(user, dict) else None)) or ""
+        if not email or not str(email).strip():
+            return None
+
+        # Fetch HubSpot owners and match by email
+        resp = await client.get("/crm/v3/owners")
+        if not resp or "results" not in resp:
+            return None
+        email_lower = str(email).strip().lower()
+        for owner in resp.get("results", []):
+            owner_email = (owner.get("email") or "").strip().lower()
+            if owner_email == email_lower:
+                owner_id = str(owner.get("id", ""))
+                if owner_id:
+                    # Cache in metadata
+                    meta = (conn_data or {}).get("metadata", {}) or {}
+                    supabase.table("crm_connections").update({
+                        "metadata": {**meta, "hubspot_owner_id": owner_id}
+                    }).eq("id", str(connection_id)).execute()
+                    return owner_id
+                break
+    except Exception as e:
+        logger.debug("Could not resolve HubSpot owner for user %s: %s", user_id, e)
+    return None
 
 
 class HubSpotSyncService:
@@ -47,6 +107,7 @@ class HubSpotSyncService:
         companies: HubSpotCompanyService,
         deals: HubSpotDealService,
         associations: HubSpotAssociationService,
+        tasks: HubSpotTasksService,
         crm_updates: CRMUpdatesService,
         supabase=None,
     ):
@@ -55,6 +116,7 @@ class HubSpotSyncService:
         self.companies = companies
         self.deals = deals
         self.associations = associations
+        self.tasks = tasks
         self.crm_updates = crm_updates
         self.supabase = supabase
     
@@ -77,9 +139,9 @@ class HubSpotSyncService:
     
     async def sync_memo(
         self,
-        memo_id: UUID | str,
+        memo_id: Union[UUID, str],
         user_id: str,
-        connection_id: UUID | str,
+        connection_id: Union[UUID, str],
         extraction: MemoExtraction,
         deal_id: Optional[str] = None,
         is_new_deal: bool = False,
@@ -107,7 +169,12 @@ class HubSpotSyncService:
             SyncResult with success status and created/updated object IDs
         """
         result = SyncResult(memo_id=str(memo_id))
-        
+
+        # Resolve HubSpot owner from user profile (match by email)
+        hubspot_owner_id = await _get_hubspot_owner_id_for_user(
+            self.client, self.supabase, user_id, connection_id
+        )
+
         # Default allowed fields if not provided
         if allowed_fields is None:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
@@ -171,15 +238,21 @@ class HubSpotSyncService:
                         data={"error": str(e)},
                     )
             
-            # Step 2: Contact (if we have email or name)
-            if extraction.contactEmail or extraction.contactName:
+            # Step 2: Contact - ALWAYS create when we have company or contact info
+            # Fallback: when we only have companyName, create "Contact at {company}"
+            extraction_for_contact = extraction
+            if not extraction.contactName and not extraction.contactEmail and extraction.companyName:
+                extraction_for_contact = extraction.model_copy(
+                    update={"contactName": f"Contact at {extraction.companyName}"}
+                )
+            if extraction_for_contact.contactEmail or extraction_for_contact.contactName:
                 try:
                     # Reuse existing contact ID if available (prevents duplicates on retry)
                     if existing_contact_id:
                         contact_id = existing_contact_id
                         result.contact_id = contact_id
                     else:
-                        contact = await self.contacts.create_or_update(extraction)
+                        contact = await self.contacts.create_or_update(extraction_for_contact)
                         if contact:
                             contact_id = contact.id
                             result.contact_id = contact_id
@@ -190,7 +263,7 @@ class HubSpotSyncService:
                                 crm_connection_id=str(connection_id),
                                 action_type="upsert_contact",
                                 resource_type="contact",
-                                data={"contact_id": contact_id, "email": extraction.contactEmail},
+                                data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
                             )
                 except Exception as e:
                     # Log error but continue
@@ -229,8 +302,12 @@ class HubSpotSyncService:
                         result.error_code = "NO_FIELDS_TO_UPDATE"
                         return result
                     
-                    # Update deal
-                    deal = await self.deals.update(deal_id, filtered_properties)
+                    # Update deal (include owner if resolved)
+                    deal = await self.deals.update(
+                        deal_id,
+                        filtered_properties,
+                        hubspot_owner_id=hubspot_owner_id,
+                    )
                     result.deal_id = deal.id
                     
                     await self.crm_updates.create_update(
@@ -250,6 +327,7 @@ class HubSpotSyncService:
                         extraction,
                         contact_id=contact_id,
                         company_id=company_id,
+                        hubspot_owner_id=hubspot_owner_id,
                     )
                     result.deal_id = deal.id
                     
@@ -290,34 +368,79 @@ class HubSpotSyncService:
             if deal_id and contact_id:
                 try:
                     await self.associations.associate_deal_to_contact(deal_id, contact_id)
-                except Exception:
-                    # Log but don't fail
-                    pass
-            
+                except Exception as e:
+                    logger.warning(
+                        "Failed to associate deal %s to contact %s: %s",
+                        deal_id, contact_id, e,
+                    )
+
             if deal_id and company_id:
                 try:
                     await self.associations.associate_deal_to_company(deal_id, company_id)
-                except Exception:
-                    # Log but don't fail
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        "Failed to associate deal %s to company %s: %s",
+                        deal_id, company_id, e,
+                    )
+
+            # Step 6: Create tasks from nextSteps (e.g. "Seguimiento el martes")
+            if deal_id and extraction.nextSteps:
+                try:
+                    task_ids = await self.tasks.create_tasks_from_extraction(
+                        extraction,
+                        deal_id=deal_id,
+                        hubspot_owner_id=hubspot_owner_id,
+                    )
+                    if task_ids:
+                        await self.crm_updates.create_update(
+                            memo_id=str(memo_id),
+                            user_id=user_id,
+                            crm_connection_id=str(connection_id),
+                            action_type="create_tasks",
+                            resource_type="task",
+                            data={"task_ids": task_ids, "count": len(task_ids)},
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to create tasks for deal %s: %s", deal_id, e,
+                    )
             
             # Success!
             result.success = True
             
             # Generate deal name and URL for frontend
-            if deal_id and self.supabase:
+            if deal_id:
                 result.deal_name = extraction.companyName or "New Deal"
                 
-                # Get connection metadata for portal_id and region
-                conn = self.supabase.table("crm_connections").select("metadata").eq("id", str(connection_id)).single().execute()
-                if conn.data:
-                    metadata = conn.data.get("metadata", {})
-                    portal_id = metadata.get("portal_id")
-                    region = metadata.get("region", "na1")
-                    
-                    if portal_id:
-                        region_prefix = f"-{region}" if region != "na1" else ""
-                        result.deal_url = f"https://app{region_prefix}.hubspot.com/contacts/{portal_id}/record/0-3/{deal_id}"
+                portal_id = None
+                region = "na1"
+                metadata = {}
+                
+                # Try connection metadata first
+                if self.supabase:
+                    conn = self.supabase.table("crm_connections").select("metadata").eq("id", str(connection_id)).single().execute()
+                    if conn.data:
+                        metadata = conn.data.get("metadata", {}) or {}
+                        portal_id = metadata.get("portal_id")
+                        region = metadata.get("region", "na1")
+                
+                # Fallback: fetch portal_id from HubSpot API (e.g. old connections without metadata)
+                if not portal_id:
+                    try:
+                        account_info = await self.client.get("/integrations/v1/me")
+                        if account_info:
+                            portal_id = str(account_info.get("portalId", ""))
+                            # Update connection metadata for future syncs
+                            if portal_id and self.supabase:
+                                self.supabase.table("crm_connections").update({
+                                    "metadata": {**metadata, "portal_id": portal_id, "region": region}
+                                }).eq("id", str(connection_id)).execute()
+                    except Exception:
+                        pass
+                
+                if portal_id:
+                    region_prefix = f"-{region}" if region != "na1" else ""
+                    result.deal_url = f"https://app{region_prefix}.hubspot.com/contacts/{portal_id}/record/0-3/{deal_id}"
             
         except HubSpotAuthError as e:
             result.error = f"HubSpot authentication failed: {e.message}"

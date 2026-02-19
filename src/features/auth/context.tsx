@@ -25,11 +25,26 @@ import type {
 const TOKEN_KEY = 'vocify_token';
 const REFRESH_KEY = 'vocify_refresh';
 
+/** Refresh token 5 minutes before expiry to avoid 401s */
+const REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
+
 /**
  * Get stored token
  */
 function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
+}
+
+/**
+ * Decode JWT exp (expiry) in seconds. Returns null if invalid.
+ */
+function getTokenExpiryMs(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload?.exp ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -42,7 +57,7 @@ function storeTokens(accessToken: string, refreshToken: string): void {
 }
 
 /**
- * Clear stored tokens
+ * Clear stored tokens (used by logout)
  */
 function clearTokens(): void {
   localStorage.removeItem(TOKEN_KEY);
@@ -63,13 +78,22 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const queryClient = useQueryClient();
 
-  // Initialize token from storage
+  // Initialize token from storage and wire auth-cleared callback
   useEffect(() => {
     const token = getStoredToken();
     if (token) {
       api.setToken(token);
     }
-  }, []);
+    api.setOnAuthCleared(() => {
+      queryClient.setQueryData<User | null>(authKeys.me(), null);
+      queryClient.clear();
+      // Redirect to login when session is invalid (401, refresh failed)
+      if (window.location.pathname.startsWith('/dashboard')) {
+        window.location.replace('/login');
+      }
+    });
+    return () => api.setOnAuthCleared(null);
+  }, [queryClient]);
 
   // Query current user
   const { data: user, isLoading } = useQuery({
@@ -107,7 +131,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch {
       // Ignore logout errors
     }
-    clearTokens();
+    api.clearAllAuth();
     queryClient.setQueryData<User | null>(authKeys.me(), null);
     queryClient.clear();
   }, [queryClient]);
@@ -124,7 +148,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const response = await authApi.refresh(refreshToken);
     localStorage.setItem(TOKEN_KEY, response.accessToken);
     api.setToken(response.accessToken);
+    if (response.refreshToken) {
+      localStorage.setItem(REFRESH_KEY, response.refreshToken);
+    }
   }, []);
+
+  // Proactive refresh: renew token ~5 min before expiry to avoid 401s
+  useEffect(() => {
+    const token = getStoredToken();
+    if (!token) return;
+
+    const checkAndRefresh = async () => {
+      const t = getStoredToken();
+      if (!t) return;
+      const exp = getTokenExpiryMs(t);
+      if (!exp || exp - Date.now() > REFRESH_BEFORE_EXPIRY_MS) return;
+      try {
+        await refresh();
+      } catch {
+        // Refresh failed; 401 retry or next request will trigger clearAllAuth
+      }
+    };
+
+    const id = setInterval(checkAndRefresh, 60_000);
+    checkAndRefresh(); // run once on mount
+    return () => clearInterval(id);
+  }, [refresh]);
 
   const value: AuthContextValue = {
     user: user ?? null,

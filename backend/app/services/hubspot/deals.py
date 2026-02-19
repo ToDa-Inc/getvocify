@@ -7,7 +7,7 @@ Includes pipeline stage resolution.
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 
 from .client import HubSpotClient
 from .exceptions import HubSpotError
@@ -282,6 +282,7 @@ class HubSpotDealService:
         properties: dict[str, Any],
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
+        hubspot_owner_id: Optional[str] = None,
     ) -> HubSpotDeal:
         """
         Create a new deal with optional associations.
@@ -299,7 +300,10 @@ class HubSpotDealService:
         """
         if not properties.get("dealname"):
             raise HubSpotError("Deal name is required")
-        
+
+        if hubspot_owner_id:
+            properties = {**properties, "hubspot_owner_id": str(hubspot_owner_id)}
+
         request = CreateObjectRequest(properties=properties)
         
         # Add associations if provided (HubSpot format: to.id + types)
@@ -338,6 +342,7 @@ class HubSpotDealService:
         self,
         deal_id: str,
         properties: dict[str, Any],
+        hubspot_owner_id: Optional[str] = None,
     ) -> HubSpotDeal:
         """
         Update an existing deal.
@@ -353,8 +358,11 @@ class HubSpotDealService:
             HubSpotNotFoundError if deal doesn't exist
             HubSpotError for other errors
         """
+        if hubspot_owner_id:
+            properties = {**properties, "hubspot_owner_id": str(hubspot_owner_id)}
+
         request = UpdateObjectRequest(properties=properties)
-        
+
         try:
             response = await self.client.patch(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}/{deal_id}",
@@ -376,6 +384,7 @@ class HubSpotDealService:
         extraction: MemoExtraction,
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
+        hubspot_owner_id: Optional[str] = None,
     ) -> HubSpotDeal:
         """
         Create a new deal based on extraction data.
@@ -403,6 +412,11 @@ class HubSpotDealService:
             extraction,
             deal_name=deal_name,
         )
-        
-        return await self.create(properties, contact_id, company_id)
+
+        return await self.create(
+            properties,
+            contact_id=contact_id,
+            company_id=company_id,
+            hubspot_owner_id=hubspot_owner_id,
+        )
 

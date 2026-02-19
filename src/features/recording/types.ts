@@ -144,8 +144,10 @@ export interface UseMediaRecorderReturn {
  * Return type for useAudioUpload hook
  */
 export interface UseAudioUploadReturn {
-  /** Upload the recorded audio */
+  /** Upload audio (or transcript when provided - transcript-only, no audio sent) */
   upload: (audio: RecordedAudio, transcript?: string) => Promise<string>;
+  /** Upload transcript only - use when real-time transcription produced the text */
+  uploadTranscriptOnly: (transcript: string) => Promise<string>;
   /** Current upload progress */
   progress: UploadProgress | null;
   /** Whether upload is in progress */

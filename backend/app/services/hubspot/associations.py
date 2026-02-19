@@ -58,9 +58,10 @@ class HubSpotAssociationService:
             # HubSpot v4 associations API
             # Format: PUT /crm/v4/objects/{fromObjectType}/{fromObjectId}/associations/{toObjectType}/{toObjectId}/{associationType}
             # Body: [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": association_type}]
+            type_id = int(association_type) if isinstance(association_type, str) else association_type
             await self.client.put(
-                f"/crm/v4/objects/{from_object_type}/{from_object_id}/associations/{to_object_type}/{to_object_id}/{association_type}",
-                data=[{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": association_type}],
+                f"/crm/v4/objects/{from_object_type}/{from_object_id}/associations/{to_object_type}/{to_object_id}",
+                data=[{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": type_id}],
             )
             
         except Exception as e:

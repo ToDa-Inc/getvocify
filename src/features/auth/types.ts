@@ -140,6 +140,8 @@ export interface AuthResponse {
 export interface RefreshResponse {
   /** New JWT access token */
   accessToken: string;
+  /** New refresh token (if rotated by Supabase) */
+  refreshToken?: string;
   /** Token expiration time in seconds */
   expiresIn: number;
 }

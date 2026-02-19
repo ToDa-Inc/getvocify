@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from supabase import Client
 from app.config import settings
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 
 
 class StorageService:
@@ -31,7 +31,7 @@ class StorageService:
         audio_bytes: bytes,
         user_id: str,
         content_type: str = "audio/webm",
-        file_extension: str | None = None,
+        file_extension: Optional[str] = None,
     ) -> str:
         """
         Upload audio file to Supabase Storage

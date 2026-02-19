@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi } from "@/lib/api/crm";
+import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
-import { Loader2, Check, AlertCircle, Sparkles, ChevronDown, ExternalLink, Search, X } from "lucide-react";
+import { Loader2, Check, AlertCircle, Sparkles, ChevronDown, ExternalLink, Search, X, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 interface HubSpotSyncPreviewProps {
@@ -17,6 +18,8 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
   const [syncing, setSyncing] = useState(false);
   const [preview, setPreview] = useState<any>(null);
   const [extractionError, setExtractionError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [reExtracting, setReExtracting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -68,7 +71,22 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
       }
     };
     init();
-  }, [memoId]);
+  }, [memoId, retryKey]);
+
+  const handleReExtract = async () => {
+    setReExtracting(true);
+    try {
+      await memosApi.reExtract(memoId);
+      toast.success("Re-extraction started. Loading preview...");
+      setExtractionError(false);
+      setRetryKey((k) => k + 1);
+    } catch (err: any) {
+      const msg = err?.data?.detail || err?.message || "Re-extract failed";
+      toast.error(msg);
+    } finally {
+      setReExtracting(false);
+    }
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -119,8 +137,21 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
             Extraction Not Available
           </p>
           <p className="text-xs text-muted-foreground">
-            Processing may have failed or is still in progress. Check the memo status and try Re-extract if you have a transcript.
+            Processing may have failed or is still in progress. If you have a transcript, try Re-extract to run the AI extraction again.
           </p>
+          <Button
+            onClick={handleReExtract}
+            disabled={reExtracting}
+            variant="outline"
+            className="mt-6 rounded-full border-beige/40 hover:bg-beige/10"
+          >
+            {reExtracting ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            {reExtracting ? "Re-extracting..." : "Re-extract"}
+          </Button>
         </div>
       </div>
     );

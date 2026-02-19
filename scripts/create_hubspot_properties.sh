@@ -186,7 +186,7 @@ curl -s -X POST "$BASE_URL/crm/v3/properties/$OBJECT_TYPE" \
   }' | jq -r '.name // .message // .' 2>/dev/null || echo "Response above"
 echo ""
 
-# 8. Meal provider (same options as Benefit provider)
+# 8. Meal provider (Alan, Aon, betterfly, cobee, compensa, pluxee, edenred, factorial, mercer, payflow, retriplus, sesame, WTW, other)
 echo "8️⃣ Creating: Meal provider"
 curl -s -X POST "$BASE_URL/crm/v3/properties/$OBJECT_TYPE" \
   -H "Authorization: Bearer $TOKEN" \
@@ -195,7 +195,6 @@ curl -s -X POST "$BASE_URL/crm/v3/properties/$OBJECT_TYPE" \
     "groupName": "'"$GROUP"'",
     "name": "meal_provider",
     "label": "Meal provider",
-    "description": "Same as benefit provider",
     "type": "enumeration",
     "fieldType": "select",
     "options": [

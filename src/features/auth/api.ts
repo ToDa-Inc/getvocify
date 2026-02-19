@@ -82,10 +82,15 @@ export const authApi = {
   /**
    * Refresh the access token
    */
-  refresh: (refreshToken: string): Promise<RefreshResponse> => {
-    return api.post<RefreshResponse>('/auth/refresh', {
+  refresh: async (refreshToken: string): Promise<RefreshResponse> => {
+    const raw = await api.post<Record<string, unknown>>('/auth/refresh', {
       refresh_token: refreshToken,
     });
+    return {
+      accessToken: raw.access_token as string,
+      refreshToken: (raw.refresh_token as string) ?? undefined,
+      expiresIn: (raw.expires_in as number) ?? 3600,
+    };
   },
 
   /**
