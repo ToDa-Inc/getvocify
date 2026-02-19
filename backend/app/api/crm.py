@@ -2,10 +2,13 @@
 CRM integration API endpoints
 """
 
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from uuid import UUID
 from typing import Optional
 
+from app.config import settings
 from app.deps import get_supabase, get_user_id
 from app.services.hubspot import (
     HubSpotClient,
@@ -36,6 +39,12 @@ from app.models.crm_config import (
 )
 from app.models.approval import DealMatch
 from app.services.hubspot.types import CRMSchema
+from app.services.hubspot.oauth import (
+    oauth_enabled,
+    build_authorize_url,
+    decode_state,
+    exchange_code_for_tokens,
+)
 from supabase import Client
 
 
@@ -175,6 +184,121 @@ async def connect_hubspot(
         status=connection["status"],
         portal_id=validation_result.portal_id,
     )
+
+
+@router.get("/hubspot/authorize")
+async def hubspot_authorize(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Get HubSpot OAuth authorize URL.
+    
+    Returns JSON with redirect_url. Frontend should redirect user there.
+    Requires authentication.
+    """
+    if not oauth_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="HubSpot OAuth not configured. Use Private App token flow instead.",
+        )
+    try:
+        user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
+        if not user_profile.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found. Please sign up first.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "no rows" in str(e).lower() or "PGRST116" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User profile not found. Please sign up first.",
+            )
+        raise
+    try:
+        redirect_url = build_authorize_url(user_id)
+        return {"redirect_url": redirect_url}
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        )
+
+
+@router.get("/hubspot/callback")
+async def hubspot_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    supabase: Client = Depends(get_supabase),
+):
+    """
+    HubSpot OAuth callback. HubSpot redirects here after user authorizes.
+    
+    Exchanges code for tokens, stores connection, redirects to frontend.
+    """
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
+    success_url = f"{frontend_url}/integrations?hubspot=connected"
+    error_url = f"{frontend_url}/integrations?hubspot=error"
+
+    if error:
+        return RedirectResponse(url=f"{error_url}&error={error}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(url=f"{error_url}&error=missing_params", status_code=302)
+
+    user_id = decode_state(state)
+    if not user_id:
+        return RedirectResponse(url=f"{error_url}&error=invalid_state", status_code=302)
+
+    try:
+        token_data = await exchange_code_for_tokens(code)
+    except Exception as e:
+        return RedirectResponse(
+            url=f"{error_url}&error=token_exchange_failed",
+            status_code=302,
+        )
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    expires_in = token_data.get("expires_in")
+
+    if not access_token:
+        return RedirectResponse(url=f"{error_url}&error=no_token", status_code=302)
+
+    token_expires_at = None
+    if expires_in:
+        token_expires_at = (datetime.utcnow() + timedelta(seconds=int(expires_in))).isoformat()
+
+    validation_service = HubSpotValidationService(HubSpotClient(access_token))
+    validation_result = await validation_service.validate()
+    if not validation_result.valid:
+        return RedirectResponse(url=f"{error_url}&error=validation_failed", status_code=302)
+
+    connection_data = {
+        "user_id": user_id,
+        "provider": "hubspot",
+        "status": "connected",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_expires_at": token_expires_at,
+        "metadata": {
+            "portal_id": validation_result.portal_id,
+            "region": validation_result.region or "na1",
+        },
+    }
+
+    try:
+        supabase.table("crm_connections").upsert(
+            connection_data,
+            on_conflict="user_id,provider",
+        ).execute()
+    except Exception:
+        return RedirectResponse(url=f"{error_url}&error=save_failed", status_code=302)
+
+    return RedirectResponse(url=success_url, status_code=302)
 
 
 @router.post("/hubspot/test", response_model=TestConnectionResponse)

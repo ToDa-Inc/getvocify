@@ -8,8 +8,8 @@
     "auth": {
       "type": "oauth",
       "redirectUrls": [
-        "https://api.getvocify.com/api/v1/crm/hubspot/callback",
-        "http://localhost:8000/api/v1/crm/hubspot/callback"
+        "https://getvocify-production.up.railway.app/api/v1/crm/hubspot/callback",
+        "http://localhost:8888/api/v1/crm/hubspot/callback"
       ],
       "requiredScopes": [
         "crm.objects.contacts.read",
