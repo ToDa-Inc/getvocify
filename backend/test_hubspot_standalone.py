@@ -23,7 +23,7 @@ if env_file.exists():
 
 # Import directly
 import httpx
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from typing import Literal
@@ -31,10 +31,10 @@ from typing import Literal
 # Copy minimal types needed
 class ValidationResult(BaseModel):
     valid: bool
-    portal_id: str | None = None
+    portal_id: Optional[str] = None
     scopes_ok: bool = False
-    error: str | None = None
-    error_code: str | None = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
 
 # Copy client class inline
 class HubSpotClient:

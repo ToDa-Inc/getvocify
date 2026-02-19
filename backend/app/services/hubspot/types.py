@@ -7,7 +7,7 @@ Mirrors HubSpot's API response structures and request formats.
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 from datetime import datetime
 
 
@@ -28,8 +28,8 @@ class HubSpotProperty(BaseModel):
     name: str
     label: str
     type: str  # string, number, date, datetime, enumeration, etc.
-    fieldType: str  # text, textarea, select, checkbox, etc.
-    groupName: str
+    fieldType: str = "text"  # text, textarea, select, checkbox, etc.
+    groupName: str = "dealinformation"  # HubSpot may omit in some responses
     options: list[PropertyOption] = Field(default_factory=list)
     required: bool = False
     readOnlyValue: bool = False
@@ -112,7 +112,7 @@ class HubSpotDeal(HubSpotObject):
 
 class AssociationTo(BaseModel):
     """Target object for an association (HubSpot format)"""
-    id: str | int  # HubSpot accepts string or int for object IDs
+    id: Union[str, int]  # HubSpot accepts string or int for object IDs
 
 
 class AssociationTypeSpec(BaseModel):

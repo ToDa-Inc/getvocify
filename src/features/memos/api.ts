@@ -56,36 +56,43 @@ export const memosApi = {
   },
 
   /**
-   * Upload audio file and start processing
-   * 
-   * The backend will:
-   * 1. Store audio in Supabase Storage
-   * 2. Send to Deepgram for transcription
-   * 3. Send transcript to GPT-5-mini for extraction
-   * 4. Update memo status as each step completes
+   * Upload transcript only (no audio storage).
+   * Use when real-time transcription already produced the transcript.
+   */
+  uploadTranscript: (transcript: string): Promise<UploadMemoResponse> => {
+    return api.post<UploadMemoResponse>('/memos/upload-transcript', { transcript });
+  },
+
+  /**
+   * Upload audio file for transcription (no storage - transcribe in memory).
+   * Use when no real-time transcript available (e.g. file upload).
    */
   upload: (audioBlob: Blob): Promise<UploadMemoResponse> => {
     return api.upload<UploadMemoResponse>('/memos/upload', audioBlob, 'audio');
   },
 
   /**
-   * Upload audio with progress tracking
+   * Upload audio with progress tracking.
+   * When transcript is provided, uses transcript-only endpoint (no audio sent).
    * 
-   * @param audioBlob - Audio file to upload
+   * @param audioBlob - Audio file (ignored when transcript provided)
    * @param onProgress - Progress callback (0-100)
-   * @param transcript - Optional pre-transcribed text (from real-time WebSocket)
+   * @param transcript - Optional pre-transcribed text (from real-time) - uses transcript-only when set
    */
   uploadWithProgress: (
     audioBlob: Blob,
     onProgress: (progress: number) => void,
     transcript?: string
   ): Promise<UploadMemoResponse> => {
+    if (transcript?.trim()) {
+      onProgress(100);
+      return api.post<UploadMemoResponse>('/memos/upload-transcript', { transcript });
+    }
     return api.uploadWithProgress<UploadMemoResponse>(
       '/memos/upload',
       audioBlob,
       'audio',
-      onProgress,
-      transcript ? { transcript } : undefined
+      onProgress
     );
   },
 

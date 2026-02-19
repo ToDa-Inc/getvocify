@@ -40,6 +40,7 @@ from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService
 from .associations import HubSpotAssociationService
+from .tasks import HubSpotTasksService
 from .sync import HubSpotSyncService
 from .matching import HubSpotMatchingService
 from .preview import HubSpotPreviewService
@@ -79,6 +80,7 @@ __all__ = [
     "HubSpotCompanyService",
     "HubSpotDealService",
     "HubSpotAssociationService",
+    "HubSpotTasksService",
     "HubSpotSyncService",
     "HubSpotMatchingService",
     "HubSpotPreviewService",

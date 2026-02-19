@@ -3,7 +3,9 @@ Voice memo API endpoints
 """
 
 import asyncio
+import logging
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional, List, Union
@@ -24,6 +26,7 @@ from app.services.hubspot import (
     HubSpotContactService,
     HubSpotCompanyService,
     HubSpotAssociationService,
+    HubSpotTasksService,
     HubSpotSyncService,
     SyncResult,
 )
@@ -35,7 +38,40 @@ from typing import Optional, List
 from datetime import datetime
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/memos", tags=["memos"])
+
+
+def _memo_from_row(memo_data: dict) -> Memo:
+    """Build Memo from DB row, with defensive handling for malformed data."""
+    extraction = memo_data.get("extraction")
+    if extraction is not None and isinstance(extraction, dict):
+        try:
+            MemoExtraction.model_validate(extraction)
+        except Exception as e:
+            logger.warning("Memo %s has malformed extraction, omitting: %s", memo_data.get("id"), e)
+            extraction = None
+    try:
+        return Memo(
+            id=memo_data["id"],
+            userId=memo_data["user_id"],
+            audioUrl=memo_data.get("audio_url") or "",
+            audioDuration=memo_data["audio_duration"],
+            status=memo_data["status"],
+            transcript=memo_data.get("transcript"),
+            transcriptConfidence=memo_data.get("transcript_confidence"),
+            extraction=extraction,
+            errorMessage=memo_data.get("error_message"),
+            createdAt=memo_data["created_at"],
+            processedAt=memo_data.get("processed_at"),
+            approvedAt=memo_data.get("approved_at"),
+        )
+    except Exception as e:
+        logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load memo data",
+        ) from e
 
 
 async def extract_memo_async(
@@ -90,14 +126,15 @@ async def extract_memo_async(
 async def process_memo_async(
     memo_id: str,
     user_id: str,
-    audio_url: str,
+    audio_bytes: bytes,
     supabase: Client,
     transcription_service: TranscriptionService,
     extraction_service: ExtractionService,
     field_specs: Optional[list[dict]] = None
 ):
     """
-    Background task to process memo: transcribe → extract → update status
+    Background task to process memo: transcribe (from bytes) → extract → update status.
+    No audio storage - transcribe directly from in-memory bytes.
     """
     from datetime import datetime
     
@@ -113,22 +150,7 @@ async def process_memo_async(
         glossary = await glossary_service.get_user_glossary(user_id)
         glossary_text = glossary_service.format_for_llm(glossary)
 
-        # Download audio from storage
-        # ... parts ...
-        parts = audio_url.split("/public/voice-memos/")
-        if len(parts) < 2:
-            raise Exception("Invalid audio URL")
-        
-        path = parts[1]
-        audio_response = supabase.storage.from_("voice-memos").download(path)
-        
-        if not audio_response:
-            raise Exception("Failed to download audio")
-        
-        # audio_response is bytes
-        audio_bytes = audio_response
-        
-        # Transcribe
+        # Transcribe from bytes (no storage)
         transcription = await transcription_service.transcribe(audio_bytes)
         
         # Update with transcript
@@ -166,31 +188,16 @@ async def upload_memo(
     user_id: str = Depends(get_user_id),
 ):
     """
-    Upload audio file and start processing pipeline
+    Upload audio and/or transcript. No audio storage - transcript only.
     
     Flow:
-    1. Store audio in Supabase Storage
-    2. Create memo record with status 'uploading' or 'extracting' (if transcript provided)
-    3. Start background processing:
-       - If transcript provided: Skip Deepgram, go directly to extraction
-       - If no transcript: Transcribe → Extract
-    4. Return memo ID for polling
-    
-    Args:
-        audio: Audio file to upload
-        transcript: Optional pre-transcribed text (from real-time WebSocket)
+    - If transcript provided: Create memo with transcript, go directly to extraction (no storage)
+    - If no transcript: Transcribe from bytes in memory → Extract (no storage)
     """
-    # Validate file type
-    if not audio.content_type or not audio.content_type.startswith("audio/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be an audio file"
-        )
-    
-    # Read audio bytes
+    # Read audio bytes (needed for transcription when no transcript)
     audio_bytes = await audio.read()
     
-    # Validate file size (10MB max)
+    # Validate file size (10MB max) when we have audio
     max_size = 10 * 1024 * 1024
     if len(audio_bytes) > max_size:
         raise HTTPException(
@@ -198,24 +205,11 @@ async def upload_memo(
             detail=f"File too large. Maximum size is {max_size / 1024 / 1024}MB"
         )
     
-    # Upload to storage
-    storage_service = StorageService(supabase)
-    audio_url = await storage_service.upload_audio(
-        audio_bytes,
-        user_id,
-        audio.content_type
-    )
-    
-    # Get audio duration (rough estimate: 1MB ≈ 1 minute for webm)
-    # In production, use ffprobe or similar
-    estimated_duration = len(audio_bytes) / (1024 * 1024) * 60  # rough estimate
-    
-    # Get user's CRM configuration to know which fields to extract
+    # Get user's CRM configuration
     config_service = CRMConfigurationService(supabase)
     config = await config_service.get_configuration(user_id)
     allowed_fields = config.allowed_deal_fields if config else None
     
-    # Get curated field specs for high-accuracy extraction
     field_specs = None
     if allowed_fields:
         try:
@@ -223,24 +217,21 @@ async def upload_memo(
             schema_service = HubSpotSchemaService(client, supabase, connection_id)
             field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
         except Exception:
-            # Fallback to None if connection fails
             field_specs = None
 
-    # If transcript is provided, skip transcription step
     if transcript and transcript.strip():
-        # Create memo record in database
+        # Transcript provided (from real-time) - no storage, no transcription
+        estimated_duration = len(transcript) / 15  # rough: ~15 chars/sec speech
         result = supabase.table("memos").insert({
             "user_id": user_id,
-            "audio_url": audio_url,
+            "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "extracting",
             "transcript": transcript.strip(),
-            "transcript_confidence": 1.0, # High confidence for pre-transcribed text
+            "transcript_confidence": 1.0,
         }).execute()
         
         memo_id = result.data[0]["id"]
-        
-        # Start extraction directly (skip transcription)
         extraction_service = ExtractionService()
         asyncio.create_task(
             extract_memo_async(memo_id, user_id, transcript.strip(), supabase, extraction_service, field_specs)
@@ -252,18 +243,22 @@ async def upload_memo(
             statusUrl=f"/api/v1/memos/{memo_id}"
         )
     else:
-        # No transcript provided - use normal flow
-        # Create memo record in database
+        # No transcript - transcribe from bytes (no storage)
+        if not audio.content_type or not audio.content_type.startswith("audio/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an audio file when transcript is not provided"
+            )
+        
+        estimated_duration = len(audio_bytes) / (1024 * 1024) * 60
         result = supabase.table("memos").insert({
             "user_id": user_id,
-            "audio_url": audio_url,
+            "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "uploading",
         }).execute()
         
         memo_id = result.data[0]["id"]
-        
-        # Start background processing (transcribe → extract)
         transcription_service = TranscriptionService()
         extraction_service = ExtractionService()
         
@@ -271,7 +266,7 @@ async def upload_memo(
             process_memo_async(
                 memo_id,
                 user_id,
-                audio_url,
+                audio_bytes,
                 supabase,
                 transcription_service,
                 extraction_service,
@@ -284,6 +279,64 @@ async def upload_memo(
             status="uploading",
             statusUrl=f"/api/v1/memos/{memo_id}"
         )
+
+
+class UploadTranscriptRequest(BaseModel):
+    """Transcript-only upload (from real-time transcription)"""
+    transcript: str
+
+
+@router.post("/upload-transcript", response_model=UploadResponse)
+async def upload_transcript_only(
+    body: UploadTranscriptRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Create memo from transcript only (no audio).
+    Use when real-time transcription (Speechmatics/Deepgram) already produced the transcript.
+    """
+    transcript = (body.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transcript is required",
+        )
+    
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = config.allowed_deal_fields if config else None
+    
+    field_specs = None
+    if allowed_fields:
+        try:
+            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
+            schema_service = HubSpotSchemaService(client, supabase, connection_id)
+            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
+        except Exception:
+            field_specs = None
+    
+    estimated_duration = len(transcript) / 15
+    result = supabase.table("memos").insert({
+        "user_id": user_id,
+        "audio_url": "",
+        "audio_duration": estimated_duration,
+        "status": "extracting",
+        "transcript": transcript,
+        "transcript_confidence": 1.0,
+    }).execute()
+    
+    memo_id = result.data[0]["id"]
+    extraction_service = ExtractionService()
+    asyncio.create_task(
+        extract_memo_async(memo_id, user_id, transcript, supabase, extraction_service, field_specs)
+    )
+    
+    return UploadResponse(
+        id=str(memo_id),
+        status="extracting",
+        statusUrl=f"/api/v1/memos/{memo_id}"
+    )
 
 
 @router.get("/{memo_id}", response_model=Memo)
@@ -302,22 +355,7 @@ async def get_memo(
         )
     
     memo_data = result.data[0]
-    
-    # Convert to Memo model
-    return Memo(
-        id=memo_data["id"],
-        userId=memo_data["user_id"],
-        audioUrl=memo_data.get("audio_url") or "",
-        audioDuration=memo_data["audio_duration"],
-        status=memo_data["status"],
-        transcript=memo_data.get("transcript"),
-        transcriptConfidence=memo_data.get("transcript_confidence"),
-        extraction=memo_data.get("extraction"),
-        errorMessage=memo_data.get("error_message"),
-        createdAt=memo_data["created_at"],
-        processedAt=memo_data.get("processed_at"),
-        approvedAt=memo_data.get("approved_at"),
-    )
+    return _memo_from_row(memo_data)
 
 
 @router.get("", response_model=list[Memo])
@@ -330,23 +368,7 @@ async def list_memos(
     """List user's memos"""
     result = supabase.table("memos").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).offset(offset).execute()
     
-    memos = []
-    for memo_data in result.data:
-        memos.append(Memo(
-            id=memo_data["id"],
-            userId=memo_data["user_id"],
-            audioUrl=memo_data.get("audio_url") or "",
-            audioDuration=memo_data["audio_duration"],
-            status=memo_data["status"],
-            transcript=memo_data.get("transcript"),
-            transcriptConfidence=memo_data.get("transcript_confidence"),
-            extraction=memo_data.get("extraction"),
-            errorMessage=memo_data.get("error_message"),
-            createdAt=memo_data["created_at"],
-            processedAt=memo_data.get("processed_at"),
-            approvedAt=memo_data.get("approved_at"),
-        ))
-    
+    memos = [_memo_from_row(memo_data) for memo_data in result.data]
     return memos
 
 
@@ -417,13 +439,14 @@ async def approve_memo(
                 approvedAt=memo_data.get("approved_at"),
             )
     
-    # Get user's CRM connection
+    # Get user's HubSpot connection (must filter by provider to find HubSpot)
     crm_result = supabase.table("crm_connections").select("*").eq(
         "user_id", user_id
-    ).eq("status", "connected").limit(1).execute()
+    ).eq("provider", "hubspot").eq("status", "connected").limit(1).execute()
     
     if not crm_result.data:
-        # No CRM connected - just mark as approved without pushing
+        # No HubSpot connected - mark as approved but don't sync
+        logger.info("Approve memo %s: no HubSpot connection, marking approved without sync", memo_id)
         supabase.table("memos").update({
             "status": "approved",
             "approved_at": datetime.utcnow().isoformat(),
@@ -453,6 +476,7 @@ async def approve_memo(
                 companies=HubSpotCompanyService(client, search_service),
                 deals=deal_service,
                 associations=association_service,
+                tasks=HubSpotTasksService(client),
                 crm_updates=crm_updates_service,
                 supabase=supabase,
             )
@@ -624,11 +648,17 @@ async def match_memo_to_deals(
     
     memo_data = memo_result.data
     extraction_data = memo_data.get("extraction")
+    memo_status = memo_data.get("status", "unknown")
     
     if not extraction_data:
+        status_hint = ""
+        if memo_status in ("uploading", "transcribing", "extracting"):
+            status_hint = f" Memo is still processing (status: {memo_status})."
+        elif memo_status == "failed":
+            status_hint = " Processing failed. Use Re-extract if you have a transcript."
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Memo extraction not available. Please wait for processing to complete.",
+            detail=f"Memo extraction not available.{status_hint}",
         )
     
     # Check if HubSpot is connected
@@ -736,7 +766,11 @@ async def get_approval_preview(
     # Get configuration
     config_service = CRMConfigurationService(supabase)
     config = await config_service.get_configuration(user_id)
-    allowed_fields = config.allowed_deal_fields if config else ["dealname", "amount", "description", "closedate"]
+    allowed_fields = (
+        (config.allowed_deal_fields or ["dealname", "amount", "description", "closedate"])
+        if config
+        else ["dealname", "amount", "description", "closedate"]
+    )
     
     # Initialize services
     client = HubSpotClient(access_token)
@@ -752,14 +786,21 @@ async def get_approval_preview(
     matches = await matching_service.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
     
     # Build preview
-    preview = await preview_service.build_preview(
-        memo_id=memo_id,
-        transcript=transcript,
-        extraction=extraction,
-        matched_deals=matches,
-        selected_deal_id=deal_id,
-        allowed_fields=allowed_fields,
-    )
+    try:
+        preview = await preview_service.build_preview(
+            memo_id=memo_id,
+            transcript=transcript,
+            extraction=extraction,
+            matched_deals=matches,
+            selected_deal_id=deal_id,
+            allowed_fields=allowed_fields,
+        )
+    except Exception as e:
+        logger.exception("Preview failed for memo %s: %s", memo_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to build preview: {str(e)}",
+        ) from e
     
     # If a deal was explicitly selected, persist it to the memo record
     if deal_id:
@@ -1058,16 +1099,36 @@ async def re_extract_memo(
     glossary = await glossary_service.get_user_glossary(user_id)
     glossary_text = glossary_service.format_for_llm(glossary)
 
-    # Re-run extraction
-    extraction_service = ExtractionService()
-    extraction = await extraction_service.extract(transcript, field_specs, glossary_text=glossary_text)
-    
-    # Update memo with new extraction
+    # Clear previous error before retry
     from datetime import datetime
+    supabase.table("memos").update({
+        "status": "extracting",
+        "error_message": None,
+    }).eq("id", str(memo_id)).execute()
+
+    # Re-run extraction (uses transcript only - no audio)
+    try:
+        extraction_service = ExtractionService()
+        extraction = await extraction_service.extract(transcript, field_specs, glossary_text=glossary_text)
+    except Exception as e:
+        err_msg = str(e)
+        logger.exception("Re-extract failed for memo %s: %s", memo_id, e)
+        hint = " Check OPENROUTER_API_KEY in backend .env and restart the server." if "401" in err_msg else ""
+        supabase.table("memos").update({
+            "status": "failed",
+            "error_message": f"Extraction failed: {err_msg}",
+        }).eq("id", str(memo_id)).execute()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Re-extraction failed: {err_msg}{hint}",
+        ) from e
+
+    # Update memo with new extraction
     supabase.table("memos").update({
         "status": "pending_review",
         "extraction": extraction.model_dump(),
         "processed_at": datetime.utcnow().isoformat(),
+        "error_message": None,
     }).eq("id", str(memo_id)).execute()
     
     # Return updated memo

@@ -9,6 +9,7 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
+const REFRESH_KEY = 'vocify_refresh';
 /**
  * Custom error class for API errors
  * Provides structured access to error details
@@ -64,7 +65,19 @@ export class ApiError extends Error {
  * const memo = await api.post<Memo>('/memos', { data });
  * ```
  */
+type OnAuthClearedCallback = () => void;
+
 class ApiClient {
+  private onAuthCleared: OnAuthClearedCallback | null = null;
+
+  /**
+   * Register callback when auth is cleared (e.g. after failed refresh).
+   * Use to invalidate auth state in React Query, etc.
+   */
+  setOnAuthCleared(cb: OnAuthClearedCallback | null): void {
+    this.onAuthCleared = cb;
+  }
+
   /**
    * Helper to get token with direct localStorage access
    * This is the "Senior" way to ensure we never have an out-of-sync singleton state
@@ -107,11 +120,52 @@ class ApiClient {
   }
 
   /**
-   * Core request method
+   * Clear all auth state (token + refresh token). Call when refresh fails.
+   */
+  clearAllAuth(): void {
+    localStorage.removeItem('vocify_token');
+    localStorage.removeItem(REFRESH_KEY);
+    this.onAuthCleared?.();
+  }
+
+  /**
+   * Try to refresh the access token. Returns new token or null on failure.
+   */
+  private async tryRefreshToken(): Promise<string | null> {
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
+    if (!refreshToken || refreshToken === 'undefined' || refreshToken === 'null') {
+      return null;
+    }
+    try {
+      const url = `${API_BASE}/auth/refresh`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { access_token?: string; refresh_token?: string };
+      const accessToken = data.access_token;
+      if (accessToken) {
+        this.setToken(accessToken);
+        if (data.refresh_token) {
+          localStorage.setItem(REFRESH_KEY, data.refresh_token);
+        }
+        return accessToken;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Core request method. On 401, attempts token refresh and retries once.
    */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    isRetry = false
   ): Promise<T> {
     const url = `${API_BASE}${endpoint}`;
     const token = this.getAuthToken();
@@ -123,6 +177,22 @@ class ApiClient {
     };
 
     const response = await fetch(url, { ...options, headers });
+
+    // On 401: try refresh and retry once (skip for auth endpoints and retries)
+    if (response.status === 401 && !isRetry && !endpoint.startsWith('/auth/')) {
+      const newToken = await this.tryRefreshToken();
+      if (newToken) {
+        return this.request<T>(endpoint, {
+          ...options,
+          headers: {
+            ...options.headers,
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${newToken}`,
+          },
+        }, true);
+      }
+      this.clearAllAuth();
+    }
 
     // Handle errors
     if (!response.ok) {
@@ -198,7 +268,8 @@ class ApiClient {
   async upload<T>(
     endpoint: string,
     file: Blob,
-    fieldName = 'file'
+    fieldName = 'file',
+    isRetry = false
   ): Promise<T> {
     const url = `${API_BASE}${endpoint}`;
     const token = this.getAuthToken();
@@ -215,6 +286,14 @@ class ApiClient {
       body: formData,
     });
 
+    if (response.status === 401 && !isRetry && !endpoint.startsWith('/auth/')) {
+      const newToken = await this.tryRefreshToken();
+      if (newToken) {
+        return this.upload<T>(endpoint, file, fieldName, true);
+      }
+      this.clearAllAuth();
+    }
+
     if (!response.ok) {
       let data: unknown = {};
       try {
@@ -229,82 +308,87 @@ class ApiClient {
   }
 
   /**
-   * Upload file with progress tracking
-   * 
-   * Usage:
-   * ```ts
-   * const response = await api.uploadWithProgress<MemoResponse>(
-   *   '/memos/upload',
-   *   audioBlob,
-   *   'audio',
-   *   (progress) => setUploadProgress(progress),
-   *   { transcript: 'pre-transcribed text' }
-   * );
-   * ```
+   * Upload file with progress tracking.
+   * On 401, attempts token refresh and retries once.
    */
-  uploadWithProgress<T>(
+  async uploadWithProgress<T>(
     endpoint: string,
     file: Blob,
     fieldName = 'file',
     onProgress?: (progress: number) => void,
-    additionalFields?: Record<string, string>
+    additionalFields?: Record<string, string>,
+    isRetry = false
   ): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const url = `${API_BASE}${endpoint}`;
+    const doUpload = (): Promise<T> =>
+      new Promise((resolve, reject) => {
+        const url = `${API_BASE}${endpoint}`;
+        const formData = new FormData();
+        formData.append(fieldName, file);
+        if (additionalFields) {
+          Object.entries(additionalFields).forEach(([key, value]) => {
+            if (value) formData.append(key, value);
+          });
+        }
 
-      const formData = new FormData();
-      formData.append(fieldName, file);
-      
-      // Add additional form fields (e.g., transcript)
-      if (additionalFields) {
-        Object.entries(additionalFields).forEach(([key, value]) => {
-          if (value) {
-            formData.append(key, value);
+        const xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable && onProgress) {
+            onProgress(Math.round((event.loaded / event.total) * 100));
           }
         });
-      }
 
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable && onProgress) {
-          const progress = Math.round((event.loaded / event.total) * 100);
-          onProgress(progress);
-        }
-      });
-
-      xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            reject(new ApiError(xhr.status, 'Invalid JSON response'));
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new ApiError(xhr.status, 'Invalid JSON response'));
+            }
+          } else {
+            let data: unknown = {};
+            try {
+              data = JSON.parse(xhr.responseText);
+            } catch {
+              // ignore
+            }
+            reject(new ApiError(xhr.status, data));
           }
-        } else {
-          let data: unknown = {};
-          try {
-            data = JSON.parse(xhr.responseText);
-          } catch {
-            // Response wasn't JSON
-          }
-          reject(new ApiError(xhr.status, data));
+        });
+
+        xhr.addEventListener('error', () => reject(new ApiError(0, 'Network error')));
+
+        xhr.open('POST', url);
+        const token = this.getAuthToken();
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }
+        xhr.send(formData);
       });
 
-      xhr.addEventListener('error', () => {
-        reject(new ApiError(0, 'Network error'));
-      });
-
-      xhr.open('POST', url);
-      
-      const token = this.getAuthToken();
-      console.log('API Client: Uploading with token:', token ? `${token.substring(0, 8)}...` : 'MISSING');
-      
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    try {
+      return await doUpload();
+    } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 401 &&
+        !isRetry &&
+        !endpoint.startsWith('/auth/')
+      ) {
+        const newToken = await this.tryRefreshToken();
+        if (newToken) {
+          return this.uploadWithProgress<T>(
+            endpoint,
+            file,
+            fieldName,
+            onProgress,
+            additionalFields,
+            true
+          );
+        }
+        this.clearAllAuth();
       }
-      xhr.send(formData);
-    });
+      throw err;
+    }
   }
 }
 

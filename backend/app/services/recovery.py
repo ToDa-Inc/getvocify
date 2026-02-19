@@ -63,53 +63,14 @@ class RecoveryService:
         
         # Determine recovery action based on status
         if status == "transcribing":
-            # Re-queue full processing pipeline
-            if not audio_url:
-                # No audio URL, mark as failed
-                self.supabase.table("memos").update({
-                    "status": "failed",
-                    "error_message": "Audio URL missing for recovery",
-                    "processing_started_at": None,
-                }).eq("id", memo_id).execute()
-                return False
-            
-            # Re-queue transcription + extraction
-            from app.api.memos import process_memo_async
-            from app.services.transcription import TranscriptionService
-            from app.services.extraction import ExtractionService
-            import asyncio
-            
-            # Get user's CRM config for field specs
-            user_id = memo_data.get("user_id")
-            config_service = CRMConfigurationService(self.supabase)
-            config = await config_service.get_configuration(user_id)
-            allowed_fields = config.allowed_deal_fields if config else None
-            
-            field_specs = None
-            if allowed_fields:
-                try:
-                    from app.api.memos import get_hubspot_client_from_connection
-                    client, connection_id = get_hubspot_client_from_connection(user_id, self.supabase)
-                    from app.services.hubspot import HubSpotSchemaService
-                    schema_service = HubSpotSchemaService(client, self.supabase, connection_id)
-                    field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-                except Exception:
-                    field_specs = None
-            
-            transcription_service = TranscriptionService()
-            extraction_service = ExtractionService()
-            
-            asyncio.create_task(
-                process_memo_async(
-                    memo_id,
-                    audio_url,
-                    self.supabase,
-                    transcription_service,
-                    extraction_service,
-                    field_specs
-                )
-            )
-            return True
+            # We no longer store audio - cannot recover transcribing memos
+            # (audio was processed in-memory and is gone after crash)
+            self.supabase.table("memos").update({
+                "status": "failed",
+                "error_message": "Processing interrupted. Audio is not stored. Please record again.",
+                "processing_started_at": None,
+            }).eq("id", memo_id).execute()
+            return False
             
         elif status == "extracting":
             # Re-queue extraction only
@@ -149,6 +110,7 @@ class RecoveryService:
             asyncio.create_task(
                 extract_memo_async(
                     memo_id,
+                    user_id,
                     transcript,
                     self.supabase,
                     extraction_service,

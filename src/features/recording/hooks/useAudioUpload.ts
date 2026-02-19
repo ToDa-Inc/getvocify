@@ -1,8 +1,9 @@
 /**
  * useAudioUpload Hook
- * 
- * Handles uploading recorded audio to the backend.
- * Provides progress tracking and error handling.
+ *
+ * Handles uploading to the backend. Supports:
+ * - Transcript-only (from real-time transcription) - no audio sent
+ * - Audio file (for file upload) - transcribed on server
  */
 
 import { useState, useCallback } from 'react';
@@ -10,7 +11,7 @@ import { memosApi } from '@/features/memos/api';
 import type { RecordedAudio, UploadProgress, UseAudioUploadReturn } from '../types';
 
 /**
- * Hook for uploading audio to the backend
+ * Hook for uploading to the backend
  */
 export function useAudioUpload(): UseAudioUploadReturn {
   const [progress, setProgress] = useState<UploadProgress | null>(null);
@@ -18,16 +19,40 @@ export function useAudioUpload(): UseAudioUploadReturn {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Upload the recorded audio
-   * Returns the created memo ID
-   * 
-   * @param audio - Recorded audio data
-   * @param transcript - Optional pre-transcribed text (from real-time WebSocket)
+   * Upload transcript only (no audio). Use when real-time transcription produced the transcript.
+   * Returns the created memo ID.
+   */
+  const uploadTranscriptOnly = useCallback(async (transcript: string): Promise<string> => {
+    setIsUploading(true);
+    setError(null);
+    setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
+
+    try {
+      const response = await memosApi.uploadTranscript(transcript.trim());
+      setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
+      return response.id;
+    } catch (err) {
+      console.error('Upload failed:', err);
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsUploading(false);
+    }
+  }, []);
+
+  /**
+   * Upload audio (and optional transcript). Use for file upload or when no real-time transcript.
+   * When transcript is provided, only transcript is sent (no audio).
    */
   const upload = useCallback(async (
     audio: RecordedAudio,
     transcript?: string
   ): Promise<string> => {
+    if (transcript?.trim()) {
+      return uploadTranscriptOnly(transcript);
+    }
+
     setIsUploading(true);
     setError(null);
     setProgress({
@@ -47,23 +72,20 @@ export function useAudioUpload(): UseAudioUploadReturn {
             total: audio.size,
             complete: percent >= 100,
           });
-        },
-        transcript
+        }
       );
 
       setProgress(prev => prev ? { ...prev, complete: true } : null);
       return response.id;
-
     } catch (err) {
       console.error('Upload failed:', err);
       const message = err instanceof Error ? err.message : 'Upload failed';
       setError(message);
       throw err;
-
     } finally {
       setIsUploading(false);
     }
-  }, []);
+  }, [uploadTranscriptOnly]);
 
   /**
    * Reset upload state
@@ -76,6 +98,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
 
   return {
     upload,
+    uploadTranscriptOnly,
     progress,
     isUploading,
     error,

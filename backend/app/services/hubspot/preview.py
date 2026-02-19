@@ -75,9 +75,34 @@ class HubSpotPreviewService:
         # Filter by allowed_fields - only show what config permits
         filtered_properties = {k: v for k, v in properties.items() if k in allowed_fields}
 
-        # Get field labels from schema
-        field_specs = await self.schema.get_curated_field_specs("deals", list(filtered_properties.keys()))
-        field_labels = {s["name"]: s["label"] for s in field_specs}
+        # Get field labels from schema (fallback to field name if schema fetch fails)
+        field_labels: dict[str, str] = {}
+        try:
+            field_specs = await self.schema.get_curated_field_specs("deals", list(filtered_properties.keys()))
+            field_labels = {s["name"]: s["label"] for s in field_specs}
+        except Exception:
+            pass
+
+        # Contact and Company - always show when extracted (not in allowed_fields, but critical for user)
+        contact_name = extraction.contactName
+        if not contact_name and extraction.companyName:
+            contact_name = f"Contact at {extraction.companyName}"  # fallback when only company
+        if contact_name:
+            proposed_updates.append(ProposedUpdate(
+                field_name="contact_name",
+                field_label="Contact Name",
+                current_value=None,
+                new_value=contact_name,
+                extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
+            ))
+        if extraction.companyName:
+            proposed_updates.append(ProposedUpdate(
+                field_name="company_name",
+                field_label="Company",
+                current_value=None,
+                new_value=extraction.companyName,
+                extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
+            ))
 
         # For display: use human-readable extraction values when available
         def _display_value(field_name: str, value: Any) -> str:
@@ -156,6 +181,15 @@ class HubSpotPreviewService:
                 except Exception:
                     pass
 
+        new_contact = None
+        if contact_name or extraction.contactEmail:
+            new_contact = {
+                "name": contact_name,
+                "email": extraction.contactEmail,
+                "phone": extraction.contactPhone,
+            }
+        new_company = {"name": extraction.companyName} if extraction.companyName else None
+
         return ApprovalPreview(
             memo_id=memo_id,
             transcript_summary=transcript_summary,
@@ -163,4 +197,6 @@ class HubSpotPreviewService:
             selected_deal=selected_deal,
             is_new_deal=is_new_deal,
             proposed_updates=proposed_updates,
+            new_contact=new_contact,
+            new_company=new_company,
         )

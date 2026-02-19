@@ -20,6 +20,7 @@ from app.services.hubspot import (
     HubSpotContactService,
     HubSpotCompanyService,
     HubSpotAssociationService,
+    HubSpotTasksService,
     HubSpotSyncService,
     SyncResult,
 )
@@ -126,6 +127,7 @@ async def approve_memo_core(
         companies=HubSpotCompanyService(client, search_service),
         deals=deal_service,
         associations=association_service,
+        tasks=HubSpotTasksService(client),
         crm_updates=crm_updates_service,
         supabase=supabase,
     )

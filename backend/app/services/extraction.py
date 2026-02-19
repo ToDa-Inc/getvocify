@@ -19,10 +19,10 @@ class ExtractionService:
         """Build the extraction prompt dynamically based on field specifications"""
         
         # Default fields that are always extracted for meeting intelligence
-        # companyName and contactName are CRITICAL for deal matching - always extract
+        # contactName = the PERSON you spoke with (not the company). CRITICAL for CRM.
         standard_fields = {
-            "companyName": "string (company/client name mentioned, e.g. Cobee, Acme Corp)",
-            "contactName": "string (name of person spoken to, e.g. Tony, Maria)",
+            "companyName": "string (company/client name, e.g. Coca Stress, Cobee, Acme Corp)",
+            "contactName": "string (ONLY the person's name you spoke with. 'Andrés de Coca Stress' → contactName='Andrés', companyName='Coca Stress'. 'Tony from Acme' → contactName='Tony', companyName='Acme')",
             "contactEmail": "string | null (email if mentioned in transcript)",
             "contactPhone": "string | null (phone if mentioned in transcript)",
             "summary": "string (2-3 sentences about the meeting)",
@@ -104,13 +104,14 @@ TRANSCRIPT:
 
 ### EXTRACTION RULES:
 1. **Conservative Extraction**: Only extract data that is explicitly mentioned. If a piece of information is missing or ambiguous, set the field to `null`.
-2. **Enum Mapping**: If a field has a list of allowed options, you MUST choose the one that best matches the transcript. Use the exact label provided.
-3. **Format**: Return the data in the following JSON format:
+2. **contactName = PERSON, companyName = COMPANY (CRITICAL)**: When someone says "Estoy con Andrés de Coca Stress" or "I spoke with Tony from Acme", you MUST extract: contactName="Andrés" (the person), companyName="Coca Stress" (the company). The person's name goes in contactName. The company name goes in companyName. Never put the company in contactName.
+3. **Enum Mapping**: If a field has a list of allowed options, you MUST choose the one that best matches the transcript. Use the exact label provided.
+4. **Format**: Return the data in the following JSON format:
 
 {json_structure}
 
-4. **Summary**: Provide a concise 2-3 sentence summary of the meeting.
-5. **Confidence**: Provide an overall confidence score (0-1) and individual scores for each extracted field.
+5. **Summary**: Provide a concise 2-3 sentence summary of the meeting.
+6. **Confidence**: Provide an overall confidence score (0-1) and individual scores for each extracted field.
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 

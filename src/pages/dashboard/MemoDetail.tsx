@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Check, Edit, X, ChevronDown, ExternalLink, Sparkles, AlertCircle } from "lucide-react";
+import { ArrowLeft, Play, Pause, Check, ChevronDown, ExternalLink, Sparkles, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { api } from "@/shared/lib/api-client";
+import { memosApi } from "@/features/memos/api";
 import { useAuth } from "@/features/auth";
 
 const MemoDetail = () => {
@@ -23,6 +24,7 @@ const MemoDetail = () => {
   const [duration, setDuration] = useState(0);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isReExtracting, setIsReExtracting] = useState(false);
 
   useEffect(() => {
     if (memo?.audioUrl) {
@@ -98,6 +100,20 @@ const MemoDetail = () => {
     setIsPreviewOpen(false);
   };
 
+  const handleReExtract = async () => {
+    if (!id) return;
+    setIsReExtracting(true);
+    try {
+      const updated = await memosApi.reExtract(id);
+      setMemo(updated);
+      toast.success("Re-extraction started. AI is extracting CRM fields...");
+    } catch (err: any) {
+      toast.error(err?.data?.detail || "Re-extract failed");
+    } finally {
+      setIsReExtracting(false);
+    }
+  };
+
   if (isLoading && !memo) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
@@ -124,6 +140,7 @@ const MemoDetail = () => {
 
   const extraction = memo.extraction || {};
   const isProcessing = ['uploading', 'transcribing', 'extracting'].includes(memo.status);
+  const extractionFailed = memo.status === "failed";
 
   if (syncResult) {
     return (
@@ -146,12 +163,14 @@ const MemoDetail = () => {
               Updated deal <span className="text-foreground font-bold">{syncResult.deal_name || extraction.companyName || "Unknown"}</span> in HubSpot. All tasks and associations have been processed.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:scale-105 transition-transform">
-                <a href={syncResult.deal_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  View in HubSpot
-                </a>
-              </Button>
+              {syncResult.deal_url ? (
+                <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:scale-105 transition-transform">
+                  <a href={syncResult.deal_url} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    View in HubSpot
+                  </a>
+                </Button>
+              ) : null}
               <Button variant="ghost" asChild className="rounded-full px-10">
                 <Link to="/dashboard/record">Record Another</Link>
               </Button>
@@ -178,46 +197,97 @@ const MemoDetail = () => {
           Memo <span className={THEME_TOKENS.typography.accentTitle}>Details</span>
         </h1>
         <p className={THEME_TOKENS.typography.body}>
-          {isProcessing ? "AI is currently analyzing your conversation..." : "Review and approve your CRM sync."}
+          {isProcessing ? "Step 1: AI is extracting CRM fields..." : extractionFailed ? "Step 1 failed. Re-extract to continue." : "Step 2: Review & approve. Then update to CRM."}
         </p>
+      </div>
+
+      {/* Step 1 failed banner - Re-extract to continue */}
+      {extractionFailed && (
+        <div className="mb-8 p-6 rounded-[2rem] border-2 border-destructive/30 bg-destructive/5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="flex items-start gap-4 flex-1">
+            <div className="w-12 h-12 rounded-2xl bg-destructive/10 flex items-center justify-center shrink-0">
+              <AlertCircle className="h-6 w-6 text-destructive" />
+            </div>
+            <div>
+              <p className="font-bold text-foreground mb-1">Step 1 failed: AI extraction</p>
+              <p className="text-sm text-muted-foreground">
+                {memo.errorMessage?.includes("401") ? "API key issue. Check OPENROUTER_API_KEY in .env." : memo.errorMessage || "Extraction failed. You have a transcript — try Re-extract."}
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleReExtract}
+            disabled={isReExtracting}
+            variant="outline"
+            className="rounded-full border-beige/40 hover:bg-beige/10 shrink-0"
+          >
+            {isReExtracting ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            {isReExtracting ? "Re-extracting..." : "Re-extract"}
+          </Button>
+        </div>
+      )}
+
+      {/* 3-step flow indicator */}
+      <div className="mb-8 grid grid-cols-3 gap-4">
+        <div className={`p-4 rounded-2xl border-2 transition-colors ${isProcessing ? 'border-beige/40 bg-beige/5' : extractionFailed ? 'border-muted/30 bg-muted/5' : 'border-success/20 bg-success/5'}`}>
+          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">1</span>
+          <p className="font-bold text-foreground mt-1">AI extracts CRM fields</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Company, contact, deal amount, next steps</p>
+        </div>
+        <div className={`p-4 rounded-2xl border-2 transition-colors ${!isProcessing && !extractionFailed && memo.extraction ? 'border-beige/40 bg-beige/5' : 'border-muted/30 bg-muted/5'}`}>
+          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">2</span>
+          <p className="font-bold text-foreground mt-1">You review & approve</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Edit any fields before syncing</p>
+        </div>
+        <div className="p-4 rounded-2xl border-2 border-muted/30 bg-muted/5">
+          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">3</span>
+          <p className="font-bold text-foreground mt-1">Update to CRM</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Deal, contact, tasks sync to HubSpot</p>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-5 gap-8">
         {/* Left Column - Transcript */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Audio Player */}
-          <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
-            <div className="flex items-center gap-5">
-              <Button 
-                variant="outline" 
-                size="icon"
-                onClick={togglePlay}
-                className="rounded-full w-12 h-12 bg-beige text-cream border-none hover:scale-105 transition-transform"
-              >
-                {isPlaying ? (
-                  <Pause className="h-5 w-5" />
-                ) : (
-                  <Play className="h-5 w-5 ml-1" />
-                )}
-              </Button>
-              <div className="flex-1 space-y-2">
-                <div className="h-1.5 bg-foreground/5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-beige rounded-full shadow-[0_0_10px_rgba(245,215,176,0.3)] transition-all duration-100" 
-                    style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-                  />
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
-                    {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, '0')}
-                  </span>
-                  <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
-                    {duration ? `${Math.floor(duration / 60)}:${(Math.floor(duration % 60)).toString().padStart(2, '0')}` : formatDuration(memo.audioDuration)}
-                  </span>
+          {/* Audio Player - only when we have audio (file upload flow) */}
+          {memo.audioUrl && (
+            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
+              <div className="flex items-center gap-5">
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  onClick={togglePlay}
+                  className="rounded-full w-12 h-12 bg-beige text-cream border-none hover:scale-105 transition-transform"
+                >
+                  {isPlaying ? (
+                    <Pause className="h-5 w-5" />
+                  ) : (
+                    <Play className="h-5 w-5 ml-1" />
+                  )}
+                </Button>
+                <div className="flex-1 space-y-2">
+                  <div className="h-1.5 bg-foreground/5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-beige rounded-full shadow-[0_0_10px_rgba(245,215,176,0.3)] transition-all duration-100" 
+                      style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
+                      {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, '0')}
+                    </span>
+                    <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
+                      {duration ? `${Math.floor(duration / 60)}:${(Math.floor(duration % 60)).toString().padStart(2, '0')}` : formatDuration(memo.audioDuration)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Transcript */}
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>

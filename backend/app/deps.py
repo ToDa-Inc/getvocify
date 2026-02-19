@@ -57,61 +57,48 @@ def get_user_id(
     supabase: Client = Depends(get_supabase)
 ) -> str:
     """
-    Extract user ID from Authorization header by verifying with Supabase
+    Extract user ID from Authorization header by verifying JWT with Supabase.
+    On expired token, returns 401 - frontend should refresh and retry.
     """
     if not authorization:
-        print("DEBUG: Authorization header missing")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization header. Please sign up or log in first to get an access token."
+            detail="Missing authorization header. Please sign in to get an access token.",
         )
     
     if not authorization.startswith("Bearer "):
-        print(f"DEBUG: Authorization header malformed: {authorization[:15]}...")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format"
+            detail="Invalid authorization header format",
         )
     
-    # Extract the token
     token = authorization.replace("Bearer ", "").strip()
     
-    if token == "undefined" or token == "null":
-        print(f"DEBUG: Authorization token is invalid string: '{token}'")
+    if not token or token in ("undefined", "null"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid session token ({token})"
+            detail="Invalid session token",
         )
     
     try:
-        # Verify the JWT with Supabase and get the actual User object
         response = supabase.auth.get_user(token)
         
-        # The latest Supabase SDK returns a UserResponse object
-        # We need to check if 'user' exists in the response
-        if hasattr(response, 'user') and response.user:
+        if hasattr(response, "user") and response.user:
             return str(response.user.id)
         
-        # Fallback for older SDK versions or different response structures
-        if isinstance(response, dict) and 'user' in response:
-            return str(response['user']['id'])
+        if isinstance(response, dict) and "user" in response:
+            return str(response["user"]["id"])
             
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired session"
+            detail="Invalid or expired session",
         )
-    except Exception as e:
-        print(f"DEBUG: Auth verification failed: {str(e)}")
-        # If verification fails, check if the token itself is a valid UUID
-        # (This supports simple local testing where token == user_id)
-        import uuid
-        try:
-            uuid.UUID(token)
-            return token
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authorization token"
-            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authorization token. Please sign in again.",
+        )
 
 

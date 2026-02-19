@@ -73,17 +73,17 @@ class CRMConfigurationService:
         return CRMConfigurationResponse(
             id=UUID(config_data["id"]),
             connection_id=UUID(config_data["connection_id"]),
-            default_pipeline_id=config_data["default_pipeline_id"],
-            default_pipeline_name=config_data["default_pipeline_name"],
-            default_stage_id=config_data["default_stage_id"],
-            default_stage_name=config_data["default_stage_name"],
-            allowed_deal_fields=config_data["allowed_deal_fields"],
-            allowed_contact_fields=config_data["allowed_contact_fields"],
-            allowed_company_fields=config_data["allowed_company_fields"],
-            auto_create_contacts=config_data["auto_create_contacts"],
-            auto_create_companies=config_data["auto_create_companies"],
-            created_at=config_data["created_at"],
-            updated_at=config_data["updated_at"],
+            default_pipeline_id=config_data.get("default_pipeline_id") or "",
+            default_pipeline_name=config_data.get("default_pipeline_name") or "",
+            default_stage_id=config_data.get("default_stage_id") or "",
+            default_stage_name=config_data.get("default_stage_name") or "",
+            allowed_deal_fields=config_data.get("allowed_deal_fields") or ["dealname", "amount", "description", "closedate"],
+            allowed_contact_fields=config_data.get("allowed_contact_fields") or ["firstname", "lastname", "email", "phone"],
+            allowed_company_fields=config_data.get("allowed_company_fields") or ["name", "domain"],
+            auto_create_contacts=config_data.get("auto_create_contacts", True),
+            auto_create_companies=config_data.get("auto_create_companies", True),
+            created_at=config_data.get("created_at") or "",
+            updated_at=config_data.get("updated_at") or "",
         )
     
     async def save_configuration(
