@@ -66,7 +66,14 @@ function renderState(state) {
     document.getElementById('record-header-subtitle').textContent = 'Recording';
     liveTranscriptContainer.style.display = 'block';
     shortcutBox.style.display = 'none';
-    
+
+    const dealContextBadge = document.getElementById('deal-context-badge');
+    if (dealContextBadge) {
+      const isDealPage = state.context?.objectType === 'deal';
+      dealContextBadge.style.display = isDealPage ? 'flex' : 'none';
+      if (isDealPage) dealContextBadge.textContent = 'Target: Deal on this page';
+    }
+
     // Show transcript with interim text styled differently
     liveTranscriptText.innerHTML = state.finalTranscript
       ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
@@ -80,6 +87,8 @@ function renderState(state) {
   recordButton.classList.remove('recording');
   document.getElementById('record-status-label').textContent = 'Tap to record';
   document.getElementById('record-header-subtitle').textContent = 'Ready to record';
+  const dealContextBadge = document.getElementById('deal-context-badge');
+  if (dealContextBadge) dealContextBadge.style.display = 'none';
 
   // Screen transitions based on status
   switch (state.status) {
@@ -98,11 +107,11 @@ function renderState(state) {
       
     case 'review':
       showScreen('review');
-      // Load preview if memo ID changed or not yet loaded
       if (state.currentMemoId && (!previewLoaded || currentMemoId !== state.currentMemoId)) {
         currentMemoId = state.currentMemoId;
         previewLoaded = true;
-        loadPreview(currentMemoId);
+        const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
+        loadPreview(currentMemoId, dealId);
       }
       break;
       
@@ -194,9 +203,10 @@ async function loadPreview(memoId, dealId = null) {
       currentDealId = match ? match.deal_id : null;
       
       document.getElementById('target-deal-name').textContent = match ? match.deal_name : 'New Deal';
-      document.getElementById('target-deal-reason').textContent = match 
-        ? `Matched via ${match.match_reason?.toLowerCase() || 'AI'}` 
+      const reasonText = match
+        ? (match.match_reason === 'Manual Selection' ? 'From current page' : `Matched via ${(match.match_reason || 'AI').toLowerCase()}`)
         : 'A new record will be created';
+      document.getElementById('target-deal-reason').textContent = reasonText;
       
       // Inject proposed updates
       proposedUpdatesList.innerHTML = '';

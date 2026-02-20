@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "116",
   "name": "Vocify - Voice to CRM",
   "version": "1.0.0",
   "description": "Update your CRM by speaking. Press Alt+Shift+V to record a voice memo.",
@@ -7,7 +8,8 @@
     "storage",
     "activeTab",
     "offscreen",
-    "notifications"
+    "notifications",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://*.hubspot.com/*",
@@ -19,6 +21,9 @@
   "background": {
     "service_worker": "background.js",
     "type": "module"
+  },
+  "side_panel": {
+    "default_path": "popup/index.html"
   },
   "action": {
     "default_popup": "popup/index.html",

@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # HubSpot OAuth (required for OAuth flow; private app flow does not use these)
+    HUBSPOT_CLIENT_ID: Optional[str] = None
+    HUBSPOT_CLIENT_SECRET: Optional[str] = None
+    HUBSPOT_REDIRECT_URI: Optional[str] = None
+
+    # JWT secret for signing OAuth state (prevents CSRF)
+    JWT_SECRET: Optional[str] = None
+
     # WhatsApp (optional - app runs without these)
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None

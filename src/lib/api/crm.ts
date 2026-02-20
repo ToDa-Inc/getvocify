@@ -24,8 +24,17 @@ export interface CRMConfiguration {
 }
 
 export const crmApi = {
+  /** OAuth: Get HubSpot authorize URL, then redirect user there */
+  async getHubSpotAuthorizeUrl(): Promise<{ redirect_url: string }> {
+    return api.get<{ redirect_url: string }>("/crm/hubspot/authorize");
+  },
+
   async connectHubSpot(accessToken: string) {
     return api.post("/crm/hubspot/connect", { access_token: accessToken });
+  },
+
+  async disconnectHubSpot() {
+    return api.delete("/crm/hubspot/disconnect");
   },
 
   async getPipelines() {

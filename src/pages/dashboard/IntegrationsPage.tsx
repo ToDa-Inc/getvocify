@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, X, RefreshCw, Loader2, Settings2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Check, X, Loader2, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
@@ -54,6 +55,7 @@ const initialIntegrations: Integration[] = [
 ];
 
 const IntegrationsPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState(initialIntegrations);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -89,6 +91,22 @@ const IntegrationsPage = () => {
     fetchConnections();
   }, [fetchConnections]);
 
+  // Handle OAuth callback params (?hubspot=connected | ?hubspot=error)
+  useEffect(() => {
+    const hubspot = searchParams.get("hubspot");
+    const error = searchParams.get("error");
+    if (hubspot === "connected") {
+      toast.success("HubSpot connected successfully!");
+      setSearchParams({}, { replace: true });
+      fetchConnections();
+      setTimeout(() => setIsConfigModalOpen(true), 300);
+    } else if (hubspot === "error" || error) {
+      const msg = error === "invalid_state" ? "Session expired. Please try again." : "Failed to connect HubSpot.";
+      toast.error(msg);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams, fetchConnections]);
+
   const handleConnectClick = (id: string) => {
     if (id !== "hubspot") {
       toast.info(`${initialIntegrations.find(i => i.id === id)?.name} integration coming soon!`);
@@ -110,7 +128,15 @@ const IntegrationsPage = () => {
     setIsConfigModalOpen(true);
   };
 
-  const handleDisconnect = (id: string) => {
+  const handleDisconnect = async (id: string) => {
+    if (id === "hubspot") {
+      try {
+        await crmApi.disconnectHubSpot();
+      } catch (e) {
+        toast.error("Failed to disconnect");
+        return;
+      }
+    }
     setItems(prevItems => prevItems.map(item => 
       item.id === id ? { ...item, connected: false, lastSync: undefined, details: undefined } : item
     ));
@@ -249,7 +275,7 @@ const IntegrationsPage = () => {
               Connect <span className="text-beige">HubSpot</span>
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed">
-              Authenticate using a Private App Access Token to enable secure, direct access to your CRM objects.
+              Connect securely via OAuth. You'll be redirected to HubSpot to authorize access.
             </DialogDescription>
           </DialogHeader>
           

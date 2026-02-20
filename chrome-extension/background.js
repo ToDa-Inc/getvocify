@@ -22,6 +22,9 @@ let state = {
   syncResult: null
 };
 
+/** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
+let lastActiveTabId = null;
+
 // ============================================
 // STATE MANAGEMENT
 // ============================================
@@ -34,6 +37,27 @@ function updateState(newState) {
   
   // Broadcast to popup (if open)
   chrome.runtime.sendMessage({ type: 'STATE_UPDATED', state }).catch(() => {});
+}
+
+/**
+ * Opens the extension UI. Must run synchronously in user gesture – no await before sidePanel.open.
+ * Chrome expires the gesture in ~1ms; pre-fetched tabId avoids async gap.
+ */
+function openExtensionUI() {
+  if (!chrome.sidePanel?.open) {
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup/index.html') }).catch(() => {});
+    return;
+  }
+
+  if (lastActiveTabId != null) {
+    chrome.sidePanel.open({ tabId: lastActiveTabId }).catch((err) => {
+      console.warn('[BG] Side panel open failed:', err);
+      showNotification('Vocify', 'Click the extension icon to open.');
+    });
+    return;
+  }
+
+  showNotification('Vocify', 'Focus a tab and try again.');
 }
 
 function showNotification(title, message) {
@@ -82,6 +106,8 @@ async function startRecording() {
       syncResult: null,
       currentMemoId: null
     });
+
+    // UI already opened by command handler; no need to open again
   } catch (error) {
     console.error('[BG] Start recording error:', error);
     showNotification('Error', 'Mic permission required.');
@@ -107,7 +133,7 @@ async function handleToggleRecording() {
   } else {
     const { accessToken } = await api.getTokens();
     if (!accessToken) {
-      showNotification('Login Required', 'Open the popup to log in.');
+      showNotification('Login Required', 'Log in above to start recording.');
       return;
     }
     await startRecording();
@@ -152,8 +178,10 @@ function startPolling(memoId) {
 
       if (memo.status === 'pending_review') {
         clearInterval(interval);
-        showNotification('Ready for Review', 'Tap to review and sync to CRM.');
+        showNotification('Ready for Review', 'Click to review and sync to CRM.');
         updateState({ status: 'review', currentMemoId: memoId });
+        // No user gesture here; open tab (sidePanel.open would fail)
+        chrome.tabs.create({ url: chrome.runtime.getURL('popup/index.html') }).catch(() => {});
       } else if (memo.status === 'approved') {
         clearInterval(interval);
         updateState({ status: 'success', syncResult: memo });
@@ -185,7 +213,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     
     case 'SET_STATE':
-      updateState(message.state);
+      updateState({
+        ...message.state,
+        ...(message.state?.status === 'review' && { context: null }),
+      });
       break;
     
     // Recording
@@ -268,6 +299,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         status: 'idle', 
         currentMemoId: null, 
         syncResult: null,
+        context: null,
         finalTranscript: '',
         interimTranscript: ''
       });
@@ -276,10 +308,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // ============================================
+// SIDE PANEL: Make icon click open side panel
+// ============================================
+if (chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+}
+
+// ============================================
+// PRE-FETCH TAB: sidePanel.open must run sync in user gesture (~1ms)
+// ============================================
+function seedActiveTab() {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs[0]) lastActiveTabId = tabs[0].id;
+  });
+}
+chrome.tabs.onActivated.addListener((info) => { lastActiveTabId = info.tabId; });
+chrome.windows.onFocusChanged.addListener(() => seedActiveTab());
+chrome.runtime.onStartup.addListener(seedActiveTab);
+seedActiveTab();
+
+// ============================================
 // HOTKEY COMMAND
 // ============================================
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-recording') {
+    openExtensionUI();
     handleToggleRecording();
   }
 });
