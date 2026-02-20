@@ -243,7 +243,13 @@ async def upload_memo(
             statusUrl=f"/api/v1/memos/{memo_id}"
         )
     else:
-        # No transcript - transcribe from bytes (no storage)
+        # No transcript - transcribe from bytes (Deepgram batch, disabled when DEEPGRAM_API_KEY not set)
+        from app.config import settings
+        if not settings.DEEPGRAM_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Transcript required. Deepgram is disabled. Use recording with real-time transcription (Speechmatics)."
+            )
         if not audio.content_type or not audio.content_type.startswith("audio/"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -509,6 +515,7 @@ async def approve_memo(
                 deal_id=deal_id,
                 is_new_deal=is_new_deal,
                 allowed_fields=allowed_fields,
+                transcript=memo_data.get("transcript"),
             )
             
             if not sync_result.success:

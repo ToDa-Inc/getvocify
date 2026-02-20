@@ -16,10 +16,18 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # AI Services
-    DEEPGRAM_API_KEY: str
+    DEEPGRAM_API_KEY: Optional[str] = None  # Disabled: using Speechmatics only
     SPEECHMATICS_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: str
     EXTRACTION_MODEL: str = "x-ai/grok-4.1-fast"
+
+    @field_validator("OPENROUTER_API_KEY")
+    @classmethod
+    def strip_openrouter_key(cls, v: str) -> str:
+        """Strip whitespace and quotes that can break auth."""
+        if not v:
+            return v
+        return v.strip().strip('"').strip("'")
     
     # Supabase
     SUPABASE_URL: str
@@ -76,7 +84,7 @@ except Exception as e:
     print("Required variables:", file=sys.stderr)
     print("  - SUPABASE_URL (e.g., https://your-project.supabase.co)", file=sys.stderr)
     print("  - SUPABASE_SERVICE_ROLE_KEY", file=sys.stderr)
-    print("  - DEEPGRAM_API_KEY", file=sys.stderr)
+    print("  - SPEECHMATICS_API_KEY (or DEEPGRAM_API_KEY for batch)", file=sys.stderr)
     print("  - OPENROUTER_API_KEY", file=sys.stderr)
     sys.exit(1)
 

@@ -87,6 +87,26 @@ class HubSpotContactService:
         
         return properties
     
+    async def get_by_email(self, email: str) -> Optional[HubSpotContact]:
+        """
+        Get contact by email using HubSpot's idProperty endpoint.
+        Fallback when Search API fails (e.g. missing scope) or returns unexpected format.
+        """
+        if not email or not email.strip():
+            return None
+        try:
+            from urllib.parse import quote
+            encoded = quote(email.strip().lower(), safe="")
+            response = await self.client.get(
+                f"/crm/v3/objects/{self.OBJECT_TYPE}/{encoded}",
+                params={"idProperty": "email", "properties": "email,firstname,lastname,phone,jobtitle"},
+            )
+            if response:
+                return HubSpotContact(**response)
+        except Exception:
+            pass
+        return None
+
     async def get(self, contact_id: str) -> HubSpotContact:
         """
         Get a contact by ID.
@@ -203,7 +223,8 @@ class HubSpotContactService:
         slug_parts = [p for p in [firstname, lastname] if p]
         contact_slug = re.sub(r"[^a-z0-9]", "", "".join(slug_parts).lower()) or "unknown"
         company_slug = re.sub(r"[^a-z0-9]", "", (extraction.companyName or "").lower())[:20] or "company"
-        return f"{contact_slug}.{company_slug}@vocify.placeholder"
+        # Use valid TLD (.com) - HubSpot rejects @vocify.placeholder (invalid TLD)
+        return f"{contact_slug}.{company_slug}@vocify-placeholder.com"
     
     async def create_or_update(
         self,
@@ -241,21 +262,29 @@ class HubSpotContactService:
         extraction_with_email = extraction.model_copy(update={"contactEmail": email})
         properties = self.map_extraction_to_properties(extraction_with_email)
         
-        # Try to find existing contact by email
-        existing = await self.search.find_contact_by_email(email)
+        # Try to find existing contact (Search API or GET-by-email fallback)
+        existing = None
+        try:
+            existing = await self.search.find_contact_by_email(email)
+        except Exception:
+            # Search may fail (e.g. missing crm.objects.contacts.read scope)
+            existing = await self.get_by_email(email)
         
         if existing:
             # Update existing contact
-            # Only update fields that have values (don't overwrite with empty)
             update_properties = {
                 k: v for k, v in properties.items()
                 if v and k != "email"  # Don't update email
             }
-            
             if update_properties:
                 return await self.update(existing.id, update_properties)
             return existing
-        else:
-            # Create new contact
+        
+        # Create new contact
+        try:
             return await self.create(properties)
+        except HubSpotConflictError:
+            # Contact already exists (409) - fetch by email and return
+            existing = await self.get_by_email(email)
+            return existing
 

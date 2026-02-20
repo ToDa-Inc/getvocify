@@ -33,37 +33,41 @@ class HubSpotAssociationService:
     def __init__(self, client: HubSpotClient):
         self.client = client
     
+    # HubSpot v4 uses singular object types: contact, company, deal
+    _SINGULAR = {"contacts": "contact", "companies": "company", "deals": "deal"}
+
     async def create_association(
         self,
         from_object_type: str,
         from_object_id: str,
         to_object_type: str,
         to_object_id: str,
-        association_type: str,
+        association_type: str = None,
     ) -> None:
         """
-        Create an association between two objects.
+        Create an unlabeled association between two objects.
+        
+        Uses HubSpot v4 default association endpoint:
+        PUT /crm/v4/objects/{from}/associations/default/{to}
         
         Args:
-            from_object_type: Source object type (e.g., "contacts")
+            from_object_type: Source object type (e.g., "deals" or "deal")
             from_object_id: Source object ID
-            to_object_type: Target object type (e.g., "companies")
+            to_object_type: Target object type (e.g., "contacts" or "contact")
             to_object_id: Target object ID
-            association_type: Association type ID (e.g., "1" for contact-to-company)
+            association_type: Unused (kept for API compatibility)
             
         Raises:
             HubSpotError for API errors
         """
         try:
-            # HubSpot v4 associations API
-            # Format: PUT /crm/v4/objects/{fromObjectType}/{fromObjectId}/associations/{toObjectType}/{toObjectId}/{associationType}
-            # Body: [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": association_type}]
-            type_id = int(association_type) if isinstance(association_type, str) else association_type
-            await self.client.put(
-                f"/crm/v4/objects/{from_object_type}/{from_object_id}/associations/{to_object_type}/{to_object_id}",
-                data=[{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": type_id}],
+            from_type = self._SINGULAR.get(from_object_type, from_object_type.rstrip("s"))
+            to_type = self._SINGULAR.get(to_object_type, to_object_type.rstrip("s"))
+            url = (
+                f"/crm/v4/objects/{from_type}/{from_object_id}/associations/default/"
+                f"{to_type}/{to_object_id}"
             )
-            
+            await self.client.put(url, data=None)
         except Exception as e:
             if isinstance(e, HubSpotError):
                 raise
@@ -169,8 +173,20 @@ class HubSpotAssociationService:
             if not response or "results" not in response:
                 return []
             
-            # Extract IDs from results
-            return [result.get("id", "") for result in response.get("results", [])]
+            # Extract IDs - HubSpot v4 returns two formats:
+            # 1) Basic: results[].objectId
+            # 2) Batch/guide: results[].to[].toObjectId
+            ids = []
+            for result in response.get("results", []):
+                oid = result.get("objectId") or result.get("id")
+                if oid is not None:
+                    ids.append(str(oid))
+                    continue
+                for to_item in result.get("to", []):
+                    oid = to_item.get("toObjectId")
+                    if oid is not None:
+                        ids.append(str(oid))
+            return ids
             
         except Exception as e:
             if isinstance(e, HubSpotError):

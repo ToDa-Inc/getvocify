@@ -9,6 +9,7 @@ and associations.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional, Union
 from uuid import UUID
 
@@ -17,7 +18,7 @@ from .exceptions import HubSpotAuthError, HubSpotScopeError, HubSpotError
 from .types import SyncResult
 from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
-from .deals import HubSpotDealService
+from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
 from .associations import HubSpotAssociationService
 from .tasks import HubSpotTasksService
 from app.models.memo import MemoExtraction
@@ -60,25 +61,41 @@ async def _get_hubspot_owner_id_for_user(
         if not email or not str(email).strip():
             return None
 
-        # Fetch HubSpot owners and match by email
-        resp = await client.get("/crm/v3/owners")
-        if not resp or "results" not in resp:
-            return None
+        # Fetch HubSpot owners (paginate to find match; requires crm.objects.owners.read)
         email_lower = str(email).strip().lower()
-        for owner in resp.get("results", []):
-            owner_email = (owner.get("email") or "").strip().lower()
-            if owner_email == email_lower:
-                owner_id = str(owner.get("id", ""))
-                if owner_id:
-                    # Cache in metadata
-                    meta = (conn_data or {}).get("metadata", {}) or {}
-                    supabase.table("crm_connections").update({
-                        "metadata": {**meta, "hubspot_owner_id": owner_id}
-                    }).eq("id", str(connection_id)).execute()
-                    return owner_id
+        after = None
+        while True:
+            params = {"limit": 100}
+            if after:
+                params["after"] = after
+            resp = await client.get("/crm/v3/owners", params=params)
+            if not resp or "results" not in resp:
+                break
+            for owner in resp.get("results", []):
+                owner_email = (owner.get("email") or "").strip().lower()
+                if owner_email == email_lower:
+                    owner_id = str(owner.get("id", ""))
+                    if owner_id:
+                        meta = (conn_data or {}).get("metadata", {}) or {}
+                        supabase.table("crm_connections").update({
+                            "metadata": {**meta, "hubspot_owner_id": owner_id}
+                        }).eq("id", str(connection_id)).execute()
+                        return owner_id
+                    break
+            paging = resp.get("paging", {}) or {}
+            after = (paging.get("next") or {}).get("after")
+            if not after:
                 break
     except Exception as e:
-        logger.debug("Could not resolve HubSpot owner for user %s: %s", user_id, e)
+        err_str = str(e).lower()
+        if "403" in err_str or "forbidden" in err_str or "scope" in err_str:
+            logger.warning(
+                "HubSpot owners API failed (likely missing crm.objects.owners.read scope): %s. "
+                "Add this scope to your HubSpot Private App to set deal owner.",
+                e,
+            )
+        else:
+            logger.warning("Could not resolve HubSpot owner for user %s: %s", user_id, e)
     return None
 
 
@@ -135,7 +152,10 @@ class HubSpotSyncService:
         Returns:
             Filtered properties dictionary
         """
-        return {k: v for k, v in properties.items() if k in allowed_fields}
+        return {
+            k: v for k, v in properties.items()
+            if k in allowed_fields and k not in HUBSPOT_READ_ONLY_DEAL_PROPERTIES
+        }
     
     async def sync_memo(
         self,
@@ -146,12 +166,14 @@ class HubSpotSyncService:
         deal_id: Optional[str] = None,
         is_new_deal: bool = False,
         allowed_fields: Optional[list[str]] = None,
+        transcript: Optional[str] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
         
         Supports both creating new deals and updating existing deals.
         Filters properties based on allowed_fields whitelist.
+        Creates a note with the transcript for deal context.
         
         On retry, reuses existing company/contact IDs from previous attempts
         to prevent orphan creation.
@@ -164,6 +186,7 @@ class HubSpotSyncService:
             deal_id: Optional deal ID to update (None = create new)
             is_new_deal: Whether to create a new deal (if deal_id is None)
             allowed_fields: List of field names AI is allowed to update
+            transcript: Full transcript text to add as note on the deal
             
         Returns:
             SyncResult with success status and created/updated object IDs
@@ -174,6 +197,10 @@ class HubSpotSyncService:
         hubspot_owner_id = await _get_hubspot_owner_id_for_user(
             self.client, self.supabase, user_id, connection_id
         )
+        if hubspot_owner_id:
+            logger.info("Resolved HubSpot owner %s for user %s", hubspot_owner_id, user_id)
+        else:
+            logger.info("No HubSpot owner matched for user %s (add crm.objects.owners.read scope?)", user_id)
 
         # Default allowed fields if not provided
         if allowed_fields is None:
@@ -239,12 +266,21 @@ class HubSpotSyncService:
                     )
             
             # Step 2: Contact - ALWAYS create when we have company or contact info
-            # Fallback: when we only have companyName, create "Contact at {company}"
-            extraction_for_contact = extraction
-            if not extraction.contactName and not extraction.contactEmail and extraction.companyName:
-                extraction_for_contact = extraction.model_copy(
-                    update={"contactName": f"Contact at {extraction.companyName}"}
-                )
+            # Pull from extraction or raw_extraction (LLM may put in either)
+            raw = extraction.raw_extraction or {}
+            company = extraction.companyName or raw.get("companyName") or raw.get("company_name")
+            contact_name = extraction.contactName or raw.get("contactName") or raw.get("contact_name")
+            contact_email = extraction.contactEmail or raw.get("contactEmail") or raw.get("contact_email")
+            # Fallback: when we only have company, create "Contact at {company}"
+            if company and not contact_name and not contact_email:
+                contact_name = f"Contact at {company}"
+            extraction_for_contact = extraction.model_copy(
+                update={
+                    "companyName": company or extraction.companyName,
+                    "contactName": contact_name or extraction.contactName,
+                    "contactEmail": contact_email or extraction.contactEmail,
+                }
+            )
             if extraction_for_contact.contactEmail or extraction_for_contact.contactName:
                 try:
                     # Reuse existing contact ID if available (prevents duplicates on retry)
@@ -256,7 +292,12 @@ class HubSpotSyncService:
                         if contact:
                             contact_id = contact.id
                             result.contact_id = contact_id
-                            
+                            logger.info(
+                                "Created/updated contact %s for memo %s (company=%s, name=%s)",
+                                contact_id, memo_id,
+                                extraction_for_contact.companyName,
+                                extraction_for_contact.contactName,
+                            )
                             await self.crm_updates.create_update(
                                 memo_id=str(memo_id),
                                 user_id=user_id,
@@ -266,7 +307,14 @@ class HubSpotSyncService:
                                 data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
                             )
                 except Exception as e:
-                    # Log error but continue
+                    logger.warning(
+                        "Failed to create/update contact for memo %s: %s. "
+                        "Extraction had company=%s, contact=%s, email=%s",
+                        memo_id, e,
+                        extraction_for_contact.companyName,
+                        extraction_for_contact.contactName,
+                        extraction_for_contact.contactEmail or "(none)",
+                    )
                     await self.crm_updates.create_update(
                         memo_id=str(memo_id),
                         user_id=user_id,
@@ -368,9 +416,11 @@ class HubSpotSyncService:
             if deal_id and contact_id:
                 try:
                     await self.associations.associate_deal_to_contact(deal_id, contact_id)
+                    logger.info("Associated deal %s to contact %s", deal_id, contact_id)
                 except Exception as e:
                     logger.warning(
-                        "Failed to associate deal %s to contact %s: %s",
+                        "Failed to associate deal %s to contact %s: %s. "
+                        "Ensure crm.objects.contacts.write and crm.objects.deals.write scopes.",
                         deal_id, contact_id, e,
                     )
 
@@ -403,6 +453,48 @@ class HubSpotSyncService:
                 except Exception as e:
                     logger.warning(
                         "Failed to create tasks for deal %s: %s", deal_id, e,
+                    )
+
+            # Step 7: Create note with transcript for deal context
+            if deal_id and transcript and transcript.strip():
+                try:
+                    note_body = transcript.strip()
+                    if len(note_body) > 65536:
+                        note_body = note_body[:65533] + "..."
+                    note_payload = {
+                        "properties": {
+                            "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "hs_note_body": note_body,
+                        },
+                        "associations": [
+                            {
+                                "to": {"id": str(deal_id)},
+                                "types": [
+                                    {
+                                        "associationCategory": "HUBSPOT_DEFINED",
+                                        "associationTypeId": 214,
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                    if hubspot_owner_id:
+                        note_payload["properties"]["hubspot_owner_id"] = hubspot_owner_id
+                    await self.client.post("/crm/v3/objects/notes", data=note_payload)
+                    logger.info("Created transcript note for deal %s", deal_id)
+                    await self.crm_updates.create_update(
+                        memo_id=str(memo_id),
+                        user_id=user_id,
+                        crm_connection_id=str(connection_id),
+                        action_type="create_note",
+                        resource_type="note",
+                        data={"deal_id": deal_id},
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to create transcript note for deal %s: %s. "
+                        "Ensure crm.objects.notes.write scope.",
+                        deal_id, e,
                     )
             
             # Success!

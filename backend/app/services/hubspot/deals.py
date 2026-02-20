@@ -23,6 +23,16 @@ from .search import HubSpotSearchService
 from .schema import HubSpotSchemaService
 from app.models.memo import MemoExtraction
 
+# HubSpot system-managed deal properties (read-only; cannot be set via API)
+HUBSPOT_READ_ONLY_DEAL_PROPERTIES = frozenset({
+    "hs_closed_amount", "hs_notes_next_activity", "hs_next_step",
+    "hs_lastmodifieddate", "hs_createdate", "hs_object_id",
+    "hs_analytics_source", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
+    "hs_is_closed", "hs_is_closed_won", "hs_date_entered_closedwon", "hs_date_entered_appointmentscheduled",
+    "hs_num_associated_contacts", "hs_num_child_companies", "hs_num_child_deals",
+    "hs_merged_object_ids", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
+})
+
 
 class HubSpotDealService:
     """
@@ -167,15 +177,18 @@ class HubSpotDealService:
         # If we have raw_extraction, use it as the source of truth for CRM fields
         if extraction.raw_extraction:
             # Fields we already handled in step 1 or that are not CRM deal properties
+            # deal_currency_code: omit - HubSpot validates against portal's effective currencies;
+            # sending EUR (or other) can fail if not configured for the portal. Amount uses portal default.
             skip_fields = [
                 "dealname", "amount", "closedate", "description",
-                "summary", "painPoints", "nextSteps", "competitors", 
+                "summary", "painPoints", "nextSteps", "competitors",
                 "objections", "decisionMakers", "confidence",
                 "contactName", "companyName", "contactEmail",  # Used for associations, not deal props
+                "deal_currency_code",  # Portal-specific; omit to avoid INVALID_OPTION validation
             ]
             
             for key, value in extraction.raw_extraction.items():
-                if key in skip_fields or value is None:
+                if key in skip_fields or key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES or value is None:
                     continue
                 
                 # Special handling for dates if they are in raw_extraction

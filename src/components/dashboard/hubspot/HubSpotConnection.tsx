@@ -50,7 +50,7 @@ export const HubSpotConnection = ({ onConnected }: HubSpotConnectionProps) => {
           <Key className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
         </div>
         <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed px-4">
-          Create a Private App in HubSpot with <code className="text-beige">crm.objects.deals</code>, <code className="text-beige">crm.objects.contacts</code>, and <code className="text-beige">crm.schemas.deals</code> scopes.
+          Create a Private App in HubSpot with <code className="text-beige">crm.objects.deals</code>, <code className="text-beige">crm.objects.contacts</code>, <code className="text-beige">crm.objects.companies</code>, <code className="text-beige">crm.objects.notes.write</code>, <code className="text-beige">crm.objects.owners.read</code>, and <code className="text-beige">crm.schemas.deals</code> scopes.
         </p>
       </div>
 

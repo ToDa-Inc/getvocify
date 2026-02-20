@@ -135,7 +135,7 @@ export function useRealtimeTranscription(
           }
 
           if (data.type === 'Results') {
-            const provider = data.provider || 'deepgram';
+            const provider = data.provider || 'speechmatics';
             const transcript = data.channel?.alternatives?.[0]?.transcript || '';
             const isFinal = data.is_final || data.speech_final;
             
@@ -284,9 +284,9 @@ export function useRealtimeTranscription(
     isConnected,
     isTranscribing,
     error,
-    interimTranscript: providerTranscripts.deepgram.interim,
-    finalTranscript: providerTranscripts.deepgram.final,
-    fullTranscript: providerTranscripts.speechmatics.full || providerTranscripts.deepgram.full,
+    interimTranscript: providerTranscripts.speechmatics.interim,
+    finalTranscript: providerTranscripts.speechmatics.final,
+    fullTranscript: providerTranscripts.speechmatics.full,
     providerTranscripts,
     start,
     stop,

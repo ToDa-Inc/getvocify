@@ -52,6 +52,7 @@ export const CRM_PROVIDER_CONFIGS: Record<CRMProvider, CRMProviderConfig> = {
       'crm.objects.deals.read',
       'crm.objects.deals.write',
       'crm.objects.companies.read',
+      'crm.objects.notes.write',
       'crm.schemas.deals.read',
     ],
   },

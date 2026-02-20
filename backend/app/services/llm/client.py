@@ -88,8 +88,23 @@ class LLMClient:
                     return content
             except (httpx.HTTPStatusError, httpx.RequestError, KeyError) as e:
                 last_error = e
-                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 401:
-                    logger.error("OpenRouter 401: Invalid or expired API key. Check OPENROUTER_API_KEY in .env")
+                if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                    try:
+                        body = e.response.json()
+                        err_detail = body.get("error", {}).get("message", body.get("message", str(body)))
+                        logger.error(
+                            "OpenRouter %s: %s (model=%s)",
+                            e.response.status_code,
+                            err_detail,
+                            model or self.model,
+                        )
+                    except Exception:
+                        logger.error("OpenRouter %s: %s", e.response.status_code, e.response.text[:200] if e.response.text else str(e))
+                    if e.response.status_code == 401:
+                        logger.error(
+                            "401 = Invalid/disabled key or OAuth expired. "
+                            "Try: 1) Create new key at openrouter.ai/keys 2) Remove quotes/whitespace from .env"
+                        )
                 if attempt < MAX_RETRIES:
                     logger.warning("LLM request failed (attempt %d/%d): %s", attempt + 1, MAX_RETRIES + 1, e)
         raise Exception(f"LLM request failed: {last_error}") from last_error

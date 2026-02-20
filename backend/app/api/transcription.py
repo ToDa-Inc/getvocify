@@ -1,6 +1,6 @@
 """
 Real-time transcription WebSocket endpoint
-Proxies audio stream to Deepgram and Speechmatics and returns transcripts
+Proxies audio stream to Speechmatics (Deepgram disabled)
 """
 
 import asyncio
@@ -31,8 +31,6 @@ if not hasattr(ssl, '_orig_create_default_context'):
 
 import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from deepgram import AsyncDeepgramClient
-from deepgram.listen.v1.socket_client import ListenV1ControlMessage
 from app.config import settings
 from app.services.glossary import GlossaryService
 
@@ -167,131 +165,64 @@ class SpeechmaticsProxy:
                 "error": str(e)
             })
 
-class DeepgramProxy:
+class SpeechmaticsOnlyProxy:
     """
-    Surgical Proxy using the official Deepgram SDK v5.3.0 (Async).
-    Handles bi-directional streaming between Client and Deepgram.
-    """
-    def __init__(self, language: str = "multi", glossary: List[dict] = None):
-        self.language = language
-        self.glossary = glossary or []
-        self.client = AsyncDeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
-        
-    async def proxy_session(self, client_ws: WebSocket, audio_queue: asyncio.Queue):
-        try:
-            # Format keywords for Deepgram
-            dg_keywords = []
-            if self.glossary:
-                service = GlossaryService()
-                dg_keywords = service.format_for_deepgram(self.glossary)
-                logger.info(f"Injected {len(dg_keywords)} glossary keywords into Deepgram: {dg_keywords}")
-
-            # NOVA-3 MISSION: Using a more stable parameter set for Nova-3 Spanish
-            options = {
-                "model": "nova-3",
-                "language": "es",
-                "encoding": "linear16",    # Essential for raw PCM
-                "sample_rate": 16000,      # Essential for raw PCM
-                "interim_results": True,
-                "smart_format": True,
-            }
-            
-            # Reverting to 'keywords' as 'keyterm' may not be supported in SDK 5.3.0 yet
-            if dg_keywords:
-                options["keywords"] = dg_keywords
-                logger.info(f"Using 'keywords' for Nova-3: {dg_keywords}")
-
-            async with self.client.listen.v1.connect(**options) as dg_ws:
-                
-                logger.info("Deepgram connection established")
-                
-                async def send_audio():
-                    while True:
-                        audio_chunk = await audio_queue.get()
-                        if audio_chunk is None:
-                            await dg_ws.send_control(ListenV1ControlMessage(type="CloseStream")) # type: ignore
-                            break
-                        await dg_ws.send_media(audio_chunk)
-
-                async def receive_transcripts():
-                    async for message in dg_ws:
-                        # Forward the Pydantic model as JSON with provider tag
-                        data = message.model_dump()
-                        data["provider"] = "deepgram"
-                        await client_ws.send_json(data)
-
-                await asyncio.gather(send_audio(), receive_transcripts())
-
-        except Exception as e:
-            logger.error(f"Deepgram session error: {e}")
-
-class MultiProviderProxy:
-    """
-    Orchestrates both Deepgram and Speechmatics simultaneously.
+    Real-time transcription via Speechmatics only (Deepgram disabled).
     """
     def __init__(self, language: str = "multi", glossary: List[dict] = None):
         self.language = language
         self.glossary = glossary or []
-        self.dg_queue = asyncio.Queue()
         self.sm_queue = asyncio.Queue()
-        self.dg_proxy = DeepgramProxy(language, glossary=self.glossary)
         self.sm_proxy = SpeechmaticsProxy(language, glossary=self.glossary)
 
     async def proxy_session(self, client_ws: WebSocket):
         try:
-            await client_ws.send_json({"type": "connected", "model": "dual-stream"})
+            await client_ws.send_json({"type": "connected", "model": "speechmatics"})
 
-            async def client_to_queues():
+            async def client_to_queue():
                 try:
                     while True:
                         msg = await client_ws.receive()
                         if msg["type"] == "websocket.disconnect":
                             break
-                        
                         if "bytes" in msg:
-                            # Split the stream
-                            await self.dg_queue.put(msg["bytes"])
                             await self.sm_queue.put(msg["bytes"])
                         elif "text" in msg:
                             data = json.loads(msg["text"])
                             if data.get("type") == "CloseStream":
                                 break
                 finally:
-                    # Signal termination to both queues
-                    await self.dg_queue.put(None)
                     await self.sm_queue.put(None)
 
             await asyncio.gather(
-                client_to_queues(),
-                self.dg_proxy.proxy_session(client_ws, self.dg_queue),
+                client_to_queue(),
                 self.sm_proxy.proxy_session(client_ws, self.sm_queue)
             )
 
         except Exception as e:
-            logger.error(f"MultiProviderProxy session error: {e}")
+            logger.error("Speechmatics proxy session error: %s", e)
         finally:
-            logger.info("MultiProviderProxy session finished")
+            logger.info("Speechmatics proxy session finished")
 
 @router.websocket("/live")
 async def live_transcription(
     websocket: WebSocket,
 ):
     """
-    FastAPI WebSocket entry point for Dual-Streaming.
+    FastAPI WebSocket entry point for real-time transcription (Speechmatics).
     """
     await websocket.accept()
     language = websocket.query_params.get("language", "multi")
     user_id = websocket.query_params.get("user_id")
     
-    # FETCH USER GLOSSARY IF USER_ID IS PROVIDED
     glossary = []
     if user_id:
         try:
             glossary_service = GlossaryService()
             glossary = await glossary_service.get_user_glossary(user_id)
-            logger.info(f"Loaded {len(glossary)} glossary terms for user {user_id}")
+            logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
         except Exception as e:
-            logger.error(f"Failed to load glossary: {e}")
+            logger.error("Failed to load glossary: %s", e)
 
-    proxy = MultiProviderProxy(language=language, glossary=glossary)
+    proxy = SpeechmaticsOnlyProxy(language=language, glossary=glossary)
     await proxy.proxy_session(websocket)
