@@ -1,6 +1,8 @@
 # Frontend Revision Plan
 
-> **Current State Analysis + Required Changes**
+
+
+> **Current State Analysis + Required Changes to do**
 
 ---
 

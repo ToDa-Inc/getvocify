@@ -241,8 +241,8 @@ async def hubspot_callback(
     Exchanges code for tokens, stores connection, redirects to frontend.
     """
     frontend_url = settings.FRONTEND_URL.rstrip("/")
-    success_url = f"{frontend_url}/integrations?hubspot=connected"
-    error_url = f"{frontend_url}/integrations?hubspot=error"
+    success_url = f"{frontend_url}/dashboard/integrations?hubspot=connected"
+    error_url = f"{frontend_url}/dashboard/integrations?hubspot=error"
 
     if error:
         return RedirectResponse(url=f"{error_url}&error={error}", status_code=302)
