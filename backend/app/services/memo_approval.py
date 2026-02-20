@@ -153,6 +153,7 @@ async def approve_memo_core(
         deal_id=deal_id,
         is_new_deal=is_new_deal,
         allowed_fields=allowed_fields,
+        transcript=memo_data.get("transcript"),
     )
 
     if not sync_result.success:

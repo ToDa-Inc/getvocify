@@ -1,19 +1,22 @@
 """
-Deepgram transcription service
+Transcription service (Deepgram batch - disabled when DEEPGRAM_API_KEY not set).
+Real-time uses Speechmatics only.
 """
 
 import asyncio
-from deepgram import DeepgramClient
 from app.config import settings
 from app.models.memo import TranscriptionResult
 from typing import Optional
 
 
 class TranscriptionService:
-    """Service for transcribing audio using Deepgram"""
+    """Service for transcribing audio using Deepgram (batch). Disabled when DEEPGRAM_API_KEY is not set."""
     
     def __init__(self):
-        self.client = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
+        self.client = None
+        if settings.DEEPGRAM_API_KEY:
+            from deepgram import DeepgramClient
+            self.client = DeepgramClient(api_key=settings.DEEPGRAM_API_KEY)
     
     async def transcribe(
         self,
@@ -21,15 +24,14 @@ class TranscriptionService:
         mime_type: str = "audio/webm"
     ) -> TranscriptionResult:
         """
-        Transcribe audio file using Deepgram Nova-2 model
-        
-        Args:
-            audio_bytes: Audio file bytes
-            mime_type: MIME type of the audio file
-            
-        Returns:
-            TranscriptionResult with transcript, confidence, and duration
+        Transcribe audio file using Deepgram Nova-2 model.
+        Raises if Deepgram is disabled (DEEPGRAM_API_KEY not set).
         """
+        if not self.client:
+            raise Exception(
+                "Deepgram is disabled. Use recording with real-time transcription (Speechmatics) "
+                "or provide transcript when creating the memo."
+            )
         try:
             # Transcribe using the new v5.x API
             # model="nova-2" is valid for MediaTranscribeRequestModel

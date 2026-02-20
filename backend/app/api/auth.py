@@ -177,10 +177,11 @@ async def login(
         access_token = auth_response.session.access_token
         refresh_token = auth_response.session.refresh_token
         
-        # Get user profile
-        profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
+        # Get user profile (0 rows OK, we'll create; single() throws PGRST116 if no row)
+        profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()
+        profile_data_list = (profile_result.data if profile_result else None) or []
         
-        if not profile_result.data:
+        if not profile_data_list:
             # Profile doesn't exist - create it
             profile_data = {
                 "id": user_id,
@@ -190,7 +191,7 @@ async def login(
             supabase.table("user_profiles").insert(profile_data).execute()
             profile = profile_data
         else:
-            profile = profile_result.data
+            profile = profile_data_list[0]
         
         return AuthResponse(
             user=UserResponse(

@@ -211,8 +211,13 @@ const MemoDetail = () => {
             <div>
               <p className="font-bold text-foreground mb-1">Step 1 failed: AI extraction</p>
               <p className="text-sm text-muted-foreground">
-                {memo.errorMessage?.includes("401") ? "API key issue. Check OPENROUTER_API_KEY in .env." : memo.errorMessage || "Extraction failed. You have a transcript — try Re-extract."}
+                {memo.errorMessage || "Extraction failed. You have a transcript — try Re-extract."}
               </p>
+              {memo.errorMessage?.toLowerCase().includes("401") && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  If your OpenRouter key works when tested, try Re-extract — the error may be from a previous attempt.
+                </p>
+              )}
             </div>
           </div>
           <Button

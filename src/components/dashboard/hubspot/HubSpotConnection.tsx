@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi } from "@/lib/api/crm";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -27,7 +26,7 @@ export const HubSpotConnection = ({ onConnected }: HubSpotConnectionProps) => {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground leading-relaxed">
-        Connect your HubSpot account securely via OAuth. You'll be redirected to HubSpot to authorize access to your deals, contacts, and companies.
+        Connect your HubSpot account securely via OAuth. You'll be redirected to HubSpot to authorize access to your deals, contacts, companies, and notes.
       </p>
 
       <Button

@@ -296,8 +296,8 @@ class HubSpotSchemaService:
         - name (key)
         - label
         - description
-        - type
-        - options (for enums)
+        - type (HubSpot schema type: string, number, bool, datetime, enumeration, etc.)
+        - options: list of {value, label} for enums (LLM must output the value for HubSpot API)
         """
         schema = await self.get_schema(object_type)
         all_props = {p.name: p for p in schema.properties}
@@ -315,9 +315,13 @@ class HubSpotSchemaService:
                 "description": prop.description or "",
             }
             
-            # For enumerations, provide labels for better LLM reasoning
+            # For enumerations: provide both value and label so LLM outputs HubSpot API value
             if prop.type in ["enumeration", "checkbox", "radio", "select"] and prop.options:
-                spec["options"] = [opt.label for opt in prop.options if not opt.hidden]
+                spec["options"] = [
+                    {"value": opt.value, "label": opt.label}
+                    for opt in prop.options
+                    if not opt.hidden
+                ]
             
             curated_specs.append(spec)
             
