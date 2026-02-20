@@ -2,10 +2,14 @@
 Parse Unipile webhook payloads (direct or n8n-wrapped).
 """
 
+import logging
 import re
 from typing import Any
 
 from app.services.whatsapp.webhook_parser import IncomingMessage
+from app.webhook_context import get_correlation_id, log_extra
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_phone(body: dict) -> str | None:
@@ -41,19 +45,41 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
     or a structure with those keys. Returns list of IncomingMessage.
     """
     messages: list[IncomingMessage] = []
+    cid = get_correlation_id()
 
     event = body.get("event")
     if event != "message_received":
+        logger.debug(
+            "Unipile parse skip: event mismatch",
+            extra=log_extra(message_id=body.get("message_id"), event=event, reason="event_not_message_received"),
+        )
         return messages
 
     if body.get("account_type") != "WHATSAPP":
+        logger.debug(
+            "Unipile parse skip: account type",
+            extra=log_extra(message_id=body.get("message_id"), account_type=body.get("account_type"), reason="account_type_not_whatsapp"),
+        )
         return messages
 
     if body.get("is_sender"):
+        logger.debug(
+            "Unipile parse skip: is_sender",
+            extra=log_extra(message_id=body.get("message_id"), reason="is_sender_true"),
+        )
         return messages
 
     from_phone = _extract_phone(body)
     if not from_phone:
+        sender_keys = list((body.get("sender") or {}).keys()) if isinstance(body.get("sender"), dict) else []
+        logger.info(
+            "Unipile parse skip: no phone extracted",
+            extra=log_extra(
+                message_id=body.get("message_id"),
+                reason="no_phone_extracted",
+                sender_keys=sender_keys,
+            ),
+        )
         return messages
 
     message_id = body.get("message_id") or ""
@@ -82,6 +108,17 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
             account_id=account_id,
         )
     )
+    if cid:
+        logger.info(
+            "Unipile parse ok",
+            extra=log_extra(
+                message_id=message_id,
+                from_phone=from_phone,
+                chat_id=chat_id,
+                account_id=account_id,
+                msg_type=msg_type,
+            ),
+        )
     return messages
 
 
@@ -93,15 +130,31 @@ def normalize_unipile_payload(body: Any) -> list[dict]:
     - n8n array format: [{ "body": { ... event ... } }]
     - Direct Unipile event: { "event": "message_received", ... }
     """
+    cid = get_correlation_id()
+
     if isinstance(body, list):
         events = []
         for item in body:
             ev = item.get("body", item) if isinstance(item, dict) else item
             if isinstance(ev, dict) and ev.get("event"):
                 events.append(ev)
+        if not events and cid:
+            logger.debug(
+                "Unipile normalize: list had no valid events",
+                extra=log_extra(reason="list_no_valid_events", list_len=len(body)),
+            )
         return events
 
     if isinstance(body, dict) and body.get("event"):
         return [body]
 
+    if cid:
+        logger.debug(
+            "Unipile normalize: unrecognized format",
+            extra=log_extra(
+                reason="unrecognized_format",
+                body_type=type(body).__name__,
+                top_keys=list(body.keys())[:10] if isinstance(body, dict) else None,
+            ),
+        )
     return []

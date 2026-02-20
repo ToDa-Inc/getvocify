@@ -17,6 +17,7 @@ from app.services.memo_approval import approve_memo_core
 from app.services.speechmatics_batch import SpeechmaticsBatchService
 from app.services.storage import StorageService
 from app.services.whatsapp.webhook_parser import IncomingMessage
+from app.webhook_context import log_extra
 
 # Any client with send_text(to, text, **kwargs), send_interactive_buttons(to, body, buttons, **kwargs)
 from typing import Any, Protocol
@@ -121,26 +122,49 @@ async def process_whatsapp_message(
     - button: handle approve / add-fields
     """
     if not wa_client.is_configured():
-        logger.warning("WhatsApp client not configured, skipping")
+        logger.warning(
+            "Messaging client not configured, skipping",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone),
+        )
         return
 
     user_id = await lookup_user_by_phone(supabase, msg.from_phone)
     if not user_id:
+        logger.info(
+            "User not found by phone, sending UNKNOWN_USER_MSG",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone),
+        )
         await wa_client.send_text(msg.from_phone, UNKNOWN_USER_MSG, **_client_kwargs(msg))
         return
 
     if msg.type == "button":
+        logger.info(
+            "Processing button reply",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone, button_id=msg.button_id),
+        )
         await _handle_button_reply(supabase, msg, wa_client, user_id)
         return
 
     audio_url: Optional[str] = None
     if msg.type == "text":
         transcript = msg.text or ""
+        logger.info(
+            "Processing text message",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone, user_id=user_id, text_len=len(transcript)),
+        )
     elif msg.type == "audio" and msg.audio_id:
+        logger.info(
+            "Processing audio message",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone, user_id=user_id),
+        )
         transcript, audio_url = await _transcribe_audio(
             supabase, wa_client, msg, user_id
         )
         if not transcript:
+            logger.warning(
+                "Audio transcription failed",
+                extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone),
+            )
             await wa_client.send_text(
                 msg.from_phone,
                 "Sorry, I couldn't transcribe the audio. Please try again or send a text message.",
@@ -148,6 +172,10 @@ async def process_whatsapp_message(
             )
             return
     else:
+        logger.info(
+            "Unsupported message type",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone, msg_type=msg.type),
+        )
         await wa_client.send_text(
             msg.from_phone,
             "I only process voice notes and text. Please send one of those.",
@@ -156,6 +184,10 @@ async def process_whatsapp_message(
         return
 
     if len(transcript.strip()) < 10:
+        logger.info(
+            "Transcript too short",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone, transcript_len=len(transcript)),
+        )
         await wa_client.send_text(
             msg.from_phone,
             "The message was too short to extract CRM data. Please send a longer voice note or text.",
@@ -167,6 +199,10 @@ async def process_whatsapp_message(
         supabase, user_id, transcript, msg.message_id, audio_url
     )
     if not memo_id:
+        logger.warning(
+            "Memo creation failed",
+            extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone),
+        )
         await wa_client.send_text(
             msg.from_phone,
             "Something went wrong processing your message. Please try again.",
@@ -174,6 +210,10 @@ async def process_whatsapp_message(
         )
         return
 
+    logger.info(
+        "Memo created, sending extraction summary",
+        extra=log_extra(message_id=msg.message_id, from_phone=msg.from_phone, memo_id=memo_id),
+    )
     summary = _format_extraction_summary(extraction)
     buttons = [
         {"id": f"approve:{memo_id}", "title": "Approve"},

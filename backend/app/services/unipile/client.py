@@ -9,6 +9,7 @@ from typing import Optional
 import httpx
 
 from app.config import settings
+from app.webhook_context import log_extra
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +49,50 @@ class UnipileClient:
         Send a text message. For Unipile, chat_id and account_id are required.
         """
         if not chat_id or not account_id:
-            logger.warning("Unipile send_text: chat_id and account_id required, skipping")
+            logger.warning(
+                "Unipile send_text skipped: chat_id/account_id required",
+                extra=log_extra(to=to, chat_id=chat_id, account_id=account_id, reason="missing_chat_context"),
+            )
             return
 
         url = f"{self.base_url.rstrip('/')}/api/v1/chats/{chat_id}/messages"
         payload = {"account_id": account_id, "text": text[:4096]}
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                url,
-                data=payload,
-                headers=self._headers(),
+        logger.info(
+            "Unipile send_text attempt",
+            extra=log_extra(to=to, chat_id=chat_id, account_id=account_id, url=url),
+        )
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    url,
+                    data=payload,
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+                logger.info(
+                    "Unipile send_text success",
+                    extra=log_extra(to=to, chat_id=chat_id, status=resp.status_code),
+                )
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Unipile send_text failed",
+                extra=log_extra(
+                    to=to,
+                    chat_id=chat_id,
+                    status_code=e.response.status_code,
+                    response_body=e.response.text[:500] if e.response.text else None,
+                ),
+                exc_info=True,
             )
-            resp.raise_for_status()
+            raise
+        except Exception as e:
+            logger.error(
+                "Unipile send_text error",
+                extra=log_extra(to=to, chat_id=chat_id, error=str(e)),
+                exc_info=True,
+            )
+            raise
 
     async def send_interactive_buttons(
         self,
@@ -77,7 +109,10 @@ class UnipileClient:
         Append reply commands so user can reply 'approve:id' or 'add:id'.
         """
         if not chat_id or not account_id:
-            logger.warning("Unipile send_interactive_buttons: chat_id and account_id required, skipping")
+            logger.warning(
+                "Unipile send_interactive_buttons skipped: chat_id/account_id required",
+                extra=log_extra(to=to, reason="missing_chat_context"),
+            )
             return
 
         lines = [body, ""]
