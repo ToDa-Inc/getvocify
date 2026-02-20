@@ -34,7 +34,7 @@ class WhatsAppClient:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.access_token}"}
 
-    async def send_text(self, to: str, text: str) -> None:
+    async def send_text(self, to: str, text: str, **kwargs) -> None:
         """Send a plain text message to a WhatsApp number (E.164)."""
         payload = {
             "messaging_product": "whatsapp",
@@ -56,6 +56,7 @@ class WhatsAppClient:
         to: str,
         body: str,
         buttons: list[dict],
+        **kwargs,
     ) -> None:
         """
         Send interactive quick-reply buttons (max 3).

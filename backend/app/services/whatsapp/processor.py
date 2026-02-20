@@ -16,8 +16,20 @@ from app.services.glossary import GlossaryService
 from app.services.memo_approval import approve_memo_core
 from app.services.speechmatics_batch import SpeechmaticsBatchService
 from app.services.storage import StorageService
-from app.services.whatsapp.client import WhatsAppClient
 from app.services.whatsapp.webhook_parser import IncomingMessage
+
+# Any client with send_text(to, text, **kwargs), send_interactive_buttons(to, body, buttons, **kwargs)
+from typing import Any, Protocol
+
+
+class MessagingClient(Protocol):
+    def is_configured(self) -> bool: ...
+
+    async def send_text(self, to: str, text: str, **kwargs: Any) -> None: ...
+
+    async def send_interactive_buttons(
+        self, to: str, body: str, buttons: list[dict], **kwargs: Any
+    ) -> None: ...
 from app.services.crm_config import CRMConfigurationService
 from app.services.hubspot import HubSpotClient, HubSpotSchemaService, HubSpotSearchService
 
@@ -89,10 +101,19 @@ async def get_field_specs(supabase: Client, user_id: str) -> Optional[list[dict]
         return None
 
 
+def _client_kwargs(msg: IncomingMessage) -> dict:
+    """Extra kwargs for Unipile (chat_id, account_id). Ignored by WhatsApp."""
+    kwargs: dict = {}
+    if getattr(msg, "chat_id", None) and getattr(msg, "account_id", None):
+        kwargs["chat_id"] = msg.chat_id
+        kwargs["account_id"] = msg.account_id
+    return kwargs
+
+
 async def process_whatsapp_message(
     supabase: Client,
     msg: IncomingMessage,
-    wa_client: WhatsAppClient,
+    wa_client: MessagingClient,
 ) -> None:
     """
     Process one incoming WhatsApp message.
@@ -105,7 +126,7 @@ async def process_whatsapp_message(
 
     user_id = await lookup_user_by_phone(supabase, msg.from_phone)
     if not user_id:
-        await wa_client.send_text(msg.from_phone, UNKNOWN_USER_MSG)
+        await wa_client.send_text(msg.from_phone, UNKNOWN_USER_MSG, **_client_kwargs(msg))
         return
 
     if msg.type == "button":
@@ -123,12 +144,14 @@ async def process_whatsapp_message(
             await wa_client.send_text(
                 msg.from_phone,
                 "Sorry, I couldn't transcribe the audio. Please try again or send a text message.",
+                **_client_kwargs(msg),
             )
             return
     else:
         await wa_client.send_text(
             msg.from_phone,
             "I only process voice notes and text. Please send one of those.",
+            **_client_kwargs(msg),
         )
         return
 
@@ -136,6 +159,7 @@ async def process_whatsapp_message(
         await wa_client.send_text(
             msg.from_phone,
             "The message was too short to extract CRM data. Please send a longer voice note or text.",
+            **_client_kwargs(msg),
         )
         return
 
@@ -146,6 +170,7 @@ async def process_whatsapp_message(
         await wa_client.send_text(
             msg.from_phone,
             "Something went wrong processing your message. Please try again.",
+            **_client_kwargs(msg),
         )
         return
 
@@ -154,12 +179,14 @@ async def process_whatsapp_message(
         {"id": f"approve:{memo_id}", "title": "Approve"},
         {"id": f"add:{memo_id}", "title": "Add fields"},
     ]
-    await wa_client.send_interactive_buttons(msg.from_phone, summary, buttons)
+    await wa_client.send_interactive_buttons(
+        msg.from_phone, summary, buttons, **_client_kwargs(msg)
+    )
 
 
 async def _transcribe_audio(
     supabase: Client,
-    wa_client: WhatsAppClient,
+    wa_client: MessagingClient,
     msg: IncomingMessage,
     user_id: str,
 ) -> tuple[Optional[str], Optional[str]]:
@@ -232,29 +259,31 @@ async def _extract_and_create_memo(
 async def _handle_button_reply(
     supabase: Client,
     msg: IncomingMessage,
-    wa_client: WhatsAppClient,
+    wa_client: MessagingClient,
     user_id: str,
 ) -> None:
     """Handle Approve or Add fields button."""
+    kw = _client_kwargs(msg)
     bid = (msg.button_id or "").strip()
     if bid.startswith("approve:"):
         memo_id = bid[8:].strip()
         if not memo_id:
-            await wa_client.send_text(msg.from_phone, "Invalid request. Please try again.")
+            await wa_client.send_text(msg.from_phone, "Invalid request. Please try again.", **kw)
             return
         try:
             await approve_memo_core(supabase, memo_id, user_id)
-            await wa_client.send_text(msg.from_phone, "Done! Your CRM has been updated.")
+            await wa_client.send_text(msg.from_phone, "Done! Your CRM has been updated.", **kw)
         except ValueError as e:
-            await wa_client.send_text(msg.from_phone, f"Could not update CRM: {e}")
+            await wa_client.send_text(msg.from_phone, f"Could not update CRM: {e}", **kw)
     elif bid.startswith("add:"):
         memo_id = bid[4:].strip()
         if not memo_id:
-            await wa_client.send_text(msg.from_phone, "Invalid request. Please try again.")
+            await wa_client.send_text(msg.from_phone, "Invalid request. Please try again.", **kw)
             return
         await wa_client.send_text(
             msg.from_phone,
             f"Reply with the fields to add, one per line.\nExample:\ndealname: Acme Corp\namount: 50000",
+            **kw,
         )
     else:
-        await wa_client.send_text(msg.from_phone, "Unknown action. Please try again.")
+        await wa_client.send_text(msg.from_phone, "Unknown action. Please try again.", **kw)

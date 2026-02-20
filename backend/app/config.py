@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
+
+    # Unipile (optional - for WhatsApp via Unipile instead of Meta)
+    UNIPILE_API_KEY: Optional[str] = None
+    UNIPILE_BASE_URL: str = "https://api23.unipile.com:15349"
     
     @field_validator('SUPABASE_URL')
     @classmethod
