@@ -1,6 +1,6 @@
 """
-Unipile API client for sending WhatsApp messages.
-Uses same patterns as Signalcore: respond_to_existing_chat (FormData).
+Unipile API client for sending WhatsApp messages and fetching attachments.
+Uses same patterns as Signalcore: respond_to_existing_chat, get_message_attachment.
 """
 
 import logging
@@ -9,7 +9,9 @@ from typing import Optional
 import httpx
 
 from app.config import settings
-from app.webhook_context import log_extra
+from app.logging_config import log_domain, DOMAIN_UNIPILE
+from app.metrics import inc_unipile_api_call
+from app.services.whatsapp.webhook_parser import IncomingMessage
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +52,8 @@ class UnipileClient:
         """
         if not chat_id or not account_id:
             logger.warning(
-                "Unipile send_text skipped: chat_id/account_id required",
-                extra=log_extra(to=to, chat_id=chat_id, account_id=account_id, reason="missing_chat_context"),
+                "⚠️ Unipile send_text skipped: chat_id/account_id required",
+                extra=log_domain(DOMAIN_UNIPILE, "send_skipped", to=to, chat_id=chat_id, account_id=account_id, reason="missing_chat_context"),
             )
             return
 
@@ -59,8 +61,8 @@ class UnipileClient:
         payload = {"account_id": account_id, "text": text[:4096]}
 
         logger.info(
-            "Unipile send_text attempt",
-            extra=log_extra(to=to, chat_id=chat_id, account_id=account_id, url=url),
+            "💬 Unipile send_text",
+            extra=log_domain(DOMAIN_UNIPILE, "send_started", to=to, chat_id=chat_id, account_id=account_id),
         )
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -70,14 +72,18 @@ class UnipileClient:
                     headers=self._headers(),
                 )
                 resp.raise_for_status()
+                inc_unipile_api_call("send_text", "success")
                 logger.info(
-                    "Unipile send_text success",
-                    extra=log_extra(to=to, chat_id=chat_id, status=resp.status_code),
+                    "✅ Unipile send_text success",
+                    extra=log_domain(DOMAIN_UNIPILE, "send_success", to=to, chat_id=chat_id, status=resp.status_code),
                 )
         except httpx.HTTPStatusError as e:
+            inc_unipile_api_call("send_text", "failure")
             logger.error(
-                "Unipile send_text failed",
-                extra=log_extra(
+                "❌ Unipile send_text failed",
+                extra=log_domain(
+                    DOMAIN_UNIPILE,
+                    "send_failed",
                     to=to,
                     chat_id=chat_id,
                     status_code=e.response.status_code,
@@ -87,9 +93,10 @@ class UnipileClient:
             )
             raise
         except Exception as e:
+            inc_unipile_api_call("send_text", "failure")
             logger.error(
-                "Unipile send_text error",
-                extra=log_extra(to=to, chat_id=chat_id, error=str(e)),
+                "❌ Unipile send_text error",
+                extra=log_domain(DOMAIN_UNIPILE, "send_failed", to=to, chat_id=chat_id, error=str(e)),
                 exc_info=True,
             )
             raise
@@ -106,21 +113,64 @@ class UnipileClient:
     ) -> None:
         """
         Unipile does not support Meta-style interactive buttons.
-        Append reply commands so user can reply 'approve:id' or 'add:id'.
+        Append compact reply instructions: approve:uuid or add:uuid.
         """
         if not chat_id or not account_id:
             logger.warning(
-                "Unipile send_interactive_buttons skipped: chat_id/account_id required",
-                extra=log_extra(to=to, reason="missing_chat_context"),
+                "⚠️ Unipile send_interactive_buttons skipped: chat_id/account_id required",
+                extra=log_domain(DOMAIN_UNIPILE, "send_buttons_skipped", to=to, reason="missing_chat_context"),
             )
             return
 
-        lines = [body, ""]
+        # Short UX: "Reply 1 to approve, 2 to add fields" (no UUIDs)
+        # Buttons may have id "1"/"2" or legacy "approve:uuid"/"add:uuid"
+        approve_id = add_id = None
         for b in buttons[:3]:
-            bid = b.get("id", "")
-            title = b.get("title", "") or bid
-            if bid:
-                lines.append(f"{title}: reply '{bid}'")
-        full_text = "\n".join(lines)[:4096]
+            bid = (b.get("id") or "").strip()
+            if bid.startswith("approve:") or bid == "1":
+                approve_id = "1"
+            elif bid.startswith("add:") or bid == "2":
+                add_id = "2"
 
+        footer_parts = []
+        if approve_id:
+            footer_parts.append("Reply 1 to approve")
+        if add_id:
+            footer_parts.append("2 to add fields")
+        footer = ", or ".join(footer_parts) if footer_parts else ""
+
+        full_text = f"{body}\n\n{footer}"[:4096] if footer else body[:4096]
         await self.send_text(to, full_text, chat_id=chat_id, account_id=account_id)
+
+    async def download_media(self, msg: IncomingMessage) -> tuple[bytes, str]:
+        """
+        Fetch attachment from Unipile API.
+        Requires msg.message_id and msg.audio_id (attachment_id).
+        Returns (bytes, content_type).
+        """
+        if not msg.audio_id or not msg.message_id:
+            raise ValueError("Unipile download_media requires message_id and audio_id")
+        url = f"{self.base_url.rstrip('/')}/api/v1/messages/{msg.message_id}/attachments/{msg.audio_id}"
+        logger.info(
+            "📥 Unipile download_media",
+            extra=log_domain(DOMAIN_UNIPILE, "download_started", message_id=msg.message_id, attachment_id=msg.audio_id),
+        )
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.get(url, headers=self._headers())
+                resp.raise_for_status()
+                ct = resp.headers.get("content-type", "application/octet-stream")
+                inc_unipile_api_call("download_media", "success")
+                logger.info(
+                    "✅ Unipile download_media success",
+                    extra=log_domain(DOMAIN_UNIPILE, "download_success", message_id=msg.message_id, content_type=ct, size=len(resp.content)),
+                )
+                return resp.content, ct
+        except Exception as e:
+            inc_unipile_api_call("download_media", "failure")
+            logger.error(
+                "❌ Unipile download_media failed",
+                extra=log_domain(DOMAIN_UNIPILE, "download_failed", message_id=msg.message_id, attachment_id=msg.audio_id, error=str(e)),
+                exc_info=True,
+            )
+            raise

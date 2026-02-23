@@ -16,6 +16,11 @@ def get_correlation_id() -> Optional[str]:
     return webhook_correlation_id.get()
 
 
+def set_correlation_id(value: Optional[str]) -> None:
+    """Set correlation ID for current context (e.g. from middleware or webhook)."""
+    webhook_correlation_id.set(value)
+
+
 def log_extra(**kwargs) -> dict:
     """Build log extra dict with correlation_id when available."""
     cid = get_correlation_id()

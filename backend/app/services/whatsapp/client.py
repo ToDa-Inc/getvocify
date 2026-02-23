@@ -9,6 +9,7 @@ from typing import Optional
 import httpx
 
 from app.config import settings
+from app.services.whatsapp.webhook_parser import IncomingMessage
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +87,14 @@ class WhatsAppClient:
             )
             resp.raise_for_status()
 
-    async def download_media(self, media_id: str) -> tuple[bytes, str]:
+    async def download_media(self, msg: IncomingMessage) -> tuple[bytes, str]:
         """
         Download media file by ID.
         Returns (bytes, content_type).
         """
+        media_id = msg.audio_id
+        if not media_id:
+            raise ValueError("WhatsApp download_media requires audio_id")
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             resp = await client.get(
                 self._url(media_id),

@@ -6,8 +6,8 @@ import logging
 import re
 from typing import Any
 
+from app.logging_config import log_domain, DOMAIN_UNIPILE
 from app.services.whatsapp.webhook_parser import IncomingMessage
-from app.webhook_context import get_correlation_id, log_extra
 
 logger = logging.getLogger(__name__)
 
@@ -45,27 +45,26 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
     or a structure with those keys. Returns list of IncomingMessage.
     """
     messages: list[IncomingMessage] = []
-    cid = get_correlation_id()
 
     event = body.get("event")
     if event != "message_received":
-        logger.debug(
+        logger.info(
             "Unipile parse skip: event mismatch",
-            extra=log_extra(message_id=body.get("message_id"), event=event, reason="event_not_message_received"),
+            extra=log_domain(DOMAIN_UNIPILE, "parse_skip", message_id=body.get("message_id"), event=event, reason="event_not_message_received"),
         )
         return messages
 
     if body.get("account_type") != "WHATSAPP":
-        logger.debug(
+        logger.info(
             "Unipile parse skip: account type",
-            extra=log_extra(message_id=body.get("message_id"), account_type=body.get("account_type"), reason="account_type_not_whatsapp"),
+            extra=log_domain(DOMAIN_UNIPILE, "parse_skip", message_id=body.get("message_id"), account_type=body.get("account_type"), reason="account_type_not_whatsapp"),
         )
         return messages
 
     if body.get("is_sender"):
-        logger.debug(
+        logger.info(
             "Unipile parse skip: is_sender",
-            extra=log_extra(message_id=body.get("message_id"), reason="is_sender_true"),
+            extra=log_domain(DOMAIN_UNIPILE, "parse_skip", message_id=body.get("message_id"), reason="is_sender_true"),
         )
         return messages
 
@@ -74,11 +73,7 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
         sender_keys = list((body.get("sender") or {}).keys()) if isinstance(body.get("sender"), dict) else []
         logger.info(
             "Unipile parse skip: no phone extracted",
-            extra=log_extra(
-                message_id=body.get("message_id"),
-                reason="no_phone_extracted",
-                sender_keys=sender_keys,
-            ),
+            extra=log_domain(DOMAIN_UNIPILE, "parse_skip", message_id=body.get("message_id"), reason="no_phone_extracted", sender_keys=sender_keys),
         )
         return messages
 
@@ -87,14 +82,26 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
     text = body.get("message") or ""
     chat_id = body.get("chat_id")
     account_id = body.get("account_id")
+    attachments = body.get("attachments") or []
 
-    # Detect button replies (approve:uuid, add:uuid) when user taps quick-reply
-    bid = text.strip()
+    # Detect audio attachment (voice note or audio)
+    audio_attachment = None
+    for att in attachments if isinstance(attachments, list) else []:
+        a = att if isinstance(att, dict) else {}
+        if a.get("attachment_type") == "audio" or a.get("voice_note"):
+            audio_attachment = a
+            break
+
+    # Determine message type: text or audio
+    # Text is always type="text" - intent (approve/add) resolved via conversation state
     msg_type = "text"
     button_id = None
-    if bid.startswith("approve:") or bid.startswith("add:"):
-        msg_type = "button"
-        button_id = bid
+    audio_id = None
+    audio_mime = None
+
+    if audio_attachment:
+        msg_type = "audio"
+        audio_id = audio_attachment.get("attachment_id")
 
     messages.append(
         IncomingMessage(
@@ -103,22 +110,17 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
             timestamp=timestamp,
             type=msg_type,
             text=text if msg_type == "text" else None,
+            audio_id=audio_id,
+            audio_mime=audio_mime,
             button_id=button_id,
             chat_id=chat_id,
             account_id=account_id,
         )
     )
-    if cid:
-        logger.info(
-            "Unipile parse ok",
-            extra=log_extra(
-                message_id=message_id,
-                from_phone=from_phone,
-                chat_id=chat_id,
-                account_id=account_id,
-                msg_type=msg_type,
-            ),
-        )
+    logger.info(
+        "Unipile parse ok",
+        extra=log_domain(DOMAIN_UNIPILE, "parse_ok", message_id=message_id, from_phone=from_phone, chat_id=chat_id, account_id=account_id, msg_type=msg_type, has_audio_id=bool(audio_id)),
+    )
     return messages
 
 
@@ -130,31 +132,24 @@ def normalize_unipile_payload(body: Any) -> list[dict]:
     - n8n array format: [{ "body": { ... event ... } }]
     - Direct Unipile event: { "event": "message_received", ... }
     """
-    cid = get_correlation_id()
-
     if isinstance(body, list):
         events = []
         for item in body:
             ev = item.get("body", item) if isinstance(item, dict) else item
             if isinstance(ev, dict) and ev.get("event"):
                 events.append(ev)
-        if not events and cid:
-            logger.debug(
+        if not events:
+            logger.info(
                 "Unipile normalize: list had no valid events",
-                extra=log_extra(reason="list_no_valid_events", list_len=len(body)),
+                extra=log_domain(DOMAIN_UNIPILE, "normalize_skip", reason="list_no_valid_events", list_len=len(body)),
             )
         return events
 
     if isinstance(body, dict) and body.get("event"):
         return [body]
 
-    if cid:
-        logger.debug(
-            "Unipile normalize: unrecognized format",
-            extra=log_extra(
-                reason="unrecognized_format",
-                body_type=type(body).__name__,
-                top_keys=list(body.keys())[:10] if isinstance(body, dict) else None,
-            ),
-        )
+    logger.info(
+        "Unipile normalize: unrecognized format",
+        extra=log_domain(DOMAIN_UNIPILE, "normalize_skip", reason="unrecognized_format", body_type=type(body).__name__, top_keys=list(body.keys())[:10] if isinstance(body, dict) else None),
+    )
     return []

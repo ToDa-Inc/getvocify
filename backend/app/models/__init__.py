@@ -36,6 +36,11 @@ from .approval import (
     ApprovalPreview,
     ApproveRequest,
 )
+from .conversation import (
+    Conversation,
+    ConversationMessage,
+    ConversationState,
+)
 
 __all__ = [
     "Memo",
@@ -62,5 +67,8 @@ __all__ = [
     "ProposedUpdate",
     "ApprovalPreview",
     "ApproveRequest",
+    "Conversation",
+    "ConversationMessage",
+    "ConversationState",
 ]
 

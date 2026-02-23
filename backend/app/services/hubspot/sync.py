@@ -9,9 +9,13 @@ and associations.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional, Union
 from uuid import UUID
+
+from app.logging_config import log_domain, with_timing, DOMAIN_HUBSPOT
+from app.metrics import record_sync_duration, inc_pipeline_error
 
 from .client import HubSpotClient
 from .exceptions import HubSpotAuthError, HubSpotScopeError, HubSpotError
@@ -192,15 +196,26 @@ class HubSpotSyncService:
             SyncResult with success status and created/updated object IDs
         """
         result = SyncResult(memo_id=str(memo_id))
+        t0 = time.perf_counter()
+        logger.info(
+            "🔗 HubSpot sync started",
+            extra=log_domain(DOMAIN_HUBSPOT, "sync_started", memo_id=str(memo_id), user_id=user_id, deal_id=deal_id, is_new_deal=is_new_deal),
+        )
 
         # Resolve HubSpot owner from user profile (match by email)
         hubspot_owner_id = await _get_hubspot_owner_id_for_user(
             self.client, self.supabase, user_id, connection_id
         )
         if hubspot_owner_id:
-            logger.info("Resolved HubSpot owner %s for user %s", hubspot_owner_id, user_id)
+            logger.info(
+                "✅ Resolved HubSpot owner",
+                extra=log_domain(DOMAIN_HUBSPOT, "owner_resolved", hubspot_owner_id=hubspot_owner_id, user_id=user_id),
+            )
         else:
-            logger.info("No HubSpot owner matched for user %s (add crm.objects.owners.read scope?)", user_id)
+            logger.info(
+                "⚠️ No HubSpot owner matched",
+                extra=log_domain(DOMAIN_HUBSPOT, "owner_not_matched", user_id=user_id),
+            )
 
         # Default allowed fields if not provided
         if allowed_fields is None:
@@ -240,12 +255,19 @@ class HubSpotSyncService:
                     if existing_company_id:
                         company_id = existing_company_id
                         result.company_id = company_id
+                        logger.info(
+                            "🔗 Company reused from previous attempt",
+                            extra=log_domain(DOMAIN_HUBSPOT, "company_reused", company_id=company_id, memo_id=str(memo_id)),
+                        )
                     else:
                         company = await self.companies.create_or_update(extraction)
                         if company:
                             company_id = company.id
                             result.company_id = company_id
-                            
+                            logger.info(
+                                "✅ Company upserted",
+                                extra=log_domain(DOMAIN_HUBSPOT, "company_upserted", company_id=company_id, company_name=extraction.companyName),
+                            )
                             await self.crm_updates.create_update(
                                 memo_id=str(memo_id),
                                 user_id=user_id,
@@ -255,7 +277,11 @@ class HubSpotSyncService:
                                 data={"company_id": company_id, "name": extraction.companyName},
                             )
                 except Exception as e:
-                    # Log error but continue
+                    inc_pipeline_error(DOMAIN_HUBSPOT, "company_upsert")
+                    logger.warning(
+                        "⚠️ Company upsert failed",
+                        extra=log_domain(DOMAIN_HUBSPOT, "company_failed", memo_id=str(memo_id), error=str(e)),
+                    )
                     await self.crm_updates.create_update(
                         memo_id=str(memo_id),
                         user_id=user_id,
@@ -287,16 +313,18 @@ class HubSpotSyncService:
                     if existing_contact_id:
                         contact_id = existing_contact_id
                         result.contact_id = contact_id
+                        logger.info(
+                            "🔗 Contact reused from previous attempt",
+                            extra=log_domain(DOMAIN_HUBSPOT, "contact_reused", contact_id=contact_id, memo_id=str(memo_id)),
+                        )
                     else:
                         contact = await self.contacts.create_or_update(extraction_for_contact)
                         if contact:
                             contact_id = contact.id
                             result.contact_id = contact_id
                             logger.info(
-                                "Created/updated contact %s for memo %s (company=%s, name=%s)",
-                                contact_id, memo_id,
-                                extraction_for_contact.companyName,
-                                extraction_for_contact.contactName,
+                                "✅ Contact upserted",
+                                extra=log_domain(DOMAIN_HUBSPOT, "contact_upserted", contact_id=contact_id, memo_id=str(memo_id), company=extraction_for_contact.companyName, contact_name=extraction_for_contact.contactName),
                             )
                             await self.crm_updates.create_update(
                                 memo_id=str(memo_id),
@@ -307,13 +335,10 @@ class HubSpotSyncService:
                                 data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
                             )
                 except Exception as e:
+                    inc_pipeline_error(DOMAIN_HUBSPOT, "contact_upsert")
                     logger.warning(
-                        "Failed to create/update contact for memo %s: %s. "
-                        "Extraction had company=%s, contact=%s, email=%s",
-                        memo_id, e,
-                        extraction_for_contact.companyName,
-                        extraction_for_contact.contactName,
-                        extraction_for_contact.contactEmail or "(none)",
+                        "⚠️ Contact upsert failed",
+                        extra=log_domain(DOMAIN_HUBSPOT, "contact_failed", memo_id=str(memo_id), error=str(e), company=extraction_for_contact.companyName, contact=extraction_for_contact.contactName),
                     )
                     await self.crm_updates.create_update(
                         memo_id=str(memo_id),
@@ -345,9 +370,14 @@ class HubSpotSyncService:
                     filtered_properties = self._filter_properties(deal_properties, allowed_fields)
                     
                     if not filtered_properties:
-                        # No allowed fields to update
                         result.error = "No allowed fields to update"
                         result.error_code = "NO_FIELDS_TO_UPDATE"
+                        record_sync_duration(time.perf_counter() - t0, "failure")
+                        inc_pipeline_error(DOMAIN_HUBSPOT, "deal_update")
+                        logger.warning(
+                            "❌ Sync failed: no allowed fields to update",
+                            extra=log_domain(DOMAIN_HUBSPOT, "sync_failed", memo_id=str(memo_id), reason="no_fields"),
+                        )
                         return result
                     
                     # Update deal (include owner if resolved)
@@ -368,6 +398,10 @@ class HubSpotSyncService:
                             "deal_id": deal.id,
                             "updated_fields": list(filtered_properties.keys()),
                         },
+                    )
+                    logger.info(
+                        "✅ Deal updated",
+                        extra=log_domain(DOMAIN_HUBSPOT, "deal_updated", deal_id=deal.id, memo_id=str(memo_id), updated_fields=list(filtered_properties.keys())),
                     )
                 else:
                     # CREATE MODE: Create new deal
@@ -391,15 +425,25 @@ class HubSpotSyncService:
                             "stage": extraction.dealStage,
                         },
                     )
+                    logger.info(
+                        "✅ Deal created",
+                        extra=log_domain(DOMAIN_HUBSPOT, "deal_created", deal_id=deal.id, memo_id=str(memo_id), amount=extraction.dealAmount, stage=extraction.dealStage),
+                    )
                 
                 deal_id = result.deal_id
                 
             except Exception as e:
-                # Deal operation failure is critical
                 action = "update" if deal_id and not is_new_deal else "create"
                 result.error = f"Failed to {action} deal: {str(e)}"
                 result.error_code = f"DEAL_{action.upper()}_FAILED"
-                
+                record_sync_duration(time.perf_counter() - t0, "failure")
+                inc_pipeline_error(DOMAIN_HUBSPOT, f"deal_{action}")
+                logger.error(
+                    "❌ Deal %s failed: %s",
+                    action,
+                    str(e),
+                    extra=log_domain(DOMAIN_HUBSPOT, f"deal_{action}_failed", memo_id=str(memo_id), error=str(e)),
+                )
                 await self.crm_updates.create_update(
                     memo_id=str(memo_id),
                     user_id=user_id,
@@ -408,7 +452,6 @@ class HubSpotSyncService:
                     resource_type="deal",
                     data={"error": str(e)},
                 )
-                
                 return result
             
             # Step 5: Associate deal → contact, deal → company (always when we have them)
@@ -416,7 +459,10 @@ class HubSpotSyncService:
             if deal_id and contact_id:
                 try:
                     await self.associations.associate_deal_to_contact(deal_id, contact_id)
-                    logger.info("Associated deal %s to contact %s", deal_id, contact_id)
+                    logger.info(
+                        "✅ Associations done: deal to contact",
+                        extra=log_domain(DOMAIN_HUBSPOT, "associations_done", deal_id=deal_id, contact_id=contact_id),
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to associate deal %s to contact %s: %s. "
@@ -427,10 +473,15 @@ class HubSpotSyncService:
             if deal_id and company_id:
                 try:
                     await self.associations.associate_deal_to_company(deal_id, company_id)
+                    logger.info(
+                        "✅ Associations done: deal to company",
+                        extra=log_domain(DOMAIN_HUBSPOT, "associations_done", deal_id=deal_id, company_id=company_id),
+                    )
                 except Exception as e:
                     logger.warning(
                         "Failed to associate deal %s to company %s: %s",
                         deal_id, company_id, e,
+                        extra=log_domain(DOMAIN_HUBSPOT, "association_failed", deal_id=deal_id, company_id=company_id),
                     )
 
             # Step 6: Create tasks from nextSteps (e.g. "Seguimiento el martes")
@@ -442,6 +493,10 @@ class HubSpotSyncService:
                         hubspot_owner_id=hubspot_owner_id,
                     )
                     if task_ids:
+                        logger.info(
+                            "✅ Tasks created",
+                            extra=log_domain(DOMAIN_HUBSPOT, "tasks_created", deal_id=deal_id, count=len(task_ids), task_ids=task_ids),
+                        )
                         await self.crm_updates.create_update(
                             memo_id=str(memo_id),
                             user_id=user_id,
@@ -451,8 +506,10 @@ class HubSpotSyncService:
                             data={"task_ids": task_ids, "count": len(task_ids)},
                         )
                 except Exception as e:
+                    inc_pipeline_error(DOMAIN_HUBSPOT, "create_tasks")
                     logger.warning(
                         "Failed to create tasks for deal %s: %s", deal_id, e,
+                        extra=log_domain(DOMAIN_HUBSPOT, "tasks_failed", deal_id=deal_id, error=str(e)),
                     )
 
             # Step 7: Create note with transcript for deal context
@@ -481,7 +538,10 @@ class HubSpotSyncService:
                     if hubspot_owner_id:
                         note_payload["properties"]["hubspot_owner_id"] = hubspot_owner_id
                     await self.client.post("/crm/v3/objects/notes", data=note_payload)
-                    logger.info("Created transcript note for deal %s", deal_id)
+                    logger.info(
+                        "✅ Note created",
+                        extra=log_domain(DOMAIN_HUBSPOT, "note_created", deal_id=deal_id),
+                    )
                     await self.crm_updates.create_update(
                         memo_id=str(memo_id),
                         user_id=user_id,
@@ -491,14 +551,22 @@ class HubSpotSyncService:
                         data={"deal_id": deal_id},
                     )
                 except Exception as e:
+                    inc_pipeline_error(DOMAIN_HUBSPOT, "create_note")
                     logger.warning(
                         "Failed to create transcript note for deal %s: %s. "
                         "Ensure crm.objects.notes.write scope.",
                         deal_id, e,
+                        extra=log_domain(DOMAIN_HUBSPOT, "note_failed", deal_id=deal_id, error=str(e)),
                     )
             
             # Success!
             result.success = True
+            elapsed = time.perf_counter() - t0
+            record_sync_duration(elapsed, "success")
+            logger.info(
+                "✅ HubSpot sync complete",
+                extra=log_domain(DOMAIN_HUBSPOT, "sync_complete", memo_id=str(memo_id), deal_id=result.deal_id, company_id=result.company_id, contact_id=result.contact_id, duration_ms=round(elapsed * 1000, 2)),
+            )
             
             # Generate deal name and URL for frontend
             if deal_id:
@@ -537,17 +605,41 @@ class HubSpotSyncService:
         except HubSpotAuthError as e:
             result.error = f"HubSpot authentication failed: {e.message}"
             result.error_code = "AUTH_ERROR"
+            record_sync_duration(time.perf_counter() - t0, "failure")
+            inc_pipeline_error(DOMAIN_HUBSPOT, "auth_error")
+            logger.error(
+                "❌ Sync failed: auth error",
+                extra=log_domain(DOMAIN_HUBSPOT, "sync_failed", memo_id=str(memo_id), error=str(e.message)),
+            )
         except HubSpotScopeError as e:
             result.error = f"Missing HubSpot permissions: {e.message}"
             if e.required_scope:
                 result.error += f" Required scope: {e.required_scope}"
             result.error_code = "SCOPE_ERROR"
+            record_sync_duration(time.perf_counter() - t0, "failure")
+            inc_pipeline_error(DOMAIN_HUBSPOT, "scope_error")
+            logger.error(
+                "❌ Sync failed: scope error",
+                extra=log_domain(DOMAIN_HUBSPOT, "sync_failed", memo_id=str(memo_id), error=str(e.message)),
+            )
         except HubSpotError as e:
             result.error = f"HubSpot API error: {e.message}"
             result.error_code = "API_ERROR"
+            record_sync_duration(time.perf_counter() - t0, "failure")
+            inc_pipeline_error(DOMAIN_HUBSPOT, "api_error")
+            logger.error(
+                "❌ Sync failed: API error",
+                extra=log_domain(DOMAIN_HUBSPOT, "sync_failed", memo_id=str(memo_id), error=str(e.message)),
+            )
         except Exception as e:
             result.error = f"Unexpected error: {str(e)}"
             result.error_code = "UNKNOWN_ERROR"
+            record_sync_duration(time.perf_counter() - t0, "failure")
+            inc_pipeline_error(DOMAIN_HUBSPOT, "unknown_error")
+            logger.exception(
+                "❌ Sync failed: unexpected error",
+                extra=log_domain(DOMAIN_HUBSPOT, "sync_failed", memo_id=str(memo_id), error=str(e)),
+            )
         
         return result
 
