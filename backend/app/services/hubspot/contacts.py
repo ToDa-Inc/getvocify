@@ -212,20 +212,6 @@ class HubSpotContactService:
                 raise
             raise HubSpotError(f"Failed to update contact: {str(e)}")
     
-    def _placeholder_email(self, extraction: MemoExtraction) -> str:
-        """
-        Generate a placeholder email when we have contactName but no email.
-        HubSpot requires email - we use a deterministic placeholder so we can
-        find/update the same contact later.
-        """
-        import re
-        firstname, lastname = self._parse_name(extraction.contactName or "")
-        slug_parts = [p for p in [firstname, lastname] if p]
-        contact_slug = re.sub(r"[^a-z0-9]", "", "".join(slug_parts).lower()) or "unknown"
-        company_slug = re.sub(r"[^a-z0-9]", "", (extraction.companyName or "").lower())[:20] or "company"
-        # Use valid TLD (.com) - HubSpot rejects @vocify.placeholder (invalid TLD)
-        return f"{contact_slug}.{company_slug}@vocify-placeholder.com"
-    
     async def create_or_update(
         self,
         extraction: MemoExtraction,
@@ -234,11 +220,11 @@ class HubSpotContactService:
         Create or update a contact based on extraction data.
         
         Logic:
-        1. If email exists, find existing contact by email
-        2. If contactName but no email: use placeholder email (HubSpot requires email)
+        1. Requires contactEmail - HubSpot API mandates email; we do not invent placeholders
+        2. If email exists, find existing contact by email
         3. If found, update it with new data
         4. If not found, create new contact
-        5. If no contactName and no email, return None
+        5. If no email, return None (deal/company still sync; add contact manually in HubSpot)
         
         Args:
             extraction: MemoExtraction with contact data
@@ -249,18 +235,13 @@ class HubSpotContactService:
         Raises:
             HubSpotError for API errors
         """
-        # Need at least contactName or email
-        if not extraction.contactName and not extraction.contactEmail:
+        # HubSpot requires email - we skip contact creation when there is no real email
+        # (avoids inventing fake emails like pepe@vocify-placeholder.com)
+        if not extraction.contactEmail or not str(extraction.contactEmail).strip():
             return None
         
-        # HubSpot requires email - use placeholder when we only have name
-        email = extraction.contactEmail
-        if not email and extraction.contactName:
-            email = self._placeholder_email(extraction)
-        
-        # Build extraction with resolved email for mapping
-        extraction_with_email = extraction.model_copy(update={"contactEmail": email})
-        properties = self.map_extraction_to_properties(extraction_with_email)
+        email = extraction.contactEmail.strip().lower()
+        properties = self.map_extraction_to_properties(extraction)
         
         # Try to find existing contact (Search API or GET-by-email fallback)
         existing = None

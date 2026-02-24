@@ -2,11 +2,13 @@
 Task operations service for HubSpot.
 
 Creates tasks from MemoExtraction nextSteps and associates them with deals.
+Supports listing, updating, and deleting tasks for deal merge flows.
 Uses /crm/v3/objects/tasks API.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import Optional
@@ -14,6 +16,8 @@ from typing import Optional
 from .client import HubSpotClient
 from .exceptions import HubSpotError
 from app.models.memo import MemoExtraction
+
+logger = logging.getLogger(__name__)
 
 
 # Patterns that are too generic - don't create tasks for these
@@ -199,3 +203,130 @@ class HubSpotTasksService:
                 created.append(task_id)
 
         return created
+
+    async def list_tasks_for_deal(
+        self,
+        deal_id: str,
+        properties: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """
+        List tasks associated with a deal.
+        Returns list of {id, subject, due_date} for each task.
+
+        Args:
+            deal_id: HubSpot deal ID
+            properties: Optional list of properties to fetch (default: hs_task_subject, hs_timestamp)
+
+        Returns:
+            List of task dicts with id, subject, due_date (datetime or None)
+        """
+        props = properties or ["hs_task_subject", "hs_timestamp"]
+        try:
+            # Get task IDs associated with deal (v4 associations)
+            resp = await self.client.get(
+                f"/crm/v4/objects/deals/{deal_id}/associations/tasks"
+            )
+            if not resp or "results" not in resp:
+                return []
+
+            task_ids = []
+            for r in resp.get("results", []):
+                for to_item in r.get("to", []):
+                    oid = to_item.get("toObjectId")
+                    if oid is not None:
+                        task_ids.append(str(oid))
+                # Fallback: objectId
+                oid = r.get("objectId") or r.get("id")
+                if oid is not None and str(oid) not in task_ids:
+                    task_ids.append(str(oid))
+
+            if not task_ids:
+                return []
+
+            # Batch read task details
+            batch_body = {
+                "inputs": [{"id": tid} for tid in task_ids],
+                "properties": props,
+            }
+            batch_resp = await self.client.post(
+                "/crm/v3/objects/tasks/batch/read",
+                data=batch_body,
+            )
+            if not batch_resp or "results" not in batch_resp:
+                return []
+
+            tasks = []
+            for t in batch_resp.get("results", []):
+                tid = t.get("id")
+                if not tid:
+                    continue
+                props_map = t.get("properties", {}) or {}
+                subject = props_map.get("hs_task_subject", "")
+                ts_ms = props_map.get("hs_timestamp")
+                due_date = None
+                if ts_ms:
+                    try:
+                        due_date = datetime.utcfromtimestamp(int(ts_ms) / 1000)
+                    except (ValueError, TypeError):
+                        pass
+                tasks.append({
+                    "id": str(tid),
+                    "subject": subject or "",
+                    "due_date": due_date,
+                })
+            return tasks
+        except HubSpotError as e:
+            logger.warning("Failed to list tasks for deal %s: %s", deal_id, e)
+            return []
+
+    async def update_task(
+        self,
+        task_id: str,
+        subject: Optional[str] = None,
+        due_date: Optional[datetime] = None,
+        hubspot_owner_id: Optional[str] = None,
+    ) -> bool:
+        """
+        Update an existing task.
+
+        Args:
+            task_id: HubSpot task ID
+            subject: New subject (hs_task_subject)
+            due_date: New due date (hs_timestamp)
+            hubspot_owner_id: Optional owner ID
+
+        Returns:
+            True if updated successfully
+        """
+        properties = {}
+        if subject is not None:
+            properties["hs_task_subject"] = subject[:255] if subject else ""
+        if due_date is not None:
+            properties["hs_timestamp"] = self._to_timestamp_ms(due_date)
+        if hubspot_owner_id is not None:
+            properties["hubspot_owner_id"] = str(hubspot_owner_id)
+        if not properties:
+            return True
+        try:
+            await self.client.patch(
+                f"/crm/v3/objects/{self.OBJECT_TYPE}/{task_id}",
+                data={"properties": properties},
+            )
+            return True
+        except HubSpotError:
+            return False
+
+    async def delete_task(self, task_id: str) -> bool:
+        """
+        Delete a task (moved to recycling bin in HubSpot).
+
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            await self.client.delete(
+                f"/crm/v3/objects/{self.OBJECT_TYPE}/{task_id}"
+            )
+            return True
+        except HubSpotError:
+            return False

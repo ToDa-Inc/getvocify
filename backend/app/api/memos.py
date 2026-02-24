@@ -32,10 +32,10 @@ from app.services.hubspot import (
 )
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
 from app.models.crm_update import CRMUpdate
-from app.models.approval import ApprovalPreview, DealMatch
+from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
 from supabase import Client
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 
 logger = logging.getLogger(__name__)
@@ -345,25 +345,6 @@ async def upload_transcript_only(
     )
 
 
-@router.get("/{memo_id}", response_model=Memo)
-async def get_memo(
-    memo_id: UUID,
-    supabase: Client = Depends(get_supabase),
-    user_id: str = Depends(get_user_id),
-):
-    """Get a single memo by ID"""
-    result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).execute()
-    
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found"
-        )
-    
-    memo_data = result.data[0]
-    return _memo_from_row(memo_data)
-
-
 @router.get("", response_model=list[Memo])
 async def list_memos(
     supabase: Client = Depends(get_supabase),
@@ -376,6 +357,134 @@ async def list_memos(
     
     memos = [_memo_from_row(memo_data) for memo_data in result.data]
     return memos
+
+
+class UsageWeeklyDay(BaseModel):
+    day: str
+    memos: int
+
+
+class UsageActivity(BaseModel):
+    action: str
+    company: str
+    time: str
+    type: str  # "memo" | "sync"
+
+
+class UsageResponse(BaseModel):
+    total_memos: int
+    approved_count: int
+    this_week_memos: int
+    this_week_approved: int
+    time_saved_hours: float
+    this_week_time_saved_hours: float
+    accuracy_pct: Optional[float] = None  # approved / (approved + rejected) * 100
+    weekly: List[UsageWeeklyDay]
+    recent_activity: List[UsageActivity]
+
+
+@router.get("/usage", response_model=UsageResponse)
+async def get_usage(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Aggregated usage stats for the current user (real data from memos)."""
+    result = supabase.table("memos").select("id,status,created_at,audio_duration,extraction").eq("user_id", user_id).order("created_at", desc=True).limit(2000).execute()
+    rows = result.data or []
+
+    now = datetime.now(timezone.utc)
+    week_start = now - timedelta(days=now.weekday(), hours=now.hour, minutes=now.minute, seconds=now.second, microseconds=0)
+    week_start_naive = week_start.replace(tzinfo=None).isoformat() if week_start.tzinfo else week_start.isoformat()
+
+    total_memos = len(rows)
+    approved_count = sum(1 for r in rows if r.get("status") == "approved")
+    rejected_count = sum(1 for r in rows if r.get("status") == "rejected")
+    this_week_memos = 0
+    this_week_approved = 0
+    time_saved_sec = 0.0
+    this_week_time_sec = 0.0
+    day_counts = {i: 0 for i in range(7)}  # 0=Monday .. 6=Sunday
+
+    for r in rows:
+        created = r.get("created_at")
+        if created:
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00")) if isinstance(created, str) else created
+                if dt.tzinfo:
+                    dt = dt.replace(tzinfo=None)
+                created_naive = dt.isoformat() if hasattr(dt, "isoformat") else str(created)
+                if created_naive >= week_start_naive:
+                    this_week_memos += 1
+                    if r.get("status") == "approved":
+                        this_week_approved += 1
+                days_ago = (now.replace(tzinfo=None) - dt).days if hasattr(dt, "__sub__") else 0
+                if 0 <= days_ago < 7:
+                    weekday = dt.weekday()
+                    day_counts[weekday] = day_counts.get(weekday, 0) + 1
+            except Exception:
+                pass
+        dur = r.get("audio_duration") or 0
+        try:
+            dur_f = float(dur)
+        except (TypeError, ValueError):
+            dur_f = 0.0
+        time_saved_sec += dur_f
+        if created:
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00")) if isinstance(created, str) else created
+                if dt.tzinfo:
+                    dt = dt.replace(tzinfo=None)
+                if (now.replace(tzinfo=None) - dt).days < 7:
+                    this_week_time_sec += dur_f
+            except Exception:
+                pass
+
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    weekly = [UsageWeeklyDay(day=day_names[i], memos=day_counts.get(i, 0)) for i in range(7)]
+
+    recent = []
+    for r in rows[:15]:
+        created = r.get("created_at") or ""
+        ext = r.get("extraction") or {}
+        company = (ext.get("companyName") or ext.get("company_name") or "").strip() or "Untitled memo"
+        status = r.get("status") or ""
+        action = "Synced to CRM" if status == "approved" else "Created memo"
+        recent.append(UsageActivity(action=action, company=company, time=created, type="sync" if status == "approved" else "memo"))
+
+    accuracy_pct = None
+    if approved_count + rejected_count > 0:
+        accuracy_pct = round(100.0 * approved_count / (approved_count + rejected_count), 1)
+
+    return UsageResponse(
+        total_memos=total_memos,
+        approved_count=approved_count,
+        this_week_memos=this_week_memos,
+        this_week_approved=this_week_approved,
+        time_saved_hours=round(time_saved_sec / 3600, 1),
+        this_week_time_saved_hours=round(this_week_time_sec / 3600, 1),
+        accuracy_pct=accuracy_pct,
+        weekly=weekly,
+        recent_activity=recent,
+    )
+
+
+@router.get("/{memo_id}", response_model=Memo)
+async def get_memo(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Get a single memo by ID"""
+    result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).execute()
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found"
+        )
+
+    memo_data = result.data[0]
+    return _memo_from_row(memo_data)
 
 
 @router.post("/{memo_id}/approve", response_model=Union[Memo, SyncResult])
@@ -823,6 +932,83 @@ async def get_approval_preview(
             "is_new_deal": True
         }).eq("id", str(memo_id)).execute()
     
+    return preview
+
+
+@router.post("/{memo_id}/preview", response_model=ApprovalPreview)
+async def post_approval_preview(
+    memo_id: UUID,
+    payload: Optional[PreviewRequest] = None,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Get approval preview with optional edited extraction.
+    Use this when the user has edited extraction in the UI before confirming.
+    """
+    deal_id = payload.deal_id if payload else None
+    if deal_id == "":
+        deal_id = None
+
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    if not memo_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo not found")
+
+    memo_data = memo_result.data
+    extraction_data = payload.extraction if (payload and payload.extraction) else memo_data.get("extraction")
+    transcript = memo_data.get("transcript", "")
+
+    if not extraction_data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Memo extraction not available")
+
+    try:
+        conn_result = supabase.table("crm_connections").select("*").eq(
+            "user_id", user_id
+        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
+        if not conn_result.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubSpot connection not found")
+        connection_id = conn_result.data["id"]
+        access_token = conn_result.data["access_token"]
+    except Exception as e:
+        error_str = str(e)
+        if "no rows" in error_str.lower() or "PGRST116" in error_str:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubSpot connection not found")
+        raise
+
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = (
+        (config.allowed_deal_fields or ["dealname", "amount", "description", "closedate"])
+        if config
+        else ["dealname", "amount", "description", "closedate"]
+    )
+
+    client = HubSpotClient(access_token)
+    schema_service = HubSpotSchemaService(client, supabase, connection_id)
+    search_service = HubSpotSearchService(client)
+    deal_service = HubSpotDealService(client, search_service, schema_service)
+    preview_service = HubSpotPreviewService(client, deal_service, schema_service)
+    matching_service = HubSpotMatchingService(client, search_service)
+    extraction = MemoExtraction(**extraction_data)
+    pipeline_id = config.default_pipeline_id if config else None
+    matches = await matching_service.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+
+    try:
+        preview = await preview_service.build_preview(
+            memo_id=memo_id,
+            transcript=transcript,
+            extraction=extraction,
+            matched_deals=matches,
+            selected_deal_id=deal_id,
+            allowed_fields=allowed_fields,
+        )
+    except Exception as e:
+        logger.exception("Preview failed for memo %s: %s", memo_id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to build preview: {str(e)}",
+        ) from e
+
     return preview
 
 

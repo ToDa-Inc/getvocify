@@ -9,7 +9,7 @@ and associations.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 from uuid import UUID
 
@@ -20,9 +20,11 @@ from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
 from .associations import HubSpotAssociationService
-from .tasks import HubSpotTasksService
+from .tasks import HubSpotTasksService, _parse_date_from_text
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
+from app.services.task_merge import TaskMergeService
+from app.services.deal_merge import DealMergeService
 
 logger = logging.getLogger(__name__)
 
@@ -337,38 +339,58 @@ class HubSpotSyncService:
             # Step 4: Deal - Create or Update
             try:
                 if deal_id and not is_new_deal:
-                    # UPDATE MODE: Update existing deal
-                    # Map extraction to properties
-                    deal_properties = await self.deals.map_extraction_to_properties_with_stage(extraction)
-                    
-                    # Filter to only allowed fields
-                    filtered_properties = self._filter_properties(deal_properties, allowed_fields)
-                    
+                    # UPDATE MODE: Merge existing deal with new extraction
+                    # 1. Fetch current deal properties
+                    fetch_props = list(set(
+                        allowed_fields + [
+                            "dealname", "amount", "closedate", "description", "dealstage"
+                        ]
+                    ))
+                    current_deal = await self.deals.get(deal_id, properties=fetch_props)
+                    existing_props = current_deal.properties or {}
+
+                    # 2. Map new extraction to properties (HubSpot format)
+                    new_properties = await self.deals.map_extraction_to_properties_with_stage(
+                        extraction,
+                        deal_name=existing_props.get("dealname"),
+                    )
+
+                    # 3. Merge: analyze existing + new, produce merged properties
+                    merge_svc = DealMergeService()
+                    merged_properties = await merge_svc.merge_properties(
+                        existing_properties=existing_props,
+                        new_properties=new_properties,
+                        allowed_fields=allowed_fields,
+                        transcript=transcript,
+                    )
+
+                    # 4. Filter to allowed fields (safety)
+                    filtered_properties = self._filter_properties(
+                        merged_properties, allowed_fields
+                    )
+
                     if not filtered_properties:
-                        # No allowed fields to update
-                        result.error = "No allowed fields to update"
-                        result.error_code = "NO_FIELDS_TO_UPDATE"
-                        return result
-                    
-                    # Update deal (include owner if resolved)
-                    deal = await self.deals.update(
-                        deal_id,
-                        filtered_properties,
-                        hubspot_owner_id=hubspot_owner_id,
-                    )
-                    result.deal_id = deal.id
-                    
-                    await self.crm_updates.create_update(
-                        memo_id=str(memo_id),
-                        user_id=user_id,
-                        crm_connection_id=str(connection_id),
-                        action_type="update_deal",
-                        resource_type="deal",
-                        data={
-                            "deal_id": deal.id,
-                            "updated_fields": list(filtered_properties.keys()),
-                        },
-                    )
+                        # No changes to apply - still success
+                        result.deal_id = deal_id
+                    else:
+                        # Update deal with merged properties
+                        deal = await self.deals.update(
+                            deal_id,
+                            filtered_properties,
+                            hubspot_owner_id=hubspot_owner_id,
+                        )
+                        result.deal_id = deal.id
+                        await self.crm_updates.create_update(
+                            memo_id=str(memo_id),
+                            user_id=user_id,
+                            crm_connection_id=str(connection_id),
+                            action_type="update_deal",
+                            resource_type="deal",
+                            data={
+                                "deal_id": deal.id,
+                                "updated_fields": list(filtered_properties.keys()),
+                            },
+                        )
                 else:
                     # CREATE MODE: Create new deal
                     deal = await self.deals.create_or_update(
@@ -433,23 +455,76 @@ class HubSpotSyncService:
                         deal_id, company_id, e,
                     )
 
-            # Step 6: Create tasks from nextSteps (e.g. "Seguimiento el martes")
+            # Step 6: Tasks - merge with existing when updating deal, else create new
             if deal_id and extraction.nextSteps:
                 try:
-                    task_ids = await self.tasks.create_tasks_from_extraction(
-                        extraction,
-                        deal_id=deal_id,
-                        hubspot_owner_id=hubspot_owner_id,
-                    )
-                    if task_ids:
-                        await self.crm_updates.create_update(
-                            memo_id=str(memo_id),
-                            user_id=user_id,
-                            crm_connection_id=str(connection_id),
-                            action_type="create_tasks",
-                            resource_type="task",
-                            data={"task_ids": task_ids, "count": len(task_ids)},
+                    used_merge = False
+                    if not is_new_deal:
+                        # UPDATE MODE: Fetch existing tasks, merge with new extraction
+                        existing_tasks = await self.tasks.list_tasks_for_deal(deal_id)
+                        if existing_tasks:
+                            merge_svc = TaskMergeService()
+                            merge_result = await merge_svc.merge_tasks(
+                                existing_tasks=existing_tasks,
+                                extraction=extraction,
+                                transcript=transcript,
+                            )
+                            created_ids = []
+                            # Execute add
+                            for add_op in merge_result.add:
+                                due = add_op.due_date or _parse_date_from_text(add_op.subject) or (
+                                    datetime.now(timezone.utc) + timedelta(days=3)
+                                )
+                                tid = await self.tasks.create_task(
+                                    subject=add_op.subject,
+                                    due_date=due,
+                                    deal_id=deal_id,
+                                    body=extraction.summary or "",
+                                    hubspot_owner_id=hubspot_owner_id,
+                                )
+                                if tid:
+                                    created_ids.append(tid)
+                            # Execute update
+                            for upd_op in merge_result.update:
+                                await self.tasks.update_task(
+                                    task_id=upd_op.id,
+                                    subject=upd_op.subject,
+                                    due_date=upd_op.due_date,
+                                    hubspot_owner_id=hubspot_owner_id,
+                                )
+                            # Execute delete
+                            for del_id in merge_result.delete:
+                                await self.tasks.delete_task(del_id)
+                            if created_ids or merge_result.update or merge_result.delete:
+                                await self.crm_updates.create_update(
+                                    memo_id=str(memo_id),
+                                    user_id=user_id,
+                                    crm_connection_id=str(connection_id),
+                                    action_type="merge_tasks",
+                                    resource_type="task",
+                                    data={
+                                        "task_ids": created_ids,
+                                        "updated": [u.id for u in merge_result.update],
+                                        "deleted": merge_result.delete,
+                                    },
+                                )
+                            used_merge = True
+                    if not used_merge:
+                        # CREATE MODE or no existing tasks: create from extraction
+                        task_ids = await self.tasks.create_tasks_from_extraction(
+                            extraction,
+                            deal_id=deal_id,
+                            hubspot_owner_id=hubspot_owner_id,
                         )
+                        if task_ids:
+                            await self.crm_updates.create_update(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="create_tasks",
+                                resource_type="task",
+                                data={"task_ids": task_ids, "count": len(task_ids)},
+                            )
                 except Exception as e:
                     logger.warning(
                         "Failed to create tasks for deal %s: %s", deal_id, e,

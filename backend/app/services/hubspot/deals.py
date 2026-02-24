@@ -111,27 +111,55 @@ class HubSpotDealService:
         except Exception:
             return None
     
-    async def _resolve_stage_id(self, stage_name: Optional[str]) -> str:
+    async def _resolve_stage_id(self, stage_value: Optional[str]) -> Optional[str]:
         """
-        Resolve pipeline stage name to stage ID.
+        Resolve pipeline stage (label or ID) to valid HubSpot stage ID.
+        
+        HubSpot expects stage IDs (e.g. closedwon, appointmentscheduled), not labels
+        (e.g. "Cierre", "Cita agendada"). This method maps labels to IDs via schema,
+        or validates/returns the value if it's already a valid stage ID.
         
         Args:
-            stage_name: Stage name (e.g., "Qualification")
+            stage_value: Stage label (e.g. "Cierre") or stage ID (e.g. "closedwon")
             
         Returns:
-            Stage ID if found, None otherwise
+            Stage ID if found/valid, None otherwise (do not send invalid values to HubSpot)
         """
-        if not stage_name:
+        if not stage_value or not str(stage_value).strip():
             return None
+        
+        val = str(stage_value).strip().lower()
         
         try:
             schema = await self.schema.get_deal_schema()
+            all_stage_ids: set[str] = set()
             
-            # Search through all pipelines and stages
             for pipeline in schema.pipelines:
                 for stage in pipeline.stages:
-                    if stage.label.lower() == stage_name.strip().lower():
+                    all_stage_ids.add(stage.id.lower())
+                    # Match by label (e.g. "Cierre" → closedwon when label is "Cierre ganado" etc.)
+                    if stage.label and stage.label.lower() == val:
                         return stage.id
+                    # Match by ID (extraction already has valid ID)
+                    if stage.id.lower() == val:
+                        return stage.id
+            
+            # Fallback: common Spanish/English labels → default pipeline stage IDs
+            # Used when schema labels don't match (e.g. localized/custom labels)
+            LABEL_TO_ID = {
+                "cierre": "closedwon", "cierre ganado": "closedwon", "cerrado": "closedwon",
+                "closed": "closedwon", "closed won": "closedwon", "ganado": "closedwon", "won": "closedwon",
+                "cierre perdido": "closedlost", "closed lost": "closedlost", "perdido": "closedlost", "lost": "closedlost",
+                "cita": "appointmentscheduled", "cita agendada": "appointmentscheduled",
+                "appointment": "appointmentscheduled", "appointmentscheduled": "appointmentscheduled",
+                "calificacion": "qualifiedtobuy", "qualified": "qualifiedtobuy", "qualifiedtobuy": "qualifiedtobuy",
+                "presentacion": "presentationscheduled", "presentationscheduled": "presentationscheduled",
+                "contrato": "contractsent", "contract": "contractsent", "contractsent": "contractsent",
+                "decisionmakerboughtin": "decisionmakerboughtin",
+            }
+            resolved = LABEL_TO_ID.get(val)
+            if resolved and resolved in all_stage_ids:
+                return resolved
             
             return None
             
@@ -179,12 +207,14 @@ class HubSpotDealService:
             # Fields we already handled in step 1 or that are not CRM deal properties
             # deal_currency_code: omit - HubSpot validates against portal's effective currencies;
             # sending EUR (or other) can fail if not configured for the portal. Amount uses portal default.
+            # dealstage: omit - must be resolved via pipeline schema (label→ID); never send raw labels like "Cierre"
             skip_fields = [
                 "dealname", "amount", "closedate", "description",
                 "summary", "painPoints", "nextSteps", "competitors",
                 "objections", "decisionMakers", "confidence",
                 "contactName", "companyName", "contactEmail",  # Used for associations, not deal props
                 "deal_currency_code",  # Portal-specific; omit to avoid INVALID_OPTION validation
+                "dealstage",  # Resolved separately via _resolve_stage_id; labels (e.g. "Cierre") are invalid
             ]
             
             for key, value in extraction.raw_extraction.items():
@@ -239,9 +269,13 @@ class HubSpotDealService:
         """
         properties = self.map_extraction_to_properties(extraction, deal_name)
         
-        # Resolve deal stage
-        if extraction.dealStage:
-            stage_id = await self._resolve_stage_id(extraction.dealStage)
+        # Resolve deal stage: only set when we have a valid HubSpot stage ID
+        # (Labels like "Cierre" are resolved via _resolve_stage_id; invalid values are omitted)
+        stage_raw = extraction.dealStage or (
+            extraction.raw_extraction.get("dealstage") if extraction.raw_extraction else None
+        )
+        if stage_raw:
+            stage_id = await self._resolve_stage_id(stage_raw)
             if stage_id:
                 properties["dealstage"] = stage_id
 
@@ -258,33 +292,39 @@ class HubSpotDealService:
 
         return properties
     
-    async def get(self, deal_id: str) -> HubSpotDeal:
+    async def get(
+        self,
+        deal_id: str,
+        properties: Optional[list[str]] = None,
+    ) -> HubSpotDeal:
         """
         Get a deal by ID.
-        
+
         Args:
             deal_id: HubSpot deal ID
-            
+            properties: Optional list of property names to fetch (default: standard set)
+
         Returns:
             HubSpotDeal object
-            
+
         Raises:
             HubSpotNotFoundError if deal doesn't exist
             HubSpotError for other errors
         """
+        props_param = ",".join(properties) if properties else (
+            "dealname,amount,deal_currency_code,dealstage,closedate,description"
+        )
         try:
             response = await self.client.get(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}/{deal_id}",
-                params={
-                    "properties": "dealname,amount,deal_currency_code,dealstage,closedate,description"
-                },
+                params={"properties": props_param},
             )
-            
+
             if not response:
                 raise HubSpotError("Empty response from HubSpot")
-            
+
             return HubSpotDeal(**response)
-            
+
         except Exception as e:
             if isinstance(e, HubSpotError):
                 raise

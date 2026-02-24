@@ -181,11 +181,12 @@ class HubSpotPreviewService:
                 except Exception:
                     pass
 
+        # Only include contact when we have email - HubSpot requires it; we don't invent placeholders
         new_contact = None
-        if contact_name or extraction.contactEmail:
+        if extraction.contactEmail and str(extraction.contactEmail).strip():
             new_contact = {
                 "name": contact_name,
-                "email": extraction.contactEmail,
+                "email": extraction.contactEmail.strip(),
                 "phone": extraction.contactPhone,
             }
         new_company = {"name": extraction.companyName} if extraction.companyName else None

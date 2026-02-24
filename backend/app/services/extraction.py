@@ -128,7 +128,7 @@ class ExtractionService:
                     spec_str = f'- "{field_name}" ({label}): Type: number. Output ONLY the numeric value. NO currency symbols (€, $, etc.), NO units. "500 euros" or "500€" → 500. '
                     json_type = f'"{field_name}": number | null'
                 elif field_type in ("datetime", "date"):
-                    spec_str = f'- "{field_name}" ({label}): Type: date. Output ISO format YYYY-MM-DD only. '
+                    spec_str = f'- "{field_name}" ({label}): Type: date. Output ISO YYYY-MM-DD ONLY when an explicit calendar date is mentioned. If only relative ("next Tuesday", "la semana que viene"), output null. '
                     json_type = f'"{field_name}": "YYYY-MM-DD" | null'
                 elif field_type == "bool":
                     spec_str = f'- "{field_name}" ({label}): Type: boolean. Output true or false only. '
@@ -184,16 +184,19 @@ TRANSCRIPT:
 {schema_text}
 
 ### EXTRACTION RULES:
-1. **Conservative Extraction**: Only extract data that is explicitly mentioned. If missing or ambiguous, set the field to `null`.
+1. **Conservative Extraction**: Only extract data that is EXPLICITLY stated. If missing or ambiguous, set the field to `null`.
 2. **contactName = PERSON, companyName = COMPANY (CRITICAL)**: "Andrés de Coca Stress" → contactName="Andrés", companyName="Coca Stress". Never put the company in contactName.
 3. **STRICT TYPES – Do NOT invent formats**: Output MUST match HubSpot schema exactly. For `number`: output 500, never "500€" or "500 euros". For `enumeration`: output the exact value from the allowed list, not a label or synonym. For `date`: output YYYY-MM-DD only.
-4. **LANGUAGE – CRITICAL**: All text fields (summary, painPoints, nextSteps, competitors, objections, decisionMakers, description, hs_next_step) MUST be written in the SAME language as the transcript. If the transcript is in Spanish, output in Spanish. If in English, output in English. Never translate to another language.
-5. **Format**: Return the data in the following JSON format:
+4. **closedate / Close Date (CRITICAL)**: Output `null` UNLESS the transcript mentions an EXPLICIT calendar date (e.g. "15 de marzo", "March 15th", "el 20 de febrero", "2025-03-15"). RELATIVE dates like "el martes que viene", "next Tuesday", "la próxima semana", "next week" must NOT be converted to a date—output `null`. NEVER invent, guess, or infer a date. NEVER use a random/historical date.
+5. **Numbers – Extract EXACTLY what was said**: "Un euro" = 1, "dos euros" = 2. "Un euro por empleado" → price_per_fte_eur: 1 (NOT 2). "750 empleados" or "750 fps" (FTEs) → deal_ftes_active: 750. "4 euros" (competitor) → competitor_price: 4. Never infer, round, or change numbers.
+6. **competitors (CRITICAL)**: ONLY include company names that are EXPLICITLY said in the transcript. Do NOT infer from "Le están cobrando X" or similar phrases. Do NOT use glossary/phonetic matching—"condenada en red" is NOT a company name. If no company is named, output [].
+7. **LANGUAGE – CRITICAL**: All text fields (summary, painPoints, nextSteps, competitors, objections, decisionMakers, description, hs_next_step) MUST be written in the SAME language as the transcript. If the transcript is in Spanish, output in Spanish. If in English, output in English. Never translate to another language.
+8. **Format**: Return the data in the following JSON format:
 
 {json_structure}
 
-6. **Summary**: Provide a concise 2-3 sentence summary of the meeting (in transcript language).
-7. **Confidence**: Provide an overall confidence score (0-1) and individual scores for each extracted field.
+9. **Summary**: Provide a concise 2-3 sentence summary of the meeting (in transcript language).
+10. **Confidence**: Provide an overall confidence score (0-1) and individual scores for each extracted field.
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
@@ -218,13 +221,31 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         
         prompt = self._build_prompt(transcript, field_specs, glossary_text)
         messages = [
-            {"role": "system", "content": "You are a precise CRM data extraction engine. You always output valid JSON following the requested schema. All text fields (summary, nextSteps, painPoints, etc.) must be in the SAME language as the transcript—never translate."},
+            {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language."},
             {"role": "user", "content": prompt},
         ]
         try:
             extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
+
+            # Post-process: clear closeDate if transcript only has relative dates (no explicit calendar date)
+            transcript_lower = transcript.lower()
+            relative_phrases = [
+                "martes que viene", "próxima semana", "next week", "next tuesday",
+                "semana que viene", "la semana que viene", "próximo martes",
+                "mes que viene", "next month", "mañana", "tomorrow"
+            ]
+            has_relative = any(p in transcript_lower for p in relative_phrases)
+            # Explicit date patterns: "15 de marzo", "march 15", "2025-", "15/03", "15-03"
+            has_explicit_date = bool(re.search(
+                r"\d{1,2}\s+de\s+\w+|"
+                r"\w+\s+\d{1,2}|\d{4}-\d{2}|\d{1,2}/\d{1,2}|\d{1,2}-\d{1,2}",
+                transcript,
+                re.I
+            ))
+            if extracted.get("closedate") and has_relative and not has_explicit_date:
+                extracted["closedate"] = None
             
             # companyName: explicit field first, fallback to dealname if it looks like "X Deal"
             company = extracted.get("companyName")

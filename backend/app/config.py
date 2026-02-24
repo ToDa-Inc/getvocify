@@ -8,9 +8,12 @@ from pydantic import field_validator
 from typing import Optional
 from pathlib import Path
 
-# Calculate the path to the root .env file
+# Paths: project root and backend dir (backend runs with cwd=backend)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+BACKEND_DIR = ROOT_DIR / "backend"
 ENV_FILE = ROOT_DIR / ".env"
+# Load both: backend/.env first, then root .env (root overrides so user edits in root apply)
+ENV_FILES = [str(BACKEND_DIR / ".env"), str(ENV_FILE)]
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
@@ -77,7 +80,7 @@ class Settings(BaseSettings):
         return v.strip()
     
     class Config:
-        env_file = str(ENV_FILE)
+        env_file = ENV_FILES
         case_sensitive = True
         extra = "ignore"  # Ignore extra fields in .env
 

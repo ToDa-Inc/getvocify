@@ -14,17 +14,17 @@ import asyncio
 
 class TimeoutMiddleware(BaseHTTPMiddleware):
     """
-    Middleware to add 30s timeout to requests.
+    Middleware to add request timeouts.
     
-    Excludes:
-    - /transcription endpoints (can take longer for real-time transcription)
-    - /memos/upload endpoints (file uploads can take time)
+    - 90s for /approve (full HubSpot sync: company, contact, deal, associations)
+    - No timeout: transcription, upload, re-extract, webhooks
+    - 30s for all other endpoints
     """
     
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         
-        # Skip timeout for transcription, upload, re-extract, and webhooks (can run long)
+        # No timeout for long-running operations
         if (
             "/transcription" in path
             or "/memos/upload" in path
@@ -33,14 +33,16 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
         
-        # Apply 30s timeout to other endpoints
+        # 90s for approve (HubSpot sync can be slow: schema, search, create/update)
+        timeout = 90.0 if "/approve" in path else 30.0
+        
         try:
-            response = await asyncio.wait_for(call_next(request), timeout=30.0)
+            response = await asyncio.wait_for(call_next(request), timeout=timeout)
             return response
         except asyncio.TimeoutError:
             return JSONResponse(
                 status_code=504,
-                content={"detail": "Request timeout after 30s"}
+                content={"detail": f"Request timeout after {int(timeout)}s"}
             )
 
 

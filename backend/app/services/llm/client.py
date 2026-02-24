@@ -50,6 +50,13 @@ class LLMClient:
             temperature: 0 for deterministic, higher for creative
             response_format: e.g. {"type": "json_object"} for structured output
         """
+        api_key = self.api_key
+        if not api_key or not str(api_key).strip():
+            raise Exception(
+                "LLM request failed: OPENROUTER_API_KEY is not set. "
+                "Add it to .env (get a key at openrouter.ai/keys)"
+            )
+
         payload = {
             "model": model or self.model,
             "messages": messages,
@@ -107,7 +114,22 @@ class LLMClient:
                         )
                 if attempt < MAX_RETRIES:
                     logger.warning("LLM request failed (attempt %d/%d): %s", attempt + 1, MAX_RETRIES + 1, e)
-        raise Exception(f"LLM request failed: {last_error}") from last_error
+
+        err_msg = str(last_error) if last_error else "Unknown error"
+        if not err_msg.strip():
+            err_msg = type(last_error).__name__ if last_error else "Unknown"
+        if isinstance(last_error, httpx.HTTPStatusError) and last_error.response is not None:
+            try:
+                body = last_error.response.json()
+                api_err = body.get("error", {}).get("message") or body.get("message")
+                if api_err:
+                    err_msg = f"{last_error.response.status_code} {api_err}"
+            except Exception:
+                if last_error.response.text:
+                    err_msg = f"{last_error.response.status_code} {last_error.response.text[:200]}"
+        elif isinstance(last_error, httpx.RequestError):
+            err_msg = err_msg or f"{type(last_error).__name__} (network/timeout?)"
+        raise Exception(f"LLM request failed: {err_msg}") from last_error
 
     def _extract_json(self, content: str) -> dict:
         """

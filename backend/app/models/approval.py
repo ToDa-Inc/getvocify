@@ -53,3 +53,9 @@ class ApproveRequest(BaseModel):
     is_new_deal: bool = Field(default=False, description="Whether to create a new deal")
     extraction: Optional[dict] = Field(None, description="Optional edited extraction data")
 
+
+class PreviewRequest(BaseModel):
+    """Request body for preview with optional edited extraction"""
+    deal_id: Optional[str] = Field(None, description="Deal ID to update (None = create new)")
+    extraction: Optional[dict] = Field(None, description="Edited extraction data (overrides stored)")
+
