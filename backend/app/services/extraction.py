@@ -4,8 +4,15 @@ CRM extraction service using LLM.
 
 from __future__ import annotations
 
+import logging
 import re
+import time
+
 from app.models.memo import MemoExtraction
+from app.logging_config import log_domain, DOMAIN_EXTRACTION
+from app.metrics import record_extraction_duration, inc_pipeline_error
+
+logger = logging.getLogger(__name__)
 from app.services.llm import LLMClient
 from typing import Optional
 
@@ -75,39 +82,50 @@ class ExtractionService:
         self.llm = LLMClient()
     
     def _build_prompt(self, transcript: str, field_specs: Optional[list[dict]] = None, glossary_text: str = "") -> str:
-        """Build the extraction prompt dynamically based on HubSpot CRM schema."""
+        """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
-        # Default fields that are always extracted for meeting intelligence
-        # All text fields must use the SAME language as the transcript
-        standard_fields = {
-            "companyName": "string (company/client name)",
-            "contactName": "string (ONLY the person's name you spoke with)",
-            "contactEmail": "string | null (email if mentioned)",
-            "contactPhone": "string | null (phone if mentioned)",
-            "summary": "string (2-3 sentences, same language as transcript)",
-            "painPoints": "string[] (same language as transcript)",
-            "nextSteps": "string[] (same language as transcript)",
-            "competitors": "string[] (same language as transcript)",
-            "objections": "string[] (same language as transcript)",
-            "decisionMakers": "string[] (same language as transcript)",
+        Schema-driven: field descriptions from HubSpot are the primary semantic source.
+        Standard meeting-intelligence fields are included only when not in schema.
+        """
+        schema_field_names = {s["name"] for s in (field_specs or []) if s.get("name")}
+
+        # Meeting-intelligence fields: minimal, generic. Exclude any covered by schema.
+        all_standard = {
+            "companyName": ("string", "Prospect/client company."),
+            "contactName": ("string", "Person spoken with."),
+            "contactEmail": ("string | null", "Email if mentioned."),
+            "contactPhone": ("string | null", "Phone if mentioned."),
+            "summary": ("string", "2-3 sentence meeting summary."),
+            "painPoints": ("string[]", "Pain points discussed."),
+            "nextSteps": ("string[]", "Agreed next steps."),
+            "competitors": ("string[]", "Competing vendors/products being evaluated."),
+            "objections": ("string[]", "Objections raised."),
+            "decisionMakers": ("string[]", "Decision makers involved."),
         }
-        
-        # Build schema-driven field descriptions and JSON types from CRM schema
+        standard_fields = {k: v for k, v in all_standard.items() if k not in schema_field_names}
+
+        # Build schema-driven instructions: description-first, then type/format
         schema_description = []
         json_field_types = []
-        
+
         if field_specs:
             schema_description.append("### CRM FIELDS (from HubSpot schema – output MUST match exactly)")
             for spec in field_specs:
                 field_name = spec["name"]
                 label = spec["label"]
                 field_type = spec.get("type", "string")
-                desc = spec.get("description", "")
+                desc = (spec.get("description") or "").strip()
                 options = spec.get("options", [])
-                
-                # Per-type instructions for strict output format
+
+                # Description-first: HubSpot description is the primary semantic guide
+                parts = []
+                if desc:
+                    parts.append(f'"{field_name}" ({label}): {desc}')
+                else:
+                    parts.append(f'"{field_name}" ({label})')
+
+                # Type/format constraints
                 if options:
-                    # Enum: LLM must output the EXACT value (HubSpot API expects value, not label)
                     values = []
                     labels = []
                     for o in options:
@@ -119,36 +137,33 @@ class ExtractionService:
                             labels.append(o)
                     if values:
                         mapping = ", ".join(f'"{l}"→"{v}"' for l, v in zip(labels, values))
-                        spec_str = f'- "{field_name}" ({label}): MUST output one of these EXACT values: {values}. Map from transcript using: {mapping}. '
+                        parts.append(f"Output one of: {values}. Map: {mapping}.")
                         json_type = f'"{field_name}": "{values[0]}" | null  // one of {values}'
                     else:
-                        spec_str = f'- "{field_name}" ({label}): Type: {field_type}. '
+                        parts.append(f"Type: {field_type}.")
                         json_type = f'"{field_name}": string | null'
                 elif field_type == "number":
-                    spec_str = f'- "{field_name}" ({label}): Type: number. Output ONLY the numeric value. NO currency symbols (€, $, etc.), NO units. "500 euros" or "500€" → 500. '
+                    parts.append("Type: number. Output numeric value only. NO currency symbols or units.")
                     json_type = f'"{field_name}": number | null'
                 elif field_type in ("datetime", "date"):
-                    spec_str = f'- "{field_name}" ({label}): Type: date. Output ISO YYYY-MM-DD ONLY when an explicit calendar date is mentioned. If only relative ("next Tuesday", "la semana que viene"), output null. '
+                    parts.append("Type: date. Output ISO YYYY-MM-DD only.")
                     json_type = f'"{field_name}": "YYYY-MM-DD" | null'
                 elif field_type == "bool":
-                    spec_str = f'- "{field_name}" ({label}): Type: boolean. Output true or false only. '
+                    parts.append("Type: boolean. Output true or false only.")
                     json_type = f'"{field_name}": boolean | null'
                 else:
-                    spec_str = f'- "{field_name}" ({label}): Type: {field_type}. '
+                    parts.append(f"Type: {field_type}.")
                     json_type = f'"{field_name}": string | null'
-                
-                if desc:
-                    spec_str += f"Description: {desc}"
-                
-                schema_description.append(spec_str)
+
+                schema_description.append("- " + " ".join(parts))
                 json_field_types.append(json_type)
         
         # Build the expected JSON structure with schema-aligned types
         json_structure = "{\n"
         for jt in json_field_types:
             json_structure += f"  {jt},\n"
-        for field, desc in standard_fields.items():
-            json_structure += f'  "{field}": {desc},\n'
+        for field, (type_str, _) in standard_fields.items():
+            json_structure += f'  "{field}": {type_str},\n'
         json_structure += '  "confidence": { "overall": number (0-1), "fields": { "fieldName": number (0-1) } }\n'
         json_structure += "}"
 
@@ -184,19 +199,14 @@ TRANSCRIPT:
 {schema_text}
 
 ### EXTRACTION RULES:
-1. **Conservative Extraction**: Only extract data that is EXPLICITLY stated. If missing or ambiguous, set the field to `null`.
-2. **contactName = PERSON, companyName = COMPANY (CRITICAL)**: "Andrés de Coca Stress" → contactName="Andrés", companyName="Coca Stress". Never put the company in contactName.
-3. **STRICT TYPES – Do NOT invent formats**: Output MUST match HubSpot schema exactly. For `number`: output 500, never "500€" or "500 euros". For `enumeration`: output the exact value from the allowed list, not a label or synonym. For `date`: output YYYY-MM-DD only.
-4. **closedate / Close Date (CRITICAL)**: Output `null` UNLESS the transcript mentions an EXPLICIT calendar date (e.g. "15 de marzo", "March 15th", "el 20 de febrero", "2025-03-15"). RELATIVE dates like "el martes que viene", "next Tuesday", "la próxima semana", "next week" must NOT be converted to a date—output `null`. NEVER invent, guess, or infer a date. NEVER use a random/historical date.
-5. **Numbers – Extract EXACTLY what was said**: "Un euro" = 1, "dos euros" = 2. "Un euro por empleado" → price_per_fte_eur: 1 (NOT 2). "750 empleados" or "750 fps" (FTEs) → deal_ftes_active: 750. "4 euros" (competitor) → competitor_price: 4. Never infer, round, or change numbers.
-6. **competitors (CRITICAL)**: ONLY include company names that are EXPLICITLY said in the transcript. Do NOT infer from "Le están cobrando X" or similar phrases. Do NOT use glossary/phonetic matching—"condenada en red" is NOT a company name. If no company is named, output [].
-7. **LANGUAGE – CRITICAL**: All text fields (summary, painPoints, nextSteps, competitors, objections, decisionMakers, description, hs_next_step) MUST be written in the SAME language as the transcript. If the transcript is in Spanish, output in Spanish. If in English, output in English. Never translate to another language.
-8. **Format**: Return the data in the following JSON format:
+1. **Conservative**: Extract only what is explicitly mentioned. If missing or ambiguous, set to `null`. Do not invent data.
+2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
+3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
+4. **Format**: Return JSON in this structure:
 
 {json_structure}
 
-9. **Summary**: Provide a concise 2-3 sentence summary of the meeting (in transcript language).
-10. **Confidence**: Provide an overall confidence score (0-1) and individual scores for each extracted field.
+5. **Confidence**: Provide overall (0-1) and per-field scores.
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
@@ -212,19 +222,36 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         Returns:
             MemoExtraction with extracted data and confidence scores
         """
+        prompt = self._build_prompt(transcript, field_specs, glossary_text)
+        schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
+        logger.info(
+            "📝 Extraction started",
+            extra=log_domain(
+                DOMAIN_EXTRACTION,
+                "extract_started",
+                transcript_len=len(transcript or ""),
+                prompt_len=len(prompt),
+                has_schema=bool(field_specs),
+                has_glossary=bool(glossary_text and glossary_text.strip()),
+                schema_field_names=schema_field_names,
+            ),
+        )
         if not transcript or len(transcript.strip()) < 10:
-            # Return empty extraction for very short transcripts
+            logger.info(
+                "⚠️ Extraction skipped (transcript too short)",
+                extra=log_domain(DOMAIN_EXTRACTION, "extract_skipped", transcript_len=len(transcript or "")),
+            )
             return MemoExtraction(
                 summary="Transcript too short to extract meaningful data.",
                 confidence={"overall": 0.0, "fields": {}}
             )
         
-        prompt = self._build_prompt(transcript, field_specs, glossary_text)
         messages = [
             {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language."},
             {"role": "user", "content": prompt},
         ]
         try:
+            t0 = time.perf_counter()
             extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
@@ -247,14 +274,12 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             if extracted.get("closedate") and has_relative and not has_explicit_date:
                 extracted["closedate"] = None
             
-            # companyName: explicit field first, fallback to dealname if it looks like "X Deal"
+            # companyName: explicit only; fallback from dealname only when it looks like "X Deal"
             company = extracted.get("companyName")
             if not company and extracted.get("dealname"):
                 dn = str(extracted.get("dealname", ""))
-                if " deal" in dn.lower():
-                    company = dn.replace(" Deal", "").replace(" deal", "").strip()
-                else:
-                    company = dn
+                if dn.rstrip().lower().endswith(" deal"):
+                    company = dn.rsplit(" ", 1)[0].strip()
             # contactName, contactEmail, contactPhone: explicit extraction
             contact = extracted.get("contactName")
             contact_email = extracted.get("contactEmail") or None
@@ -263,7 +288,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             deal_amount = extracted.get("amount")
             if deal_amount is not None and not isinstance(deal_amount, (int, float)):
                 deal_amount = _parse_amount(deal_amount)
-            return MemoExtraction(
+            result = MemoExtraction(
                 companyName=company or None,
                 contactName=contact or None,
                 contactEmail=contact_email,
@@ -281,7 +306,42 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 confidence=extracted.get("confidence", {"overall": 0.5, "fields": {}}),
                 raw_extraction=extracted,
             )
+            conf = result.confidence or {}
+            conf_overall = conf.get("overall") if isinstance(conf, dict) else None
+            extracted_field_names = [k for k in (extracted.keys() or []) if k != "confidence"]
+            # Build human-readable extracted fields for logging (truncate long values)
+            extracted_fields_log: dict[str, object] = {}
+            for k in extracted_field_names:
+                v = extracted.get(k)
+                if v is None:
+                    extracted_fields_log[k] = None
+                elif isinstance(v, list):
+                    extracted_fields_log[k] = v[:5] if len(v) <= 5 else v[:5] + [f"...+{len(v) - 5} more"]
+                elif isinstance(v, str) and len(v) > 100:
+                    extracted_fields_log[k] = v[:100] + "..."
+                else:
+                    extracted_fields_log[k] = v
+            record_extraction_duration(time.perf_counter() - t0)
+            logger.info(
+                "✅ Extraction complete",
+                extra=log_domain(
+                    DOMAIN_EXTRACTION,
+                    "extract_complete",
+                    company_name=company,
+                    contact_name=contact,
+                    confidence_overall=conf_overall,
+                    next_steps_count=len(result.nextSteps or []),
+                    extracted_field_names=extracted_field_names,
+                    extracted_fields=extracted_fields_log,
+                ),
+            )
+            return result
         except Exception as e:
+            inc_pipeline_error(DOMAIN_EXTRACTION, "extract")
+            logger.exception(
+                "❌ Extraction failed",
+                extra=log_domain(DOMAIN_EXTRACTION, "extract_failed", error=str(e), transcript_len=len(transcript or "")),
+            )
             raise Exception(f"Extraction failed: {str(e)}") from e
 
 

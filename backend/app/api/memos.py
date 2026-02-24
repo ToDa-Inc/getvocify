@@ -4,6 +4,7 @@ Voice memo API endpoints
 
 import asyncio
 import logging
+import time
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
@@ -33,6 +34,8 @@ from app.services.hubspot import (
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
 from app.models.crm_update import CRMUpdate
 from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
+from app.logging_config import log_domain, DOMAIN_MEMO
+from app.metrics import record_transcription_duration
 from supabase import Client
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
@@ -88,7 +91,10 @@ async def extract_memo_async(
     from datetime import datetime
     
     try:
-        # Mark processing started
+        logger.info(
+            "📝 Extract memo async started",
+            extra=log_domain(DOMAIN_MEMO, "extract_async_started", memo_id=memo_id, user_id=user_id),
+        )
         supabase.table("memos").update({
             "status": "extracting",
             "processing_started_at": datetime.utcnow().isoformat(),
@@ -113,9 +119,16 @@ async def extract_memo_async(
             "processed_at": datetime.utcnow().isoformat(),
             "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
+        logger.info(
+            "✅ Extract memo async complete",
+            extra=log_domain(DOMAIN_MEMO, "extract_async_complete", memo_id=memo_id),
+        )
         
     except Exception as e:
-        # Update status to failed and clear processing_started_at
+        logger.exception(
+            "❌ Extract memo async failed",
+            extra=log_domain(DOMAIN_MEMO, "extract_async_failed", memo_id=memo_id, error=str(e)),
+        )
         supabase.table("memos").update({
             "status": "failed",
             "error_message": str(e),
@@ -139,7 +152,10 @@ async def process_memo_async(
     from datetime import datetime
     
     try:
-        # Mark processing started
+        logger.info(
+            "🚀 Process memo async started",
+            extra=log_domain(DOMAIN_MEMO, "process_async_started", memo_id=memo_id, user_id=user_id),
+        )
         supabase.table("memos").update({
             "status": "transcribing",
             "processing_started_at": datetime.utcnow().isoformat(),
@@ -151,7 +167,9 @@ async def process_memo_async(
         glossary_text = glossary_service.format_for_llm(glossary)
 
         # Transcribe from bytes (no storage)
+        t0 = time.perf_counter()
         transcription = await transcription_service.transcribe(audio_bytes)
+        record_transcription_duration(time.perf_counter() - t0, "upload")
         
         # Update with transcript
         supabase.table("memos").update({
@@ -170,9 +188,16 @@ async def process_memo_async(
             "processed_at": datetime.utcnow().isoformat(),
             "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
+        logger.info(
+            "✅ Process memo async complete",
+            extra=log_domain(DOMAIN_MEMO, "process_async_complete", memo_id=memo_id),
+        )
         
     except Exception as e:
-        # Update status to failed and clear processing_started_at
+        logger.exception(
+            "❌ Process memo async failed",
+            extra=log_domain(DOMAIN_MEMO, "process_async_failed", memo_id=memo_id, error=str(e)),
+        )
         supabase.table("memos").update({
             "status": "failed",
             "error_message": str(e),
@@ -220,7 +245,10 @@ async def upload_memo(
             field_specs = None
 
     if transcript and transcript.strip():
-        # Transcript provided (from real-time) - no storage, no transcription
+        logger.info(
+            "📤 Upload memo with transcript",
+            extra=log_domain(DOMAIN_MEMO, "upload", user_id=user_id, has_transcript=True),
+        )
         estimated_duration = len(transcript) / 15  # rough: ~15 chars/sec speech
         result = supabase.table("memos").insert({
             "user_id": user_id,
@@ -236,7 +264,10 @@ async def upload_memo(
         asyncio.create_task(
             extract_memo_async(memo_id, user_id, transcript.strip(), supabase, extraction_service, field_specs)
         )
-        
+        logger.info(
+            "✅ Upload memo created (transcript)",
+            extra=log_domain(DOMAIN_MEMO, "upload_complete", memo_id=memo_id, user_id=user_id),
+        )
         return UploadResponse(
             id=str(memo_id),
             status="extracting",
@@ -256,6 +287,10 @@ async def upload_memo(
                 detail="File must be an audio file when transcript is not provided"
             )
         
+        logger.info(
+            "📤 Upload memo with audio",
+            extra=log_domain(DOMAIN_MEMO, "upload", user_id=user_id, has_transcript=False, audio_len=len(audio_bytes)),
+        )
         estimated_duration = len(audio_bytes) / (1024 * 1024) * 60
         result = supabase.table("memos").insert({
             "user_id": user_id,
@@ -265,6 +300,10 @@ async def upload_memo(
         }).execute()
         
         memo_id = result.data[0]["id"]
+        logger.info(
+            "✅ Upload memo created (audio)",
+            extra=log_domain(DOMAIN_MEMO, "upload_complete", memo_id=memo_id, user_id=user_id),
+        )
         transcription_service = TranscriptionService()
         extraction_service = ExtractionService()
         
@@ -560,8 +599,10 @@ async def approve_memo(
     ).eq("provider", "hubspot").eq("status", "connected").limit(1).execute()
     
     if not crm_result.data:
-        # No HubSpot connected - mark as approved but don't sync
-        logger.info("Approve memo %s: no HubSpot connection, marking approved without sync", memo_id)
+        logger.info(
+            "⚠️ Approve memo: no HubSpot connection, marking approved without sync",
+            extra=log_domain(DOMAIN_MEMO, "approve_no_crm", memo_id=str(memo_id)),
+        )
         supabase.table("memos").update({
             "status": "approved",
             "approved_at": datetime.utcnow().isoformat(),
@@ -615,6 +656,10 @@ async def approve_memo(
                 deal_id = memo_data.get("matched_deal_id")
                 is_new_deal = memo_data.get("is_new_deal", False) if not deal_id else False
             
+            logger.info(
+                "🔗 Approve memo started, syncing to HubSpot",
+                extra=log_domain(DOMAIN_MEMO, "approve_started", memo_id=str(memo_id), deal_id=deal_id, is_new_deal=is_new_deal),
+            )
             # Sync to HubSpot
             sync_result = await sync_service.sync_memo(
                 memo_id=str(memo_id),
@@ -628,11 +673,19 @@ async def approve_memo(
             )
             
             if not sync_result.success:
+                logger.error(
+                    "❌ Approve memo sync failed",
+                    extra=log_domain(DOMAIN_MEMO, "approve_sync_failed", memo_id=str(memo_id), error=sync_result.error),
+                )
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=sync_result.error or "Failed to sync to CRM",
                 )
             
+            logger.info(
+                "✅ Approve memo complete",
+                extra=log_domain(DOMAIN_MEMO, "approve_complete", memo_id=str(memo_id), deal_id=sync_result.deal_id),
+            )
             # Mark memo as approved
             supabase.table("memos").update({
                 "status": "approved",
@@ -812,7 +865,10 @@ async def match_memo_to_deals(
         limit=3,
         pipeline_id=pipeline_id,
     )
-    
+    logger.info(
+        "🔍 Match memo to deals",
+        extra=log_domain(DOMAIN_MEMO, "match", memo_id=str(memo_id), match_count=len(matches)),
+    )
     return matches
 
 
@@ -903,6 +959,10 @@ async def get_approval_preview(
     
     # Build preview
     try:
+        logger.info(
+            "👁️ Get approval preview",
+            extra=log_domain(DOMAIN_MEMO, "preview", memo_id=str(memo_id), deal_id=deal_id),
+        )
         preview = await preview_service.build_preview(
             memo_id=memo_id,
             transcript=transcript,

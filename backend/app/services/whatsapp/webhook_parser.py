@@ -8,7 +8,7 @@ from typing import Literal, Optional
 
 @dataclass
 class IncomingMessage:
-    """Parsed incoming WhatsApp message."""
+    """Parsed incoming message (WhatsApp / Unipile)."""
 
     message_id: str
     from_phone: str
@@ -20,6 +20,8 @@ class IncomingMessage:
     button_id: Optional[str] = None
     button_title: Optional[str] = None
     context_message_id: Optional[str] = None
+    chat_id: Optional[str] = None
+    account_id: Optional[str] = None
 
 
 def parse_webhook(payload: dict) -> list[IncomingMessage]:

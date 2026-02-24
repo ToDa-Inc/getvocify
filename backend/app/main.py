@@ -2,14 +2,25 @@
 FastAPI application entry point
 """
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+from app.webhook_context import set_correlation_id
 from app.config import settings
 from app.api.router import api_router
+from app.logging_config import configure_logging
 import asyncio
+
+# Configure logging first for full backend visibility
+configure_logging(
+    level=settings.LOG_LEVEL,
+    json_format=settings.LOG_JSON,
+)
 
 
 class TimeoutMiddleware(BaseHTTPMiddleware):
@@ -24,12 +35,13 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         
-        # No timeout for long-running operations
+        # Skip timeout for transcription, upload, re-extract, webhooks, metrics (can run long or need fast response)
         if (
             "/transcription" in path
             or "/memos/upload" in path
             or "/re-extract" in path
             or "/webhooks" in path
+            or path == "/metrics"
         ):
             return await call_next(request)
         
@@ -52,6 +64,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Correlation ID middleware - propagate X-Request-ID or generate one for all requests
+class CorrelationIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        import uuid
+        cid = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:12]}"
+        set_correlation_id(cid)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = cid
+        return response
+
+
+app.add_middleware(CorrelationIdMiddleware)
 # Timeout middleware (30s for most endpoints, except transcription/upload)
 app.add_middleware(TimeoutMiddleware)
 
@@ -76,6 +100,10 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router)
 
+# Prometheus metrics
+from prometheus_fastapi_instrumentator import Instrumentator
+Instrumentator().instrument(app).expose(app)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -83,19 +111,30 @@ async def startup_event():
     Startup event handler.
     Recovers stuck memo processing tasks on server startup.
     """
+    logger = logging.getLogger(__name__)
     try:
         from app.deps import get_supabase
         from app.services.recovery import RecoveryService
-        
+
         supabase = get_supabase()
         recovery_service = RecoveryService(supabase)
         result = await recovery_service.recover_all_stuck_memos()
-        
+
         if result["found"] > 0:
-            print(f"Startup recovery: Found {result['found']} stuck memos, recovered {result['recovered']}")
+            logger.info(
+                "🔄 Startup recovery complete",
+                extra={
+                    "domain": "recovery",
+                    "phase": "startup",
+                    "found": result["found"],
+                    "recovered": result["recovered"],
+                },
+            )
     except Exception as e:
-        # Don't fail startup if recovery fails
-        print(f"Startup recovery failed: {e}")
+        logger.exception(
+            "❌ Startup recovery failed",
+            extra={"domain": "recovery", "phase": "startup", "error": str(e)},
+        )
 
 
 @app.get("/")

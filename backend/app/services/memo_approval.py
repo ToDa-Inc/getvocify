@@ -3,12 +3,16 @@ Core memo approval and CRM sync logic.
 Shared by HTTP API and WhatsApp processor.
 """
 
+import logging
 from datetime import datetime
 from typing import Optional, Union
 
 from supabase import Client
 
+from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
+
+logger = logging.getLogger(__name__)
 from app.services.crm_config import CRMConfigurationService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.hubspot import (
@@ -55,6 +59,10 @@ async def approve_memo_core(
     if not extraction_data:
         raise ValueError("No extraction data available")
 
+    logger.info(
+        "📋 Approve memo core started",
+        extra=log_domain(DOMAIN_MEMO, "approve_core", memo_id=memo_id),
+    )
     if memo_data.get("status") == "approved" and memo_data.get("approved_at"):
         if not (payload and payload.extraction):
             updated = supabase.table("memos").select("*").eq("id", memo_id).single().execute()
@@ -157,8 +165,16 @@ async def approve_memo_core(
     )
 
     if not sync_result.success:
+        logger.error(
+            "❌ Approve memo core sync failed",
+            extra=log_domain(DOMAIN_MEMO, "approve_core_failed", memo_id=memo_id, error=sync_result.error or "unknown"),
+        )
         raise ValueError(sync_result.error or "Failed to sync to CRM")
 
+    logger.info(
+        "✅ Approve memo core complete",
+        extra=log_domain(DOMAIN_MEMO, "approve_core_complete", memo_id=memo_id, deal_id=sync_result.deal_id),
+    )
     supabase.table("memos").update({
         "status": "approved",
         "approved_at": datetime.utcnow().isoformat(),

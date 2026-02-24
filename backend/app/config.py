@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # Logging (extensive visibility: logic, AI, LLM, Speechmatics, HubSpot)
+    LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
+    LOG_JSON: bool = False  # True for production log aggregators (Datadog, etc.)
+
     # HubSpot OAuth (required for OAuth flow; private app flow does not use these)
     HUBSPOT_CLIENT_ID: Optional[str] = None
     HUBSPOT_CLIENT_SECRET: Optional[str] = None
@@ -52,6 +56,10 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
+
+    # Unipile (optional - for WhatsApp via Unipile instead of Meta)
+    UNIPILE_API_KEY: Optional[str] = None
+    UNIPILE_BASE_URL: str = "https://api23.unipile.com:15349"
     
     @field_validator('SUPABASE_URL')
     @classmethod

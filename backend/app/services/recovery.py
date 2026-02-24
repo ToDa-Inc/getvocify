@@ -5,10 +5,15 @@ Handles recovery of memos that got stuck in processing states
 due to server restarts or crashes.
 """
 
+import logging
 from datetime import datetime, timedelta
 from supabase import Client
 from typing import List
+
+from app.logging_config import log_domain, DOMAIN_RECOVERY
 from app.services.transcription import TranscriptionService
+
+logger = logging.getLogger(__name__)
 from app.services.extraction import ExtractionService
 from app.services.crm_config import CRMConfigurationService
 
@@ -60,7 +65,10 @@ class RecoveryService:
         status = memo_data.get("status")
         audio_url = memo_data.get("audio_url")
         transcript = memo_data.get("transcript")
-        
+        logger.debug(
+            "Recover memo attempt",
+            extra=log_domain(DOMAIN_RECOVERY, "recover_memo", memo_id=memo_id, from_status=status),
+        )
         # Determine recovery action based on status
         if status == "transcribing":
             # We no longer store audio - cannot recover transcribing memos
@@ -116,6 +124,10 @@ class RecoveryService:
                     extraction_service,
                     field_specs
                 )
+            )
+            logger.info(
+                "🔄 Recover memo: re-queued extraction",
+                extra=log_domain(DOMAIN_RECOVERY, "recover_memo", memo_id=memo_id, from_status=status, to_status="extracting"),
             )
             return True
         

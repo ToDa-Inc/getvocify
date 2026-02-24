@@ -19,6 +19,20 @@ cp ../.env .env
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Local webhook testing (ngrok)
+
+For Unipile/WhatsApp webhooks, expose your local backend:
+
+```bash
+# Terminal 1
+make backend
+
+# Terminal 2
+make ngrok
+```
+
+Use the ngrok URL + `/webhooks/unipile` as your Unipile/n8n webhook target (e.g. `https://abc123.ngrok-free.app/webhooks/unipile`).
+
 ## API Endpoints
 
 - `GET /health` - Health check

@@ -6,11 +6,14 @@ Single entry point for OpenRouter and future providers.
 import json
 import logging
 import re
+import time
 from typing import Optional
 
 import httpx
 
 from app.config import settings
+from app.logging_config import log_domain, DOMAIN_LLM
+from app.metrics import inc_llm_request, inc_pipeline_error
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +70,26 @@ class LLMClient:
 
         last_error: Optional[Exception] = None
         use_response_format = response_format
+        model_used = model or self.model
         for attempt in range(MAX_RETRIES + 1):
             try:
+                input_chars = sum(len(str(m.get("content", ""))) for m in messages)
+                logger.info(
+                    "🤖 LLM chat attempt",
+                    extra=log_domain(DOMAIN_LLM, "chat_attempt", model=model_used, attempt=attempt + 1, max_attempts=MAX_RETRIES + 1, input_chars=input_chars, message_count=len(messages)),
+                )
+                full_text = " ".join(str(m.get("content", "")) for m in messages)
+                request_preview = full_text[:600] + "..." if len(full_text) > 600 else full_text
+                logger.info(
+                    "📤 LLM request",
+                    extra=log_domain(
+                        DOMAIN_LLM,
+                        "request_preview",
+                        model=model_used,
+                        request_preview=request_preview,
+                    ),
+                )
+                t0 = time.perf_counter()
                 req_payload = {k: v for k, v in payload.items() if k != "response_format"}
                 if use_response_format:
                     req_payload["response_format"] = use_response_format
@@ -92,6 +113,26 @@ class LLMClient:
                     content = data["choices"][0]["message"]["content"]
                     if content is None:
                         raise ValueError("Empty model response")
+                    elapsed_ms = (time.perf_counter() - t0) * 1000
+                    usage = data.get("usage", {})
+                    inc_llm_request("success", model_used)
+                    logger.info(
+                        "✅ LLM chat success",
+                        extra=log_domain(
+                            DOMAIN_LLM,
+                            "chat_success",
+                            model=model_used,
+                            duration_ms=round(elapsed_ms, 2),
+                            prompt_tokens=usage.get("prompt_tokens"),
+                            output_tokens=usage.get("total_tokens"),
+                            content_len=len(content) if content else 0,
+                        ),
+                    )
+                    if logger.isEnabledFor(logging.DEBUG) and content:
+                        logger.debug(
+                            "LLM response preview",
+                            extra=log_domain(DOMAIN_LLM, "content_preview", content_preview=content[:100] if content else ""),
+                        )
                     return content
             except (httpx.HTTPStatusError, httpx.RequestError, KeyError) as e:
                 last_error = e
@@ -112,6 +153,9 @@ class LLMClient:
                             "401 = Invalid/disabled key or OAuth expired. "
                             "Try: 1) Create new key at openrouter.ai/keys 2) Remove quotes/whitespace from .env"
                         )
+                if attempt >= MAX_RETRIES:
+                    inc_llm_request("failure", model_used or self.model)
+                    inc_pipeline_error(DOMAIN_LLM, "chat")
                 if attempt < MAX_RETRIES:
                     logger.warning("LLM request failed (attempt %d/%d): %s", attempt + 1, MAX_RETRIES + 1, e)
 
@@ -186,4 +230,16 @@ class LLMClient:
             temperature=temperature,
             response_format={"type": "json_object"},
         )
-        return self._extract_json(content)
+        try:
+            parsed = self._extract_json(content)
+            logger.debug(
+                "LLM JSON parsed",
+                extra=log_domain(DOMAIN_LLM, "json_parsed", keys=list(parsed.keys()) if isinstance(parsed, dict) else []),
+            )
+            return parsed
+        except ValueError as e:
+            logger.warning(
+                "LLM JSON extraction failed",
+                extra=log_domain(DOMAIN_LLM, "json_failed", error=str(e), content_preview=content[:200] if content else ""),
+            )
+            raise
