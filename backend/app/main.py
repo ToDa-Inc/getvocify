@@ -79,7 +79,7 @@ app.add_middleware(CorrelationIdMiddleware)
 # Timeout middleware (30s for most endpoints, except transcription/upload)
 app.add_middleware(TimeoutMiddleware)
 
-# CORS middleware
+# CORS middleware (localhost + 127.0.0.1 - some browsers send different origin)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -88,10 +88,13 @@ app.add_middleware(
         "http://localhost:8080",
         "http://localhost:8081",
         "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:3000",
         # Chrome extension origins (any extension ID)
         "chrome-extension://*",
     ],
-    allow_origin_regex=r"chrome-extension://.*",
+    allow_origin_regex=r"chrome-extension://.*|http://192\.168\.\d+\.\d+:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,9 +103,12 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router)
 
-# Prometheus metrics
-from prometheus_fastapi_instrumentator import Instrumentator
-Instrumentator().instrument(app).expose(app)
+# Prometheus metrics (optional - app runs without it if package missing)
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app)
+except ImportError:
+    pass  # Run without metrics if package not installed
 
 
 @app.on_event("startup")

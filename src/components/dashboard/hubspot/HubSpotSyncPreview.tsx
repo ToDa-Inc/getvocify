@@ -9,10 +9,14 @@ import { Input } from "@/components/ui/input";
 
 interface HubSpotSyncPreviewProps {
   memoId: string;
+  /** When provided, uses edited extraction for preview and approve (user edits before confirming) */
+  extraction?: object | null;
+  /** Pre-select this deal (e.g. from URL ?deal_id=xxx when coming from HubSpot) */
+  initialDealId?: string | null;
   onSuccess: (data: any) => void;
 }
 
-export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProps) => {
+export const HubSpotSyncPreview = ({ memoId, extraction, onSuccess, initialDealId }: HubSpotSyncPreviewProps) => {
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -28,7 +32,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
   const fetchPreview = async (dealId?: string) => {
     setLoading(true);
     try {
-      const previewData = await crmApi.getPreview(memoId, dealId);
+      const previewData = extraction
+        ? await crmApi.getPreviewWithExtraction(memoId, dealId, extraction)
+        : await crmApi.getPreview(memoId, dealId);
       setPreview(previewData);
     } catch (error) {
       toast.error("Failed to load update preview");
@@ -42,23 +48,35 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
       setMatching(true);
       setLoading(true);
       try {
+        // Prefer initialDealId (e.g. from URL ?deal_id= when coming from HubSpot)
+        if (initialDealId) {
+          await fetchPreview(initialDealId);
+          setMatching(false);
+          setLoading(false);
+          return;
+        }
         let matches: any[] = [];
         try {
-          matches = await crmApi.findMatches(memoId);
+          const matchData = await crmApi.findMatches(memoId);
+          matches = Array.isArray(matchData) ? matchData : [];
         } catch (matchErr: any) {
-          if (matchErr?.status === 400 && String(matchErr?.data?.detail || "").includes("extraction not available")) {
+          const errDetail = matchErr?.data?.detail;
+          const errStr = typeof errDetail === "string" ? errDetail : JSON.stringify(errDetail || "");
+          if (matchErr?.status === 400 && errStr.includes("extraction not available")) {
             setExtractionError(true);
             toast.error("Extraction not ready. Please wait for processing or try re-extract.");
             return;
           }
           toast.error("Failed to find matching deals");
         }
-        const topDealId = Array.isArray(matches) && matches.length > 0 
-          ? matches[0].deal_id 
+        const topDealId = Array.isArray(matches) && matches.length > 0
+          ? matches[0].deal_id
           : undefined;
         await fetchPreview(topDealId);
       } catch (error: any) {
-        if (error?.status === 400 && error?.data?.detail?.includes("extraction not available")) {
+        const errDetail = error?.data?.detail;
+        const errStr = typeof errDetail === "string" ? errDetail : JSON.stringify(errDetail || "");
+        if (error?.status === 400 && errStr.includes("extraction not available")) {
           setExtractionError(true);
           toast.error("Extraction not available. Wait for processing or use Re-extract.");
         } else {
@@ -71,7 +89,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
       }
     };
     init();
-  }, [memoId, retryKey]);
+  }, [memoId, retryKey, extraction, initialDealId]);
 
   const handleReExtract = async () => {
     setReExtracting(true);
@@ -115,7 +133,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
         memoId,
         preview.selected_deal?.deal_id,
         preview.is_new_deal,
-        undefined 
+        extraction ?? undefined
       );
       toast.success("CRM updated successfully!");
       onSuccess(result);
@@ -297,26 +315,38 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
         ) : (
           <div className="grid gap-4">
             {updates.map((update: any) => {
-              const isChanged = update.current_value !== null && update.current_value !== update.new_value;
+              const hadExistingValue =
+                update.current_value != null &&
+                String(update.current_value).trim() !== "" &&
+                String(update.current_value).trim() !== "(empty)";
+              const isOverride = !!hadExistingValue;
 
               return (
-                <div 
+                <div
                   key={update.field_name}
-                  className="group relative bg-secondary/5 border border-border/20 rounded-3xl p-6 transition-all hover:border-beige/20"
+                  className={`group relative rounded-3xl p-6 transition-all ${
+                    isOverride
+                      ? "bg-destructive/5 border border-destructive/30 hover:border-destructive/40"
+                      : "bg-success/5 border border-success/20 hover:border-success/30"
+                  }`}
                 >
                   <div className="flex items-start justify-between mb-4">
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">
                       {update.field_label}
                     </span>
-                    {isChanged && (
+                    {isOverride ? (
+                      <span className="bg-destructive/10 text-destructive text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        Override
+                      </span>
+                    ) : (
                       <span className="bg-success/10 text-success text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        Changed
+                        New
                       </span>
                     )}
                   </div>
 
                   <div className="space-y-3">
-                    {update.current_value !== null && (
+                    {hadExistingValue && (
                       <div className="flex items-center gap-3">
                         <span className="text-[10px] text-muted-foreground line-through opacity-50 truncate max-w-[150px]">
                           {update.current_value || "—"}
@@ -324,7 +354,11 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess }: HubSpotSyncPreviewProp
                         <div className="h-px w-4 bg-muted-foreground/20" />
                       </div>
                     )}
-                    <p className="text-sm font-bold text-foreground leading-relaxed">
+                    <p
+                      className={`text-sm font-bold leading-relaxed ${
+                        isOverride ? "text-destructive" : "text-success"
+                      }`}
+                    >
                       {update.new_value || "—"}
                     </p>
                   </div>

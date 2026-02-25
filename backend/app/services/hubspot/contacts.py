@@ -3,8 +3,11 @@ Contact operations service for HubSpot.
 
 Handles creating, updating, and finding contacts with proper
 field mapping from MemoExtraction to HubSpot properties.
+HubSpot requires email; when only contactName exists we use a placeholder
+so the contact can be created and associated with the deal (user can update in HubSpot).
 """
 
+import re
 from typing import Any, Optional
 
 from .client import HubSpotClient
@@ -212,6 +215,12 @@ class HubSpotContactService:
                 raise
             raise HubSpotError(f"Failed to update contact: {str(e)}")
     
+    def _placeholder_email(self, contact_name: str) -> str:
+        """Generate placeholder email when we have name but no email. HubSpot requires email."""
+        slug = re.sub(r"[^a-z0-9]+", "-", contact_name.strip().lower())
+        slug = slug.strip("-") or "contact"
+        return f"{slug}@lead.getvocify.com"
+
     async def create_or_update(
         self,
         extraction: MemoExtraction,
@@ -220,11 +229,11 @@ class HubSpotContactService:
         Create or update a contact based on extraction data.
         
         Logic:
-        1. Requires contactEmail - HubSpot API mandates email; we do not invent placeholders
-        2. If email exists, find existing contact by email
+        1. HubSpot requires email - use contactEmail if provided, else placeholder when we have contactName
+        2. If email exists (real or placeholder), find existing contact by email
         3. If found, update it with new data
         4. If not found, create new contact
-        5. If no email, return None (deal/company still sync; add contact manually in HubSpot)
+        5. If no contactName and no contactEmail, return None
         
         Args:
             extraction: MemoExtraction with contact data
@@ -235,12 +244,16 @@ class HubSpotContactService:
         Raises:
             HubSpotError for API errors
         """
-        # HubSpot requires email - we skip contact creation when there is no real email
-        # (avoids inventing fake emails like pepe@vocify-placeholder.com)
-        if not extraction.contactEmail or not str(extraction.contactEmail).strip():
+        has_real_email = extraction.contactEmail and str(extraction.contactEmail).strip()
+        if has_real_email:
+            email = extraction.contactEmail.strip().lower()
+        elif extraction.contactName and str(extraction.contactName).strip():
+            # Placeholder: create contact with name so it can be associated with deal
+            email = self._placeholder_email(extraction.contactName)
+            extraction = extraction.model_copy(update={"contactEmail": email})
+        else:
             return None
         
-        email = extraction.contactEmail.strip().lower()
         properties = self.map_extraction_to_properties(extraction)
         
         # Try to find existing contact (Search API or GET-by-email fallback)

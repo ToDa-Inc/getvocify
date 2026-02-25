@@ -23,6 +23,7 @@ function mapRawUser(raw: Record<string, unknown>): User {
     companyName: (raw.company_name as string) ?? null,
     avatarUrl: (raw.avatar_url as string) ?? null,
     phone: (raw.phone as string) ?? null,
+    autoCreateContactCompany: Boolean(raw.auto_create_contact_company),
     createdAt: (raw.created_at as string) || '',
   };
 }
@@ -105,12 +106,16 @@ export const authApi = {
    * Update the current user's profile
    */
   updateProfile: async (data: UpdateProfileData): Promise<User> => {
-    const raw = await api.patch<Record<string, unknown>>('/auth/me', {
+    const body: Record<string, unknown> = {
       full_name: data.fullName,
       company_name: data.companyName,
       avatar_url: data.avatarUrl,
       phone: data.phone,
-    });
+    };
+    if (data.autoCreateContactCompany !== undefined) {
+      body.auto_create_contact_company = data.autoCreateContactCompany;
+    }
+    const raw = await api.patch<Record<string, unknown>>('/auth/me', body);
     return mapRawUser(raw);
   },
 

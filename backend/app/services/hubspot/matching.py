@@ -127,6 +127,19 @@ class HubSpotMatchingService:
         
         return unique_matches
     
+    def _company_search_terms(self, company_name: str) -> list[str]:
+        """Generate search terms for company name - try full name, then first/last word."""
+        s = company_name.strip()
+        if not s:
+            return []
+        terms = [s]
+        parts = s.split()
+        if len(parts) > 1:
+            terms.append(parts[0])
+            if len(parts) > 2:
+                terms.append(parts[-1])
+        return terms[:3]
+
     async def _find_by_company_association(
         self,
         company_name: str,
@@ -136,15 +149,19 @@ class HubSpotMatchingService:
         """
         Find deals by company association: search companies by name, then get deals
         linked to those companies. Most reliable when deals are associated with companies.
+        Tries multiple search terms (full name, first word) for better match.
         """
         try:
-            # Search companies by name (CONTAINS_TOKEN)
-            companies = await self.search.search(
-                "companies",
-                [Filter(propertyName="name", operator="CONTAINS_TOKEN", value=company_name.strip())],
-                properties=["name"],
-                limit=5,
-            )
+            companies = []
+            for term in self._company_search_terms(company_name):
+                companies = await self.search.search(
+                    "companies",
+                    [Filter(propertyName="name", operator="CONTAINS_TOKEN", value=term)],
+                    properties=["name"],
+                    limit=5,
+                )
+                if companies:
+                    break
             logger.info("Match: company search %r -> %d companies", company_name, len(companies or []))
             if not companies:
                 return []
@@ -251,26 +268,30 @@ class HubSpotMatchingService:
                     ))
                 return matches
             
-            # Fallback: CONTAINS_TOKEN (e.g. "Nacho Company" tokens in deal name)
-            filters = [
-                Filter(
-                    propertyName="dealname",
-                    operator="CONTAINS_TOKEN",
-                    value=company_name.strip(),
+            # Fallback: CONTAINS_TOKEN - try full name, then first/last word
+            deals = []
+            for term in self._company_search_terms(company_name):
+                filters = [
+                    Filter(
+                        propertyName="dealname",
+                        operator="CONTAINS_TOKEN",
+                        value=term,
+                    )
+                ]
+                if pipeline_id:
+                    filters.append(
+                        Filter(propertyName="pipeline", operator="EQ", value=pipeline_id)
+                    )
+                deals = await self.search.search(
+                    "deals",
+                    filters,
+                    properties=["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate"],
+                    limit=limit,
                 )
-            ]
-            if pipeline_id:
-                filters.append(
-                    Filter(propertyName="pipeline", operator="EQ", value=pipeline_id)
-                )
-            deals = await self.search.search(
-                "deals",
-                filters,
-                properties=["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate"],
-                limit=limit,
-            )
+                if deals:
+                    break
             matches = []
-            for deal_data in deals:
+            for deal_data in (deals or []):
                 deal_id = deal_data.get("id")
                 if not deal_id:
                     continue

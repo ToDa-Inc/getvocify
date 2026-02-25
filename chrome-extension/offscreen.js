@@ -14,20 +14,8 @@ let mediaRecorder = null;
 let audioChunks = [];
 let stream = null;
 let audioContext = null;
-let processor = null;
+let workletNode = null;
 let websocket = null;
-
-/**
- * Convert Float32 audio samples to Int16 PCM
- */
-function float32ToInt16(float32Array) {
-  const int16Array = new Int16Array(float32Array.length);
-  for (let i = 0; i < float32Array.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32Array[i]));
-    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return int16Array.buffer;
-}
 
 /**
  * Start recording with real-time transcription
@@ -117,23 +105,21 @@ async function startRecording() {
       console.log('[Offscreen] WebSocket closed');
     };
 
-    // 4. Setup AudioContext for raw PCM streaming
+    // 4. Setup AudioContext + AudioWorklet for raw PCM streaming (replaces deprecated ScriptProcessorNode)
     audioContext = new AudioContext({ sampleRate: 16000 });
+    await audioContext.audioWorklet.addModule(chrome.runtime.getURL('audio-processor.js'));
     const source = audioContext.createMediaStreamSource(stream);
-    
-    // ScriptProcessorNode for raw PCM access
-    processor = audioContext.createScriptProcessor(4096, 1, 1);
-    
-    processor.onaudioprocess = (e) => {
-      if (websocket && websocket.readyState === WebSocket.OPEN) {
-        const inputData = e.inputBuffer.getChannelData(0);
-        const pcmData = float32ToInt16(inputData);
-        websocket.send(pcmData);
+    workletNode = new AudioWorkletNode(audioContext, 'pcm-processor', { processorOptions: {} });
+    workletNode.port.onmessage = (e) => {
+      if (websocket && websocket.readyState === WebSocket.OPEN && e.data) {
+        websocket.send(e.data);
       }
     };
-
-    source.connect(processor);
-    processor.connect(audioContext.destination);
+    source.connect(workletNode);
+    const silence = audioContext.createGain();
+    silence.gain.value = 0;
+    workletNode.connect(silence);
+    silence.connect(audioContext.destination);
 
     // 5. Start MediaRecorder
     mediaRecorder.start(100);
@@ -156,10 +142,10 @@ async function startRecording() {
 function stopRecording() {
   console.log('[Offscreen] Stopping recording...');
   
-  // Stop processor
-  if (processor) {
-    processor.disconnect();
-    processor = null;
+  // Stop worklet node
+  if (workletNode) {
+    workletNode.disconnect();
+    workletNode = null;
   }
 
   // Close WebSocket

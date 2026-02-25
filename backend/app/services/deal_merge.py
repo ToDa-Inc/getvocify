@@ -100,7 +100,7 @@ Fragmento de transcripción:
 INSTRUCCIONES:
 - **description**: AÑADE el nuevo resumen al existente. Formato: valor_existente + "\\n\\n---\\n\\n" + nuevo_resumen. Nunca borres el historial.
 - **amount, closedate, dealstage** y otros escalares: USA el nuevo valor si la extracción lo tiene; si no, MANTÉN el existente.
-- **dealname**: MANTÉN el existente (es el mismo deal).
+- **dealname**: Si el existente es "New Deal", vacío o genérico, USA el nuevo de la extracción. Si ya tiene un nombre concreto, MANTÉN el existente.
 - Campos tipo lista (ej. pain points, competidores): FUSIONA - añade los nuevos que no estén, mantén los existentes que sigan siendo relevantes. Si el usuario dice que algo "ya no aplica" o "se resolvió", quítalo.
 - Si el nuevo valor es vacío/null y el existente tiene valor, MANTÉN el existente.
 - Devuelve las propiedades con los valores YA en formato HubSpot (closedate = timestamp ms, amount = string).
@@ -141,8 +141,17 @@ Devuelve ÚNICAMENTE JSON válido."""
     ) -> dict[str, Any]:
         """Fallback: use new if present, else keep existing. Description = append."""
         merged = {}
+        generic_deal_names = ("new deal", "nuevo deal", "deal", "")
+        existing_dealname = (existing.get("dealname") or "").strip().lower()
         for f in allowed_fields:
-            if f in ("dealname", "hs_object_id", "hs_createdate", "hs_lastmodifieddate"):
+            if f in ("hs_object_id", "hs_createdate", "hs_lastmodifieddate"):
+                continue
+            if f == "dealname" and existing_dealname in generic_deal_names:
+                new_val = new.get("dealname")
+                if new_val:
+                    merged[f] = new_val
+                continue
+            if f == "dealname":
                 continue
             new_val = new.get(f)
             existing_val = existing.get(f)

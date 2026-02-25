@@ -1,51 +1,17 @@
 import { Link } from "react-router-dom";
-import { Mic, Flame, Clock, Upload } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
+import { Mic, Flame, Clock } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
 import { Button } from "@/components/ui/button";
+import { memosApi, memoKeys } from "@/features/memos/api";
+import type { Memo, MemoStatus } from "@/features/memos/types";
 
 const stats = [
   { icon: Flame, label: "6 week streak", color: "text-orange-500" },
   { icon: Mic, label: "127 memos", color: "text-primary" },
   { icon: Clock, label: "8.5 hours saved", color: "text-success" },
-];
-
-const recentMemos = [
-  {
-    id: "1",
-    company: "Acme Corp",
-    preview: "Great meeting with John about the Q1 expansion plans...",
-    status: "approved",
-    time: "2 hours ago",
-  },
-  {
-    id: "2",
-    company: "TechStart Inc",
-    preview: "Follow-up call regarding the enterprise license...",
-    status: "pending",
-    time: "5 hours ago",
-  },
-  {
-    id: "3",
-    company: "Global Solutions",
-    preview: "Initial discovery call with the VP of Engineering...",
-    status: "processing",
-    time: "1 day ago",
-  },
-  {
-    id: "4",
-    company: "InnovateCo",
-    preview: "Discussed pricing options and implementation timeline...",
-    status: "approved",
-    time: "2 days ago",
-  },
-  {
-    id: "5",
-    company: "NextGen Systems",
-    preview: "Product demo went well, they want to move forward...",
-    status: "approved",
-    time: "3 days ago",
-  },
 ];
 
 const quickStats = [
@@ -54,7 +20,7 @@ const quickStats = [
   { label: "CRM Updates", value: "18 deals" },
 ];
 
-const getStatusBadge = (status: string) => {
+const getStatusBadge = (status: MemoStatus) => {
   switch (status) {
     case "approved":
       return (
@@ -63,18 +29,33 @@ const getStatusBadge = (status: string) => {
           Approved
         </span>
       );
-    case "pending":
+    case "pending_review":
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/10 text-warning">
           <span className="w-1.5 h-1.5 rounded-full bg-warning" />
           Pending Review
         </span>
       );
-    case "processing":
+    case "uploading":
+    case "transcribing":
+    case "extracting":
       return (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
           <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" />
           Processing...
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
+          <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
+          Failed
+        </span>
+      );
+    case "rejected":
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+          Rejected
         </span>
       );
     default:
@@ -84,9 +65,16 @@ const getStatusBadge = (status: string) => {
 
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
+const PREVIEW_MAX_LEN = 80;
+
 const DashboardHome = () => {
   const { user } = useAuth();
-  const displayName = user ? getUserDisplayName(user) : 'User';
+  const displayName = user ? getUserDisplayName(user) : "User";
+
+  const { data: recentMemos = [], isLoading: memosLoading } = useQuery({
+    queryKey: memoKeys.list({ limit: 5 }),
+    queryFn: () => memosApi.list({ limit: 5 }),
+  });
 
   return (
     <div className={`max-w-5xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
@@ -137,34 +125,58 @@ const DashboardHome = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className={THEME_TOKENS.typography.sectionTitle}>Recent Memos</h2>
-          <Link 
-            to="/dashboard/memos" 
+          <Link
+            to="/dashboard/memos"
             className={`${THEME_TOKENS.typography.capsLabel} text-beige hover:underline`}
           >
             View all
           </Link>
         </div>
         <div className="space-y-4">
-          {recentMemos.map((memo) => (
-            <Link
-              key={memo.id}
-              to={`/dashboard/memos/${memo.id}`}
-              className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${THEME_TOKENS.cards.hover} ${V_PATTERNS.listItem} group`}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-foreground text-lg group-hover:text-beige transition-colors">{memo.company}</h3>
-                  <p className="text-sm text-muted-foreground truncate mt-1 leading-relaxed">
-                    {memo.preview}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-3">
-                  {getStatusBadge(memo.status)}
-                  <span className={THEME_TOKENS.typography.capsLabel}>{memo.time}</span>
-                </div>
-              </div>
-            </Link>
-          ))}
+          {memosLoading ? (
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
+              <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              <p className={THEME_TOKENS.typography.capsLabel}>Loading memos...</p>
+            </div>
+          ) : recentMemos.length === 0 ? (
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
+              <p className="text-muted-foreground">No memos yet. Record your first one above.</p>
+            </div>
+          ) : (
+            recentMemos.map((memo) => {
+              const company = memo.extraction?.companyName?.trim() || "Untitled memo";
+              const preview =
+                memo.extraction?.summary?.trim() ||
+                memo.transcript?.trim() ||
+                "No preview yet.";
+              const previewShort =
+                preview.length > PREVIEW_MAX_LEN ? preview.slice(0, PREVIEW_MAX_LEN) + "…" : preview;
+              return (
+                <Link
+                  key={memo.id}
+                  to={`/dashboard/memos/${memo.id}`}
+                  className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${THEME_TOKENS.cards.hover} ${V_PATTERNS.listItem} group`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-foreground text-lg group-hover:text-beige transition-colors">
+                        {company}
+                      </h3>
+                      <p className="text-sm text-muted-foreground truncate mt-1 leading-relaxed">
+                        {previewShort}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-3">
+                      {getStatusBadge(memo.status)}
+                      <span className={THEME_TOKENS.typography.capsLabel}>
+                        {formatDistanceToNow(new Date(memo.createdAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })
+          )}
         </div>
       </div>
 

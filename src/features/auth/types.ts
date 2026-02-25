@@ -29,6 +29,8 @@ export interface User {
   avatarUrl: Nullable<string>;
   /** Phone (E.164) for WhatsApp */
   phone?: Nullable<string>;
+  /** When true, create contact/company from memo extraction; when false, only update deals */
+  autoCreateContactCompany: boolean;
   /** When the user was created */
   createdAt: ISODateString;
 }
@@ -114,6 +116,8 @@ export interface UpdateProfileData {
   avatarUrl?: string;
   /** Phone (E.164) for WhatsApp sender lookup */
   phone?: string;
+  /** Create contact/company when extraction contains that data; false = deal-only updates */
+  autoCreateContactCompany?: boolean;
 }
 
 // ============================================

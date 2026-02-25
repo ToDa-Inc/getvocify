@@ -45,7 +45,7 @@ function updateState(newState) {
  */
 function openExtensionUI() {
   if (!chrome.sidePanel?.open) {
-    chrome.tabs.create({ url: chrome.runtime.getURL('popup/index.html') }).catch(() => {});
+    showNotification('Vocify', 'Click the extension icon in the toolbar to open.');
     return;
   }
 
@@ -155,9 +155,15 @@ async function processAudioData(audioData) {
     
     const result = await api.uploadMemo(blob, transcript);
     console.log('[BG] Upload result:', result);
-    
+
+    // If transcript was sent, backend returns pending_transcript immediately - go straight to review
+    if (result.status === 'pending_transcript' || result.status === 'pending_review') {
+      updateState({ currentMemoId: result.id, status: 'review' });
+      showNotification('Ready for Review', 'Review and confirm your transcript.');
+      return;
+    }
     updateState({ currentMemoId: result.id, status: 'processing' });
-    showNotification('Upload Complete', 'AI is analyzing your memo...');
+    showNotification('Transcribing', 'Converting speech to text...');
     startPolling(result.id);
   } catch (error) {
     console.error('[BG] Upload error:', error);
@@ -176,12 +182,11 @@ function startPolling(memoId) {
       pollCount++;
       console.log('[BG] Poll #', pollCount, 'status:', memo.status);
 
-      if (memo.status === 'pending_review') {
+        if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
         clearInterval(interval);
-        showNotification('Ready for Review', 'Click to review and sync to CRM.');
+        showNotification('Ready for Review', 'Review and confirm your transcript.');
         updateState({ status: 'review', currentMemoId: memoId });
-        // No user gesture here; open tab (sidePanel.open would fail)
-        chrome.tabs.create({ url: chrome.runtime.getURL('popup/index.html') }).catch(() => {});
+        // Stay in extension: side panel (if open) receives STATE_UPDATED; user clicks icon to open
       } else if (memo.status === 'approved') {
         clearInterval(interval);
         updateState({ status: 'success', syncResult: memo });
@@ -208,16 +213,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     // State queries
-    case 'GET_STATE':
+    case 'GET_STATE': {
+      // Refresh context from active tab when in review (handles SW restart or missing context)
+      if (state.status === 'review' && state.currentMemoId) {
+        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+          if (tab?.url) {
+            const ctx = parseHubSpotUrl(tab.url);
+            if (ctx?.objectType === 'deal' && ctx?.recordId) {
+              state = { ...state, context: ctx };
+              updateState({ context: ctx });
+            }
+          }
+          sendResponse(state);
+        });
+        return true; // Keep channel open for async
+      }
       sendResponse(state);
       break;
+    }
     
-    case 'SET_STATE':
-      updateState({
-        ...message.state,
-        ...(message.state?.status === 'review' && { context: null }),
-      });
+    case 'SET_STATE': {
+      const newState = { ...message.state };
+      // When opening a memo for review, refresh context from active tab (deal on current page)
+      if (newState.status === 'review' && newState.currentMemoId) {
+        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+          if (tab?.url) {
+            const ctx = parseHubSpotUrl(tab.url);
+            if (ctx?.objectType === 'deal' && ctx?.recordId) {
+              newState.context = ctx;
+            }
+          }
+          updateState(newState);
+        });
+      } else {
+        updateState(newState);
+      }
       break;
+    }
     
     // Recording
     case 'TOGGLE_RECORDING':
@@ -266,21 +298,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep channel open for async response
 
     case 'GET_PREVIEW':
-      const previewUrl = `/memos/${message.memoId}/preview${message.dealId ? `?deal_id=${message.dealId}` : ''}`;
-      api.get(previewUrl)
-        .then(sendResponse)
-        .catch(e => sendResponse({ error: e.message }));
+      if (message.extraction) {
+        api.post(`/memos/${message.memoId}/preview`, { 
+          deal_id: message.dealId || null,
+          extraction: message.extraction 
+        })
+          .then(sendResponse)
+          .catch(e => sendResponse({ error: e.message }));
+      } else {
+        const previewUrl = `/memos/${message.memoId}/preview${message.dealId ? `?deal_id=${message.dealId}` : ''}`;
+        api.get(previewUrl)
+          .then(sendResponse)
+          .catch(e => sendResponse({ error: e.message }));
+      }
       return true;
 
     case 'APPROVE_SYNC':
       api.post(`/memos/${message.memoId}/approve`, { 
         deal_id: message.dealId,
-        is_new_deal: message.isNewDeal 
+        is_new_deal: message.isNewDeal,
+        extraction: message.extraction || undefined
       })
         .then(result => {
           updateState({ status: 'success', syncResult: result });
           sendResponse({ success: true, result });
         })
+        .catch(e => sendResponse({ error: e.message }));
+      return true;
+
+    case 'GET_DEAL_CONTEXT':
+      api.get(`/crm/hubspot/deals/${message.dealId}/context`)
+        .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;
 

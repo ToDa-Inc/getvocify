@@ -23,9 +23,8 @@ export function useRealtimeTranscription(
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Multi-provider state
+  // Provider state (Speechmatics only - Deepgram removed)
   const [providerTranscripts, setProviderTranscripts] = useState<Record<string, ProviderTranscript>>({
-    deepgram: { interim: '', final: '', full: '' },
     speechmatics: { interim: '', final: '', full: '' }
   });
   
@@ -136,6 +135,7 @@ export function useRealtimeTranscription(
 
           if (data.type === 'Results') {
             const provider = data.provider || 'speechmatics';
+            if (provider === 'deepgram') return; // Deepgram removed from recording page
             const transcript = data.channel?.alternatives?.[0]?.transcript || '';
             const isFinal = data.is_final || data.speech_final;
             
@@ -274,7 +274,6 @@ export function useRealtimeTranscription(
   const reset = useCallback(() => {
     cleanup();
     setProviderTranscripts({
-      deepgram: { interim: '', final: '', full: '' },
       speechmatics: { interim: '', final: '', full: '' }
     });
     setError(null);

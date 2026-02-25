@@ -88,6 +88,7 @@ export const ROUTES = {
   MEMOS: '/dashboard/memos',
   MEMO_DETAIL: (id: string) => `/dashboard/memos/${id}`,
   INTEGRATIONS: '/dashboard/integrations',
+  PROFILE: '/dashboard/profile',
   SETTINGS: '/dashboard/settings',
   USAGE: '/dashboard/usage',
 } as const;

@@ -34,6 +34,11 @@ let currentMemoId = null;
 let currentDealId = null;
 let searchTimeout = null;
 let previewLoaded = false;
+let sessionHeartbeatId = null;
+/** Wizard: 1=transcript, 2=edit CRM fields, 3=deal target + proposed changes + confirm. Matches web app flow. */
+let reviewStep = 1;
+/** Edited extraction (Step 2) - passed to preview and approve */
+let editedExtraction = null;
 
 // ============================================
 // SCREEN MANAGEMENT
@@ -44,6 +49,36 @@ function showScreen(screenKey) {
       screens[key].style.display = key === screenKey ? 'flex' : 'none';
     }
   });
+}
+
+function showExtractionError(message) {
+  const banner = document.getElementById('extraction-error-banner');
+  const text = document.getElementById('extraction-error-text');
+  if (banner && text) {
+    text.textContent = message;
+    banner.style.display = 'block';
+  }
+}
+
+function hideExtractionError() {
+  const banner = document.getElementById('extraction-error-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+/** Set processing screen text: 'transcribing' (audio→transcript) or 'extracting' (transcript→CRM fields) */
+function setProcessingScreenMode(mode) {
+  const sub = document.getElementById('processing-subtitle');
+  const title = document.getElementById('processing-title');
+  const msg = document.getElementById('processing-message');
+  if (mode === 'extracting') {
+    if (sub) sub.textContent = 'Extracting';
+    if (title) title.textContent = 'AI is analyzing your transcript...';
+    if (msg) msg.textContent = 'Extracting CRM fields. Ready in a moment.';
+  } else {
+    if (sub) sub.textContent = 'Transcribing';
+    if (title) title.textContent = 'Converting speech to text...';
+    if (msg) msg.textContent = 'Your transcript will be ready to review in a moment.';
+  }
 }
 
 // ============================================
@@ -93,33 +128,256 @@ function renderState(state) {
   // Screen transitions based on status
   switch (state.status) {
     case 'idle':
+      stopSessionHeartbeat();
       showScreen('record');
       liveTranscriptContainer.style.display = 'none';
       shortcutBox.style.display = 'block';
-      previewLoaded = false; // Reset for next recording
+      previewLoaded = false;
+      reviewStep = 1;
       currentMemoId = null;
       loadRecentMemos(); // Refresh recent list
       break;
       
     case 'processing':
+      setProcessingScreenMode('transcribing'); // Background polling: audio being transcribed
       showScreen('processing');
       break;
       
     case 'review':
       showScreen('review');
-      if (state.currentMemoId && (!previewLoaded || currentMemoId !== state.currentMemoId)) {
+      if (state.currentMemoId && currentMemoId !== state.currentMemoId) {
         currentMemoId = state.currentMemoId;
-        previewLoaded = true;
-        const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
-        loadPreview(currentMemoId, dealId);
+        reviewStep = 1;
+        previewLoaded = false;
+        editedExtraction = null;
+      }
+      if (state.currentMemoId) {
+        if (reviewStep === 1) {
+          loadTranscriptForReview(state.currentMemoId);
+          setReviewUIForStep(1);
+        } else if (reviewStep === 2) {
+          const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
+          loadExtractionForEdit(state.currentMemoId, dealId);
+          setReviewUIForStep(2);
+        } else {
+          // Step 3: When on deal page, auto-use that deal; otherwise show match/search
+          const onDealPage = state.context?.objectType === 'deal' && state.context?.recordId;
+          const dealIdToLoad = onDealPage ? state.context.recordId : currentDealId;
+          if (!previewLoaded || currentMemoId !== state.currentMemoId || (onDealPage && currentDealId !== state.context?.recordId)) {
+            currentMemoId = state.currentMemoId;
+            currentDealId = onDealPage ? state.context.recordId : currentDealId;
+            previewLoaded = true;
+            loadPreview(currentMemoId, dealIdToLoad, editedExtraction);
+          }
+          showUseCurrentDealOption(onDealPage ? null : state.context);
+          setReviewUIForStep(3);
+        }
       }
       break;
       
     case 'success':
+      stopSessionHeartbeat();
       showScreen('success');
       renderSuccess(state.syncResult);
       break;
   }
+}
+
+// ============================================
+// REVIEW WIZARD HELPERS
+// ============================================
+function startSessionHeartbeat() {
+  if (sessionHeartbeatId) return;
+  sessionHeartbeatId = setInterval(() => {
+    api.getCurrentUser().catch(() => {});
+  }, 90_000);
+}
+function stopSessionHeartbeat() {
+  if (sessionHeartbeatId) {
+    clearInterval(sessionHeartbeatId);
+    sessionHeartbeatId = null;
+  }
+}
+
+function setReviewUIForStep(step) {
+  startSessionHeartbeat();
+  const step1Content = document.getElementById('review-step1-content');
+  const step2Content = document.getElementById('review-step2-content');
+  const step3Content = document.getElementById('review-step3-content');
+  const step1Actions = document.getElementById('review-step1-actions');
+  const step2Actions = document.getElementById('review-step2-actions');
+  const step3Actions = document.getElementById('review-step3-actions');
+  const stepLabel = document.getElementById('review-step-label');
+  const labels = { 1: 'Step 1 of 3: Review transcript', 2: 'Step 2 of 3: Edit CRM fields', 3: 'Step 3 of 3: Deal target & confirm' };
+  if (stepLabel) stepLabel.textContent = labels[step] || '';
+  [step1Content, step2Content, step3Content].forEach((el, i) => {
+    if (el) el.style.display = (i + 1 === step) ? 'block' : 'none';
+  });
+  [step1Actions, step2Actions, step3Actions].forEach((el, i) => {
+    if (el) el.style.display = (i + 1 === step) ? 'flex' : 'none';
+  });
+}
+
+function showUseCurrentDealOption(context) {
+  const opt = document.getElementById('use-current-deal-option');
+  if (!opt) return;
+  if (context?.objectType === 'deal' && context?.recordId) {
+    opt.style.display = 'block';
+  } else {
+    opt.style.display = 'none';
+  }
+}
+
+/** Cached memo status for step 1 (pending_transcript = editable, pending_review = readonly) */
+let memoStatusForStep1 = null;
+
+async function loadTranscriptForReview(memoId) {
+  const el = document.getElementById('transcript-content');
+  if (!el) return;
+  el.value = 'Loading transcript...';
+  el.readOnly = true;
+  try {
+    const memo = await api.getMemo(memoId);
+    memoStatusForStep1 = memo?.status || null;
+    el.value = memo?.transcript || 'No transcript available.';
+    el.readOnly = memoStatusForStep1 === 'pending_review'; // Editable only when pending_transcript
+    if (memo?.status === 'failed') {
+      showExtractionError(memo?.errorMessage || 'Extraction failed. Click Retry to try again.');
+    } else if (memo?.status === 'extracting') {
+      showExtractionError('Extraction is still in progress or stuck. Click Retry to try again.');
+    } else {
+      hideExtractionError();
+    }
+  } catch (e) {
+    console.error('[Popup] Failed to load transcript:', e);
+    el.value = 'Failed to load transcript.';
+    el.readOnly = true;
+  }
+}
+
+function _el(id) { return document.getElementById(id); }
+
+function _isEmpty(v) {
+  return v == null || v === '' || String(v).trim().toLowerCase() === 'unknown';
+}
+
+async function loadExtractionForEdit(memoId, dealId = null) {
+  try {
+    const memo = await api.getMemo(memoId);
+    let ext = memo?.extraction || {};
+    let raw = { ...(ext.raw_extraction || {}) };
+
+    if (dealId) {
+      let ctx = null;
+      try {
+        ctx = await chrome.runtime.sendMessage({ type: 'GET_DEAL_CONTEXT', dealId });
+      } catch (_) { /* ignore */ }
+      if (!ctx || ctx.error) {
+        try {
+          const preview = await chrome.runtime.sendMessage({ type: 'GET_PREVIEW', memoId, dealId });
+          if (preview && !preview.error && preview.selected_deal) {
+            const sel = preview.selected_deal;
+            ctx = {
+              companyName: sel.company_name || null,
+              contactName: sel.contact_name || null,
+              contactEmail: sel.contact_email || null,
+              raw_extraction: { dealname: sel.deal_name, amount: sel.amount }
+            };
+            (preview.proposed_updates || []).forEach(u => {
+              if (u.current_value && ctx.raw_extraction) {
+                if (u.field_name === 'dealname') ctx.raw_extraction.dealname = u.current_value;
+                else if (u.field_name === 'amount') ctx.raw_extraction.amount = parseFloat(u.current_value) || u.current_value;
+                else if (u.field_name === 'closedate') ctx.raw_extraction.closedate = u.current_value;
+                else if (u.field_name === 'dealstage') ctx.raw_extraction.dealstage = u.current_value;
+                else if (u.field_name === 'hs_next_step') ctx.raw_extraction.hs_next_step = u.current_value;
+                else if (u.field_name === 'company_name') ctx.companyName = ctx.companyName || u.current_value;
+                else if (u.field_name === 'contact_name') ctx.contactName = ctx.contactName || u.current_value;
+              }
+            });
+          }
+        } catch (_) { /* ignore */ }
+      }
+      if (ctx && !ctx.error) {
+        if (_isEmpty(ext.companyName) && ctx.companyName) {
+          ext = { ...ext, companyName: ctx.companyName };
+          raw.dealname = ctx.companyName;
+        }
+        if (_isEmpty(ext.contactName) && ctx.contactName) ext = { ...ext, contactName: ctx.contactName };
+        if (_isEmpty(ext.contactEmail) && ctx.contactEmail) ext = { ...ext, contactEmail: ctx.contactEmail };
+        const r = ctx.raw_extraction || {};
+        if (_isEmpty(raw.dealname) && r.dealname) raw.dealname = r.dealname;
+        if ((raw.amount == null || _isEmpty(raw.amount)) && r.amount != null) raw.amount = r.amount;
+        if (_isEmpty(raw.closedate) && r.closedate) raw.closedate = r.closedate;
+        if (_isEmpty(raw.dealstage) && r.dealstage) raw.dealstage = r.dealstage;
+        if (_isEmpty(raw.hs_next_step) && r.hs_next_step) raw.hs_next_step = r.hs_next_step;
+        ext = { ...ext, raw_extraction: raw };
+      }
+    }
+
+    const nextSteps = Array.isArray(ext.nextSteps) ? ext.nextSteps : [];
+    const nextStepsStr = nextSteps.map(s => `• ${s}`).join('\n');
+
+    _el('ext-company').value = ext.companyName || raw.dealname || '';
+    _el('ext-amount').value = ext.dealAmount != null ? String(ext.dealAmount) : (raw.amount != null ? String(raw.amount) : '');
+    _el('ext-contact').value = ext.contactName || '';
+    _el('ext-contact-email').value = ext.contactEmail || '';
+    _el('ext-stage').value = ext.dealStage || raw.dealstage || '';
+    _el('ext-closedate').value = ext.closeDate || raw.closedate || '';
+    _el('ext-ftes').value = raw.deal_ftes_active != null ? String(raw.deal_ftes_active) : (raw.ftes_fulltime_employees != null ? String(raw.ftes_fulltime_employees) : '');
+    _el('ext-price-per-fte').value = raw.price_per_fte_eur != null ? String(raw.price_per_fte_eur) : '';
+    _el('ext-competitor-price').value = raw.competitor_price != null ? String(raw.competitor_price) : '';
+    _el('ext-es-hi').value = raw.es_hi_provider || '';
+    _el('ext-total-employees').value = raw.total_employees != null ? String(raw.total_employees) : '';
+    _el('ext-priority').value = raw.hs_priority || '';
+    _el('ext-summary').value = ext.summary || '';
+    _el('ext-nextsteps').value = nextStepsStr;
+    editedExtraction = ext;
+  } catch (e) {
+    console.error('[Popup] Failed to load extraction:', e);
+  }
+}
+
+function collectEditedExtraction() {
+  const parseBullets = (txt) => (txt || '').split('\n').map(l => l.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean);
+  const raw = { ...(editedExtraction?.raw_extraction || {}) };
+
+  const company = _el('ext-company')?.value?.trim() || null;
+  const amountStr = _el('ext-amount')?.value?.trim();
+  const amount = amountStr ? parseFloat(amountStr) || null : null;
+  const nextSteps = parseBullets(_el('ext-nextsteps')?.value || '');
+  const ftesStr = _el('ext-ftes')?.value?.trim();
+  const ftes = ftesStr ? parseFloat(ftesStr) || null : null;
+  const pricePerFteStr = _el('ext-price-per-fte')?.value?.trim();
+  const pricePerFte = pricePerFteStr ? parseFloat(pricePerFteStr) || null : null;
+  const competitorPriceStr = _el('ext-competitor-price')?.value?.trim();
+  const competitorPrice = competitorPriceStr ? parseFloat(competitorPriceStr) || null : null;
+  const totalEmployeesStr = _el('ext-total-employees')?.value?.trim();
+  const totalEmployees = totalEmployeesStr ? parseFloat(totalEmployeesStr) || null : null;
+
+  if (company) raw.dealname = company;
+  if (amount != null) raw.amount = amount;
+  if (_el('ext-stage')?.value) raw.dealstage = _el('ext-stage').value;
+  if (_el('ext-closedate')?.value) raw.closedate = _el('ext-closedate').value;
+  if (ftes != null) { raw.deal_ftes_active = ftes; raw.ftes_fulltime_employees = ftes; }
+  if (pricePerFte != null) raw.price_per_fte_eur = pricePerFte;
+  if (competitorPrice != null) raw.competitor_price = competitorPrice;
+  if (_el('ext-es-hi')?.value) raw.es_hi_provider = _el('ext-es-hi').value.trim();
+  if (totalEmployees != null) raw.total_employees = totalEmployees;
+  if (_el('ext-priority')?.value) raw.hs_priority = _el('ext-priority').value;
+  if (nextSteps[0]) raw.hs_next_step = nextSteps[0];
+
+  return {
+    ...editedExtraction,
+    companyName: company,
+    dealAmount: amount,
+    contactName: _el('ext-contact')?.value?.trim() || null,
+    contactEmail: _el('ext-contact-email')?.value?.trim() || null,
+    dealStage: _el('ext-stage')?.value || null,
+    closeDate: _el('ext-closedate')?.value || null,
+    summary: _el('ext-summary')?.value?.trim() || '',
+    nextSteps,
+    raw_extraction: raw
+  };
 }
 
 // ============================================
@@ -143,7 +401,7 @@ async function loadRecentMemos() {
         const item = document.createElement('div');
         item.className = 'memo-item';
         
-        const date = new Date(memo.created_at).toLocaleDateString(undefined, {
+        const date = new Date(memo.createdAt || memo.created_at).toLocaleDateString(undefined, {
           month: 'short',
           day: 'numeric',
           hour: '2-digit',
@@ -180,10 +438,9 @@ async function loadRecentMemos() {
   }
 }
 
-async function loadPreview(memoId, dealId = null) {
-  console.log('[Popup] Loading preview for memo:', memoId, 'dealId:', dealId);
+async function loadPreview(memoId, dealId = null, extraction = null) {
+  console.log('[Popup] Loading preview for memo:', memoId, 'dealId:', dealId, 'hasExtraction:', !!extraction);
   
-  // Show loading state
   document.getElementById('target-deal-name').textContent = 'Loading...';
   document.getElementById('target-deal-reason').textContent = '';
   proposedUpdatesList.innerHTML = '<div class="spinner" style="margin: 20px auto;"></div>';
@@ -192,7 +449,8 @@ async function loadPreview(memoId, dealId = null) {
     const preview = await chrome.runtime.sendMessage({ 
       type: 'GET_PREVIEW', 
       memoId, 
-      dealId 
+      dealId,
+      extraction: extraction || undefined
     });
     
     console.log('[Popup] Preview response:', preview);
@@ -201,6 +459,12 @@ async function loadPreview(memoId, dealId = null) {
       previewLoaded = true;
       const match = preview.selected_deal;
       currentDealId = match ? match.deal_id : null;
+
+      // Transcript for review
+      const transcriptEl = document.getElementById('transcript-content');
+      if (transcriptEl) {
+        transcriptEl.textContent = preview.transcript || preview.transcript_summary || 'No transcript available.';
+      }
       
       document.getElementById('target-deal-name').textContent = match ? match.deal_name : 'New Deal';
       const reasonText = match
@@ -217,11 +481,16 @@ async function loadPreview(memoId, dealId = null) {
       } else {
         updates.forEach(update => {
           const div = document.createElement('div');
-          div.className = 'update-item';
+          const hadExisting =
+            update.current_value != null &&
+            String(update.current_value).trim() !== '' &&
+            String(update.current_value).trim() !== '(empty)';
+          const isOverride = !!hadExisting;
+          div.className = 'update-item' + (isOverride ? ' override' : ' new');
           div.innerHTML = `
             <p class="update-label">${update.field_label || update.field_name}</p>
             <p class="update-value">${update.new_value || '—'}</p>
-            ${update.current_value ? `<p class="update-current">Was: ${update.current_value}</p>` : ''}
+            ${hadExisting ? `<p class="update-current">Was: ${update.current_value}</p>` : ''}
           `;
           proposedUpdatesList.appendChild(div);
         });
@@ -268,7 +537,8 @@ async function searchDeals(query) {
         `;
         item.onclick = () => {
           previewLoaded = false;
-          loadPreview(currentMemoId, deal.deal_id);
+          currentDealId = deal.deal_id;
+          loadPreview(currentMemoId, deal.deal_id, editedExtraction);
           document.getElementById('deal-search-box').style.display = 'none';
           dealSearchInput.value = '';
           searchResultsBox.innerHTML = '';
@@ -360,7 +630,8 @@ approveSyncButton?.addEventListener('click', async () => {
       type: 'APPROVE_SYNC', 
       memoId: currentMemoId, 
       dealId: currentDealId,
-      isNewDeal: !currentDealId
+      isNewDeal: !currentDealId,
+      extraction: editedExtraction || undefined
     });
   } catch (e) {
     console.error('[Popup] Approve error:', e);
@@ -370,9 +641,130 @@ approveSyncButton?.addEventListener('click', async () => {
   }
 });
 
-// Discard button
+// Discard button (step 2)
 document.getElementById('discard-button')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
+});
+
+// Review wizard - event delegation
+document.getElementById('screen-review')?.addEventListener('click', async (e) => {
+  if (e.target.id === 'review-continue-btn') {
+    if (memoStatusForStep1 === 'pending_transcript') {
+      // User confirmed transcript -> trigger extraction, poll until done, then step 2
+      const transcriptEl = document.getElementById('transcript-content');
+      const transcript = transcriptEl?.value?.trim() || '';
+      if (!transcript) return;
+      e.target.disabled = true;
+      e.target.textContent = 'Extracting...';
+      try {
+        await api.post(`/memos/${currentMemoId}/confirm-transcript`, { transcript });
+        setProcessingScreenMode('extracting');
+        showScreen('processing');
+
+        // Poll until pending_review (max ~2 min)
+        let pollCount = 0;
+        let done = false;
+        while (pollCount < 60) {
+          await new Promise(r => setTimeout(r, 2000));
+          const memo = await api.getMemo(currentMemoId);
+          if (memo.status === 'pending_review') {
+            reviewStep = 2;
+            memoStatusForStep1 = 'pending_review';
+            hideExtractionError();
+            showScreen('review');
+            loadExtractionForEdit(currentMemoId);
+            setReviewUIForStep(2);
+            done = true;
+            break;
+          }
+          if (memo.status === 'failed') {
+            showExtractionError(memo.errorMessage || 'Extraction failed.');
+            showScreen('review');
+            loadTranscriptForReview(currentMemoId);
+            setReviewUIForStep(1);
+            done = true;
+            break;
+          }
+          pollCount++;
+        }
+        if (!done && pollCount >= 60) {
+          showExtractionError('Extraction is taking longer than expected. Click Retry to try again.');
+          showScreen('review');
+          loadTranscriptForReview(currentMemoId);
+          setReviewUIForStep(1);
+        }
+      } catch (err) {
+        console.error('[Popup] Confirm transcript error:', err);
+        showExtractionError(err?.message || 'Something went wrong. Click Retry to try again.');
+        showScreen('review');
+        loadTranscriptForReview(currentMemoId);
+        setReviewUIForStep(1);
+      } finally {
+        e.target.disabled = false;
+        e.target.textContent = 'Continue to Step 2';
+      }
+    } else {
+      // Already extracted (pending_review) - just go to step 2
+      reviewStep = 2;
+      chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
+    }
+  } else if (e.target.id === 'review-continue-step2-btn') {
+    editedExtraction = collectEditedExtraction();
+    reviewStep = 3;
+    previewLoaded = false;
+    api.getCurrentUser().catch(() => {}).finally(() => {
+      chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
+    });
+  } else if (e.target.id === 'retry-extraction-btn') {
+    e.target.disabled = true;
+    e.target.textContent = 'Retrying...';
+    hideExtractionError();
+    setProcessingScreenMode('extracting');
+    showScreen('processing');
+    try {
+      const memo = await api.reExtract(currentMemoId);
+        if (memo?.status === 'pending_review' && memo?.extraction) {
+        reviewStep = 2;
+        memoStatusForStep1 = 'pending_review';
+        hideExtractionError();
+        showScreen('review');
+        const st = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+        const dealId = st?.context?.objectType === 'deal' ? st.context.recordId : null;
+        loadExtractionForEdit(currentMemoId, dealId);
+        setReviewUIForStep(2);
+      } else {
+        showExtractionError(memo?.errorMessage || 'Retry failed.');
+        showScreen('review');
+        loadTranscriptForReview(currentMemoId);
+        setReviewUIForStep(1);
+      }
+    } catch (err) {
+      showExtractionError(err?.message || 'Retry failed. Try again.');
+      showScreen('review');
+      loadTranscriptForReview(currentMemoId);
+      setReviewUIForStep(1);
+    } finally {
+      e.target.disabled = false;
+      e.target.textContent = 'Retry extraction';
+    }
+  } else if (e.target.id === 'review-back-to-step1-btn') {
+    reviewStep = 1;
+    chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
+  } else if (e.target.id === 'review-back-to-step2-btn') {
+    reviewStep = 2;
+    chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
+  } else if (e.target.id === 'review-discard-btn' || e.target.id === 'review-discard-btn2') {
+    chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
+  } else if (e.target.id === 'btn-use-current-deal') {
+    chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(state => {
+      const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
+      if (dealId) {
+        currentDealId = dealId;
+        previewLoaded = false;
+        loadPreview(currentMemoId, dealId, editedExtraction);
+      }
+    });
+  }
 });
 
 // Success done button
@@ -407,7 +799,8 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
     );
     init();
   } catch (err) {
-    errorBox.textContent = 'Login failed. Check your credentials.';
+    const msg = err?.data?.detail || err?.message || 'Login failed. Check your credentials.';
+    errorBox.textContent = typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg[0] : 'Login failed');
     errorBox.style.display = 'block';
   } finally {
     btn.disabled = false;
@@ -441,7 +834,13 @@ async function init() {
     renderState(state);
   } catch (e) {
     console.error('[Popup] Init error:', e);
-    showScreen('login');
+    const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError' || (e?.message && /network|connection|refused/i.test(e.message));
+    if (isNetworkError) {
+      document.getElementById('loading-spinner').style.display = 'none';
+      document.getElementById('loading-backend-error').style.display = 'block';
+    } else {
+      showScreen('login');
+    }
   }
 }
 

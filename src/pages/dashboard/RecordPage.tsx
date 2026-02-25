@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mic, Square, Upload, ArrowLeft, Sparkles, Building2, User, DollarSign, Calendar, ChevronDown } from "lucide-react";
+import { Mic, Square, Upload, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
@@ -20,7 +20,6 @@ import { isSupportedAudioType, formatFileSize } from "@/features/recording/types
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
-import { cn } from "@/lib/utils";
 
 const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
@@ -222,9 +221,15 @@ const RecordPage = () => {
   const hasTranscript = !!fullTranscript?.trim();
   const showReview = state === "stopped" && (hasTranscript || audio);
 
+  // Editable transcript: sync with fullTranscript when it changes
+  const [editedTranscript, setEditedTranscript] = useState("");
+  useEffect(() => {
+    if (fullTranscript) setEditedTranscript(fullTranscript);
+  }, [fullTranscript]);
+
   if (showReview) {
     return (
-      <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
+      <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
         <Link 
           to={ROUTES.DASHBOARD} 
           className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige mb-10 transition-colors group"
@@ -239,105 +244,65 @@ const RecordPage = () => {
           </h1>
           <p className={THEME_TOKENS.typography.body}>
             {hasTranscript
-              ? "Review your transcript below. When ready, accept to extract CRM fields and sync."
+              ? "Review and edit your transcript below. When ready, accept to extract CRM fields and sync."
               : "Waiting for transcript... If it doesn't appear, you can upload the recording for server-side transcription."}
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-5 gap-8">
-          {/* Left Column - Transcript (and optional audio for fallback) */}
-          <div className="lg:col-span-2 space-y-6">
-            {hasTranscript ? (
-              <>
-                {/* Transcript Card - primary when we have transcript */}
-                <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className={THEME_TOKENS.typography.capsLabel}>Your Transcript</h3>
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-success/10 text-success">
-                      <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
-                      Real-time
-                    </span>
-                  </div>
-                  <div className="rounded-2xl bg-secondary/[0.03] p-6 border border-border/20 max-h-[400px] overflow-y-auto scrollbar-thin">
-                    <p className="text-sm leading-relaxed text-muted-foreground/90 font-medium tracking-tight whitespace-pre-wrap">
-                      {fullTranscript}
-                    </p>
-                  </div>
-                  <div className="flex gap-3 mt-6">
-                    <Button variant="outline" onClick={handleReRecord} className="flex-1 rounded-full">
-                      Re-record
-                    </Button>
-                    <Button
-                      variant="hero"
-                      onClick={handleUpload}
-                      className="flex-1 rounded-full bg-beige text-cream"
-                    >
-                      Accept & Continue
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : audio ? (
-              /* Fallback: no transcript, show audio for server-side transcription */
-              <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
-                <AudioPreview audio={audio} onReRecord={handleReRecord} onUpload={handleUpload} />
-              </div>
-            ) : null}
-          </div>
-
-          {/* Right Column - Next step preview */}
-          <div className="lg:col-span-3">
-            <div className={cn(
-              THEME_TOKENS.cards.base,
-              THEME_TOKENS.radius.card,
-              "p-10 relative overflow-hidden"
-            )}>
-              <div className="absolute top-0 right-0 p-8">
-                <Sparkles className="h-5 w-5 text-beige animate-pulse opacity-20" />
-              </div>
-
-              <div className="relative z-10">
-                <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-6`}>What happens next</h3>
-                <div className="space-y-6">
-                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-secondary/5 border border-border/20">
-                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-beige/20 text-beige flex items-center justify-center text-sm font-black">1</span>
-                    <div>
-                      <p className="font-bold text-foreground">AI extracts CRM fields</p>
-                      <p className="text-sm text-muted-foreground">Company, contact, deal amount, next steps, etc.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-secondary/5 border border-border/20">
-                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-beige/20 text-beige flex items-center justify-center text-sm font-black">2</span>
-                    <div>
-                      <p className="font-bold text-foreground">You review & approve</p>
-                      <p className="text-sm text-muted-foreground">Edit any fields before syncing to HubSpot.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-secondary/5 border border-border/20">
-                    <span className="flex-shrink-0 w-8 h-8 rounded-full bg-beige/20 text-beige flex items-center justify-center text-sm font-black">3</span>
-                    <div>
-                      <p className="font-bold text-foreground">Update to CRM</p>
-                      <p className="text-sm text-muted-foreground">Deal, contact, and tasks sync to your HubSpot.</p>
-                    </div>
-                  </div>
-                </div>
-
-                {hasTranscript && (
-                  <div className="mt-12 pt-10 border-t border-border/40 flex justify-end">
-                    <Button 
-                      variant="hero" 
-                      size="xl"
-                      onClick={handleUpload}
-                      className="rounded-full px-12 h-16 text-[10px] font-black uppercase tracking-widest bg-beige text-cream shadow-large hover:scale-105 active:scale-95 transition-all"
-                    >
-                      Accept & Continue
-                    </Button>
-                  </div>
+        {hasTranscript ? (
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className={THEME_TOKENS.typography.capsLabel}>Your Transcript</h3>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-success/10 text-success">
+                <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+                Real-time
+              </span>
+            </div>
+            <textarea
+              value={editedTranscript}
+              onChange={(e) => setEditedTranscript(e.target.value)}
+              placeholder="Edit your transcript..."
+              className="w-full min-h-[320px] rounded-2xl bg-secondary/[0.03] p-6 border border-border/20 text-sm leading-relaxed text-muted-foreground/90 font-medium tracking-tight whitespace-pre-wrap resize-y focus:outline-none focus:ring-2 focus:ring-beige/30 focus:border-beige/40 placeholder:text-muted-foreground/40"
+            />
+            <div className="flex gap-3 mt-6">
+              <Button variant="outline" onClick={handleReRecord} disabled={isUploading} className="flex-1 rounded-full">
+                Re-record
+              </Button>
+              <Button
+                variant="hero"
+                disabled={isUploading}
+                onClick={async () => {
+                  if (!editedTranscript.trim()) {
+                    toast.error("Transcript cannot be empty");
+                    return;
+                  }
+                  try {
+                    const memoId = await uploadTranscriptOnly(editedTranscript.trim());
+                    resetTranscription();
+                    toast.success("Memo created! AI is extracting CRM fields...");
+                    window.location.href = ROUTES.MEMO_DETAIL(memoId);
+                  } catch {
+                    toast.error(uploadError || "Failed to upload");
+                  }
+                }}
+                className="flex-1 rounded-full bg-beige text-cream"
+              >
+                {isUploading ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-cream border-t-transparent rounded-full animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  "Accept & Continue"
                 )}
-              </div>
+              </Button>
             </div>
           </div>
-        </div>
+        ) : audio ? (
+          <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
+            <AudioPreview audio={audio} onReRecord={handleReRecord} onUpload={handleUpload} />
+          </div>
+        ) : null}
       </div>
     );
   }

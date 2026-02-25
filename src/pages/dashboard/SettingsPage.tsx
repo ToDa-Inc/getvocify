@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { Camera, Trash2, ShieldCheck, Loader2 } from "lucide-react";
+import { ShieldCheck, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,7 +10,6 @@ import { UserGlossary } from "@/components/dashboard/glossary/UserGlossary";
 import { crmApi } from "@/lib/api/crm";
 import { useAuth } from "@/features/auth";
 import { authApi, authKeys } from "@/features/auth/api";
-import { getUserInitials } from "@/features/auth/types";
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -21,15 +19,10 @@ const SettingsPage = () => {
   const [slackNotifications, setSlackNotifications] = useState(false);
   const [isHubSpotConnected, setIsHubSpotConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [fullName, setFullName] = useState(user?.fullName ?? "");
-  const [phone, setPhone] = useState(user?.phone ?? "");
-  const [isSaving, setIsSaving] = useState(false);
+  const [autoCreateContactCompany, setAutoCreateContactCompany] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      setFullName(user.fullName ?? "");
-      setPhone(user.phone ?? "");
-    }
+    if (user) setAutoCreateContactCompany(user.autoCreateContactCompany);
   }, [user]);
 
   useEffect(() => {
@@ -46,22 +39,6 @@ const SettingsPage = () => {
     checkConnection();
   }, []);
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const updates: { fullName?: string; phone?: string } = {};
-      if (fullName.trim()) updates.fullName = fullName.trim();
-      updates.phone = phone.trim();  // Always send so user can clear WhatsApp phone
-      const updated = await authApi.updateProfile(updates);
-      queryClient.setQueryData(authKeys.me(), updated);
-      toast.success("Profile saved successfully");
-    } catch (error) {
-      toast.error("Failed to save profile");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
@@ -77,7 +54,7 @@ const SettingsPage = () => {
         <h1 className={THEME_TOKENS.typography.pageTitle}>
           Account <span className={THEME_TOKENS.typography.accentTitle}>Settings</span>
         </h1>
-        <p className={THEME_TOKENS.typography.body}>Manage your profile, preferences, and billing.</p>
+        <p className={THEME_TOKENS.typography.body}>Manage integrations, glossary, and preferences.</p>
       </div>
 
       {/* HubSpot Configuration */}
@@ -102,78 +79,6 @@ const SettingsPage = () => {
         <UserGlossary />
       </div>
 
-      {/* Profile */}
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-        <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-8`}>Profile</h2>
-        
-        <div className="flex items-center gap-8 mb-8 pb-8 border-b border-border/40">
-          <div className="relative">
-            <div className={`w-24 h-24 ${THEME_TOKENS.radius.pill} bg-secondary/10 flex items-center justify-center border-4 border-white shadow-medium`}>
-              <span className="text-3xl font-black text-beige">
-                {user ? getUserInitials(user) : "?"}
-              </span>
-            </div>
-            <button className={`absolute -bottom-1 -right-1 w-10 h-10 ${THEME_TOKENS.radius.pill} bg-beige text-cream flex items-center justify-center shadow-medium hover:bg-beige-dark transition-colors border-4 border-white`}>
-              <Camera className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="space-y-1">
-            <p className="font-bold text-foreground text-lg">Profile Photo</p>
-            <p className="text-sm text-muted-foreground">JPG, PNG, or GIF. Max 2MB</p>
-          </div>
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Full Name</label>
-            <Input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your name"
-              className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Email</label>
-            <Input
-              value={user?.email || ""}
-              disabled
-              placeholder="Email from account"
-              className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold opacity-50"
-            />
-          </div>
-          <div className="sm:col-span-2 space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Phone (optional)</label>
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 (555) 000-0000"
-              className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Add your WhatsApp number for voice-to-CRM via WhatsApp
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-10">
-          <Button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="rounded-full px-8 h-12 bg-beige text-cream shadow-medium hover:scale-105 transition-transform"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              "Save Changes"
-            )}
-          </Button>
-        </div>
-      </div>
-
       {/* Preferences */}
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
         <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-8`}>Preferences</h2>
@@ -186,6 +91,27 @@ const SettingsPage = () => {
               <option disabled>Salesforce (Coming Soon)</option>
               <option disabled>Pipedrive (Coming Soon)</option>
             </select>
+          </div>
+
+          <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
+            <div>
+              <p className="font-bold text-foreground">Create contact & company</p>
+              <p className="text-xs text-muted-foreground mt-0.5 tracking-tight">When enabled, creates contacts and companies from memo extractions. When off, only deals are updated.</p>
+            </div>
+            <Switch
+              checked={autoCreateContactCompany}
+              onCheckedChange={async (checked) => {
+                setAutoCreateContactCompany(checked);
+                try {
+                  const updated = await authApi.updateProfile({ autoCreateContactCompany: checked });
+                  queryClient.setQueryData(authKeys.me(), updated);
+                  toast.success(checked ? "Contact & company creation enabled" : "Deal-only updates enabled");
+                } catch {
+                  setAutoCreateContactCompany(!checked);
+                  toast.error("Failed to save preference");
+                }
+              }}
+            />
           </div>
 
           <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
@@ -219,48 +145,6 @@ const SettingsPage = () => {
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Billing */}
-      <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 relative overflow-hidden group`}>
-        <div className="absolute inset-0 bg-gradient-to-br from-beige/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-        <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-10`}>Billing & Subscription</h2>
-        
-        <div className="space-y-6 relative z-10">
-          <div className="flex items-center justify-between py-2 border-b border-foreground/5">
-            <p className={`${THEME_TOKENS.typography.capsLabel} !text-muted-foreground/60`}>Current Plan</p>
-            <span className="font-bold text-foreground">Basic - $25/month</span>
-          </div>
-          <div className="flex items-center justify-between py-2 border-b border-foreground/5">
-            <p className={`${THEME_TOKENS.typography.capsLabel} !text-muted-foreground/60`}>Next Billing Date</p>
-            <span className="text-foreground font-medium">January 29, 2026</span>
-          </div>
-          <div className="flex items-center justify-between py-2 border-b border-foreground/5">
-            <p className={`${THEME_TOKENS.typography.capsLabel} !text-muted-foreground/60`}>Monthly Usage</p>
-            <span className="text-foreground font-medium">12 / Unlimited memos</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-6 mt-10 relative z-10">
-          <Button variant="hero" className="rounded-full px-8 py-4 bg-beige text-cream hover:bg-beige-dark shadow-large hover:scale-105 transition-transform text-[10px] font-black uppercase tracking-widest">
-            Upgrade to Pro
-          </Button>
-          <button className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/30 hover:text-foreground transition-colors">
-            Cancel subscription
-          </button>
-        </div>
-      </div>
-
-      {/* Danger Zone */}
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 border-2 border-destructive/20 bg-destructive/[0.02]`}>
-        <h2 className="text-xl font-bold text-destructive mb-2 tracking-tight">Danger Zone</h2>
-        <p className="text-sm text-muted-foreground mb-8 leading-relaxed">
-          Once you delete your account, there is no going back. All your voice memos and CRM sync history will be permanently erased.
-        </p>
-        <Button variant="outline" className="border-destructive/50 text-destructive hover:bg-destructive hover:text-white rounded-full px-8 h-12 text-[10px] font-black uppercase tracking-widest transition-all">
-          <Trash2 className="h-4 w-4 mr-2" />
-          Delete Account Permanently
-        </Button>
       </div>
     </div>
   );

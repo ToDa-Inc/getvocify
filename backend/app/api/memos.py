@@ -5,7 +5,7 @@ Voice memo API endpoints
 import asyncio
 import logging
 import time
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Body
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from uuid import UUID
@@ -171,21 +171,11 @@ async def process_memo_async(
         transcription = await transcription_service.transcribe(audio_bytes)
         record_transcription_duration(time.perf_counter() - t0, "upload")
         
-        # Update with transcript
+        # Update with transcript - do NOT extract yet; user reviews transcript first
         supabase.table("memos").update({
-            "status": "extracting",
+            "status": "pending_transcript",
             "transcript": transcription.transcript,
             "transcript_confidence": transcription.confidence,
-        }).eq("id", memo_id).execute()
-        
-        # Extract structured data
-        extraction = await extraction_service.extract(transcription.transcript, field_specs, glossary_text=glossary_text)
-        
-        # Update with extraction and mark as pending_review
-        supabase.table("memos").update({
-            "status": "pending_review",
-            "extraction": extraction.model_dump(),
-            "processed_at": datetime.utcnow().isoformat(),
             "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
         logger.info(
@@ -254,23 +244,19 @@ async def upload_memo(
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
-            "status": "extracting",
+            "status": "pending_transcript",
             "transcript": transcript.strip(),
             "transcript_confidence": 1.0,
         }).execute()
         
         memo_id = result.data[0]["id"]
-        extraction_service = ExtractionService()
-        asyncio.create_task(
-            extract_memo_async(memo_id, user_id, transcript.strip(), supabase, extraction_service, field_specs)
-        )
         logger.info(
-            "✅ Upload memo created (transcript)",
+            "✅ Upload memo created (transcript) - awaiting transcript review",
             extra=log_domain(DOMAIN_MEMO, "upload_complete", memo_id=memo_id, user_id=user_id),
         )
         return UploadResponse(
             id=str(memo_id),
-            status="extracting",
+            status="pending_transcript",
             statusUrl=f"/api/v1/memos/{memo_id}"
         )
     else:
@@ -366,20 +352,16 @@ async def upload_transcript_only(
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
-        "status": "extracting",
+        "status": "pending_transcript",
         "transcript": transcript,
         "transcript_confidence": 1.0,
     }).execute()
     
     memo_id = result.data[0]["id"]
-    extraction_service = ExtractionService()
-    asyncio.create_task(
-        extract_memo_async(memo_id, user_id, transcript, supabase, extraction_service, field_specs)
-    )
     
     return UploadResponse(
         id=str(memo_id),
-        status="extracting",
+        status="pending_transcript",
         statusUrl=f"/api/v1/memos/{memo_id}"
     )
 
@@ -613,10 +595,13 @@ async def approve_memo(
         crm_connection = crm_result.data[0]
         
         if crm_connection["provider"] == "hubspot":
-            # Get configuration
+            # Get configuration and user preference
             config_service = CRMConfigurationService(supabase)
             config = await config_service.get_configuration(user_id)
             allowed_fields = config.allowed_deal_fields if config else ["dealname", "amount", "description", "closedate"]
+            profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
+            profile = profile_result.data or {}
+            auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
             
             # Initialize HubSpot services
             client = HubSpotClient(crm_connection["access_token"])
@@ -670,6 +655,7 @@ async def approve_memo(
                 is_new_deal=is_new_deal,
                 allowed_fields=allowed_fields,
                 transcript=memo_data.get("transcript"),
+                auto_create_contact_company=auto_create_contact_company,
             )
             
             if not sync_result.success:
@@ -949,7 +935,15 @@ async def get_approval_preview(
     schema_service = HubSpotSchemaService(client, supabase, connection_id)
     search_service = HubSpotSearchService(client)
     deal_service = HubSpotDealService(client, search_service, schema_service)
-    preview_service = HubSpotPreviewService(client, deal_service, schema_service)
+    association_service = HubSpotAssociationService(client)
+    contact_service = HubSpotContactService(client, search_service)
+    company_service = HubSpotCompanyService(client, search_service)
+    preview_service = HubSpotPreviewService(
+        client, deal_service, schema_service,
+        associations=association_service,
+        contact_service=contact_service,
+        company_service=company_service,
+    )
     
     # Get matches
     matching_service = HubSpotMatchingService(client, search_service)
@@ -1047,7 +1041,15 @@ async def post_approval_preview(
     schema_service = HubSpotSchemaService(client, supabase, connection_id)
     search_service = HubSpotSearchService(client)
     deal_service = HubSpotDealService(client, search_service, schema_service)
-    preview_service = HubSpotPreviewService(client, deal_service, schema_service)
+    association_service = HubSpotAssociationService(client)
+    contact_service = HubSpotContactService(client, search_service)
+    company_service = HubSpotCompanyService(client, search_service)
+    preview_service = HubSpotPreviewService(
+        client, deal_service, schema_service,
+        associations=association_service,
+        contact_service=contact_service,
+        company_service=company_service,
+    )
     matching_service = HubSpotMatchingService(client, search_service)
     extraction = MemoExtraction(**extraction_data)
     pipeline_id = config.default_pipeline_id if config else None
@@ -1288,6 +1290,75 @@ async def delete_memo(
     supabase.table("memos").delete().eq("id", str(memo_id)).execute()
     
     return {"success": True, "message": "Memo deleted"}
+
+
+class ConfirmTranscriptRequest(BaseModel):
+    """Request body for confirming transcript (optionally with user edits)"""
+    transcript: Optional[str] = None  # If provided, updates memo transcript before extraction
+
+
+@router.post("/{memo_id}/confirm-transcript")
+async def confirm_transcript(
+    memo_id: UUID,
+    body: ConfirmTranscriptRequest = Body(default=ConfirmTranscriptRequest()),
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    User has reviewed the transcript. Optionally accept transcript edits, then trigger AI extraction.
+    
+    Flow: Step 1 (review transcript) -> user clicks Continue -> this endpoint -> extraction runs -> Step 2 (edit fields).
+    """
+    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
+    
+    if not memo_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo not found")
+    
+    memo_data = memo_result.data
+    if memo_data.get("status") != "pending_transcript":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Memo is not awaiting transcript review. Status: " + str(memo_data.get("status")),
+        )
+    
+    transcript = (body.transcript or "").strip() or memo_data.get("transcript") or ""
+    if not transcript:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transcript is required",
+        )
+    
+    # Update transcript if user provided edits
+    from datetime import datetime
+    update_payload = {"status": "extracting", "processing_started_at": datetime.utcnow().isoformat()}
+    if body.transcript is not None and body.transcript.strip():
+        update_payload["transcript"] = body.transcript.strip()
+    
+    supabase.table("memos").update(update_payload).eq("id", str(memo_id)).execute()
+    
+    # Get field specs and glossary (same as re-extract)
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = config.allowed_deal_fields if config else None
+    field_specs = None
+    if allowed_fields:
+        try:
+            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
+            schema_service = HubSpotSchemaService(client, supabase, connection_id)
+            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
+        except Exception:
+            field_specs = None
+    
+    glossary_service = GlossaryService(supabase)
+    glossary = await glossary_service.get_user_glossary(user_id)
+    glossary_text = glossary_service.format_for_llm(glossary)
+    
+    extraction_service = ExtractionService()
+    asyncio.create_task(
+        extract_memo_async(str(memo_id), user_id, transcript, supabase, extraction_service, field_specs)
+    )
+    
+    return {"status": "extracting", "message": "AI extraction started"}
 
 
 @router.post("/{memo_id}/re-extract", response_model=Memo)

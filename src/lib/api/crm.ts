@@ -62,13 +62,31 @@ export const crmApi = {
     return api.get<any[]>(`/crm/hubspot/search/deals?q=${encodeURIComponent(query)}`);
   },
 
-  async findMatches(memoId: string) {
+  /** Get deal context for pre-filling extraction when user is on a deal page */
+  async getDealContext(dealId: string) {
+    return api.get<{
+      companyName?: string | null;
+      contactName?: string | null;
+      contactEmail?: string | null;
+      raw_extraction?: Record<string, unknown>;
+    }>(`/crm/hubspot/deals/${dealId}/context`);
+  },
+
+  async findMatches(memoId: string): Promise<{ deal_id: string; deal_name: string; [key: string]: unknown }[]> {
     return api.post(`/memos/${memoId}/match`);
   },
 
   async getPreview(memoId: string, dealId?: string) {
     const endpoint = `/memos/${memoId}/preview${dealId ? `?deal_id=${dealId}` : ""}`;
     return api.get(endpoint);
+  },
+
+  /** Get preview with optional edited extraction (user edits before confirming) */
+  async getPreviewWithExtraction(memoId: string, dealId?: string, extraction?: object) {
+    return api.post(`/memos/${memoId}/preview`, {
+      deal_id: dealId || undefined,
+      extraction: extraction || undefined,
+    });
   },
 
   async approveSync(memoId: string, dealId?: string, isNewDeal: boolean = false, extraction?: any) {

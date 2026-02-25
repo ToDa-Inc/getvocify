@@ -173,6 +173,7 @@ class HubSpotSyncService:
         is_new_deal: bool = False,
         allowed_fields: Optional[list[str]] = None,
         transcript: Optional[str] = None,
+        auto_create_contact_company: bool = False,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -181,8 +182,8 @@ class HubSpotSyncService:
         Filters properties based on allowed_fields whitelist.
         Creates a note with the transcript for deal context.
         
-        On retry, reuses existing company/contact IDs from previous attempts
-        to prevent orphan creation.
+        When auto_create_contact_company is False (default), only deal create/update
+        runs; company and contact creation is skipped. Use for deal-only updates.
         
         Args:
             memo_id: Voice memo ID
@@ -193,7 +194,7 @@ class HubSpotSyncService:
             is_new_deal: Whether to create a new deal (if deal_id is None)
             allowed_fields: List of field names AI is allowed to update
             transcript: Full transcript text to add as note on the deal
-            
+            auto_create_contact_company: If True, create/upsert company and contact
         Returns:
             SyncResult with success status and created/updated object IDs
         """
@@ -249,9 +250,8 @@ class HubSpotSyncService:
         contact_id = existing_contact_id
         
         try:
-            # Step 1: Company (if we have company name and auto-create enabled)
-            # Note: For update mode, we still create/update company if needed
-            if extraction.companyName:
+            # Step 1: Company (only when user setting allows and we have company name)
+            if auto_create_contact_company and extraction.companyName:
                 try:
                     # Reuse existing company ID if available (prevents duplicates on retry)
                     if existing_company_id:
@@ -293,7 +293,7 @@ class HubSpotSyncService:
                         data={"error": str(e)},
                     )
             
-            # Step 2: Contact - ALWAYS create when we have company or contact info
+            # Step 2: Contact (only when user setting allows)
             # Pull from extraction or raw_extraction (LLM may put in either)
             raw = extraction.raw_extraction or {}
             company = extraction.companyName or raw.get("companyName") or raw.get("company_name")
@@ -309,7 +309,10 @@ class HubSpotSyncService:
                     "contactEmail": contact_email or extraction.contactEmail,
                 }
             )
-            if extraction_for_contact.contactEmail or extraction_for_contact.contactName:
+            should_create_contact = auto_create_contact_company and (
+                extraction_for_contact.contactEmail or extraction_for_contact.contactName
+            )
+            if should_create_contact:
                 try:
                     # Reuse existing contact ID if available (prevents duplicates on retry)
                     if existing_contact_id:
@@ -319,6 +322,52 @@ class HubSpotSyncService:
                             "🔗 Contact reused from previous attempt",
                             extra=log_domain(DOMAIN_HUBSPOT, "contact_reused", contact_id=contact_id, memo_id=str(memo_id)),
                         )
+                    elif deal_id and not is_new_deal:
+                        # UPDATE MODE: Prefer updating deal's existing contact over creating new one
+                        try:
+                            contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
+                            if contact_ids:
+                                primary_contact_id = contact_ids[0]
+                                props = self.contacts.map_extraction_to_properties(extraction_for_contact)
+                                if props:
+                                    await self.contacts.update(primary_contact_id, props)
+                                    contact_id = primary_contact_id
+                                    result.contact_id = contact_id
+                                    logger.info(
+                                        "✅ Contact updated (deal association)",
+                                        extra=log_domain(DOMAIN_HUBSPOT, "contact_updated", contact_id=primary_contact_id, memo_id=str(memo_id)),
+                                    )
+                                    await self.crm_updates.create_update(
+                                        memo_id=str(memo_id),
+                                        user_id=user_id,
+                                        crm_connection_id=str(connection_id),
+                                        action_type="upsert_contact",
+                                        resource_type="contact",
+                                        data={"contact_id": primary_contact_id, "email": extraction_for_contact.contactEmail},
+                                    )
+                        except Exception as e:
+                            logger.warning(
+                                "⚠️ Failed to update deal contact, will create: %s",
+                                e,
+                                extra=log_domain(DOMAIN_HUBSPOT, "contact_update_fallback", memo_id=str(memo_id)),
+                            )
+                        if not contact_id:
+                            contact = await self.contacts.create_or_update(extraction_for_contact)
+                            if contact:
+                                contact_id = contact.id
+                                result.contact_id = contact_id
+                                logger.info(
+                                    "✅ Contact upserted (fallback)",
+                                    extra=log_domain(DOMAIN_HUBSPOT, "contact_upserted", contact_id=contact_id, memo_id=str(memo_id)),
+                                )
+                                await self.crm_updates.create_update(
+                                    memo_id=str(memo_id),
+                                    user_id=user_id,
+                                    crm_connection_id=str(connection_id),
+                                    action_type="upsert_contact",
+                                    resource_type="contact",
+                                    data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
+                                )
                     else:
                         contact = await self.contacts.create_or_update(extraction_for_contact)
                         if contact:
@@ -375,9 +424,13 @@ class HubSpotSyncService:
                     existing_props = current_deal.properties or {}
 
                     # 2. Map new extraction to properties (HubSpot format)
+                    # Use extraction-based deal name when existing is generic ("New Deal", etc.)
+                    existing_dealname = (existing_props.get("dealname") or "").strip().lower()
+                    generic_names = ("new deal", "nuevo deal", "deal", "")
+                    deal_name_arg = None if existing_dealname in generic_names else existing_props.get("dealname")
                     new_properties = await self.deals.map_extraction_to_properties_with_stage(
                         extraction,
-                        deal_name=existing_props.get("dealname"),
+                        deal_name=deal_name_arg,
                     )
 
                     # 3. Merge: analyze existing + new, produce merged properties
@@ -471,6 +524,31 @@ class HubSpotSyncService:
                 )
                 return result
             
+            # Step 4b: UPDATE MODE - Update deal's primary contact when extraction has contact info but no email
+            # (create_or_update requires email; deal's contact can still be updated by ID)
+            if deal_id and not is_new_deal and (extraction_for_contact.contactName or extraction_for_contact.contactRole or extraction_for_contact.contactPhone):
+                if not contact_id:
+                    try:
+                        contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
+                        if contact_ids:
+                            primary_contact_id = contact_ids[0]
+                            props = self.contacts.map_extraction_to_properties(extraction_for_contact)
+                            props.pop("email", None)
+                            if props:
+                                await self.contacts.update(primary_contact_id, props)
+                                contact_id = primary_contact_id
+                                result.contact_id = primary_contact_id
+                                logger.info(
+                                    "✅ Contact updated (deal association)",
+                                    extra=log_domain(DOMAIN_HUBSPOT, "contact_updated", contact_id=primary_contact_id, memo_id=str(memo_id)),
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            "⚠️ Failed to update deal contact: %s",
+                            e,
+                            extra=log_domain(DOMAIN_HUBSPOT, "contact_update_failed", memo_id=str(memo_id), error=str(e)),
+                        )
+
             # Step 5: Associate deal → contact, deal → company (always when we have them)
             # Applies to both new deals and existing deals being updated
             if deal_id and contact_id:

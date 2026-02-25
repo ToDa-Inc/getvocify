@@ -2,9 +2,19 @@
  * API Client for Vocify Backend
  * 
  * Handles all HTTP requests with automatic token management and error handling.
+ * API_BASE can be overridden via chrome.storage.local 'api_base' for production.
  */
 
-const API_BASE = 'http://localhost:8888/api/v1';
+const DEFAULT_API_BASE = 'http://localhost:8888/api/v1';
+
+async function getApiBase() {
+  try {
+    const r = await chrome.storage.local.get(['api_base']);
+    return r.api_base || DEFAULT_API_BASE;
+  } catch {
+    return DEFAULT_API_BASE;
+  }
+}
 
 /**
  * Custom error class for API errors
@@ -50,6 +60,7 @@ async function refreshAccessToken() {
   const { refreshToken } = await getTokens();
   if (!refreshToken) throw new ApiError(401, null, 'No refresh token');
 
+  const API_BASE = await getApiBase();
   const response = await fetch(`${API_BASE}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -67,6 +78,7 @@ async function refreshAccessToken() {
  * Core request method with automatic token refresh
  */
 async function request(endpoint, options = {}) {
+  const API_BASE = await getApiBase();
   const url = `${API_BASE}${endpoint}`;
   const { accessToken } = await getTokens();
 
@@ -104,7 +116,8 @@ async function request(endpoint, options = {}) {
  * API Client - Exported Methods
  */
 export const api = {
-  API_BASE,
+  getApiBase,
+  get API_BASE() { return DEFAULT_API_BASE; },
   setTokens,
   clearTokens,
   getTokens,
@@ -139,6 +152,7 @@ export const api = {
     const { accessToken } = await getTokens();
     const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 
+    const API_BASE = await getApiBase();
     let response = await fetch(`${API_BASE}/memos/upload`, {
       method: 'POST',
       headers,
@@ -161,5 +175,9 @@ export const api = {
 
   async getMemo(memoId) {
     return request(`/memos/${memoId}`);
+  },
+
+  async reExtract(memoId) {
+    return request(`/memos/${memoId}/re-extract`, { method: 'POST', body: '{}' });
   },
 };

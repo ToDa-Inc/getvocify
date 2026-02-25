@@ -5,6 +5,7 @@ Handles user signup, login, and profile management.
 Users are created in Supabase Auth and then a profile is created in user_profiles table.
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
@@ -14,6 +15,7 @@ from app.deps import get_supabase, get_user_id
 from supabase import Client
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
@@ -43,6 +45,7 @@ class UserResponse(BaseModel):
     company_name: Optional[str] = None
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
+    auto_create_contact_company: bool = False
     created_at: str
 
 
@@ -52,6 +55,7 @@ class UpdateProfileRequest(BaseModel):
     company_name: Optional[str] = None
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
+    auto_create_contact_company: Optional[bool] = None
 
 
 class AuthResponse(BaseModel):
@@ -123,7 +127,9 @@ async def signup(
                 full_name=profile.get("full_name"),
                 company_name=profile.get("company_name"),
                 avatar_url=profile.get("avatar_url"),
-                created_at=profile.get("created_at"),
+                phone=profile.get("phone"),
+                auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
+                created_at=profile.get("created_at", ""),
             ),
             access_token=access_token,
             refresh_token=refresh_token,
@@ -200,21 +206,29 @@ async def login(
                 full_name=profile.get("full_name"),
                 company_name=profile.get("company_name"),
                 avatar_url=profile.get("avatar_url"),
+                phone=profile.get("phone"),
+                auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
                 created_at=profile.get("created_at", ""),
             ),
             access_token=access_token,
             refresh_token=refresh_token,
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         error_msg = str(e)
-        
+        logger.warning("Login failed for %s: %s", request.email, error_msg[:200])
         if "Invalid login credentials" in error_msg or "invalid" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
             )
-        
+        if "Email not confirmed" in error_msg or "email_not_confirmed" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Please confirm your email before logging in. Check your inbox.",
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Login failed: {error_msg}",
@@ -250,11 +264,12 @@ async def get_current_user(
         
         return UserResponse(
             id=user_id,
-            email="",  # Would get from JWT in production
+            email="",
             full_name=profile.get("full_name"),
             company_name=profile.get("company_name"),
             avatar_url=profile.get("avatar_url"),
             phone=profile.get("phone"),
+            auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
             created_at=profile.get("created_at", ""),
         )
         
@@ -278,7 +293,7 @@ async def update_profile(
     user_id: str = Depends(get_user_id),
 ):
     """Update current user profile. Include phone for WhatsApp sender lookup."""
-    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+    updates = {k: v for k, v in request.model_dump(exclude_none=True).items()}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     supabase.table("user_profiles").update(updates).eq("id", user_id).execute()
@@ -293,6 +308,7 @@ async def update_profile(
         company_name=p.get("company_name"),
         avatar_url=p.get("avatar_url"),
         phone=p.get("phone"),
+        auto_create_contact_company=bool(p.get("auto_create_contact_company", False)),
         created_at=p.get("created_at", ""),
     )
 

@@ -14,6 +14,7 @@ import MemosPage from "./pages/dashboard/MemosPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
 import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
+import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 
 import { LanguageProvider } from "@/lib/i18n";
@@ -63,6 +64,7 @@ const App = () => (
               <Route path="memos" element={<MemosPage />} />
               <Route path="memos/:id" element={<MemoDetail />} />
               <Route path="integrations" element={<IntegrationsPage />} />
+              <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="usage" element={<UsagePage />} />
             </Route>

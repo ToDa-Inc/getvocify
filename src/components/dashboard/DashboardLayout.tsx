@@ -162,7 +162,7 @@ const DashboardLayout = () => {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 mt-2 rounded-2xl border-border/40 shadow-large p-2">
                 <DropdownMenuItem asChild className="rounded-xl cursor-pointer py-3">
-                  <Link to="/dashboard/settings" className="flex items-center gap-3">
+                  <Link to="/dashboard/profile" className="flex items-center gap-3">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <span className="font-bold text-sm">My Profile</span>
                   </Link>

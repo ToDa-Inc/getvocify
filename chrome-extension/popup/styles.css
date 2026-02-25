@@ -99,6 +99,18 @@ body {
 .header-review { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .logo-small { height: 20px; }
 .review-scroll-area { flex: 1; overflow-y: auto; padding-right: 4px; padding-bottom: 100px; max-height: 380px; }
+.transcript-review-section { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.transcript-content { font-size: 12px; line-height: 1.6; color: var(--foreground); background: rgba(255,255,255,0.6); padding: 12px; border-radius: 12px; margin-top: 8px; width: 100%; resize: vertical; min-height: 80px; max-height: 200px; border: 1px solid var(--border); font-family: inherit; }
+.transcript-content:read-only { background: rgba(255,255,255,0.4); cursor: default; }
+.extraction-error-banner { margin-bottom: 12px; padding: 12px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 12px; }
+.extraction-error-text { font-size: 12px; color: #b91c1c; margin-bottom: 10px; }
+.extraction-fields { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.field-row label { display: block; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 4px; }
+.field-row input, .field-row textarea { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: white; font-size: 13px; font-family: inherit; }
+.field-row textarea { resize: vertical; min-height: 48px; }
+.use-current-deal-option { margin-bottom: 12px; }
+.btn-use-current-deal { padding: 8px 14px; font-size: 11px; font-weight: 700; background: rgba(5, 150, 105, 0.1); color: var(--success); border: 1px solid rgba(5, 150, 105, 0.3); border-radius: 10px; cursor: pointer; width: 100%; }
+.btn-use-current-deal:hover { background: rgba(5, 150, 105, 0.15); }
 .review-scroll-area::-webkit-scrollbar { width: 4px; }
 .review-scroll-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
@@ -113,6 +125,10 @@ body {
 
 .updates-list { display: flex; flex-direction: column; gap: 10px; }
 .update-item { background: white; padding: 14px; border-radius: 16px; border: 1px solid var(--border); }
+.update-item.new { border-color: rgba(5, 150, 105, 0.3); background: rgba(5, 150, 105, 0.04); }
+.update-item.new .update-value { color: #059669; }
+.update-item.override { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.04); }
+.update-item.override .update-value { color: #dc2626; }
 .update-label { font-size: 9px; font-weight: 700; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
 .update-value { font-size: 13px; font-weight: 700; color: var(--foreground); }
 .update-current { font-size: 10px; color: var(--muted); margin-top: 4px; opacity: 0.6; }
@@ -144,6 +160,7 @@ body {
 
 /* Actions */
 .actions-fixed { position: absolute; bottom: 0; left: 0; right: 0; padding: 24px; background: linear-gradient(to top, var(--cream) 80%, transparent); display: flex; flex-direction: column; gap: 10px; }
+.review-step-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .btn { width: 100%; padding: 14px; font-size: 13px; font-weight: 800; border: none; border-radius: 14px; cursor: pointer; transition: all 0.2s; text-align: center; text-decoration: none; display: block; }
 .btn-primary { background: var(--beige); color: var(--cream); box-shadow: var(--shadow-soft); }
 .btn-primary:hover { background: var(--beige-dark); transform: translateY(-1px); }

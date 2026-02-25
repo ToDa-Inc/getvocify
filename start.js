@@ -33,9 +33,9 @@ if (!fs.existsSync('.env')) {
   log('yellow', '⚠️  Warning: .env file not found in root directory');
 }
 
-// Copy .env to backend if needed
-if (!fs.existsSync('backend/.env') && fs.existsSync('.env')) {
-  log('blue', '📋 Copying .env to backend directory...');
+// Keep backend/.env in sync with root .env so the backend (cwd=backend) sees latest keys
+if (fs.existsSync('.env')) {
+  log('blue', '📋 Syncing .env to backend...');
   fs.copyFileSync('.env', 'backend/.env');
 }
 

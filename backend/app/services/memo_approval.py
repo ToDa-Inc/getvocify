@@ -122,6 +122,10 @@ async def approve_memo_core(
         else ["dealname", "amount", "description", "closedate"]
     )
 
+    profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
+    profile = profile_result.data or {}
+    auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
+
     client = HubSpotClient(crm_connection["access_token"])
     schema_service = HubSpotSchemaService(client, supabase, crm_connection["id"])
     search_service = HubSpotSearchService(client)
@@ -162,6 +166,7 @@ async def approve_memo_core(
         is_new_deal=is_new_deal,
         allowed_fields=allowed_fields,
         transcript=memo_data.get("transcript"),
+        auto_create_contact_company=auto_create_contact_company,
     )
 
     if not sync_result.success:

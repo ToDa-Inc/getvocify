@@ -27,7 +27,7 @@ STATE_TTL_HOURS = 2
 class ConversationService:
     """Create/lookup conversations, persist messages, manage state."""
 
-    def __init__(self, supabase: Client | None = None) -> None:
+    def __init__(self, supabase: Optional[Client] = None) -> None:
         self.supabase = supabase or get_supabase()
 
     def get_or_create_conversation(

@@ -25,8 +25,8 @@ import type {
 const TOKEN_KEY = 'vocify_token';
 const REFRESH_KEY = 'vocify_refresh';
 
-/** Refresh token 5 minutes before expiry to avoid 401s */
-const REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
+/** Refresh token 10 minutes before expiry to avoid 401s during long flows (e.g. Step 2→3) */
+const REFRESH_BEFORE_EXPIRY_MS = 10 * 60 * 1000;
 
 /**
  * Get stored token
@@ -170,7 +170,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
 
-    const id = setInterval(checkAndRefresh, 60_000);
+    const id = setInterval(checkAndRefresh, 30_000);
     checkAndRefresh(); // run once on mount
     return () => clearInterval(id);
   }, [refresh]);

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from uuid import UUID
-from typing import Optional
+from typing import Any, Optional
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
@@ -781,6 +781,82 @@ async def create_hubspot_deal(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create deal: {str(e)}",
         )
+
+
+@router.get("/hubspot/deals/{deal_id}/context")
+async def get_deal_context_for_prefill(
+    deal_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Get deal context (deal + company + contact) for pre-filling extraction form.
+    Used when user records from extension while on a HubSpot deal page.
+    """
+    try:
+        user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
+        if not user_profile.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+    except Exception as e:
+        if "no rows" in str(e).lower() or "PGRST116" in str(e):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+        raise
+
+    client = get_hubspot_client_from_connection(user_id, supabase)
+    search_service = HubSpotSearchService(client)
+    schema_service = HubSpotSchemaService(client)
+    deal_service = HubSpotDealService(client, search_service, schema_service)
+    association_service = HubSpotAssociationService(client)
+    contact_service = HubSpotContactService(client, search_service)
+    company_service = HubSpotCompanyService(client, search_service)
+
+    ctx: dict = {"companyName": None, "contactName": None, "contactEmail": None, "raw_extraction": {}}
+
+    def _parse_amount(v: Any) -> Optional[float]:
+        if v is None: return None
+        try: return float(v)
+        except (ValueError, TypeError): return None
+
+    def _timestamp_to_iso(ts: Any) -> Optional[str]:
+        if ts is None: return None
+        try:
+            ms = int(ts)
+            return datetime.utcfromtimestamp(ms / 1000).strftime("%Y-%m-%d")
+        except (ValueError, TypeError): return None
+
+    try:
+        deal = await deal_service.get(
+            deal_id,
+            properties=["dealname", "amount", "dealstage", "closedate", "description", "hs_next_step"],
+        )
+        props = deal.properties
+        ctx["raw_extraction"] = {
+            "dealname": props.get("dealname"),
+            "amount": _parse_amount(props.get("amount")),
+            "closedate": _timestamp_to_iso(props.get("closedate")) or props.get("closedate"),
+            "dealstage": props.get("dealstage"),
+            "hs_next_step": props.get("hs_next_step"),
+        }
+        ctx["companyName"] = None
+        ctx["contactName"] = None
+        ctx["contactEmail"] = None
+
+        company_ids = await association_service.get_associations("deals", deal_id, "companies")
+        if company_ids:
+            comp = await company_service.get(company_ids[0])
+            ctx["companyName"] = comp.properties.get("name") or ctx["companyName"]
+
+        contact_ids = await association_service.get_associations("deals", deal_id, "contacts")
+        if contact_ids:
+            contact = await contact_service.get(contact_ids[0])
+            cprops = contact.properties
+            first = cprops.get("firstname") or ""
+            last = cprops.get("lastname") or ""
+            ctx["contactName"] = f"{first} {last}".strip() or None
+            ctx["contactEmail"] = cprops.get("email") or None
+    except Exception:
+        pass
+    return ctx
 
 
 @router.patch("/hubspot/deals/{deal_id}")

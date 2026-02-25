@@ -53,6 +53,7 @@
       <div class="user-info">
         <div class="user-name" id="user-name">...</div>
         <div class="user-email" id="user-email">...</div>
+        <div class="ext-version" style="font-size:9px;opacity:0.5;margin-top:4px">v1.0.1</div>
       </div>
 
       <!-- Recent Memos Section -->
@@ -68,32 +69,121 @@
       </div>
     </div>
 
-    <!-- 2. PROCESSING SCREEN -->
+    <!-- 2. PROCESSING SCREEN (transcribing OR extracting - text updated dynamically) -->
     <div id="screen-processing" class="screen" style="display: none;">
       <div class="header">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
-        <p class="subtitle">Analyzing</p>
+        <p class="subtitle" id="processing-subtitle">Transcribing</p>
       </div>
       <div class="center-content">
         <div class="spinner"></div>
-        <h2 class="title-large">AI is working...</h2>
-        <p class="body-muted">Extracting deal details from your voice memo.</p>
+        <h2 class="title-large" id="processing-title">Converting speech to text...</h2>
+        <p class="body-muted" id="processing-message">Your transcript will be ready to review in a moment.</p>
       </div>
     </div>
 
-    <!-- 3. REVIEW SCREEN -->
+    <!-- 3. REVIEW SCREEN - 3 steps like web app -->
     <div id="screen-review" class="screen" style="display: none;">
       <div class="header-review">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo-small">
-        <p class="subtitle">Review Updates</p>
+        <p class="subtitle" id="review-step-label">Step 1 of 3: Review transcript</p>
       </div>
 
       <div class="review-scroll-area">
-        <!-- Deal Search / Target -->
+        <!-- Step 1: Transcript (editable when pending_transcript) -->
+        <div id="review-step1-content">
+          <p class="caps-label">Step 1: Review transcript</p>
+          <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
+            <p id="extraction-error-text" class="extraction-error-text"></p>
+            <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
+          </div>
+          <textarea id="transcript-content" class="transcript-content transcript-textarea" rows="8" placeholder="Loading transcript..."></textarea>
+        </div>
+
+        <!-- Step 2: Edit CRM fields (all fields like web app) -->
+        <div id="review-step2-content" style="display: none;">
+          <p class="caps-label">Step 2: Edit CRM fields</p>
+          <div id="extraction-fields" class="extraction-fields">
+            <div class="field-row">
+              <label>Company</label>
+              <input type="text" id="ext-company" placeholder="Company name">
+            </div>
+            <div class="field-row">
+              <label>Deal Amount (€)</label>
+              <input type="text" id="ext-amount" placeholder="50000">
+            </div>
+            <div class="field-row">
+              <label>Contact Name</label>
+              <input type="text" id="ext-contact" placeholder="Contact name">
+            </div>
+            <div class="field-row">
+              <label>Contact Email</label>
+              <input type="email" id="ext-contact-email" placeholder="tony@company.com">
+            </div>
+            <div class="field-row">
+              <label>Deal Stage</label>
+              <select id="ext-stage">
+                <option value="">Select stage</option>
+                <option value="Discovery">Discovery</option>
+                <option value="Proposal">Proposal</option>
+                <option value="Negotiation">Negotiation</option>
+                <option value="Closed Won">Closed Won</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Close Date</label>
+              <input type="date" id="ext-closedate" placeholder="YYYY-MM-DD">
+            </div>
+            <div class="field-row">
+              <label>FTEs / Employees</label>
+              <input type="text" id="ext-ftes" placeholder="500">
+            </div>
+            <div class="field-row">
+              <label>Price per FTE (€)</label>
+              <input type="text" id="ext-price-per-fte" placeholder="3">
+            </div>
+            <div class="field-row">
+              <label>Competitor price (€)</label>
+              <input type="text" id="ext-competitor-price" placeholder="23">
+            </div>
+            <div class="field-row">
+              <label>ES Hi Provider</label>
+              <input type="text" id="ext-es-hi" placeholder="Adeslas">
+            </div>
+            <div class="field-row">
+              <label>Total employees</label>
+              <input type="text" id="ext-total-employees" placeholder="500">
+            </div>
+            <div class="field-row">
+              <label>Priority</label>
+              <select id="ext-priority">
+                <option value="">Select</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>Summary</label>
+              <textarea id="ext-summary" rows="2" placeholder="Meeting summary"></textarea>
+            </div>
+            <div class="field-row">
+              <label>Next Steps</label>
+              <textarea id="ext-nextsteps" rows="2" placeholder="• One per line"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Deal Target + Proposed Changes -->
+        <div id="review-step3-content" style="display: none;">
+        <!-- Deal Target: when on deal page, current deal is auto-selected -->
         <div id="deal-target-section">
           <div class="section-header">
-            <p class="caps-label">Deal Target</p>
+            <p class="caps-label">Step 3: Deal Target</p>
             <button id="btn-change-deal" class="text-btn">Change Deal</button>
+          </div>
+          <div id="use-current-deal-option" class="use-current-deal-option" style="display: none;">
+            <button type="button" id="btn-use-current-deal" class="btn-use-current-deal">Use deal on this page</button>
           </div>
           
           <div id="deal-search-box" class="search-box" style="display: none;">
@@ -112,16 +202,30 @@
           </div>
         </div>
 
-        <!-- Proposed Changes -->
+        <div id="proposed-changes-section">
         <p class="caps-label" style="margin: 20px 0 12px 4px;">Proposed Changes</p>
         <div id="proposed-updates-list" class="updates-list">
           <!-- Injected via JS -->
         </div>
+        </div>
+        </div>
       </div>
 
-      <div class="actions-fixed">
-        <button id="approve-sync-button" class="btn btn-primary">Confirm & Update CRM</button>
-        <button id="discard-button" class="btn btn-secondary">Discard</button>
+      <div class="actions-fixed" id="review-actions">
+        <div id="review-step1-actions" class="review-step-actions">
+          <button id="review-continue-btn" class="btn btn-primary">Continue to Step 2</button>
+          <button id="review-discard-btn" class="btn btn-secondary">Discard</button>
+        </div>
+        <div id="review-step2-actions" class="review-step-actions" style="display: none;">
+          <button id="review-back-to-step1-btn" class="btn btn-secondary" type="button">← Back</button>
+          <button id="review-continue-step2-btn" class="btn btn-primary">Continue to Step 3</button>
+          <button id="review-discard-btn2" class="btn btn-secondary">Discard</button>
+        </div>
+        <div id="review-step3-actions" class="review-step-actions" style="display: none;">
+          <button id="review-back-to-step2-btn" class="btn btn-secondary" type="button">← Back</button>
+          <button id="approve-sync-button" class="btn btn-primary">Confirm & Update CRM</button>
+          <button id="discard-button" class="btn btn-secondary">Discard</button>
+        </div>
       </div>
     </div>
 
@@ -165,7 +269,11 @@
     <!-- LOADING SCREEN -->
     <div id="screen-loading" class="screen">
       <div class="center-content">
-        <div class="spinner"></div>
+        <div id="loading-spinner" class="spinner"></div>
+        <div id="loading-backend-error" style="display: none; text-align: center; max-width: 280px;">
+          <p class="body-muted" style="margin-bottom: 8px;">No se puede conectar al backend.</p>
+          <p class="body-muted" style="font-size: 12px; opacity: 0.8;">Asegúrate de que <code>npm run start</code> está corriendo en el proyecto.</p>
+        </div>
       </div>
     </div>
   </div>

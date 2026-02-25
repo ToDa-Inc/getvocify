@@ -99,6 +99,9 @@ export interface MemoExtraction {
   // ---- Confidence ----
   /** Confidence scores for the extraction */
   confidence: ExtractionConfidence;
+
+  /** Raw LLM extraction with dynamic CRM fields (deal_ftes_active, price_per_fte_eur, etc.) */
+  raw_extraction?: Record<string, unknown>;
 }
 
 /**
@@ -213,6 +216,33 @@ export interface UploadMemoResponse {
 export interface ApproveMemoPayload {
   /** Edited extraction data (only changed fields) */
   extraction?: Partial<MemoExtraction>;
+}
+
+/**
+ * Usage analytics (real data from memos)
+ */
+export interface UsageWeeklyDay {
+  day: string;
+  memos: number;
+}
+
+export interface UsageActivity {
+  action: string;
+  company: string;
+  time: string;
+  type: 'memo' | 'sync';
+}
+
+export interface UsageResponse {
+  total_memos: number;
+  approved_count: number;
+  this_week_memos: number;
+  this_week_approved: number;
+  time_saved_hours: number;
+  this_week_time_saved_hours: number;
+  accuracy_pct: number | null;
+  weekly: UsageWeeklyDay[];
+  recent_activity: UsageActivity[];
 }
 
 // ============================================

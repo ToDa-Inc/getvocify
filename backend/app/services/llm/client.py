@@ -177,7 +177,8 @@ class LLMClient:
 
     def _extract_json(self, content: str) -> dict:
         """
-        Extract JSON from LLM response. Handles markdown blocks, preamble text, etc.
+        Extract JSON from LLM response. Handles markdown blocks, preamble text,
+        and uses json_repair for malformed JSON (common with LLM output).
         """
         content = content.strip()
         # 1. Direct parse
@@ -187,13 +188,13 @@ class LLMClient:
             pass
 
         # 2. Markdown code block: ```json ... ``` or ``` ... ```
-        # Use greedy match so nested braces are captured correctly
         match = re.search(r"```(?:json)?\s*(\{[\s\S]*\})\s*```", content, re.DOTALL)
         if match:
+            candidate = match.group(1)
             try:
-                return json.loads(match.group(1))
+                return json.loads(candidate)
             except json.JSONDecodeError:
-                pass
+                content = candidate  # Fall through to repair
 
         # 3. Find first { and last } - many models wrap JSON in text
         start = content.find("{")
@@ -203,13 +204,30 @@ class LLMClient:
             try:
                 return json.loads(candidate)
             except json.JSONDecodeError:
-                # Try fixing common LLM quirks: trailing commas, single quotes
+                # 4. Fix common LLM quirks: trailing commas, single quotes
                 fixed = re.sub(r",\s*}", "}", candidate)
                 fixed = re.sub(r",\s*]", "]", fixed)
                 try:
                     return json.loads(fixed)
                 except json.JSONDecodeError:
                     pass
+            # 5. Use json_repair as final fallback (handles malformed LLM output)
+            try:
+                import json_repair
+                parsed = json_repair.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+
+        # 6. Last resort: json_repair on full content (handles extra text around JSON)
+        try:
+            import json_repair
+            parsed = json_repair.loads(content)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
 
         raise ValueError("Failed to parse JSON from LLM response")
 

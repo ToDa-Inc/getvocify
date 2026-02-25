@@ -13,6 +13,7 @@ class DealMatch(BaseModel):
     deal_name: str
     company_name: Optional[str] = None
     contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
     amount: Optional[str] = None
     stage: Optional[str] = None
     last_updated: str
@@ -33,6 +34,7 @@ class ApprovalPreview(BaseModel):
     """Preview of what will be synced to CRM"""
     memo_id: UUID
     transcript_summary: str = Field(..., description="First 200 chars of transcript")
+    transcript: Optional[str] = Field(None, description="Full transcript for review")
     
     # Deal matching
     matched_deals: list[DealMatch] = Field(default_factory=list)

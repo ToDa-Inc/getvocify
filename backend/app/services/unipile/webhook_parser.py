@@ -4,7 +4,7 @@ Parse Unipile webhook payloads (direct or n8n-wrapped).
 
 import logging
 import re
-from typing import Any
+from typing import Any, Optional
 
 from app.logging_config import log_domain, DOMAIN_UNIPILE
 from app.services.whatsapp.webhook_parser import IncomingMessage
@@ -12,7 +12,7 @@ from app.services.whatsapp.webhook_parser import IncomingMessage
 logger = logging.getLogger(__name__)
 
 
-def _extract_phone(body: dict) -> str | None:
+def _extract_phone(body: dict) -> Optional[str]:
     """Extract sender phone from Unipile event body."""
     sender = body.get("sender") or {}
     specifics = sender.get("attendee_specifics") or {}

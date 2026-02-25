@@ -9,7 +9,8 @@ import type {
   Memo, 
   MemoFilters, 
   UploadMemoResponse, 
-  ApproveMemoPayload 
+  ApproveMemoPayload,
+  UsageResponse,
 } from './types';
 
 /**
@@ -27,6 +28,7 @@ export const memoKeys = {
   list: (filters?: MemoFilters) => [...memoKeys.lists(), filters ?? {}] as const,
   details: () => [...memoKeys.all, 'detail'] as const,
   detail: (id: string) => [...memoKeys.details(), id] as const,
+  usage: () => [...memoKeys.all, 'usage'] as const,
 };
 
 /**
@@ -53,6 +55,13 @@ export const memosApi = {
    */
   get: (id: string): Promise<Memo> => {
     return api.get<Memo>(`/memos/${id}`);
+  },
+
+  /**
+   * Get usage analytics (real stats from memos)
+   */
+  getUsage: (): Promise<UsageResponse> => {
+    return api.get<UsageResponse>('/memos/usage');
   },
 
   /**
@@ -113,6 +122,14 @@ export const memosApi = {
    */
   reject: (id: string): Promise<Memo> => {
     return api.post<Memo>(`/memos/${id}/reject`);
+  },
+
+  /**
+   * Confirm transcript (user reviewed) and trigger AI extraction.
+   * Use when memo is pending_transcript; extraction runs after this.
+   */
+  confirmTranscript: (id: string, transcript?: string): Promise<{ status: string; message: string }> => {
+    return api.post<{ status: string; message: string }>(`/memos/${id}/confirm-transcript`, { transcript });
   },
 
   /**

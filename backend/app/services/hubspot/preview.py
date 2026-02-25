@@ -14,6 +14,9 @@ from .client import HubSpotClient
 from .exceptions import HubSpotError
 from .deals import HubSpotDealService
 from .schema import HubSpotSchemaService
+from .associations import HubSpotAssociationService
+from .contacts import HubSpotContactService
+from .companies import HubSpotCompanyService
 
 
 def _format_value_for_display(value: Any) -> str:
@@ -40,10 +43,16 @@ class HubSpotPreviewService:
         client: HubSpotClient,
         deal_service: HubSpotDealService,
         schema_service: HubSpotSchemaService,
+        associations: Optional[HubSpotAssociationService] = None,
+        contact_service: Optional[HubSpotContactService] = None,
+        company_service: Optional[HubSpotCompanyService] = None,
     ):
         self.client = client
         self.deals = deal_service
         self.schema = schema_service
+        self.associations = associations
+        self.contact_service = contact_service
+        self.company_service = company_service
 
     async def build_preview(
         self,
@@ -61,6 +70,7 @@ class HubSpotPreviewService:
         Shows what the LLM extracted for each allowed field.
         """
         transcript_summary = transcript[:200] + "..." if len(transcript) > 200 else transcript
+        transcript_full = transcript if transcript else None
 
         if allowed_fields is None:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
@@ -104,6 +114,21 @@ class HubSpotPreviewService:
                 extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
             ))
 
+        # Next steps (create HubSpot tasks) - always show in preview so user can confirm
+        next_steps = extraction.nextSteps or []
+        if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
+            hs_next = extraction.raw_extraction["hs_next_step"]
+            next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
+        for i, step in enumerate(next_steps):
+            if step and str(step).strip():
+                proposed_updates.append(ProposedUpdate(
+                    field_name=f"next_step_task_{i}",
+                    field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
+                    current_value=None,
+                    new_value=str(step).strip(),
+                    extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                ))
+
         # For display: use human-readable extraction values when available
         def _display_value(field_name: str, value: Any) -> str:
             if value is None or value == "":
@@ -136,9 +161,33 @@ class HubSpotPreviewService:
             if not selected_deal:
                 try:
                     deal = await self.deals.get(selected_deal_id)
+                    company_name = None
+                    contact_name = None
+                    if self.associations and self.company_service:
+                        try:
+                            cids = await self.associations.get_associations("deals", selected_deal_id, "companies")
+                            if cids:
+                                comp = await self.company_service.get(cids[0])
+                                company_name = comp.properties.get("name")
+                        except Exception:
+                            pass
+                    contact_email = None
+                    if self.associations and self.contact_service:
+                        try:
+                            ctids = await self.associations.get_associations("deals", selected_deal_id, "contacts")
+                            if ctids:
+                                contact = await self.contact_service.get(ctids[0])
+                                cp = contact.properties
+                                contact_name = f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
+                                contact_email = cp.get("email")
+                        except Exception:
+                            pass
                     selected_deal = DealMatch(
                         deal_id=deal.id,
                         deal_name=deal.properties.get("dealname", "Unknown Deal"),
+                        company_name=company_name,
+                        contact_name=contact_name,
+                        contact_email=contact_email,
                         match_reason="Manual Selection",
                         match_confidence=1.0,
                         stage=deal.properties.get("dealstage"),
@@ -194,6 +243,7 @@ class HubSpotPreviewService:
         return ApprovalPreview(
             memo_id=memo_id,
             transcript_summary=transcript_summary,
+            transcript=transcript_full,
             matched_deals=matched_deals,
             selected_deal=selected_deal,
             is_new_deal=is_new_deal,
