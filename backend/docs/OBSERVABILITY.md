@@ -2,6 +2,10 @@
 
 Full visibility for logic, AI processing, LLM, Speechmatics, extraction, and HubSpot sync.
 
+## Grafana Setup
+
+See [GRAFANA_SETUP.md](./GRAFANA_SETUP.md) for step-by-step Grafana Cloud setup (Metrics Endpoint, auth, dashboard import).
+
 ## Log Format
 
 Set `LOG_JSON=true` in production for structured logs. One JSON object per line.

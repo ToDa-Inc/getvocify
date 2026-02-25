@@ -19,7 +19,30 @@ import UsagePage from "./pages/dashboard/UsagePage";
 
 import { LanguageProvider } from "@/lib/i18n";
 import { AuthProvider, useAuth } from "@/features/auth";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { isLandingDomain, isLandingPath, APP_URL } from "@/lib/app-url";
+
+/** Redirects getvocify.com/login, /dashboard, etc. → app.getvocify.com */
+const LandingDomainRedirect = () => {
+  const location = useLocation();
+  const needsRedirect = isLandingDomain() && !isLandingPath(location.pathname);
+
+  useEffect(() => {
+    if (needsRedirect) {
+      window.location.replace(APP_URL + location.pathname + location.search);
+    }
+  }, [needsRedirect, location.pathname, location.search]);
+
+  if (needsRedirect) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-cream">
+        <div className="w-8 h-8 border-4 border-beige border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  return null;
+};
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -49,6 +72,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <LandingDomainRedirect />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/es" element={<Index />} />

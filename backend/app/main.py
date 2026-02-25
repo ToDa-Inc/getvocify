@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from app.webhook_context import set_correlation_id
 from app.config import settings
@@ -35,10 +35,11 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         
-        # Skip timeout for transcription, upload, re-extract, webhooks, metrics (can run long or need fast response)
+        # Skip timeout for transcription, upload, upload-transcript, re-extract, webhooks, metrics
         if (
             "/transcription" in path
             or "/memos/upload" in path
+            or "/upload-transcript" in path
             or "/re-extract" in path
             or "/webhooks" in path
             or path == "/metrics"
@@ -75,26 +76,42 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class MetricsAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Optional Bearer auth for /metrics. Required for Grafana Cloud Metrics Endpoint
+    (which mandates auth). If METRICS_TOKEN is set, requests without valid token get 401.
+    """
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == "/metrics" and settings.METRICS_TOKEN:
+            auth = request.headers.get("Authorization") or ""
+            expected = f"Bearer {settings.METRICS_TOKEN}"
+            if auth.strip() != expected:
+                return Response(status_code=401, content="Unauthorized")
+        return await call_next(request)
+
+
+app.add_middleware(MetricsAuthMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
 # Timeout middleware (30s for most endpoints, except transcription/upload)
 app.add_middleware(TimeoutMiddleware)
 
-# CORS middleware (localhost + 127.0.0.1 - some browsers send different origin)
+# CORS middleware
+_frontend_url = settings.FRONTEND_URL.rstrip("/")
+_cors_origins = [
+    _frontend_url,
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://localhost:8081",
+    "http://localhost:3000",
+    # Production
+    "https://getvocify.com",
+    "https://www.getvocify.com",
+    "https://app.getvocify.com",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        settings.FRONTEND_URL,
-        "http://localhost:5173",
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:8080",
-        "http://127.0.0.1:3000",
-        # Chrome extension origins (any extension ID)
-        "chrome-extension://*",
-    ],
-    allow_origin_regex=r"chrome-extension://.*|http://192\.168\.\d+\.\d+:\d+|http://127\.0\.0\.1:\d+",
+    allow_origins=[o for o in _cors_origins if o],  # drop empty strings
+    allow_origin_regex=r"chrome-extension://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

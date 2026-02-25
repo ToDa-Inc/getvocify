@@ -1,5 +1,6 @@
 import { ArrowRight, Play, MousePointer2 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { APP_URL } from "@/lib/app-url";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import WaveformCircle from "./WaveformCircle";
@@ -46,10 +47,10 @@ const Hero = () => {
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12"
           >
             <Button variant="hero" size="xl" asChild className="group px-8 rounded-full shadow-large hover:scale-105 transition-transform">
-              <Link to="/dashboard">
+              <a href={`${APP_URL}/dashboard`}>
                 {t.hero.cta1}
                 <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-              </Link>
+              </a>
             </Button>
             <Button variant="outline" size="xl" asChild className="group px-8 bg-white/40 hover:bg-white/60 backdrop-blur-md border-beige/20 rounded-full transition-all">
               <Link to="#demo">

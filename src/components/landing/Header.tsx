@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { APP_URL } from "@/lib/app-url";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
 import { motion } from "framer-motion";
@@ -59,10 +60,10 @@ const Header = () => {
 
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" asChild className="font-black tracking-[0.2em] uppercase text-[10px] text-muted-foreground hover:text-beige">
-              <Link to="/dashboard">{t.nav.login}</Link>
+              <a href={`${APP_URL}/dashboard`}>{t.nav.login}</a>
             </Button>
             <Button size="sm" asChild className="bg-beige text-cream hover:bg-beige-dark shadow-soft font-black tracking-[0.2em] uppercase text-[10px] px-6 rounded-full transition-transform hover:scale-105 active:scale-95">
-              <Link to="/dashboard">{t.nav.getStarted}</Link>
+              <a href={`${APP_URL}/dashboard`}>{t.nav.getStarted}</a>
             </Button>
           </div>
         </div>

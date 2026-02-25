@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { APP_URL } from "@/lib/app-url";
 import Logo from "@/components/Logo";
 import { Mail, Linkedin, Twitter, Github } from "lucide-react";
 
@@ -33,7 +34,7 @@ const Footer = () => {
               <Link to="/#features" className="text-sm text-muted-foreground hover:text-beige transition-colors">Features</Link>
               <Link to="/#pricing" className="text-sm text-muted-foreground hover:text-beige transition-colors">Pricing</Link>
               <Link to="/#about" className="text-sm text-muted-foreground hover:text-beige transition-colors">How it works</Link>
-              <Link to="/dashboard" className="text-sm text-muted-foreground hover:text-beige transition-colors">Start Free Trial</Link>
+              <a href={`${APP_URL}/dashboard`} className="text-sm text-muted-foreground hover:text-beige transition-colors">Start Free Trial</a>
             </nav>
           </div>
 
