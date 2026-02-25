@@ -281,6 +281,74 @@
       ],
       "title": "HTTP latency (p95)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "id": 104,
+      "panels": [],
+      "title": "Logs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "id": 12,
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"${job}\"} | json | level=~\"ERROR|CRITICAL\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Errors & exceptions",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "id": 13,
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"${job}\"} | json | domain=~\"${domain}\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Pipeline logs by domain",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${datasource_loki}" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 34 },
+      "id": 14,
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"${job}\"} | json",
+          "refId": "A"
+        }
+      ],
+      "title": "All logs (live)",
+      "type": "logs"
     }
   ],
   "refresh": "30s",
@@ -305,6 +373,58 @@
         "skipUrlSync": false,
         "sort": 0,
         "type": "datasource"
+      },
+      {
+        "current": {},
+        "datasource": { "type": "loki", "uid": "" },
+        "definition": "",
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "datasource_loki",
+        "options": [],
+        "query": "loki",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "datasource"
+      },
+      {
+        "current": { "selected": true, "text": "vocify-backend", "value": "vocify-backend" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Job",
+        "multi": false,
+        "name": "job",
+        "options": [
+          { "selected": true, "text": "vocify-backend", "value": "vocify-backend" }
+        ],
+        "query": "vocify-backend",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Domain",
+        "multi": true,
+        "name": "domain",
+        "options": [
+          { "selected": true, "text": "All", "value": "$__all" },
+          { "selected": false, "text": "extraction", "value": "extraction" },
+          { "selected": false, "text": "llm", "value": "llm" },
+          { "selected": false, "text": "hubspot", "value": "hubspot" },
+          { "selected": false, "text": "whatsapp", "value": "whatsapp" },
+          { "selected": false, "text": "webhook", "value": "webhook" },
+          { "selected": false, "text": "unipile", "value": "unipile" }
+        ],
+        "query": "extraction,llm,hubspot,whatsapp,webhook,unipile",
+        "skipUrlSync": false,
+        "type": "custom"
       }
     ]
   },

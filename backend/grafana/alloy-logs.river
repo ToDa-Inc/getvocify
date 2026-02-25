@@ -1,0 +1,27 @@
+// Grafana Alloy config for Vocify log drain → Loki
+// Deploy Alloy, expose this config, set Railway log drain to https://your-alloy.railway.app/loki/api/v1/raw
+//
+// 1. Get Grafana Cloud credentials: Grafana Cloud → Stack → Logs → Send data → Alloy
+// 2. Replace REMOTE_WRITE_URL, USER, PASSWORD below
+// 3. Set ALOY_LISTEN=0.0.0.0 to accept external connections
+
+// Receive logs over HTTP (Loki push API or raw NDJSON)
+loki.source.api "vocify" {
+  http {
+    listen_address = "0.0.0.0"
+    listen_port    = 8080
+  }
+  labels = { job = "vocify-backend" }
+  forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+// Push to Grafana Cloud Loki
+loki.write "grafana_cloud" {
+  endpoint {
+    url = "REMOTE_WRITE_URL"  // e.g. https://logs-prod-XXX.grafana.net/loki/api/v1/push
+    basic_auth {
+      username = "USER"       // Grafana Cloud instance ID
+      password = "PASSWORD"   // Grafana Cloud API key
+    }
+  }
+}

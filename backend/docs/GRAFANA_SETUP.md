@@ -65,10 +65,11 @@ Meta-dashboard for scrape health (samples received, scrape latency). Use this to
 
 ### Vocify Backend (custom)
 
-- **Row 1 — Pipeline health**: LLM requests/min, webhook throughput, pipeline errors
+- **Row 1 — Pipeline health**: LLM request rate, webhook throughput, pipeline errors, LLM success rate
 - **Row 2 — Latency**: Extraction p95, transcription p95, HubSpot sync p95
 - **Row 3 — Errors**: Errors by domain, LLM failures
 - **Row 4 — HTTP**: Request rate, 4xx/5xx, latency
+- **Row 5 — Logs**: Errors & exceptions, Pipeline logs by domain, All logs (live) — requires [LOGS_SETUP](./LOGS_SETUP.md)
 
 ## 5. Troubleshooting
 
@@ -88,4 +89,5 @@ Meta-dashboard for scrape health (samples received, scrape latency). Use this to
 
 ## 6. Logs (Loki) — Optional Next Step
 
-For searchable logs (not just metrics), see [OBSERVABILITY.md](./OBSERVABILITY.md) — Railway log drain to Loki.
+The Vocify dashboard includes Logs panels (JSON errors, pipeline logs, live stream). To populate them, see [LOGS_SETUP.md](./LOGS_SETUP.md) — enable `LOG_JSON=true` and ship Railway logs to Grafana Cloud Loki.
+
