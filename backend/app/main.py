@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from app.webhook_context import set_correlation_id
 from app.config import settings
@@ -75,6 +75,21 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class MetricsAuthMiddleware(BaseHTTPMiddleware):
+    """
+    Optional Bearer auth for /metrics. Required for Grafana Cloud Metrics Endpoint
+    (which mandates auth). If METRICS_TOKEN is set, requests without valid token get 401.
+    """
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path == "/metrics" and settings.METRICS_TOKEN:
+            auth = request.headers.get("Authorization") or ""
+            expected = f"Bearer {settings.METRICS_TOKEN}"
+            if auth.strip() != expected:
+                return Response(status_code=401, content="Unauthorized")
+        return await call_next(request)
+
+
+app.add_middleware(MetricsAuthMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
 # Timeout middleware (30s for most endpoints, except transcription/upload)
 app.add_middleware(TimeoutMiddleware)

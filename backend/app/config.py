@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # Unipile (optional - for WhatsApp via Unipile instead of Meta)
     UNIPILE_API_KEY: Optional[str] = None
     UNIPILE_BASE_URL: str = "https://api23.unipile.com:15349"
+
+    # Metrics (optional - required for Grafana Cloud Metrics Endpoint integration)
+    METRICS_TOKEN: Optional[str] = None  # Bearer token; if set, /metrics requires Authorization
     
     @field_validator('SUPABASE_URL')
     @classmethod
