@@ -1,5 +1,6 @@
 import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
+import { APP_URL } from "@/lib/app-url";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
@@ -99,10 +100,10 @@ const Pricing = () => {
                 className={`w-full group rounded-[2rem] shadow-soft ${plan.popular ? "" : "bg-white hover:bg-beige/5"}`}
                 asChild
               >
-                <Link to="/dashboard">
+                <a href={`${APP_URL}/dashboard`}>
                   {plan.cta}
                   <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-                </Link>
+                </a>
               </Button>
             </motion.div>
           ))}

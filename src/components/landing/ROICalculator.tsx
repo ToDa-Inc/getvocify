@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowRight, TrendingUp, Clock, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { APP_URL } from "@/lib/app-url";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
 
@@ -122,10 +123,10 @@ const ROICalculator = () => {
 
                 <div className="text-center">
                   <Button size="xl" asChild className="group bg-cream text-beige hover:bg-white rounded-full px-12 shadow-large">
-                    <Link to="/dashboard">
+                    <a href={`${APP_URL}/dashboard`}>
                       {t.roi.cta}
                       <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-                    </Link>
+                    </a>
                   </Button>
                 </div>
               </div>

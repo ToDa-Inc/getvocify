@@ -95,17 +95,21 @@ app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(TimeoutMiddleware)
 
 # CORS middleware
+_frontend_url = settings.FRONTEND_URL.rstrip("/")
+_cors_origins = [
+    _frontend_url,
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://localhost:8081",
+    "http://localhost:3000",
+    # Production
+    "https://getvocify.com",
+    "https://www.getvocify.com",
+    "https://app.getvocify.com",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        settings.FRONTEND_URL,
-        "http://localhost:5173",
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:3000",
-        # Chrome extension origins (any extension ID)
-        "chrome-extension://*",
-    ],
+    allow_origins=[o for o in _cors_origins if o],  # drop empty strings
     allow_origin_regex=r"chrome-extension://.*",
     allow_credentials=True,
     allow_methods=["*"],
