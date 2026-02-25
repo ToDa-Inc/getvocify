@@ -12,8 +12,9 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 BACKEND_DIR = ROOT_DIR / "backend"
 ENV_FILE = ROOT_DIR / ".env"
-# Load both: backend/.env first, then root .env (root overrides so user edits in root apply)
-ENV_FILES = [str(BACKEND_DIR / ".env"), str(ENV_FILE)]
+# On Railway: use ONLY env vars (ignore .env files). Local: load .env for dev.
+_ON_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_SERVICE_NAME"))
+ENV_FILES = [] if _ON_RAILWAY else [str(BACKEND_DIR / ".env"), str(ENV_FILE)]
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""

@@ -35,10 +35,11 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         
-        # Skip timeout for transcription, upload, re-extract, webhooks, metrics (can run long or need fast response)
+        # Skip timeout for transcription, upload, upload-transcript, re-extract, webhooks, metrics
         if (
             "/transcription" in path
             or "/memos/upload" in path
+            or "/upload-transcript" in path
             or "/re-extract" in path
             or "/webhooks" in path
             or path == "/metrics"
