@@ -10,6 +10,7 @@ import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPr
 import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
 import { crmApi } from "@/lib/api/crm";
+import type { CRMConfiguration, CRMSchema } from "@/lib/api/crm";
 import type { MemoExtraction } from "@/features/memos/types";
 
 /** Parse bullet text (• item\n• item2) or plain lines into string array */
@@ -27,22 +28,20 @@ function formatBulletList(items: unknown): string {
   return items.map((s) => `• ${String(s ?? "")}`).join("\n");
 }
 
-/** Human-readable labels for raw_extraction keys */
-const RAW_FIELD_LABELS: Record<string, string> = {
-  dealname: "Deal Name",
-  amount: "Amount",
-  closedate: "Close Date",
-  description: "Deal Description",
-  deal_ftes_active: "Deal FTEs (Active)",
-  ftes_fulltime_employees: "FTEs (full-time employees)",
-  price_per_fte_eur: "Price per FTE (€)",
-  competitor_price: "Competitor price (€)",
-  hs_next_step: "Next Step (HubSpot)",
-  hs_priority: "Priority",
-  es_hi_provider: "ES Hi Provider",
-  total_employees: "Total employees",
+/** Standard HubSpot → MemoExtraction field mapping (used when field is in allowed_deal_fields) */
+const STANDARD_DEAL_FIELDS: Record<string, { getKey?: "companyName" | "dealAmount" | "dealCurrency" | "dealStage" | "closeDate" | "summary"; rawKey?: string }> = {
+  dealname: { getKey: "companyName" },
+  amount: { getKey: "dealAmount" },
+  deal_currency_code: { getKey: "dealCurrency" },
+  dealstage: { getKey: "dealStage" },
+  closedate: { getKey: "closeDate" },
+  description: { getKey: "summary" },
+  hs_next_step: {}, // synced with nextSteps[0]; handled specially
 };
-const EXPLICIT_RAW_FIELDS = new Set(Object.keys(RAW_FIELD_LABELS));
+
+function formatFieldLabel(key: string): string {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 const MemoDetail = () => {
   const { id } = useParams();
@@ -62,6 +61,9 @@ const MemoDetail = () => {
   const [editedTranscript, setEditedTranscript] = useState<string>("");
   /** Wizard step: 1=transcript, 2=fields, 3=preview (prevents preview API until user reaches step 3) */
   const [reviewStep, setReviewStep] = useState(1);
+  /** CRM config + schema (only when HubSpot connected) – drives Deal Details fields */
+  const [dealConfig, setDealConfig] = useState<Pick<CRMConfiguration, "allowed_deal_fields" | "default_pipeline_id"> | null>(null);
+  const [dealSchema, setDealSchema] = useState<CRMSchema | null>(null);
 
   const mergedDealIdRef = useRef<string | null>(null);
   /** Reset to step 1 when memo id changes; init editedTranscript when transcript available */
@@ -86,6 +88,21 @@ const MemoDetail = () => {
       api.get("/auth/me").catch(() => {});
     }, 90_000);
     return () => clearInterval(id);
+  }, [reviewStep]);
+
+  /** Fetch CRM config + schema when user reaches Deal Details (step 2) – only configured fields will appear */
+  useEffect(() => {
+    if (reviewStep < 2) return;
+    let cancelled = false;
+    Promise.all([crmApi.getConfiguration(), crmApi.getSchema("deals")]).then(([config, schema]) => {
+      if (cancelled) return;
+      setDealConfig(config ? { allowed_deal_fields: config.allowed_deal_fields, default_pipeline_id: config.default_pipeline_id } : null);
+      setDealSchema(schema ?? null);
+    }).catch(() => {
+      if (!cancelled) setDealConfig(null);
+      setDealSchema(null);
+    });
+    return () => { cancelled = true; };
   }, [reviewStep]);
 
   /** Editable extraction state - controlled form, initialized from memo.extraction */
@@ -545,214 +562,132 @@ const MemoDetail = () => {
                     Deal Details
                   </h4>
                   <div className="grid sm:grid-cols-2 gap-6">
-                    <div className="space-y-2 sm:col-span-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Deal Name (auto)</label>
-                      <p className="text-sm font-bold text-muted-foreground py-2 px-4 rounded-full bg-secondary/5">
-                        {(extraction.companyName || "Company")} Deal
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Company</label>
-                      <Input
-                        value={extraction.companyName ?? ""}
-                        onChange={(e) => handleUpdateExtraction({ companyName: e.target.value || null })}
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Deal Amount</label>
-                      <Input
-                        value={extraction.dealAmount != null ? String(extraction.dealAmount) : ""}
-                        onChange={(e) => {
-                          const v = e.target.value.trim();
-                          handleUpdateExtraction({ dealAmount: v ? parseFloat(v) || null : null });
-                        }}
-                        placeholder="50000"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Currency</label>
-                      <Input
-                        value={extraction.dealCurrency ?? "EUR"}
-                        onChange={(e) => handleUpdateExtraction({ dealCurrency: e.target.value || "EUR" })}
-                        placeholder="EUR"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Deal Stage</label>
-                      <div className="relative">
-                        <select
-                          value={extraction.dealStage ?? ""}
-                          onChange={(e) => handleUpdateExtraction({ dealStage: e.target.value || null })}
-                          className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-                        >
-                          <option value="">Select stage</option>
-                          <option value="Discovery">Discovery</option>
-                          <option value="Proposal">Proposal</option>
-                          <option value="Negotiation">Negotiation</option>
-                          <option value="Closed Won">Closed Won</option>
-                        </select>
-                        <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Close Date</label>
-                      <Input
-                        type="date"
-                        value={extraction.closeDate ?? ""}
-                        onChange={(e) => handleUpdateExtraction({ closeDate: e.target.value || null })}
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>FTEs / Employees</label>
-                      <Input
-                        value={
-                          extraction.raw_extraction?.deal_ftes_active != null
-                            ? String(extraction.raw_extraction.deal_ftes_active)
-                            : extraction.raw_extraction?.ftes_fulltime_employees != null
-                              ? String(extraction.raw_extraction.ftes_fulltime_employees)
-                              : ""
-                        }
-                        onChange={(e) => {
-                          const v = e.target.value.trim();
-                          const num = v ? parseFloat(v) : null;
-                          handleUpdateRawField("deal_ftes_active", num);
-                          handleUpdateRawField("ftes_fulltime_employees", num);
-                        }}
-                        placeholder="750"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Price per FTE (€)</label>
-                      <Input
-                        value={
-                          extraction.raw_extraction?.price_per_fte_eur != null
-                            ? String(extraction.raw_extraction.price_per_fte_eur)
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const v = e.target.value.trim();
-                          handleUpdateRawField("price_per_fte_eur", v ? parseFloat(v) || null : null);
-                        }}
-                        placeholder="3"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Competitor price (€/emp)</label>
-                      <Input
-                        value={
-                          extraction.raw_extraction?.competitor_price != null
-                            ? String(extraction.raw_extraction.competitor_price)
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const v = e.target.value.trim();
-                          const n = v ? parseFloat(v) : NaN;
-                          handleUpdateRawField("competitor_price", v && !isNaN(n) ? n : null);
-                        }}
-                        placeholder="3"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Priority</label>
-                      <div className="relative">
-                        <select
-                          value={extraction.raw_extraction?.hs_priority ?? ""}
-                          onChange={(e) => handleUpdateRawField("hs_priority", e.target.value || null)}
-                          className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-                        >
-                          <option value="">Select priority</option>
-                          <option value="high">High</option>
-                          <option value="medium">Medium</option>
-                          <option value="low">Low</option>
-                        </select>
-                        <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>ES Hi Provider</label>
-                      <Input
-                        value={extraction.raw_extraction?.es_hi_provider ?? ""}
-                        onChange={(e) => handleUpdateRawField("es_hi_provider", e.target.value.trim() === "" ? null : e.target.value)}
-                        placeholder="Adeslas"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Total employees</label>
-                      <Input
-                        value={
-                          extraction.raw_extraction?.total_employees != null
-                            ? String(extraction.raw_extraction.total_employees)
-                            : ""
-                        }
-                        onChange={(e) => {
-                          const v = e.target.value.trim();
-                          const n = v ? parseFloat(v) : null;
-                          handleUpdateRawField("total_employees", n !== null && !isNaN(n) ? n : null);
-                        }}
-                        placeholder="750"
-                        className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-                      />
-                    </div>
-                  </div>
-                </div>
+                    {(() => {
+                      const allowed = dealConfig?.allowed_deal_fields?.length
+                        ? dealConfig.allowed_deal_fields
+                        : ["dealname", "amount", "closedate", "description", "dealstage"];
+                      const propMap = new Map(dealSchema?.properties?.map((p) => [p.name, p]) ?? []);
+                      const pipeline = dealSchema?.pipelines?.find((p) => p.id === dealConfig?.default_pipeline_id);
+                      const stageOptions = pipeline?.stages ?? [];
 
-                {/* Additional CRM fields (dynamic - any other raw_extraction keys) */}
-                {(() => {
-                  const raw = extraction.raw_extraction || {};
-                  const EXCLUDED_FROM_ADDITIONAL = new Set([
-                    "dealname", "amount", "closedate", "description", "summary", "confidence", "deal_currency_code",
-                    "nextSteps", "objections", "painPoints", "competitors", "decisionMakers", "hs_next_step",
-                  ]);
-                  const otherKeys = Object.keys(raw).filter(
-                    (k) =>
-                      !EXPLICIT_RAW_FIELDS.has(k) &&
-                      !EXCLUDED_FROM_ADDITIONAL.has(k) &&
-                      raw[k] != null &&
-                      raw[k] !== ""
-                  );
-                  if (otherKeys.length === 0) return null;
-                  return (
-                    <div>
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10">
-                        Additional CRM Fields
-                      </h4>
-                      <div className="grid sm:grid-cols-2 gap-6">
-                        {otherKeys.map((key) => {
-                          const val = raw[key];
-                          const label = RAW_FIELD_LABELS[key] || key.replace(/_/g, " ");
-                          const isNum = typeof val === "number";
+                      return allowed.map((fieldName) => {
+                        const prop = propMap.get(fieldName);
+                        const label = prop?.label ?? formatFieldLabel(fieldName);
+                        const fieldType = (prop?.type ?? "string").toLowerCase();
+                        const options = fieldName === "dealstage" && stageOptions.length
+                          ? stageOptions.map((s) => ({ label: s.label, value: s.label }))
+                          : prop?.options ?? [];
+
+                        const std = STANDARD_DEAL_FIELDS[fieldName];
+                        const raw = extraction.raw_extraction || {};
+                        const nextSteps = extraction.nextSteps ?? [];
+
+                        let value: string | number | null = null;
+                        if (fieldName === "hs_next_step") {
+                          value = (nextSteps[0] ?? raw.hs_next_step) != null ? String(nextSteps[0] ?? raw.hs_next_step) : null;
+                        } else if (std?.getKey) {
+                          const v = extraction[std.getKey];
+                          value = v != null && v !== "" ? (typeof v === "number" ? v : String(v)) : null;
+                          if (value === null && fieldName === "amount" && raw.amount != null) value = raw.amount as number;
+                          if (value === null && fieldName === "closedate" && raw.closedate) value = raw.closedate as string;
+                          if (value === null && fieldName === "dealstage" && raw.dealstage) value = raw.dealstage as string;
+                          if (value === null && fieldName === "description" && raw.description) value = raw.description as string;
+                        } else {
+                          const v = raw[fieldName];
+                          value = v != null && v !== "" ? (typeof v === "number" ? v : String(v)) : null;
+                        }
+
+                        const inputClass = "bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold";
+                        const setStandard = (v: string | number | null) => {
+                          if (fieldName === "hs_next_step") {
+                            const str = v ? String(v) : null;
+                            handleUpdateExtraction({ nextSteps: str ? [str, ...nextSteps.slice(1)] : nextSteps.slice(1) });
+                            handleUpdateRawField("hs_next_step", str);
+                          } else if (std?.getKey) {
+                            if (std.getKey === "companyName") handleUpdateExtraction({ companyName: v ? String(v) : null });
+                            else if (std.getKey === "dealAmount") handleUpdateExtraction({ dealAmount: v != null && v !== "" ? (typeof v === "number" ? v : parseFloat(String(v)) || null) : null });
+                            else if (std.getKey === "dealCurrency") handleUpdateExtraction({ dealCurrency: v ? String(v) : "EUR" });
+                            else if (std.getKey === "dealStage") handleUpdateExtraction({ dealStage: v ? String(v) : null });
+                            else if (std.getKey === "closeDate") handleUpdateExtraction({ closeDate: v ? String(v) : null });
+                            else if (std.getKey === "summary") handleUpdateExtraction({ summary: v ? String(v) : "" });
+                          }
+                        };
+                        const setRaw = (v: string | number | null) => handleUpdateRawField(fieldName, v);
+                        const setValue = (std && (std.getKey || fieldName === "hs_next_step")) ? setStandard : setRaw;
+
+                        if (options.length > 0) {
                           return (
-                            <div key={key} className="space-y-2">
+                            <div key={fieldName} className="space-y-2">
+                              <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
+                              <div className="relative">
+                                <select
+                                  value={String(value ?? "")}
+                                  onChange={(e) => setValue(e.target.value || null)}
+                                  className={`w-full h-12 px-6 rounded-full border border-border/40 ${inputClass} text-foreground appearance-none cursor-pointer focus:outline-none`}
+                                >
+                                  <option value="">Select…</option>
+                                  {options.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                                <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (fieldType === "number" || fieldType === "double" || fieldType === "integer") {
+                          return (
+                            <div key={fieldName} className="space-y-2">
                               <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
                               <Input
-                                value={String(val ?? "")}
+                                type="number"
+                                value={value != null ? String(value) : ""}
                                 onChange={(e) => {
-                                  const v = e.target.value;
-                                  if (isNum) {
-                                    const t = v.trim();
-                                    const n = t ? parseFloat(t) : NaN;
-                                    handleUpdateRawField(key, t && !isNaN(n) ? n : null);
-                                  } else {
-                                    handleUpdateRawField(key, v.trim() === "" ? null : v);
-                                  }
+                                  const v = e.target.value.trim();
+                                  const n = v ? parseFloat(v) : NaN;
+                                  setValue(v && !isNaN(n) ? n : null);
                                 }}
-                                className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
+                                className={inputClass}
                               />
                             </div>
                           );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
+                        }
+                        if (fieldType === "datetime" || fieldType === "date") {
+                          return (
+                            <div key={fieldName} className="space-y-2">
+                              <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
+                              <Input
+                                type="date"
+                                value={String(value ?? "").slice(0, 10)}
+                                onChange={(e) => setValue(e.target.value || null)}
+                                className={inputClass}
+                              />
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={fieldName} className="space-y-2">
+                            <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
+                            {fieldType === "textarea" || (prop?.type === "textarea") ? (
+                              <Textarea
+                                value={String(value ?? "")}
+                                onChange={(e) => setValue(e.target.value.trim() === "" ? null : e.target.value)}
+                                rows={3}
+                                className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-bold"
+                              />
+                            ) : (
+                              <Input
+                                value={String(value ?? "")}
+                                onChange={(e) => setValue(e.target.value.trim() === "" ? null : e.target.value)}
+                                className={inputClass}
+                              />
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
 
                 {/* Contact */}
                 <div>

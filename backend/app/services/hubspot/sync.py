@@ -23,6 +23,10 @@ from .types import SyncResult
 from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
+
+# When updating an existing deal (e.g. from extension on a known HubSpot deal page),
+# never overwrite these fields - they belong to the deal context, not the memo.
+FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL = frozenset({"dealname"})
 from .associations import HubSpotAssociationService
 from .tasks import HubSpotTasksService, _parse_date_from_text
 from app.models.memo import MemoExtraction
@@ -446,6 +450,12 @@ class HubSpotSyncService:
                     filtered_properties = self._filter_properties(
                         merged_properties, allowed_fields
                     )
+                    # Never overwrite deal identity when updating existing deal
+                    # (e.g. extension recorded on known HubSpot deal page)
+                    filtered_properties = {
+                        k: v for k, v in filtered_properties.items()
+                        if k not in FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL
+                    }
 
                     if not filtered_properties:
                         # No changes to apply - still success
@@ -716,9 +726,13 @@ class HubSpotSyncService:
                 extra=log_domain(DOMAIN_HUBSPOT, "sync_complete", memo_id=str(memo_id), deal_id=result.deal_id, company_id=result.company_id, contact_id=result.contact_id, duration_ms=round(elapsed * 1000, 2)),
             )
             
-            # Generate deal name and URL for frontend
+            # Generate deal name and URL for frontend (use actual HubSpot deal name)
             if deal_id:
-                result.deal_name = extraction.companyName or "New Deal"
+                try:
+                    deal_obj = await self.deals.get(deal_id, properties=["dealname"])
+                    result.deal_name = (deal_obj.properties or {}).get("dealname") or "Deal"
+                except Exception:
+                    result.deal_name = extraction.companyName or "Deal"
                 
                 portal_id = None
                 region = "na1"

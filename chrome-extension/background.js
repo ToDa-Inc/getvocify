@@ -94,8 +94,17 @@ async function startRecording() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const context = tab?.url ? parseHubSpotUrl(tab.url) : null;
 
+    // Build WebSocket URL with user_id for glossary (same pattern as dashboard useRealtimeTranscription)
+    const apiBase = await api.getApiBase();
+    const wsBase = apiBase.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '');
+    const user = await api.getCurrentUser().catch(() => null);
+    const userId = user?.id || '';
+    const wsUrl = new URL(`${wsBase}/api/v1/transcription/live`);
+    wsUrl.searchParams.set('language', 'multi');
+    if (userId) wsUrl.searchParams.set('user_id', userId);
+
     await getOffscreenDocument();
-    chrome.runtime.sendMessage({ target: 'offscreen', type: 'START_RECORDING' });
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'START_RECORDING', wsUrl: wsUrl.toString() });
     
     updateState({ 
       isRecording: true, 
@@ -328,6 +337,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'GET_DEAL_CONTEXT':
       api.get(`/crm/hubspot/deals/${message.dealId}/context`)
+        .then(sendResponse)
+        .catch(e => sendResponse({ error: e.message }));
+      return true;
+
+    case 'GET_CRM_CONFIG':
+      api.get('/crm/hubspot/configuration')
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;

@@ -35,10 +35,10 @@ let currentDealId = null;
 let searchTimeout = null;
 let previewLoaded = false;
 let sessionHeartbeatId = null;
-/** Wizard: 1=transcript, 2=edit CRM fields, 3=deal target + proposed changes + confirm. Matches web app flow. */
-let reviewStep = 1;
-/** Edited extraction (Step 2) - passed to preview and approve */
-let editedExtraction = null;
+/** Cached preview data for extraction merge */
+let lastPreviewData = null;
+/** Edits/removals from proposed updates (index → update or null if removed) */
+let editedProposedUpdates = null;
 
 // ============================================
 // SCREEN MANAGEMENT
@@ -133,7 +133,6 @@ function renderState(state) {
       liveTranscriptContainer.style.display = 'none';
       shortcutBox.style.display = 'block';
       previewLoaded = false;
-      reviewStep = 1;
       currentMemoId = null;
       loadRecentMemos(); // Refresh recent list
       break;
@@ -147,31 +146,12 @@ function renderState(state) {
       showScreen('review');
       if (state.currentMemoId && currentMemoId !== state.currentMemoId) {
         currentMemoId = state.currentMemoId;
-        reviewStep = 1;
         previewLoaded = false;
-        editedExtraction = null;
+        lastPreviewData = null;
+        editedProposedUpdates = null;
       }
       if (state.currentMemoId) {
-        if (reviewStep === 1) {
-          loadTranscriptForReview(state.currentMemoId);
-          setReviewUIForStep(1);
-        } else if (reviewStep === 2) {
-          const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
-          loadExtractionForEdit(state.currentMemoId, dealId);
-          setReviewUIForStep(2);
-        } else {
-          // Step 3: When on deal page, auto-use that deal; otherwise show match/search
-          const onDealPage = state.context?.objectType === 'deal' && state.context?.recordId;
-          const dealIdToLoad = onDealPage ? state.context.recordId : currentDealId;
-          if (!previewLoaded || currentMemoId !== state.currentMemoId || (onDealPage && currentDealId !== state.context?.recordId)) {
-            currentMemoId = state.currentMemoId;
-            currentDealId = onDealPage ? state.context.recordId : currentDealId;
-            previewLoaded = true;
-            loadPreview(currentMemoId, dealIdToLoad, editedExtraction);
-          }
-          showUseCurrentDealOption(onDealPage ? null : state.context);
-          setReviewUIForStep(3);
-        }
+        handleReviewState(state.currentMemoId, state.context);
       }
       break;
       
@@ -199,37 +179,53 @@ function stopSessionHeartbeat() {
   }
 }
 
-function setReviewUIForStep(step) {
+/** Route review to pending-transcript or proposed-changes based on memo status */
+async function handleReviewState(memoId, context) {
   startSessionHeartbeat();
-  const step1Content = document.getElementById('review-step1-content');
-  const step2Content = document.getElementById('review-step2-content');
-  const step3Content = document.getElementById('review-step3-content');
-  const step1Actions = document.getElementById('review-step1-actions');
-  const step2Actions = document.getElementById('review-step2-actions');
-  const step3Actions = document.getElementById('review-step3-actions');
-  const stepLabel = document.getElementById('review-step-label');
-  const labels = { 1: 'Step 1 of 3: Review transcript', 2: 'Step 2 of 3: Edit CRM fields', 3: 'Step 3 of 3: Deal target & confirm' };
-  if (stepLabel) stepLabel.textContent = labels[step] || '';
-  [step1Content, step2Content, step3Content].forEach((el, i) => {
-    if (el) el.style.display = (i + 1 === step) ? 'block' : 'none';
-  });
-  [step1Actions, step2Actions, step3Actions].forEach((el, i) => {
-    if (el) el.style.display = (i + 1 === step) ? 'flex' : 'none';
-  });
-}
+  try {
+    const memo = await api.getMemo(memoId);
+    const status = memo?.status || '';
+    const pendingTranscript = status === 'pending_transcript';
 
-function showUseCurrentDealOption(context) {
-  const opt = document.getElementById('use-current-deal-option');
-  if (!opt) return;
-  if (context?.objectType === 'deal' && context?.recordId) {
-    opt.style.display = 'block';
-  } else {
-    opt.style.display = 'none';
+    const pendingSection = document.getElementById('pending-transcript-section');
+    const proposedMain = document.getElementById('proposed-changes-main');
+    const reviewActions = document.getElementById('review-actions');
+
+    if (pendingTranscript) {
+      pendingSection.style.display = 'block';
+      proposedMain.style.display = 'none';
+      reviewActions.style.display = 'none';
+      loadTranscriptForReview(memoId);
+    } else {
+      pendingSection.style.display = 'none';
+      proposedMain.style.display = 'block';
+      reviewActions.style.display = 'flex';
+      const onDealPage = context?.objectType === 'deal' && context?.recordId;
+      const dealIdToLoad = onDealPage ? context.recordId : currentDealId;
+      if (!previewLoaded || currentMemoId !== memoId || (onDealPage && currentDealId !== context?.recordId)) {
+        currentMemoId = memoId;
+        currentDealId = onDealPage ? context.recordId : currentDealId;
+        previewLoaded = true;
+        await loadPreview(memoId, dealIdToLoad, null);
+      }
+      showUseCurrentDealOption(onDealPage ? context : null);
+      const transcriptEl = document.getElementById('transcript-expanded');
+      const preview = lastPreviewData;
+      if (transcriptEl && preview?.transcript) {
+        transcriptEl.textContent = preview.transcript;
+      }
+    }
+  } catch (e) {
+    console.error('[Popup] handleReviewState error:', e);
   }
 }
 
-/** Cached memo status for step 1 (pending_transcript = editable, pending_review = readonly) */
-let memoStatusForStep1 = null;
+/** Show "Use deal on this page" when user is on a HubSpot deal page but viewing different deal/new deal */
+function showUseCurrentDealOption(context) {
+  const opt = document.getElementById('use-current-deal-option');
+  if (!opt) return;
+  opt.style.display = context?.objectType === 'deal' && context?.recordId ? 'block' : 'none';
+}
 
 async function loadTranscriptForReview(memoId) {
   const el = document.getElementById('transcript-content');
@@ -238,9 +234,9 @@ async function loadTranscriptForReview(memoId) {
   el.readOnly = true;
   try {
     const memo = await api.getMemo(memoId);
-    memoStatusForStep1 = memo?.status || null;
+    const status = memo?.status || '';
     el.value = memo?.transcript || 'No transcript available.';
-    el.readOnly = memoStatusForStep1 === 'pending_review'; // Editable only when pending_transcript
+    el.readOnly = status === 'pending_review'; // Editable only when pending_transcript
     if (memo?.status === 'failed') {
       showExtractionError(memo?.errorMessage || 'Extraction failed. Click Retry to try again.');
     } else if (memo?.status === 'extracting') {
@@ -253,131 +249,6 @@ async function loadTranscriptForReview(memoId) {
     el.value = 'Failed to load transcript.';
     el.readOnly = true;
   }
-}
-
-function _el(id) { return document.getElementById(id); }
-
-function _isEmpty(v) {
-  return v == null || v === '' || String(v).trim().toLowerCase() === 'unknown';
-}
-
-async function loadExtractionForEdit(memoId, dealId = null) {
-  try {
-    const memo = await api.getMemo(memoId);
-    let ext = memo?.extraction || {};
-    let raw = { ...(ext.raw_extraction || {}) };
-
-    if (dealId) {
-      let ctx = null;
-      try {
-        ctx = await chrome.runtime.sendMessage({ type: 'GET_DEAL_CONTEXT', dealId });
-      } catch (_) { /* ignore */ }
-      if (!ctx || ctx.error) {
-        try {
-          const preview = await chrome.runtime.sendMessage({ type: 'GET_PREVIEW', memoId, dealId });
-          if (preview && !preview.error && preview.selected_deal) {
-            const sel = preview.selected_deal;
-            ctx = {
-              companyName: sel.company_name || null,
-              contactName: sel.contact_name || null,
-              contactEmail: sel.contact_email || null,
-              raw_extraction: { dealname: sel.deal_name, amount: sel.amount }
-            };
-            (preview.proposed_updates || []).forEach(u => {
-              if (u.current_value && ctx.raw_extraction) {
-                if (u.field_name === 'dealname') ctx.raw_extraction.dealname = u.current_value;
-                else if (u.field_name === 'amount') ctx.raw_extraction.amount = parseFloat(u.current_value) || u.current_value;
-                else if (u.field_name === 'closedate') ctx.raw_extraction.closedate = u.current_value;
-                else if (u.field_name === 'dealstage') ctx.raw_extraction.dealstage = u.current_value;
-                else if (u.field_name === 'hs_next_step') ctx.raw_extraction.hs_next_step = u.current_value;
-                else if (u.field_name === 'company_name') ctx.companyName = ctx.companyName || u.current_value;
-                else if (u.field_name === 'contact_name') ctx.contactName = ctx.contactName || u.current_value;
-              }
-            });
-          }
-        } catch (_) { /* ignore */ }
-      }
-      if (ctx && !ctx.error) {
-        if (_isEmpty(ext.companyName) && ctx.companyName) {
-          ext = { ...ext, companyName: ctx.companyName };
-          raw.dealname = ctx.companyName;
-        }
-        if (_isEmpty(ext.contactName) && ctx.contactName) ext = { ...ext, contactName: ctx.contactName };
-        if (_isEmpty(ext.contactEmail) && ctx.contactEmail) ext = { ...ext, contactEmail: ctx.contactEmail };
-        const r = ctx.raw_extraction || {};
-        if (_isEmpty(raw.dealname) && r.dealname) raw.dealname = r.dealname;
-        if ((raw.amount == null || _isEmpty(raw.amount)) && r.amount != null) raw.amount = r.amount;
-        if (_isEmpty(raw.closedate) && r.closedate) raw.closedate = r.closedate;
-        if (_isEmpty(raw.dealstage) && r.dealstage) raw.dealstage = r.dealstage;
-        if (_isEmpty(raw.hs_next_step) && r.hs_next_step) raw.hs_next_step = r.hs_next_step;
-        ext = { ...ext, raw_extraction: raw };
-      }
-    }
-
-    const nextSteps = Array.isArray(ext.nextSteps) ? ext.nextSteps : [];
-    const nextStepsStr = nextSteps.map(s => `• ${s}`).join('\n');
-
-    _el('ext-company').value = ext.companyName || raw.dealname || '';
-    _el('ext-amount').value = ext.dealAmount != null ? String(ext.dealAmount) : (raw.amount != null ? String(raw.amount) : '');
-    _el('ext-contact').value = ext.contactName || '';
-    _el('ext-contact-email').value = ext.contactEmail || '';
-    _el('ext-stage').value = ext.dealStage || raw.dealstage || '';
-    _el('ext-closedate').value = ext.closeDate || raw.closedate || '';
-    _el('ext-ftes').value = raw.deal_ftes_active != null ? String(raw.deal_ftes_active) : (raw.ftes_fulltime_employees != null ? String(raw.ftes_fulltime_employees) : '');
-    _el('ext-price-per-fte').value = raw.price_per_fte_eur != null ? String(raw.price_per_fte_eur) : '';
-    _el('ext-competitor-price').value = raw.competitor_price != null ? String(raw.competitor_price) : '';
-    _el('ext-es-hi').value = raw.es_hi_provider || '';
-    _el('ext-total-employees').value = raw.total_employees != null ? String(raw.total_employees) : '';
-    _el('ext-priority').value = raw.hs_priority || '';
-    _el('ext-summary').value = ext.summary || '';
-    _el('ext-nextsteps').value = nextStepsStr;
-    editedExtraction = ext;
-  } catch (e) {
-    console.error('[Popup] Failed to load extraction:', e);
-  }
-}
-
-function collectEditedExtraction() {
-  const parseBullets = (txt) => (txt || '').split('\n').map(l => l.replace(/^[•\-*]\s*/, '').trim()).filter(Boolean);
-  const raw = { ...(editedExtraction?.raw_extraction || {}) };
-
-  const company = _el('ext-company')?.value?.trim() || null;
-  const amountStr = _el('ext-amount')?.value?.trim();
-  const amount = amountStr ? parseFloat(amountStr) || null : null;
-  const nextSteps = parseBullets(_el('ext-nextsteps')?.value || '');
-  const ftesStr = _el('ext-ftes')?.value?.trim();
-  const ftes = ftesStr ? parseFloat(ftesStr) || null : null;
-  const pricePerFteStr = _el('ext-price-per-fte')?.value?.trim();
-  const pricePerFte = pricePerFteStr ? parseFloat(pricePerFteStr) || null : null;
-  const competitorPriceStr = _el('ext-competitor-price')?.value?.trim();
-  const competitorPrice = competitorPriceStr ? parseFloat(competitorPriceStr) || null : null;
-  const totalEmployeesStr = _el('ext-total-employees')?.value?.trim();
-  const totalEmployees = totalEmployeesStr ? parseFloat(totalEmployeesStr) || null : null;
-
-  if (company) raw.dealname = company;
-  if (amount != null) raw.amount = amount;
-  if (_el('ext-stage')?.value) raw.dealstage = _el('ext-stage').value;
-  if (_el('ext-closedate')?.value) raw.closedate = _el('ext-closedate').value;
-  if (ftes != null) { raw.deal_ftes_active = ftes; raw.ftes_fulltime_employees = ftes; }
-  if (pricePerFte != null) raw.price_per_fte_eur = pricePerFte;
-  if (competitorPrice != null) raw.competitor_price = competitorPrice;
-  if (_el('ext-es-hi')?.value) raw.es_hi_provider = _el('ext-es-hi').value.trim();
-  if (totalEmployees != null) raw.total_employees = totalEmployees;
-  if (_el('ext-priority')?.value) raw.hs_priority = _el('ext-priority').value;
-  if (nextSteps[0]) raw.hs_next_step = nextSteps[0];
-
-  return {
-    ...editedExtraction,
-    companyName: company,
-    dealAmount: amount,
-    contactName: _el('ext-contact')?.value?.trim() || null,
-    contactEmail: _el('ext-contact-email')?.value?.trim() || null,
-    dealStage: _el('ext-stage')?.value || null,
-    closeDate: _el('ext-closedate')?.value || null,
-    summary: _el('ext-summary')?.value?.trim() || '',
-    nextSteps,
-    raw_extraction: raw
-  };
 }
 
 // ============================================
@@ -439,64 +310,34 @@ async function loadRecentMemos() {
 }
 
 async function loadPreview(memoId, dealId = null, extraction = null) {
-  console.log('[Popup] Loading preview for memo:', memoId, 'dealId:', dealId, 'hasExtraction:', !!extraction);
-  
   document.getElementById('target-deal-name').textContent = 'Loading...';
   document.getElementById('target-deal-reason').textContent = '';
   proposedUpdatesList.innerHTML = '<div class="spinner" style="margin: 20px auto;"></div>';
-  
+
   try {
-    const preview = await chrome.runtime.sendMessage({ 
-      type: 'GET_PREVIEW', 
-      memoId, 
+    const preview = await chrome.runtime.sendMessage({
+      type: 'GET_PREVIEW',
+      memoId,
       dealId,
       extraction: extraction || undefined
     });
-    
-    console.log('[Popup] Preview response:', preview);
 
     if (preview && !preview.error) {
+      lastPreviewData = preview;
       previewLoaded = true;
       const match = preview.selected_deal;
       currentDealId = match ? match.deal_id : null;
 
-      // Transcript for review
-      const transcriptEl = document.getElementById('transcript-content');
-      if (transcriptEl) {
-        transcriptEl.textContent = preview.transcript || preview.transcript_summary || 'No transcript available.';
-      }
-      
       document.getElementById('target-deal-name').textContent = match ? match.deal_name : 'New Deal';
       const reasonText = match
         ? (match.match_reason === 'Manual Selection' ? 'From current page' : `Matched via ${(match.match_reason || 'AI').toLowerCase()}`)
         : 'A new record will be created';
       document.getElementById('target-deal-reason').textContent = reasonText;
-      
-      // Inject proposed updates
-      proposedUpdatesList.innerHTML = '';
-      const updates = preview.proposed_updates || [];
-      
-      if (updates.length === 0) {
-        proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px;">No field updates extracted.</p>';
-      } else {
-        updates.forEach(update => {
-          const div = document.createElement('div');
-          const hadExisting =
-            update.current_value != null &&
-            String(update.current_value).trim() !== '' &&
-            String(update.current_value).trim() !== '(empty)';
-          const isOverride = !!hadExisting;
-          div.className = 'update-item' + (isOverride ? ' override' : ' new');
-          div.innerHTML = `
-            <p class="update-label">${update.field_label || update.field_name}</p>
-            <p class="update-value">${update.new_value || '—'}</p>
-            ${hadExisting ? `<p class="update-current">Was: ${update.current_value}</p>` : ''}
-          `;
-          proposedUpdatesList.appendChild(div);
-        });
-      }
+
+      // Reset edited state when loading fresh preview
+      editedProposedUpdates = null;
+      renderProposedUpdates(preview.proposed_updates || [], preview.available_fields || []);
     } else {
-      console.error('[Popup] Preview error:', preview?.error);
       document.getElementById('target-deal-name').textContent = 'Error';
       proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Failed to load preview.</p>';
     }
@@ -505,6 +346,197 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
     document.getElementById('target-deal-name').textContent = 'Error';
     proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Error loading preview.</p>';
   }
+}
+
+function renderProposedUpdates(updates, availableFields) {
+  proposedUpdatesList.innerHTML = '';
+  const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
+
+  list.forEach((update, idx) => {
+    if (!update) return; // removed
+    const hadExisting =
+      update.current_value != null &&
+      String(update.current_value).trim() !== '' &&
+      String(update.current_value).trim() !== '(empty)';
+    const isOverride = !!hadExisting;
+    const isDealField = !['contact_name', 'company_name'].includes(update.field_name) && !update.field_name.startsWith('next_step_task_');
+
+    const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+    const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+
+    const div = document.createElement('div');
+    div.className = 'update-item' + (isOverride ? ' override' : ' new');
+    div.dataset.idx = String(idx);
+    div.innerHTML = `
+      <div class="update-content">
+        <p class="update-label">${update.field_label || update.field_name}</p>
+        <p class="update-value">${escapeHtml(update.new_value || '—')}</p>
+        ${hadExisting ? `<p class="update-current">Was: ${escapeHtml(update.current_value)}</p>` : ''}
+        ${update.options && update.options.length ? `
+          <div class="select-wrapper" style="display:none;">
+            <select class="update-edit-input">
+              <option value="">—</option>
+              ${update.options.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label || o.value)}</option>`).join('')}
+            </select>
+          </div>
+        ` : `<input type="${update.field_type === 'number' ? 'number' : update.field_name === 'closedate' ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(update.new_value || '')}" style="display:none;" />`}
+      </div>
+      ${isDealField ? `<div class="update-actions"><button class="update-action-btn edit" title="Edit">${editIcon}</button><button class="update-action-btn remove" title="Remove">${removeIcon}</button></div>` : ''}
+    `;
+
+    const valueEl = div.querySelector('.update-value');
+    const editInput = div.querySelector('.update-edit-input');
+    const selectWrapper = div.querySelector('.select-wrapper');
+    const editBtn = div.querySelector('.update-action-btn.edit');
+    const removeBtn = div.querySelector('.update-action-btn.remove');
+
+    if (editBtn && editInput) {
+      editBtn.onclick = () => {
+        div.classList.add('editing');
+        valueEl.style.display = 'none';
+        if (selectWrapper) {
+          selectWrapper.style.display = 'block';
+          editInput.style.display = 'block';
+        } else {
+          editInput.style.display = 'block';
+        }
+        editInput.value = update.new_value || '';
+        editInput.focus();
+      };
+    }
+    if (editInput) {
+      const saveEdit = () => {
+        const v = editInput.value?.trim() || '';
+        div.classList.remove('editing');
+        valueEl.style.display = 'block';
+        if (selectWrapper) selectWrapper.style.display = 'none';
+        editInput.style.display = 'none';
+        if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
+        if (editedProposedUpdates[idx]) {
+          editedProposedUpdates[idx].new_value = v;
+          valueEl.textContent = v || '—';
+        }
+      };
+      editInput.addEventListener('blur', saveEdit);
+      editInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveEdit(); });
+    }
+    if (removeBtn) {
+      removeBtn.onclick = () => {
+        if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
+        editedProposedUpdates[idx] = null;
+        const af = (lastPreviewData && lastPreviewData.available_fields) || [];
+        renderProposedUpdates(editedProposedUpdates.filter(Boolean), af);
+      };
+    }
+
+    proposedUpdatesList.appendChild(div);
+  });
+
+  const addBtn = document.getElementById('btn-add-field');
+  const dropdown = document.getElementById('add-field-dropdown');
+  if (availableFields.length > 0 && addBtn) {
+    addBtn.style.display = 'block';
+    addBtn.onclick = () => {
+      const expanded = dropdown.style.display === 'block';
+      dropdown.style.display = expanded ? 'none' : 'block';
+      if (!expanded) {
+        dropdown.innerHTML = availableFields
+          .filter((f) => !list.some((u) => u && u.field_name === f.name))
+          .map(
+            (f) =>
+              `<div class="add-field-opt" data-name="${escapeHtml(f.name)}" data-label="${escapeHtml(f.label)}" data-type="${escapeHtml(f.type)}">${escapeHtml(f.label)}</div>`
+          )
+          .join('');
+        dropdown.querySelectorAll('.add-field-opt').forEach((opt) => {
+          opt.onclick = () => {
+            const newUpdate = {
+              field_name: opt.dataset.name,
+              field_label: opt.dataset.label,
+              field_type: opt.dataset.type || 'string',
+              current_value: null,
+              new_value: '',
+              options: availableFields.find((af) => af.name === opt.dataset.name)?.options
+            };
+            const nextList = editedProposedUpdates !== null ? [...editedProposedUpdates.filter(Boolean), newUpdate] : [...list, newUpdate];
+            editedProposedUpdates = nextList;
+            dropdown.style.display = 'none';
+            renderProposedUpdates(editedProposedUpdates, availableFields);
+          };
+        });
+      }
+    }
+  } else if (addBtn) {
+    addBtn.style.display = 'none';
+    dropdown.style.display = 'none';
+  }
+
+  if (list.filter(Boolean).length === 0 && !editedProposedUpdates) {
+    proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px;">No field updates extracted.</p>';
+  }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(s);
+  return div.innerHTML;
+}
+
+/** Build extraction from memo + edited proposed updates for approve API */
+async function buildExtractionForApprove() {
+  const preview = lastPreviewData;
+  if (!preview) return undefined;
+
+  const memo = await api.getMemo(currentMemoId);
+  const base = memo?.extraction ? { ...memo.extraction } : {};
+  const raw = { ...(base.raw_extraction || {}) };
+
+  const updates = editedProposedUpdates !== null
+    ? editedProposedUpdates.filter(Boolean)
+    : (preview.proposed_updates || []);
+
+  for (const u of updates) {
+    const val = u.new_value?.trim() || null;
+    if (!val && u.field_name !== 'description') continue;
+
+    if (u.field_name === 'contact_name') {
+      base.contactName = val;
+    } else if (u.field_name === 'company_name') {
+      base.companyName = val;
+      raw.dealname = val;
+    } else if (u.field_name === 'dealname') {
+      base.companyName = val;
+      raw.dealname = val;
+    } else if (u.field_name === 'amount') {
+      const amt = parseFloat(val);
+      base.dealAmount = Number.isFinite(amt) ? amt : null;
+      raw.amount = base.dealAmount;
+    } else if (u.field_name === 'closedate') {
+      base.closeDate = val;
+      raw.closedate = val;
+    } else if (u.field_name === 'dealstage') {
+      base.dealStage = val;
+      raw.dealstage = val;
+    } else if (u.field_name === 'description') {
+      base.summary = val || '';
+      raw.description = val || '';
+    } else if (u.field_name === 'hs_next_step') {
+      raw.hs_next_step = val;
+      base.nextSteps = val ? [val] : [];
+    } else if (u.field_name.startsWith('next_step_task_')) {
+      const steps = [...(base.nextSteps || [])];
+      const i = parseInt(u.field_name.replace('next_step_task_', ''), 10);
+      if (val && !Number.isNaN(i)) {
+        steps[i] = val;
+        base.nextSteps = steps.filter(Boolean);
+        if (base.nextSteps[0]) raw.hs_next_step = base.nextSteps[0];
+      }
+    } else if (val) {
+      raw[u.field_name] = u.field_type === 'number' ? (parseFloat(val) || null) : val;
+    }
+  }
+
+  return { ...base, raw_extraction: raw };
 }
 
 async function searchDeals(query) {
@@ -538,7 +570,7 @@ async function searchDeals(query) {
         item.onclick = () => {
           previewLoaded = false;
           currentDealId = deal.deal_id;
-          loadPreview(currentMemoId, deal.deal_id, editedExtraction);
+          loadPreview(currentMemoId, deal.deal_id, null);
           document.getElementById('deal-search-box').style.display = 'none';
           dealSearchInput.value = '';
           searchResultsBox.innerHTML = '';
@@ -624,14 +656,15 @@ dealSearchInput?.addEventListener('input', (e) => {
 approveSyncButton?.addEventListener('click', async () => {
   approveSyncButton.disabled = true;
   approveSyncButton.textContent = 'Syncing...';
-  
+
   try {
-    await chrome.runtime.sendMessage({ 
-      type: 'APPROVE_SYNC', 
-      memoId: currentMemoId, 
+    const extraction = await buildExtractionForApprove();
+    await chrome.runtime.sendMessage({
+      type: 'APPROVE_SYNC',
+      memoId: currentMemoId,
       dealId: currentDealId,
       isNewDeal: !currentDealId,
-      extraction: editedExtraction || undefined
+      extraction: extraction || undefined
     });
   } catch (e) {
     console.error('[Popup] Approve error:', e);
@@ -646,125 +679,90 @@ document.getElementById('discard-button')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
 });
 
-// Review wizard - event delegation
-document.getElementById('screen-review')?.addEventListener('click', async (e) => {
-  if (e.target.id === 'review-continue-btn') {
-    if (memoStatusForStep1 === 'pending_transcript') {
-      // User confirmed transcript -> trigger extraction, poll until done, then step 2
-      const transcriptEl = document.getElementById('transcript-content');
-      const transcript = transcriptEl?.value?.trim() || '';
-      if (!transcript) return;
-      e.target.disabled = true;
-      e.target.textContent = 'Extracting...';
-      try {
-        await api.post(`/memos/${currentMemoId}/confirm-transcript`, { transcript });
-        setProcessingScreenMode('extracting');
-        showScreen('processing');
-
-        // Poll until pending_review (max ~2 min)
-        let pollCount = 0;
-        let done = false;
-        while (pollCount < 60) {
-          await new Promise(r => setTimeout(r, 2000));
-          const memo = await api.getMemo(currentMemoId);
-          if (memo.status === 'pending_review') {
-            reviewStep = 2;
-            memoStatusForStep1 = 'pending_review';
-            hideExtractionError();
-            showScreen('review');
-            loadExtractionForEdit(currentMemoId);
-            setReviewUIForStep(2);
-            done = true;
-            break;
-          }
-          if (memo.status === 'failed') {
-            showExtractionError(memo.errorMessage || 'Extraction failed.');
-            showScreen('review');
-            loadTranscriptForReview(currentMemoId);
-            setReviewUIForStep(1);
-            done = true;
-            break;
-          }
-          pollCount++;
-        }
-        if (!done && pollCount >= 60) {
-          showExtractionError('Extraction is taking longer than expected. Click Retry to try again.');
-          showScreen('review');
-          loadTranscriptForReview(currentMemoId);
-          setReviewUIForStep(1);
-        }
-      } catch (err) {
-        console.error('[Popup] Confirm transcript error:', err);
-        showExtractionError(err?.message || 'Something went wrong. Click Retry to try again.');
-        showScreen('review');
-        loadTranscriptForReview(currentMemoId);
-        setReviewUIForStep(1);
-      } finally {
-        e.target.disabled = false;
-        e.target.textContent = 'Continue to Step 2';
-      }
-    } else {
-      // Already extracted (pending_review) - just go to step 2
-      reviewStep = 2;
-      chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
-    }
-  } else if (e.target.id === 'review-continue-step2-btn') {
-    editedExtraction = collectEditedExtraction();
-    reviewStep = 3;
-    previewLoaded = false;
-    api.getCurrentUser().catch(() => {}).finally(() => {
-      chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
-    });
-  } else if (e.target.id === 'retry-extraction-btn') {
-    e.target.disabled = true;
-    e.target.textContent = 'Retrying...';
-    hideExtractionError();
+// Review - confirm transcript (Extract & Continue)
+document.getElementById('review-confirm-transcript-btn')?.addEventListener('click', async function () {
+  const transcriptEl = document.getElementById('transcript-content');
+  const transcript = transcriptEl?.value?.trim() || '';
+  if (!transcript) return;
+  this.disabled = true;
+  this.textContent = 'Extracting...';
+  hideExtractionError();
+  try {
+    await api.post(`/memos/${currentMemoId}/confirm-transcript`, { transcript });
     setProcessingScreenMode('extracting');
     showScreen('processing');
-    try {
-      const memo = await api.reExtract(currentMemoId);
-        if (memo?.status === 'pending_review' && memo?.extraction) {
-        reviewStep = 2;
-        memoStatusForStep1 = 'pending_review';
+    let pollCount = 0;
+    while (pollCount < 60) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const memo = await api.getMemo(currentMemoId);
+      if (memo.status === 'pending_review') {
         hideExtractionError();
-        showScreen('review');
-        const st = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-        const dealId = st?.context?.objectType === 'deal' ? st.context.recordId : null;
-        loadExtractionForEdit(currentMemoId, dealId);
-        setReviewUIForStep(2);
-      } else {
-        showExtractionError(memo?.errorMessage || 'Retry failed.');
-        showScreen('review');
-        loadTranscriptForReview(currentMemoId);
-        setReviewUIForStep(1);
+        chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
+        return;
       }
-    } catch (err) {
-      showExtractionError(err?.message || 'Retry failed. Try again.');
-      showScreen('review');
-      loadTranscriptForReview(currentMemoId);
-      setReviewUIForStep(1);
-    } finally {
-      e.target.disabled = false;
-      e.target.textContent = 'Retry extraction';
+      if (memo.status === 'failed') {
+        showExtractionError(memo.errorMessage || 'Extraction failed.');
+        showScreen('review');
+        handleReviewState(currentMemoId, {});
+        return;
+      }
+      pollCount++;
     }
-  } else if (e.target.id === 'review-back-to-step1-btn') {
-    reviewStep = 1;
-    chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
-  } else if (e.target.id === 'review-back-to-step2-btn') {
-    reviewStep = 2;
-    chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(s => renderState(s));
-  } else if (e.target.id === 'review-discard-btn' || e.target.id === 'review-discard-btn2') {
-    chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
-  } else if (e.target.id === 'btn-use-current-deal') {
-    chrome.runtime.sendMessage({ type: 'GET_STATE' }).then(state => {
-      const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
-      if (dealId) {
-        currentDealId = dealId;
-        previewLoaded = false;
-        loadPreview(currentMemoId, dealId, editedExtraction);
-      }
-    });
+    showExtractionError('Extraction is taking longer than expected. Click Retry to try again.');
+    showScreen('review');
+    handleReviewState(currentMemoId, {});
+  } catch (err) {
+    showExtractionError(err?.message || 'Something went wrong. Click Retry to try again.');
+    showScreen('review');
+    handleReviewState(currentMemoId, {});
+  } finally {
+    this.disabled = false;
+    this.textContent = 'Extract & Continue';
   }
+});
+
+// Discard from pending transcript
+document.getElementById('review-discard-btn')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
+});
+
+// Retry extraction
+document.getElementById('retry-extraction-btn')?.addEventListener('click', async function () {
+  this.disabled = true;
+  this.textContent = 'Retrying...';
+  hideExtractionError();
+  setProcessingScreenMode('extracting');
+  showScreen('processing');
+  try {
+    const memo = await api.reExtract(currentMemoId);
+    if (memo?.status === 'pending_review') {
+      hideExtractionError();
+      chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
+    } else {
+      showExtractionError(memo?.errorMessage || 'Retry failed.');
+      showScreen('review');
+      handleReviewState(currentMemoId, {});
+    }
+  } catch (err) {
+    showExtractionError(err?.message || 'Retry failed. Try again.');
+    showScreen('review');
+    handleReviewState(currentMemoId, {});
+  } finally {
+    this.disabled = false;
+    this.textContent = 'Retry extraction';
+  }
+});
+
+// Use current deal (from deal page)
+document.getElementById('btn-use-current-deal')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((state) => {
+    const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
+    if (dealId) {
+      currentDealId = dealId;
+      previewLoaded = false;
+      loadPreview(currentMemoId, dealId, null);
+    }
+  });
 });
 
 // Success done button

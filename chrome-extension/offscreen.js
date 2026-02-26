@@ -1,14 +1,14 @@
 /**
- * Offscreen Document - Audio Recording + Deepgram Streaming
- * 
- * This document handles:
+ * Offscreen Document - Audio Recording + WebSocket Transcription
+ *
+ * Handles:
  * 1. Microphone access (getUserMedia)
  * 2. Raw PCM audio capture via AudioContext
- * 3. WebSocket streaming to backend for real-time transcription
+ * 3. WebSocket streaming to backend for real-time transcription (Speechmatics)
  * 4. Final audio recording via MediaRecorder for upload
+ *
+ * WebSocket URL is built by background (with user_id for glossary) - same pattern as dashboard useRealtimeTranscription.
  */
-
-const WS_URL = 'ws://localhost:8888/api/v1/transcription/live?language=multi';
 
 let mediaRecorder = null;
 let audioChunks = [];
@@ -19,8 +19,10 @@ let websocket = null;
 
 /**
  * Start recording with real-time transcription
+ * @param {string} wsUrl - WebSocket URL (from background, includes user_id for glossary when logged in)
  */
-async function startRecording() {
+async function startRecording(wsUrl) {
+  const url = wsUrl || 'ws://localhost:8888/api/v1/transcription/live?language=multi';
   try {
     // 1. Get microphone stream
     stream = await navigator.mediaDevices.getUserMedia({
@@ -64,7 +66,7 @@ async function startRecording() {
     };
 
     // 3. Setup WebSocket for real-time transcription
-    websocket = new WebSocket(WS_URL);
+    websocket = new WebSocket(url);
     
     websocket.onopen = () => {
       console.log('[Offscreen] WebSocket connected to backend');
@@ -177,7 +179,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
   switch (message.type) {
     case 'START_RECORDING':
-      startRecording();
+      startRecording(message.wsUrl);
       break;
     case 'STOP_RECORDING':
       stopRecording();

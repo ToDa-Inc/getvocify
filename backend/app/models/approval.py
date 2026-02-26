@@ -28,6 +28,16 @@ class ProposedUpdate(BaseModel):
     current_value: Optional[str] = None
     new_value: str
     extraction_confidence: float = Field(ge=0.0, le=1.0)
+    field_type: Optional[str] = Field(None, description="HubSpot schema type for inline edit")
+    options: Optional[list[dict]] = Field(None, description="Enum options {value, label} for dropdowns")
+
+
+class AvailableField(BaseModel):
+    """Field available to add (in allowed_deal_fields but not in proposed_updates)"""
+    name: str
+    label: str
+    type: str = "string"
+    options: Optional[list[dict]] = None
 
 
 class ApprovalPreview(BaseModel):
@@ -43,7 +53,11 @@ class ApprovalPreview(BaseModel):
     
     # Proposed changes
     proposed_updates: list[ProposedUpdate] = Field(default_factory=list)
-    
+    available_fields: list[AvailableField] = Field(
+        default_factory=list,
+        description="Fields in allowed_deal_fields not yet in proposed_updates (for Add field)",
+    )
+
     # Contact/Company if creating
     new_contact: Optional[dict] = None
     new_company: Optional[dict] = None

@@ -9,7 +9,7 @@ and what the LLM extracted from the transcript.
 from uuid import UUID
 from typing import Optional, Any
 from app.models.memo import MemoExtraction
-from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch
+from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, AvailableField
 from .client import HubSpotClient
 from .exceptions import HubSpotError
 from .deals import HubSpotDealService
@@ -85,11 +85,15 @@ class HubSpotPreviewService:
         # Filter by allowed_fields - only show what config permits
         filtered_properties = {k: v for k, v in properties.items() if k in allowed_fields}
 
-        # Get field labels from schema (fallback to field name if schema fetch fails)
+        # Get field labels and metadata from schema (fallback to field name if schema fetch fails)
         field_labels: dict[str, str] = {}
+        field_specs_map: dict[str, dict] = {}
         try:
-            field_specs = await self.schema.get_curated_field_specs("deals", list(filtered_properties.keys()))
-            field_labels = {s["name"]: s["label"] for s in field_specs}
+            props_keys = list(filtered_properties.keys())
+            field_specs = await self.schema.get_curated_field_specs("deals", props_keys)
+            for s in field_specs:
+                field_labels[s["name"]] = s["label"]
+                field_specs_map[s["name"]] = s
         except Exception:
             pass
 
@@ -142,6 +146,7 @@ class HubSpotPreviewService:
             for field_name, new_value in filtered_properties.items():
                 if new_value is None or new_value == "":
                     continue
+                spec = field_specs_map.get(field_name, {})
                 label = field_labels.get(field_name, field_name.replace("_", " ").title())
                 confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
                 proposed_updates.append(ProposedUpdate(
@@ -150,6 +155,8 @@ class HubSpotPreviewService:
                     current_value=None,
                     new_value=_display_value(field_name, new_value),
                     extraction_confidence=confidence,
+                    field_type=spec.get("type"),
+                    options=spec.get("options"),
                 ))
         else:
             # Update existing deal: compare with current values
@@ -218,6 +225,7 @@ class HubSpotPreviewService:
 
                         # Only show if there's a change
                         if current_display != new_display:
+                            spec = field_specs_map.get(field_name, {})
                             label = field_labels.get(field_name, field_name.replace("_", " ").title())
                             confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
                             proposed_updates.append(ProposedUpdate(
@@ -226,9 +234,37 @@ class HubSpotPreviewService:
                                 current_value=current_display or "(empty)",
                                 new_value=new_display,
                                 extraction_confidence=confidence,
+                                field_type=spec.get("type"),
+                                options=spec.get("options"),
                             ))
                 except Exception:
                     pass
+
+        # Compute available_fields: allowed_deal_fields not yet in proposed_updates
+        proposed_field_names = {
+            u.field_name for u in proposed_updates
+            if u.field_name in allowed_fields
+            and not u.field_name.startswith("next_step_task_")
+        }
+        available_field_names = [f for f in allowed_fields if f not in proposed_field_names]
+        available_fields_list: list[AvailableField] = []
+        if available_field_names:
+            try:
+                avail_specs = await self.schema.get_curated_field_specs("deals", available_field_names)
+                for s in avail_specs:
+                    available_fields_list.append(AvailableField(
+                        name=s["name"],
+                        label=s["label"],
+                        type=s.get("type", "string"),
+                        options=s.get("options"),
+                    ))
+            except Exception:
+                for name in available_field_names:
+                    available_fields_list.append(AvailableField(
+                        name=name,
+                        label=name.replace("_", " ").title(),
+                        type="string",
+                    ))
 
         # Only include contact when we have email - HubSpot requires it; we don't invent placeholders
         new_contact = None
@@ -248,6 +284,7 @@ class HubSpotPreviewService:
             selected_deal=selected_deal,
             is_new_deal=is_new_deal,
             proposed_updates=proposed_updates,
+            available_fields=available_fields_list,
             new_contact=new_contact,
             new_company=new_company,
         )

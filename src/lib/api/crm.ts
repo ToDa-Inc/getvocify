@@ -9,6 +9,7 @@ export interface Pipeline {
 export interface CRMSchema {
   object_type: string;
   properties: { name: string; label: string; type: string; options?: { label: string; value: string }[] }[];
+  pipelines?: Pipeline[];
 }
 
 export interface CRMConfiguration {

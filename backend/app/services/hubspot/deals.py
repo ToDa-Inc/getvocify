@@ -4,9 +4,12 @@ Deal operations service for HubSpot.
 Handles creating, updating, and finding deals with proper
 field mapping from MemoExtraction to HubSpot properties.
 Includes pipeline stage resolution.
+Includes schema-driven enum validation gate (INVALID_OPTION prevention).
 """
 
 from __future__ import annotations
+
+import logging
 from typing import Any, Optional
 
 from .client import HubSpotClient
@@ -18,6 +21,7 @@ from .types import (
     AssociationSpec,
     AssociationTo,
     AssociationTypeSpec,
+    PropertyOption,
 )
 from .search import HubSpotSearchService
 from .schema import HubSpotSchemaService
@@ -32,6 +36,83 @@ HUBSPOT_READ_ONLY_DEAL_PROPERTIES = frozenset({
     "hs_num_associated_contacts", "hs_num_child_companies", "hs_num_child_deals",
     "hs_merged_object_ids", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
 })
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_enum_tokens(value: Any) -> list[str]:
+    """Parse value into list of tokens (handles list, comma/semicolon-separated string)."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if v is not None and str(v).strip()]
+    s = str(value).strip()
+    if not s:
+        return []
+    # Split on comma or semicolon (common LLM/merge output formats)
+    return [t.strip() for t in s.replace(";", ",").split(",") if t.strip()]
+
+
+def _resolve_token_to_option_value(token: str, options: list[PropertyOption]) -> Optional[str]:
+    """Map token (label or value) to canonical HubSpot option value. Case-insensitive."""
+    if not token or not options:
+        return None
+    tok = token.strip().lower()
+    for opt in options:
+        if opt.hidden:
+            continue
+        if (opt.value or "").lower() == tok:
+            return opt.value
+        if (opt.label or "").lower() == tok:
+            return opt.value
+    return None
+
+
+async def _sanitize_enum_properties(
+    schema_service: HubSpotSchemaService,
+    properties: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Schema-driven validation gate for enum properties.
+    Validates against allowed options, formats multi-select as semicolon-separated,
+    drops invalid values. Non-enum properties pass through unchanged.
+    """
+    if not properties:
+        return properties
+
+    try:
+        schema = await schema_service.get_deal_schema()
+        prop_map = {p.name: p for p in schema.properties}
+    except Exception as e:
+        logger.warning("Schema fetch failed, skipping enum validation: %s", e)
+        return properties
+
+    sanitized: dict[str, Any] = {}
+    for key, value in properties.items():
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+
+        prop = prop_map.get(key)
+        if not prop or prop.type not in ("enumeration", "checkbox", "radio", "select") or not prop.options:
+            sanitized[key] = value
+            continue
+
+        tokens = _parse_enum_tokens(value)
+        is_multi = prop.fieldType == "checkbox"
+        resolved: list[str] = []
+        for t in tokens:
+            canonical = _resolve_token_to_option_value(t, prop.options)
+            if canonical and canonical not in resolved:
+                resolved.append(canonical)
+
+        if not resolved:
+            continue  # Drop invalid enum value (don't send to HubSpot)
+        if is_multi:
+            sanitized[key] = ";".join(resolved)
+        else:
+            sanitized[key] = resolved[0]
+
+    return sanitized
 
 
 class HubSpotDealService:
@@ -354,6 +435,7 @@ class HubSpotDealService:
         if not properties.get("dealname"):
             raise HubSpotError("Deal name is required")
 
+        properties = await _sanitize_enum_properties(self.schema, properties)
         if hubspot_owner_id:
             properties = {**properties, "hubspot_owner_id": str(hubspot_owner_id)}
 
@@ -411,6 +493,7 @@ class HubSpotDealService:
             HubSpotNotFoundError if deal doesn't exist
             HubSpotError for other errors
         """
+        properties = await _sanitize_enum_properties(self.schema, properties)
         if hubspot_owner_id:
             properties = {**properties, "hubspot_owner_id": str(hubspot_owner_id)}
 

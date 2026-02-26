@@ -125,6 +125,10 @@ async def approve_memo_core(
     profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
     profile = profile_result.data or {}
     auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
+    # When updating an existing deal (e.g. from extension on known HubSpot deal page),
+    # do not create contacts/companies - work within the deal's existing context.
+    if deal_id and not is_new_deal:
+        auto_create_contact_company = False
 
     client = HubSpotClient(crm_connection["access_token"])
     schema_service = HubSpotSchemaService(client, supabase, crm_connection["id"])

@@ -82,110 +82,37 @@
       </div>
     </div>
 
-    <!-- 3. REVIEW SCREEN - 3 steps like web app -->
+    <!-- 3. REVIEW SCREEN - Single flow: Deal + Proposed Changes + Transcript -->
     <div id="screen-review" class="screen" style="display: none;">
       <div class="header-review">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo-small">
-        <p class="subtitle" id="review-step-label">Step 1 of 3: Review transcript</p>
+        <p class="subtitle" id="review-step-label">Proposed Changes</p>
       </div>
 
-      <div class="review-scroll-area">
-        <!-- Step 1: Transcript (editable when pending_transcript) -->
-        <div id="review-step1-content">
-          <p class="caps-label">Step 1: Review transcript</p>
-          <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
-            <p id="extraction-error-text" class="extraction-error-text"></p>
-            <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
-          </div>
-          <textarea id="transcript-content" class="transcript-content transcript-textarea" rows="8" placeholder="Loading transcript..."></textarea>
+      <!-- Pending transcript: must confirm before extraction -->
+      <div id="pending-transcript-section" class="review-section" style="display: none;">
+        <p class="caps-label">Review transcript</p>
+        <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
+          <p id="extraction-error-text" class="extraction-error-text"></p>
+          <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
         </div>
-
-        <!-- Step 2: Edit CRM fields (all fields like web app) -->
-        <div id="review-step2-content" style="display: none;">
-          <p class="caps-label">Step 2: Edit CRM fields</p>
-          <div id="extraction-fields" class="extraction-fields">
-            <div class="field-row">
-              <label>Company</label>
-              <input type="text" id="ext-company" placeholder="Company name">
-            </div>
-            <div class="field-row">
-              <label>Deal Amount (€)</label>
-              <input type="text" id="ext-amount" placeholder="50000">
-            </div>
-            <div class="field-row">
-              <label>Contact Name</label>
-              <input type="text" id="ext-contact" placeholder="Contact name">
-            </div>
-            <div class="field-row">
-              <label>Contact Email</label>
-              <input type="email" id="ext-contact-email" placeholder="tony@company.com">
-            </div>
-            <div class="field-row">
-              <label>Deal Stage</label>
-              <select id="ext-stage">
-                <option value="">Select stage</option>
-                <option value="Discovery">Discovery</option>
-                <option value="Proposal">Proposal</option>
-                <option value="Negotiation">Negotiation</option>
-                <option value="Closed Won">Closed Won</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label>Close Date</label>
-              <input type="date" id="ext-closedate" placeholder="YYYY-MM-DD">
-            </div>
-            <div class="field-row">
-              <label>FTEs / Employees</label>
-              <input type="text" id="ext-ftes" placeholder="500">
-            </div>
-            <div class="field-row">
-              <label>Price per FTE (€)</label>
-              <input type="text" id="ext-price-per-fte" placeholder="3">
-            </div>
-            <div class="field-row">
-              <label>Competitor price (€)</label>
-              <input type="text" id="ext-competitor-price" placeholder="23">
-            </div>
-            <div class="field-row">
-              <label>ES Hi Provider</label>
-              <input type="text" id="ext-es-hi" placeholder="Adeslas">
-            </div>
-            <div class="field-row">
-              <label>Total employees</label>
-              <input type="text" id="ext-total-employees" placeholder="500">
-            </div>
-            <div class="field-row">
-              <label>Priority</label>
-              <select id="ext-priority">
-                <option value="">Select</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label>Summary</label>
-              <textarea id="ext-summary" rows="2" placeholder="Meeting summary"></textarea>
-            </div>
-            <div class="field-row">
-              <label>Next Steps</label>
-              <textarea id="ext-nextsteps" rows="2" placeholder="• One per line"></textarea>
-            </div>
-          </div>
+        <textarea id="transcript-content" class="transcript-content transcript-textarea" rows="6" placeholder="Loading transcript..."></textarea>
+        <div class="review-step-actions" style="margin-top: 12px;">
+          <button id="review-confirm-transcript-btn" class="btn btn-primary">Extract & Continue</button>
+          <button id="review-discard-btn" class="btn btn-secondary">Discard</button>
         </div>
+      </div>
 
-        <!-- Step 3: Deal Target + Proposed Changes -->
-        <div id="review-step3-content" style="display: none;">
-        <!-- Deal Target: when on deal page, current deal is auto-selected -->
+      <!-- Main: Deal + Proposed Changes (when pending_review or after extract) -->
+      <div id="proposed-changes-main" class="review-scroll-area" style="display: none;">
         <div id="deal-target-section">
           <div class="section-header">
-            <p class="caps-label">Step 3: Deal Target</p>
+            <p class="caps-label">Deal Target</p>
             <button id="btn-change-deal" class="text-btn">Change Deal</button>
           </div>
           <div id="use-current-deal-option" class="use-current-deal-option" style="display: none;">
             <button type="button" id="btn-use-current-deal" class="btn-use-current-deal">Use deal on this page</button>
           </div>
-          
           <div id="deal-search-box" class="search-box" style="display: none;">
             <div class="input-with-icon">
               <span class="search-icon">🔍</span>
@@ -193,7 +120,6 @@
             </div>
             <div id="search-results" class="search-results"></div>
           </div>
-
           <div id="deal-card" class="card-glass success-glow">
             <div class="card-content">
               <h3 id="target-deal-name" class="deal-title">Loading...</h3>
@@ -203,26 +129,22 @@
         </div>
 
         <div id="proposed-changes-section">
-        <p class="caps-label" style="margin: 20px 0 12px 4px;">Proposed Changes</p>
-        <div id="proposed-updates-list" class="updates-list">
-          <!-- Injected via JS -->
+          <p class="caps-label" style="margin: 12px 0 10px 4px;">Proposed Changes</p>
+          <div id="proposed-updates-list" class="updates-list">
+            <!-- Injected via JS -->
+          </div>
+          <button id="btn-add-field" class="btn-add-field" type="button" style="display: none;">+ Add field</button>
+          <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
         </div>
-        </div>
-        </div>
+
+        <details id="transcript-collapsible" class="transcript-collapsible">
+          <summary>View transcript</summary>
+          <div id="transcript-expanded" class="transcript-expanded"></div>
+        </details>
       </div>
 
       <div class="actions-fixed" id="review-actions">
-        <div id="review-step1-actions" class="review-step-actions">
-          <button id="review-continue-btn" class="btn btn-primary">Continue to Step 2</button>
-          <button id="review-discard-btn" class="btn btn-secondary">Discard</button>
-        </div>
-        <div id="review-step2-actions" class="review-step-actions" style="display: none;">
-          <button id="review-back-to-step1-btn" class="btn btn-secondary" type="button">← Back</button>
-          <button id="review-continue-step2-btn" class="btn btn-primary">Continue to Step 3</button>
-          <button id="review-discard-btn2" class="btn btn-secondary">Discard</button>
-        </div>
-        <div id="review-step3-actions" class="review-step-actions" style="display: none;">
-          <button id="review-back-to-step2-btn" class="btn btn-secondary" type="button">← Back</button>
+        <div id="review-proposed-actions" class="review-step-actions">
           <button id="approve-sync-button" class="btn btn-primary">Confirm & Update CRM</button>
           <button id="discard-button" class="btn btn-secondary">Discard</button>
         </div>
