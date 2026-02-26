@@ -178,6 +178,8 @@ class HubSpotSyncService:
         allowed_fields: Optional[list[str]] = None,
         transcript: Optional[str] = None,
         auto_create_contact_company: bool = False,
+        auto_create_companies: Optional[bool] = None,
+        auto_create_contacts: Optional[bool] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -186,8 +188,9 @@ class HubSpotSyncService:
         Filters properties based on allowed_fields whitelist.
         Creates a note with the transcript for deal context.
         
-        When auto_create_contact_company is False (default), only deal create/update
-        runs; company and contact creation is skipped. Use for deal-only updates.
+        Company/contact creation is controlled by:
+        - auto_create_companies / auto_create_contacts when provided (from crm_configurations)
+        - Fallback: auto_create_contact_company for both when the above are None
         
         Args:
             memo_id: Voice memo ID
@@ -198,10 +201,14 @@ class HubSpotSyncService:
             is_new_deal: Whether to create a new deal (if deal_id is None)
             allowed_fields: List of field names AI is allowed to update
             transcript: Full transcript text to add as note on the deal
-            auto_create_contact_company: If True, create/upsert company and contact
+            auto_create_contact_company: Legacy flag; used for both when auto_create_* not provided
+            auto_create_companies: If True, create/upsert company (from crm_configurations)
+            auto_create_contacts: If True, create/upsert contact (from crm_configurations)
         Returns:
             SyncResult with success status and created/updated object IDs
         """
+        create_companies = auto_create_companies if auto_create_companies is not None else auto_create_contact_company
+        create_contacts = auto_create_contacts if auto_create_contacts is not None else auto_create_contact_company
         result = SyncResult(memo_id=str(memo_id))
         t0 = time.perf_counter()
         logger.info(
@@ -254,8 +261,8 @@ class HubSpotSyncService:
         contact_id = existing_contact_id
         
         try:
-            # Step 1: Company (only when user setting allows and we have company name)
-            if auto_create_contact_company and extraction.companyName:
+            # Step 1: Company (only when crm_config allows and we have company name)
+            if create_companies and extraction.companyName:
                 try:
                     # Reuse existing company ID if available (prevents duplicates on retry)
                     if existing_company_id:
@@ -313,7 +320,7 @@ class HubSpotSyncService:
                     "contactEmail": contact_email or extraction.contactEmail,
                 }
             )
-            should_create_contact = auto_create_contact_company and (
+            should_create_contact = create_contacts and (
                 extraction_for_contact.contactEmail or extraction_for_contact.contactName
             )
             if should_create_contact:
@@ -437,9 +444,9 @@ class HubSpotSyncService:
                         deal_name=deal_name_arg,
                     )
 
-                    # 3. Merge: analyze existing + new, produce merged properties
+                    # 3. Merge: deterministic (user-approved values; no LLM)
                     merge_svc = DealMergeService()
-                    merged_properties = await merge_svc.merge_properties(
+                    merged_properties = merge_svc.merge_properties(
                         existing_properties=existing_props,
                         new_properties=new_properties,
                         allowed_fields=allowed_fields,
@@ -460,6 +467,7 @@ class HubSpotSyncService:
                     if not filtered_properties:
                         # No changes to apply - still success
                         result.deal_id = deal_id
+                        result.deal_name = existing_props.get("dealname") or "Deal"
                     else:
                         # Update deal with merged properties
                         deal = await self.deals.update(
@@ -483,6 +491,7 @@ class HubSpotSyncService:
                             "✅ Deal updated",
                             extra=log_domain(DOMAIN_HUBSPOT, "deal_updated", deal_id=deal.id, memo_id=str(memo_id), updated_fields=list(filtered_properties.keys())),
                         )
+                    result.deal_name = existing_props.get("dealname") or "Deal"
                 else:
                     # CREATE MODE: Create new deal
                     deal = await self.deals.create_or_update(
@@ -509,7 +518,8 @@ class HubSpotSyncService:
                         "✅ Deal created",
                         extra=log_domain(DOMAIN_HUBSPOT, "deal_created", deal_id=deal.id, memo_id=str(memo_id), amount=extraction.dealAmount, stage=extraction.dealStage),
                     )
-                
+                    result.deal_name = (deal.properties or {}).get("dealname") or extraction.companyName or "Deal"
+
                 deal_id = result.deal_id
                 
             except Exception as e:
@@ -726,14 +736,15 @@ class HubSpotSyncService:
                 extra=log_domain(DOMAIN_HUBSPOT, "sync_complete", memo_id=str(memo_id), deal_id=result.deal_id, company_id=result.company_id, contact_id=result.contact_id, duration_ms=round(elapsed * 1000, 2)),
             )
             
-            # Generate deal name and URL for frontend (use actual HubSpot deal name)
+            # Generate deal URL for frontend (deal_name set during create/update)
             if deal_id:
-                try:
-                    deal_obj = await self.deals.get(deal_id, properties=["dealname"])
-                    result.deal_name = (deal_obj.properties or {}).get("dealname") or "Deal"
-                except Exception:
-                    result.deal_name = extraction.companyName or "Deal"
-                
+                if not result.deal_name:
+                    try:
+                        deal_obj = await self.deals.get(deal_id, properties=["dealname"])
+                        result.deal_name = (deal_obj.properties or {}).get("dealname") or "Deal"
+                    except Exception:
+                        result.deal_name = extraction.companyName or "Deal"
+
                 portal_id = None
                 region = "na1"
                 metadata = {}

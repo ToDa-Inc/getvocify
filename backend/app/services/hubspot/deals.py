@@ -291,15 +291,18 @@ class HubSpotDealService:
             # dealstage: omit - must be resolved via pipeline schema (label→ID); never send raw labels like "Cierre"
             skip_fields = [
                 "dealname", "amount", "closedate", "description",
-                "summary", "painPoints", "nextSteps", "competitors",
+                "summary", "painPoints", "nextSteps",
                 "objections", "decisionMakers", "confidence",
                 "contactName", "companyName", "contactEmail",  # Used for associations, not deal props
                 "deal_currency_code",  # Portal-specific; omit to avoid INVALID_OPTION validation
                 "dealstage",  # Resolved separately via _resolve_stage_id; labels (e.g. "Cierre") are invalid
             ]
-            
+            # competitors: in schema as single-enum (HubSpot expects string), kept in skip for raw loop;
+            # handled explicitly below from extraction.competitors (List[str]) or raw
+            competitors_skip_in_loop = "competitors"
+
             for key, value in extraction.raw_extraction.items():
-                if key in skip_fields or key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES or value is None:
+                if key in skip_fields or key == competitors_skip_in_loop or key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES or value is None:
                     continue
                 
                 # Special handling for dates if they are in raw_extraction
@@ -313,6 +316,19 @@ class HubSpotDealService:
                 # Everything else is passed through
                 else:
                     properties[key] = value
+
+        # competitors: HubSpot expects single enum value (string), e.g. "cobee"
+        competitors_val = extraction.competitors
+        if not competitors_val and extraction.raw_extraction:
+            raw_comp = extraction.raw_extraction.get("competitors")
+            if isinstance(raw_comp, list) and raw_comp:
+                competitors_val = [raw_comp[0]] if isinstance(raw_comp[0], str) else []
+            elif isinstance(raw_comp, str) and raw_comp.strip():
+                competitors_val = [raw_comp.strip()]
+        if competitors_val:
+            single = competitors_val[0] if isinstance(competitors_val[0], str) else str(competitors_val[0])
+            if single:
+                properties["competitors"] = single
         
         return properties
     

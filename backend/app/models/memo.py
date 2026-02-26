@@ -34,7 +34,13 @@ def _normalize_extraction_input(data: Any) -> dict:
     for key in list(out.keys()):
         val = out[key]
         if key in MEMO_EXTRACTION_LIST_FIELDS:
-            if val is None or not isinstance(val, list):
+            if val is None:
+                out[key] = []
+            elif isinstance(val, list):
+                out[key] = val
+            elif isinstance(val, str) and val.strip():
+                out[key] = [val.strip()]
+            else:
                 out[key] = []
         elif key in MEMO_EXTRACTION_DICT_FIELDS:
             if val is None or not isinstance(val, dict):

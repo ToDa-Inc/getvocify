@@ -1,6 +1,8 @@
 """
-Transcription service (Deepgram batch - disabled when DEEPGRAM_API_KEY not set).
-Real-time uses Speechmatics only.
+Transcription service (Deepgram batch - BACKLOG, not used).
+
+Active path: Speechmatics only (real-time and batch via speechmatics_batch.py).
+Audio upload uses Speechmatics batch. Deepgram kept for potential future use.
 """
 
 import asyncio

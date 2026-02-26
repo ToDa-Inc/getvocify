@@ -11,8 +11,6 @@ from supabase import Client
 from typing import List
 
 from app.logging_config import log_domain, DOMAIN_RECOVERY
-from app.services.transcription import TranscriptionService
-
 logger = logging.getLogger(__name__)
 from app.services.extraction import ExtractionService
 from app.services.crm_config import CRMConfigurationService
