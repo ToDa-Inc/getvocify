@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Camera, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Camera, Loader2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -10,7 +11,8 @@ import { authApi, authKeys } from "@/features/auth/api";
 import { getUserInitials } from "@/features/auth/types";
 
 const ProfilePage = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [fullName, setFullName] = useState(user?.fullName ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
@@ -167,6 +169,21 @@ const ProfilePage = () => {
             Cancel subscription
           </button>
         </div>
+      </div>
+
+      {/* Log out */}
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+        <Button
+          variant="outline"
+          className="w-full rounded-full px-8 h-12 border-border/40 text-muted-foreground hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition-colors"
+          onClick={async () => {
+            await logout();
+            navigate("/");
+          }}
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Log out
+        </Button>
       </div>
     </div>
   );

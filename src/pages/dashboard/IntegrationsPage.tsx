@@ -164,15 +164,17 @@ const IntegrationsPage = () => {
       </div>
 
       <div className="grid sm:grid-cols-2 gap-8 mt-12">
-        {items.map((integration) => (
+        {items.map((integration) => {
+          const isHubSpot = integration.id === "hubspot";
+          return (
           <div
             key={integration.id}
-            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 ${THEME_TOKENS.cards.hover} group`}
+            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 group ${!isHubSpot ? "opacity-60 grayscale" : THEME_TOKENS.cards.hover}`}
           >
             <div className="flex items-start justify-between mb-8">
               <div className="flex items-center gap-6">
-                <div className="w-16 h-16 rounded-2xl bg-secondary/5 flex items-center justify-center p-4 group-hover:scale-110 transition-transform">
-                  <img src={integration.logo} alt={integration.name} className="w-full h-full object-contain grayscale group-hover:grayscale-0 transition-all duration-500" />
+                <div className={`w-16 h-16 rounded-2xl bg-secondary/5 flex items-center justify-center p-4 transition-transform ${isHubSpot ? "group-hover:scale-110" : ""}`}>
+                  <img src={integration.logo} alt={integration.name} className={`w-full h-full object-contain transition-all duration-500 ${isHubSpot ? "grayscale group-hover:grayscale-0" : "grayscale"}`} />
                 </div>
                 <div>
                   <h3 className="font-bold text-foreground text-xl">{integration.name}</h3>
@@ -265,7 +267,7 @@ const IntegrationsPage = () => {
               </p>
             )}
           </div>
-        ))}
+        );})}
       </div>
 
       <Dialog open={isConnectModalOpen} onOpenChange={setIsConnectModalOpen}>

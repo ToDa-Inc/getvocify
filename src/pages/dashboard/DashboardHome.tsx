@@ -1,24 +1,12 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { Mic, Flame, Clock } from "lucide-react";
+import { Mic } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
 import { Button } from "@/components/ui/button";
 import { memosApi, memoKeys } from "@/features/memos/api";
 import type { Memo, MemoStatus } from "@/features/memos/types";
-
-const stats = [
-  { icon: Flame, label: "6 week streak", color: "text-orange-500" },
-  { icon: Mic, label: "127 memos", color: "text-primary" },
-  { icon: Clock, label: "8.5 hours saved", color: "text-success" },
-];
-
-const quickStats = [
-  { label: "This Week", value: "12 memos" },
-  { label: "Time Saved", value: "2.5 hours" },
-  { label: "CRM Updates", value: "18 deals" },
-];
 
 const getStatusBadge = (status: MemoStatus) => {
   switch (status) {
@@ -79,24 +67,11 @@ const DashboardHome = () => {
   return (
     <div className={`max-w-5xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
       {/* Welcome Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className={V_PATTERNS.dashboardHeader}>
-          <h1 className={THEME_TOKENS.typography.pageTitle}>
-            Welcome back, <span className={THEME_TOKENS.typography.accentTitle}>{displayName.split(' ')[0]}</span>
-          </h1>
-          <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className={`flex items-center gap-2 px-4 py-2 ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.pill}`}
-            >
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              <span className={THEME_TOKENS.typography.capsLabel}>{stat.label}</span>
-            </div>
-          ))}
-        </div>
+      <div className={V_PATTERNS.dashboardHeader}>
+        <h1 className={THEME_TOKENS.typography.pageTitle}>
+          Welcome back, <span className={THEME_TOKENS.typography.accentTitle}>{displayName.split(' ')[0]}</span>
+        </h1>
+        <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
       </div>
 
       {/* Record Card */}
@@ -177,22 +152,6 @@ const DashboardHome = () => {
               );
             })
           )}
-        </div>
-      </div>
-
-      {/* Quick Stats */}
-      <div className="space-y-6">
-        <h2 className={THEME_TOKENS.typography.sectionTitle}>Quick Stats</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {quickStats.map((stat) => (
-            <div
-              key={stat.label}
-              className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center hover:shadow-medium transition-all`}
-            >
-              <p className="text-3xl font-black tracking-tighter text-foreground mb-1">{stat.value}</p>
-              <p className={THEME_TOKENS.typography.capsLabel}>{stat.label}</p>
-            </div>
-          ))}
         </div>
       </div>
     </div>
