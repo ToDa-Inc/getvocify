@@ -146,8 +146,11 @@ export interface UseMediaRecorderReturn {
 export interface UseAudioUploadReturn {
   /** Upload audio (or transcript when provided - transcript-only, no audio sent) */
   upload: (audio: RecordedAudio, transcript?: string) => Promise<string>;
-  /** Upload transcript only - use when real-time transcription produced the text */
-  uploadTranscriptOnly: (transcript: string) => Promise<string>;
+  /** Upload transcript only - use when real-time transcription or meeting transcript paste */
+  uploadTranscriptOnly: (
+    transcript: string,
+    options?: { sourceType?: 'voice_memo' | 'meeting_transcript' },
+  ) => Promise<string>;
   /** Current upload progress */
   progress: UploadProgress | null;
   /** Whether upload is in progress */

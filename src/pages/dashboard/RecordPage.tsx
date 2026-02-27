@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { Mic, Square, Upload, ArrowLeft } from "lucide-react";
+import { Mic, Square, Upload, ArrowLeft, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
@@ -15,6 +16,8 @@ import {
   RecordingError,
   LiveTranscript,
 } from "@/features/recording/components";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { memoKeys } from "@/features/memos/api";
 import { AUDIO, ROUTES } from "@/shared/lib/constants";
 import { isSupportedAudioType, formatFileSize } from "@/features/recording/types";
 import { toast } from "sonner";
@@ -29,9 +32,11 @@ const formatTime = (seconds: number): string => {
 
 const RecordPage = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const [uploadedMemoId, setUploadedMemoId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importPhase, setImportPhase] = useState<"idle" | "uploading" | "done">("idle");
 
   const {
     state,
@@ -170,6 +175,15 @@ const RecordPage = () => {
     resetTranscription();
   };
 
+  // All useState hooks must be declared before any conditional returns
+  const [editedTranscript, setEditedTranscript] = useState("");
+  const [importTranscript, setImportTranscript] = useState("");
+  const [activeTab, setActiveTab] = useState("record");
+
+  useEffect(() => {
+    if (fullTranscript) setEditedTranscript(fullTranscript);
+  }, [fullTranscript]);
+
   const getStatusText = () => {
     switch (state) {
       case "idle": return "Ready to record";
@@ -196,6 +210,46 @@ const RecordPage = () => {
     );
   }
 
+  if (importPhase === "uploading" || importPhase === "done") {
+    return (
+      <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
+        <div className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/50 mb-10">
+          <ArrowLeft className="h-3 w-3" />
+          Back to Dashboard
+        </div>
+        <div
+          className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-12 text-center transition-all duration-500 ${
+            importPhase === "done" ? "ring-2 ring-success/30 bg-success/5" : ""
+          }`}
+        >
+          <div className="relative w-32 h-32 mx-auto mb-8 flex items-center justify-center">
+            {importPhase === "uploading" ? (
+              <>
+                <div className="absolute inset-0 rounded-full border-2 border-beige/20" />
+                <div className="absolute inset-0 rounded-full border-2 border-beige border-t-transparent animate-spin" />
+                <FileText className="h-12 w-12 text-beige/80 relative z-10" />
+              </>
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-success/10 flex items-center justify-center animate-in zoom-in-95 duration-300">
+                <svg className="w-10 h-10 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            )}
+          </div>
+          <h2 className="text-xl font-black text-foreground mb-2">
+            {importPhase === "uploading" ? "Importing transcript..." : "Done!"}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {importPhase === "uploading"
+              ? "Creating your memo and preparing the review step..."
+              : "Taking you to review your transcript..."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (isUploading && progress) {
     return (
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
@@ -204,7 +258,9 @@ const RecordPage = () => {
           Back to Dashboard
         </Link>
         <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-12 text-center`}>
-          <p className={`${THEME_TOKENS.typography.capsLabel} mb-10`}>{getStatusText()}</p>
+          <p className={`${THEME_TOKENS.typography.capsLabel} mb-10`}>
+            {isUploading ? "Processing your memo..." : getStatusText()}
+          </p>
           <div className={`relative w-48 h-48 mx-auto mb-8 ${THEME_TOKENS.radius.pill} bg-secondary/5 flex items-center justify-center`}>
             <div className="flex flex-col items-center gap-4">
               <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin" />
@@ -220,12 +276,6 @@ const RecordPage = () => {
 
   const hasTranscript = !!fullTranscript?.trim();
   const showReview = state === "stopped" && (hasTranscript || audio);
-
-  // Editable transcript: sync with fullTranscript when it changes
-  const [editedTranscript, setEditedTranscript] = useState("");
-  useEffect(() => {
-    if (fullTranscript) setEditedTranscript(fullTranscript);
-  }, [fullTranscript]);
 
   if (showReview) {
     return (
@@ -307,6 +357,29 @@ const RecordPage = () => {
     );
   }
 
+  const handleImportSubmit = async () => {
+    const trimmed = importTranscript.trim();
+    if (!trimmed) {
+      toast.error("Please paste a transcript");
+      return;
+    }
+    setImportPhase("uploading");
+    try {
+      const memoId = await uploadTranscriptOnly(trimmed, {
+        sourceType: "meeting_transcript",
+      });
+      setUploadedMemoId(memoId);
+      queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
+      setImportPhase("done");
+      await new Promise((r) => setTimeout(r, 600));
+      toast.success("Memo created! Review your transcript and confirm to extract CRM fields.");
+      navigate(ROUTES.MEMO_DETAIL(memoId));
+    } catch {
+      setImportPhase("idle");
+      toast.error(uploadError || "Failed to import");
+    }
+  };
+
   return (
     <div className={`max-w-3xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
       <Link to={ROUTES.DASHBOARD} className={`inline-flex items-center gap-2 ${THEME_TOKENS.typography.capsLabel} text-muted-foreground/60 hover:text-beige mb-10 transition-colors group`}>
@@ -316,11 +389,26 @@ const RecordPage = () => {
 
       <div className={V_PATTERNS.dashboardHeader + " text-center"}>
         <h1 className={THEME_TOKENS.typography.pageTitle}>
-          New <span className={THEME_TOKENS.typography.accentTitle}>Recording</span>
+          New <span className={THEME_TOKENS.typography.accentTitle}>Memo</span>
         </h1>
-        <p className={THEME_TOKENS.typography.body}>Capture your thoughts while they're fresh.</p>
+        <p className={THEME_TOKENS.typography.body}>
+          Record a voice memo or import a meeting transcript.
+        </p>
       </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className={`grid w-full grid-cols-2 mb-8 ${THEME_TOKENS.radius.card}`}>
+          <TabsTrigger value="record" className="gap-2">
+            <Mic className="h-4 w-4" />
+            Record
+          </TabsTrigger>
+          <TabsTrigger value="import" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Import transcript
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="record" className="mt-0">
       <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-12 text-center relative overflow-hidden group`}>
         <div className="absolute inset-0 bg-gradient-to-br from-beige/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
         <p className={`${THEME_TOKENS.typography.capsLabel} mb-10 transition-colors relative z-10 ${state === "recording" ? "text-destructive" : "text-muted-foreground/40"}`}>{getStatusText()}</p>
@@ -396,6 +484,40 @@ const RecordPage = () => {
           </div>
         )}
       </div>
+        </TabsContent>
+
+        <TabsContent value="import" className="mt-0">
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+            <p className={`${THEME_TOKENS.typography.capsLabel} mb-4`}>
+              Paste meeting transcript
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">
+              From Zoom, Google Meet, Fireflies, Otter, or any meeting tool.
+            </p>
+            <textarea
+              value={importTranscript}
+              onChange={(e) => setImportTranscript(e.target.value)}
+              placeholder="Paste your transcript here..."
+              className="w-full min-h-[280px] rounded-2xl bg-secondary/[0.03] p-6 border border-border/20 text-sm leading-relaxed text-muted-foreground/90 font-medium tracking-tight whitespace-pre-wrap resize-y focus:outline-none focus:ring-2 focus:ring-beige/30 focus:border-beige/40 placeholder:text-muted-foreground/40 mb-6"
+            />
+            <Button
+              variant="hero"
+              disabled={isUploading || !importTranscript.trim()}
+              onClick={handleImportSubmit}
+              className="w-full rounded-full bg-beige text-cream"
+            >
+              {isUploading ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-cream border-t-transparent rounded-full animate-spin mr-2" />
+                  Processing...
+                </>
+              ) : (
+                "Import & Continue"
+              )}
+            </Button>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

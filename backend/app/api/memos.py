@@ -83,10 +83,12 @@ async def extract_memo_async(
     transcript: str,
     supabase: Client,
     extraction_service: ExtractionService,
-    field_specs: Optional[list[dict]] = None
+    field_specs: Optional[list[dict]] = None,
+    source_type: str = "voice_memo",
 ):
     """
-    Background task to extract structured data from pre-transcribed memo
+    Background task to extract structured data from pre-transcribed memo.
+    source_type ('voice_memo' | 'meeting_transcript') adjusts LLM prompt context.
     """
     from datetime import datetime
     
@@ -107,9 +109,10 @@ async def extract_memo_async(
 
         # Extract structured data
         extraction = await extraction_service.extract(
-            transcript, 
-            field_specs, 
-            glossary_text=glossary_text
+            transcript,
+            field_specs,
+            glossary_text=glossary_text,
+            source_context=source_type,
         )
         
         # Update with extraction and mark as pending_review
@@ -309,8 +312,9 @@ async def upload_memo(
 
 
 class UploadTranscriptRequest(BaseModel):
-    """Transcript-only upload (from real-time transcription)"""
+    """Transcript-only upload (from real-time transcription or meeting transcript paste)"""
     transcript: str
+    source_type: Optional[str] = None  # 'voice_memo' | 'meeting_transcript', default voice_memo
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -329,7 +333,10 @@ async def upload_transcript_only(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transcript is required",
         )
-    
+    source_type = body.source_type or "voice_memo"
+    if source_type not in ("voice_memo", "meeting_transcript"):
+        source_type = "voice_memo"
+
     config_service = CRMConfigurationService(supabase)
     config = await config_service.get_configuration(user_id)
     allowed_fields = config.allowed_deal_fields if config else None
@@ -351,6 +358,7 @@ async def upload_transcript_only(
         "status": "pending_transcript",
         "transcript": transcript,
         "transcript_confidence": 1.0,
+        "source_type": source_type,
     }).execute()
     
     memo_id = result.data[0]["id"]
@@ -1374,9 +1382,13 @@ async def confirm_transcript(
 
             supabase.table("memos").update(update_payload).eq("id", str(memo_id)).execute()
 
+            source_type = memo_data.get("source_type") or "voice_memo"
             extraction_service = ExtractionService()
             asyncio.create_task(
-                extract_memo_async(str(memo_id), user_id, transcript, supabase, extraction_service, field_specs)
+                extract_memo_async(
+                    str(memo_id), user_id, transcript, supabase,
+                    extraction_service, field_specs, source_type=source_type,
+                )
             )
 
             return {"status": "extracting", "message": "AI extraction started"}
@@ -1464,10 +1476,14 @@ async def re_extract_memo(
         "error_message": None,
     }).eq("id", str(memo_id)).execute()
 
-    # Re-run extraction (uses transcript only - no audio)
+    source_type = memo_data.get("source_type") or "voice_memo"
     try:
         extraction_service = ExtractionService()
-        extraction = await extraction_service.extract(transcript, field_specs, glossary_text=glossary_text)
+        extraction = await extraction_service.extract(
+            transcript, field_specs,
+            glossary_text=glossary_text,
+            source_context=source_type,
+        )
     except Exception as e:
         err_msg = str(e)
         logger.exception("Re-extract failed for memo %s: %s", memo_id, e)

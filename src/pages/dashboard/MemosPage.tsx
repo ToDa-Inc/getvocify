@@ -22,6 +22,13 @@ const getStatusBadge = (status: string) => {
           Pending
         </span>
       );
+    case "pending_transcript":
+      return (
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-beige/10 text-beige`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-beige" />
+          Review transcript
+        </span>
+      );
     case "uploading":
     case "transcribing":
     case "extracting":

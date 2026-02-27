@@ -177,6 +177,13 @@ export const api = {
     return request(`/memos/${memoId}`);
   },
 
+  async uploadTranscript(transcript, sourceType = 'meeting_transcript') {
+    return request('/memos/upload-transcript', {
+      method: 'POST',
+      body: JSON.stringify({ transcript: String(transcript).trim(), source_type: sourceType }),
+    });
+  },
+
   async reExtract(memoId) {
     return request(`/memos/${memoId}/re-extract`, { method: 'POST', body: '{}' });
   },

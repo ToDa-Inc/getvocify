@@ -1,7 +1,7 @@
 import json
 import httpx
 import logging
-from typing import List
+from typing import Dict, List
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -82,3 +82,90 @@ TARGET WORD: "{target_word}"
         except Exception as e:
             logger.error(f"Failed to generate phonetic hints: {e}")
             return []
+
+    BULK_BATCH_SIZE = 15
+
+    async def generate_phonetic_hints_bulk(
+        self, words: List[str], category: str = "General"
+    ) -> Dict[str, List[str]]:
+        """
+        Predict sound-alikes for multiple words in batched LLM calls.
+        Returns {word: [hint1, hint2, ...]}.
+        """
+        if not words:
+            return {}
+        # Dedupe and normalize
+        seen = set()
+        unique = []
+        for w in words:
+            w = (w or "").strip()
+            if w and w not in seen:
+                seen.add(w)
+                unique.append(w)
+        if not unique:
+            return {}
+
+        result: Dict[str, List[str]] = {}
+        for i in range(0, len(unique), self.BULK_BATCH_SIZE):
+            batch = unique[i : i + self.BULK_BATCH_SIZE]
+            batch_result = await self._generate_phonetic_hints_batch(batch, category)
+            result.update(batch_result)
+        return result
+
+    async def _generate_phonetic_hints_batch(
+        self, words: List[str], category: str
+    ) -> Dict[str, List[str]]:
+        """Single LLM call for a batch of words."""
+        words_str = '", "'.join(words)
+        prompt = f"""You are an expert in Speech-to-Text (STT) and Phonetics, specializing in Spanish-English "Spanglish" sales environments.
+A salesperson is bulk-adding these terms (Category: {category}) to their glossary: "{words_str}".
+
+For EACH word, predict 4-6 common ways it might be misheard or incorrectly transcribed by an AI configured for Spanish or Multi-language.
+
+STT BEHAVIOR (Phonetic Physics):
+- Acronym Collision: acronyms often heard as fragments (FTES → FPS, FT is)
+- Spanglish Mapping: English vowels (ee, ea) collide with Spanish (i, e)
+- Consonant Drift: terminal k/t/d → s/sh/ch (50k → 50 cash)
+- Context Drift: Spanish accent to English-centric AI
+
+Return ONLY a JSON object. Each key is the EXACT word, each value is an array of strings.
+Example: {{"Edenred": ["En red", "Enred", "Eden red"], "FTES": ["FPS", "FTS", "FT is"]}}
+
+Words to process: {words_str}
+"""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    self.OPENROUTER_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [
+                            {"role": "system", "content": "Output only valid JSON. No preamble."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.3,
+                    },
+                )
+                response.raise_for_status()
+                content = response.json()["choices"][0]["message"]["content"]
+
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                return {}
+            out: Dict[str, List[str]] = {}
+            for word in words:
+                val = data.get(word)
+                if isinstance(val, list):
+                    out[word] = [str(h).strip() for h in val if h]
+                elif isinstance(val, str):
+                    out[word] = [val.strip()] if val.strip() else []
+                else:
+                    out[word] = []
+            return out
+        except Exception as e:
+            logger.error(f"Bulk phonetic hints failed: {e}")
+            return {w: [] for w in words}

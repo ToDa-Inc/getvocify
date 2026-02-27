@@ -81,11 +81,18 @@ class ExtractionService:
     def __init__(self) -> None:
         self.llm = LLMClient()
     
-    def _build_prompt(self, transcript: str, field_specs: Optional[list[dict]] = None, glossary_text: str = "") -> str:
+    def _build_prompt(
+        self,
+        transcript: str,
+        field_specs: Optional[list[dict]] = None,
+        glossary_text: str = "",
+        source_context: str = "voice_memo",
+    ) -> str:
         """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
         Schema-driven: field descriptions from HubSpot are the primary semantic source.
         Standard meeting-intelligence fields are included only when not in schema.
+        source_context: 'voice_memo' (default) or 'meeting_transcript' for meeting-specific prompt hints.
         """
         schema_field_names = {s["name"] for s in (field_specs or []) if s.get("name")}
 
@@ -168,6 +175,16 @@ class ExtractionService:
         json_structure += "}"
 
         schema_text = "\n".join(schema_description) if schema_description else ""
+
+        # Meeting transcript context: adjust expectations for Zoom/Meet/Fireflies exports
+        source_hint = ""
+        if source_context == "meeting_transcript":
+            source_hint = """
+### SOURCE CONTEXT
+This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
+It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
+Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
+"""
         
         # STRUCTURED GLOSSARY Logic with Phonetic Physics
         glossary_section = ""
@@ -188,7 +205,7 @@ Apply these Collision Patterns to the Glossary items:
 """
 
         return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
-
+{source_hint}
 {glossary_section}
 
 TRANSCRIPT:
@@ -210,19 +227,28 @@ TRANSCRIPT:
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
-    async def extract(self, transcript: str, field_specs: Optional[list[dict]] = None, glossary_text: str = "") -> MemoExtraction:
+    async def extract(
+        self,
+        transcript: str,
+        field_specs: Optional[list[dict]] = None,
+        glossary_text: str = "",
+        source_context: str = "voice_memo",
+    ) -> MemoExtraction:
         """
-        Extract structured CRM data from transcript
-        
+        Extract structured CRM data from transcript.
+
         Args:
-            transcript: The transcript text from Deepgram
+            transcript: The transcript text
             field_specs: Optional list of curated field specifications
             glossary_text: Optional text describing custom vocabulary for correction
-            
+            source_context: 'voice_memo' (default) or 'meeting_transcript'
+
         Returns:
             MemoExtraction with extracted data and confidence scores
         """
-        prompt = self._build_prompt(transcript, field_specs, glossary_text)
+        prompt = self._build_prompt(
+            transcript, field_specs, glossary_text, source_context=source_context
+        )
         schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
         logger.info(
             "📝 Extraction started",

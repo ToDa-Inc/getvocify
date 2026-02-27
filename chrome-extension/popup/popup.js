@@ -93,6 +93,19 @@ function renderState(state) {
     state.interimTranscript || ''
   ].filter(Boolean).join(' ').trim();
 
+  const pasteSection = document.getElementById('paste-transcript-section');
+  const pasteToggle = document.getElementById('paste-transcript-toggle');
+  const mainActions = document.querySelector('.main-actions');
+  const shortcutBox = document.getElementById('shortcut-box');
+  const recentMemos = document.getElementById('recent-memos-section');
+
+  // Reset visibility
+  if (pasteSection) pasteSection.style.display = 'none';
+  if (pasteToggle) pasteToggle.style.display = 'flex';
+  if (mainActions) mainActions.style.display = 'flex';
+  if (shortcutBox) shortcutBox.style.display = 'block';
+  if (recentMemos) recentMemos.style.display = 'block';
+
   // Recording UI
   if (state.isRecording) {
     showScreen('record');
@@ -100,7 +113,12 @@ function renderState(state) {
     document.getElementById('record-status-label').textContent = 'Recording...';
     document.getElementById('record-header-subtitle').textContent = 'Recording';
     liveTranscriptContainer.style.display = 'block';
-    shortcutBox.style.display = 'none';
+    
+    // Hide non-recording elements
+    if (shortcutBox) shortcutBox.style.display = 'none';
+    if (recentMemos) recentMemos.style.display = 'none';
+    if (pasteToggle) pasteToggle.style.display = 'none';
+    if (pasteSection) pasteSection.style.display = 'none';
 
     const dealContextBadge = document.getElementById('deal-context-badge');
     if (dealContextBadge) {
@@ -131,7 +149,14 @@ function renderState(state) {
       stopSessionHeartbeat();
       showScreen('record');
       liveTranscriptContainer.style.display = 'none';
-      shortcutBox.style.display = 'block';
+      
+      // Ensure all idle elements are visible
+      if (shortcutBox) shortcutBox.style.display = 'block';
+      if (recentMemos) recentMemos.style.display = 'block';
+      if (pasteToggle) pasteToggle.style.display = 'flex';
+      if (mainActions) mainActions.style.display = 'flex';
+      if (pasteSection) pasteSection.style.display = 'none';
+
       previewLoaded = false;
       currentMemoId = null;
       loadRecentMemos(); // Refresh recent list
@@ -350,42 +375,52 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
 
 function renderProposedUpdates(updates, availableFields) {
   proposedUpdatesList.innerHTML = '';
-  const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
+    const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
 
-  list.forEach((update, idx) => {
-    if (!update) return; // removed
-    const hadExisting =
-      update.current_value != null &&
-      String(update.current_value).trim() !== '' &&
-      String(update.current_value).trim() !== '(empty)';
-    const isOverride = !!hadExisting;
-    const isDealField = !['contact_name', 'company_name'].includes(update.field_name) && !update.field_name.startsWith('next_step_task_');
+    // Filter out contact_name and company_name if they are in the list
+    const filteredList = list.filter(u => u && !['contact_name', 'company_name', 'dealname'].includes(u.field_name));
 
-    const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
-    const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+    filteredList.forEach((update, idx) => {
+      if (!update) return; // removed
+      const hadExisting =
+        update.current_value != null &&
+        String(update.current_value).trim() !== '' &&
+        String(update.current_value).trim() !== '(empty)';
+      const isOverride = !!hadExisting;
+      const isDealField = !update.field_name.startsWith('next_step_task_');
 
-    const div = document.createElement('div');
-    div.className = 'update-item' + (isOverride ? ' override' : ' new');
-    div.dataset.idx = String(idx);
-    div.innerHTML = `
-      <div class="update-content">
-        <p class="update-label">${update.field_label || update.field_name}</p>
-        <p class="update-value">${escapeHtml(update.new_value || '—')}</p>
-        ${hadExisting ? `<p class="update-current">Was: ${escapeHtml(update.current_value)}</p>` : ''}
-        ${update.options && update.options.length ? `
-          <div class="custom-select-wrapper" style="display:none;">
-            <div class="custom-select" role="listbox">
-              <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox">—</button>
-              <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
-                <div class="custom-select-opt" data-value="">—</div>
-                ${update.options.map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
+      const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
+      const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+
+      const div = document.createElement('div');
+      div.className = 'update-item' + (isOverride ? ' override' : ' new');
+      div.dataset.idx = String(idx);
+      div.innerHTML = `
+        <div class="update-content">
+          <div class="update-header-row">
+            <p class="update-label">${update.field_label || update.field_name}</p>
+            ${isDealField ? `
+              <div class="update-actions">
+                <button class="update-action-btn edit" title="Edit">${editIcon}</button>
+                <button class="update-action-btn remove" title="Remove">${removeIcon}</button>
+              </div>
+            ` : ''}
+          </div>
+          <p class="update-value">${escapeHtml(update.new_value || '—')}</p>
+          ${hadExisting ? `<p class="update-current">Was: ${escapeHtml(update.current_value)}</p>` : ''}
+          ${update.options && update.options.length ? `
+            <div class="custom-select-wrapper" style="display:none;">
+              <div class="custom-select" role="listbox">
+                <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox">—</button>
+                <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
+                  <div class="custom-select-opt" data-value="">—</div>
+                  ${update.options.map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
+                </div>
               </div>
             </div>
-          </div>
-        ` : `<input type="${update.field_type === 'number' ? 'number' : update.field_name === 'closedate' ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(update.new_value || '')}" style="display:none;" />`}
-      </div>
-      ${isDealField ? `<div class="update-actions"><button class="update-action-btn edit" title="Edit">${editIcon}</button><button class="update-action-btn remove" title="Remove">${removeIcon}</button></div>` : ''}
-    `;
+          ` : `<input type="${update.field_type === 'number' ? 'number' : update.field_name === 'closedate' ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(update.new_value || '')}" style="display:none;" />`}
+        </div>
+      `;
 
     const valueEl = div.querySelector('.update-value');
     const editInput = div.querySelector('input.update-edit-input, .custom-select-trigger');
@@ -655,6 +690,72 @@ function renderSuccess(result) {
 // EVENT LISTENERS
 // ============================================
 
+// Paste transcript toggle
+document.getElementById('paste-transcript-toggle')?.addEventListener('click', () => {
+  const section = document.getElementById('paste-transcript-section');
+  const toggle = document.getElementById('paste-transcript-toggle');
+  const mainActions = document.querySelector('.main-actions');
+  const shortcutBox = document.getElementById('shortcut-box');
+  const recentMemos = document.getElementById('recent-memos-section');
+
+  if (section && toggle) {
+    section.style.display = 'block';
+    toggle.style.display = 'none';
+    if (mainActions) mainActions.style.display = 'none';
+    if (shortcutBox) shortcutBox.style.display = 'none';
+    if (recentMemos) recentMemos.style.display = 'none';
+    document.getElementById('paste-transcript-input')?.focus();
+  }
+});
+
+// Paste transcript cancel
+document.getElementById('paste-transcript-cancel-btn')?.addEventListener('click', () => {
+  const section = document.getElementById('paste-transcript-section');
+  const toggle = document.getElementById('paste-transcript-toggle');
+  const mainActions = document.querySelector('.main-actions');
+  const shortcutBox = document.getElementById('shortcut-box');
+  const recentMemos = document.getElementById('recent-memos-section');
+  const input = document.getElementById('paste-transcript-input');
+
+  if (section) section.style.display = 'none';
+  if (toggle) toggle.style.display = 'flex';
+  if (mainActions) mainActions.style.display = 'flex';
+  if (shortcutBox) shortcutBox.style.display = 'block';
+  if (recentMemos) recentMemos.style.display = 'block';
+  if (input) input.value = '';
+});
+
+// Paste transcript import
+document.getElementById('paste-transcript-import-btn')?.addEventListener('click', async () => {
+  const input = document.getElementById('paste-transcript-input');
+  const transcript = input?.value?.trim() || '';
+  if (!transcript) return;
+
+  const btn = document.getElementById('paste-transcript-import-btn');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+  setProcessingScreenMode('transcribing');
+  showScreen('processing');
+
+  try {
+    const result = await api.uploadTranscript(transcript, 'meeting_transcript');
+    currentMemoId = result.id;
+    chrome.runtime.sendMessage({
+      type: 'SET_STATE',
+      state: { currentMemoId: result.id, status: 'review' },
+    });
+  } catch (err) {
+    console.error('[Popup] Upload transcript failed:', err);
+    showScreen('record');
+    btn.disabled = false;
+    btn.textContent = 'Import & Continue';
+    const section = document.getElementById('paste-transcript-section');
+    const toggle = document.getElementById('paste-transcript-toggle');
+    if (section) section.style.display = 'block';
+    if (toggle) toggle.style.display = 'none';
+  }
+});
+
 // Record button
 recordButton.addEventListener('click', async () => {
   const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
@@ -865,8 +966,10 @@ async function init() {
 
   try {
     const user = await api.getCurrentUser();
-    document.getElementById('user-name').textContent = user.full_name || 'User';
-    document.getElementById('user-email').textContent = user.email;
+    const nameEl = document.getElementById('user-name');
+    if (nameEl) nameEl.textContent = user.full_name || 'User';
+    const emailEl = document.getElementById('user-email');
+    if (emailEl) emailEl.textContent = user.email;
     
     // Get current state from background
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });

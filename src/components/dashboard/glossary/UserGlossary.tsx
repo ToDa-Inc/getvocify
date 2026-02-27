@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, Loader2, BookOpen, Sparkles, Languages, Library, CheckCircle2, Wand2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Trash2, Loader2, BookOpen, Sparkles, Languages, Library, Wand2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { glossaryApi, GlossaryItem, GlossaryTemplate } from "@/lib/api/glossary";
+import { glossaryApi, GlossaryItem, GlossaryTemplate, BulkAddItem } from "@/lib/api/glossary";
+import { parseBulkInput, type ParsedBulkItem } from "@/lib/glossary/parseBulkInput";
 
 export const UserGlossary = () => {
   const [items, setItems] = useState<GlossaryItem[]>([]);
@@ -17,6 +18,110 @@ export const UserGlossary = () => {
   const [newWord, setNewWord] = useState("");
   const [newHints, setNewHints] = useState("");
   const [newCategory, setNewCategory] = useState("Company");
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [bulkInput, setBulkInput] = useState("");
+  const [bulkPreview, setBulkPreview] = useState<(ParsedBulkItem & { id: string; include: boolean })[]>([]);
+  const [bulkCategory, setBulkCategory] = useState("Company");
+  const [isBulkSuggesting, setIsBulkSuggesting] = useState(false);
+  const [isBulkAdding, setIsBulkAdding] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const existingWords = useCallback(() => new Set(items.map((i) => i.target_word)), [items]);
+
+  const refreshBulkPreview = useCallback(() => {
+    const parsed = parseBulkInput(bulkInput, bulkCategory);
+    const existing = existingWords();
+    setBulkPreview(
+      parsed.map((p, idx) => ({
+        ...p,
+        id: `bulk-${idx}-${p.word}`,
+        include: !existing.has(p.word),
+      })),
+    );
+  }, [bulkInput, bulkCategory, existingWords]);
+
+  useEffect(() => {
+    if (bulkInput.trim()) refreshBulkPreview();
+    else setBulkPreview([]);
+  }, [bulkInput, bulkCategory, refreshBulkPreview]);
+
+  const handleBulkFile = useCallback(
+    (file: File) => {
+      if (!file || !/\.(csv|txt)$/i.test(file.name)) {
+        toast.error("Please upload a .csv or .txt file");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = String(reader.result ?? "");
+        setBulkInput((prev) => (prev ? `${prev}\n${text}` : text));
+      };
+      reader.readAsText(file);
+    },
+    [],
+  );
+
+  const handleBulkSuggest = useCallback(async () => {
+    const toSuggest = bulkPreview.filter((p) => p.include && p.hints.length === 0).map((p) => p.word);
+    if (toSuggest.length === 0) {
+      toast.info("All selected words already have hints");
+      return;
+    }
+    try {
+      setIsBulkSuggesting(true);
+      const result = await glossaryApi.bulkSuggest(toSuggest, bulkCategory);
+      setBulkPreview((prev) =>
+        prev.map((p) => ({
+          ...p,
+          hints: result[p.word] ?? p.hints,
+        })),
+      );
+      toast.success(`Generated hints for ${Object.keys(result).length} words`);
+    } catch {
+      toast.error("Failed to generate sound-alikes");
+    } finally {
+      setIsBulkSuggesting(false);
+    }
+  }, [bulkPreview, bulkCategory]);
+
+  const handleBulkAdd = useCallback(async () => {
+    const toAdd = bulkPreview
+      .filter((p) => p.include)
+      .map((p) => ({
+        target_word: p.word,
+        phonetic_hints: p.hints,
+        category: p.category,
+      } satisfies BulkAddItem));
+    if (toAdd.length === 0) {
+      toast.error("Select at least one word to add");
+      return;
+    }
+    try {
+      setIsBulkAdding(true);
+      const { added, skipped } = await glossaryApi.bulkAdd(toAdd);
+      toast.success(`Added ${added} words${skipped > 0 ? `. ${skipped} skipped (already in glossary)` : ""}`);
+      setBulkInput("");
+      setBulkPreview([]);
+      setShowBulkAdd(false);
+      fetchGlossary();
+    } catch {
+      toast.error("Failed to add words");
+    } finally {
+      setIsBulkAdding(false);
+    }
+  }, [bulkPreview]);
+
+  const setPreviewHints = useCallback((id: string, hints: string[]) => {
+    setBulkPreview((prev) => prev.map((p) => (p.id === id ? { ...p, hints } : p)));
+  }, []);
+
+  const setPreviewInclude = useCallback((id: string, include: boolean) => {
+    setBulkPreview((prev) => prev.map((p) => (p.id === id ? { ...p, include } : p)));
+  }, []);
+
+  const removePreviewItem = useCallback((id: string) => {
+    setBulkPreview((prev) => prev.filter((p) => p.id !== id));
+  }, []);
 
   useEffect(() => {
     Promise.all([fetchGlossary(), fetchTemplates()]);
@@ -136,6 +241,14 @@ export const UserGlossary = () => {
             <Library className="h-4 w-4 mr-2" />
             Packs
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBulkAdd(!showBulkAdd)}
+            className={`rounded-full border-beige/30 text-beige hover:bg-beige/5 ${showBulkAdd ? "bg-beige/10" : ""}`}
+          >
+            {showBulkAdd ? "Cancel" : <><Upload className="h-4 w-4 mr-2" /> Bulk add</>}
+          </Button>
           <Button 
             variant="outline" 
             size="sm" 
@@ -146,6 +259,167 @@ export const UserGlossary = () => {
           </Button>
         </div>
       </div>
+
+      {showBulkAdd && (
+        <div className="p-6 rounded-2xl bg-secondary/5 border border-beige/20 space-y-6 animate-in fade-in slide-in-from-top-2">
+          <div>
+            <h4 className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>Bulk import</h4>
+            <p className="text-xs text-muted-foreground mb-4">
+              Paste words (one per line or comma-separated), or drop a CSV/TXT file. CSV can include: word,category,hints
+            </p>
+            <div
+              className={`relative rounded-2xl border-2 border-dashed transition-colors ${
+                isDragOver ? "border-beige bg-beige/5" : "border-beige/20 hover:border-beige/40"
+              }`}
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                const f = e.dataTransfer.files[0];
+                if (f) handleBulkFile(f);
+              }}
+            >
+              <textarea
+                value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+                placeholder={'Edenred\nFTES\nCobee, 50k\n\nOr CSV: word,category,hints'}
+                className="w-full min-h-[140px] p-4 pr-12 rounded-2xl bg-transparent text-sm resize-y focus:outline-none focus:ring-0 placeholder:text-muted-foreground/50"
+              />
+              <label className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-beige/10 cursor-pointer text-muted-foreground/60 hover:text-beige transition-colors">
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  className="sr-only"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBulkFile(f); e.target.value = ""; }}
+                />
+                <Upload className="h-5 w-5" />
+              </label>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-2">Supported: .csv, .txt</p>
+          </div>
+
+          {bulkPreview.length > 0 && (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-muted-foreground">
+                  {bulkPreview.filter((p) => p.include).length} to add
+                  {bulkPreview.some((p) => !p.include) && ` · ${bulkPreview.filter((p) => !p.include).length} already in glossary`}
+                </span>
+                <span className="text-xs text-muted-foreground">Category:</span>
+                <select
+                  className="h-8 px-3 rounded-lg border border-input bg-white text-xs font-medium"
+                  value={bulkCategory}
+                  onChange={(e) => setBulkCategory(e.target.value)}
+                >
+                  <option value="Company">Company</option>
+                  <option value="Competitor">Competitor</option>
+                  <option value="Product">Product</option>
+                  <option value="Technical">Technical</option>
+                  <option value="Slang">Slang/Lingo</option>
+                  <option value="General">General</option>
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isBulkSuggesting || !bulkPreview.some((p) => p.include && p.hints.length === 0)}
+                  onClick={handleBulkSuggest}
+                  className="rounded-full text-xs h-8"
+                >
+                  {isBulkSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3 mr-1" />}
+                  Generate missing sound-alikes
+                </Button>
+              </div>
+
+              <div className="max-h-[280px] overflow-auto rounded-xl border border-border/20">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-secondary/95 border-b border-border/20">
+                    <tr className="text-left">
+                      <th className="w-10 p-2"></th>
+                      <th className="p-2 font-medium">Word</th>
+                      <th className="p-2 font-medium">Category</th>
+                      <th className="p-2 font-medium flex-1">Sound-alikes</th>
+                      <th className="w-10 p-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkPreview.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={`border-b border-border/10 last:border-0 ${!row.include ? "opacity-50 bg-muted/20" : ""}`}
+                      >
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={row.include}
+                            onChange={(e) => setPreviewInclude(row.id, e.target.checked)}
+                            className="rounded border-input"
+                          />
+                        </td>
+                        <td className="p-2 font-medium">{row.word}</td>
+                        <td className="p-2">
+                          <select
+                            className="h-7 px-2 rounded border border-input bg-white text-xs w-28"
+                            value={row.category}
+                            onChange={(e) =>
+                              setBulkPreview((prev) =>
+                                prev.map((p) => (p.id === row.id ? { ...p, category: e.target.value } : p))
+                              )
+                            }
+                          >
+                            <option value="Company">Company</option>
+                            <option value="Competitor">Competitor</option>
+                            <option value="Product">Product</option>
+                            <option value="Technical">Technical</option>
+                            <option value="Slang">Slang</option>
+                            <option value="General">General</option>
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <Input
+                            value={row.hints.join(", ")}
+                            onChange={(e) =>
+                              setPreviewHints(
+                                row.id,
+                                e.target.value.split(/[,|;]/).map((h) => h.trim()).filter(Boolean),
+                              )
+                            }
+                            placeholder="En red, Enred"
+                            className="h-7 text-xs rounded-lg"
+                          />
+                        </td>
+                        <td className="p-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => removePreviewItem(row.id)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <Button
+                variant="hero"
+                disabled={isBulkAdding || !bulkPreview.some((p) => p.include)}
+                onClick={handleBulkAdd}
+                className="w-full rounded-full bg-beige text-cream font-bold"
+              >
+                {isBulkAdding ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Adding...</>
+                ) : (
+                  <>Add {bulkPreview.filter((p) => p.include).length} to glossary</>
+                )}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
 
       {showTemplates && (
         <div className="p-6 rounded-2xl bg-beige/5 border border-beige/20 space-y-4 animate-in fade-in zoom-in-95">

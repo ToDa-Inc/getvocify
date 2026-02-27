@@ -146,3 +146,65 @@ async def suggest_hints(
     ai_service = GlossaryAIService()
     hints = await ai_service.generate_phonetic_hints(word, category)
     return {"word": word, "hints": hints}
+
+
+class BulkSuggestRequest(BaseModel):
+    words: List[str] = Field(..., min_length=1, max_length=100)
+    category: str = "General"
+
+
+class BulkAddItem(BaseModel):
+    target_word: str
+    phonetic_hints: List[str] = Field(default_factory=list)
+    category: str = "General"
+
+
+class BulkAddRequest(BaseModel):
+    items: List[BulkAddItem] = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/bulk-suggest", response_model=Dict[str, List[str]])
+async def bulk_suggest(
+    body: BulkSuggestRequest,
+):
+    """Generate phonetic hints for multiple words in one call."""
+    ai_service = GlossaryAIService()
+    return await ai_service.generate_phonetic_hints_bulk(body.words, body.category)
+
+
+@router.post("/bulk-add", response_model=dict)
+async def bulk_add(
+    body: BulkAddRequest,
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    """Add multiple glossary items. Skips duplicates by target_word."""
+    service = GlossaryService(supabase)
+    ai_service = GlossaryAIService()
+    current = await service.get_user_glossary(user_id)
+    existing = {i.get("target_word") for i in current}
+    added = 0
+    skipped = 0
+    for item in body.items:
+        word = (item.target_word or "").strip()
+        if not word:
+            continue
+        if word in existing:
+            skipped += 1
+            continue
+        hints = list(item.phonetic_hints) if item.phonetic_hints else []
+        if not hints:
+            hints = await ai_service.generate_phonetic_hints(word, item.category)
+        entry = {
+            "id": str(uuid.uuid4()),
+            "target_word": word,
+            "phonetic_hints": hints,
+            "boost_factor": 5,
+            "category": item.category or "General",
+        }
+        current.append(entry)
+        existing.add(word)
+        added += 1
+    if added > 0:
+        await service.update_glossary(user_id, current)
+    return {"added": added, "skipped": skipped}

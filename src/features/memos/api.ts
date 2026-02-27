@@ -66,10 +66,16 @@ export const memosApi = {
 
   /**
    * Upload transcript only (no audio storage).
-   * Use when real-time transcription already produced the transcript.
+   * Use when real-time transcription already produced the transcript, or when pasting a meeting transcript.
    */
-  uploadTranscript: (transcript: string): Promise<UploadMemoResponse> => {
-    return api.post<UploadMemoResponse>('/memos/upload-transcript', { transcript });
+  uploadTranscript: (
+    transcript: string,
+    sourceType?: 'voice_memo' | 'meeting_transcript',
+  ): Promise<UploadMemoResponse> => {
+    return api.post<UploadMemoResponse>('/memos/upload-transcript', {
+      transcript,
+      ...(sourceType && { source_type: sourceType }),
+    });
   },
 
   /**

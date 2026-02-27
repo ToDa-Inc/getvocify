@@ -15,11 +15,19 @@
         <p id="record-header-subtitle" class="subtitle">Ready to record</p>
       </div>
 
-      <div class="record-container">
-        <button id="record-button" class="record-btn">
-          <div class="record-icon"></div>
+      <div class="main-actions">
+        <div class="record-container">
+          <button id="record-button" class="record-btn">
+            <div class="record-icon"></div>
+          </button>
+          <p id="record-status-label" class="record-label">Tap to record</p>
+        </div>
+
+        <!-- Paste transcript toggle -->
+        <button id="paste-transcript-toggle" type="button" class="btn-secondary-hero">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Paste Meeting Transcript
         </button>
-        <p id="record-status-label" class="record-label">Tap to record</p>
       </div>
 
       <!-- Deal context badge (shown when recording on HubSpot deal page) -->
@@ -29,6 +37,16 @@
       <div id="live-transcript-container" class="transcript-container" style="display: none;">
         <p class="transcript-label">Transcribing live...</p>
         <div id="live-transcript-text" class="transcript-text"></div>
+      </div>
+
+      <!-- Paste transcript section (collapsible) -->
+      <div id="paste-transcript-section" class="paste-transcript-section" style="display: none;">
+        <p class="caps-label" style="margin-bottom: 8px;">Import Transcript</p>
+        <textarea id="paste-transcript-input" class="transcript-textarea" rows="5" placeholder="Paste your transcript here..."></textarea>
+        <div class="paste-actions">
+          <button id="paste-transcript-cancel-btn" class="btn btn-secondary">Cancel</button>
+          <button id="paste-transcript-import-btn" class="btn btn-primary">Import & Continue</button>
+        </div>
       </div>
       
       <!-- Shortcut Info -->
@@ -50,12 +68,6 @@
         </div>
       </div>
 
-      <div class="user-info">
-        <div class="user-name" id="user-name">...</div>
-        <div class="user-email" id="user-email">...</div>
-        <div class="ext-version" style="font-size:9px;opacity:0.5;margin-top:4px">v1.0.1</div>
-      </div>
-
       <!-- Recent Memos Section -->
       <div id="recent-memos-section" class="recent-memos-section">
         <p class="caps-label" style="margin-bottom: 12px;">Recent Memos</p>
@@ -64,8 +76,12 @@
         </div>
       </div>
       
-      <div class="actions">
-        <button id="logout-button" class="btn btn-secondary">Log Out</button>
+      <div class="footer-actions">
+        <div class="user-minimal">
+          <span id="user-name">...</span>
+          <span class="version-tag">v1.0.2</span>
+        </div>
+        <button id="logout-button" class="logout-link">Log Out</button>
       </div>
     </div>
 

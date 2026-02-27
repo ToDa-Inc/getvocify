@@ -45,4 +45,26 @@ export const glossaryApi = {
   deleteItem: async (id: string) => {
     return api.delete(`/glossary/${id}`);
   },
+
+  bulkSuggest: async (
+    words: string[],
+    category: string = "General",
+  ): Promise<Record<string, string[]>> => {
+    return api.post<Record<string, string[]>>("/glossary/bulk-suggest", {
+      words,
+      category,
+    });
+  },
+
+  bulkAdd: async (items: BulkAddItem[]): Promise<{ added: number; skipped: number }> => {
+    return api.post<{ added: number; skipped: number }>("/glossary/bulk-add", {
+      items,
+    });
+  },
 };
+
+export interface BulkAddItem {
+  target_word: string;
+  phonetic_hints: string[];
+  category: string;
+}

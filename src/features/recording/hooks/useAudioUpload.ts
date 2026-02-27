@@ -19,27 +19,36 @@ export function useAudioUpload(): UseAudioUploadReturn {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Upload transcript only (no audio). Use when real-time transcription produced the transcript.
+   * Upload transcript only (no audio). Use when real-time transcription or meeting transcript paste.
    * Returns the created memo ID.
    */
-  const uploadTranscriptOnly = useCallback(async (transcript: string): Promise<string> => {
-    setIsUploading(true);
-    setError(null);
-    setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
+  const uploadTranscriptOnly = useCallback(
+    async (
+      transcript: string,
+      options?: { sourceType?: 'voice_memo' | 'meeting_transcript' },
+    ): Promise<string> => {
+      setIsUploading(true);
+      setError(null);
+      setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
 
-    try {
-      const response = await memosApi.uploadTranscript(transcript.trim());
-      setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
-      return response.id;
-    } catch (err) {
-      console.error('Upload failed:', err);
-      const message = err instanceof Error ? err.message : 'Upload failed';
-      setError(message);
-      throw err;
-    } finally {
-      setIsUploading(false);
-    }
-  }, []);
+      try {
+        const response = await memosApi.uploadTranscript(
+          transcript.trim(),
+          options?.sourceType,
+        );
+        setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
+        return response.id;
+      } catch (err) {
+        console.error('Upload failed:', err);
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        setError(message);
+        throw err;
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [],
+  );
 
   /**
    * Upload audio (and optional transcript). Use for file upload or when no real-time transcript.
