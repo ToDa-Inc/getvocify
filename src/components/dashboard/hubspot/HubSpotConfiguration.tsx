@@ -128,28 +128,8 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
         <div className="grid sm:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Active Pipeline</label>
-            <div className="relative">
-              <select
-                value={config.default_pipeline_id}
-                onChange={(e) => {
-                  const p = pipelines.find(p => p.id === e.target.value);
-                  if (p) {
-                    setConfig(prev => ({
-                      ...prev,
-                      default_pipeline_id: p.id,
-                      default_pipeline_name: p.label,
-                      default_stage_id: p.stages[0].id,
-                      default_stage_name: p.stages[0].label,
-                    }));
-                  }
-                }}
-                className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-              >
-                {pipelines.map(p => (
-                  <option key={p.id} value={p.id}>{p.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
+            <div className="h-12 px-6 rounded-full border border-border/40 bg-secondary/5 flex items-center font-bold text-foreground">
+              {config.default_pipeline_name || "Sales pipeline"}
             </div>
           </div>
 

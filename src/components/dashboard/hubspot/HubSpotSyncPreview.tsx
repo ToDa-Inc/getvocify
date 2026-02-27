@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -92,6 +92,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   const [editedUpdates, setEditedUpdates] = useState<any[] | null>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [showAddField, setShowAddField] = useState(false);
+  const searchQueryRef = useRef("");
 
   const fetchPreview = useCallback(
     async (dealId?: string) => {
@@ -166,18 +167,36 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+  searchQueryRef.current = searchQuery;
+
+  const runSearch = useCallback(async (query: string) => {
+    if (!query.trim()) return;
     setIsSearching(true);
     try {
-      const results = await crmApi.searchDeals(searchQuery);
-      setSearchResults(results);
+      const results = await crmApi.searchDeals(query);
+      if (searchQueryRef.current === query) setSearchResults(results);
     } catch {
-      toast.error("Search failed");
+      if (searchQueryRef.current === query) toast.error("Search failed");
     } finally {
-      setIsSearching(false);
+      if (searchQueryRef.current === query) setIsSearching(false);
     }
+  }, []);
+
+  const handleSearch = () => {
+    const q = searchQuery.trim();
+    if (q.length >= 2) runSearch(q);
   };
+
+  useEffect(() => {
+    if (!showSearch) return;
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(() => runSearch(q), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, showSearch, runSearch]);
 
   const selectDeal = (dealId: string) => {
     fetchPreview(dealId || undefined);
@@ -316,6 +335,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
               <X className="h-4 w-4" />
             </Button>
           </div>
+          <p className="text-[10px] text-muted-foreground/60 -mt-1">Type a full word to search</p>
 
           <div className="max-h-[200px] overflow-y-auto space-y-2 pr-2 scrollbar-thin">
             {searchResults.map((deal) => (
@@ -337,7 +357,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                 </div>
               </button>
             ))}
-            {searchResults.length === 0 && !isSearching && searchQuery && (
+            {searchResults.length === 0 && !isSearching && searchQuery.trim().length >= 2 && (
               <div className="text-center py-8">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">No matching deals found in HubSpot</p>
               </div>

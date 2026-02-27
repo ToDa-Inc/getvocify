@@ -11,18 +11,9 @@ import {
   Menu, 
   X,
   Sparkles,
-  User,
-  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const navItems = [
@@ -151,37 +142,15 @@ const DashboardLayout = () => {
               </p>
             </div>
             
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0 border border-border/40 shadow-soft overflow-hidden group">
-                  <div className="absolute inset-0 bg-beige/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <span className="text-xs font-black text-beige">
-                    {user ? getUserInitials(user) : 'U'}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 mt-2 rounded-2xl border-border/40 shadow-large p-2">
-                <DropdownMenuItem asChild className="rounded-xl cursor-pointer py-3">
-                  <Link to="/dashboard/profile" className="flex items-center gap-3">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-bold text-sm">My Profile</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild className="rounded-xl cursor-pointer py-3">
-                  <Link to="/dashboard/settings" className="flex items-center gap-3">
-                    <Settings className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-bold text-sm">Settings</span>
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="my-2 bg-border/40" />
-                <DropdownMenuItem asChild className="rounded-xl cursor-pointer py-3 text-destructive hover:bg-destructive/5">
-                  <Link to="/" className="flex items-center gap-3">
-                    <LogOut className="h-4 w-4" />
-                    <span className="font-bold text-sm">Logout</span>
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Link
+              to="/dashboard/profile"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-white shadow-soft overflow-hidden group hover:bg-beige/5 transition-colors"
+            >
+              <div className="absolute inset-0 bg-beige/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+              <span className="text-xs font-black text-beige relative z-10">
+                {user ? getUserInitials(user) : 'U'}
+              </span>
+            </Link>
           </div>
         </header>
 
