@@ -159,12 +159,18 @@ class HubSpotDealService:
         Returns:
             Deal name string
         """
+        def _add_deal_suffix(s: str) -> str:
+            s = s.strip()
+            if s.lower().endswith("deal"):
+                return s
+            return f"{s} Deal"
+
         if extraction.companyName:
-            return f"{extraction.companyName} Deal"
+            return _add_deal_suffix(extraction.companyName)
         elif contact_name:
-            return f"{contact_name} Deal"
+            return _add_deal_suffix(contact_name)
         elif extraction.contactName:
-            return f"{extraction.contactName} Deal"
+            return _add_deal_suffix(extraction.contactName)
         else:
             return "New Deal"
     
@@ -289,9 +295,10 @@ class HubSpotDealService:
             # deal_currency_code: omit - HubSpot validates against portal's effective currencies;
             # sending EUR (or other) can fail if not configured for the portal. Amount uses portal default.
             # dealstage: omit - must be resolved via pipeline schema (label→ID); never send raw labels like "Cierre"
+            # competitors: included - it's a HubSpot deal property in many portals (enumeration)
             skip_fields = [
                 "dealname", "amount", "closedate", "description",
-                "summary", "painPoints", "nextSteps", "competitors",
+                "summary", "painPoints", "nextSteps",
                 "objections", "decisionMakers", "confidence",
                 "contactName", "companyName", "contactEmail",  # Used for associations, not deal props
                 "deal_currency_code",  # Portal-specific; omit to avoid INVALID_OPTION validation

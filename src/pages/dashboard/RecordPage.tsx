@@ -17,6 +17,7 @@ import {
 } from "@/features/recording/components";
 import { AUDIO, ROUTES } from "@/shared/lib/constants";
 import { isSupportedAudioType, formatFileSize } from "@/features/recording/types";
+import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
@@ -278,9 +279,10 @@ const RecordPage = () => {
                   }
                   try {
                     const memoId = await uploadTranscriptOnly(editedTranscript.trim());
+                    memosApi.confirmTranscript(memoId).catch(() => {}); // fire-and-forget: extraction starts in background
                     resetTranscription();
                     toast.success("Memo created! AI is extracting CRM fields...");
-                    window.location.href = ROUTES.MEMO_DETAIL(memoId);
+                    navigate(ROUTES.MEMO_DETAIL(memoId));
                   } catch {
                     toast.error(uploadError || "Failed to upload");
                   }
