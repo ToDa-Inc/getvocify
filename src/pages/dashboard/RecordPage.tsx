@@ -17,7 +17,6 @@ import {
 } from "@/features/recording/components";
 import { AUDIO, ROUTES } from "@/shared/lib/constants";
 import { isSupportedAudioType, formatFileSize } from "@/features/recording/types";
-import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
@@ -33,6 +32,7 @@ const RecordPage = () => {
   const { user } = useAuth();
   const [uploadedMemoId, setUploadedMemoId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isSubmitLocked = useRef(false);
 
   const {
     state,
@@ -49,6 +49,7 @@ const RecordPage = () => {
   const {
     upload,
     uploadTranscriptOnly,
+    uploadTranscriptAndExtract,
     progress,
     isUploading,
     error: uploadError,
@@ -273,17 +274,19 @@ const RecordPage = () => {
                 variant="hero"
                 disabled={isUploading}
                 onClick={async () => {
+                  if (isSubmitLocked.current) return;
                   if (!editedTranscript.trim()) {
                     toast.error("Transcript cannot be empty");
                     return;
                   }
+                  isSubmitLocked.current = true;
                   try {
-                    const memoId = await uploadTranscriptOnly(editedTranscript.trim());
-                    memosApi.confirmTranscript(memoId).catch(() => {}); // fire-and-forget: extraction starts in background
+                    const memoId = await uploadTranscriptAndExtract(editedTranscript.trim());
                     resetTranscription();
                     toast.success("Memo created! AI is extracting CRM fields...");
                     navigate(ROUTES.MEMO_DETAIL(memoId));
                   } catch {
+                    isSubmitLocked.current = false;
                     toast.error(uploadError || "Failed to upload");
                   }
                 }}

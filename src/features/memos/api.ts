@@ -73,6 +73,15 @@ export const memosApi = {
   },
 
   /**
+   * Upload transcript and start AI extraction in one call.
+   * Use when user has already reviewed transcript (e.g. RecordPage "Accept & Continue").
+   * Returns memo ID with status "extracting".
+   */
+  uploadTranscriptAndExtract: (transcript: string): Promise<UploadMemoResponse> => {
+    return api.post<UploadMemoResponse>('/memos/upload-and-extract', { transcript });
+  },
+
+  /**
    * Upload audio file for transcription (no storage - transcribe in memory).
    * Use when no real-time transcript available (e.g. file upload).
    */

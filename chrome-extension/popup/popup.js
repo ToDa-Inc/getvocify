@@ -39,6 +39,8 @@ let sessionHeartbeatId = null;
 let lastPreviewData = null;
 /** Edits/removals from proposed updates (index → update or null if removed) */
 let editedProposedUpdates = null;
+/** Click-outside handler for Add field dropdown */
+let addFieldCloseHandler = null;
 
 // ============================================
 // SCREEN MANAGEMENT
@@ -359,7 +361,7 @@ function renderProposedUpdates(updates, availableFields) {
       String(update.current_value).trim() !== '' &&
       String(update.current_value).trim() !== '(empty)';
     const isOverride = !!hadExisting;
-    const isDealField = !['contact_name', 'company_name'].includes(update.field_name) && !update.field_name.startsWith('next_step_task_');
+    const isDealField = !['contact_name', 'company_name'].includes(update.field_name);
 
     const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
     const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
@@ -480,7 +482,12 @@ function renderProposedUpdates(updates, availableFields) {
     addBtn.onclick = () => {
       const expanded = dropdown.style.display === 'block';
       dropdown.style.display = expanded ? 'none' : 'block';
-      if (!expanded) {
+      if (expanded) {
+        if (addFieldCloseHandler) {
+          document.removeEventListener('click', addFieldCloseHandler);
+          addFieldCloseHandler = null;
+        }
+      } else {
         dropdown.innerHTML = availableFields
           .filter((f) => !list.some((u) => u && u.field_name === f.name))
           .map(
@@ -500,10 +507,27 @@ function renderProposedUpdates(updates, availableFields) {
             };
             const nextList = editedProposedUpdates !== null ? [...editedProposedUpdates.filter(Boolean), newUpdate] : [...list, newUpdate];
             editedProposedUpdates = nextList;
+            if (addFieldCloseHandler) {
+              document.removeEventListener('click', addFieldCloseHandler);
+              addFieldCloseHandler = null;
+            }
             dropdown.style.display = 'none';
             renderProposedUpdates(editedProposedUpdates, availableFields);
           };
         });
+        // Close dropdown when clicking outside
+        if (addFieldCloseHandler) document.removeEventListener('click', addFieldCloseHandler);
+        addFieldCloseHandler = (e) => {
+          if (dropdown.style.display !== 'block') {
+            addFieldCloseHandler = null;
+            return;
+          }
+          if (addBtn.contains(e.target) || dropdown.contains(e.target)) return;
+          dropdown.style.display = 'none';
+          document.removeEventListener('click', addFieldCloseHandler);
+          addFieldCloseHandler = null;
+        };
+        setTimeout(() => document.addEventListener('click', addFieldCloseHandler), 0);
       }
     }
   } else if (addBtn) {
@@ -624,6 +648,10 @@ async function searchDeals(query) {
       console.log('[Popup] No deals found');
       searchResultsBox.style.display = 'block';
       searchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center;">No deals found</p>';
+    } else if (results?.error) {
+      console.error('[Popup] Search error:', results.error);
+      searchResultsBox.style.display = 'block';
+      searchResultsBox.innerHTML = `<p class="body-muted" style="padding: 12px; text-align: center; color: var(--destructive);">Search failed: ${escapeHtml(results.error)}</p>`;
     } else {
       console.log('[Popup] Invalid results or error:', results);
       searchResultsBox.style.display = 'none';

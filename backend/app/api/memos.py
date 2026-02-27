@@ -362,6 +362,62 @@ async def upload_transcript_only(
     )
 
 
+@router.post("/upload-and-extract", response_model=UploadResponse)
+async def upload_transcript_and_extract(
+    body: UploadTranscriptRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Create memo from transcript and start AI extraction in one call.
+    Use when the user has already reviewed the transcript (e.g. RecordPage "Accept & Continue").
+    Returns immediately with status "extracting"; extraction runs in background.
+    """
+    transcript = (body.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Transcript is required",
+        )
+
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(user_id)
+    allowed_fields = config.allowed_deal_fields if config else None
+
+    field_specs = None
+    if allowed_fields:
+        try:
+            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
+            schema_service = HubSpotSchemaService(client, supabase, connection_id)
+            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
+        except Exception:
+            field_specs = None
+
+    estimated_duration = len(transcript) / 15
+    result = supabase.table("memos").insert({
+        "user_id": user_id,
+        "audio_url": "",
+        "audio_duration": estimated_duration,
+        "status": "extracting",
+        "transcript": transcript,
+        "transcript_confidence": 1.0,
+        "processing_started_at": datetime.utcnow().isoformat(),
+    }).execute()
+
+    memo_id = result.data[0]["id"]
+
+    extraction_service = ExtractionService()
+    asyncio.create_task(
+        extract_memo_async(str(memo_id), user_id, transcript, supabase, extraction_service, field_specs)
+    )
+
+    return UploadResponse(
+        id=str(memo_id),
+        status="extracting",
+        statusUrl=f"/api/v1/memos/{memo_id}"
+    )
+
+
 @router.get("", response_model=list[Memo])
 async def list_memos(
     supabase: Client = Depends(get_supabase),

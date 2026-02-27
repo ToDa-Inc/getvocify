@@ -148,6 +148,8 @@ export interface UseAudioUploadReturn {
   upload: (audio: RecordedAudio, transcript?: string) => Promise<string>;
   /** Upload transcript only - use when real-time transcription produced the text */
   uploadTranscriptOnly: (transcript: string) => Promise<string>;
+  /** Upload transcript and start extraction in one call - use when user already reviewed */
+  uploadTranscriptAndExtract: (transcript: string) => Promise<string>;
   /** Current upload progress */
   progress: UploadProgress | null;
   /** Whether upload is in progress */

@@ -407,7 +407,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                 String(update.current_value).trim() !== "(empty)";
               const isOverride = !!hadExisting;
               const isDealField =
-                !["contact_name", "company_name"].includes(update.field_name) && !update.field_name?.startsWith("next_step_task_");
+                !["contact_name", "company_name"].includes(update.field_name);
               const isEditing = editingIdx === idx;
 
               return (

@@ -63,31 +63,37 @@ const MemoDetail = () => {
   }, [audio]);
 
   useEffect(() => {
-    const fetchMemo = async () => {
-      if (!id) return;
+    if (!id) return;
+    let cancelled = false;
+    const load = async () => {
       try {
         setIsLoading(true);
         const data = await api.get<any>(`/memos/${id}`);
-        setMemo(data);
-        setError(null);
+        if (!cancelled) { setMemo(data); setError(null); }
       } catch (err) {
         console.error("Failed to fetch memo:", err);
-        setError("Could not load memo details.");
+        if (!cancelled) setError("Could not load memo details.");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
+    load();
+    return () => { cancelled = true; };
+  }, [id]);
 
-    fetchMemo();
+  useEffect(() => {
+    if (!id || !memo) return;
+    const TRANSIENT = ["uploading", "transcribing", "extracting"];
+    if (!TRANSIENT.includes(memo.status)) return;
 
-    let interval: number | null = null;
-    if (memo && ["uploading", "transcribing", "extracting", "pending_transcript"].includes(memo.status)) {
-      interval = window.setInterval(fetchMemo, 3000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
+    const poll = async () => {
+      try {
+        const data = await api.get<any>(`/memos/${id}`);
+        setMemo(data);
+      } catch { /* silent — next tick retries */ }
     };
+    const interval = window.setInterval(poll, 3000);
+    return () => clearInterval(interval);
   }, [id, memo?.status]);
 
   const togglePlay = () => {
@@ -128,16 +134,7 @@ const MemoDetail = () => {
     try {
       await memosApi.confirmTranscript(id, editedTranscript.trim() || undefined);
       toast.success("AI is extracting CRM fields...");
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const updated = await memosApi.get(id);
-        setMemo(updated);
-        if (updated.status === "pending_review") break;
-        if (updated.status === "failed") {
-          toast.error(updated.errorMessage || "Extraction failed");
-          break;
-        }
-      }
+      setMemo((prev: any) => prev ? { ...prev, status: "extracting" } : prev);
     } catch (err: any) {
       toast.error(err?.data?.detail || "Failed to confirm transcript");
     } finally {
