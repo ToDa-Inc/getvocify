@@ -373,11 +373,14 @@ function renderProposedUpdates(updates, availableFields) {
         <p class="update-value">${escapeHtml(update.new_value || '—')}</p>
         ${hadExisting ? `<p class="update-current">Was: ${escapeHtml(update.current_value)}</p>` : ''}
         ${update.options && update.options.length ? `
-          <div class="select-wrapper" style="display:none;">
-            <select class="update-edit-input">
-              <option value="">—</option>
-              ${update.options.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label || o.value)}</option>`).join('')}
-            </select>
+          <div class="custom-select-wrapper" style="display:none;">
+            <div class="custom-select" role="listbox">
+              <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox">—</button>
+              <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
+                <div class="custom-select-opt" data-value="">—</div>
+                ${update.options.map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
+              </div>
+            </div>
           </div>
         ` : `<input type="${update.field_type === 'number' ? 'number' : update.field_name === 'closedate' ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(update.new_value || '')}" style="display:none;" />`}
       </div>
@@ -385,31 +388,69 @@ function renderProposedUpdates(updates, availableFields) {
     `;
 
     const valueEl = div.querySelector('.update-value');
-    const editInput = div.querySelector('.update-edit-input');
-    const selectWrapper = div.querySelector('.select-wrapper');
+    const editInput = div.querySelector('input.update-edit-input, .custom-select-trigger');
+    const customSelectWrapper = div.querySelector('.custom-select-wrapper');
+    const customSelect = div.querySelector('.custom-select');
+    const customTrigger = div.querySelector('.custom-select-trigger');
+    const customDropdown = div.querySelector('.custom-select-dropdown');
+    const customOpts = div.querySelectorAll('.custom-select-opt');
     const editBtn = div.querySelector('.update-action-btn.edit');
     const removeBtn = div.querySelector('.update-action-btn.remove');
+
+    const closeCustomSelect = () => {
+      if (customDropdown) customDropdown.classList.remove('open');
+      document.removeEventListener('click', closeCustomSelectOutside);
+    };
+    const closeCustomSelectOutside = (e) => {
+      if (!customSelect?.contains(e.target)) closeCustomSelect();
+    };
 
     if (editBtn && editInput) {
       editBtn.onclick = () => {
         div.classList.add('editing');
         valueEl.style.display = 'none';
-        if (selectWrapper) {
-          selectWrapper.style.display = 'block';
+        if (customSelectWrapper) {
+          customSelectWrapper.style.display = 'block';
+          const opt = customOpts && Array.from(customOpts).find((o) => o.dataset.value === (update.new_value || ''));
+          if (customTrigger) customTrigger.textContent = opt ? (opt.dataset.label || opt.dataset.value || '—') : '—';
+        } else if (editInput.tagName === 'INPUT') {
           editInput.style.display = 'block';
-        } else {
-          editInput.style.display = 'block';
+          editInput.value = update.new_value || '';
+          editInput.focus();
         }
-        editInput.value = update.new_value || '';
-        editInput.focus();
       };
     }
-    if (editInput) {
+    if (customTrigger && customDropdown && customOpts?.length) {
+      customTrigger.onclick = (e) => {
+        e.stopPropagation();
+        customDropdown.classList.toggle('open');
+        if (customDropdown.classList.contains('open')) setTimeout(() => document.addEventListener('click', closeCustomSelectOutside), 0);
+        else document.removeEventListener('click', closeCustomSelectOutside);
+      };
+      customOpts.forEach((opt) => {
+        opt.onclick = (e) => {
+          e.stopPropagation();
+          const v = opt.dataset.value ?? '';
+          const label = opt.dataset.label || v || '—';
+          if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
+          if (editedProposedUpdates[idx]) {
+            editedProposedUpdates[idx].new_value = v;
+            valueEl.textContent = label;
+          }
+          customTrigger.textContent = label;
+          div.classList.remove('editing');
+          valueEl.style.display = 'block';
+          customSelectWrapper.style.display = 'none';
+          closeCustomSelect();
+        };
+      });
+    }
+    if (editInput && editInput.tagName === 'INPUT') {
       const saveEdit = () => {
         const v = editInput.value?.trim() || '';
         div.classList.remove('editing');
         valueEl.style.display = 'block';
-        if (selectWrapper) selectWrapper.style.display = 'none';
+        if (customSelectWrapper) customSelectWrapper.style.display = 'none';
         editInput.style.display = 'none';
         if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
         if (editedProposedUpdates[idx]) {

@@ -273,7 +273,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
         <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
           <div>
             <p className="font-bold text-foreground text-xs">Auto-create Contacts</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5 tracking-tight">Create if not found in HubSpot</p>
+            <p className="text-[9px] text-muted-foreground mt-0.5 tracking-tight">Create contacts from memo extractions when not found in HubSpot. Requires contact name or email.</p>
           </div>
           <Switch 
             checked={config.auto_create_contacts} 
@@ -283,13 +283,20 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
         <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
           <div>
             <p className="font-bold text-foreground text-xs">Auto-create Companies</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5 tracking-tight">Create if not found in HubSpot</p>
+            <p className="text-[9px] text-muted-foreground mt-0.5 tracking-tight">Create companies from memo extractions when not found in HubSpot. Requires company name.</p>
           </div>
           <Switch 
             checked={config.auto_create_companies} 
             onCheckedChange={(val) => setConfig(prev => ({ ...prev, auto_create_companies: val }))} 
           />
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 px-2">
+        <Info className="h-3 w-3 text-muted-foreground/40" />
+        <p className="text-[9px] text-muted-foreground font-medium italic">
+          When both are off, only deal fields are updated.
+        </p>
       </div>
 
       <Button

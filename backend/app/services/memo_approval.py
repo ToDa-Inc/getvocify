@@ -122,13 +122,22 @@ async def approve_memo_core(
         else ["dealname", "amount", "description", "closedate"]
     )
 
-    profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
-    profile = profile_result.data or {}
-    auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
-    # When updating an existing deal (e.g. from extension on known HubSpot deal page),
-    # do not create contacts/companies - work within the deal's existing context.
+    # Prefer crm_configurations; fallback to user_profiles
+    if config is not None:
+        auto_create_companies = config.auto_create_companies
+        auto_create_contacts = config.auto_create_contacts
+        auto_create_contact_company = False
+    else:
+        profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
+        profile = profile_result.data or {}
+        auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
+        auto_create_companies = None
+        auto_create_contacts = None
+    # When updating an existing deal, do not create contacts/companies
     if deal_id and not is_new_deal:
         auto_create_contact_company = False
+        auto_create_companies = False
+        auto_create_contacts = False
 
     client = HubSpotClient(crm_connection["access_token"])
     schema_service = HubSpotSchemaService(client, supabase, crm_connection["id"])
@@ -171,6 +180,8 @@ async def approve_memo_core(
         allowed_fields=allowed_fields,
         transcript=memo_data.get("transcript"),
         auto_create_contact_company=auto_create_contact_company,
+        auto_create_companies=auto_create_companies,
+        auto_create_contacts=auto_create_contacts,
     )
 
     if not sync_result.success:

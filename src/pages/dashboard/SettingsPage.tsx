@@ -19,11 +19,6 @@ const SettingsPage = () => {
   const [slackNotifications, setSlackNotifications] = useState(false);
   const [isHubSpotConnected, setIsHubSpotConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [autoCreateContactCompany, setAutoCreateContactCompany] = useState(false);
-
-  useEffect(() => {
-    if (user) setAutoCreateContactCompany(user.autoCreateContactCompany);
-  }, [user]);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -91,27 +86,6 @@ const SettingsPage = () => {
               <option disabled>Salesforce (Coming Soon)</option>
               <option disabled>Pipedrive (Coming Soon)</option>
             </select>
-          </div>
-
-          <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
-            <div>
-              <p className="font-bold text-foreground">Create contact & company</p>
-              <p className="text-xs text-muted-foreground mt-0.5 tracking-tight">When enabled, creates contacts and companies from memo extractions. When off, only deals are updated.</p>
-            </div>
-            <Switch
-              checked={autoCreateContactCompany}
-              onCheckedChange={async (checked) => {
-                setAutoCreateContactCompany(checked);
-                try {
-                  const updated = await authApi.updateProfile({ autoCreateContactCompany: checked });
-                  queryClient.setQueryData(authKeys.me(), updated);
-                  toast.success(checked ? "Contact & company creation enabled" : "Deal-only updates enabled");
-                } catch {
-                  setAutoCreateContactCompany(!checked);
-                  toast.error("Failed to save preference");
-                }
-              }}
-            />
           </div>
 
           <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
