@@ -39,6 +39,8 @@ let sessionHeartbeatId = null;
 let lastPreviewData = null;
 /** Edits/removals from proposed updates (index → update or null if removed) */
 let editedProposedUpdates = null;
+/** Click-outside handler for Add field dropdown */
+let addFieldCloseHandler = null;
 
 // ============================================
 // SCREEN MANAGEMENT
@@ -375,12 +377,10 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
 
 function renderProposedUpdates(updates, availableFields) {
   proposedUpdatesList.innerHTML = '';
-    const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
+  const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
+  const filteredList = list.filter(u => u && !['contact_name', 'company_name', 'dealname'].includes(u.field_name));
 
-    // Filter out contact_name and company_name if they are in the list
-    const filteredList = list.filter(u => u && !['contact_name', 'company_name', 'dealname'].includes(u.field_name));
-
-    filteredList.forEach((update, idx) => {
+  filteredList.forEach((update, idx) => {
       if (!update) return; // removed
       const hadExisting =
         update.current_value != null &&
@@ -515,7 +515,12 @@ function renderProposedUpdates(updates, availableFields) {
     addBtn.onclick = () => {
       const expanded = dropdown.style.display === 'block';
       dropdown.style.display = expanded ? 'none' : 'block';
-      if (!expanded) {
+      if (expanded) {
+        if (addFieldCloseHandler) {
+          document.removeEventListener('click', addFieldCloseHandler);
+          addFieldCloseHandler = null;
+        }
+      } else {
         dropdown.innerHTML = availableFields
           .filter((f) => !list.some((u) => u && u.field_name === f.name))
           .map(
@@ -535,10 +540,27 @@ function renderProposedUpdates(updates, availableFields) {
             };
             const nextList = editedProposedUpdates !== null ? [...editedProposedUpdates.filter(Boolean), newUpdate] : [...list, newUpdate];
             editedProposedUpdates = nextList;
+            if (addFieldCloseHandler) {
+              document.removeEventListener('click', addFieldCloseHandler);
+              addFieldCloseHandler = null;
+            }
             dropdown.style.display = 'none';
             renderProposedUpdates(editedProposedUpdates, availableFields);
           };
         });
+        // Close dropdown when clicking outside
+        if (addFieldCloseHandler) document.removeEventListener('click', addFieldCloseHandler);
+        addFieldCloseHandler = (e) => {
+          if (dropdown.style.display !== 'block') {
+            addFieldCloseHandler = null;
+            return;
+          }
+          if (addBtn.contains(e.target) || dropdown.contains(e.target)) return;
+          dropdown.style.display = 'none';
+          document.removeEventListener('click', addFieldCloseHandler);
+          addFieldCloseHandler = null;
+        };
+        setTimeout(() => document.addEventListener('click', addFieldCloseHandler), 0);
       }
     }
   } else if (addBtn) {
@@ -659,6 +681,10 @@ async function searchDeals(query) {
       console.log('[Popup] No deals found');
       searchResultsBox.style.display = 'block';
       searchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center;">No deals found</p>';
+    } else if (results?.error) {
+      console.error('[Popup] Search error:', results.error);
+      searchResultsBox.style.display = 'block';
+      searchResultsBox.innerHTML = `<p class="body-muted" style="padding: 12px; text-align: center; color: var(--destructive);">Search failed: ${escapeHtml(results.error)}</p>`;
     } else {
       console.log('[Popup] Invalid results or error:', results);
       searchResultsBox.style.display = 'none';

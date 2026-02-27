@@ -1,47 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Check, ChevronDown, ExternalLink, Sparkles, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Pause, Check, ExternalLink, Sparkles, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
-import { crmApi } from "@/lib/api/crm";
-import type { CRMConfiguration, CRMSchema } from "@/lib/api/crm";
-import type { MemoExtraction } from "@/features/memos/types";
-
-/** Parse bullet text (• item\n• item2) or plain lines into string array */
-function parseBulletList(text: string): string[] {
-  if (!text?.trim()) return [];
-  return text
-    .split(/\n+/)
-    .map((line) => line.replace(/^[•\-*]\s*/, ""))
-    .filter((line) => line.trim().length > 0);
-}
-
-/** Format string array to bullet list for textarea */
-function formatBulletList(items: unknown): string {
-  if (!Array.isArray(items) || items.length === 0) return "";
-  return items.map((s) => `• ${String(s ?? "")}`).join("\n");
-}
-
-/** Standard HubSpot → MemoExtraction field mapping (used when field is in allowed_deal_fields) */
-const STANDARD_DEAL_FIELDS: Record<string, { getKey?: "companyName" | "dealAmount" | "dealCurrency" | "dealStage" | "closeDate" | "summary"; rawKey?: string }> = {
-  dealname: { getKey: "companyName" },
-  amount: { getKey: "dealAmount" },
-  deal_currency_code: { getKey: "dealCurrency" },
-  dealstage: { getKey: "dealStage" },
-  closedate: { getKey: "closeDate" },
-  description: { getKey: "summary" },
-  hs_next_step: {}, // synced with nextSteps[0]; handled specially
-};
-
-function formatFieldLabel(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 const MemoDetail = () => {
   const { id } = useParams();
@@ -57,121 +23,20 @@ const MemoDetail = () => {
   const [syncResult, setSyncResult] = useState<any>(null);
   const [isReExtracting, setIsReExtracting] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
-  /** Editable transcript for pending_transcript (before extraction) */
   const [editedTranscript, setEditedTranscript] = useState<string>("");
-  /** Wizard step: 1=transcript, 2=fields, 3=preview (prevents preview API until user reaches step 3) */
-  const [reviewStep, setReviewStep] = useState(1);
-  /** CRM config + schema (only when HubSpot connected) – drives Deal Details fields */
-  const [dealConfig, setDealConfig] = useState<Pick<CRMConfiguration, "allowed_deal_fields" | "default_pipeline_id"> | null>(null);
-  const [dealSchema, setDealSchema] = useState<CRMSchema | null>(null);
 
-  const mergedDealIdRef = useRef<string | null>(null);
-  /** Reset to step 1 when memo id changes; init editedTranscript when transcript available */
   useEffect(() => {
-    setReviewStep(1);
-    mergedDealIdRef.current = null;
     if (memo?.transcript) setEditedTranscript(memo.transcript);
-  }, [id, memo?.transcript]);
+  }, [memo?.transcript]);
 
-  /** Scroll to Step 3 when it appears */
+  /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {
-    if (reviewStep === 3) {
-      const el = document.getElementById("step-3-sync");
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [reviewStep]);
-
-  /** Session keep-alive when on step 2/3 to prevent logout during long review */
-  useEffect(() => {
-    if (reviewStep < 2) return;
-    const id = setInterval(() => {
+    if (!memo?.extraction) return;
+    const interval = setInterval(() => {
       api.get("/auth/me").catch(() => {});
     }, 90_000);
-    return () => clearInterval(id);
-  }, [reviewStep]);
-
-  /** Fetch CRM config + schema when user reaches Deal Details (step 2) – only configured fields will appear */
-  useEffect(() => {
-    if (reviewStep < 2) return;
-    let cancelled = false;
-    Promise.all([crmApi.getConfiguration(), crmApi.getSchema("deals")]).then(([config, schema]) => {
-      if (cancelled) return;
-      setDealConfig(config ? { allowed_deal_fields: config.allowed_deal_fields, default_pipeline_id: config.default_pipeline_id } : null);
-      setDealSchema(schema ?? null);
-    }).catch(() => {
-      if (!cancelled) setDealConfig(null);
-      setDealSchema(null);
-    });
-    return () => { cancelled = true; };
-  }, [reviewStep]);
-
-  /** Editable extraction state - controlled form, initialized from memo.extraction */
-  const [editedExtraction, setEditedExtraction] = useState<MemoExtraction | null>(null);
-
-  /** Initialize edited extraction from memo whenever memo.extraction changes */
-  useEffect(() => {
-    const ext = memo?.extraction;
-    if (ext && typeof ext === "object") {
-      try {
-        const nextSteps = Array.isArray(ext.nextSteps) ? [...ext.nextSteps] : [];
-        const raw = ext.raw_extraction && typeof ext.raw_extraction === "object" ? { ...ext.raw_extraction } : {};
-        // Sync hs_next_step from first nextStep when missing (for HubSpot)
-        if (nextSteps.length > 0 && !raw.hs_next_step) {
-          raw.hs_next_step = nextSteps[0];
-        }
-        setEditedExtraction({
-          companyName: ext.companyName ?? null,
-          dealAmount: ext.dealAmount ?? null,
-          dealCurrency: ext.dealCurrency ?? "EUR",
-          dealStage: ext.dealStage ?? null,
-          closeDate: ext.closeDate ?? null,
-          contactName: ext.contactName ?? null,
-          contactRole: ext.contactRole ?? null,
-          contactEmail: ext.contactEmail ?? null,
-          contactPhone: ext.contactPhone ?? null,
-          summary: ext.summary ?? "",
-          painPoints: Array.isArray(ext.painPoints) ? [...ext.painPoints] : [],
-          nextSteps,
-          competitors: Array.isArray(ext.competitors) ? [...ext.competitors] : [],
-          objections: Array.isArray(ext.objections) ? [...ext.objections] : [],
-          decisionMakers: Array.isArray(ext.decisionMakers) ? [...ext.decisionMakers] : [],
-          confidence: ext.confidence && typeof ext.confidence === "object" ? { ...ext.confidence } : { overall: 0, fields: {} },
-          raw_extraction: Object.keys(raw).length ? raw : undefined,
-        });
-      } catch (e) {
-        console.error("Failed to init editedExtraction:", e);
-        setEditedExtraction(null);
-      }
-    } else {
-      setEditedExtraction(null);
-    }
+    return () => clearInterval(interval);
   }, [memo?.extraction]);
-
-  /** Pre-fill extraction with deal context when opening from HubSpot (?deal_id=) */
-  useEffect(() => {
-    if (!dealIdFromUrl || !editedExtraction || mergedDealIdRef.current === dealIdFromUrl) return;
-    mergedDealIdRef.current = dealIdFromUrl;
-    let cancelled = false;
-    crmApi.getDealContext(dealIdFromUrl).then((ctx) => {
-      if (cancelled || !ctx) return;
-      const isEmpty = (v: unknown) =>
-        v == null || v === "" || String(v).trim().toLowerCase() === "unknown";
-      const next: MemoExtraction = { ...editedExtraction };
-      if (isEmpty(next.companyName) && ctx.companyName) next.companyName = ctx.companyName;
-      if (isEmpty(next.contactName) && ctx.contactName) next.contactName = ctx.contactName;
-      if (isEmpty(next.contactEmail) && ctx.contactEmail) next.contactEmail = ctx.contactEmail;
-      const raw = { ...(next.raw_extraction || {}) };
-      const r = ctx.raw_extraction || {};
-      if (isEmpty(raw.dealname) && r.dealname) raw.dealname = r.dealname as string;
-      if ((raw.amount == null || isEmpty(raw.amount)) && r.amount != null) raw.amount = r.amount as number;
-      if (isEmpty(raw.closedate) && r.closedate) raw.closedate = r.closedate as string;
-      if (isEmpty(raw.dealstage) && r.dealstage) raw.dealstage = r.dealstage as string;
-      if (isEmpty(raw.hs_next_step) && r.hs_next_step) raw.hs_next_step = r.hs_next_step as string;
-      next.raw_extraction = raw;
-      setEditedExtraction(next);
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [dealIdFromUrl, editedExtraction]);
 
   useEffect(() => {
     if (memo?.audioUrl) {
@@ -185,17 +50,51 @@ const MemoDetail = () => {
     const handleLoadedMetadata = () => setDuration(audio.duration);
     const handleEnded = () => setIsPlaying(false);
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("ended", handleEnded);
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("ended", handleEnded);
       audio.pause();
     };
   }, [audio]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setIsLoading(true);
+        const data = await api.get<any>(`/memos/${id}`);
+        if (!cancelled) { setMemo(data); setError(null); }
+      } catch (err) {
+        console.error("Failed to fetch memo:", err);
+        if (!cancelled) setError("Could not load memo details.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || !memo) return;
+    const TRANSIENT = ["uploading", "transcribing", "extracting"];
+    if (!TRANSIENT.includes(memo.status)) return;
+
+    const poll = async () => {
+      try {
+        const data = await api.get<any>(`/memos/${id}`);
+        setMemo(data);
+      } catch { /* silent — next tick retries */ }
+    };
+    const interval = window.setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [id, memo?.status]);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -210,41 +109,10 @@ const MemoDetail = () => {
     if (!seconds) return "0:00";
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  useEffect(() => {
-    const fetchMemo = async () => {
-      if (!id) return;
-      try {
-        setIsLoading(true);
-        const data = await api.get<any>(`/memos/${id}`);
-        setMemo(data);
-        setError(null);
-      } catch (err) {
-        console.error("Failed to fetch memo:", err);
-        setError("Could not load memo details.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchMemo();
-    
-    // Poll for updates if it's still processing
-    let interval: number | null = null;
-    if (memo && ['uploading', 'transcribing', 'extracting', 'pending_transcript'].includes(memo.status)) {
-      interval = window.setInterval(fetchMemo, 3000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [id, memo?.status]);
-
-  const handleSyncSuccess = (result: any) => {
-    setSyncResult(result);
-  };
+  const handleSyncSuccess = (result: any) => setSyncResult(result);
 
   const handleReExtract = async () => {
     if (!id) return;
@@ -260,24 +128,20 @@ const MemoDetail = () => {
     }
   };
 
-  const handleUpdateExtraction = useCallback((updates: Partial<MemoExtraction>) => {
-    setEditedExtraction((prev) => (prev ? { ...prev, ...updates } : null));
-  }, []);
+  const handleConfirmTranscript = async () => {
+    if (!id) return;
+    setIsConfirmingTranscript(true);
+    try {
+      await memosApi.confirmTranscript(id, editedTranscript.trim() || undefined);
+      toast.success("AI is extracting CRM fields...");
+      setMemo((prev: any) => prev ? { ...prev, status: "extracting" } : prev);
+    } catch (err: any) {
+      toast.error(err?.data?.detail || "Failed to confirm transcript");
+    } finally {
+      setIsConfirmingTranscript(false);
+    }
+  };
 
-  const handleUpdateRawField = useCallback((key: string, value: string | number | null) => {
-    setEditedExtraction((prev) => {
-      if (!prev) return null;
-      const raw = { ...(prev.raw_extraction || {}) };
-      if (value === null || value === "" || (typeof value === "number" && isNaN(value))) {
-        delete raw[key];
-      } else {
-        raw[key] = value;
-      }
-      return { ...prev, raw_extraction: Object.keys(raw).length ? raw : undefined };
-    });
-  }, []);
-
-  // Early returns - must stay after all hooks
   if (isLoading && !memo) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
@@ -302,16 +166,17 @@ const MemoDetail = () => {
     );
   }
 
-  const extraction = editedExtraction || memo?.extraction || {};
   const isPendingTranscript = memo.status === "pending_transcript";
-  const isProcessing = ['uploading', 'transcribing', 'extracting'].includes(memo.status);
+  const isProcessing = ["uploading", "transcribing", "extracting"].includes(memo.status);
   const extractionFailed = memo.status === "failed";
+  const hasExtraction = !isProcessing && !extractionFailed && !!memo.extraction;
+  const extraction = memo.extraction || {};
 
   if (syncResult) {
     return (
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn} text-center`}>
-        <Link 
-          to="/dashboard/memos" 
+        <Link
+          to="/dashboard/memos"
           className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige mb-12 transition-colors group"
         >
           <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
@@ -348,9 +213,8 @@ const MemoDetail = () => {
 
   return (
     <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
-      {/* Back Link */}
-      <Link 
-        to="/dashboard/memos" 
+      <Link
+        to="/dashboard/memos"
         className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige mb-10 transition-colors group"
       >
         <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
@@ -362,11 +226,14 @@ const MemoDetail = () => {
           Memo <span className={THEME_TOKENS.typography.accentTitle}>Details</span>
         </h1>
         <p className={THEME_TOKENS.typography.body}>
-          {isProcessing ? "Step 1: AI is extracting CRM fields..." : extractionFailed ? "Step 1 failed. Re-extract to continue." : "Step 2: Review & approve. Then update to CRM."}
+          {isProcessing
+            ? "AI is extracting CRM fields..."
+            : extractionFailed
+              ? "Extraction failed. Re-extract to continue."
+              : "Review and sync to CRM."}
         </p>
       </div>
 
-      {/* Step 1 failed banner - Re-extract to continue */}
       {extractionFailed && (
         <div className="mb-8 p-6 rounded-[2rem] border-2 border-destructive/30 bg-destructive/5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex items-start gap-4 flex-1">
@@ -374,7 +241,7 @@ const MemoDetail = () => {
               <AlertCircle className="h-6 w-6 text-destructive" />
             </div>
             <div>
-              <p className="font-bold text-foreground mb-1">Step 1 failed: AI extraction</p>
+              <p className="font-bold text-foreground mb-1">AI extraction failed</p>
               <p className="text-sm text-muted-foreground">
                 {memo.errorMessage || "Extraction failed. You have a transcript — try Re-extract."}
               </p>
@@ -401,57 +268,33 @@ const MemoDetail = () => {
         </div>
       )}
 
-      {/* 3-step flow indicator */}
-      <div className="mb-8 grid grid-cols-3 gap-4">
-        <div className={`p-4 rounded-2xl border-2 transition-colors ${isProcessing ? 'border-beige/40 bg-beige/5' : extractionFailed ? 'border-muted/30 bg-muted/5' : 'border-success/20 bg-success/5'}`}>
-          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">1</span>
-          <p className="font-bold text-foreground mt-1">AI extracts CRM fields</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Company, contact, deal amount, next steps</p>
-        </div>
-        <div className={`p-4 rounded-2xl border-2 transition-colors ${!isProcessing && !extractionFailed && memo.extraction ? 'border-beige/40 bg-beige/5' : 'border-muted/30 bg-muted/5'}`}>
-          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">2</span>
-          <p className="font-bold text-foreground mt-1">You review & approve</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Edit any fields before syncing</p>
-        </div>
-        <div className="p-4 rounded-2xl border-2 border-muted/30 bg-muted/5">
-          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">3</span>
-          <p className="font-bold text-foreground mt-1">Update to CRM</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Deal, contact, tasks sync to HubSpot</p>
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-5 gap-8">
-        {/* Left Column - Transcript (Step 1) */}
-        <div className={`space-y-6 ${reviewStep === 1 ? "lg:col-span-5" : "lg:col-span-2"}`}>
-          {/* Audio Player - only when we have audio (file upload flow) */}
+      <div className={`grid gap-8 ${hasExtraction ? "lg:grid-cols-5" : ""}`}>
+        {/* Left: Transcript (full width when pending/extracting, col-span-2 when has extraction) */}
+        <div className={`space-y-6 ${hasExtraction ? "lg:col-span-2" : ""}`}>
           {memo.audioUrl && (
             <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
               <div className="flex items-center gap-5">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="icon"
                   onClick={togglePlay}
                   className="rounded-full w-12 h-12 bg-beige text-cream border-none hover:scale-105 transition-transform"
                 >
-                  {isPlaying ? (
-                    <Pause className="h-5 w-5" />
-                  ) : (
-                    <Play className="h-5 w-5 ml-1" />
-                  )}
+                  {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-1" />}
                 </Button>
                 <div className="flex-1 space-y-2">
                   <div className="h-1.5 bg-foreground/5 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-beige rounded-full shadow-[0_0_10px_rgba(245,215,176,0.3)] transition-all duration-100" 
+                    <div
+                      className="h-full bg-beige rounded-full shadow-[0_0_10px_rgba(245,215,176,0.3)] transition-all duration-100"
                       style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
                     />
                   </div>
                   <div className="flex justify-between items-center">
                     <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
-                      {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, '0')}
+                      {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, "0")}
                     </span>
                     <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
-                      {duration ? `${Math.floor(duration / 60)}:${(Math.floor(duration % 60)).toString().padStart(2, '0')}` : formatDuration(memo.audioDuration)}
+                      {duration ? `${Math.floor(duration / 60)}:${(Math.floor(duration % 60)).toString().padStart(2, "0")}` : formatDuration(memo.audioDuration)}
                     </span>
                   </div>
                 </div>
@@ -459,7 +302,6 @@ const MemoDetail = () => {
             </div>
           )}
 
-          {/* Transcript */}
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
             <div className="flex items-center justify-between mb-8">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
@@ -481,8 +323,10 @@ const MemoDetail = () => {
                 />
               ) : (
                 <div className="prose prose-sm text-muted-foreground max-h-[500px] overflow-y-auto pr-4 scrollbar-thin">
-                  {memo.transcript.split('\n').map((line: string, i: number) => (
-                    <p key={i} className="mb-4 leading-relaxed tracking-tight">{line}</p>
+                  {memo.transcript.split("\n").map((line: string, i: number) => (
+                    <p key={i} className="mb-4 leading-relaxed tracking-tight">
+                      {line}
+                    </p>
                   ))}
                 </div>
               )
@@ -492,388 +336,46 @@ const MemoDetail = () => {
                 <p className="text-[10px] font-black uppercase tracking-widest">Generating transcript...</p>
               </div>
             )}
-            {reviewStep === 1 && !isProcessing && memo?.transcript && (
+            {isPendingTranscript && !isProcessing && memo?.transcript && (
               <Button
                 variant="hero"
-                onClick={async () => {
-                  if (isPendingTranscript) {
-                    setIsConfirmingTranscript(true);
-                    try {
-                      await memosApi.confirmTranscript(id!, editedTranscript.trim() || undefined);
-                      toast.success("AI is extracting CRM fields...");
-                      // Poll until pending_review
-                      for (let i = 0; i < 60; i++) {
-                        await new Promise((r) => setTimeout(r, 2000));
-                        const updated = await memosApi.get(id!);
-                        setMemo(updated);
-                        if (updated.status === "pending_review") {
-                          setReviewStep(2);
-                          break;
-                        }
-                        if (updated.status === "failed") {
-                          toast.error(updated.errorMessage || "Extraction failed");
-                          break;
-                        }
-                      }
-                    } catch (err: any) {
-                      toast.error(err?.data?.detail || "Failed to confirm transcript");
-                    } finally {
-                      setIsConfirmingTranscript(false);
-                    }
-                  } else {
-                    setReviewStep(2);
-                  }
-                }}
+                onClick={handleConfirmTranscript}
                 disabled={isConfirmingTranscript}
                 className="mt-6 w-full rounded-full text-[10px] font-black uppercase tracking-widest bg-beige text-cream"
               >
-                {isConfirmingTranscript ? "Extracting..." : "Continue to Step 2 – Edit CRM fields"}
+                {isConfirmingTranscript ? "Extracting..." : "Extract & Continue"}
               </Button>
             )}
           </div>
         </div>
 
-        {/* Right Column - Extracted Data (Step 2) - only when reviewStep >= 2 */}
-        {reviewStep >= 2 && (
-        <div className="lg:col-span-3">
-          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10`}>
-            <div className="mb-10">
-              <h3 className={`${THEME_TOKENS.typography.capsLabel}`}>Step 2: Campos que se actualizarán en el CRM</h3>
-              <p className="text-xs text-muted-foreground mt-2">
-                Revisa y edita los datos antes de sincronizar. Scroll hacia abajo para el paso 3 (Update CRM).
-              </p>
-            </div>
-            
-            {isProcessing ? (
-              <div className="space-y-12 py-10 flex flex-col items-center justify-center border border-dashed border-border/40 rounded-[2rem] bg-secondary/[0.02]">
-                <div className="relative">
-                  <div className="absolute inset-0 rounded-full border-4 border-beige/20 animate-ping" />
-                  <Sparkles className="h-12 w-12 text-beige" />
-                </div>
-                <div className="text-center space-y-2">
-                  <p className="text-lg font-bold">AI is working its magic...</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">Analyzing your sales conversation</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-10">
-                <div>
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10">
-                    Deal Details
-                  </h4>
-                  <div className="grid sm:grid-cols-2 gap-6">
-                    {(() => {
-                      const allowed = dealConfig?.allowed_deal_fields?.length
-                        ? dealConfig.allowed_deal_fields
-                        : ["dealname", "amount", "closedate", "description", "dealstage"];
-                      const propMap = new Map(dealSchema?.properties?.map((p) => [p.name, p]) ?? []);
-                      const pipeline = dealSchema?.pipelines?.find((p) => p.id === dealConfig?.default_pipeline_id);
-                      const stageOptions = pipeline?.stages ?? [];
-
-                      return allowed.map((fieldName) => {
-                        const prop = propMap.get(fieldName);
-                        const label = prop?.label ?? formatFieldLabel(fieldName);
-                        const fieldType = (prop?.type ?? "string").toLowerCase();
-                        const options = fieldName === "dealstage" && stageOptions.length
-                          ? stageOptions.map((s) => ({ label: s.label, value: s.label }))
-                          : prop?.options ?? [];
-
-                        const std = STANDARD_DEAL_FIELDS[fieldName];
-                        const raw = extraction.raw_extraction || {};
-                        const nextSteps = extraction.nextSteps ?? [];
-
-                        let value: string | number | null = null;
-                        if (fieldName === "hs_next_step") {
-                          value = (nextSteps[0] ?? raw.hs_next_step) != null ? String(nextSteps[0] ?? raw.hs_next_step) : null;
-                        } else if (std?.getKey) {
-                          const v = extraction[std.getKey];
-                          value = v != null && v !== "" ? (typeof v === "number" ? v : String(v)) : null;
-                          if (value === null && fieldName === "amount" && raw.amount != null) value = raw.amount as number;
-                          if (value === null && fieldName === "closedate" && raw.closedate) value = raw.closedate as string;
-                          if (value === null && fieldName === "dealstage" && raw.dealstage) value = raw.dealstage as string;
-                          if (value === null && fieldName === "description" && raw.description) value = raw.description as string;
-                        } else {
-                          const v = raw[fieldName];
-                          value = v != null && v !== "" ? (typeof v === "number" ? v : String(v)) : null;
-                        }
-
-                        const inputClass = "bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold";
-                        const setStandard = (v: string | number | null) => {
-                          if (fieldName === "hs_next_step") {
-                            const str = v ? String(v) : null;
-                            handleUpdateExtraction({ nextSteps: str ? [str, ...nextSteps.slice(1)] : nextSteps.slice(1) });
-                            handleUpdateRawField("hs_next_step", str);
-                          } else if (std?.getKey) {
-                            if (std.getKey === "companyName") handleUpdateExtraction({ companyName: v ? String(v) : null });
-                            else if (std.getKey === "dealAmount") handleUpdateExtraction({ dealAmount: v != null && v !== "" ? (typeof v === "number" ? v : parseFloat(String(v)) || null) : null });
-                            else if (std.getKey === "dealCurrency") handleUpdateExtraction({ dealCurrency: v ? String(v) : "EUR" });
-                            else if (std.getKey === "dealStage") handleUpdateExtraction({ dealStage: v ? String(v) : null });
-                            else if (std.getKey === "closeDate") handleUpdateExtraction({ closeDate: v ? String(v) : null });
-                            else if (std.getKey === "summary") handleUpdateExtraction({ summary: v ? String(v) : "" });
-                          }
-                        };
-                        const setRaw = (v: string | number | null) => handleUpdateRawField(fieldName, v);
-                        const setValue = (std && (std.getKey || fieldName === "hs_next_step")) ? setStandard : setRaw;
-
-                        if (options.length > 0) {
-                          return (
-                            <div key={fieldName} className="space-y-2">
-                              <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
-                              <div className="relative">
-                                <select
-                                  value={String(value ?? "")}
-                                  onChange={(e) => setValue(e.target.value || null)}
-                                  className={`w-full h-12 px-6 rounded-full border border-border/40 ${inputClass} text-foreground appearance-none cursor-pointer focus:outline-none`}
-                                >
-                                  <option value="">Select…</option>
-                                  {options.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                  ))}
-                                </select>
-                                <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-                              </div>
-                            </div>
-                          );
-                        }
-                        if (fieldType === "number" || fieldType === "double" || fieldType === "integer") {
-                          return (
-                            <div key={fieldName} className="space-y-2">
-                              <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
-                              <Input
-                                type="number"
-                                value={value != null ? String(value) : ""}
-                                onChange={(e) => {
-                                  const v = e.target.value.trim();
-                                  const n = v ? parseFloat(v) : NaN;
-                                  setValue(v && !isNaN(n) ? n : null);
-                                }}
-                                className={inputClass}
-                              />
-                            </div>
-                          );
-                        }
-                        if (fieldType === "datetime" || fieldType === "date") {
-                          return (
-                            <div key={fieldName} className="space-y-2">
-                              <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
-                              <Input
-                                type="date"
-                                value={String(value ?? "").slice(0, 10)}
-                                onChange={(e) => setValue(e.target.value || null)}
-                                className={inputClass}
-                              />
-                            </div>
-                          );
-                        }
-                        return (
-                          <div key={fieldName} className="space-y-2">
-                            <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>{label}</label>
-                            {fieldType === "textarea" || (prop?.type === "textarea") ? (
-                              <Textarea
-                                value={String(value ?? "")}
-                                onChange={(e) => setValue(e.target.value.trim() === "" ? null : e.target.value)}
-                                rows={3}
-                                className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-bold"
-                              />
-                            ) : (
-                              <Input
-                                value={String(value ?? "")}
-                                onChange={(e) => setValue(e.target.value.trim() === "" ? null : e.target.value)}
-                                className={inputClass}
-                              />
-                            )}
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-
-                {/* Contact */}
-                <div>
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10">
-                    Contact Person
-                  </h4>
-                  <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-6">
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Name</label>
-                      <Input
-                        value={extraction.contactName ?? ""}
-                        onChange={(e) => handleUpdateExtraction({ contactName: e.target.value || null })}
-                        className="bg-secondary/5 border-border/40 rounded-full px-4 h-11 font-bold"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Role</label>
-                      <Input
-                        value={extraction.contactRole ?? ""}
-                        onChange={(e) => handleUpdateExtraction({ contactRole: e.target.value || null })}
-                        className="bg-secondary/5 border-border/40 rounded-full px-4 h-11 font-bold text-xs"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Email</label>
-                      <Input
-                        value={extraction.contactEmail ?? ""}
-                        onChange={(e) => handleUpdateExtraction({ contactEmail: e.target.value || null })}
-                        className="bg-secondary/5 border-border/40 rounded-full px-4 h-11 font-bold text-xs"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Phone</label>
-                      <Input
-                        value={extraction.contactPhone ?? ""}
-                        onChange={(e) => handleUpdateExtraction({ contactPhone: e.target.value || null })}
-                        placeholder="+34 600 000 000"
-                        className="bg-secondary/5 border-border/40 rounded-full px-4 h-11 font-bold text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Summary / Deal Description */}
-                <div>
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10">
-                    Deal Description / Meeting Summary
-                  </h4>
-                  <div className="space-y-2">
-                    <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Summary</label>
-                    <Textarea
-                      value={extraction.summary ?? ""}
-                      onChange={(e) => handleUpdateExtraction({ summary: e.target.value })}
-                      rows={3}
-                        placeholder="Meeting summary..."
-                      className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-medium leading-relaxed"
-                    />
-                  </div>
-                </div>
-
-                {/* Meeting Notes */}
-                <div>
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-beige mb-6 pb-2 border-b border-beige/10">
-                    Insights & Next Steps
-                  </h4>
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Pain Points</label>
-                      <Textarea
-                        value={formatBulletList(extraction.painPoints ?? [])}
-                        onChange={(e) => handleUpdateExtraction({ painPoints: parseBulletList(e.target.value) })}
-                        rows={3}
-                        placeholder="• One per line"
-                        className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-medium leading-relaxed"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Next Steps</label>
-                      <Textarea
-                        value={formatBulletList(extraction.nextSteps ?? [])}
-                        onChange={(e) => {
-                          const steps = parseBulletList(e.target.value);
-                          handleUpdateExtraction({ nextSteps: steps });
-                          // Sync first step to hs_next_step for HubSpot
-                          const first = steps.length > 0 ? steps[0] : null;
-                          handleUpdateRawField("hs_next_step", first);
-                        }}
-                        rows={3}
-                        placeholder="• One per line"
-                        className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-medium leading-relaxed"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Competitors</label>
-                      <Textarea
-                        value={formatBulletList(extraction.competitors ?? [])}
-                        onChange={(e) => handleUpdateExtraction({ competitors: parseBulletList(e.target.value) })}
-                        rows={2}
-                        placeholder="• One per line"
-                        className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-medium leading-relaxed"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Objections</label>
-                      <Textarea
-                        value={formatBulletList(extraction.objections ?? [])}
-                        onChange={(e) => handleUpdateExtraction({ objections: parseBulletList(e.target.value) })}
-                        rows={2}
-                        placeholder="• One per line"
-                        className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-medium leading-relaxed"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className={`${THEME_TOKENS.typography.capsLabel} ml-1`}>Decision Makers</label>
-                      <Textarea
-                        value={formatBulletList(extraction.decisionMakers ?? [])}
-                        onChange={(e) => handleUpdateExtraction({ decisionMakers: parseBulletList(e.target.value) })}
-                        rows={2}
-                        placeholder="• One per line"
-                        className="bg-secondary/5 border-border/40 rounded-[1.5rem] px-6 py-4 font-medium leading-relaxed"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex items-center justify-between gap-4 mt-12 pt-10 border-t border-border/40">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setReviewStep(1)}
-                className="rounded-full px-6 h-11 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
-              >
-                ← Back to Step 1
-              </Button>
-              <div className="flex items-center gap-3">
-                <button type="button" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/30 hover:text-destructive transition-colors px-6">
-                  Reject Memo
-                </button>
-                {reviewStep === 2 && (
-                  <Button
-                    type="button"
-                    variant="hero"
-                    onClick={() => setReviewStep(3)}
-                    className="rounded-full px-8 h-12 text-[10px] font-black uppercase tracking-widest bg-beige text-cream shadow-large"
-                  >
-                    Continue to Step 3 – Update CRM
-                  </Button>
-                )}
-              </div>
+        {/* Right: HubSpotSyncPreview (only when extraction ready) */}
+        {hasExtraction && (
+          <div className="lg:col-span-3">
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10`}>
+              <HubSpotSyncPreview
+                memoId={id || ""}
+                initialDealId={dealIdFromUrl}
+                onSuccess={handleSyncSuccess}
+              />
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Full-width extracting spinner when no extraction yet */}
+        {isProcessing && memo?.transcript && !hasExtraction && (
+          <div className="col-span-full flex flex-col items-center justify-center py-16 border border-dashed border-border/40 rounded-[2rem] bg-secondary/[0.02]">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-full border-4 border-beige/20 animate-ping" />
+              <Sparkles className="h-12 w-12 text-beige" />
+            </div>
+            <p className="mt-6 text-lg font-bold">AI is analyzing your sales conversation</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 mt-1">
+              Extracting CRM fields...
+            </p>
+          </div>
         )}
       </div>
-
-      {/* Step 3: Update to CRM - only mounts when reviewStep 3 (delays preview API call) */}
-      {reviewStep === 3 && !isProcessing && !extractionFailed && memo?.extraction && (
-        <div id="step-3-sync" className="mt-12">
-          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10`}>
-            <div className="flex items-center justify-between gap-4 mb-6">
-              <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-0`}>Step 3: Review & sync to HubSpot</h3>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setReviewStep(2)}
-                className="rounded-full text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
-              >
-                ← Back to Step 2
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mb-8">
-              Review the deal target and proposed changes below. Click &quot;Update CRM Fields&quot; when ready.
-            </p>
-            <HubSpotSyncPreview
-              memoId={id || ""}
-              extraction={editedExtraction}
-              initialDealId={dealIdFromUrl}
-              onSuccess={handleSyncSuccess}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 };

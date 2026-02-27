@@ -37,6 +37,7 @@ const RecordPage = () => {
   const [uploadedMemoId, setUploadedMemoId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importPhase, setImportPhase] = useState<"idle" | "uploading" | "done">("idle");
+  const isSubmitLocked = useRef(false);
 
   const {
     state,
@@ -53,6 +54,7 @@ const RecordPage = () => {
   const {
     upload,
     uploadTranscriptOnly,
+    uploadTranscriptAndExtract,
     progress,
     isUploading,
     error: uploadError,
@@ -322,16 +324,19 @@ const RecordPage = () => {
                 variant="hero"
                 disabled={isUploading}
                 onClick={async () => {
+                  if (isSubmitLocked.current) return;
                   if (!editedTranscript.trim()) {
                     toast.error("Transcript cannot be empty");
                     return;
                   }
+                  isSubmitLocked.current = true;
                   try {
-                    const memoId = await uploadTranscriptOnly(editedTranscript.trim());
+                    const memoId = await uploadTranscriptAndExtract(editedTranscript.trim());
                     resetTranscription();
                     toast.success("Memo created! AI is extracting CRM fields...");
-                    window.location.href = ROUTES.MEMO_DETAIL(memoId);
+                    navigate(ROUTES.MEMO_DETAIL(memoId));
                   } catch {
+                    isSubmitLocked.current = false;
                     toast.error(uploadError || "Failed to upload");
                   }
                 }}

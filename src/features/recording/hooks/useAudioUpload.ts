@@ -20,7 +20,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
 
   /**
    * Upload transcript only (no audio). Use when real-time transcription or meeting transcript paste.
-   * Returns the created memo ID.
+   * Returns the created memo ID. Memo stays in pending_transcript until user confirms.
    */
   const uploadTranscriptOnly = useCallback(
     async (
@@ -49,6 +49,30 @@ export function useAudioUpload(): UseAudioUploadReturn {
     },
     [],
   );
+
+  /**
+   * Upload transcript and start AI extraction in one call.
+   * Use when user has already reviewed transcript (e.g. RecordPage "Accept & Continue").
+   * Returns memo ID; backend starts extraction immediately.
+   */
+  const uploadTranscriptAndExtract = useCallback(async (transcript: string): Promise<string> => {
+    setIsUploading(true);
+    setError(null);
+    setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
+
+    try {
+      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim());
+      setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
+      return response.id;
+    } catch (err) {
+      console.error('Upload failed:', err);
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setError(message);
+      throw err;
+    } finally {
+      setIsUploading(false);
+    }
+  }, []);
 
   /**
    * Upload audio (and optional transcript). Use for file upload or when no real-time transcript.
@@ -108,6 +132,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
   return {
     upload,
     uploadTranscriptOnly,
+    uploadTranscriptAndExtract,
     progress,
     isUploading,
     error,

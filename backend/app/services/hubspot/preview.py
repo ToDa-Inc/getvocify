@@ -96,27 +96,6 @@ class HubSpotPreviewService:
         except Exception:
             pass
 
-        # Contact and Company - always show when extracted (not in allowed_fields, but critical for user)
-        contact_name = extraction.contactName
-        if not contact_name and extraction.companyName:
-            contact_name = f"Contact at {extraction.companyName}"  # fallback when only company
-        if contact_name:
-            proposed_updates.append(ProposedUpdate(
-                field_name="contact_name",
-                field_label="Contact Name",
-                current_value=None,
-                new_value=contact_name,
-                extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
-            ))
-        if extraction.companyName:
-            proposed_updates.append(ProposedUpdate(
-                field_name="company_name",
-                field_label="Company",
-                current_value=None,
-                new_value=extraction.companyName,
-                extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
-            ))
-
         # Next steps (create HubSpot tasks) - always show in preview so user can confirm
         next_steps = extraction.nextSteps or []
         if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
@@ -139,6 +118,9 @@ class HubSpotPreviewService:
             if field_name == "closedate" and extraction.closeDate:
                 return extraction.closeDate  # ISO date more readable than timestamp
             return _format_value_for_display(value)
+
+        current_contact_name_from_deal: Optional[str] = None
+        current_company_name_from_deal: Optional[str] = None
 
         if is_new_deal:
             # New deal: all values are "new", no current values
@@ -167,7 +149,7 @@ class HubSpotPreviewService:
 
             if not selected_deal:
                 try:
-                    deal = await self.deals.get(selected_deal_id)
+                    deal = await self.deals.get(selected_deal_id, properties=allowed_fields)
                     current_props = deal.properties or {}
                     company_name = None
                     contact_name = None
@@ -190,6 +172,8 @@ class HubSpotPreviewService:
                                 contact_email = cp.get("email")
                         except Exception:
                             pass
+                    current_contact_name_from_deal = contact_name
+                    current_company_name_from_deal = company_name
                     selected_deal = DealMatch(
                         deal_id=deal.id,
                         deal_name=deal.properties.get("dealname", "Unknown Deal"),
@@ -206,14 +190,34 @@ class HubSpotPreviewService:
                     pass
             elif selected_deal:
                 try:
-                    deal = await self.deals.get(selected_deal_id)
+                    deal = await self.deals.get(selected_deal_id, properties=allowed_fields)
                     current_props = deal.properties or {}
+                    if self.associations and self.company_service:
+                        try:
+                            cids = await self.associations.get_associations("deals", selected_deal_id, "companies")
+                            if cids:
+                                comp = await self.company_service.get(cids[0])
+                                current_company_name_from_deal = comp.properties.get("name")
+                        except Exception:
+                            pass
+                    if self.associations and self.contact_service:
+                        try:
+                            ctids = await self.associations.get_associations("deals", selected_deal_id, "contacts")
+                            if ctids:
+                                contact = await self.contact_service.get(ctids[0])
+                                cp = contact.properties
+                                current_contact_name_from_deal = f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
             if selected_deal and current_props:
                 for field_name, new_value in filtered_properties.items():
                     if new_value is None or new_value == "":
+                        continue
+                    # Deal name is preserved when updating existing deal (sync mirrors FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL)
+                    if field_name == "dealname" and not is_new_deal:
                         continue
 
                     current_value = current_props.get(field_name)
@@ -241,6 +245,28 @@ class HubSpotPreviewService:
                             options=spec.get("options"),
                         ))
 
+        # Contact and Company - only show for new deals (existing deal target section already shows them)
+        if is_new_deal:
+            extracted_contact_name = extraction.contactName or (
+                f"Contact at {extraction.companyName}" if extraction.companyName else None
+            )
+            if extracted_contact_name:
+                proposed_updates.insert(0, ProposedUpdate(
+                    field_name="contact_name",
+                    field_label="Contact Name",
+                    current_value=None,
+                    new_value=extracted_contact_name,
+                    extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
+                ))
+            if extraction.companyName:
+                proposed_updates.insert(0, ProposedUpdate(
+                    field_name="company_name",
+                    field_label="Company",
+                    current_value=None,
+                    new_value=extraction.companyName,
+                    extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
+                ))
+
         # Compute available_fields: allowed_deal_fields not yet in proposed_updates (reuse field_specs_map)
         proposed_field_names = {
             u.field_name for u in proposed_updates
@@ -258,15 +284,18 @@ class HubSpotPreviewService:
                 options=spec.get("options"),
             ))
 
-        # Only include contact when we have email - HubSpot requires it; we don't invent placeholders
+        # Only include contact/company when creating new deal (sync skips them for existing deals)
         new_contact = None
-        if extraction.contactEmail and str(extraction.contactEmail).strip():
-            new_contact = {
-                "name": contact_name,
-                "email": extraction.contactEmail.strip(),
-                "phone": extraction.contactPhone,
-            }
-        new_company = {"name": extraction.companyName} if extraction.companyName else None
+        new_company = None
+        if is_new_deal:
+            if extraction.contactEmail and str(extraction.contactEmail).strip():
+                new_contact = {
+                    "name": extraction.contactName,
+                    "email": extraction.contactEmail.strip(),
+                    "phone": extraction.contactPhone,
+                }
+            if extraction.companyName:
+                new_company = {"name": extraction.companyName}
 
         return ApprovalPreview(
             memo_id=memo_id,

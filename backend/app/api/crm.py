@@ -579,9 +579,11 @@ async def search_hubspot_deals(
     config_service = CRMConfigurationService(supabase)
     config = await config_service.get_configuration(user_id)
     pipeline_id = config.default_pipeline_id if config else None
-    
-    # Search
+
+    # Search: try with default pipeline first; if no results, retry without pipeline
     results = await search_service.search_deals_by_query(q, limit=10, pipeline_id=pipeline_id)
+    if not results and pipeline_id:
+        results = await search_service.search_deals_by_query(q, limit=10, pipeline_id=None)
     
     # Convert to DealMatch
     matches = []

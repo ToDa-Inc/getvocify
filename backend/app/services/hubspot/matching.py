@@ -85,16 +85,6 @@ class HubSpotMatchingService:
             )
             matches.extend(contact_matches)
         
-        # Strategy 4: Match by deal name similarity
-        if extraction.companyName:
-            deal_name = f"{extraction.companyName} Deal"
-            name_matches = await self._find_by_deal_name(
-                deal_name,
-                limit=limit,
-                pipeline_id=pipeline_id,
-            )
-            matches.extend(name_matches)
-        
         # If pipeline filter excluded all matches, retry without pipeline
         if not matches and pipeline_id and extraction.companyName:
             logger.info("No matches with pipeline %s, retrying without pipeline filter", pipeline_id)
@@ -104,11 +94,6 @@ class HubSpotMatchingService:
             fallback.extend(
                 await self._find_by_company(
                     extraction.companyName, limit=limit, pipeline_id=None
-                )
-            )
-            fallback.extend(
-                await self._find_by_deal_name(
-                    f"{extraction.companyName} Deal", limit=limit, pipeline_id=None
                 )
             )
             matches.extend(fallback)
@@ -290,6 +275,9 @@ class HubSpotMatchingService:
                 )
                 if deals:
                     break
+            # Post-filter: verify company name actually appears in deal name (avoids false positives from generic tokens like "Deal")
+            company_lower = company_name.strip().lower()
+            deals = [d for d in (deals or []) if company_lower in d.get("properties", {}).get("dealname", "").lower()]
             matches = []
             for deal_data in (deals or []):
                 deal_id = deal_data.get("id")

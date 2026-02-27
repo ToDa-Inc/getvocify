@@ -209,6 +209,10 @@ class HubSpotSyncService:
         """
         create_companies = auto_create_companies if auto_create_companies is not None else auto_create_contact_company
         create_contacts = auto_create_contacts if auto_create_contacts is not None else auto_create_contact_company
+        # When updating existing deal, never create company/contact — deal already has them
+        if deal_id and not is_new_deal:
+            create_companies = False
+            create_contacts = False
         result = SyncResult(memo_id=str(memo_id))
         t0 = time.perf_counter()
         logger.info(

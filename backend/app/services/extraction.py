@@ -98,7 +98,7 @@ class ExtractionService:
 
         # Meeting-intelligence fields: minimal, generic. Exclude any covered by schema.
         all_standard = {
-            "companyName": ("string", "Prospect/client company."),
+            "companyName": ("string", "Prospect/client company (the company being sold to). Do NOT use broker, insurer (aseguradora), or intermediary names — e.g. 'el bróker es Aon' means Aon is the broker, not the prospect company."),
             "contactName": ("string", "Person spoken with."),
             "contactEmail": ("string | null", "Email if mentioned."),
             "contactPhone": ("string | null", "Phone if mentioned."),

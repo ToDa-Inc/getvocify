@@ -151,6 +151,8 @@ export interface UseAudioUploadReturn {
     transcript: string,
     options?: { sourceType?: 'voice_memo' | 'meeting_transcript' },
   ) => Promise<string>;
+  /** Upload transcript and start extraction in one call - use when user already reviewed */
+  uploadTranscriptAndExtract: (transcript: string) => Promise<string>;
   /** Current upload progress */
   progress: UploadProgress | null;
   /** Whether upload is in progress */
