@@ -244,6 +244,7 @@ body {
   padding: 0 24px 24px; 
   margin-bottom: 0;
   position: relative;
+  scrollbar-gutter: stable;
 }
 .transcript-collapsible { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 8px; }
 .transcript-collapsible summary { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 8px; list-style: none; }
@@ -463,12 +464,29 @@ body {
 .custom-select-dropdown::-webkit-scrollbar { width: 4px; }
 .custom-select-dropdown::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
-.actions-fixed { padding: 16px 24px 24px; background: var(--cream); border-top: 1px solid var(--border); flex-shrink: 0; position: relative; z-index: 10000; }
+.actions-fixed {
+  padding: 16px 28px 24px;
+  background: var(--cream);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10000;
+  box-sizing: border-box;
+  min-width: 0;
+}
 .review-step-actions { display: flex; flex-direction: column; gap: 10px; }
-.review-step-actions-row { flex-direction: row; }
-.review-step-actions .btn { flex: 1; }
+.review-step-actions-row { flex-direction: row; flex-wrap: nowrap; gap: 12px; min-width: 0; }
+.review-step-actions-row .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-step-actions:not(.review-step-actions-row) .btn { flex: 1; }
 
-.btn { padding: 12px 20px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.3s; border: none; outline: none; display: flex; align-items: center; justify-content: center; }
+.btn { padding: 12px 20px; border-radius: 12px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; border: none; outline: none; display: flex; align-items: center; justify-content: center; }
+.btn:focus-visible { outline: 2px solid var(--beige); outline-offset: 2px; }
 .btn-primary { background: var(--beige); color: var(--cream); box-shadow: var(--shadow-soft); }
 .btn-primary:hover { background: var(--beige-dark); transform: translateY(-1px); box-shadow: var(--shadow-large); }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }

@@ -22,7 +22,7 @@ let websocket = null;
  * @param {string} wsUrl - WebSocket URL (from background, includes user_id for glossary when logged in)
  */
 async function startRecording(wsUrl) {
-  const url = wsUrl || 'ws://localhost:8888/api/v1/transcription/live?language=multi';
+  const url = wsUrl || 'wss://api.getvocify.com/api/v1/transcription/live?language=multi';
   try {
     // 1. Get microphone stream
     stream = await navigator.mediaDevices.getUserMedia({

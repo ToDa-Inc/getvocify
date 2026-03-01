@@ -113,7 +113,7 @@
           <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
         </div>
         <textarea id="transcript-content" class="transcript-content transcript-textarea" rows="6" placeholder="Loading transcript..."></textarea>
-        <div class="review-step-actions" style="margin-top: 12px;">
+        <div class="review-step-actions review-step-actions-row" style="margin-top: 12px;">
           <button id="review-confirm-transcript-btn" class="btn btn-primary">Extract & Continue</button>
           <button id="review-discard-btn" class="btn btn-secondary">Discard</button>
         </div>
@@ -176,7 +176,7 @@
         <h2 class="title-large">Sync Successful</h2>
         <p id="success-message" class="body-muted">Updated deal in HubSpot.</p>
         
-        <div class="actions" style="margin-top: 32px; width: 100%;">
+        <div class="review-step-actions review-step-actions-row" style="margin-top: 32px; width: 100%;">
           <a id="view-in-hubspot" href="#" target="_blank" class="btn btn-primary">View in HubSpot</a>
           <button id="success-done-button" class="btn btn-secondary">Done</button>
         </div>
@@ -209,8 +209,8 @@
       <div class="center-content">
         <div id="loading-spinner" class="spinner"></div>
         <div id="loading-backend-error" style="display: none; text-align: center; max-width: 280px;">
-          <p class="body-muted" style="margin-bottom: 8px;">No se puede conectar al backend.</p>
-          <p class="body-muted" style="font-size: 12px; opacity: 0.8;">Asegúrate de que <code>npm run start</code> está corriendo en el proyecto.</p>
+          <p class="body-muted" style="margin-bottom: 8px;">Could not connect to the server.</p>
+          <p class="body-muted" style="font-size: 12px; opacity: 0.8;">Please check your internet connection and try again.</p>
         </div>
       </div>
     </div>

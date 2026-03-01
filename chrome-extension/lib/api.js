@@ -2,10 +2,10 @@
  * API Client for Vocify Backend
  * 
  * Handles all HTTP requests with automatic token management and error handling.
- * API_BASE can be overridden via chrome.storage.local 'api_base' for production.
+ * API_BASE can be overridden via chrome.storage.local 'api_base' for local dev.
  */
 
-const DEFAULT_API_BASE = 'http://localhost:8888/api/v1';
+const DEFAULT_API_BASE = 'https://api.getvocify.com/api/v1';
 
 async function getApiBase() {
   try {
