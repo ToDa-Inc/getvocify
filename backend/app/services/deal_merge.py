@@ -29,22 +29,21 @@ class DealMergeService:
         new_properties: dict[str, Any],
         allowed_fields: list[str],
         transcript: Optional[str] = None,
+        record_name_field: str = "dealname",
     ) -> dict[str, Any]:
         """
-        Merge existing deal properties with new (already mapped to HubSpot format).
+        Merge existing deal properties with new (CRM-native field names).
         Deterministic: use new if present, else keep existing. Description = append.
 
         Args:
-            existing_properties: Current deal properties from HubSpot
-            new_properties: New properties from map_extraction_to_properties_with_stage
-            allowed_fields: Fields we're allowed to update
+            record_name_field: HubSpot "dealname" or Salesforce "Name", etc.
             transcript: Unused (kept for API compatibility)
-
-        Returns:
-            Merged properties dict (HubSpot format, only fields to update)
         """
         return self._deterministic_merge(
-            existing_properties, new_properties, allowed_fields
+            existing_properties,
+            new_properties,
+            allowed_fields,
+            record_name_field=record_name_field,
         )
 
     def _deterministic_merge(
@@ -52,20 +51,21 @@ class DealMergeService:
         existing: dict[str, Any],
         new: dict[str, Any],
         allowed_fields: list[str],
+        record_name_field: str = "dealname",
     ) -> dict[str, Any]:
         """Use new if present, else keep existing. Description = append."""
         merged = {}
         generic_deal_names = ("new deal", "nuevo deal", "deal", "")
-        existing_dealname = (existing.get("dealname") or "").strip().lower()
+        existing_dealname = (existing.get(record_name_field) or "").strip().lower()
         for f in allowed_fields:
             if f in ("hs_object_id", "hs_createdate", "hs_lastmodifieddate"):
                 continue
-            if f == "dealname" and existing_dealname in generic_deal_names:
-                new_val = new.get("dealname")
+            if f == record_name_field and existing_dealname in generic_deal_names:
+                new_val = new.get(record_name_field)
                 if new_val:
                     merged[f] = new_val
                 continue
-            if f == "dealname":
+            if f == record_name_field:
                 continue
             new_val = new.get(f)
             existing_val = existing.get(f)

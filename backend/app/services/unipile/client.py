@@ -122,7 +122,7 @@ class UnipileClient:
             )
             return
 
-        # Short UX: "Reply 1 to approve, 2 to add fields" (no UUIDs)
+        # Short UX: reply *1* / *2* (WhatsApp bold); no UUIDs in text.
         # Buttons may have id "1"/"2" or legacy "approve:uuid"/"add:uuid"
         approve_id = add_id = None
         for b in buttons[:3]:
@@ -132,11 +132,12 @@ class UnipileClient:
             elif bid.startswith("add:") or bid == "2":
                 add_id = "2"
 
+        # WhatsApp *bold* helps users spot the numeric choices on small screens.
         footer_parts = []
         if approve_id:
-            footer_parts.append("Reply 1 to approve")
+            footer_parts.append("Reply *1* to approve")
         if add_id:
-            footer_parts.append("2 to add fields")
+            footer_parts.append("*2* to add fields")
         footer = ", or ".join(footer_parts) if footer_parts else ""
 
         full_text = f"{body}\n\n{footer}"[:4096] if footer else body[:4096]

@@ -42,6 +42,51 @@ let editedProposedUpdates = null;
 /** Click-outside handler for Add field dropdown */
 let addFieldCloseHandler = null;
 
+function isCrmDateField(u) {
+  if (!u || !u.field_name) return false;
+  const n = String(u.field_name).toLowerCase();
+  const t = String(u.field_type || "").toLowerCase();
+  if (n.includes("closedate") || n === "closed_date") return true;
+  if (t === "number" || t === "currency") return false;
+  if (t === "date" || t === "datetime") return true;
+  return false;
+}
+
+/** Align with web app crm-date.ts: output YYYY-MM-DD for APIs. */
+function parseFlexibleDateToIso(input) {
+  if (input == null) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+  const head = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) {
+    const d = new Date(head + "T12:00:00");
+    return Number.isNaN(d.getTime()) ? null : head;
+  }
+  const m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (m) {
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    const y = parseInt(m[3], 10);
+    const dmy = new Date(y, b - 1, a);
+    if (dmy.getFullYear() === y && dmy.getMonth() === b - 1 && dmy.getDate() === a) {
+      return `${y}-${String(b).padStart(2, "0")}-${String(a).padStart(2, "0")}`;
+    }
+    const mdy = new Date(y, a - 1, b);
+    if (mdy.getFullYear() === y && mdy.getMonth() === a - 1 && mdy.getDate() === b) {
+      return `${y}-${String(a).padStart(2, "0")}-${String(b).padStart(2, "0")}`;
+    }
+  }
+  return null;
+}
+
+function formatCrmDateDisplay(raw) {
+  const iso = parseFlexibleDateToIso(raw);
+  if (!iso) return raw && String(raw).trim() ? String(raw) : "";
+  const parts = iso.split("-").map((x) => parseInt(x, 10));
+  const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+  return dt.toLocaleDateString(undefined, { dateStyle: "long" });
+}
+
 // ============================================
 // SCREEN MANAGEMENT
 // ============================================
@@ -406,7 +451,7 @@ function renderProposedUpdates(updates, availableFields) {
               </div>
             ` : ''}
           </div>
-          <p class="update-value">${escapeHtml(update.new_value || '—')}</p>
+          <p class="update-value">${escapeHtml(isCrmDateField(update) ? (formatCrmDateDisplay(update.new_value) || update.new_value || '—') : (update.new_value || '—'))}</p>
           ${hadExisting ? `<p class="update-current">Was: ${escapeHtml(update.current_value)}</p>` : ''}
           ${update.options && update.options.length ? `
             <div class="custom-select-wrapper" style="display:none;">
@@ -418,7 +463,7 @@ function renderProposedUpdates(updates, availableFields) {
                 </div>
               </div>
             </div>
-          ` : `<input type="${update.field_type === 'number' ? 'number' : update.field_name === 'closedate' ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(update.new_value || '')}" style="display:none;" />`}
+          ` : `<input type="${update.field_type === 'number' ? 'number' : isCrmDateField(update) ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(parseFlexibleDateToIso(update.new_value) || '')}" style="display:none;" />`}
         </div>
       `;
 
@@ -450,7 +495,9 @@ function renderProposedUpdates(updates, availableFields) {
           if (customTrigger) customTrigger.textContent = opt ? (opt.dataset.label || opt.dataset.value || '—') : '—';
         } else if (editInput.tagName === 'INPUT') {
           editInput.style.display = 'block';
-          editInput.value = update.new_value || '';
+          editInput.value = isCrmDateField(update)
+            ? (parseFlexibleDateToIso(update.new_value) || '')
+            : (update.new_value || '');
           editInput.focus();
         }
       };
@@ -482,7 +529,11 @@ function renderProposedUpdates(updates, availableFields) {
     }
     if (editInput && editInput.tagName === 'INPUT') {
       const saveEdit = () => {
-        const v = editInput.value?.trim() || '';
+        let v = editInput.value?.trim() || '';
+        if (isCrmDateField(update)) {
+          const iso = parseFlexibleDateToIso(v);
+          if (iso) v = iso;
+        }
         div.classList.remove('editing');
         valueEl.style.display = 'block';
         if (customSelectWrapper) customSelectWrapper.style.display = 'none';
@@ -490,7 +541,9 @@ function renderProposedUpdates(updates, availableFields) {
         if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
         if (editedProposedUpdates[idx]) {
           editedProposedUpdates[idx].new_value = v;
-          valueEl.textContent = v || '—';
+          valueEl.textContent = isCrmDateField(update)
+            ? (formatCrmDateDisplay(v) || v || '—')
+            : (v || '—');
         }
       };
       editInput.addEventListener('blur', saveEdit);
@@ -609,9 +662,11 @@ async function buildExtractionForApprove() {
       const amt = parseFloat(val);
       base.dealAmount = Number.isFinite(amt) ? amt : null;
       raw.amount = base.dealAmount;
-    } else if (u.field_name === 'closedate') {
-      base.closeDate = val;
-      raw.closedate = val;
+    } else if (u.field_name === 'closedate' || u.field_name === 'CloseDate') {
+      const iso = parseFlexibleDateToIso(val) || val;
+      base.closeDate = iso;
+      raw.closedate = iso;
+      raw.CloseDate = iso;
     } else if (u.field_name === 'dealstage') {
       base.dealStage = val;
       raw.dealstage = val;
@@ -630,7 +685,13 @@ async function buildExtractionForApprove() {
         if (base.nextSteps[0]) raw.hs_next_step = base.nextSteps[0];
       }
     } else if (val) {
-      raw[u.field_name] = u.field_type === 'number' ? (parseFloat(val) || null) : val;
+      if (u.field_type === 'number') {
+        raw[u.field_name] = parseFloat(val) || null;
+      } else if (u.field_type === 'date' || u.field_type === 'datetime') {
+        raw[u.field_name] = parseFlexibleDateToIso(val) || val;
+      } else {
+        raw[u.field_name] = val;
+      }
     }
   }
 

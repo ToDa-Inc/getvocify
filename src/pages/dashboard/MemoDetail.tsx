@@ -9,6 +9,26 @@ import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPr
 import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
 
+/** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
+function labelsFromDealUrl(dealUrl: string | undefined | null): {
+  crmName: string;
+  viewInCrm: string;
+} {
+  const u = (dealUrl || "").toLowerCase();
+  if (u.includes("hubspot.com")) {
+    return { crmName: "HubSpot", viewInCrm: "View in HubSpot" };
+  }
+  if (
+    u.includes("/lightning/r/opportunity") ||
+    u.includes(".salesforce.com") ||
+    u.includes(".force.com") ||
+    u.includes(".my.salesforce.com")
+  ) {
+    return { crmName: "Salesforce", viewInCrm: "View in Salesforce" };
+  }
+  return { crmName: "your CRM", viewInCrm: "View in CRM" };
+}
+
 const MemoDetail = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -173,6 +193,7 @@ const MemoDetail = () => {
   const extraction = memo.extraction || {};
 
   if (syncResult) {
+    const { crmName, viewInCrm } = labelsFromDealUrl(syncResult.deal_url);
     return (
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn} text-center`}>
         <Link
@@ -190,14 +211,18 @@ const MemoDetail = () => {
             </div>
             <h2 className="text-3xl font-black tracking-tighter text-foreground mb-4">Sync Successful</h2>
             <p className="text-muted-foreground mb-10 leading-relaxed mx-auto max-w-sm">
-              Updated deal <span className="text-foreground font-bold">{syncResult.deal_name || extraction.companyName || "Unknown"}</span> in HubSpot. All tasks and associations have been processed.
+              Updated{" "}
+              {crmName === "Salesforce" ? "opportunity" : "deal"}{" "}
+              <span className="text-foreground font-bold">{syncResult.deal_name || extraction.companyName || "Unknown"}</span>{" "}
+              in {crmName}
+              {crmName === "HubSpot" ? ". All tasks and associations have been processed." : "."}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               {syncResult.deal_url ? (
                 <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:scale-105 transition-transform">
                   <a href={syncResult.deal_url} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-4 w-4 mr-2" />
-                    View in HubSpot
+                    {viewInCrm}
                   </a>
                 </Button>
               ) : null}

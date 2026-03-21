@@ -68,7 +68,7 @@ def _normalize_phone(phone: str) -> str:
 
 def _format_property_value_for_display(field_name: str, value: Any, extraction: MemoExtraction) -> str:
     """Format a property value for WhatsApp display (like frontend)."""
-    if value is None or value == "":
+    if value is None or value == "" or (isinstance(value, str) and not value.strip()):
         return ""
     if isinstance(value, list):
         return ", ".join(str(v) for v in value[:5])
@@ -93,12 +93,42 @@ def _format_property_value_for_display(field_name: str, value: Any, extraction: 
 
 NOT_SET = "—"
 
+# One emoji per section — scan-friendly on mobile, easy to swap per channel later.
+_SECTION_DEAL = "📋"
+_SECTION_CONTACT = "👤"
+_SECTION_INSIGHTS = "💡"
+_SECTION_CRM = "📝"
+
+
+def _is_value_empty(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, str) and not val.strip():
+        return True
+    if isinstance(val, list) and len(val) == 0:
+        return True
+    return False
+
+
+def _format_whatsapp_section(emoji: str, title: str, bullet_lines: list[str]) -> str:
+    if not bullet_lines:
+        return ""
+    bullets = "\n".join(f"• {line}" for line in bullet_lines)
+    return f"{emoji} {title}\n{bullets}"
+
+
 def _get_proposed_updates_display(
     extraction: MemoExtraction,
     allowed_fields: list[str],
     field_specs: Optional[list[dict]] = None,
+    *,
+    omit_empty: bool = True,
 ) -> list[tuple[str, str]]:
-    """Return (label, display_value) for each allowed property. Shows full picture with '—' when not set."""
+    """Return (label, display_value) for each allowed property.
+
+    When omit_empty is True (WhatsApp), skip unset fields so the message stays scannable.
+    When False, show '—' for missing values (e.g. future email / audit templates).
+    """
     allowed = list(allowed_fields or [])
     labels = {s["name"]: s["label"] for s in (field_specs or []) if s.get("name") and s.get("label")}
 
@@ -106,7 +136,7 @@ def _get_proposed_updates_display(
         return labels.get(name, name.replace("_", " ").title())
 
     def _value(name: str, val: Any) -> str:
-        if val is None or val == "" or (isinstance(val, list) and len(val) == 0):
+        if _is_value_empty(val):
             return NOT_SET
         return _format_property_value_for_display(name, val, extraction)
 
@@ -137,13 +167,14 @@ def _get_proposed_updates_display(
         if k not in values and k not in skip_raw and k not in read_only:
             values[k] = raw.get(k)
 
-    # Show all allowed fields (ordered by allowed_fields), with value or "—"
     updates: list[tuple[str, str]] = []
     for name in allowed:
         if name in read_only:
             continue
         val = values.get(name)
         display = _value(name, val)
+        if omit_empty and display == NOT_SET:
+            continue
         updates.append((_label(name), display))
 
     return updates
@@ -154,54 +185,58 @@ def _format_extraction_summary(
     allowed_fields: Optional[list[str]] = None,
     field_specs: Optional[list[dict]] = None,
 ) -> str:
-    """Format extracted fields for WhatsApp reply. Labels match frontend (MemoDetail)."""
+    """Format extracted fields for WhatsApp: section headers, bullets, no empty CRM rows."""
     sections: list[str] = []
 
-    # Deal Details: Company only (amount/stage/date in proposed updates below)
+    deal_lines: list[str] = []
     if extraction.companyName:
-        sections.append("DEAL DETAILS\nCompany: " + extraction.companyName)
+        deal_lines.append(f"Company: {extraction.companyName}")
+    s = _format_whatsapp_section(_SECTION_DEAL, "Deal", deal_lines)
+    if s:
+        sections.append(s)
 
-    # Contact Person (frontend: Name, Role, Email)
-    contact_parts: list[str] = []
+    contact_lines: list[str] = []
     if extraction.contactName:
-        contact_parts.append(f"Name: {extraction.contactName}")
+        contact_lines.append(f"Name: {extraction.contactName}")
     if extraction.contactRole:
-        contact_parts.append(f"Role: {extraction.contactRole}")
+        contact_lines.append(f"Role: {extraction.contactRole}")
     if extraction.contactEmail:
-        contact_parts.append(f"Email: {extraction.contactEmail}")
+        contact_lines.append(f"Email: {extraction.contactEmail}")
     if extraction.contactPhone:
-        contact_parts.append(f"Phone: {extraction.contactPhone}")
-    if contact_parts:
-        sections.append("CONTACT PERSON\n" + "\n".join(contact_parts))
+        contact_lines.append(f"Phone: {extraction.contactPhone}")
+    s = _format_whatsapp_section(_SECTION_CONTACT, "Contact", contact_lines)
+    if s:
+        sections.append(s)
 
-    # Insights (frontend: Summary, Pain Points, Next Steps, Competitors)
-    insight_parts: list[str] = []
+    insight_lines: list[str] = []
     if extraction.summary:
-        insight_parts.append(f"Summary: {extraction.summary[:300]}{'...' if len(extraction.summary) > 300 else ''}")
+        sm = extraction.summary[:300] + ("..." if len(extraction.summary) > 300 else "")
+        insight_lines.append(f"Summary: {sm}")
     if extraction.painPoints:
-        insight_parts.append(f"Pain Points: {', '.join(extraction.painPoints[:3])}")
+        insight_lines.append(f"Pain points: {', '.join(extraction.painPoints[:3])}")
     if extraction.nextSteps:
-        insight_parts.append(f"Next Steps: {', '.join(extraction.nextSteps[:3])}")
+        insight_lines.append(f"Next steps: {', '.join(extraction.nextSteps[:3])}")
     if extraction.competitors:
-        insight_parts.append(f"Competitors: {', '.join(extraction.competitors[:3])}")
+        insight_lines.append(f"Competitors: {', '.join(extraction.competitors[:3])}")
     if extraction.objections:
-        insight_parts.append(f"Objections: {', '.join(extraction.objections[:2])}")
-    if insight_parts:
-        sections.append("INSIGHTS\n" + "\n".join(insight_parts))
+        insight_lines.append(f"Objections: {', '.join(extraction.objections[:2])}")
+    s = _format_whatsapp_section(_SECTION_INSIGHTS, "Insights", insight_lines)
+    if s:
+        sections.append(s)
+
+    updates = _get_proposed_updates_display(
+        extraction, allowed_fields or [], field_specs, omit_empty=True
+    )
+    if updates:
+        crm_lines = [f"{label}: {val}" for label, val in updates]
+        crm_block = _format_whatsapp_section(_SECTION_CRM, "Fields we'll update", crm_lines)
+        if crm_block:
+            sections.append(crm_block)
 
     if not sections:
         return "I couldn't extract structured CRM fields from this. You can still approve to save the transcript."
 
-    body = "I extracted:\n\n" + "\n\n".join(sections)
-
-    # Add proposed updates in clean "Label: value" format (like frontend)
-    updates = _get_proposed_updates_display(
-        extraction, allowed_fields or [], field_specs
-    )
-    if updates:
-        lines = [f"{label}: {val}" for label, val in updates]
-        body += "\n\n" + "\n".join(lines)
-
+    body = "Here's what I captured:\n\n" + "\n\n".join(sections)
     return body + "\n\nShould I update your CRM?"
 
 
@@ -341,7 +376,7 @@ async def process_whatsapp_message(
                 if resolved.intent == "unclear":
                     await wa_client.send_text(
                         msg.from_phone,
-                        "Sorry, I didn't understand. Reply 1 to approve, 2 to add fields.",
+                        "Sorry, I didn't understand. Reply *1* to approve, or *2* to add fields.",
                         **_client_kwargs(msg),
                     )
                     return

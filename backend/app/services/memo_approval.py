@@ -11,23 +11,16 @@ from supabase import Client
 
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
+from app.services.crm_config import CRMConfigurationService
+from app.services.crm_providers import (
+    AmbiguousPrimaryCRMError,
+    UnsupportedCRMProviderError,
+    build_crm_provider,
+    resolve_sync_connection,
+)
+from app.services.hubspot.types import SyncResult
 
 logger = logging.getLogger(__name__)
-from app.services.crm_config import CRMConfigurationService
-from app.services.crm_updates import CRMUpdatesService
-from app.services.hubspot import (
-    HubSpotClient,
-    HubSpotSchemaService,
-    HubSpotSearchService,
-    HubSpotDealService,
-    HubSpotMatchingService,
-    HubSpotContactService,
-    HubSpotCompanyService,
-    HubSpotAssociationService,
-    HubSpotTasksService,
-    HubSpotSyncService,
-    SyncResult,
-)
 
 
 async def approve_memo_core(
@@ -82,16 +75,12 @@ async def approve_memo_core(
                 approvedAt=m.get("approved_at"),
             )
 
-    crm_result = (
-        supabase.table("crm_connections")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("status", "connected")
-        .limit(1)
-        .execute()
-    )
+    try:
+        crm_connection = resolve_sync_connection(supabase, user_id)
+    except AmbiguousPrimaryCRMError as e:
+        raise ValueError(e.message) from e
 
-    if not crm_result.data:
+    if not crm_connection:
         supabase.table("memos").update({
             "status": "approved",
             "approved_at": datetime.utcnow().isoformat(),
@@ -114,51 +103,8 @@ async def approve_memo_core(
             approvedAt=m.get("approved_at"),
         )
 
-    crm_connection = crm_result.data[0]
-    config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = (
-        config.allowed_deal_fields if config
-        else ["dealname", "amount", "description", "closedate"]
-    )
-
-    # Prefer crm_configurations; fallback to user_profiles
-    if config is not None:
-        auto_create_companies = config.auto_create_companies
-        auto_create_contacts = config.auto_create_contacts
-        auto_create_contact_company = False
-    else:
-        profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
-        profile = profile_result.data or {}
-        auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
-        auto_create_companies = None
-        auto_create_contacts = None
-    # When updating an existing deal, do not create contacts/companies
-    if deal_id and not is_new_deal:
-        auto_create_contact_company = False
-        auto_create_companies = False
-        auto_create_contacts = False
-
-    client = HubSpotClient(crm_connection["access_token"])
-    schema_service = HubSpotSchemaService(client, supabase, crm_connection["id"])
-    search_service = HubSpotSearchService(client)
-    deal_service = HubSpotDealService(client, search_service, schema_service)
-    association_service = HubSpotAssociationService(client)
-    crm_updates_service = CRMUpdatesService(supabase)
-
-    sync_service = HubSpotSyncService(
-        client=client,
-        contacts=HubSpotContactService(client, search_service),
-        companies=HubSpotCompanyService(client, search_service),
-        deals=deal_service,
-        associations=association_service,
-        tasks=HubSpotTasksService(client),
-        crm_updates=crm_updates_service,
-        supabase=supabase,
-    )
-
     extraction = MemoExtraction(**extraction_data)
-    deal_id = None
+    deal_id: Optional[str] = None
     is_new_deal = False
     if payload:
         if payload.is_new_deal:
@@ -170,7 +116,50 @@ async def approve_memo_core(
         deal_id = memo_data.get("matched_deal_id")
         is_new_deal = bool(memo_data.get("is_new_deal", False) if not deal_id else False)
 
-    sync_result = await sync_service.sync_memo(
+    config_service = CRMConfigurationService(supabase)
+    config = await config_service.get_configuration(
+        user_id, connection_id=str(crm_connection["id"])
+    )
+    allowed_fields = (
+        config.allowed_deal_fields if config
+        else ["dealname", "amount", "description", "closedate"]
+    )
+    if crm_connection.get("provider") == "salesforce":
+        allowed_fields = (
+            config.allowed_deal_fields if config
+            else ["Name", "Amount", "CloseDate", "StageName", "Description"]
+        )
+
+    if config is not None:
+        auto_create_companies = config.auto_create_companies
+        auto_create_contacts = config.auto_create_contacts
+        auto_create_contact_company = False
+    else:
+        profile_result = (
+            supabase.table("user_profiles")
+            .select("auto_create_contact_company")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        profile = profile_result.data or {}
+        auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
+        auto_create_companies = None
+        auto_create_contacts = None
+
+    if deal_id and not is_new_deal:
+        auto_create_contact_company = False
+        auto_create_companies = False
+        auto_create_contacts = False
+
+    try:
+        provider = build_crm_provider(supabase, crm_connection)
+    except UnsupportedCRMProviderError as e:
+        raise ValueError(str(e)) from e
+
+    default_stage = config.default_stage_name if config else None
+
+    sync_result = await provider.sync_memo(
         memo_id=memo_id,
         user_id=user_id,
         connection_id=crm_connection["id"],
@@ -182,12 +171,15 @@ async def approve_memo_core(
         auto_create_contact_company=auto_create_contact_company,
         auto_create_companies=auto_create_companies,
         auto_create_contacts=auto_create_contacts,
+        default_stage_name=default_stage,
     )
 
     if not sync_result.success:
         logger.error(
             "❌ Approve memo core sync failed",
-            extra=log_domain(DOMAIN_MEMO, "approve_core_failed", memo_id=memo_id, error=sync_result.error or "unknown"),
+            extra=log_domain(
+                DOMAIN_MEMO, "approve_core_failed", memo_id=memo_id, error=sync_result.error or "unknown"
+            ),
         )
         raise ValueError(sync_result.error or "Failed to sync to CRM")
 

@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
+import { SalesforceConnection } from "@/components/dashboard/salesforce/SalesforceConnection";
+import { SalesforceConfiguration } from "@/components/dashboard/salesforce/SalesforceConfiguration";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { crmApi } from "@/lib/api/crm";
 
@@ -61,25 +63,72 @@ const IntegrationsPage = () => {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [primaryConnectionId, setPrimaryConnectionId] = useState<string | null>(null);
+  const [connectionRows, setConnectionRows] = useState<{ id: string; provider: string }[]>([]);
 
   const fetchConnections = useCallback(async () => {
     try {
-      const config = await crmApi.getConfiguration();
-      
-      setItems(prevItems => prevItems.map(item => {
-        if (item.id === "hubspot" && config) {
-          return { 
-            ...item, 
-            connected: true, 
-            lastSync: "Active",
-            details: {
-              portal: config.default_pipeline_name,
-              permissions: ["Deals", "Contacts", "Companies"]
-            }
-          };
+      const { connections } = await crmApi.listConnections();
+      const connected = (connections || []).filter((c) => c.status === "connected");
+      setConnectionRows(connected.map((c) => ({ id: c.id, provider: c.provider })));
+
+      let prefs: { primary_crm_connection_id: string | null } = { primary_crm_connection_id: null };
+      try {
+        prefs = await crmApi.getCrmPreferences();
+      } catch {
+        /* ignore */
+      }
+      setPrimaryConnectionId(prefs.primary_crm_connection_id);
+
+      let hubConfig = null as Awaited<ReturnType<typeof crmApi.getConfiguration>>;
+      let sfConfig = null as Awaited<ReturnType<typeof crmApi.getSalesforceConfiguration>>;
+      const hasHub = connected.some((c) => c.provider === "hubspot");
+      const hasSf = connected.some((c) => c.provider === "salesforce");
+      if (hasHub) {
+        try {
+          hubConfig = await crmApi.getConfiguration();
+        } catch {
+          hubConfig = null;
         }
-        return item;
-      }));
+      }
+      if (hasSf) {
+        try {
+          sfConfig = await crmApi.getSalesforceConfiguration();
+        } catch {
+          sfConfig = null;
+        }
+      }
+
+      setItems((prevItems) =>
+        prevItems.map((item) => {
+          if (item.id === "hubspot" && hasHub) {
+            return {
+              ...item,
+              connected: true,
+              lastSync: "Active",
+              details: {
+                portal: hubConfig?.default_pipeline_name || hubConfig?.default_stage_name || "HubSpot",
+                permissions: ["Deals", "Contacts", "Companies"],
+              },
+            };
+          }
+          if (item.id === "salesforce" && hasSf) {
+            return {
+              ...item,
+              connected: true,
+              lastSync: "Active",
+              details: {
+                portal: sfConfig?.default_stage_name || "Salesforce",
+                permissions: ["Opportunities", "Accounts", "Contacts"],
+              },
+            };
+          }
+          if (item.id === "hubspot" || item.id === "salesforce") {
+            return { ...item, connected: false, lastSync: undefined, details: undefined };
+          }
+          return item;
+        }),
+      );
     } catch (error) {
       console.error("Failed to check connections", error);
     } finally {
@@ -91,25 +140,37 @@ const IntegrationsPage = () => {
     fetchConnections();
   }, [fetchConnections]);
 
-  // Handle OAuth callback params (?hubspot=connected | ?hubspot=error)
   useEffect(() => {
     const hubspot = searchParams.get("hubspot");
+    const salesforce = searchParams.get("salesforce");
     const error = searchParams.get("error");
     if (hubspot === "connected") {
       toast.success("HubSpot connected successfully!");
       setSearchParams({}, { replace: true });
       fetchConnections();
+      setSelectedIntegrationId("hubspot");
       setTimeout(() => setIsConfigModalOpen(true), 300);
-    } else if (hubspot === "error" || error) {
-      const msg = error === "invalid_state" ? "Session expired. Please try again." : "Failed to connect HubSpot.";
+    } else if (salesforce === "connected") {
+      toast.success("Salesforce connected successfully!");
+      setSearchParams({}, { replace: true });
+      fetchConnections();
+      setSelectedIntegrationId("salesforce");
+      setTimeout(() => setIsConfigModalOpen(true), 300);
+    } else if (hubspot === "error" || salesforce === "error" || error) {
+      const msg =
+        error === "invalid_state"
+          ? "Session expired. Please try again."
+          : salesforce === "error"
+            ? "Failed to connect Salesforce."
+            : "Failed to connect HubSpot.";
       toast.error(msg);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams, fetchConnections]);
 
   const handleConnectClick = (id: string) => {
-    if (id !== "hubspot") {
-      toast.info(`${initialIntegrations.find(i => i.id === id)?.name} integration coming soon!`);
+    if (id !== "hubspot" && id !== "salesforce") {
+      toast.info(`${initialIntegrations.find((i) => i.id === id)?.name} integration coming soon!`);
       return;
     }
     setSelectedIntegrationId(id);
@@ -129,13 +190,13 @@ const IntegrationsPage = () => {
   };
 
   const handleDisconnect = async (id: string) => {
-    if (id === "hubspot") {
-      try {
-        await crmApi.disconnectHubSpot();
-      } catch (e) {
-        toast.error("Failed to disconnect");
-        return;
-      }
+    try {
+      if (id === "hubspot") await crmApi.disconnectHubSpot();
+      else if (id === "salesforce") await crmApi.disconnectSalesforce();
+      else return;
+    } catch {
+      toast.error("Failed to disconnect");
+      return;
     }
     setItems(prevItems => prevItems.map(item => 
       item.id === id ? { ...item, connected: false, lastSync: undefined, details: undefined } : item
@@ -163,18 +224,47 @@ const IntegrationsPage = () => {
         </p>
       </div>
 
+      {connectionRows.length > 1 && (
+        <div className="mt-8 p-6 rounded-3xl border border-border/30 bg-secondary/5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3">
+            Primary CRM for voice memo sync
+          </p>
+          <div className="flex flex-wrap gap-4">
+            {connectionRows.map((c) => (
+              <label key={c.id} className="flex items-center gap-2 cursor-pointer text-sm font-medium">
+                <input
+                  type="radio"
+                  name="primary-crm"
+                  checked={primaryConnectionId === c.id}
+                  onChange={async () => {
+                    try {
+                      await crmApi.setPrimaryCrmConnection(c.id);
+                      setPrimaryConnectionId(c.id);
+                      toast.success("Primary CRM updated");
+                    } catch {
+                      toast.error("Could not update primary CRM");
+                    }
+                  }}
+                />
+                {c.provider === "hubspot" ? "HubSpot" : c.provider === "salesforce" ? "Salesforce" : c.provider}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-8 mt-12">
         {items.map((integration) => {
-          const isHubSpot = integration.id === "hubspot";
+          const isActiveCrm = integration.id === "hubspot" || integration.id === "salesforce";
           return (
           <div
             key={integration.id}
-            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 group ${!isHubSpot ? "opacity-60 grayscale" : THEME_TOKENS.cards.hover}`}
+            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 group ${!isActiveCrm ? "opacity-60 grayscale" : THEME_TOKENS.cards.hover}`}
           >
             <div className="flex items-start justify-between mb-8">
               <div className="flex items-center gap-6">
-                <div className={`w-16 h-16 rounded-2xl bg-secondary/5 flex items-center justify-center p-4 transition-transform ${isHubSpot ? "group-hover:scale-110" : ""}`}>
-                  <img src={integration.logo} alt={integration.name} className={`w-full h-full object-contain transition-all duration-500 ${isHubSpot ? "grayscale group-hover:grayscale-0" : "grayscale"}`} />
+                  <div className={`w-16 h-16 rounded-2xl bg-secondary/5 flex items-center justify-center p-4 transition-transform ${isActiveCrm ? "group-hover:scale-110" : ""}`}>
+                  <img src={integration.logo} alt={integration.name} className={`w-full h-full object-contain transition-all duration-500 ${isActiveCrm ? "grayscale group-hover:grayscale-0" : "grayscale"}`} />
                 </div>
                 <div>
                   <h3 className="font-bold text-foreground text-xl">{integration.name}</h3>
@@ -182,6 +272,11 @@ const IntegrationsPage = () => {
                     <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-success">
                       <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
                       Connected
+                      {connectionRows.length > 1 &&
+                        primaryConnectionId &&
+                        connectionRows.find((c) => c.provider === integration.id)?.id === primaryConnectionId && (
+                          <span className="text-beige normal-case ml-1">(primary)</span>
+                        )}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">
@@ -274,14 +369,23 @@ const IntegrationsPage = () => {
         <DialogContent className={`${THEME_TOKENS.radius.container} border-none p-10 bg-white shadow-large max-w-lg`}>
           <DialogHeader className="mb-8">
             <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
-              Connect <span className="text-beige">HubSpot</span>
+              Connect{" "}
+              <span className="text-beige">
+                {selectedIntegrationId === "salesforce" ? "Salesforce" : "HubSpot"}
+              </span>
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed">
-              Connect securely via OAuth. You'll be redirected to HubSpot to authorize access.
+              {selectedIntegrationId === "salesforce"
+                ? "You will be redirected to Salesforce to authorize API access."
+                : "Connect securely via OAuth. You'll be redirected to HubSpot to authorize access."}
             </DialogDescription>
           </DialogHeader>
-          
-          <HubSpotConnection onConnected={handleConnected} />
+
+          {selectedIntegrationId === "salesforce" ? (
+            <SalesforceConnection onConnected={handleConnected} />
+          ) : (
+            <HubSpotConnection onConnected={handleConnected} />
+          )}
         </DialogContent>
       </Dialog>
 
@@ -289,17 +393,28 @@ const IntegrationsPage = () => {
         <DialogContent className={`${THEME_TOKENS.radius.container} border-none p-10 bg-white shadow-large max-w-2xl max-h-[90vh] overflow-y-auto`}>
           <DialogHeader className="mb-8">
             <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
-              Configure <span className="text-beige">{items.find(i => i.id === selectedIntegrationId)?.name}</span>
+              Configure <span className="text-beige">{items.find((i) => i.id === selectedIntegrationId)?.name}</span>
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed">
-              Set up your default pipeline and select which fields the AI can update.
+              Set up defaults and select which fields the AI can update in your CRM.
             </DialogDescription>
           </DialogHeader>
-          
-          <HubSpotConfiguration onSaved={() => {
-            setIsConfigModalOpen(false);
-            fetchConnections();
-          }} />
+
+          {selectedIntegrationId === "salesforce" ? (
+            <SalesforceConfiguration
+              onSaved={() => {
+                setIsConfigModalOpen(false);
+                fetchConnections();
+              }}
+            />
+          ) : (
+            <HubSpotConfiguration
+              onSaved={() => {
+                setIsConfigModalOpen(false);
+                fetchConnections();
+              }}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

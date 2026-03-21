@@ -1,4 +1,4 @@
-import { api } from "@/shared/lib/api-client";
+import { api, ApiError } from "@/shared/lib/api-client";
 
 export interface Pipeline {
   id: string;
@@ -25,9 +25,75 @@ export interface CRMConfiguration {
 }
 
 export const crmApi = {
+  async listConnections(): Promise<{
+    connections: { id: string; provider: string; status: string; created_at?: string }[];
+  }> {
+    return api.get("/crm/connections");
+  },
+
+  async getCrmPreferences(): Promise<{ primary_crm_connection_id: string | null }> {
+    return api.get("/crm/preferences");
+  },
+
+  async setPrimaryCrmConnection(connectionId: string) {
+    return api.put(`/crm/primary?connection_id=${encodeURIComponent(connectionId)}`, {});
+  },
+
+  /**
+   * Deal/opportunity search for manual picker: uses primary CRM (or sole connection).
+   */
+  async searchCrmDeals(query: string) {
+    const prefs = await this.getCrmPreferences();
+    const { connections } = await this.listConnections();
+    const ok = (connections || []).filter((c) => c.status === "connected");
+    if (ok.length === 0) return [];
+    let target = ok.find((c) => c.id === prefs.primary_crm_connection_id);
+    if (!target && ok.length === 1) target = ok[0];
+    if (!target) {
+      throw new ApiError(
+        400,
+        { detail: "Multiple CRMs connected. Choose a primary CRM in Integrations." },
+        "Multiple CRMs connected. Choose a primary CRM in Integrations.",
+      );
+    }
+    if (target.provider === "salesforce") {
+      return api.get<any[]>(`/crm/salesforce/search/opportunities?q=${encodeURIComponent(query)}`);
+    }
+    return api.get<any[]>(`/crm/hubspot/search/deals?q=${encodeURIComponent(query)}`);
+  },
+
   /** OAuth: Get HubSpot authorize URL, then redirect user there */
   async getHubSpotAuthorizeUrl(): Promise<{ redirect_url: string }> {
     return api.get<{ redirect_url: string }>("/crm/hubspot/authorize");
+  },
+
+  async getSalesforceAuthorizeUrl(): Promise<{ redirect_url: string }> {
+    return api.get<{ redirect_url: string }>("/crm/salesforce/authorize");
+  },
+
+  async disconnectSalesforce() {
+    return api.delete("/crm/salesforce/disconnect");
+  },
+
+  async getSalesforceConfiguration() {
+    try {
+      return await api.get<CRMConfiguration>("/crm/salesforce/configuration");
+    } catch (error: any) {
+      if (error.status === 404) return null;
+      throw error;
+    }
+  },
+
+  async saveSalesforceConfiguration(config: CRMConfiguration) {
+    return api.post("/crm/salesforce/configure", config);
+  },
+
+  async getSalesforceSchema() {
+    return api.get<CRMSchema>("/crm/salesforce/schema");
+  },
+
+  async getSalesforceStages(): Promise<{ id: string; label: string; display_order?: number }[]> {
+    return api.get("/crm/salesforce/stages");
   },
 
   async connectHubSpot(accessToken: string) {

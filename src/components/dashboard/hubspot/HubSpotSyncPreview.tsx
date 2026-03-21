@@ -6,6 +6,8 @@ import { crmApi } from "@/lib/api/crm";
 import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
 import { Loader2, Check, AlertCircle, Sparkles, ChevronDown, Search, X, RefreshCw, Pencil, Trash2, Plus } from "lucide-react";
+import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
+import { formatCrmDateForDisplay, isCrmDateField, parseFlexibleDateToIso } from "@/lib/crm-date";
 
 interface HubSpotSyncPreviewProps {
   memoId: string;
@@ -34,26 +36,38 @@ function buildExtractionFromUpdates(
         raw.dealname = val;
         break;
       case "dealname":
+      case "Name":
         result.companyName = val;
         raw.dealname = val;
+        raw.Name = val;
         break;
-      case "amount": {
+      case "amount":
+      case "Amount": {
         const amt = parseFloat(val);
         result.dealAmount = Number.isFinite(amt) ? amt : null;
         raw.amount = result.dealAmount;
+        raw.Amount = result.dealAmount;
         break;
       }
       case "closedate":
-        result.closeDate = val;
-        raw.closedate = val;
+      case "CloseDate": {
+        const iso = parseFlexibleDateToIso(val) || val;
+        result.closeDate = iso;
+        raw.closedate = iso;
+        raw.CloseDate = iso;
         break;
+      }
       case "dealstage":
+      case "StageName":
         result.dealStage = val;
         raw.dealstage = val;
+        raw.StageName = val;
         break;
       case "description":
+      case "Description":
         result.summary = val || "";
         raw.description = val || "";
+        raw.Description = val || "";
         break;
       case "hs_next_step":
         raw.hs_next_step = val;
@@ -69,7 +83,13 @@ function buildExtractionFromUpdates(
             if ((result.nextSteps as string[])?.[0]) raw.hs_next_step = (result.nextSteps as string[])[0];
           }
         } else if (val) {
-          raw[u.field_name] = u.field_type === "number" ? (parseFloat(val) || null) : val;
+          if (u.field_type === "number") {
+            raw[u.field_name] = parseFloat(val) || null;
+          } else if (u.field_type === "date" || u.field_type === "datetime") {
+            raw[u.field_name] = parseFlexibleDateToIso(val) || val;
+          } else {
+            raw[u.field_name] = val;
+          }
         }
     }
   }
@@ -173,10 +193,12 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     if (!query.trim()) return;
     setIsSearching(true);
     try {
-      const results = await crmApi.searchDeals(query);
+      const results = await crmApi.searchCrmDeals(query);
       if (searchQueryRef.current === query) setSearchResults(results);
-    } catch {
-      if (searchQueryRef.current === query) toast.error("Search failed");
+    } catch (e: any) {
+      if (searchQueryRef.current === query) {
+        toast.error(e?.message || e?.data?.detail || "Search failed");
+      }
     } finally {
       if (searchQueryRef.current === query) setIsSearching(false);
     }
@@ -451,7 +473,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                     )}
                     {isEditing ? (
                       <div className="space-y-2">
-                        {update.options && update.options.length > 0 ? (
+                        {update.options && update.options.length > 0 && !isCrmDateField(update) ? (
                           <select
                             autoFocus
                             value={String(update.new_value ?? "")}
@@ -465,10 +487,16 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                               </option>
                             ))}
                           </select>
+                        ) : isCrmDateField(update) ? (
+                          <ExtractionDatePicker
+                            value={String(update.new_value ?? "")}
+                            onChange={(iso) => updateField(idx, iso, false)}
+                            onClose={() => setEditingIdx(null)}
+                          />
                         ) : (
                           <Input
                             autoFocus
-                            type={update.field_type === "number" ? "number" : update.field_name === "closedate" ? "date" : "text"}
+                            type={update.field_type === "number" ? "number" : "text"}
                             value={String(update.new_value ?? "")}
                             onChange={(e) => updateField(idx, e.target.value, false)}
                             onBlur={() => setEditingIdx(null)}
@@ -478,7 +506,11 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                         )}
                       </div>
                     ) : (
-                      <p className={`text-sm font-bold leading-relaxed ${isOverride ? "text-destructive" : "text-success"}`}>{update.new_value ?? "—"}</p>
+                      <p className={`text-sm font-bold leading-relaxed ${isOverride ? "text-destructive" : "text-success"}`}>
+                        {isCrmDateField(update)
+                          ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
+                          : update.new_value ?? "—"}
+                      </p>
                     )}
                   </div>
                   {isDealField && !isEditing && (

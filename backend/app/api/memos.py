@@ -17,20 +17,9 @@ from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
-from app.services.hubspot import (
-    HubSpotClient,
-    HubSpotSchemaService,
-    HubSpotSearchService,
-    HubSpotDealService,
-    HubSpotMatchingService,
-    HubSpotPreviewService,
-    HubSpotContactService,
-    HubSpotCompanyService,
-    HubSpotAssociationService,
-    HubSpotTasksService,
-    HubSpotSyncService,
-    SyncResult,
-)
+from app.services.memo_approval import approve_memo_core
+from app.services.memo_crm import get_memo_crm_or_none
+from app.services.hubspot import HubSpotClient, SyncResult
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
 from app.models.crm_update import CRMUpdate
 from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
@@ -43,6 +32,31 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/memos", tags=["memos"])
+
+
+async def _curated_field_specs_for_primary_crm(
+    supabase: Client,
+    user_id: str,
+) -> Optional[list]:
+    """Field specs for LLM extraction from the user's primary (or sole) CRM."""
+    config_service = CRMConfigurationService(supabase)
+    try:
+        config = await config_service.get_configuration(user_id)
+    except Exception:
+        config = None
+    allowed_fields = config.allowed_deal_fields if config else None
+    if not allowed_fields:
+        return None
+    try:
+        provider, _ = get_memo_crm_or_none(supabase, user_id)
+    except HTTPException:
+        return None
+    if not provider:
+        return None
+    try:
+        return await provider.get_curated_field_specs(allowed_fields)
+    except Exception:
+        return None
 
 
 def _memo_from_row(memo_data: dict) -> Memo:
@@ -223,19 +237,7 @@ async def upload_memo(
             detail=f"File too large. Maximum size is {max_size / 1024 / 1024}MB"
         )
     
-    # Get user's CRM configuration
-    config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = config.allowed_deal_fields if config else None
-    
-    field_specs = None
-    if allowed_fields:
-        try:
-            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
-            schema_service = HubSpotSchemaService(client, supabase, connection_id)
-            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-        except Exception:
-            field_specs = None
+    field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
 
     if transcript and transcript.strip():
         logger.info(
@@ -337,19 +339,8 @@ async def upload_transcript_only(
     if source_type not in ("voice_memo", "meeting_transcript"):
         source_type = "voice_memo"
 
-    config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = config.allowed_deal_fields if config else None
-    
-    field_specs = None
-    if allowed_fields:
-        try:
-            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
-            schema_service = HubSpotSchemaService(client, supabase, connection_id)
-            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-        except Exception:
-            field_specs = None
-    
+    field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
+
     estimated_duration = len(transcript) / 15
     result = supabase.table("memos").insert({
         "user_id": user_id,
@@ -388,18 +379,7 @@ async def upload_transcript_and_extract(
             detail="Transcript is required",
         )
 
-    config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = config.allowed_deal_fields if config else None
-
-    field_specs = None
-    if allowed_fields:
-        try:
-            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
-            schema_service = HubSpotSchemaService(client, supabase, connection_id)
-            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-        except Exception:
-            field_specs = None
+    field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
 
     estimated_duration = len(transcript) / 15
     result = supabase.table("memos").insert({
@@ -635,147 +615,22 @@ async def approve_memo(
                 approvedAt=memo_data.get("approved_at"),
             )
     
-    # Get user's HubSpot connection (must filter by provider to find HubSpot)
-    crm_result = supabase.table("crm_connections").select("*").eq(
-        "user_id", user_id
-    ).eq("provider", "hubspot").eq("status", "connected").limit(1).execute()
-    
-    if not crm_result.data:
-        logger.info(
-            "⚠️ Approve memo: no HubSpot connection, marking approved without sync",
-            extra=log_domain(DOMAIN_MEMO, "approve_no_crm", memo_id=str(memo_id)),
-        )
-        supabase.table("memos").update({
-            "status": "approved",
-            "approved_at": datetime.utcnow().isoformat(),
-            "extraction": extraction_data,
-        }).eq("id", str(memo_id)).execute()
-    else:
-        # CRM connected - sync to HubSpot
-        crm_connection = crm_result.data[0]
-        
-        if crm_connection["provider"] == "hubspot":
-            # Get configuration and user preference
-            config_service = CRMConfigurationService(supabase)
-            config = await config_service.get_configuration(user_id)
-            allowed_fields = config.allowed_deal_fields if config else ["dealname", "amount", "description", "closedate"]
-            # Prefer crm_configurations (auto_create_contacts, auto_create_companies); fallback to user_profiles
-            if config is not None:
-                auto_create_companies = config.auto_create_companies
-                auto_create_contacts = config.auto_create_contacts
-                auto_create_contact_company = False  # unused when config present
-            else:
-                profile_result = supabase.table("user_profiles").select("auto_create_contact_company").eq("id", user_id).single().execute()
-                profile = profile_result.data or {}
-                auto_create_contact_company = bool(profile.get("auto_create_contact_company", False))
-                auto_create_companies = None
-                auto_create_contacts = None
-            
-            # Initialize HubSpot services
-            client = HubSpotClient(crm_connection["access_token"])
-            schema_service = HubSpotSchemaService(client, supabase, crm_connection["id"])
-            search_service = HubSpotSearchService(client)
-            deal_service = HubSpotDealService(client, search_service, schema_service)
-            association_service = HubSpotAssociationService(client)
-            crm_updates_service = CRMUpdatesService(supabase)
-            
-            sync_service = HubSpotSyncService(
-                client=client,
-                contacts=HubSpotContactService(client, search_service),
-                companies=HubSpotCompanyService(client, search_service),
-                deals=deal_service,
-                associations=association_service,
-                tasks=HubSpotTasksService(client),
-                crm_updates=crm_updates_service,
-                supabase=supabase,
-            )
-            
-            # Parse extraction
-            extraction = MemoExtraction(**extraction_data)
-            
-            # Determine deal_id and is_new_deal
-            # Priority: 1. Payload, 2. Database
-            deal_id = None
-            is_new_deal = False
-            
-            if payload:
-                if payload.is_new_deal:
-                    is_new_deal = True
-                    deal_id = None
-                else:
-                    deal_id = payload.deal_id or memo_data.get("matched_deal_id")
-                    is_new_deal = False
-            else:
-                deal_id = memo_data.get("matched_deal_id")
-                is_new_deal = memo_data.get("is_new_deal", False) if not deal_id else False
-            
-            logger.info(
-                "🔗 Approve memo started, syncing to HubSpot",
-                extra=log_domain(DOMAIN_MEMO, "approve_started", memo_id=str(memo_id), deal_id=deal_id, is_new_deal=is_new_deal),
-            )
-            # Sync to HubSpot
-            sync_result = await sync_service.sync_memo(
-                memo_id=str(memo_id),
-                user_id=user_id,
-                connection_id=crm_connection["id"],
-                extraction=extraction,
-                deal_id=deal_id,
-                is_new_deal=is_new_deal,
-                allowed_fields=allowed_fields,
-                transcript=memo_data.get("transcript"),
-                auto_create_contact_company=auto_create_contact_company,
-                auto_create_companies=auto_create_companies,
-                auto_create_contacts=auto_create_contacts,
-            )
-            
-            if not sync_result.success:
-                logger.error(
-                    "❌ Approve memo sync failed",
-                    extra=log_domain(DOMAIN_MEMO, "approve_sync_failed", memo_id=str(memo_id), error=sync_result.error),
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=sync_result.error or "Failed to sync to CRM",
-                )
-            
-            logger.info(
-                "✅ Approve memo complete",
-                extra=log_domain(DOMAIN_MEMO, "approve_complete", memo_id=str(memo_id), deal_id=sync_result.deal_id),
-            )
-            # Mark memo as approved
-            supabase.table("memos").update({
-                "status": "approved",
-                "approved_at": datetime.utcnow().isoformat(),
-                "extraction": extraction_data,
-            }).eq("id", str(memo_id)).execute()
-            
-            return sync_result
-        
-        # Mark memo as approved for non-HubSpot (not implemented)
-        supabase.table("memos").update({
-            "status": "approved",
-            "approved_at": datetime.utcnow().isoformat(),
-            "extraction": extraction_data,
-        }).eq("id", str(memo_id)).execute()
-    
-    # Return updated memo for non-HubSpot cases
-    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
-    updated_memo = updated_result.data
-    
-    return Memo(
-        id=updated_memo["id"],
-        userId=updated_memo["user_id"],
-        audioUrl=updated_memo["audio_url"],
-        audioDuration=updated_memo["audio_duration"],
-        status=updated_memo["status"],
-        transcript=updated_memo.get("transcript"),
-        transcriptConfidence=updated_memo.get("transcript_confidence"),
-        extraction=updated_memo.get("extraction"),
-        errorMessage=updated_memo.get("error_message"),
-        createdAt=updated_memo["created_at"],
-        processedAt=updated_memo.get("processed_at"),
-        approvedAt=updated_memo.get("approved_at"),
-    )
+    try:
+        return await approve_memo_core(supabase, str(memo_id), user_id, payload)
+    except ValueError as e:
+        detail = str(e)
+        if "Memo not found" in detail:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail) from e
+        if "No extraction" in detail:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from e
+        if "Multiple CRMs" in detail or "primary CRM" in detail.lower():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from e
+        if "Unsupported CRM provider" in detail:
+            raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=detail) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=detail,
+        ) from e
 
 
 @router.get("/{memo_id}/crm-updates", response_model=List[CRMUpdate])
@@ -886,41 +741,19 @@ async def match_memo_to_deals(
             detail=f"Memo extraction not available.{status_hint}",
         )
     
-    # Check if HubSpot is connected
     try:
-        conn_result = supabase.table("crm_connections").select("*").eq(
-            "user_id", user_id
-        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
-        
-        if not conn_result.data:
-            return []  # No matches if not connected
-            
-        access_token = conn_result.data["access_token"]
-    except Exception as e:
-        error_str = str(e)
-        if "no rows" in error_str.lower() or "PGRST116" in error_str:
-            return []  # No matches if not connected
-        raise
-    
-    # Get configuration for pipeline filter
+        provider, conn = get_memo_crm_or_none(supabase, user_id)
+    except HTTPException:
+        return []
+    if not provider or not conn:
+        return []
+
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
+    config = await config_service.get_configuration(user_id, connection_id=str(conn["id"]))
     pipeline_id = config.default_pipeline_id if config else None
-    
-    # Initialize services
-    client = HubSpotClient(access_token)
-    search_service = HubSpotSearchService(client)
-    matching_service = HubSpotMatchingService(client, search_service)
-    
-    # Parse extraction
+
     extraction = MemoExtraction(**extraction_data)
-    
-    # Find matches
-    matches = await matching_service.find_matching_deals(
-        extraction,
-        limit=3,
-        pipeline_id=pipeline_id,
-    )
+    matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
     logger.info(
         "🔍 Match memo to deals",
         extra=log_domain(DOMAIN_MEMO, "match", memo_id=str(memo_id), match_count=len(matches)),
@@ -968,74 +801,40 @@ async def get_approval_preview(
             detail="Memo extraction not available",
         )
     
-    # Check if HubSpot is connected
-    try:
-        conn_result = supabase.table("crm_connections").select("*").eq(
-            "user_id", user_id
-        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
-        
-        if not conn_result.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="HubSpot connection not found",
-            )
-        
-        connection_id = conn_result.data["id"]
-        access_token = conn_result.data["access_token"]
-    except Exception as e:
-        error_str = str(e)
-        if "no rows" in error_str.lower() or "PGRST116" in error_str:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="HubSpot connection not found",
-            )
-        raise
-    
-    # Get configuration
+    provider, conn = get_memo_crm_or_none(supabase, user_id)
+    if not provider or not conn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="CRM connection not found",
+        )
+
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = (
-        (config.allowed_deal_fields or ["dealname", "amount", "description", "closedate"])
-        if config
-        else ["dealname", "amount", "description", "closedate"]
-    )
-    
-    # Initialize services
-    client = HubSpotClient(access_token)
-    schema_service = HubSpotSchemaService(client, supabase, connection_id)
-    search_service = HubSpotSearchService(client)
-    deal_service = HubSpotDealService(client, search_service, schema_service)
-    association_service = HubSpotAssociationService(client)
-    contact_service = HubSpotContactService(client, search_service)
-    company_service = HubSpotCompanyService(client, search_service)
-    preview_service = HubSpotPreviewService(
-        client, deal_service, schema_service,
-        associations=association_service,
-        contact_service=contact_service,
-        company_service=company_service,
-    )
-    
-    # Get matches only when deal not pre-selected (e.g. from extension URL)
+    config = await config_service.get_configuration(user_id, connection_id=str(conn["id"]))
+    if conn.get("provider") == "salesforce":
+        default_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
+    else:
+        default_fields = ["dealname", "amount", "description", "closedate"]
+    allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields
+
     extraction = MemoExtraction(**extraction_data)
     matches: list = []
     if not deal_id:
-        matching_service = HubSpotMatchingService(client, search_service)
         pipeline_id = config.default_pipeline_id if config else None
-        matches = await matching_service.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+        matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
 
-    # Build preview
     try:
         logger.info(
             "👁️ Get approval preview",
             extra=log_domain(DOMAIN_MEMO, "preview", memo_id=str(memo_id), deal_id=deal_id),
         )
-        preview = await preview_service.build_preview(
+        preview = await provider.build_preview(
             memo_id=memo_id,
             transcript=transcript,
             extraction=extraction,
             matched_deals=matches,
             selected_deal_id=deal_id,
             allowed_fields=allowed_fields,
+            default_stage_name=config.default_stage_name if config else None,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1087,56 +886,33 @@ async def post_approval_preview(
     if not extraction_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Memo extraction not available")
 
-    try:
-        conn_result = supabase.table("crm_connections").select("*").eq(
-            "user_id", user_id
-        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
-        if not conn_result.data:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubSpot connection not found")
-        connection_id = conn_result.data["id"]
-        access_token = conn_result.data["access_token"]
-    except Exception as e:
-        error_str = str(e)
-        if "no rows" in error_str.lower() or "PGRST116" in error_str:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HubSpot connection not found")
-        raise
+    provider, conn = get_memo_crm_or_none(supabase, user_id)
+    if not provider or not conn:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM connection not found")
 
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = (
-        (config.allowed_deal_fields or ["dealname", "amount", "description", "closedate"])
-        if config
-        else ["dealname", "amount", "description", "closedate"]
-    )
+    config = await config_service.get_configuration(user_id, connection_id=str(conn["id"]))
+    if conn.get("provider") == "salesforce":
+        default_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
+    else:
+        default_fields = ["dealname", "amount", "description", "closedate"]
+    allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields
 
-    client = HubSpotClient(access_token)
-    schema_service = HubSpotSchemaService(client, supabase, connection_id)
-    search_service = HubSpotSearchService(client)
-    deal_service = HubSpotDealService(client, search_service, schema_service)
-    association_service = HubSpotAssociationService(client)
-    contact_service = HubSpotContactService(client, search_service)
-    company_service = HubSpotCompanyService(client, search_service)
-    preview_service = HubSpotPreviewService(
-        client, deal_service, schema_service,
-        associations=association_service,
-        contact_service=contact_service,
-        company_service=company_service,
-    )
     extraction = MemoExtraction(**extraction_data)
     matches: list = []
     if not deal_id:
-        matching_service = HubSpotMatchingService(client, search_service)
         pipeline_id = config.default_pipeline_id if config else None
-        matches = await matching_service.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+        matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
 
     try:
-        preview = await preview_service.build_preview(
+        preview = await provider.build_preview(
             memo_id=memo_id,
             transcript=transcript,
             extraction=extraction,
             matched_deals=matches,
             selected_deal_id=deal_id,
             allowed_fields=allowed_fields,
+            default_stage_name=config.default_stage_name if config else None,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1417,18 +1193,7 @@ async def confirm_transcript(
                     detail="Transcript is required",
                 )
 
-            # Get field specs before mutating (fewer retries hit inconsistent state)
-            config_service = CRMConfigurationService(supabase)
-            config = await config_service.get_configuration(user_id)
-            allowed_fields = config.allowed_deal_fields if config else None
-            field_specs = None
-            if allowed_fields:
-                try:
-                    client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
-                    schema_service = HubSpotSchemaService(client, supabase, connection_id)
-                    field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-                except Exception:
-                    field_specs = None
+            field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
 
             # Update transcript + status (avoids duplicate work on retry)
             from datetime import datetime
@@ -1504,22 +1269,8 @@ async def re_extract_memo(
             detail="Cannot re-extract an approved memo. Please reject it first if you need to change the extraction.",
         )
     
-    # Get user's CRM configuration for field specs
-    config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    allowed_fields = config.allowed_deal_fields if config else None
-    
-    # Get curated field specs
-    field_specs = None
-    if allowed_fields:
-        try:
-            client, connection_id = get_hubspot_client_from_connection(user_id, supabase)
-            schema_service = HubSpotSchemaService(client, supabase, connection_id)
-            field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-        except Exception:
-            # Fallback to None if connection fails
-            field_specs = None
-    
+    field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
+
     # Fetch user glossary for LLM correction
     glossary_service = GlossaryService(supabase)
     glossary = await glossary_service.get_user_glossary(user_id)

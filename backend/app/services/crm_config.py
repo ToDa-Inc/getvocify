@@ -30,27 +30,40 @@ class CRMConfigurationService:
         self,
         user_id: str,
         connection_id: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> Optional[CRMConfigurationResponse]:
         """
-        Get user's CRM configuration.
-        
-        Args:
-            user_id: User ID
-            connection_id: Optional connection ID (if not provided, finds first HubSpot connection)
-            
-        Returns:
-            Configuration if found, None otherwise
+        Get user's CRM configuration for a connection.
+
+        Resolution when connection_id is omitted:
+        - If provider is set (e.g. \"hubspot\"): first connected row for that provider.
+        - Else: primary/single connection via resolve_sync_connection (memo pipeline).
         """
-        # If no connection_id provided, find user's HubSpot connection
         if not connection_id:
-            conn_result = self.supabase.table("crm_connections").select("id").eq(
-                "user_id", user_id
-            ).eq("provider", "hubspot").eq("status", "connected").limit(1).execute()
-            
-            if not conn_result.data:
-                return None
-            
-            connection_id = conn_result.data[0]["id"]
+            if provider:
+                conn_result = (
+                    self.supabase.table("crm_connections")
+                    .select("id")
+                    .eq("user_id", user_id)
+                    .eq("provider", provider)
+                    .eq("status", "connected")
+                    .limit(1)
+                    .execute()
+                )
+                if not conn_result.data:
+                    return None
+                connection_id = conn_result.data[0]["id"]
+            else:
+                from app.services.crm_providers.errors import AmbiguousPrimaryCRMError
+                from app.services.crm_providers.resolve import resolve_sync_connection
+
+                try:
+                    row = resolve_sync_connection(self.supabase, user_id)
+                except AmbiguousPrimaryCRMError:
+                    return None
+                if not row:
+                    return None
+                connection_id = str(row["id"])
         
         # Get configuration
         try:

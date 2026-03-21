@@ -3,7 +3,7 @@ CRM integration API endpoints
 """
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from uuid import UUID
 from typing import Any, Optional
@@ -577,7 +577,7 @@ async def search_hubspot_deals(
     
     # Get configuration for pipeline filter
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
+    config = await config_service.get_configuration(user_id, provider="hubspot")
     pipeline_id = config.default_pipeline_id if config else None
 
     # Search: try with default pipeline first; if no results, retry without pipeline
@@ -613,15 +613,39 @@ async def get_hubspot_configuration(
     Returns configuration if exists, 404 if not configured yet.
     """
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id)
-    
+    config = await config_service.get_configuration(user_id, provider="hubspot")
+
     if not config:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="CRM not configured. Please complete onboarding.",
         )
-    
+
     return config
+
+
+@router.put("/primary")
+async def set_primary_crm_connection(
+    connection_id: UUID = Query(..., description="crm_connections.id to use for memo sync"),
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Set which connected CRM is used for memo sync when multiple are connected."""
+    conn = (
+        supabase.table("crm_connections")
+        .select("id")
+        .eq("id", str(connection_id))
+        .eq("user_id", user_id)
+        .eq("status", "connected")
+        .single()
+        .execute()
+    )
+    if not conn.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    supabase.table("user_profiles").update({"primary_crm_connection_id": str(connection_id)}).eq(
+        "id", user_id
+    ).execute()
+    return {"success": True, "primary_crm_connection_id": str(connection_id)}
 
 
 @router.post("/hubspot/configure", response_model=CRMConfigurationResponse)
@@ -706,7 +730,7 @@ async def list_connections(
     result = supabase.table("crm_connections").select("*").eq(
         "user_id", user_id
     ).execute()
-    
+
     connections = []
     for conn in result.data or []:
         connections.append({
@@ -715,8 +739,25 @@ async def list_connections(
             "status": conn["status"],
             "created_at": conn["created_at"],
         })
-    
+
     return {"connections": connections}
+
+
+@router.get("/preferences")
+async def get_crm_preferences(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Primary CRM connection id when multiple providers are connected."""
+    prof = (
+        supabase.table("user_profiles")
+        .select("primary_crm_connection_id")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    pid = (prof.data or {}).get("primary_crm_connection_id") if prof and prof.data else None
+    return {"primary_crm_connection_id": str(pid) if pid else None}
 
 
 @router.post("/hubspot/deals")

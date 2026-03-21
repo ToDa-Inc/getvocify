@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     HUBSPOT_CLIENT_SECRET: Optional[str] = None
     HUBSPOT_REDIRECT_URI: Optional[str] = None
 
+    # Salesforce Connected App (OAuth Web Server flow)
+    SALESFORCE_CLIENT_ID: Optional[str] = None
+    SALESFORCE_CLIENT_SECRET: Optional[str] = None
+    SALESFORCE_REDIRECT_URI: Optional[str] = None
+    # login.salesforce.com (prod) or test.salesforce.com (sandbox)
+    SALESFORCE_LOGIN_BASE: str = "https://login.salesforce.com"
+
     # JWT secret for signing OAuth state (prevents CSRF)
     JWT_SECRET: Optional[str] = None
 
