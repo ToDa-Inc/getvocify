@@ -22,7 +22,7 @@ export function isLandingDomain(): boolean {
 }
 
 /** Paths that are valid on the landing domain (no redirect to app) */
-const LANDING_PATHS = ["/", "/es"];
+const LANDING_PATHS = ["/", "/es", "/privacy", "/about", "/blog", "/terms"];
 
 export function isLandingPath(path: string): boolean {
   return LANDING_PATHS.includes(path);

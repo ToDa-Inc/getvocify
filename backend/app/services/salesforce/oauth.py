@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlencode
@@ -10,6 +11,8 @@ import httpx
 import jwt
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def salesforce_oauth_enabled() -> bool:
@@ -32,6 +35,7 @@ def build_authorize_url(user_id: str) -> str:
         settings.JWT_SECRET,
         algorithm="HS256",
     )
+    # Must match OAuth scopes enabled on the Connected App (add offline_access here if you enabled it there)
     scopes = "api refresh_token"
     params = {
         "response_type": "code",
@@ -65,5 +69,12 @@ async def exchange_code_for_tokens(code: str) -> dict:
     }
     async with httpx.AsyncClient() as client:
         resp = await client.post(token_url, data=data, timeout=30.0)
+        if resp.is_error:
+            body = (resp.text or "")[:2000]
+            logger.error(
+                "Salesforce token exchange failed: status=%s body=%s",
+                resp.status_code,
+                body,
+            )
         resp.raise_for_status()
         return resp.json()

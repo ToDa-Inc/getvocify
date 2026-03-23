@@ -157,12 +157,29 @@ const IntegrationsPage = () => {
       setSelectedIntegrationId("salesforce");
       setTimeout(() => setIsConfigModalOpen(true), 300);
     } else if (hubspot === "error" || salesforce === "error" || error) {
+      const sfErrors: Record<string, string> = {
+        missing_params: "Salesforce did not return authorization. Try again.",
+        invalid_state: "Session expired. Please try connecting again.",
+        token_exchange_failed:
+          "Could not complete Salesforce login. Check that the Callback URL in the Connected App matches SALESFORCE_REDIRECT_URI (including http/https and port).",
+        no_token:
+          "Salesforce did not return tokens. Check Connected App OAuth scopes (Enable 'api' and 'refresh_token' / Perform requests at any time).",
+        validation_failed:
+          "Salesforce login worked but API access failed. Ensure your profile can use the REST API and access Opportunity.",
+        save_failed: "Could not save the connection. Check server logs (database).",
+        invalid_scope:
+          "Salesforce rejected the requested scopes. In the Connected App, enable API access and refresh token (same scopes you request in the app).",
+        OAUTH_EC_APP_NOT_FOUND:
+          "Salesforce does not recognize this OAuth app. Check: (1) Consumer Key matches the Connected App, (2) production vs sandbox — use test.salesforce.com + credentials from a Sandbox org if you log into Sandbox.",
+      };
       const msg =
         error === "invalid_state"
           ? "Session expired. Please try again."
-          : salesforce === "error"
-            ? "Failed to connect Salesforce."
-            : "Failed to connect HubSpot.";
+          : salesforce === "error" && error && sfErrors[error]
+            ? sfErrors[error]
+            : salesforce === "error"
+              ? `Failed to connect Salesforce${error ? ` (${error})` : ""}.`
+              : "Failed to connect HubSpot.";
       toast.error(msg);
       setSearchParams({}, { replace: true });
     }

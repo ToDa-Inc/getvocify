@@ -77,7 +77,7 @@ const PrivacyPage = () => {
           <section>
             <h2 className="text-2xl font-bold mb-4">6. Your Choices</h2>
             <p className="text-muted-foreground">
-              You can stop all collection of information by the extension by uninstalling it. You may also request the deletion of your account and associated data by contacting us at support@getvocify.com.
+              You can stop all collection of information by the extension by uninstalling it. You may also request the deletion of your account and associated data by contacting us at toni@getvocify.com.
             </p>
           </section>
 
@@ -85,7 +85,7 @@ const PrivacyPage = () => {
             <h2 className="text-2xl font-bold mb-4">7. Contact Us</h2>
             <p className="text-muted-foreground">
               If you have any questions about this Privacy Policy, please contact:<br />
-              <span className="font-bold text-foreground">Email:</span> support@getvocify.com<br />
+              <span className="font-bold text-foreground">Email:</span> toni@getvocify.com<br />
               <span className="font-bold text-foreground">Website:</span> https://getvocify.com
             </p>
           </section>
