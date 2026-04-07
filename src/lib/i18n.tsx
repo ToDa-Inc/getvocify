@@ -33,8 +33,6 @@ const translations = {
     demo: {
       title: "Watch the 40-second demo",
       subtitle: "See how Vocify turns a voice memo into structured CRM updates.",
-      configureEnv:
-        "Add your Wistia video ID to VITE_WISTIA_MEDIA_ID in .env (from the video → Embed & Share → copy the ID in the embed URL).",
     },
     integrations: {
       text1: "Seamlessly",
@@ -195,8 +193,6 @@ const translations = {
     demo: {
       title: "Demo de 40 segundos",
       subtitle: "Mira cómo Vocify convierte una nota de voz en datos estructurados en tu CRM.",
-      configureEnv:
-        "Añade el ID del vídeo de Wistia en VITE_WISTIA_MEDIA_ID en .env (vídeo → Embed & Share → ID en la URL del embed).",
     },
     integrations: {
       text1: "Se integra",

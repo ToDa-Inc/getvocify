@@ -19,6 +19,7 @@ from app.services.crm_providers import (
     resolve_sync_connection,
 )
 from app.services.hubspot.types import SyncResult
+from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,9 @@ async def approve_memo_core(
             config.allowed_deal_fields if config
             else ["Name", "Amount", "CloseDate", "StageName", "Description"]
         )
+    elif crm_connection.get("provider") == "hubspot":
+        # Config or DB may still list Salesforce-style names; HubSpot API requires lowercase keys.
+        allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
     if config is not None:
         auto_create_companies = config.auto_create_companies

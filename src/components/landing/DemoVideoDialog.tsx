@@ -7,7 +7,8 @@ import {
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-const WISTIA_MEDIA_ID = import.meta.env.VITE_WISTIA_MEDIA_ID as string | undefined;
+/** Wistia media hashed ID — demo video (embedded; no env needed for Vercel). */
+const WISTIA_MEDIA_ID = "o5pe9wslhx";
 
 const WISTIA_PLAYER_SCRIPT = "https://fast.wistia.com/player.js";
 
@@ -32,7 +33,7 @@ type DemoVideoDialogProps = {
 
 export function DemoVideoDialog({ open, onOpenChange }: DemoVideoDialogProps) {
   const { t } = useLanguage();
-  const id = WISTIA_MEDIA_ID?.trim();
+  const id = WISTIA_MEDIA_ID;
   const titleId = useId();
 
   useEffect(() => {
@@ -85,16 +86,12 @@ export function DemoVideoDialog({ open, onOpenChange }: DemoVideoDialogProps) {
         <DialogTitle id={titleId} className="sr-only">
           {t.demo.title}
         </DialogTitle>
-        {open && id ? (
+        {open ? (
           <div className="w-full bg-black">
             {createElement("wistia-player", {
               "media-id": id,
               aspect: "1.7777777777777777",
             })}
-          </div>
-        ) : open && !id ? (
-          <div className="p-8 text-center text-sm text-muted-foreground bg-background">
-            {t.demo.configureEnv}
           </div>
         ) : null}
       </DialogContent>
