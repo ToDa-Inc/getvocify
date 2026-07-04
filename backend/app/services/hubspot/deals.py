@@ -25,6 +25,7 @@ from .types import (
 )
 from .search import HubSpotSearchService
 from .schema import HubSpotSchemaService
+from .deal_field_names import normalize_hubspot_deal_property_key
 from app.models.memo import MemoExtraction
 
 # HubSpot system-managed deal properties (read-only; cannot be set via API)
@@ -309,20 +310,26 @@ class HubSpotDealService:
             competitors_skip_in_loop = "competitors"
 
             for key, value in extraction.raw_extraction.items():
-                if key in skip_fields or key == competitors_skip_in_loop or key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES or value is None:
+                norm_key = normalize_hubspot_deal_property_key(key)
+                if (
+                    norm_key in skip_fields
+                    or norm_key == competitors_skip_in_loop
+                    or norm_key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES
+                    or value is None
+                ):
                     continue
-                
+
                 # Special handling for dates if they are in raw_extraction
-                if key == "closedate" and isinstance(value, str):
+                if norm_key == "closedate" and isinstance(value, str):
                     ts = self._to_hubspot_timestamp(value)
                     if ts:
-                        properties[key] = ts
+                        properties[norm_key] = ts
                 # Special handling for numbers
                 elif isinstance(value, (int, float)):
-                    properties[key] = str(value)
+                    properties[norm_key] = str(value)
                 # Everything else is passed through
                 else:
-                    properties[key] = value
+                    properties[norm_key] = value
 
         # competitors: HubSpot expects single enum value (string), e.g. "cobee"
         competitors_val = extraction.competitors

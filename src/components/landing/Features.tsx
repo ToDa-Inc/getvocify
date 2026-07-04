@@ -45,7 +45,7 @@ const Features = () => {
   ];
   
   return (
-    <section id="features" className="py-32 bg-white relative overflow-hidden">
+    <section id="features" className="scroll-mt-24 py-32 bg-white relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-20">
               <motion.div

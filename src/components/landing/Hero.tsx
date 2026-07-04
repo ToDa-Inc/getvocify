@@ -1,5 +1,4 @@
-import { ArrowRight, Play, MousePointer2 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { ArrowRight, Play } from "lucide-react";
 import { APP_URL } from "@/lib/app-url";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
@@ -7,9 +6,11 @@ import WaveformCircle from "./WaveformCircle";
 import RotatingText from "./RotatingText";
 import IntegrationsCarousel from "./IntegrationsCarousel";
 import { useLanguage } from "@/lib/i18n";
+import { useDemoVideo } from "@/contexts/DemoVideoContext";
 
 const Hero = () => {
   const { t } = useLanguage();
+  const { openDemo } = useDemoVideo();
 
   return (
     <section className="relative flex flex-col items-center justify-center overflow-hidden pt-32 pb-20 bg-mesh-gradient">
@@ -52,11 +53,15 @@ const Hero = () => {
                 <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
               </a>
             </Button>
-            <Button variant="outline" size="xl" asChild className="group px-8 bg-white/40 hover:bg-white/60 backdrop-blur-md border-beige/20 rounded-full transition-all">
-              <Link to="#demo">
-                <Play className="mr-2 h-4 w-4 fill-beige text-beige" />
-                {t.hero.cta2}
-              </Link>
+            <Button
+              type="button"
+              variant="outline"
+              size="xl"
+              className="group px-8 rounded-full border-beige/30 bg-white/55 text-stone-800 shadow-sm backdrop-blur-md transition-all hover:border-beige/45 hover:!bg-white/95 hover:!text-stone-950 hover:shadow-md [&_svg]:!text-stone-700 [&_svg]:hover:!text-stone-900"
+              onClick={() => openDemo()}
+            >
+              <Play className="mr-2 h-4 w-4 shrink-0 fill-current text-current" />
+              {t.hero.cta2}
             </Button>
           </motion.div>
 

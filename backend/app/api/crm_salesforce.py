@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote_plus
@@ -29,6 +30,8 @@ from app.services.salesforce.schema import SalesforceSchemaService
 from app.services.salesforce.search import SalesforceSearchService
 from app.services.salesforce.validation import SalesforceValidationService
 from supabase import Client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/salesforce", tags=["crm", "salesforce"])
 
@@ -126,7 +129,8 @@ async def salesforce_callback(
         return RedirectResponse(url=f"{bad}&error=invalid_state", status_code=302)
     try:
         token_data = await exchange_code_for_tokens(code)
-    except Exception:
+    except Exception as e:
+        logger.exception("Salesforce OAuth token exchange failed: %s", e)
         return RedirectResponse(url=f"{bad}&error=token_exchange_failed", status_code=302)
 
     access_token = token_data.get("access_token")
@@ -148,6 +152,7 @@ async def salesforce_callback(
     )
     validation = await SalesforceValidationService(client).validate()
     if not validation.valid:
+        logger.warning("Salesforce post-OAuth validation failed: %s", validation.error)
         return RedirectResponse(url=f"{bad}&error=validation_failed", status_code=302)
 
     connection_data = {
@@ -161,7 +166,8 @@ async def salesforce_callback(
     }
     try:
         supabase.table("crm_connections").upsert(connection_data, on_conflict="user_id,provider").execute()
-    except Exception:
+    except Exception as e:
+        logger.exception("Salesforce OAuth save to crm_connections failed: %s", e)
         return RedirectResponse(url=f"{bad}&error=save_failed", status_code=302)
 
     return RedirectResponse(url=ok, status_code=302)

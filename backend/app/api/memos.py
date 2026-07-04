@@ -20,6 +20,7 @@ from app.services.crm_config import CRMConfigurationService
 from app.services.memo_approval import approve_memo_core
 from app.services.memo_crm import get_memo_crm_or_none
 from app.services.hubspot import HubSpotClient, SyncResult
+from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
 from app.models.crm_update import CRMUpdate
 from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
@@ -815,6 +816,8 @@ async def get_approval_preview(
     else:
         default_fields = ["dealname", "amount", "description", "closedate"]
     allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields
+    if conn.get("provider") == "hubspot":
+        allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
     extraction = MemoExtraction(**extraction_data)
     matches: list = []
@@ -897,6 +900,8 @@ async def post_approval_preview(
     else:
         default_fields = ["dealname", "amount", "description", "closedate"]
     allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields
+    if conn.get("provider") == "hubspot":
+        allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
     extraction = MemoExtraction(**extraction_data)
     matches: list = []

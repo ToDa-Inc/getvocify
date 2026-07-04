@@ -47,9 +47,7 @@ const ProfilePage = () => {
         <h1 className={THEME_TOKENS.typography.pageTitle}>
           Mi <span className={THEME_TOKENS.typography.accentTitle}>perfil</span>
         </h1>
-        <p className={THEME_TOKENS.typography.body}>
-          Gestiona tu perfil y facturación.
-        </p>
+        <p className={THEME_TOKENS.typography.body}>Gestiona tu perfil.</p>
       </div>
 
       {/* Profile */}
@@ -125,49 +123,6 @@ const ProfilePage = () => {
               "Save Changes"
             )}
           </Button>
-        </div>
-      </div>
-
-      {/* Billing */}
-      <div
-        className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 relative overflow-hidden group`}
-      >
-        <div className="absolute inset-0 bg-gradient-to-br from-beige/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-        <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-10`}>
-          Billing & Subscription
-        </h2>
-
-        <div className="space-y-6 relative z-10">
-          <div className="flex items-center justify-between py-2 border-b border-foreground/5">
-            <p className={`${THEME_TOKENS.typography.capsLabel} !text-muted-foreground/60`}>
-              Current Plan
-            </p>
-            <span className="font-bold text-foreground">Basic - $25/month</span>
-          </div>
-          <div className="flex items-center justify-between py-2 border-b border-foreground/5">
-            <p className={`${THEME_TOKENS.typography.capsLabel} !text-muted-foreground/60`}>
-              Next Billing Date
-            </p>
-            <span className="text-foreground font-medium">January 29, 2026</span>
-          </div>
-          <div className="flex items-center justify-between py-2 border-b border-foreground/5">
-            <p className={`${THEME_TOKENS.typography.capsLabel} !text-muted-foreground/60`}>
-              Monthly Usage
-            </p>
-            <span className="text-foreground font-medium">12 / Unlimited memos</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-6 mt-10 relative z-10">
-          <Button
-            variant="hero"
-            className="rounded-full px-8 py-4 bg-beige text-cream hover:bg-beige-dark shadow-large hover:scale-105 transition-transform text-[10px] font-black uppercase tracking-widest"
-          >
-            Upgrade to Pro
-          </Button>
-          <button className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/30 hover:text-foreground transition-colors">
-            Cancel subscription
-          </button>
         </div>
       </div>
 

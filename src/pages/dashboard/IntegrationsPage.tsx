@@ -159,17 +159,34 @@ const IntegrationsPage = () => {
     } else if (hubspot === "error" || salesforce === "error" || error) {
       const errDesc = searchParams.get("error_description");
       const decoded = errDesc ? decodeURIComponent(errDesc.replace(/\+/g, " ")) : "";
+      const sfErrors: Record<string, string> = {
+        missing_params: "Salesforce did not return authorization. Try again.",
+        invalid_state: "Session expired. Please try connecting again.",
+        token_exchange_failed:
+          "Could not complete Salesforce login. Check that the Callback URL in the Connected App matches SALESFORCE_REDIRECT_URI (including http/https and port).",
+        no_token:
+          "Salesforce did not return tokens. Check Connected App OAuth scopes (Enable 'api' and 'refresh_token' / Perform requests at any time).",
+        validation_failed:
+          "Salesforce login worked but API access failed. Ensure your profile can use the REST API and access Opportunity.",
+        save_failed: "Could not save the connection. Check server logs (database).",
+        invalid_scope:
+          "Salesforce rejected the requested scopes. In the Connected App, enable API access and refresh token (same scopes you request in the app).",
+        OAUTH_EC_APP_NOT_FOUND:
+          "Salesforce does not recognize this OAuth app. Check: (1) Consumer Key matches the Connected App, (2) production vs sandbox — use test.salesforce.com + credentials from a Sandbox org if you log into Sandbox.",
+      };
       let msg: string;
       if (error === "invalid_state") {
-        msg = "Session expired. Please try again.";
+        msg = sfErrors.invalid_state;
       } else if (salesforce === "error") {
-        if (error === "OAUTH_EC_APP_NOT_FOUND" || decoded.toLowerCase().includes("not installed")) {
+        if (error && sfErrors[error]) {
+          msg = sfErrors[error];
+        } else if (decoded.toLowerCase().includes("not installed")) {
           msg =
             "Salesforce rejected login: this External Client App is not installed in the org you signed into. Create or enable Vocify in that org, or log in to the same org where you built the app (same Client ID).";
         } else if (decoded) {
           msg = `Salesforce: ${decoded}`;
         } else if (error && error !== "error") {
-          msg = `Salesforce: ${error}`;
+          msg = `Failed to connect Salesforce (${error}).`;
         } else {
           msg = "Failed to connect Salesforce.";
         }

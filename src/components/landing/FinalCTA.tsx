@@ -1,12 +1,13 @@
 import { ArrowRight, Play, Mail } from "lucide-react";
-import { Link } from "react-router-dom";
 import { APP_URL } from "@/lib/app-url";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
+import { useDemoVideo } from "@/contexts/DemoVideoContext";
 
 const FinalCTA = () => {
   const { t } = useLanguage();
+  const { openDemo } = useDemoVideo();
   
   return (
     <section className="py-32 bg-beige relative overflow-hidden">
@@ -74,23 +75,30 @@ const FinalCTA = () => {
                 <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
               </a>
             </Button>
-            <Button 
-              variant="outline" 
-              size="xl" 
-              asChild 
+            <Button
+              type="button"
+              variant="outline"
+              size="xl"
               className="group border-cream/30 text-cream hover:bg-cream/10 px-10 backdrop-blur-sm rounded-full"
+              onClick={() => openDemo()}
             >
-              <Link to="#demo">
-                <Play className="mr-2 h-4 w-4 fill-cream" />
-                {t.finalCta.watch}
-              </Link>
+              <Play className="mr-2 h-4 w-4 fill-cream" />
+              {t.finalCta.watch}
             </Button>
           </div>
 
           <div className="flex flex-col items-center gap-4">
             <div className="flex items-center gap-2 text-cream/70 text-sm font-medium">
               <Mail className="w-4 h-4" />
-              <span>{t.finalCta.questions} <span className="text-cream underline underline-offset-4">founders@vocify.com</span></span>
+              <span>
+                {t.finalCta.questions}{" "}
+                <a
+                  href="mailto:toni@getvocify.com"
+                  className="text-cream underline underline-offset-4 hover:text-white transition-colors"
+                >
+                  toni@getvocify.com
+                </a>
+              </span>
             </div>
             <p className="text-cream/40 text-[10px] uppercase tracking-widest font-bold">
               {t.finalCta.responseTime}

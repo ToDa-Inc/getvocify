@@ -28,10 +28,10 @@ const Header = () => {
                 <a href="#features" className="text-[10px] font-black tracking-[0.3em] uppercase text-muted-foreground/60 hover:text-beige transition-colors">
                   {t.nav.features}
                 </a>
-                <a href="#pricing" className="text-[10px] font-black tracking-[0.3em] uppercase text-muted-foreground/60 hover:text-beige transition-colors">
-                  {t.nav.pricing}
+                <a href="#calculator" className="text-[10px] font-black tracking-[0.3em] uppercase text-muted-foreground/60 hover:text-beige transition-colors">
+                  {t.nav.calculator}
                 </a>
-                <a href="#about" className="text-[10px] font-black tracking-[0.3em] uppercase text-muted-foreground/60 hover:text-beige transition-colors">
+                <a href="#how-it-works" className="text-[10px] font-black tracking-[0.3em] uppercase text-muted-foreground/60 hover:text-beige transition-colors">
                   {t.nav.about}
                 </a>
               </nav>

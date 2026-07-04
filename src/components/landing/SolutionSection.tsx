@@ -37,7 +37,7 @@ const SolutionSection = () => {
   ];
 
   return (
-    <section className="py-32 bg-background relative overflow-hidden">
+    <section id="how-it-works" className="scroll-mt-24 py-32 bg-background relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-20">
           <motion.h2 
