@@ -91,6 +91,10 @@ function formatCrmDateDisplay(raw) {
 // SCREEN MANAGEMENT
 // ============================================
 function showScreen(screenKey) {
+  if (screenKey !== 'processing' && _processingAnimTimer) {
+    clearInterval(_processingAnimTimer);
+    _processingAnimTimer = null;
+  }
   Object.keys(screens).forEach(key => {
     if (screens[key]) {
       screens[key].style.display = key === screenKey ? 'flex' : 'none';
@@ -112,15 +116,38 @@ function hideExtractionError() {
   if (banner) banner.style.display = 'none';
 }
 
-/** Set processing screen text: 'transcribing' (audio→transcript) or 'extracting' (transcript→CRM fields) */
+let _processingAnimTimer = null;
+
+const HUBSPOT_CALL_MESSAGES = [
+  { title: 'Transcribing your call...', msg: 'Converting speech to text with speaker detection.' },
+  { title: 'Identifying speakers...', msg: 'Separating rep and prospect voices.' },
+  { title: 'AI is doing its magic...', msg: 'Analyzing the conversation for CRM insights.' },
+  { title: 'Almost there...', msg: 'Preparing your transcript for review.' },
+];
+
+/** Set processing screen text: 'transcribing' | 'extracting' | 'hubspot_call' */
 function setProcessingScreenMode(mode) {
+  if (_processingAnimTimer) { clearInterval(_processingAnimTimer); _processingAnimTimer = null; }
+
   const sub = document.getElementById('processing-subtitle');
   const title = document.getElementById('processing-title');
   const msg = document.getElementById('processing-message');
+
   if (mode === 'extracting') {
     if (sub) sub.textContent = 'Extracting';
     if (title) title.textContent = 'AI is analyzing your transcript...';
     if (msg) msg.textContent = 'Extracting CRM fields. Ready in a moment.';
+  } else if (mode === 'hubspot_call') {
+    if (sub) sub.textContent = 'Processing Call';
+    let idx = 0;
+    const update = () => {
+      const m = HUBSPOT_CALL_MESSAGES[idx % HUBSPOT_CALL_MESSAGES.length];
+      if (title) title.textContent = m.title;
+      if (msg) msg.textContent = m.msg;
+      idx++;
+    };
+    update();
+    _processingAnimTimer = setInterval(update, 3000);
   } else {
     if (sub) sub.textContent = 'Transcribing';
     if (title) title.textContent = 'Converting speech to text...';
@@ -196,6 +223,12 @@ function renderState(state) {
       stopSessionHeartbeat();
       showScreen('record');
       liveTranscriptContainer.style.display = 'none';
+      {
+        const pt = document.getElementById('processing-title');
+        const pm = document.getElementById('processing-message');
+        if (pt) pt.textContent = 'Converting speech to text...';
+        if (pm) pm.textContent = 'Your transcript will be ready to review in a moment.';
+      }
       
       // Ensure all idle elements are visible
       if (shortcutBox) shortcutBox.style.display = 'block';
@@ -206,11 +239,15 @@ function renderState(state) {
 
       previewLoaded = false;
       currentMemoId = null;
+      const watchInd = document.getElementById('call-watch-indicator');
+      if (watchInd) {
+        watchInd.style.display = (state.watchingForRecording && state.status === 'idle') ? 'flex' : 'none';
+      }
       loadRecentMemos(); // Refresh recent list
       break;
       
     case 'processing':
-      setProcessingScreenMode('transcribing'); // Background polling: audio being transcribed
+      setProcessingScreenMode(state.processingSource === 'hubspot_call' ? 'hubspot_call' : 'transcribing');
       showScreen('processing');
       break;
       
@@ -365,11 +402,19 @@ async function loadRecentMemos() {
           <span class="status-pill ${statusClass}">${statusText}</span>
         `;
         
+        const isActionable = ['pending_review', 'pending_transcript', 'approved'].includes(memo.status);
+        if (!isActionable) item.classList.add('not-actionable');
+
         item.onclick = () => {
-          if (memo.status === 'pending_review') {
-            chrome.runtime.sendMessage({ 
-              type: 'SET_STATE', 
-              state: { status: 'review', currentMemoId: memo.id } 
+          if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
+            chrome.runtime.sendMessage({
+              type: 'SET_STATE',
+              state: { status: 'review', currentMemoId: memo.id },
+            });
+          } else if (memo.status === 'approved') {
+            chrome.runtime.sendMessage({
+              type: 'SET_STATE',
+              state: { status: 'success', currentMemoId: memo.id, syncResult: memo },
             });
           }
         };
@@ -901,6 +946,12 @@ approveSyncButton?.addEventListener('click', async () => {
     approveSyncButton.disabled = false;
     approveSyncButton.textContent = 'Confirm & Update CRM';
   }
+});
+
+// Stop HubSpot call watch
+document.getElementById('call-watch-stop')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'STOP_CALL_WATCH' });
+  chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
 });
 
 // Discard button (step 2)

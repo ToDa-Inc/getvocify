@@ -157,13 +157,26 @@ const IntegrationsPage = () => {
       setSelectedIntegrationId("salesforce");
       setTimeout(() => setIsConfigModalOpen(true), 300);
     } else if (hubspot === "error" || salesforce === "error" || error) {
-      const msg =
-        error === "invalid_state"
-          ? "Session expired. Please try again."
-          : salesforce === "error"
-            ? "Failed to connect Salesforce."
-            : "Failed to connect HubSpot.";
-      toast.error(msg);
+      const errDesc = searchParams.get("error_description");
+      const decoded = errDesc ? decodeURIComponent(errDesc.replace(/\+/g, " ")) : "";
+      let msg: string;
+      if (error === "invalid_state") {
+        msg = "Session expired. Please try again.";
+      } else if (salesforce === "error") {
+        if (error === "OAUTH_EC_APP_NOT_FOUND" || decoded.toLowerCase().includes("not installed")) {
+          msg =
+            "Salesforce rejected login: this External Client App is not installed in the org you signed into. Create or enable Vocify in that org, or log in to the same org where you built the app (same Client ID).";
+        } else if (decoded) {
+          msg = `Salesforce: ${decoded}`;
+        } else if (error && error !== "error") {
+          msg = `Salesforce: ${error}`;
+        } else {
+          msg = "Failed to connect Salesforce.";
+        }
+      } else {
+        msg = "Failed to connect HubSpot.";
+      }
+      toast.error(msg, { duration: 12_000 });
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams, fetchConnections]);

@@ -33,6 +33,12 @@
       <!-- Deal context badge (shown when recording on HubSpot deal page) -->
       <div id="deal-context-badge" class="deal-context-badge" style="display: none;"></div>
 
+      <div id="call-watch-indicator" class="call-watch-indicator" style="display: none;" role="status">
+        <span class="call-watch-dot" aria-hidden="true"></span>
+        <span class="call-watch-text">Watching for call recording...</span>
+        <button type="button" id="call-watch-stop" class="call-watch-stop">Stop</button>
+      </div>
+
       <!-- Live Transcript -->
       <div id="live-transcript-container" class="transcript-container" style="display: none;">
         <p class="transcript-label">Transcribing live...</p>
@@ -106,16 +112,16 @@
       </div>
 
       <!-- Pending transcript: must confirm before extraction -->
-      <div id="pending-transcript-section" class="review-section" style="display: none;">
+      <div id="pending-transcript-section" style="display: none; flex: 1; min-height: 0; display: none; flex-direction: column; padding: 20px 24px; gap: 12px; overflow-y: auto;">
         <p class="caps-label">Review transcript</p>
         <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
           <p id="extraction-error-text" class="extraction-error-text"></p>
           <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
         </div>
-        <textarea id="transcript-content" class="transcript-content transcript-textarea" rows="6" placeholder="Loading transcript..."></textarea>
-        <div class="review-step-actions review-step-actions-row" style="margin-top: 12px;">
-          <button id="review-confirm-transcript-btn" class="btn btn-primary">Extract & Continue</button>
-          <button id="review-discard-btn" class="btn btn-secondary">Discard</button>
+        <textarea id="transcript-content" class="transcript-content" style="flex: 1; min-height: 160px; width: 100%;" placeholder="Loading transcript..."></textarea>
+        <div class="review-step-actions review-step-actions-row" style="flex-shrink: 0;">
+          <button id="review-confirm-transcript-btn" class="btn btn-primary" style="flex: 1;">Extract & Continue</button>
+          <button id="review-discard-btn" class="btn btn-secondary" style="flex: 1;">Discard</button>
         </div>
       </div>
 
@@ -175,11 +181,10 @@
         </div>
         <h2 class="title-large">Sync Successful</h2>
         <p id="success-message" class="body-muted">Updated deal in HubSpot.</p>
-        
-        <div class="review-step-actions review-step-actions-row" style="margin-top: 32px; width: 100%;">
-          <a id="view-in-hubspot" href="#" target="_blank" class="btn btn-primary">View in HubSpot</a>
-          <button id="success-done-button" class="btn btn-secondary">Done</button>
-        </div>
+      </div>
+      <div class="review-step-actions review-step-actions-row" style="padding: 0 24px 32px; box-sizing: border-box;">
+        <a id="view-in-hubspot" href="#" target="_blank" class="btn btn-primary" style="flex: 1;">View in HubSpot</a>
+        <button id="success-done-button" class="btn btn-secondary" style="flex: 1;">Done</button>
       </div>
     </div>
 

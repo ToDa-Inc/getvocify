@@ -1203,7 +1203,9 @@ async def confirm_transcript(
 
             supabase.table("memos").update(update_payload).eq("id", str(memo_id)).execute()
 
-            source_type = memo_data.get("source_type") or "voice_memo"
+            source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
+            if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
+                source_type = "voice_memo"
             extraction_service = ExtractionService()
             asyncio.create_task(
                 extract_memo_async(
@@ -1283,7 +1285,9 @@ async def re_extract_memo(
         "error_message": None,
     }).eq("id", str(memo_id)).execute()
 
-    source_type = memo_data.get("source_type") or "voice_memo"
+    source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
+    if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
+        source_type = "voice_memo"
     try:
         extraction_service = ExtractionService()
         extraction = await extraction_service.extract(

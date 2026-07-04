@@ -14,6 +14,7 @@ class IncomingMessage:
     from_phone: str
     timestamp: str
     type: Literal["text", "audio", "button"]
+    provider: str = "meta"
     text: Optional[str] = None
     audio_id: Optional[str] = None
     audio_mime: Optional[str] = None

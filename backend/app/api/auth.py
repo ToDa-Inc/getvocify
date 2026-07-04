@@ -6,6 +6,7 @@ Users are created in Supabase Auth and then a profile is created in user_profile
 """
 
 import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
@@ -17,6 +18,16 @@ from supabase import Client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+def normalize_phone_for_lookup(phone: Optional[str]) -> Optional[str]:
+    """Canonical E.164-ish phone for WhatsApp lookup."""
+    if phone is None:
+        return None
+    digits = re.sub(r"\D", "", phone)
+    if not digits:
+        return None
+    return f"+{digits}"
 
 
 # ============================================================================
@@ -296,6 +307,9 @@ async def update_profile(
     updates = {k: v for k, v in request.model_dump(exclude_none=True).items()}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    if "phone" in updates:
+        normalized_phone = normalize_phone_for_lookup(updates.get("phone"))
+        updates["phone"] = normalized_phone
     supabase.table("user_profiles").update(updates).eq("id", user_id).execute()
     profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
     if not profile_result.data:

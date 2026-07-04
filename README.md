@@ -1,73 +1,70 @@
-# Welcome to your Lovable project
+# Vocify
 
-## Project info
+AI-powered sales conversation capture — record calls, transcribe, extract CRM updates, and sync to HubSpot or Salesforce.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Repository layout
 
-## How can I edit this code?
+| Path | Purpose |
+|------|---------|
+| `src/` | React web app (Vite + TypeScript) |
+| `backend/` | FastAPI API (deployed on Railway) |
+| `chrome-extension/` | Browser extension for in-CRM recording |
+| `hubspot-app/` | HubSpot OAuth app definition |
+| `remotion/` | Product demo video (local render) |
+| `docs/` | Product documentation |
+| `scripts/` | Product ops scripts (HubSpot property setup) |
 
-There are several ways of editing your application.
+GTM data, cold-email pipeline, lead CSVs, pitch decks, and internal notes live in the sibling repo **`../vocify-workspace`**.
 
-**Use Lovable**
+## Local development
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### Prerequisites
 
-Changes made via Lovable will be committed automatically to this repo.
+- Node.js 18+
+- Python 3.11+
+- `.env` at repo root (copy from `.env.example`)
 
-**Use your preferred IDE**
+### Quick start
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```bash
+# Install frontend deps
+npm install
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+# Start both frontend and backend
+npm run start
+# Frontend: http://localhost:5173
+# Backend:  http://localhost:8888
 
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Or run separately:
+make backend          # API on :8000
+npm run dev           # Frontend on :8080
 ```
 
-**Edit a file directly in GitHub**
+### Backend only
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-**Use GitHub Codespaces**
+## Deployment
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+| Service | Platform | Config |
+|---------|----------|--------|
+| Web app | Vercel | `vercel.json` — builds `src/` via `npm run build` |
+| API | Railway | `backend/railway.json` |
+| Chrome extension | Manual | Load `chrome-extension/` unpacked, or zip for store |
+| HubSpot app | HubSpot CLI | `hubspot-app/` — `hs project upload` |
 
-## What technologies are used for this project?
+## Documentation
 
-This project is built with:
+- [Architecture](docs/ARCHITECTURE.md)
+- [Developer guide](docs/VOCIFY_DEVELOPER_GUIDE.md)
+- [Product overview](docs/PRODUCT_OVERVIEW.md)
+- [PRD](docs/PRD.md)
+- [Backend README](backend/README.md)
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Environment
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Copy `.env.example` to `.env` and fill in API keys for Speechmatics, OpenRouter, Supabase, and CRM integrations. The `start.js` script syncs root `.env` to `backend/.env` automatically.

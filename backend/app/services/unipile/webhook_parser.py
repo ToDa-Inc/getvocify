@@ -109,6 +109,7 @@ def parse_unipile_webhook(body: dict) -> list[IncomingMessage]:
             from_phone=from_phone,
             timestamp=timestamp,
             type=msg_type,
+            provider="unipile",
             text=text if msg_type == "text" else None,
             audio_id=audio_id,
             audio_mime=audio_mime,

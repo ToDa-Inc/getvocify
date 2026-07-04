@@ -92,7 +92,7 @@ class ExtractionService:
         
         Schema-driven: field descriptions from HubSpot are the primary semantic source.
         Standard meeting-intelligence fields are included only when not in schema.
-        source_context: 'voice_memo' (default) or 'meeting_transcript' for meeting-specific prompt hints.
+        source_context: 'voice_memo' (default), 'meeting_transcript', or 'hubspot_call'.
         """
         schema_field_names = {s["name"] for s in (field_specs or []) if s.get("name")}
 
@@ -176,7 +176,7 @@ class ExtractionService:
 
         schema_text = "\n".join(schema_description) if schema_description else ""
 
-        # Meeting transcript context: adjust expectations for Zoom/Meet/Fireflies exports
+        # Source-specific context hints to guide the LLM
         source_hint = ""
         if source_context == "meeting_transcript":
             source_hint = """
@@ -184,6 +184,29 @@ class ExtractionService:
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
 It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
 Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
+"""
+        elif source_context == "hubspot_call":
+            source_hint = """
+### SOURCE CONTEXT — OUTBOUND/INBOUND SALES CALL
+This transcript is from a short phone or VoIP call logged in HubSpot CRM.
+It was transcribed by Speechmatics with speaker diarization enabled.
+
+Speaker labels:
+- **S1** = typically the sales rep (the Vocify user who owns this account).
+- **S2** = typically the prospect or customer.
+- If more than 2 speakers appear, treat S1 as the rep and all others as the customer side.
+
+Key characteristics:
+- Typically 2–15 minutes. Many calls are brief check-ins with little extractable data.
+- Automated transcription — expect phonetic errors, filler words, and cut-off sentences.
+- Apply glossary corrections where applicable. Treat transcription artifacts as noise.
+
+Extraction discipline:
+- **Conservative**: extract only what is explicitly stated. Implied or inferred values → `null`.
+- **No hallucination**: never infer company names, deal sizes, or dates from context alone.
+- **Short/inconclusive calls**: most fields will be `null` — that is correct and expected.
+- **Next steps**: only extract if a speaker explicitly commits to a concrete action with a timeframe.
+- **Sentiment/outcome**: base these on what was actually said, not on tone assumptions.
 """
         
         # STRUCTURED GLOSSARY Logic with Phonetic Physics
@@ -241,7 +264,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             transcript: The transcript text
             field_specs: Optional list of curated field specifications
             glossary_text: Optional text describing custom vocabulary for correction
-            source_context: 'voice_memo' (default) or 'meeting_transcript'
+            source_context: 'voice_memo' (default), 'meeting_transcript', or 'hubspot_call'
 
         Returns:
             MemoExtraction with extracted data and confidence scores

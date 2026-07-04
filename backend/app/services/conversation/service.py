@@ -49,6 +49,8 @@ class ConversationService:
                 self.supabase.table("conversations")
                 .select("*")
                 .eq("chat_id", chat_id)
+                .eq("account_id", account_id)
+                .eq("user_id", user_id)
                 .limit(1)
                 .execute()
             )
@@ -87,18 +89,26 @@ class ConversationService:
             logger.exception("get_or_create_conversation failed: %s", e)
             return None
 
-    def get_conversation_by_chat_id(self, chat_id: str) -> Optional[Conversation]:
+    def get_conversation_by_chat_id(
+        self,
+        chat_id: str,
+        account_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> Optional[Conversation]:
         """Lookup conversation by chat_id. Returns None if not found."""
         if not chat_id:
             return None
         try:
-            r = (
+            query = (
                 self.supabase.table("conversations")
                 .select("*")
                 .eq("chat_id", chat_id)
-                .limit(1)
-                .execute()
             )
+            if account_id:
+                query = query.eq("account_id", account_id)
+            if user_id:
+                query = query.eq("user_id", user_id)
+            r = query.limit(1).execute()
             if not r.data:
                 return None
             row = r.data[0]

@@ -22,13 +22,16 @@
         "crm.objects.deals.write",
         "crm.schemas.contacts.read",
         "crm.schemas.companies.read",
-        "crm.schemas.deals.read"
+        "crm.schemas.deals.read",
+        "crm.objects.calls.read"
       ],
       "optionalScopes": [],
       "conditionallyRequiredScopes": []
     },
     "permittedUrls": {
-      "fetch": ["https://api.hubapi.com"],
+      "fetch": [
+        "https://api.hubapi.com"
+      ],
       "iframe": [],
       "img": []
     },

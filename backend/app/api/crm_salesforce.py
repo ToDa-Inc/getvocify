@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import quote_plus
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -106,6 +107,7 @@ async def salesforce_callback(
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
+    error_description: Optional[str] = None,
     supabase: Client = Depends(get_supabase),
 ):
     frontend_url = settings.FRONTEND_URL.rstrip("/")
@@ -113,7 +115,10 @@ async def salesforce_callback(
     bad = f"{frontend_url}/dashboard/integrations?salesforce=error"
 
     if error:
-        return RedirectResponse(url=f"{bad}&error={error}", status_code=302)
+        q = f"error={quote_plus(error)}"
+        if error_description:
+            q += f"&error_description={quote_plus(error_description)}"
+        return RedirectResponse(url=f"{bad}&{q}", status_code=302)
     if not code or not state:
         return RedirectResponse(url=f"{bad}&error=missing_params", status_code=302)
     user_id = decode_state(state)

@@ -90,6 +90,55 @@ def get_hubspot_client_from_connection(
     return HubSpotClient(access_token)
 
 
+def _query_call_memo(supabase: Client, user_id: str, field: str, value: str) -> dict:
+    """Shared logic: find the most recent hubspot_call memo by deal or contact ID."""
+    from datetime import timezone as _tz
+
+    cutoff = (datetime.now(_tz.utc) - timedelta(hours=24)).isoformat()
+    r = (
+        supabase.table("memos")
+        .select("id,status")
+        .eq("user_id", user_id)
+        .eq(field, value)
+        .eq("source", "hubspot_call")
+        .gte("created_at", cutoff)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not r.data:
+        return {"status": "waiting"}
+    row = r.data[0]
+    st = row.get("status")
+    # failed/rejected → keep watching; approved → surface so extension can skip gracefully
+    if st in ("failed", "rejected"):
+        return {"status": "waiting"}
+    return {"status": st, "memo_id": str(row["id"])}
+
+
+
+@router.get("/hubspot/deals/{deal_id}/call-memo")
+async def get_hubspot_call_memo_for_deal(
+    deal_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Poll for a HubSpot call memo created by webhook for this deal."""
+    get_hubspot_client_from_connection(user_id, supabase)
+    return _query_call_memo(supabase, user_id, "hubspot_deal_id", deal_id)
+
+
+@router.get("/hubspot/contacts/{contact_id}/call-memo")
+async def get_hubspot_call_memo_for_contact(
+    contact_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Poll for a HubSpot call memo created by webhook for this contact."""
+    get_hubspot_client_from_connection(user_id, supabase)
+    return _query_call_memo(supabase, user_id, "hubspot_contact_id", contact_id)
+
+
 @router.post("/hubspot/connect", response_model=ConnectHubSpotResponse)
 async def connect_hubspot(
     request: ConnectHubSpotRequest,

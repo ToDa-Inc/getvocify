@@ -19,11 +19,17 @@ let state = {
   currentMemoId: null,
   status: 'idle', // idle, recording, processing, review, success
   context: null,
-  syncResult: null
+  syncResult: null,
+  watchingForRecording: false,
+  processingSource: null, // 'hubspot_call' | null
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
 let lastActiveTabId = null;
+
+let callWatchTimerId = null;
+let callWatchingRecordId = null;  // deal or contact id being watched
+let callWatchingRecordType = null; // 'deal' | 'contact'
 
 // ============================================
 // STATE MANAGEMENT
@@ -60,6 +66,83 @@ function openExtensionUI() {
   showNotification('Vocify', 'Focus a tab and try again.');
 }
 
+
+function clearCallWatch() {
+  if (callWatchTimerId != null) {
+    clearTimeout(callWatchTimerId);
+    callWatchTimerId = null;
+  }
+  callWatchingRecordId = null;
+  callWatchingRecordType = null;
+  updateState({ watchingForRecording: false });
+}
+
+/**
+ * Start polling for a HubSpot call memo on a deal or contact page.
+ * Supports both deal and contact record types.
+ */
+function startCallWatch(recordId, recordType) {
+  if (!recordId) return;
+  if (callWatchingRecordId === recordId && callWatchTimerId != null) return;
+  clearCallWatch();
+  callWatchingRecordId = recordId;
+  callWatchingRecordType = recordType || 'deal';
+  updateState({ watchingForRecording: true });
+
+  let pollCount = 0;
+
+  const scheduleNext = (ms) => {
+    callWatchTimerId = setTimeout(tick, ms);
+  };
+
+  async function tick() {
+    callWatchTimerId = null;
+    try {
+      const { accessToken } = await api.getTokens();
+      if (!accessToken) {
+        scheduleNext(10000);
+        return;
+      }
+      // Build endpoint based on record type
+      const endpoint = callWatchingRecordType === 'contact'
+        ? `/crm/hubspot/contacts/${callWatchingRecordId}/call-memo`
+        : `/crm/hubspot/deals/${callWatchingRecordId}/call-memo`;
+      const res = await api.get(endpoint);
+      if (res.memo_id) {
+        const st = res.status;
+        // Already completed memos — keep watching for the next new call
+        if (st === 'approved' || st === 'rejected') {
+          pollCount += 1;
+          if (pollCount > 48) { clearCallWatch(); return; }
+          scheduleNext(pollCount <= 24 ? 5000 : 20000);
+          return;
+        }
+        clearCallWatch();
+        if (st === 'transcribing' || st === 'uploading' || st === 'extracting') {
+          updateState({ status: 'processing', currentMemoId: res.memo_id, watchingForRecording: false, processingSource: 'hubspot_call' });
+          showNotification('Vocify', 'Analyzing your call recording...');
+          startPolling(res.memo_id);
+        } else if (st === 'pending_transcript' || st === 'pending_review') {
+          updateState({ status: 'review', currentMemoId: res.memo_id, watchingForRecording: false });
+          showNotification('Call ready', 'Review your transcript.');
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('[BG] call-memo poll error:', e);
+    }
+    pollCount += 1;
+    if (pollCount > 48) {
+      clearCallWatch();
+      showNotification('Vocify', 'No call recording found. Reopen the panel to try again.');
+      return;
+    }
+    const delay = pollCount <= 24 ? 2000 : 10000;
+    scheduleNext(delay);
+  }
+  scheduleNext(0);
+}
+
 function showNotification(title, message) {
   chrome.notifications.create('', {
     type: 'basic',
@@ -89,6 +172,7 @@ async function getOffscreenDocument() {
 // ============================================
 async function startRecording() {
   if (state.isRecording) return;
+  clearCallWatch();
   
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -223,7 +307,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     // State queries
     case 'GET_STATE': {
-      // Refresh context from active tab when in review (handles SW restart or missing context)
       if (state.status === 'review' && state.currentMemoId) {
         chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
           if (tab?.url) {
@@ -235,7 +318,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
           sendResponse(state);
         });
-        return true; // Keep channel open for async
+        return true;
+      }
+      if (state.status === 'idle' && !state.isRecording) {
+        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+          const ctx = tab?.url ? parseHubSpotUrl(tab.url) : null;
+          if (!ctx || ctx.objectType !== 'deal' || !ctx.recordId) {
+            clearCallWatch();
+            updateState({ context: ctx });
+          } else {
+            updateState({ context: ctx });
+            startCallWatch(ctx.recordId);
+          }
+          sendResponse(state);
+        });
+        return true;
       }
       sendResponse(state);
       break;
@@ -357,14 +454,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(e => sendResponse({ error: e.message }));
       return true;
 
+    case 'STOP_CALL_WATCH':
+      clearCallWatch();
+      sendResponse({ ok: true });
+      break;
+
     case 'DISCARD_MEMO':
+      clearCallWatch();
       updateState({ 
         status: 'idle', 
         currentMemoId: null, 
         syncResult: null,
         context: null,
         finalTranscript: '',
-        interimTranscript: ''
+        interimTranscript: '',
+        watchingForRecording: false,
+        processingSource: null,
+      });
+      // Re-evaluate the current tab so the watcher restarts if still on a deal/contact page
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs[0];
+        if (tab?.url) reevaluateTabContext(tab.id, tab.url);
       });
       break;
   }
@@ -385,7 +495,48 @@ function seedActiveTab() {
     if (tabs[0]) lastActiveTabId = tabs[0].id;
   });
 }
-chrome.tabs.onActivated.addListener((info) => { lastActiveTabId = info.tabId; });
+
+// ============================================
+// TAB CONTEXT TRACKING
+// Re-evaluates the deal watcher whenever the user navigates or switches tabs.
+// Only acts when idle — never interrupts an active recording or review.
+// ============================================
+function reevaluateTabContext(tabId, url) {
+  if (!url) return;
+  // Never interrupt an active flow
+  if (state.isRecording || state.status === 'processing' || state.status === 'review' || state.status === 'success') return;
+
+  const ctx = parseHubSpotUrl(url);
+  const watchableTypes = ['deal', 'contact'];
+  const recordType = ctx?.objectType;
+  const recordId = watchableTypes.includes(recordType) ? ctx.recordId : null;
+
+  if (recordId) {
+    // Switched to a deal or contact page — start (or switch) the watcher
+    updateState({ context: ctx });
+    startCallWatch(recordId, recordType);
+  } else {
+    // Left a watchable page — stop watching, update context
+    clearCallWatch();
+    updateState({ context: ctx || null });
+  }
+}
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  lastActiveTabId = tabId;
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError) return; // tab may be gone
+    reevaluateTabContext(tabId, tab?.url);
+  });
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Only care about the active tab completing a navigation
+  if (tabId !== lastActiveTabId) return;
+  if (changeInfo.status !== 'complete') return;
+  reevaluateTabContext(tabId, tab?.url);
+});
+
 chrome.windows.onFocusChanged.addListener(() => seedActiveTab());
 chrome.runtime.onStartup.addListener(seedActiveTab);
 seedActiveTab();

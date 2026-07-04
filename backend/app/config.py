@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Application
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:5173"
+    # Public URL of this backend — used for Speechmatics callback notifications.
+    # Set to https://api.getvocify.com in production, or your ngrok URL locally.
+    BACKEND_PUBLIC_URL: str = "https://api.getvocify.com"
 
     # Logging (extensive visibility: logic, AI, LLM, Speechmatics, HubSpot)
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR

@@ -1,20 +1,37 @@
 # Environment (contains secrets - never commit)
 .env
 .env.local
+backend/.env
 
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
 
+# Node
 node_modules
 dist
 dist-ssr
 *.local
+bun.lockb
+
+# Logs and local runtime
+logs/
+*.log
+
+# GTM / workspace data (lives in ../vocify-workspace)
+*.csv
+*.xlsx
+tmp_*/
+.codex_tmp/
+.memsearch/
+
+# Build artifacts
+chrome-extension.zip
+vite.config.ts.timestamp-*
 
 # Editor directories and files
 .vscode/*

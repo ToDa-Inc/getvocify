@@ -114,6 +114,9 @@ CREATE TABLE user_profiles (
   full_name TEXT,
   company_name TEXT,
   avatar_url TEXT,
+  phone TEXT,
+  auto_create_contact_company BOOLEAN DEFAULT false,
+  glossary JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -138,6 +141,9 @@ CREATE TABLE crm_connections (
   
   UNIQUE(user_id, provider)
 );
+
+ALTER TABLE user_profiles
+  ADD COLUMN primary_crm_connection_id UUID REFERENCES crm_connections(id) ON DELETE SET NULL;
 
 -- 3. CRM CONFIGURATIONS
 CREATE TABLE crm_configurations (
@@ -218,6 +224,12 @@ CREATE INDEX idx_memos_user_created ON memos(user_id, created_at DESC);
 CREATE INDEX idx_crm_configurations_user ON crm_configurations(user_id);
 CREATE INDEX idx_crm_configurations_connection ON crm_configurations(connection_id);
 CREATE INDEX idx_crm_schemas_connection ON crm_schemas(connection_id);
+CREATE UNIQUE INDEX idx_user_profiles_phone_unique
+  ON user_profiles (phone)
+  WHERE phone IS NOT NULL;
+CREATE INDEX idx_user_profiles_primary_crm
+  ON user_profiles (primary_crm_connection_id)
+  WHERE primary_crm_connection_id IS NOT NULL;
 
 -- ============================================
 -- ROW LEVEL SECURITY

@@ -48,18 +48,27 @@ class SpeechmaticsBatchService:
         content_type: str = "audio/ogg",
         language: str = "es",
         user_id: Optional[str] = None,
+        diarization: bool = False,
+        notification_url: Optional[str] = None,
     ) -> str:
         """
-        Create a transcription job.
-        Pass audio_bytes to upload file directly (recommended, avoids fetch failures).
-        Or pass audio_url for Speechmatics to fetch from URL.
-        API expects multipart/form-data with config and optional data_file.
-        When user_id is provided, fetches user glossary and adds additional_vocab for custom vocabulary.
+        Create a Speechmatics transcription job and return the job_id.
+
+        - audio_bytes: upload directly (preferred — avoids fetch failures).
+        - audio_url: let Speechmatics fetch from URL.
+        - diarization: enable speaker diarization (S1/S2 labels in transcript).
+        - notification_url: if set, Speechmatics POSTs the transcript here on
+          completion — no polling needed. Omit to use the poll-based flow.
         """
         transcription_config: dict = {
             "language": language,
             "operating_point": "enhanced",
         }
+        if diarization:
+            transcription_config["diarization"] = "speaker"
+            transcription_config["speaker_diarization_config"] = {
+                "prefer_current_speaker": True,
+            }
         if user_id:
             from app.services.glossary import GlossaryService
             glossary_svc = GlossaryService()
@@ -71,21 +80,19 @@ class SpeechmaticsBatchService:
                     len(glossary),
                     extra=log_domain(DOMAIN_TRANSCRIPTION, "glossary_injected", user_id=user_id, term_count=len(glossary)),
                 )
+
+        config: dict = {"type": "transcription", "transcription_config": transcription_config}
+        if notification_url:
+            config["notification_config"] = [{"url": notification_url, "contents": ["transcript"]}]
+        if audio_url:
+            config["fetch_data"] = {"url": audio_url}
+
         if audio_bytes is not None:
-            config = {
-                "type": "transcription",
-                "transcription_config": transcription_config,
-            }
             files = {
                 "config": (None, json.dumps(config), "application/json"),
                 "data_file": (filename, io.BytesIO(audio_bytes), content_type),
             }
         elif audio_url:
-            config = {
-                "type": "transcription",
-                "transcription_config": transcription_config,
-                "fetch_data": {"url": audio_url},
-            }
             files = {"config": (None, json.dumps(config), "application/json")}
         else:
             raise ValueError("Either audio_bytes or audio_url required")
@@ -100,6 +107,8 @@ class SpeechmaticsBatchService:
                 audio_filename=filename,
                 content_type=content_type,
                 language=language,
+                diarization=diarization,
+                notification=bool(notification_url),
                 audio_len_bytes=len(audio_bytes) if audio_bytes else None,
             ),
         )
@@ -157,6 +166,56 @@ class SpeechmaticsBatchService:
             resp.raise_for_status()
             return resp.text
 
+    def _job_kwargs(
+        self,
+        audio_bytes: Optional[bytes],
+        audio_url: Optional[str],
+        content_type: Optional[str],
+        language: str,
+        user_id: Optional[str],
+        diarization: bool = False,
+        notification_url: Optional[str] = None,
+    ) -> dict:
+        """Build kwargs for create_job from the common transcribe/submit params."""
+        if audio_bytes is not None:
+            ext = "ogg" if "ogg" in (content_type or "") or "opus" in (content_type or "") else "webm"
+            return dict(
+                audio_bytes=audio_bytes,
+                filename=f"audio.{ext}",
+                content_type=content_type or "audio/ogg",
+                language=language,
+                user_id=user_id,
+                diarization=diarization,
+                notification_url=notification_url,
+            )
+        elif audio_url:
+            return dict(
+                audio_url=audio_url,
+                language=language,
+                user_id=user_id,
+                diarization=diarization,
+                notification_url=notification_url,
+            )
+        raise ValueError("Either audio_bytes or audio_url required")
+
+    async def submit(
+        self,
+        audio_url: Optional[str] = None,
+        audio_bytes: Optional[bytes] = None,
+        content_type: Optional[str] = None,
+        language: str = "es",
+        user_id: Optional[str] = None,
+        diarization: bool = False,
+        notification_url: Optional[str] = None,
+    ) -> str:
+        """
+        Create a job and return the job_id immediately.
+        If notification_url is set, Speechmatics will POST the result there — no polling needed.
+        If not set, use get_transcript(job_id) after polling get_job_status().
+        """
+        kwargs = self._job_kwargs(audio_bytes, audio_url, content_type, language, user_id, diarization, notification_url)
+        return await self.create_job(**kwargs)
+
     async def transcribe(
         self,
         audio_url: Optional[str] = None,
@@ -164,26 +223,15 @@ class SpeechmaticsBatchService:
         content_type: Optional[str] = None,
         language: str = "es",
         user_id: Optional[str] = None,
+        diarization: bool = False,
     ) -> str:
         """
-        Create job, poll until done, return transcript.
-        Prefer audio_bytes (no URL fetch). Fall back to audio_url for fetch_data.
-        Pass user_id to inject user glossary (additional_vocab) for custom vocabulary.
+        Create job, poll until done, return transcript text.
+        Use this for non-webhook flows (WhatsApp, voice memos, etc.).
+        For HubSpot calls, prefer submit() + notification_url for push-based completion.
         """
-        if audio_bytes is not None:
-            ext = "ogg" if "ogg" in (content_type or "") or "opus" in (content_type or "") else "webm"
-            ct = content_type or "audio/ogg"
-            job_id = await self.create_job(
-                audio_bytes=audio_bytes,
-                filename=f"audio.{ext}",
-                content_type=ct,
-                language=language,
-                user_id=user_id,
-            )
-        elif audio_url:
-            job_id = await self.create_job(audio_url=audio_url, language=language, user_id=user_id)
-        else:
-            raise ValueError("Either audio_bytes or audio_url required")
+        kwargs = self._job_kwargs(audio_bytes, audio_url, content_type, language, user_id, diarization)
+        job_id = await self.create_job(**kwargs)
 
         _transcribe_start = time.perf_counter()
         poll_count = 0
