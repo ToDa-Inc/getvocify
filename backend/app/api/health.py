@@ -13,14 +13,24 @@ router = APIRouter()
 
 @router.get("/health")
 async def health_check():
-    """Health check endpoint. openrouter_key shows if env is loaded (prefix only, safe to expose)."""
+    """Health check endpoint. Reports active LLM provider and key status (prefix only)."""
+    provider = getattr(settings, "LLM_PROVIDER", "openrouter")
     key = getattr(settings, "OPENROUTER_API_KEY", None) or ""
     k = str(key).strip()
-    return {
+    payload = {
         "status": "ok",
         "service": "vocify-backend",
-        "openrouter_key": f"{k[:12]}...len={len(k)}" if len(k) > 10 else "MISSING_OR_EMPTY",
+        "llm_provider": provider,
     }
+    if provider == "openrouter":
+        payload["openrouter_key"] = (
+            f"{k[:12]}...len={len(k)}" if len(k) > 10 else "MISSING_OR_EMPTY"
+        )
+    elif provider == "vertex_ai":
+        payload["gcp_project"] = getattr(settings, "GOOGLE_CLOUD_PROJECT", None)
+        payload["gcp_location"] = getattr(settings, "GOOGLE_CLOUD_LOCATION", None)
+        payload["vertex_model"] = getattr(settings, "VERTEX_AI_MODEL", None)
+    return payload
 
 
 @router.post("/health/recover-stuck-memos")

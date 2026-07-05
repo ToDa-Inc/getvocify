@@ -2,7 +2,9 @@
 Application configuration from environment variables
 """
 
+import json
 import os
+import tempfile
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -16,21 +18,60 @@ ENV_FILE = ROOT_DIR / ".env"
 _ON_RAILWAY = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_SERVICE_NAME"))
 ENV_FILES = [] if _ON_RAILWAY else [str(BACKEND_DIR / ".env"), str(ENV_FILE)]
 
+
+def _bootstrap_gcp_credentials_from_env() -> None:
+    """Write GOOGLE_APPLICATION_CREDENTIALS_JSON to a temp file for ADC (Railway)."""
+    creds_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    if creds_json and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        try:
+            json.loads(creds_json)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON: {e}"
+            ) from e
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            f.write(creds_json)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+
+
+_bootstrap_gcp_credentials_from_env()
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # AI Services
     DEEPGRAM_API_KEY: Optional[str] = None  # BACKLOG: Speechmatics only (real-time + batch)
     SPEECHMATICS_API_KEY: Optional[str] = None
-    OPENROUTER_API_KEY: str
+
+    # LLM provider routing: openrouter | vertex_ai
+    LLM_PROVIDER: str = "openrouter"
+    OPENROUTER_API_KEY: Optional[str] = None
     EXTRACTION_MODEL: str = "x-ai/grok-4.1-fast"
+
+    # Vertex AI (enterprise path: ISO 27001 + SOC 2, Madrid region)
+    GOOGLE_CLOUD_PROJECT: str = "vocify-prod"
+    GOOGLE_CLOUD_LOCATION: str = "europe-southwest1"
+    VERTEX_AI_MODEL: str = "gemini-2.5-flash"
+
+    @field_validator("LLM_PROVIDER")
+    @classmethod
+    def validate_llm_provider(cls, v: str) -> str:
+        allowed = {"openrouter", "vertex_ai"}
+        normalized = (v or "").strip().lower()
+        if normalized not in allowed:
+            raise ValueError(
+                f"LLM_PROVIDER must be one of {sorted(allowed)}, got {v!r}"
+            )
+        return normalized
 
     @field_validator("OPENROUTER_API_KEY")
     @classmethod
-    def strip_openrouter_key(cls, v: str) -> str:
+    def strip_openrouter_key(cls, v: Optional[str]) -> Optional[str]:
         """Strip whitespace and quotes that can break auth."""
-        if not v:
-            return v
+        if v is None or not v:
+            return None
         return v.strip().strip('"').strip("'")
     
     # Supabase
@@ -118,7 +159,7 @@ except Exception as e:
     print("  - SUPABASE_URL (e.g., https://your-project.supabase.co)", file=sys.stderr)
     print("  - SUPABASE_SERVICE_ROLE_KEY", file=sys.stderr)
     print("  - SPEECHMATICS_API_KEY", file=sys.stderr)
-    print("  - OPENROUTER_API_KEY", file=sys.stderr)
+    print("  - OPENROUTER_API_KEY (when LLM_PROVIDER=openrouter)", file=sys.stderr)
     sys.exit(1)
 
 

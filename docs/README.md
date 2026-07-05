@@ -9,6 +9,6 @@
 | [EXTENSION_UX_REVAMP_PLAN.md](EXTENSION_UX_REVAMP_PLAN.md) | Chrome extension UX plan |
 | [llm-service-implementation-brief.md](llm-service-implementation-brief.md) | LLM service design brief |
 
-Internal strategy docs, GTM playbooks, and partner context live in `../vocify-workspace/internal/`.
+Internal strategy docs, GTM playbooks, and partner context live in [ToDa-Inc/vocify-workspace](https://github.com/ToDa-Inc/vocify-workspace).
 
 Backend-specific docs: `../backend/docs/`, `../backend/README.md`.

@@ -1,21 +1,34 @@
-import json
-import httpx
 import logging
 from typing import Dict, List
-from app.config import settings
+
+from app.services.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
-class GlossaryAIService:
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+# Match pre-router glossary httpx behavior: short timeout, single attempt.
+_GLOSSARY_HINT_TIMEOUT = 10.0
+_GLOSSARY_BULK_TIMEOUT = 30.0
+_GLOSSARY_MAX_RETRIES = 0
 
-    def __init__(self):
-        self.api_key = settings.OPENROUTER_API_KEY
-        self.model = settings.EXTRACTION_MODEL
+
+class GlossaryAIService:
+    """Phonetic hint generation via the shared LLM router."""
+
+    def __init__(self) -> None:
+        self.llm = LLMClient()
+
+    def _hints_from_parsed(self, data: object) -> List[str]:
+        if isinstance(data, list):
+            return [str(h).strip() for h in data if h]
+        if isinstance(data, dict):
+            for key in data:
+                if isinstance(data[key], list):
+                    return [str(h).strip() for h in data[key] if h]
+        return []
 
     async def generate_phonetic_hints(self, target_word: str, category: str = "General") -> List[str]:
         """
-        Uses LLM to predict common misheard variations (phonetic errors) 
+        Uses LLM to predict common misheard variations (phonetic errors)
         for a given word in a Sales/Business context.
         """
         prompt = f"""You are an expert in Speech-to-Text (STT) and Phonetics, specializing in Spanish-English "Spanglish" sales environments.
@@ -36,51 +49,33 @@ EXAMPLES:
 - "Cobee": ["Covid", "Cobi", "Kobi", "Cobe"]
 
 TARGET WORD: "{target_word}"
+
+Return JSON with a single key "hints" whose value is an array of strings.
 """
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    self.OPENROUTER_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
+            data = await self.llm.chat_json(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a phonetic error prediction engine. Output only JSON.",
                     },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": "You are a phonetic error prediction engine. Output only JSON arrays."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        "temperature": 0.3,
-                        "response_format": {"type": "json_object"} if "gpt-4" in self.model else None
-                    }
-                )
-                
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                
-                # Robust parsing
-                try:
-                    data = json.loads(content)
-                    if isinstance(data, list):
-                        return data
-                    if isinstance(data, dict):
-                        # Some models return {"hints": [...]} or similar
-                        for key in data:
-                            if isinstance(data[key], list):
-                                return data[key]
-                except:
-                    # Fallback for plain array text
-                    import re
-                    match = re.search(r'\[.*\]', content, re.DOTALL)
-                    if match:
-                        return json.loads(match.group(0))
-                
-                return []
-
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                timeout=_GLOSSARY_HINT_TIMEOUT,
+                max_retries=_GLOSSARY_MAX_RETRIES,
+            )
+            hints = self._hints_from_parsed(data)
+            if hints:
+                return hints
+            if isinstance(data, dict) and "hints" in data:
+                val = data["hints"]
+                if isinstance(val, list):
+                    return [str(h).strip() for h in val if h]
+            return []
         except Exception as e:
-            logger.error(f"Failed to generate phonetic hints: {e}")
+            logger.error("Failed to generate phonetic hints: %s", e)
             return []
 
     BULK_BATCH_SIZE = 15
@@ -94,7 +89,6 @@ TARGET WORD: "{target_word}"
         """
         if not words:
             return {}
-        # Dedupe and normalize
         seen = set()
         unique = []
         for w in words:
@@ -134,26 +128,15 @@ Example: {{"Edenred": ["En red", "Enred", "Eden red"], "FTES": ["FPS", "FTS", "F
 Words to process: {words_str}
 """
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    self.OPENROUTER_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": "Output only valid JSON. No preamble."},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.3,
-                    },
-                )
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-
-            data = json.loads(content)
+            data = await self.llm.chat_json(
+                messages=[
+                    {"role": "system", "content": "Output only valid JSON. No preamble."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                timeout=_GLOSSARY_BULK_TIMEOUT,
+                max_retries=_GLOSSARY_MAX_RETRIES,
+            )
             if not isinstance(data, dict):
                 return {}
             out: Dict[str, List[str]] = {}
@@ -167,5 +150,5 @@ Words to process: {words_str}
                     out[word] = []
             return out
         except Exception as e:
-            logger.error(f"Bulk phonetic hints failed: {e}")
+            logger.error("Bulk phonetic hints failed: %s", e)
             return {w: [] for w in words}

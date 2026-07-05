@@ -33,7 +33,7 @@ pipeline_errors = Counter(
 llm_requests = Counter(
     "vocify_llm_requests_total",
     "LLM API requests",
-    ["status", "model"],
+    ["status", "provider", "model"],
 )
 webhook_messages = Counter(
     "vocify_webhook_messages_total",
@@ -71,8 +71,8 @@ def inc_pipeline_error(domain: str, phase: str) -> None:
     _safe(pipeline_errors.labels(domain=domain, phase=phase).inc)
 
 
-def inc_llm_request(status: str, model: str) -> None:
-    _safe(llm_requests.labels(status=status, model=model).inc)
+def inc_llm_request(status: str, provider: str, model: str) -> None:
+    _safe(llm_requests.labels(status=status, provider=provider, model=model).inc)
 
 
 def inc_webhook_message(provider: str, outcome: str) -> None:

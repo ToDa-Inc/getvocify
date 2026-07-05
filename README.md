@@ -14,7 +14,7 @@ AI-powered sales conversation capture — record calls, transcribe, extract CRM 
 | `docs/` | Product documentation |
 | `scripts/` | Product ops scripts (HubSpot property setup) |
 
-GTM data, cold-email pipeline, lead CSVs, pitch decks, and internal notes live in the sibling repo **`../vocify-workspace`**.
+GTM data, cold-email pipeline, lead CSVs, pitch decks, and internal notes live in **[ToDa-Inc/vocify-workspace](https://github.com/ToDa-Inc/vocify-workspace)** (sibling repo).
 
 ## Local development
 
