@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     EXTRACTION_MODEL: str = "x-ai/grok-4.1-fast"
 
     # Vertex AI (enterprise path: ISO 27001 + SOC 2, Madrid region)
-    GOOGLE_CLOUD_PROJECT: str = "vocify-prod"
+    GOOGLE_CLOUD_PROJECT: str = "pro-sylph-501508-g5"
     GOOGLE_CLOUD_LOCATION: str = "europe-southwest1"
     VERTEX_AI_MODEL: str = "gemini-2.5-flash"
 
