@@ -14,6 +14,9 @@ function resolveAppUrl(): string {
 }
 export const APP_URL = resolveAppUrl();
 
+/** Booking link for the demo call (founder-led sales, no self-serve signup yet) */
+export const DEMO_BOOKING_URL = "https://meetings-eu1.hubspot.com/dani-zal/vocify-scheduling";
+
 /** Whether we're on the landing domain (marketing site only) */
 export function isLandingDomain(): boolean {
   if (typeof window === "undefined") return false;
@@ -22,7 +25,7 @@ export function isLandingDomain(): boolean {
 }
 
 /** Paths that are valid on the landing domain (no redirect to app) */
-const LANDING_PATHS = ["/", "/es", "/privacy", "/about", "/blog", "/terms"];
+const LANDING_PATHS = ["/", "/en", "/privacy", "/about", "/blog", "/terms"];
 
 export function isLandingPath(path: string): boolean {
   return LANDING_PATHS.includes(path);

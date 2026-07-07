@@ -29,7 +29,7 @@ const IntegrationsCarousel = () => {
             repeat: Infinity, 
             ease: "linear",
           }}
-          className="flex whitespace-nowrap gap-32 items-center"
+          className="flex whitespace-nowrap gap-12 sm:gap-20 lg:gap-32 items-center"
         >
           {/* We duplicate the array to ensure seamless looping */}
           {[...integrations, ...integrations, ...integrations, ...integrations].map((item, index) => (

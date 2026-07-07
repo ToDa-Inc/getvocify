@@ -79,7 +79,7 @@ const App = () => (
           <LandingDomainRedirect />
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/es" element={<Index />} />
+            <Route path="/en" element={<Index />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/blog" element={<BlogPage />} />

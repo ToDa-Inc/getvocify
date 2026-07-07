@@ -5,8 +5,9 @@ from app.services.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
-# Match pre-router glossary httpx behavior: short timeout, single attempt.
-_GLOSSARY_HINT_TIMEOUT = 10.0
+# Match pre-router glossary behavior: short timeout, single attempt.
+# Vertex Madrid (gemini-2.5-flash) often needs >10s; 25s keeps UX snappy without false timeouts.
+_GLOSSARY_HINT_TIMEOUT = 25.0
 _GLOSSARY_BULK_TIMEOUT = 30.0
 _GLOSSARY_MAX_RETRIES = 0
 

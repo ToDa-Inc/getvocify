@@ -1,6 +1,5 @@
 import { ArrowRight, Play, Mail } from "lucide-react";
-import { APP_URL } from "@/lib/app-url";
-import { Button } from "@/components/ui/button";
+import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
 import { useDemoVideo } from "@/contexts/DemoVideoContext";
@@ -10,7 +9,7 @@ const FinalCTA = () => {
   const { openDemo } = useDemoVideo();
   
   return (
-    <section className="py-32 bg-beige relative overflow-hidden">
+    <section className="py-32 bg-ink relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
         <div className="max-w-4xl mx-auto text-center">
           <motion.div
@@ -20,7 +19,7 @@ const FinalCTA = () => {
             transition={{ duration: 0.8 }}
             className="mb-12"
           >
-            <h2 className="text-4xl md:text-6xl font-bold text-cream mb-8 tracking-tighter leading-tight text-balance">
+            <h2 className="text-4xl md:text-6xl font-semibold text-cream mb-8 tracking-tighter leading-[1.02] text-balance">
               {t.finalCta.title1} <br />
               <span className="text-white font-serif italic font-medium">{t.finalCta.title2}</span>
             </h2>
@@ -34,11 +33,11 @@ const FinalCTA = () => {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.8, delay: 0.2 }}
-            className="bg-cream/5 backdrop-blur-md rounded-[3rem] p-10 md:p-16 mb-16 border border-cream/10 shadow-large"
+            className="glass-card-dark rounded-[28px] p-10 md:p-16 mb-16"
           >
             <div className="grid md:grid-cols-2 gap-12 items-center">
               <div className="text-left">
-                <p className="text-cream font-bold uppercase tracking-widest text-sm mb-8 opacity-60">{t.finalCta.onboarding}</p>
+                <p className="text-cream font-mono font-medium uppercase tracking-[0.25em] text-xs mb-8 opacity-60">{t.finalCta.onboarding}</p>
                 <ol className="space-y-6">
                   {t.finalCta.steps.map((step: string, index: number) => (
                     <li key={index} className="flex items-start gap-4 text-cream">
@@ -51,40 +50,41 @@ const FinalCTA = () => {
                 </ol>
               </div>
               <div className="relative">
-                <div className="aspect-square rounded-[2rem] bg-cream/10 border border-cream/20 flex flex-col items-center justify-center p-8 text-cream">
-                  <div className="w-20 h-20 rounded-full bg-cream flex items-center justify-center mb-6 shadow-large">
+                <div className="aspect-square rounded-[24px] glass-card-dark flex flex-col items-center justify-center p-8 text-cream">
+                  <div className="w-20 h-20 rounded-full bg-cream flex items-center justify-center mb-6 shadow-[0_0_40px_-8px_hsl(40_33%_96%/0.4)]">
                     <ArrowRight className="w-10 h-10 text-beige" />
                   </div>
                   <p className="text-2xl font-serif italic font-medium mb-2">{t.finalCta.trial}</p>
                   <p className="text-sm opacity-60">{t.finalCta.noCredit}</p>
                 </div>
                 {/* Decorative glow */}
-                <div className="absolute inset-0 bg-cream/20 rounded-full blur-[100px] -z-10" />
+                <div className="absolute inset-8 bg-beige/20 rounded-full blur-[100px] -z-10" />
               </div>
             </div>
           </motion.div>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-16">
-            <Button 
-              size="xl" 
-              asChild 
-              className="group bg-cream text-beige hover:bg-white transition-all px-10 shadow-large rounded-full"
+            <a
+              href={DEMO_BOOKING_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex w-full items-center justify-center gap-3 rounded-full bg-cream py-3 pl-7 pr-3 text-sm font-semibold text-ink transition-all duration-500 ease-silk hover:bg-white active:scale-[0.98] sm:w-auto shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_0_40px_-10px_hsl(40_33%_96%/0.5)]"
             >
-              <a href={`${APP_URL}/dashboard`}>
-                {t.finalCta.claim}
-                <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-              </a>
-            </Button>
-            <Button
+              {t.finalCta.claim}
+              <span className="flex size-9 items-center justify-center rounded-full bg-beige text-cream transition-transform duration-500 ease-silk group-hover:translate-x-0.5 group-hover:-translate-y-px group-hover:scale-105">
+                <ArrowRight className="h-4 w-4" />
+              </span>
+            </a>
+            <button
               type="button"
-              variant="outline"
-              size="xl"
-              className="group border-cream/30 text-cream hover:bg-cream/10 px-10 backdrop-blur-sm rounded-full"
               onClick={() => openDemo()}
+              className="glass-card-dark group inline-flex w-full items-center justify-center gap-3 rounded-full py-3 pl-3 pr-7 text-sm font-semibold text-cream transition-all duration-500 ease-silk hover:bg-white/10 active:scale-[0.98] sm:w-auto"
             >
-              <Play className="mr-2 h-4 w-4 fill-cream" />
+              <span className="flex size-9 items-center justify-center rounded-full bg-cream/10 text-cream transition-transform duration-500 ease-silk group-hover:scale-105">
+                <Play className="h-4 w-4 fill-current" />
+              </span>
               {t.finalCta.watch}
-            </Button>
+            </button>
           </div>
 
           <div className="flex flex-col items-center gap-4">
@@ -100,7 +100,7 @@ const FinalCTA = () => {
                 </a>
               </span>
             </div>
-            <p className="text-cream/40 text-[10px] uppercase tracking-widest font-bold">
+            <p className="text-cream/40 font-mono text-[10px] uppercase tracking-[0.2em] font-medium">
               {t.finalCta.responseTime}
             </p>
           </div>

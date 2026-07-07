@@ -19,8 +19,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        serif: ["EB Garamond", "serif"],
+        sans: ["Geist", "Inter", "system-ui", "sans-serif"],
+        serif: ["Instrument Serif", "serif"],
+        mono: ["Geist Mono", "ui-monospace", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -85,6 +86,10 @@ export default {
           foreground: "hsl(var(--warning-foreground))",
         },
         processing: "hsl(var(--processing))",
+        ink: {
+          DEFAULT: "hsl(var(--ink))",
+          foreground: "hsl(var(--ink-foreground))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -93,11 +98,19 @@ export default {
         xl: "1rem",
         "2xl": "1.25rem",
         "3xl": "1.5rem",
+        "4xl": "1.75rem",
       },
       boxShadow: {
         soft: "0 2px 8px rgba(0, 0, 0, 0.04)",
         medium: "0 4px 16px rgba(0, 0, 0, 0.06)",
         large: "0 8px 32px rgba(0, 0, 0, 0.08)",
+        card: "var(--shadow-card)",
+        float: "var(--shadow-float)",
+        glow: "var(--shadow-glow)",
+        "glow-sm": "var(--shadow-glow-sm)",
+      },
+      transitionTimingFunction: {
+        silk: "cubic-bezier(0.32, 0.72, 0, 1)",
       },
       keyframes: {
         "accordion-down": {

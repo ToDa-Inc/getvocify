@@ -63,9 +63,10 @@ const UseCasesSection = () => {
               viewport={{ once: true }}
               transition={{ duration: 0.8 }}
             >
-              <h2 className="text-4xl md:text-6xl font-black text-foreground mb-8 tracking-tighter leading-none">
+              <span className="section-label mb-6">07 — {t.useCases.label}</span>
+              <h2 className="text-4xl md:text-6xl font-semibold text-foreground mb-8 tracking-tighter leading-[1.02]">
                 {t.useCases.title1} <br />
-                <span className="text-beige font-black">{t.useCases.title2}</span>
+                <span className="text-beige font-serif italic font-medium">{t.useCases.title2}</span>
               </h2>
               <p className="text-xl text-muted-foreground max-w-lg leading-relaxed mb-12">
                 {t.useCases.subtitle}
@@ -76,10 +77,10 @@ const UseCasesSection = () => {
                   <button
                     key={index}
                     onClick={() => setActive(index)}
-                    className={`px-6 py-3 rounded-full text-sm font-black uppercase tracking-widest transition-all duration-300 border ${
-                      active === index 
-                        ? "bg-beige border-beige text-cream shadow-medium" 
-                        : "bg-white border-border/50 text-muted-foreground hover:border-beige/50"
+                    className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-500 ease-silk border ${
+                      active === index
+                        ? "bg-beige border-beige text-cream shadow-glow-sm"
+                        : "glass-card text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     {useCase.title}
@@ -99,7 +100,7 @@ const UseCasesSection = () => {
                 transition={{ duration: 0.5, ease: "easeOut" }}
                 className="absolute inset-0"
               >
-                <div className="h-full w-full bg-white rounded-[3.5rem] p-12 md:p-16 shadow-large border border-beige/10 flex flex-col justify-between overflow-hidden group">
+                <div className="h-full w-full glass-card-strong rounded-[28px] p-12 md:p-16 flex flex-col justify-between overflow-hidden group">
                   {/* Glassmorphic Icon */}
                   <div 
                     className="w-20 h-20 rounded-3xl flex items-center justify-center mb-12 transition-all duration-500 shadow-soft"
@@ -112,10 +113,10 @@ const UseCasesSection = () => {
                   </div>
 
                   <div className="space-y-6">
-                    <span className="inline-block text-[10px] font-black uppercase tracking-[0.4em] text-beige">
+                    <span className="inline-block font-mono text-[10px] font-medium uppercase tracking-[0.3em] text-beige">
                       {useCases[active].tag}
                     </span>
-                    <h3 className="text-3xl md:text-4xl font-black text-foreground tracking-tight">
+                    <h3 className="text-3xl md:text-4xl font-semibold text-foreground tracking-tight">
                       {useCases[active].title}
                     </h3>
                     <p className="text-xl text-muted-foreground leading-relaxed font-medium">
@@ -137,7 +138,7 @@ const UseCasesSection = () => {
                       <ChevronRight className="w-5 h-5 text-beige" />
                     </button>
                     <div className="flex-1" />
-                    <span className="text-[10px] font-black text-muted-foreground/30 uppercase tracking-widest">
+                    <span className="font-mono text-[10px] font-medium text-muted-foreground/40 uppercase tracking-[0.2em]">
                       {active + 1} / {useCases.length}
                     </span>
                   </div>

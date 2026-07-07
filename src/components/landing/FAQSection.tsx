@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
+import { blurReveal } from "@/lib/scrollReveal";
 import {
   Accordion,
   AccordionContent,
@@ -57,31 +58,27 @@ const FAQSection = () => {
     <section className="py-32 bg-secondary/20 relative overflow-hidden">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-16">
-          <motion.h2 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight"
           >
-            {t.faq.title1} <span className="text-beige font-serif italic font-medium">{t.faq.title2}</span>
-          </motion.h2>
+            <span className="section-label mb-6">08 — {t.faq.label}</span>
+            <h2 className="text-3xl md:text-5xl font-semibold text-foreground mb-6 tracking-tighter">
+              {t.faq.title1} <span className="text-beige font-serif italic font-medium">{t.faq.title2}</span>
+            </h2>
+          </motion.div>
         </div>
 
         <div className="max-w-3xl mx-auto">
           <Accordion type="single" collapsible className="space-y-4">
             {t.faq.items.map((faq, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.05 }}
-              >
+              <motion.div key={index} {...blurReveal(index * 0.05, 16, 0.97)}>
                 <AccordionItem
                   value={`item-${index}`}
-                  className="bg-white/50 backdrop-blur-sm rounded-[2rem] border border-border px-8 overflow-hidden hover:border-beige/30 transition-colors shadow-soft"
+                  className="glass-card rounded-[24px] border-none px-8 overflow-hidden transition-all duration-500 ease-silk hover:shadow-float"
                 >
-                  <AccordionTrigger className="text-left font-bold text-foreground hover:no-underline py-6 text-lg">
+                  <AccordionTrigger className="text-left font-semibold text-foreground hover:no-underline py-6 text-lg tracking-tight">
                     {faq.q}
                   </AccordionTrigger>
                   <AccordionContent className="text-muted-foreground pb-6 text-base leading-relaxed">

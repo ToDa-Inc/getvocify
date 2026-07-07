@@ -1,14 +1,9 @@
 import { motion } from "framer-motion";
-
-const phrases = [
-  "Save 5 hours per week",
-  "Never miss a detail", 
-  "Update CRM while driving",
-  "Perfect for field sales"
-];
+import { useLanguage } from "@/lib/i18n";
 
 const RotatingText = () => {
-  const text = phrases.join(" • ") + " • ";
+  const { t } = useLanguage();
+  const text = t.hero.rotating.join(" • ") + " • ";
   
   return (
     <motion.div 

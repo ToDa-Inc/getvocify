@@ -1,15 +1,73 @@
-import { ArrowDown, Mic, Eye, Check, Rocket, Sparkles } from "lucide-react";
+import { Mic, Check, Rocket, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
+import { type ComponentType } from "react";
 import { useLanguage } from "@/lib/i18n";
+import { blurReveal } from "@/lib/scrollReveal";
+
+interface Step {
+  number: number;
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  description: string;
+  example?: string;
+  data?: { label: string; value: string }[];
+  confirm?: string[];
+}
+
+const StepCardBody = ({ step }: { step: Step }) => (
+  <>
+    <div className="flex justify-between items-start mb-6">
+      <div className="w-14 h-14 rounded-2xl bg-beige text-cream flex items-center justify-center shadow-medium">
+        <step.icon className="w-7 h-7" />
+      </div>
+      <span className="text-5xl text-beige/10 font-bold leading-none">{step.number}</span>
+    </div>
+
+    <h3 className="font-mono text-sm font-medium tracking-[0.2em] uppercase text-beige mb-3">{step.title}</h3>
+
+    <p className="text-foreground font-medium mb-6 leading-relaxed">{step.description}</p>
+
+    <div className="mt-auto">
+      {step.example && (
+        <div className="bg-secondary/40 rounded-2xl p-4 text-muted-foreground text-sm border border-border/50">
+          "{step.example}"
+        </div>
+      )}
+
+      {step.data && (
+        <div className="bg-white/50 rounded-2xl p-4 grid grid-cols-2 gap-3 text-[11px] border border-border/50 shadow-soft">
+          {step.data.map((item) => (
+            <div key={item.label}>
+              <div className="text-muted-foreground uppercase tracking-tighter font-bold mb-0.5">{item.label}</div>
+              <div className="font-bold text-foreground truncate">{item.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {step.confirm && (
+        <div className="bg-success/5 rounded-2xl p-4 border border-success/20 space-y-2">
+          {step.confirm.map((label) => (
+            <div key={label} className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+                <Check className="h-2.5 w-2.5" strokeWidth={3} />
+              </span>
+              {label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </>
+);
 
 const SolutionSection = () => {
   const { t } = useLanguage();
 
-  const steps = [
+  const steps: Step[] = [
     {
       number: 1,
       title: t.solution.s1.title,
-      time: t.solution.s1.time,
       icon: Mic,
       description: t.solution.s1.desc,
       example: t.solution.example1,
@@ -17,7 +75,6 @@ const SolutionSection = () => {
     {
       number: 2,
       title: t.solution.s2.title,
-      time: t.solution.s2.time,
       icon: Sparkles,
       description: t.solution.s2.desc,
       data: [
@@ -30,96 +87,50 @@ const SolutionSection = () => {
     {
       number: 3,
       title: t.solution.s3.title,
-      time: t.solution.s3.time,
       icon: Rocket,
       description: t.solution.s3.desc,
+      confirm: [t.solution.label1, t.solution.label2, t.solution.label3, t.solution.label4].map(
+        (label) => `${label} synced`
+      ),
     },
   ];
 
   return (
-    <section id="how-it-works" className="scroll-mt-24 py-32 bg-background relative overflow-hidden">
+    <section id="how-it-works" className="scroll-mt-24 py-32 bg-background relative">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-20">
-          <motion.h2 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-3xl md:text-5xl font-bold text-foreground mb-6 tracking-tight text-balance"
           >
-            {t.solution.title1} <span className="text-beige font-serif italic font-medium">{t.solution.title2}</span> {t.solution.title3}
-          </motion.h2>
+            <span className="section-label mb-6">02 — {t.solution.label}</span>
+            <h2 className="text-3xl md:text-5xl font-semibold text-foreground mb-6 tracking-tighter text-balance">
+              {t.solution.title1} <span className="text-beige font-serif italic font-medium">{t.solution.title2}</span> {t.solution.title3}
+            </h2>
+          </motion.div>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             {t.solution.subtitle}
           </p>
         </div>
 
-        <div className="max-w-4xl mx-auto">
-          <div className="grid md:grid-cols-3 gap-8">
-            {steps.map((step, index) => (
-              <motion.div 
-                key={step.number}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.6, delay: index * 0.2 }}
-                className="relative"
-              >
-                <div className="glass-morphism rounded-[2.5rem] p-8 h-full flex flex-col group hover:border-beige/30 transition-colors">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="w-14 h-14 rounded-2xl bg-beige text-cream flex items-center justify-center shadow-medium group-hover:scale-110 transition-transform">
-                      <step.icon className="w-7 h-7" />
-                    </div>
-                    <span className="text-5xl text-beige/10 font-black group-hover:text-beige/20 transition-colors leading-none">
-                      {step.number}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-sm font-bold tracking-widest uppercase text-beige">{step.title}</h3>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">{step.time}</span>
-                  </div>
-                  
-                  <p className="text-foreground font-medium mb-6 leading-relaxed">{step.description}</p>
-                  
-                  <div className="mt-auto">
-                    {step.example && (
-                      <div className="bg-secondary/40 rounded-2xl p-4 text-muted-foreground text-sm border border-border/50">
-                        "{step.example}"
-                      </div>
-                    )}
-                    
-                    {step.data && (
-                      <div className="bg-white/50 rounded-2xl p-4 grid grid-cols-2 gap-3 text-[11px] border border-border/50 shadow-soft">
-                        {step.data.map((item) => (
-                          <div key={item.label}>
-                            <div className="text-muted-foreground uppercase tracking-tighter font-bold mb-0.5">{item.label}</div>
-                            <div className="font-bold text-foreground truncate">{item.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {index < steps.length - 1 && (
-                  <div className="hidden md:block absolute top-1/2 -right-4 translate-x-1/2 -translate-y-1/2 z-20">
-                    <div className="w-8 h-8 rounded-full bg-white shadow-soft flex items-center justify-center border border-border">
-                      <ArrowDown className="w-4 h-4 text-beige rotate-[270deg]" />
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            ))}
-          </div>
+        <div className="grid gap-6 max-w-xl mx-auto md:max-w-6xl md:grid-cols-3 md:items-stretch">
+          {steps.map((step, index) => (
+            <motion.div key={step.number} {...blurReveal(index * 0.1, 24, 0.95)}>
+              <div className="glass-card-strong rounded-[28px] p-8 flex flex-col h-full">
+                <StepCardBody step={step} />
+              </div>
+            </motion.div>
+          ))}
         </div>
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
-          className="text-center mt-20"
+          className="text-center mt-8"
         >
-          <div className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-beige text-cream font-bold text-sm shadow-medium">
+          <div className="btn-glow inline-flex items-center gap-2 px-6 py-3 rounded-full bg-beige text-cream font-semibold text-sm">
             <Check className="w-4 h-4" />
             {t.solution.badge}
           </div>
