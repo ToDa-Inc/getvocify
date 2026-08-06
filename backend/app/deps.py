@@ -11,7 +11,26 @@ import threading
 
 # Singleton Supabase client (thread-safe)
 _supabase_client: Optional[Client] = None
+_supabase_auth_client: Optional[Client] = None
 _supabase_lock = threading.Lock()
+
+
+def _ensure_service_role_auth(client: Client) -> Client:
+    """
+    Keep the DB singleton on service_role.
+
+    supabase-py listens for SIGNED_IN and swaps PostgREST Authorization to the
+    user JWT. Any later insert then hits RLS (42501 on crm_updates, etc.).
+    """
+    service_header = f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"
+    current = (client.options.headers or {}).get("Authorization")
+    if current != service_header:
+        client.options.headers["Authorization"] = service_header
+        # Force PostgREST/storage clients to rebuild with the service key
+        client._postgrest = None
+        client._storage = None
+        client._functions = None
+    return client
 
 
 def get_supabase() -> Client:
@@ -19,7 +38,7 @@ def get_supabase() -> Client:
     Get Supabase client instance (singleton pattern).
     
     Creates client once and reuses it for all requests.
-    Thread-safe initialization.
+    Thread-safe initialization. Uses service role for DB access.
     """
     global _supabase_client
     
@@ -49,16 +68,40 @@ def get_supabase() -> Client:
                         f"Please check your SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env"
                     )
     
-    return _supabase_client
+    return _ensure_service_role_auth(_supabase_client)
+
+
+def get_supabase_auth() -> Client:
+    """
+    Supabase client for Auth endpoints (login / refresh).
+
+    Prefer the anon key: GoTrue refresh with the service-role key often returns
+    opaque 500s for invalid/rotated refresh tokens. Falls back to service role.
+    """
+    global _supabase_auth_client
+
+    if _supabase_auth_client is not None:
+        return _supabase_auth_client
+
+    with _supabase_lock:
+        if _supabase_auth_client is not None:
+            return _supabase_auth_client
+
+        key = (settings.SUPABASE_ANON_KEY or "").strip() or settings.SUPABASE_SERVICE_ROLE_KEY
+        _supabase_auth_client = create_client(settings.SUPABASE_URL, key)
+        return _supabase_auth_client
 
 
 def get_user_id(
     authorization: Optional[str] = Header(None, alias="Authorization"),
-    supabase: Client = Depends(get_supabase)
+    auth_client: Client = Depends(get_supabase_auth),
 ) -> str:
     """
     Extract user ID from Authorization header by verifying JWT with Supabase.
     On expired token, returns 401 - frontend should refresh and retry.
+
+    Uses the auth client (not the service-role DB client) so verification never
+    mutates PostgREST credentials used for inserts.
     """
     if not authorization:
         raise HTTPException(
@@ -81,7 +124,7 @@ def get_user_id(
         )
     
     try:
-        response = supabase.auth.get_user(token)
+        response = auth_client.auth.get_user(token)
         
         if hasattr(response, "user") and response.user:
             return str(response.user.id)

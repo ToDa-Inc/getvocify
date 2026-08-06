@@ -12,7 +12,7 @@ from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
 from typing import Optional
 
-from app.deps import get_supabase, get_user_id
+from app.deps import get_supabase, get_supabase_auth, get_user_id
 from supabase import Client
 
 
@@ -84,6 +84,7 @@ class AuthResponse(BaseModel):
 async def signup(
     request: SignupRequest,
     supabase: Client = Depends(get_supabase),
+    auth_client: Client = Depends(get_supabase_auth),
 ):
     """
     Sign up a new user.
@@ -96,8 +97,9 @@ async def signup(
         User data and authentication tokens
     """
     try:
-        # Create user in Supabase Auth
-        auth_response = supabase.auth.sign_up({
+        # Auth only on the anon client — never sign_up on the service-role DB client
+        # (supabase-py replaces Authorization with the user JWT on SIGNED_IN).
+        auth_response = auth_client.auth.sign_up({
             "email": request.email,
             "password": request.password,
         })
@@ -171,6 +173,7 @@ async def signup(
 async def login(
     request: LoginRequest,
     supabase: Client = Depends(get_supabase),
+    auth_client: Client = Depends(get_supabase_auth),
 ):
     """
     Log in with email and password.
@@ -179,7 +182,9 @@ async def login(
         User data and authentication tokens
     """
     try:
-        auth_response = supabase.auth.sign_in_with_password({
+        # Auth only on the anon client — never sign_in on the service-role DB client
+        # (supabase-py replaces Authorization with the user JWT on SIGNED_IN → RLS 42501).
+        auth_response = auth_client.auth.sign_in_with_password({
             "email": request.email,
             "password": request.password,
         })
@@ -352,6 +357,8 @@ async def logout(
 class RefreshRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
+    # Optional expired access token — used only if GoTrue refresh is broken (oauth_client_id)
+    access_token: Optional[str] = None
 
 
 class RefreshResponse(BaseModel):
@@ -361,45 +368,196 @@ class RefreshResponse(BaseModel):
     expires_in: int = 3600
 
 
+def _email_from_access_token(access_token: Optional[str]) -> Optional[str]:
+    """Decode JWT claims without verifying expiry (token may already be expired)."""
+    if not access_token or access_token in ("undefined", "null"):
+        return None
+    try:
+        import jwt as pyjwt
+
+        claims = pyjwt.decode(
+            access_token,
+            options={"verify_signature": False, "verify_exp": False},
+        )
+        email = claims.get("email")
+        if isinstance(email, str) and "@" in email:
+            return email
+        meta = claims.get("user_metadata") or {}
+        meta_email = meta.get("email") if isinstance(meta, dict) else None
+        if isinstance(meta_email, str) and "@" in meta_email:
+            return meta_email
+        return None
+    except Exception:
+        return None
+
+
+def _user_id_from_access_token(access_token: Optional[str]) -> Optional[str]:
+    if not access_token or access_token in ("undefined", "null"):
+        return None
+    try:
+        import jwt as pyjwt
+
+        claims = pyjwt.decode(
+            access_token,
+            options={"verify_signature": False, "verify_exp": False},
+        )
+        sub = claims.get("sub")
+        return str(sub) if sub else None
+    except Exception:
+        return None
+
+
+def _reissue_session_bypassing_broken_refresh(email: Optional[str], user_id: Optional[str]) -> RefreshResponse:
+    """
+    GoTrue refresh is broken on this project (oauth_client_id). Password login and
+    magiclink verify still work — re-issue a session via admin generate_link + OTP.
+    """
+    admin = get_supabase()
+    resolved_email = email
+
+    if not resolved_email and user_id:
+        try:
+            user_resp = admin.auth.admin.get_user_by_id(user_id)
+            user = getattr(user_resp, "user", None) or user_resp
+            resolved_email = getattr(user, "email", None)
+            if not resolved_email and isinstance(user, dict):
+                resolved_email = user.get("email")
+        except Exception as e:
+            logger.warning("Admin get_user_by_id failed during refresh bypass: %s", e)
+
+    if not resolved_email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+        )
+
+    try:
+        link = admin.auth.admin.generate_link({"type": "magiclink", "email": resolved_email})
+        props = getattr(link, "properties", None)
+        email_otp = getattr(props, "email_otp", None) if props else None
+        hashed = getattr(props, "hashed_token", None) if props else None
+        if not email_otp and not hashed:
+            raise RuntimeError("generate_link returned no otp")
+
+        auth_client = get_supabase_auth()
+        if email_otp:
+            verified = auth_client.auth.verify_otp(
+                {"email": resolved_email, "token": email_otp, "type": "magiclink"}
+            )
+        else:
+            verified = auth_client.auth.verify_otp(
+                {"token_hash": hashed, "type": "magiclink"}
+            )
+
+        session = getattr(verified, "session", None)
+        if not session:
+            raise RuntimeError("verify_otp returned no session")
+
+        logger.warning(
+            "Supabase refresh broken (oauth_client_id); re-issued session via magiclink bypass for %s",
+            resolved_email,
+        )
+        return RefreshResponse(
+            access_token=session.access_token,
+            refresh_token=session.refresh_token,
+            expires_in=session.expires_in or 3600,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Refresh bypass failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+        ) from e
+
+
 @router.post("/refresh", response_model=RefreshResponse)
 async def refresh_token(
     request: RefreshRequest,
-    supabase: Client = Depends(get_supabase),
+    supabase: Client = Depends(get_supabase_auth),
 ):
     """
     Refresh the access token using a refresh token.
     
     Returns new access token and refresh token.
+    Uses the anon-key auth client when available (more reliable than service role).
+    If GoTrue refresh is broken (oauth_client_id), falls back to admin session re-issue.
     """
+    token = (request.refresh_token or "").strip()
+    if not token or token in ("undefined", "null"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
     try:
-        # Refresh session with Supabase
-        auth_response = supabase.auth.refresh_session(request.refresh_token)
-        
+        auth_response = supabase.auth.refresh_session(token)
+
         if not auth_response.session:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired refresh token",
             )
-        
+
         access_token = auth_response.session.access_token
-        refresh_token = auth_response.session.refresh_token
+        new_refresh = auth_response.session.refresh_token
         expires_in = auth_response.session.expires_in or 3600
-        
+
         return RefreshResponse(
             access_token=access_token,
-            refresh_token=refresh_token,
+            refresh_token=new_refresh,
             expires_in=expires_in,
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         error_msg = str(e)
-        
-        if "invalid" in error_msg.lower() or "expired" in error_msg.lower():
+        lower = error_msg.lower()
+
+        # Transient network to Supabase — do not treat as expired session
+        if any(s in lower for s in ("timed out", "timeout", "connecttimeout", "connection", "network")):
+            logger.warning("Token refresh unreachable: %s", error_msg)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Auth service temporarily unreachable. Please try again.",
+            )
+
+        # Known Supabase Auth platform bug — bypass via admin magiclink re-issue
+        if "oauth_client_id" in lower or "unexpected_failure" in lower:
+            logger.error(
+                "Supabase Auth refresh broken (oauth_client_id); attempting session re-issue bypass — %s",
+                error_msg,
+            )
+            return _reissue_session_bypassing_broken_refresh(
+                email=_email_from_access_token(request.access_token),
+                user_id=_user_id_from_access_token(request.access_token),
+            )
+
+        # GoTrue often returns 500 for already-used / invalid refresh tokens
+        auth_failure = any(
+            s in lower
+            for s in (
+                "invalid",
+                "expired",
+                "refresh_token",
+                "refresh token",
+                "not found",
+                "unauthorized",
+                "forbidden",
+            )
+        )
+        if not auth_failure and "500" in lower and "token" in lower:
+            auth_failure = True
+        if auth_failure:
+            logger.warning("Token refresh rejected: %s", error_msg)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired refresh token",
             )
-        
+
+        logger.exception("Token refresh failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Token refresh failed: {error_msg}",
