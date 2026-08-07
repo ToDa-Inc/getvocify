@@ -23,13 +23,17 @@ def _ensure_service_role_auth(client: Client) -> Client:
     user JWT. Any later insert then hits RLS (42501 on crm_updates, etc.).
     """
     service_header = f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}"
-    current = (client.options.headers or {}).get("Authorization")
-    if current != service_header:
-        client.options.headers["Authorization"] = service_header
-        # Force PostgREST/storage clients to rebuild with the service key
-        client._postgrest = None
-        client._storage = None
-        client._functions = None
+    headers = client.options.headers
+    if headers is None:
+        client.options.headers = {"Authorization": service_header}
+    else:
+        current = headers.get("Authorization")
+        if current != service_header:
+            headers["Authorization"] = service_header
+    # Force PostgREST/storage clients to rebuild with the service key
+    client._postgrest = None
+    client._storage = None
+    client._functions = None
     return client
 
 
@@ -87,7 +91,12 @@ def get_supabase_auth() -> Client:
         if _supabase_auth_client is not None:
             return _supabase_auth_client
 
-        key = (settings.SUPABASE_ANON_KEY or "").strip() or settings.SUPABASE_SERVICE_ROLE_KEY
+        anon = getattr(settings, "SUPABASE_ANON_KEY", None) or ""
+        key = str(anon).strip() or settings.SUPABASE_SERVICE_ROLE_KEY
+        if not key:
+            raise RuntimeError(
+                "Missing Supabase auth key. Set SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY."
+            )
         _supabase_auth_client = create_client(settings.SUPABASE_URL, key)
         return _supabase_auth_client
 

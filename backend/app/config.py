@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     # Supabase
     SUPABASE_URL: str
     SUPABASE_SERVICE_ROLE_KEY: str
+    # Anon/publishable key for Auth (login/refresh). Falls back to service role if unset.
+    SUPABASE_ANON_KEY: Optional[str] = None
     
     # Application
     ENVIRONMENT: str = "development"
