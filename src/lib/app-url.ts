@@ -15,7 +15,8 @@ function resolveAppUrl(): string {
 export const APP_URL = resolveAppUrl();
 
 /** Booking link for the demo call (founder-led sales, no self-serve signup yet) */
-export const DEMO_BOOKING_URL = "https://meetings-eu1.hubspot.com/dani-zal/vocify-scheduling";
+export const DEMO_BOOKING_URL =
+  "https://meetings-eu1.hubspot.com/dani-zal?uuid=e04c2511-8c6b-424b-8dd9-b5eddfe1e87c";
 
 /** Whether we're on the landing domain (marketing site only) */
 export function isLandingDomain(): boolean {
