@@ -4,7 +4,7 @@
   "config": {
     "name": "Vocify",
     "description": "Voice to CRM in 60 seconds. Turn voice memos into HubSpot deals, contacts, and companies with AI-powered extraction.",
-    "distribution": "private",
+    "distribution": "marketplace",
     "auth": {
       "type": "oauth",
       "redirectUrls": [
@@ -22,8 +22,7 @@
         "crm.objects.deals.write",
         "crm.schemas.contacts.read",
         "crm.schemas.companies.read",
-        "crm.schemas.deals.read",
-        "crm.objects.calls.read"
+        "crm.schemas.deals.read"
       ],
       "optionalScopes": [],
       "conditionallyRequiredScopes": []

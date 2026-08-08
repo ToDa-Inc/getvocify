@@ -17,6 +17,36 @@ from app.services.llm import LLMClient
 from typing import Optional
 
 
+_PLACEHOLDER_VALUES = frozenset({
+    "desconocida", "desconocido", "desconocidos", "desconocidas",
+    "unknown", "n/a", "na", "none", "null",
+    "no especificado", "no especificada", "not specified",
+    "no mencionado", "no mencionada", "not mentioned", "no se menciona",
+    "sin especificar", "no disponible", "not available",
+    "ninguna", "ninguno", "no aplica", "-",
+})
+
+
+def _clean_extracted_name(value: Optional[str]) -> Optional[str]:
+    """
+    Treat LLM placeholder text ('Desconocida', 'Unknown', 'N/A', ...) as no value.
+
+    LLMs occasionally answer an unresolvable field with a placeholder word instead
+    of returning null. Left unchecked, that word becomes a "real" company/contact
+    name: it gets used as the deal name, gets written to HubSpot, and worse, gets
+    used to *match* future memos onto that same placeholder deal (e.g. a stray
+    "Desconocida Deal" silently becoming a magnet for every ambiguous memo). This
+    is a defense-in-depth filter, independent of the prompt instructing the LLM
+    not to do this - it must hold even if the LLM doesn't comply.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped or stripped.lower() in _PLACEHOLDER_VALUES:
+        return None
+    return stripped
+
+
 def _parse_amount(value: any) -> Optional[float]:
     """Extract numeric value from amount. Handles '500€', '500 euros', '500,000', etc."""
     if value is None:
@@ -98,13 +128,35 @@ class ExtractionService:
 
         # Meeting-intelligence fields: minimal, generic. Exclude any covered by schema.
         all_standard = {
-            "companyName": ("string", "Prospect/client company (the company being sold to). Do NOT use broker, insurer (aseguradora), or intermediary names — e.g. 'el bróker es Aon' means Aon is the broker, not the prospect company."),
-            "contactName": ("string", "Person spoken with."),
+            "companyName": (
+                "string | null",
+                "Prospect/client company (the company being sold to). Do NOT use broker, "
+                "insurer (aseguradora), or intermediary names — e.g. 'el bróker es Aon' means "
+                "Aon is the broker, not the prospect company. If no company is mentioned or it "
+                "cannot be determined, return null — never write a placeholder like 'Unknown', "
+                "'Desconocida', 'N/A', or similar.",
+            ),
+            "contactName": (
+                "string | null",
+                "Person spoken with, by their actual name. If not mentioned, return null — "
+                "never write a placeholder like 'Unknown' or 'Desconocido'.",
+            ),
             "contactEmail": ("string | null", "Email if mentioned."),
             "contactPhone": ("string | null", "Phone if mentioned."),
             "summary": ("string", "2-3 sentence meeting summary."),
             "painPoints": ("string[]", "Pain points discussed."),
-            "nextSteps": ("string[]", "Agreed next steps."),
+            "nextSteps": (
+                "string[]",
+                "Concise HubSpot task titles (3-8 words): verb + what to do. "
+                "NO dates, times, weekdays, or scheduling ('martes', '18:00', 'mañana'). "
+                "Good: 'Llamada de seguimiento', 'Enviar propuesta comercial'. "
+                "Bad: 'Hablar el martes a las 18:00'.",
+            ),
+            "nextStepSchedules": (
+                "string[]",
+                "Parallel to nextSteps: when each action happens as stated in the transcript "
+                "(e.g. 'martes 18:00', 'próxima semana'). Empty string if no timing mentioned.",
+            ),
             "competitors": ("string[]", "Competing vendors/products being evaluated."),
             "objections": ("string[]", "Objections raised."),
             "decisionMakers": ("string[]", "Decision makers involved."),
@@ -205,7 +257,7 @@ Extraction discipline:
 - **Conservative**: extract only what is explicitly stated. Implied or inferred values → `null`.
 - **No hallucination**: never infer company names, deal sizes, or dates from context alone.
 - **Short/inconclusive calls**: most fields will be `null` — that is correct and expected.
-- **Next steps**: only extract if a speaker explicitly commits to a concrete action with a timeframe.
+- **Next steps**: only extract if a speaker explicitly commits to a concrete action. Titles = what to do (no dates in title); timing goes in nextStepSchedules.
 - **Sentiment/outcome**: base these on what was actually said, not on tone assumptions.
 """
         
@@ -296,7 +348,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             )
         
         messages = [
-            {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language."},
+            {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language. (5) nextSteps = short task titles only (what to do); put dates/times in nextStepSchedules (same order, empty string if none)."},
             {"role": "user", "content": prompt},
         ]
         try:
@@ -324,13 +376,13 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 extracted["closedate"] = None
             
             # companyName: explicit only; fallback from dealname only when it looks like "X Deal"
-            company = extracted.get("companyName")
+            company = _clean_extracted_name(extracted.get("companyName"))
             if not company and extracted.get("dealname"):
                 dn = str(extracted.get("dealname", ""))
                 if dn.rstrip().lower().endswith(" deal"):
-                    company = dn.rsplit(" ", 1)[0].strip()
+                    company = _clean_extracted_name(dn.rsplit(" ", 1)[0].strip())
             # contactName, contactEmail, contactPhone: explicit extraction
-            contact = extracted.get("contactName")
+            contact = _clean_extracted_name(extracted.get("contactName"))
             contact_email = extracted.get("contactEmail") or None
             contact_phone = extracted.get("contactPhone") or None
             # amount: ensure numeric (schema type number)

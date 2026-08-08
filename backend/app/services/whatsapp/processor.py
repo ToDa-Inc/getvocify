@@ -18,6 +18,7 @@ from app.services.conversation.intent import APPROVE_PATTERNS, ADD_PATTERNS, REJ
 from app.services.crm_providers import AmbiguousPrimaryCRMError, build_crm_provider, resolve_sync_connection
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
+from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
 from app.services.memo_approval import approve_memo_core
 from app.services.speechmatics_batch import SpeechmaticsBatchService
 from app.services.storage import StorageService
@@ -667,6 +668,8 @@ async def get_field_specs(supabase: Client, user_id: str) -> Optional[list[dict]
         conn = resolve_sync_connection(supabase, user_id)
         if not conn:
             return None
+        if conn.get("provider") == "hubspot":
+            conn = await ensure_hubspot_connection_tokens_fresh(supabase, conn)
         config_svc = CRMConfigurationService(supabase)
         config = await config_svc.get_configuration(user_id, connection_id=str(conn["id"]))
         allowed = config.allowed_deal_fields if config else None
@@ -705,6 +708,15 @@ async def _crm_context(supabase: Client, user_id: str):
     conn = resolve_sync_connection(supabase, user_id)
     if not conn:
         return None, None, None, [], None
+    if conn.get("provider") == "hubspot":
+        # Deal matching/preview here hit the HubSpot API directly (unlike the final
+        # approve step, which refreshes on its own) - a WhatsApp conversation can
+        # easily outlive the ~30min OAuth token lifetime, so refresh proactively
+        # instead of surfacing an auth error mid-conversation.
+        try:
+            conn = await ensure_hubspot_connection_tokens_fresh(supabase, conn)
+        except ValueError:
+            logger.warning("HubSpot token refresh failed in WhatsApp flow for user %s", user_id)
     provider = build_crm_provider(supabase, conn)
     provider_name = (conn.get("provider") or "").lower()
     config = await CRMConfigurationService(supabase).get_configuration(
@@ -768,6 +780,8 @@ async def _build_preview_for_selection(
         selected_deal_id=deal_id,
         allowed_fields=allowed_fields,
         default_stage_name=config.default_stage_name if config else None,
+        default_pipeline_id=config.default_pipeline_id if config else None,
+        default_stage_id=config.default_stage_id if config else None,
     )
     crm_name = _crm_display_name(conn.get("provider"))
     option_rows = [m.model_dump() for m in matches]

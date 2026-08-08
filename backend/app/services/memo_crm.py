@@ -13,6 +13,7 @@ from app.services.crm_providers import (
     build_crm_provider,
     resolve_sync_connection,
 )
+from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
 
 
 def get_memo_crm_or_none(supabase: Client, user_id: str) -> Tuple[Optional[Any], Optional[dict[str, Any]]]:
@@ -29,6 +30,38 @@ def get_memo_crm_or_none(supabase: Client, user_id: str) -> Tuple[Optional[Any],
         ) from e
     if not row:
         return None, None
+    try:
+        return build_crm_provider(supabase, row), row
+    except UnsupportedCRMProviderError as e:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=str(e),
+        ) from e
+
+
+async def get_memo_crm_or_none_with_hubspot_refresh(
+    supabase: Client, user_id: str
+) -> Tuple[Optional[Any], Optional[dict[str, Any]]]:
+    """
+    Like get_memo_crm_or_none but refreshes HubSpot OAuth access tokens when stale.
+    """
+    try:
+        row = resolve_sync_connection(supabase, user_id)
+    except AmbiguousPrimaryCRMError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=e.message,
+        ) from e
+    if not row:
+        return None, None
+    if row.get("provider") == "hubspot":
+        try:
+            row = await ensure_hubspot_connection_tokens_fresh(supabase, row)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+            ) from e
     try:
         return build_crm_provider(supabase, row), row
     except UnsupportedCRMProviderError as e:

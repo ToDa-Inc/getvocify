@@ -137,6 +137,7 @@ Devuelve JSON con esta estructura exacta:
   "delete": ["task_id"]
 }
 
+- subject: título corto de la tarea (qué hay que hacer). Sin fechas ni horas en el título (ej: "Llamada de seguimiento", "Enviar propuesta"). La fecha va en due_date.
 - add: solo tareas NUEVAS que no existen
 - update: tareas existentes a modificar (id es obligatorio; subject y due_date opcionales)
 - delete: ids de tareas a eliminar (canceladas/no se harán)

@@ -60,12 +60,14 @@ HUBSPOT_REDIRECT_URI=https://api.getvocify.com/api/v1/crm/hubspot/callback
 
 (Local dev: `HUBSPOT_REDIRECT_URI=http://localhost:8000/api/v1/crm/hubspot/callback`)
 
-### 5. Add test installs (private distribution)
+### 5. Publish for self-serve install (marketplace distribution)
 
-For `distribution: "private"`, you must allowlist accounts:
+With `distribution: "marketplace"`, any account can self-install via the sample install URL — no allowlist needed:
 
-- **Distribution** tab → **Test installs** → Add your test account
-- Or **Standard install** → allow your production portal
+- **Distribution** tab → **Begin publishing** → sign the Acceptable Use Policy (AUP)
+- Until the app is reviewed and listed, installs are capped at 25 accounts and installers see an "unverified app" warning they must accept
+- To soften the warning (without a full marketplace review), verify your domain: **Development** → **Domain** → **Verify a domain** (`getvocify.com`)
+- Test accounts (Settings → Account & Billing → Developer test accounts) never need the allowlist and don't count toward the cap, regardless of distribution mode
 
 ## Config reference
 
@@ -94,10 +96,10 @@ Required for Vocify:
 
 ## Distribution
 
-- **private**: Allowlist only. Quick to ship, no marketplace review.
-- **marketplace**: List on HubSpot App Marketplace. Requires review.
+- **private**: Allowlist only (max 10 accounts), and you must already be a user of each account you approve. No review needed.
+- **marketplace**: Self-serve install for any account (max 25 until listed, unlimited after). Requires signing the AUP; full public listing requires HubSpot review (≥3 active unaffiliated installs, docs, demo videos).
 
-Switch in `app-hsmeta.json` → `config.distribution`.
+Switch in `app-hsmeta.json` → `config.distribution`. Switching from `private` to `marketplace` does not interrupt existing installs.
 
 ## Backend: OAuth flow
 

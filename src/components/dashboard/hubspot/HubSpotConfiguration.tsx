@@ -121,20 +121,59 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
         <div className="flex items-center gap-3 text-beige">
           <Settings2 className="h-4 w-4" />
           <h4 className="text-[10px] font-black uppercase tracking-widest border-b border-beige/10 pb-1 flex-1">
-            Pipeline Settings
+            New Deal Placement
           </h4>
+        </div>
+
+        <div className="flex items-start gap-2 px-2">
+          <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
+          <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
+            Vocify reads each memo and picks the deal stage itself (e.g. a demo booked
+            → appointment stage), showing it front and center in the approval screen so
+            you can change it before anything is saved — you don't need to set that here.
+            The only thing to choose below is which <strong>pipeline</strong> brand-new
+            deals go into. If you only have one pipeline in HubSpot, there's nothing to
+            do — it already points there. The "Fallback Stage" is just a safety net for
+            the rare memo that gives no signal at all about where the deal stands.
+          </p>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Active Pipeline</label>
-            <div className="h-12 px-6 rounded-full border border-border/40 bg-secondary/5 flex items-center font-bold text-foreground">
-              {config.default_pipeline_name || "Sales pipeline"}
-            </div>
+            <label className={THEME_TOKENS.typography.capsLabel}>Pipeline for New Deals</label>
+            {pipelines.length > 1 ? (
+              <div className="relative">
+                <select
+                  value={config.default_pipeline_id}
+                  onChange={(e) => {
+                    const p = pipelines.find(p => p.id === e.target.value);
+                    if (p) {
+                      setConfig(prev => ({
+                        ...prev,
+                        default_pipeline_id: p.id,
+                        default_pipeline_name: p.label,
+                        default_stage_id: p.stages[0]?.id || "",
+                        default_stage_name: p.stages[0]?.label || "",
+                      }));
+                    }
+                  }}
+                  className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
+                >
+                  {pipelines.map(p => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
+              </div>
+            ) : (
+              <div className="h-12 px-6 rounded-full border border-border/40 bg-secondary/5 flex items-center font-bold text-foreground">
+                {config.default_pipeline_name || "Sales pipeline"}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Default Stage</label>
+            <label className={THEME_TOKENS.typography.capsLabel}>Fallback Stage (rarely used)</label>
             <div className="relative">
               <select
                 value={config.default_stage_id}

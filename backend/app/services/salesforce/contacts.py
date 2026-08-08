@@ -6,6 +6,7 @@ import re
 from typing import Any, Optional
 
 from app.models.memo import MemoExtraction
+from app.services.extraction import _clean_extracted_name
 
 from .client import SalesforceClient
 from .search import SalesforceSearchService
@@ -65,7 +66,7 @@ class SalesforceContactService:
     ) -> Optional[str]:
         raw = extraction.raw_extraction or {}
         email = (extraction.contactEmail or raw.get("contactEmail") or raw.get("contact_email") or "").strip()
-        name = extraction.contactName or raw.get("contactName") or raw.get("contact_name")
+        name = extraction.contactName or _clean_extracted_name(raw.get("contactName")) or _clean_extracted_name(raw.get("contact_name"))
         if not email and not (name and str(name).strip()):
             return None
         if email:

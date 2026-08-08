@@ -88,7 +88,11 @@ class SalesforceCRMProvider:
         auto_create_companies: Optional[bool] = None,
         auto_create_contacts: Optional[bool] = None,
         default_stage_name: Optional[str] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> SyncResult:
+        # Salesforce opportunities use a flat picklist (StageName), not pipeline+stage IDs.
+        del default_pipeline_id, default_stage_id
         return await self._sync_service().sync_memo(
             memo_id=memo_id,
             user_id=user_id,
@@ -113,7 +117,10 @@ class SalesforceCRMProvider:
         selected_deal_id: Optional[str],
         allowed_fields: Optional[list[str]],
         default_stage_name: Optional[str] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> ApprovalPreview:
+        del default_pipeline_id, default_stage_id
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,

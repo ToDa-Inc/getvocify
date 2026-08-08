@@ -38,16 +38,19 @@ HUBSPOT_READ_ONLY_DEAL_PROPERTIES = frozenset({
     "hs_merged_object_ids", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
 })
 
-# raw_extraction keys that are NOT HubSpot deal properties (compare after normalize_hubspot_deal_property_key).
-_RAW_EXTRACTION_SKIP_KEYS = frozenset({
-    "dealname", "amount", "closedate", "description", "summary",
-    "painpoints", "nextsteps", "objections", "decisionmakers", "competitors",
-    "confidence", "contactname", "companyname", "contactemail", "contactphone",
-    "deal_currency_code", "dealstage",
-    # snake_case variants from LLM / legacy payloads
-    "pain_points", "next_steps", "decision_makers", "company_name",
-    "contact_name", "contact_email", "contact_phone",
+# Deal properties this function sets via dedicated typed logic below (amount as
+# number, closedate as timestamp, competitors as single enum, etc.) - excluded from
+# the generic raw_extraction loop purely to avoid double-processing with a different
+# type/shape, not a guess about which extraction keys are "real" CRM fields.
+_CORE_FIELDS_HANDLED_SEPARATELY = frozenset({
+    "dealname", "amount", "closedate", "description", "competitors", "dealstage",
 })
+
+# deal_currency_code: HubSpot validates against the portal's configured currencies;
+# sending a raw LLM-guessed code (e.g. "EUR") can fail on portals that don't have it
+# enabled. Amount already uses the portal's default currency, so this is never useful
+# to send - not a guess about schema, a known-bad property for this integration.
+_ALWAYS_EXCLUDED_PROPERTIES = frozenset({"deal_currency_code"})
 
 logger = logging.getLogger(__name__)
 
@@ -102,14 +105,30 @@ def _coerce_scalar_property_value(value: Any) -> Any:
     return value
 
 
+
+# Properties that are always safe to send even though they aren't listed in
+# /crm/v3/properties/deals (association/system fields set via dedicated params).
+_NON_SCHEMA_ALLOWED_PROPERTIES = frozenset({"pipeline", "hubspot_owner_id"})
+
+
 async def _sanitize_enum_properties(
     schema_service: HubSpotSchemaService,
     properties: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Schema-driven validation gate for enum properties.
-    Validates against allowed options, formats multi-select as semicolon-separated,
-    drops invalid values. Non-enum properties pass through unchanged.
+    Schema-driven validation gate (allowlist, not denylist).
+
+    This is the single safety net before any property reaches the HubSpot API:
+    - Drops any key that isn't an actual property in the portal's deal schema
+      (prevents PROPERTY_DOESNT_EXIST 400s from aborting the whole sync, no matter
+      what new field name a future extraction/prompt change introduces).
+    - Drops read-only properties (schema-driven, in addition to the static list).
+    - Validates enum values against allowed options, formats multi-select as
+      semicolon-separated, drops invalid tokens.
+    - Non-enum, schema-known properties pass through coerced to scalars.
+
+    If the schema fetch itself fails, we fail open (pass properties through) rather
+    than blocking the whole sync on a transient schema-API hiccup.
     """
     if not properties:
         return properties
@@ -118,16 +137,35 @@ async def _sanitize_enum_properties(
         schema = await schema_service.get_deal_schema()
         prop_map = {p.name: p for p in schema.properties}
     except Exception as e:
-        logger.warning("Schema fetch failed, skipping enum validation: %s", e)
+        logger.warning("Schema fetch failed, skipping property validation: %s", e)
         return properties
 
     sanitized: dict[str, Any] = {}
     for key, value in properties.items():
         if value is None or (isinstance(value, str) and not value.strip()):
             continue
+        if key in _ALWAYS_EXCLUDED_PROPERTIES:
+            # Enforced here too (not just in the raw_extraction loop) since this
+            # function is the last stop before HubSpot for every property, from
+            # every code path - it shouldn't rely on callers upstream having
+            # already filtered known-bad properties out.
+            continue
 
         prop = prop_map.get(key)
-        if not prop or prop.type not in ("enumeration", "checkbox", "radio", "select") or not prop.options:
+        if not prop:
+            if key in _NON_SCHEMA_ALLOWED_PROPERTIES:
+                sanitized[key] = value
+            else:
+                logger.info(
+                    "Dropping property not present in HubSpot deal schema: %s",
+                    key,
+                    extra={"hubspot_dropped_property": key},
+                )
+            continue
+        if prop.readOnlyValue:
+            continue
+
+        if prop.type not in ("enumeration", "checkbox", "radio", "select") or not prop.options:
             coerced = _coerce_scalar_property_value(value)
             if coerced is not None and not (isinstance(coerced, str) and not coerced.strip()):
                 sanitized[key] = coerced
@@ -234,17 +272,24 @@ class HubSpotDealService:
         except Exception:
             return None
     
-    async def _resolve_stage_id(self, stage_value: Optional[str]) -> Optional[str]:
+    async def _resolve_stage_id(
+        self,
+        stage_value: Optional[str],
+        pipeline_id: Optional[str] = None,
+    ) -> Optional[str]:
         """
         Resolve pipeline stage (label or ID) to valid HubSpot stage ID.
         
         HubSpot expects stage IDs (e.g. closedwon, appointmentscheduled), not labels
         (e.g. "Cierre", "Cita agendada"). This method maps labels to IDs via schema,
         or validates/returns the value if it's already a valid stage ID.
-        
+
         Args:
             stage_value: Stage label (e.g. "Cierre") or stage ID (e.g. "closedwon")
-            
+            pipeline_id: If provided, only match stages within this pipeline first
+                (prevents pairing a stage from one pipeline with a different pipeline,
+                which HubSpot rejects). Falls back to searching all pipelines.
+
         Returns:
             Stage ID if found/valid, None otherwise (do not send invalid values to HubSpot)
         """
@@ -256,8 +301,14 @@ class HubSpotDealService:
         try:
             schema = await self.schema.get_deal_schema()
             all_stage_ids: set[str] = set()
-            
-            for pipeline in schema.pipelines:
+
+            pipelines_to_search = schema.pipelines
+            if pipeline_id:
+                scoped = [p for p in schema.pipelines if p.id == pipeline_id]
+                if scoped:
+                    pipelines_to_search = scoped
+
+            for pipeline in pipelines_to_search:
                 for stage in pipeline.stages:
                     all_stage_ids.add(stage.id.lower())
                     # Match by label (e.g. "Cierre" → closedwon when label is "Cierre ganado" etc.)
@@ -293,52 +344,62 @@ class HubSpotDealService:
         self,
         extraction: MemoExtraction,
         deal_name: Optional[str] = None,
+        allowed_fields: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """
         Convert MemoExtraction fields to HubSpot deal properties.
-        
+
+        allowed_fields (from CRM Configuration) is the single gate for what can be
+        written: a field is only ever set if the user explicitly enabled it. This
+        replaces guessing which extraction keys "look like" real CRM fields vs.
+        meeting-intelligence fields (painPoints, nextSteps, etc.) - those are simply
+        never in allowed_fields, so they're excluded without a hardcoded denylist.
+
         Args:
             extraction: MemoExtraction from voice memo
             deal_name: Optional deal name (will generate if not provided)
+            allowed_fields: Fields the user enabled in CRM Configuration. When None,
+                no restriction is applied (legacy/internal callers only - all sync
+                and preview call sites always pass this).
             
         Returns:
             Dictionary of HubSpot property names to values
         """
         properties: dict[str, Any] = {}
-        
-        # 1. Handle Legacy / Standard Fields (Backward Compatibility)
-        # Deal name (required)
+        allowed_norm = (
+            {normalize_hubspot_deal_property_key(f) for f in allowed_fields}
+            if allowed_fields is not None else None
+        )
+
+        def _is_allowed(key: str) -> bool:
+            return allowed_norm is None or key in allowed_norm
+
+        # Deal name: always required by HubSpot to create a deal. This is a record
+        # identity field, not a togglable "content" field the AI decides to write.
         properties["dealname"] = deal_name or self._generate_deal_name(extraction)
-        
-        # Amount
-        if extraction.dealAmount is not None:
+
+        if _is_allowed("amount") and extraction.dealAmount is not None:
             properties["amount"] = str(extraction.dealAmount)
-        
-        # Close date
-        if extraction.closeDate:
+
+        if _is_allowed("closedate") and extraction.closeDate:
             timestamp = self._to_hubspot_timestamp(extraction.closeDate)
             if timestamp:
                 properties["closedate"] = timestamp
-        
-        # Description (summary)
-        if extraction.summary:
+
+        if _is_allowed("description") and extraction.summary:
             properties["description"] = extraction.summary
 
-        # 2. Handle Dynamic CRM Fields (The "Gold Standard")
-        # If we have raw_extraction, use it as the source of truth for CRM fields
+        # Dynamic CRM fields: any curated field from the portal's schema that the LLM
+        # extracted into raw_extraction, scoped to what the user enabled.
         if extraction.raw_extraction:
-            # Fields we already handled in step 1 or that are not CRM deal properties
-            # deal_currency_code: omit - HubSpot validates against portal's effective currencies;
-            # sending EUR (or other) can fail if not configured for the portal. Amount uses portal default.
-            # dealstage: omit - must be resolved via pipeline schema (label→ID); never send raw labels like "Cierre"
-            # competitors: included - it's a HubSpot deal property in many portals (enumeration)
-            # competitors: handled explicitly below from extraction.competitors (List[str]) or raw
             for key, value in extraction.raw_extraction.items():
                 norm_key = normalize_hubspot_deal_property_key(key)
                 if (
-                    norm_key in _RAW_EXTRACTION_SKIP_KEYS
+                    norm_key in _CORE_FIELDS_HANDLED_SEPARATELY
+                    or norm_key in _ALWAYS_EXCLUDED_PROPERTIES
                     or norm_key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES
                     or _is_empty_raw_value(value)
+                    or not _is_allowed(norm_key)
                 ):
                     continue
 
@@ -356,17 +417,18 @@ class HubSpotDealService:
                         properties[norm_key] = coerced
 
         # competitors: HubSpot expects single enum value (string), e.g. "cobee"
-        competitors_val = extraction.competitors
-        if not competitors_val and extraction.raw_extraction:
-            raw_comp = extraction.raw_extraction.get("competitors")
-            if isinstance(raw_comp, list) and raw_comp:
-                competitors_val = [raw_comp[0]] if isinstance(raw_comp[0], str) else []
-            elif isinstance(raw_comp, str) and raw_comp.strip():
-                competitors_val = [raw_comp.strip()]
-        if competitors_val:
-            single = competitors_val[0] if isinstance(competitors_val[0], str) else str(competitors_val[0])
-            if single:
-                properties["competitors"] = single
+        if _is_allowed("competitors"):
+            competitors_val = extraction.competitors
+            if not competitors_val and extraction.raw_extraction:
+                raw_comp = extraction.raw_extraction.get("competitors")
+                if isinstance(raw_comp, list) and raw_comp:
+                    competitors_val = [raw_comp[0]] if isinstance(raw_comp[0], str) else []
+                elif isinstance(raw_comp, str) and raw_comp.strip():
+                    competitors_val = [raw_comp.strip()]
+            if competitors_val:
+                single = competitors_val[0] if isinstance(competitors_val[0], str) else str(competitors_val[0])
+                if single:
+                    properties["competitors"] = single
         
         return properties
     
@@ -389,6 +451,10 @@ class HubSpotDealService:
         self,
         extraction: MemoExtraction,
         deal_name: Optional[str] = None,
+        allowed_fields: Optional[list[str]] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
+        is_new_deal: bool = True,
     ) -> dict[str, Any]:
         """
         Convert MemoExtraction to HubSpot properties, including stage resolution.
@@ -398,21 +464,47 @@ class HubSpotDealService:
         Args:
             extraction: MemoExtraction from voice memo
             deal_name: Optional deal name
+            allowed_fields: Fields the user enabled in CRM Configuration.
+            default_pipeline_id: User-configured pipeline (CRM Configuration screen).
+                Applied so new deals land where the user expects instead of HubSpot's
+                account-wide default pipeline (which may be a different, unwatched view).
+            default_stage_id: Fallback stage (the target pipeline's first stage) used
+                only when the transcript gives no signal about where the deal stands.
+            is_new_deal: When True (creating a brand new deal), the AI-inferred stage is
+                always applied since there's nothing to override and the deal needs some
+                starting stage. When False (updating an existing deal), stage is only
+                touched if the user explicitly enabled "dealstage" in allowed_fields -
+                same rule as every other field, so a rep's manual pipeline management
+                is never silently overridden.
             
         Returns:
             Dictionary of HubSpot property names to values
         """
-        properties = self.map_extraction_to_properties(extraction, deal_name)
-        
-        # Resolve deal stage: only set when we have a valid HubSpot stage ID
-        # (Labels like "Cierre" are resolved via _resolve_stage_id; invalid values are omitted)
+        properties = self.map_extraction_to_properties(extraction, deal_name, allowed_fields=allowed_fields)
+
+        dealstage_allowed = is_new_deal or "dealstage" in (allowed_fields or [])
+
         stage_raw = extraction.dealStage or (
             extraction.raw_extraction.get("dealstage") if extraction.raw_extraction else None
         )
-        if stage_raw:
-            stage_id = await self._resolve_stage_id(stage_raw)
-            if stage_id:
-                properties["dealstage"] = stage_id
+        stage_id = None
+        if dealstage_allowed and stage_raw:
+            # Scope to the configured pipeline first so we never pair a stage from
+            # one pipeline with a different pipeline (HubSpot rejects that combination).
+            stage_id = await self._resolve_stage_id(stage_raw, pipeline_id=default_pipeline_id)
+
+        if stage_id:
+            properties["dealstage"] = stage_id
+        elif is_new_deal and default_stage_id:
+            # Fallback when the transcript gave no stage signal at all. Only applies to
+            # new deals - existing deals should never be force-moved to a "default" stage.
+            properties["dealstage"] = default_stage_id
+
+        # Always set pipeline when configured, so new deals land in the pipeline the
+        # user picked in CRM Configuration - not HubSpot's account-wide default pipeline,
+        # which is where they'd otherwise silently end up and go unnoticed.
+        if default_pipeline_id:
+            properties["pipeline"] = default_pipeline_id
 
         # Normalize enum fields: LLM returns labels, HubSpot API expects values
         try:
@@ -575,6 +667,9 @@ class HubSpotDealService:
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         hubspot_owner_id: Optional[str] = None,
+        allowed_fields: Optional[list[str]] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> HubSpotDeal:
         """
         Create a new deal based on extraction data.
@@ -586,6 +681,10 @@ class HubSpotDealService:
             extraction: MemoExtraction with deal data
             contact_id: Optional contact ID to associate
             company_id: Optional company ID to associate
+            allowed_fields: Fields the user enabled in CRM Configuration - only
+                these are ever written, regardless of what the LLM extracted.
+            default_pipeline_id: User-configured pipeline for new deals
+            default_stage_id: User-configured default stage for new deals
             
         Returns:
             Created HubSpotDeal
@@ -601,6 +700,10 @@ class HubSpotDealService:
         properties = await self.map_extraction_to_properties_with_stage(
             extraction,
             deal_name=deal_name,
+            allowed_fields=allowed_fields,
+            default_pipeline_id=default_pipeline_id,
+            default_stage_id=default_stage_id,
+            is_new_deal=True,
         )
 
         return await self.create(

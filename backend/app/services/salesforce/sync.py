@@ -16,6 +16,7 @@ from app.metrics import inc_pipeline_error, record_sync_duration
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
 from app.services.deal_merge import DealMergeService
+from app.services.extraction import _clean_extracted_name
 from app.services.hubspot.types import SyncResult
 
 from .accounts import SalesforceAccountService
@@ -98,8 +99,8 @@ class SalesforceSyncService:
                     logger.warning("Salesforce account upsert failed: %s", e)
 
             raw = extraction.raw_extraction or {}
-            company = extraction.companyName or raw.get("companyName")
-            contact_name = extraction.contactName or raw.get("contactName")
+            company = extraction.companyName or _clean_extracted_name(raw.get("companyName"))
+            contact_name = extraction.contactName or _clean_extracted_name(raw.get("contactName"))
             contact_email = extraction.contactEmail or raw.get("contactEmail")
             if company and not contact_name and not contact_email:
                 contact_name = f"Contact at {company}"

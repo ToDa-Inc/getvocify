@@ -18,7 +18,7 @@ from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
 from app.services.memo_approval import approve_memo_core
-from app.services.memo_crm import get_memo_crm_or_none
+from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
@@ -35,29 +35,54 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/memos", tags=["memos"])
 
 
+_DEAL_STAGE_INFERENCE_HINT = (
+    "Infer which pipeline stage this deal should be in based on what was actually "
+    "discussed (e.g. a demo was scheduled -> appointment stage; a contract was sent "
+    "-> contract stage; they just said thanks with no forward motion -> leave as-is). "
+    "Only set this if the conversation clearly implies a stage; return null rather "
+    "than guessing."
+)
+
+
 async def _curated_field_specs_for_primary_crm(
     supabase: Client,
     user_id: str,
 ) -> Optional[list]:
-    """Field specs for LLM extraction from the user's primary (or sole) CRM."""
+    """
+    Field specs for LLM extraction from the user's primary (or sole) CRM.
+
+    Deal stage is always requested from the LLM, regardless of the user's Editable
+    Fields selection: which stage a deal should be in is something to infer from the
+    conversation on every memo, not a fixed field that has to be opted into - the
+    user reviews and can change the AI's guess in the approval screen either way.
+    """
     config_service = CRMConfigurationService(supabase)
     try:
         config = await config_service.get_configuration(user_id)
     except Exception:
         config = None
-    allowed_fields = config.allowed_deal_fields if config else None
-    if not allowed_fields:
-        return None
+    allowed_fields = list(config.allowed_deal_fields) if config and config.allowed_deal_fields else []
     try:
-        provider, _ = get_memo_crm_or_none(supabase, user_id)
+        provider, conn = await get_memo_crm_or_none_with_hubspot_refresh(supabase, user_id)
     except HTTPException:
         return None
     if not provider:
         return None
+    stage_field = "StageName" if (conn or {}).get("provider") == "salesforce" else "dealstage"
+    if stage_field not in allowed_fields:
+        allowed_fields.append(stage_field)
     try:
-        return await provider.get_curated_field_specs(allowed_fields)
+        specs = await provider.get_curated_field_specs(allowed_fields)
     except Exception:
         return None
+    for spec in specs:
+        if spec.get("name") == stage_field:
+            existing_desc = (spec.get("description") or "").strip()
+            spec["description"] = (
+                f"{_DEAL_STAGE_INFERENCE_HINT} {existing_desc}".strip()
+                if existing_desc else _DEAL_STAGE_INFERENCE_HINT
+            )
+    return specs
 
 
 def _memo_from_row(memo_data: dict) -> Memo:
@@ -628,6 +653,21 @@ async def approve_memo(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from e
         if "Unsupported CRM provider" in detail:
             raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=detail) from e
+        if (
+            "HubSpot authorization expired" in detail
+            or "Could not refresh HubSpot" in detail
+            or (
+                "Authentication failed" in detail
+                and (
+                    "expired" in detail.lower()
+                    or "oauth" in detail.lower()
+                )
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=detail if "HubSpot" in detail else "HubSpot session expired. Disconnect and reconnect in Integrations.",
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
@@ -743,7 +783,7 @@ async def match_memo_to_deals(
         )
     
     try:
-        provider, conn = get_memo_crm_or_none(supabase, user_id)
+        provider, conn = await get_memo_crm_or_none_with_hubspot_refresh(supabase, user_id)
     except HTTPException:
         return []
     if not provider or not conn:
@@ -802,7 +842,13 @@ async def get_approval_preview(
             detail="Memo extraction not available",
         )
     
-    provider, conn = get_memo_crm_or_none(supabase, user_id)
+    try:
+        provider, conn = await get_memo_crm_or_none_with_hubspot_refresh(supabase, user_id)
+    except HTTPException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.detail,
+        ) from e
     if not provider or not conn:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -820,10 +866,12 @@ async def get_approval_preview(
         allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
     extraction = MemoExtraction(**extraction_data)
-    matches: list = []
-    if not deal_id:
-        pipeline_id = config.default_pipeline_id if config else None
-        matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+    # Always compute matches (even when deal_id is already known) so build_preview can
+    # show the real match reason/confidence for the targeted deal, instead of falling
+    # back to a generic "Manual Selection" label for what was actually an auto-match
+    # (the frontend pre-selects the top candidate before the user does anything).
+    pipeline_id = config.default_pipeline_id if config else None
+    matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
 
     try:
         logger.info(
@@ -838,6 +886,8 @@ async def get_approval_preview(
             selected_deal_id=deal_id,
             allowed_fields=allowed_fields,
             default_stage_name=config.default_stage_name if config else None,
+            default_pipeline_id=config.default_pipeline_id if config else None,
+            default_stage_id=config.default_stage_id if config else None,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -889,7 +939,13 @@ async def post_approval_preview(
     if not extraction_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Memo extraction not available")
 
-    provider, conn = get_memo_crm_or_none(supabase, user_id)
+    try:
+        provider, conn = await get_memo_crm_or_none_with_hubspot_refresh(supabase, user_id)
+    except HTTPException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.detail,
+        ) from e
     if not provider or not conn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM connection not found")
 
@@ -904,10 +960,11 @@ async def post_approval_preview(
         allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
     extraction = MemoExtraction(**extraction_data)
-    matches: list = []
-    if not deal_id:
-        pipeline_id = config.default_pipeline_id if config else None
-        matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+    # Always compute matches (even when deal_id is already known) so build_preview can
+    # show the real match reason/confidence for the targeted deal, instead of falling
+    # back to a generic "Manual Selection" label for what was actually an auto-match.
+    pipeline_id = config.default_pipeline_id if config else None
+    matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
 
     try:
         preview = await provider.build_preview(
@@ -918,6 +975,8 @@ async def post_approval_preview(
             selected_deal_id=deal_id,
             allowed_fields=allowed_fields,
             default_stage_name=config.default_stage_name if config else None,
+            default_pipeline_id=config.default_pipeline_id if config else None,
+            default_stage_id=config.default_stage_id if config else None,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)

@@ -98,8 +98,12 @@ class RecoveryService:
             user_id = memo_data.get("user_id")
             config_service = CRMConfigurationService(self.supabase)
             config = await config_service.get_configuration(user_id)
-            allowed_fields = config.allowed_deal_fields if config else None
-            
+            allowed_fields = list(config.allowed_deal_fields) if config and config.allowed_deal_fields else []
+            # Deal stage is always inferred from the conversation, regardless of
+            # Editable Fields (see api/memos.py's _curated_field_specs_for_primary_crm).
+            if "dealstage" not in allowed_fields:
+                allowed_fields.append("dealstage")
+
             field_specs = None
             if allowed_fields:
                 try:

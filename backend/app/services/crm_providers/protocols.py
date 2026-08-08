@@ -29,6 +29,8 @@ class CRMExtractionSyncProtocol(Protocol):
         auto_create_companies: Optional[bool] = None,
         auto_create_contacts: Optional[bool] = None,
         default_stage_name: Optional[str] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> SyncResult: ...
 
 
@@ -44,6 +46,8 @@ class CRMPreviewProtocol(Protocol):
         selected_deal_id: Optional[str],
         allowed_fields: Optional[list[str]],
         default_stage_name: Optional[str] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> ApprovalPreview: ...
 
 

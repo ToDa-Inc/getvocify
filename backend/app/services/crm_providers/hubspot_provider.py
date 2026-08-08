@@ -86,7 +86,12 @@ class HubSpotCRMProvider:
         auto_create_companies: Optional[bool] = None,
         auto_create_contacts: Optional[bool] = None,
         default_stage_name: Optional[str] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> SyncResult:
+        # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
+        # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
+        # default_pipeline_id/default_stage_id directly (no ambiguous name resolution).
         del default_stage_name
         return await self._sync_service().sync_memo(
             memo_id=memo_id,
@@ -100,6 +105,8 @@ class HubSpotCRMProvider:
             auto_create_contact_company=auto_create_contact_company,
             auto_create_companies=auto_create_companies,
             auto_create_contacts=auto_create_contacts,
+            default_pipeline_id=default_pipeline_id,
+            default_stage_id=default_stage_id,
         )
 
     async def build_preview(
@@ -111,8 +118,10 @@ class HubSpotCRMProvider:
         selected_deal_id: Optional[str],
         allowed_fields: Optional[list[str]],
         default_stage_name: Optional[str] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> ApprovalPreview:
-        del default_stage_name  # HubSpot uses pipeline config inside deal service
+        del default_stage_name  # HubSpot Configuration stores canonical IDs, not names
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,
@@ -120,6 +129,8 @@ class HubSpotCRMProvider:
             matched_deals=matched_deals,
             selected_deal_id=selected_deal_id,
             allowed_fields=allowed_fields,
+            default_pipeline_id=default_pipeline_id,
+            default_stage_id=default_stage_id,
         )
 
     async def find_matching_deals(

@@ -191,6 +191,7 @@ class ValidationResult(BaseModel):
     valid: bool
     portal_id: Optional[str] = None
     region: Optional[str] = "na1"  # eu1, na1, etc.
+    ui_domain: Optional[str] = None
     scopes_ok: bool = False
     error: Optional[str] = None
     error_code: Optional[str] = None

@@ -18,8 +18,9 @@ from app.services.crm_providers import (
     build_crm_provider,
     resolve_sync_connection,
 )
-from app.services.hubspot.types import SyncResult
+from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
+from app.services.hubspot.types import SyncResult
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,12 @@ async def approve_memo_core(
             approvedAt=m.get("approved_at"),
         )
 
+    if crm_connection.get("provider") == "hubspot":
+        try:
+            crm_connection = await ensure_hubspot_connection_tokens_fresh(supabase, crm_connection)
+        except ValueError as e:
+            raise ValueError(str(e)) from e
+
     extraction = MemoExtraction(**extraction_data)
     deal_id: Optional[str] = None
     is_new_deal = False
@@ -162,6 +169,8 @@ async def approve_memo_core(
         raise ValueError(str(e)) from e
 
     default_stage = config.default_stage_name if config else None
+    default_pipeline_id = (config.default_pipeline_id or None) if config else None
+    default_stage_id = (config.default_stage_id or None) if config else None
 
     sync_result = await provider.sync_memo(
         memo_id=memo_id,
@@ -176,6 +185,8 @@ async def approve_memo_core(
         auto_create_companies=auto_create_companies,
         auto_create_contacts=auto_create_contacts,
         default_stage_name=default_stage,
+        default_pipeline_id=default_pipeline_id,
+        default_stage_id=default_stage_id,
     )
 
     if not sync_result.success:

@@ -7,6 +7,7 @@ Validates Private App tokens and checks required scopes.
 from .client import HubSpotClient
 from .exceptions import HubSpotAuthError, HubSpotScopeError
 from .types import ValidationResult
+from .account_info import infer_region_from_token, resolve_account_context
 
 
 class HubSpotValidationService:
@@ -77,21 +78,11 @@ class HubSpotValidationService:
                 error_code="INVALID_FORMAT",
             )
         
-        # Step 2: Test authentication with a simple read request
-        # Use account info endpoint which requires minimal permissions
+        # Step 2: Test authentication and resolve portal + hosting region
         try:
-            # Try to get account info (this also returns portal ID)
-            account_info = await self.client.get("/integrations/v1/me")
-            
-            if not account_info:
-                return ValidationResult(
-                    valid=False,
-                    error="Failed to retrieve account information",
-                    error_code="AUTH_FAILED",
-                )
-            
-            portal_id = str(account_info.get("portalId", ""))
-            
+            account_ctx = await resolve_account_context(self.client)
+            portal_id = account_ctx.portal_id
+            region = account_ctx.region
         except HubSpotAuthError as e:
             return ValidationResult(
                 valid=False,
@@ -108,19 +99,11 @@ class HubSpotValidationService:
         # Step 3: Test required scopes by making actual API calls
         scopes_ok = await self._test_scopes()
         
-        # Determine region from token if possible
-        region = "na1"
-        token = self.client.access_token
-        if token.startswith("pat-"):
-            # Format: pat-region-uuid or pat-uuid
-            parts = token.split("-")
-            if len(parts) >= 3 and not parts[1][0].isdigit():
-                region = parts[1]
-        
         return ValidationResult(
             valid=True,
             portal_id=portal_id,
-            region=region,
+            region=region or infer_region_from_token(self.client.access_token),
+            ui_domain=account_ctx.ui_domain,
             scopes_ok=scopes_ok,
         )
     

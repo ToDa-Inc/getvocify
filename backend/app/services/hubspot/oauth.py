@@ -117,3 +117,38 @@ async def exchange_code_for_tokens(code: str) -> dict:
         )
         response.raise_for_status()
         return response.json()
+
+
+async def refresh_access_token(refresh_token: str) -> dict:
+    """
+    Exchange a HubSpot OAuth refresh token for new access + refresh tokens.
+
+    Returns:
+        dict with access_token, refresh_token (optional rotation), expires_in
+
+    Raises:
+        RuntimeError if OAuth client is not configured
+        httpx.HTTPStatusError if HubSpot rejects the refresh (e.g. refresh token expired)
+    """
+    if not oauth_enabled():
+        raise RuntimeError("HubSpot OAuth not configured.")
+
+    if not refresh_token or not refresh_token.strip():
+        raise ValueError("Missing refresh token")
+
+    data = {
+        "grant_type": "refresh_token",
+        "client_id": settings.HUBSPOT_CLIENT_ID,
+        "client_secret": settings.HUBSPOT_CLIENT_SECRET,
+        "refresh_token": refresh_token.strip(),
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            HUBSPOT_TOKEN_URL,
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        return response.json()

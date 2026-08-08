@@ -8,6 +8,8 @@ import PrivacyPage from "./pages/PrivacyPage";
 import AboutPage from "./pages/AboutPage";
 import BlogPage from "./pages/BlogPage";
 import TermsPage from "./pages/TermsPage";
+import DocsPage from "./pages/DocsPage";
+import SupportPage from "./pages/SupportPage";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
@@ -84,6 +86,8 @@ const App = () => (
             <Route path="/about" element={<AboutPage />} />
             <Route path="/blog" element={<BlogPage />} />
             <Route path="/terms" element={<TermsPage />} />
+            <Route path="/docs" element={<DocsPage />} />
+            <Route path="/support" element={<SupportPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/dashboard" element={

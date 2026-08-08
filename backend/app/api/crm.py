@@ -197,6 +197,7 @@ async def connect_hubspot(
         "metadata": {
             "portal_id": validation_result.portal_id,
             "region": validation_result.region,
+            "ui_domain": validation_result.ui_domain,
         },
     }
     
@@ -336,6 +337,7 @@ async def hubspot_callback(
         "metadata": {
             "portal_id": validation_result.portal_id,
             "region": validation_result.region or "na1",
+            "ui_domain": validation_result.ui_domain,
         },
     }
 

@@ -12,7 +12,9 @@ from app.models.memo import MemoExtraction
 from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, AvailableField
 from .client import HubSpotClient
 from .exceptions import HubSpotError
-from .deals import HubSpotDealService
+from app.services.deal_merge import merge_description
+from .deals import HubSpotDealService, _sanitize_enum_properties
+from .tasks import format_next_step_task, _next_step_schedule_hints
 from .schema import HubSpotSchemaService
 from .associations import HubSpotAssociationService
 from .contacts import HubSpotContactService
@@ -62,12 +64,17 @@ class HubSpotPreviewService:
         matched_deals: list[DealMatch],
         selected_deal_id: Optional[str] = None,
         allowed_fields: Optional[list[str]] = None,
+        default_pipeline_id: Optional[str] = None,
+        default_stage_id: Optional[str] = None,
     ) -> ApprovalPreview:
         """
         Build approval preview with proposed updates.
         
-        Uses config's allowed_deal_fields and the same mapping as sync.
-        Shows what the LLM extracted for each allowed field.
+        Uses config's allowed_deal_fields and the exact same mapping + validation
+        pipeline as sync (map_extraction_to_properties_with_stage + schema-driven
+        sanitization). This is what guarantees the preview never promises a field
+        update that sync can't actually deliver: whatever passes validation here is
+        exactly what will be sent when the user approves.
         """
         transcript_summary = transcript[:200] + "..." if len(transcript) > 200 else transcript
         transcript_full = transcript if transcript else None
@@ -79,20 +86,72 @@ class HubSpotPreviewService:
         selected_deal: Optional[DealMatch] = None
         proposed_updates: list[ProposedUpdate] = []
 
-        # Get properties using same logic as sync (uses extraction + raw_extraction)
-        properties = self.deals.map_extraction_to_properties(extraction)
+        # For a brand new deal, the AI-inferred stage is always shown/applied since
+        # there's nothing to override. For an existing deal, stage is only touched
+        # when the user explicitly enabled "dealstage" in Editable Fields - same rule
+        # as every other field, so a rep's manual pipeline management is never
+        # silently overridden by the preview/sync.
+        show_stage = is_new_deal or "dealstage" in allowed_fields
+        if "dealstage" in allowed_fields or not show_stage:
+            preview_fields = allowed_fields
+        else:
+            preview_fields = [*allowed_fields, "dealstage"]
 
-        # Filter by allowed_fields - only show what config permits
-        filtered_properties = {k: v for k, v in properties.items() if k in allowed_fields}
+        # For an existing deal, scope stage resolution to its own current pipeline -
+        # otherwise an inferred stage label could resolve against a different
+        # pipeline's stage of the same name, which sync would then reject (or worse,
+        # preview one thing and sync would resolve a different one).
+        existing_deal_pipeline_id: Optional[str] = None
+        if not is_new_deal:
+            try:
+                _pipeline_probe = await self.deals.get(selected_deal_id, properties=["pipeline"])
+                existing_deal_pipeline_id = (_pipeline_probe.properties or {}).get("pipeline")
+            except Exception:
+                pass
+
+        # Get properties using the exact same mapping + validation as sync, so a
+        # field only shows up here if it will actually be written on approval.
+        properties = await self.deals.map_extraction_to_properties_with_stage(
+            extraction,
+            allowed_fields=allowed_fields,
+            default_pipeline_id=default_pipeline_id if is_new_deal else existing_deal_pipeline_id,
+            default_stage_id=default_stage_id if is_new_deal else None,
+            is_new_deal=is_new_deal,
+        )
+        properties = await _sanitize_enum_properties(self.schema, properties)
+
+        # Filter by allowed fields (+ dealstage, always) - only show what config permits
+        filtered_properties = {k: v for k, v in properties.items() if k in preview_fields}
 
         # Get field labels and metadata from schema (single fetch for all allowed fields)
         field_labels: dict[str, str] = {}
         field_specs_map: dict[str, dict] = {}
         try:
-            field_specs = await self.schema.get_curated_field_specs("deals", allowed_fields)
+            field_specs = await self.schema.get_curated_field_specs("deals", preview_fields)
             for s in field_specs:
                 field_labels[s["name"]] = s["label"]
                 field_specs_map[s["name"]] = s
+        except Exception:
+            pass
+
+        # Deal stage options must come from the target pipeline's own stages, not the
+        # flat "dealstage" property (which mixes stage labels from every pipeline) -
+        # otherwise the dropdown would offer stages that don't belong together.
+        try:
+            stage_pipeline_id = default_pipeline_id if is_new_deal else existing_deal_pipeline_id
+            deal_schema = await self.schema.get_deal_schema()
+            stage_pipeline = next(
+                (p for p in deal_schema.pipelines if p.id == stage_pipeline_id),
+                deal_schema.pipelines[0] if deal_schema.pipelines else None,
+            )
+            if stage_pipeline:
+                field_specs_map["dealstage"] = {
+                    "name": "dealstage",
+                    "label": field_labels.get("dealstage", "Deal Stage"),
+                    "type": "enumeration",
+                    "options": [{"value": s.id, "label": s.label} for s in stage_pipeline.stages],
+                }
+                field_labels["dealstage"] = field_specs_map["dealstage"]["label"]
         except Exception:
             pass
 
@@ -103,15 +162,26 @@ class HubSpotPreviewService:
             next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
         for i, step in enumerate(next_steps):
             if step and str(step).strip():
+                schedule_hints = _next_step_schedule_hints(extraction)
+                hint = schedule_hints[i] if i < len(schedule_hints) else None
+                formatted = format_next_step_task(
+                    str(step).strip(),
+                    contact_name=extraction.contactName,
+                    schedule_hint=hint or None,
+                )
                 proposed_updates.append(ProposedUpdate(
                     field_name=f"next_step_task_{i}",
                     field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
                     current_value=None,
-                    new_value=str(step).strip(),
+                    new_value=formatted.subject,
                     extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
                 ))
 
-        # For display: use human-readable extraction values when available
+        # For display: use human-readable extraction values when available.
+        # Note: enum/select fields intentionally keep their raw API value here (not
+        # the label) - the frontend maps value -> label for display using the
+        # `options` list on each ProposedUpdate, while the underlying value stays the
+        # one that actually gets sent to HubSpot (and drives the edit dropdown).
         def _display_value(field_name: str, value: Any) -> str:
             if value is None or value == "":
                 return ""
@@ -149,7 +219,7 @@ class HubSpotPreviewService:
 
             if not selected_deal:
                 try:
-                    deal = await self.deals.get(selected_deal_id, properties=allowed_fields)
+                    deal = await self.deals.get(selected_deal_id, properties=preview_fields)
                     current_props = deal.properties or {}
                     company_name = None
                     contact_name = None
@@ -190,7 +260,7 @@ class HubSpotPreviewService:
                     pass
             elif selected_deal:
                 try:
-                    deal = await self.deals.get(selected_deal_id, properties=allowed_fields)
+                    deal = await self.deals.get(selected_deal_id, properties=preview_fields)
                     current_props = deal.properties or {}
                     if self.associations and self.company_service:
                         try:
@@ -222,9 +292,12 @@ class HubSpotPreviewService:
 
                     current_value = current_props.get(field_name)
 
-                    # For description, append mode (same as sync)
+                    # For description, append only when content is new (same as sync merge)
                     if field_name == "description" and current_value:
-                        new_display = f"{current_value}\n\n{_format_value_for_display(new_value)}"
+                        merged_desc = merge_description(current_value, new_value)
+                        if merged_desc is None:
+                            continue
+                        new_display = merged_desc
                     else:
                         new_display = _display_value(field_name, new_value)
 
@@ -266,6 +339,14 @@ class HubSpotPreviewService:
                     new_value=extraction.companyName,
                     extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
                 ))
+
+        # Deal stage is the field the user most needs to sanity-check per memo (it's
+        # inferred fresh each time, not a fixed setting) - always surface it first so
+        # it's the first thing reviewed, not buried among other fields.
+        for i, u in enumerate(proposed_updates):
+            if u.field_name == "dealstage":
+                proposed_updates.insert(0, proposed_updates.pop(i))
+                break
 
         # Compute available_fields: allowed_deal_fields not yet in proposed_updates (reuse field_specs_map)
         proposed_field_names = {

@@ -227,7 +227,7 @@ async def unipile_webhook(request: Request):
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
 
-async def _refresh_hubspot_token(supabase, row_id: str, refresh_token: str) -> str | None:
+async def _refresh_hubspot_token(supabase, row_id: str, refresh_token: str):
     """Exchange a refresh token for a new access token and persist it. Returns new access token or None."""
     from app.config import settings
     import httpx
