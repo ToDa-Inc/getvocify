@@ -38,6 +38,17 @@ HUBSPOT_READ_ONLY_DEAL_PROPERTIES = frozenset({
     "hs_merged_object_ids", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
 })
 
+# raw_extraction keys that are NOT HubSpot deal properties (compare after normalize_hubspot_deal_property_key).
+_RAW_EXTRACTION_SKIP_KEYS = frozenset({
+    "dealname", "amount", "closedate", "description", "summary",
+    "painpoints", "nextsteps", "objections", "decisionmakers", "competitors",
+    "confidence", "contactname", "companyname", "contactemail", "contactphone",
+    "deal_currency_code", "dealstage",
+    # snake_case variants from LLM / legacy payloads
+    "pain_points", "next_steps", "decision_makers", "company_name",
+    "contact_name", "contact_email", "contact_phone",
+})
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,6 +80,28 @@ def _resolve_token_to_option_value(token: str, options: list[PropertyOption]) ->
     return None
 
 
+def _is_empty_raw_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (list, dict, str)) and len(value) == 0:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    return False
+
+
+def _coerce_scalar_property_value(value: Any) -> Any:
+    """HubSpot deal properties are scalars; LLM output may use string[]."""
+    if isinstance(value, list):
+        parts = [str(v).strip() for v in value if v is not None and str(v).strip()]
+        if not parts:
+            return None
+        return ";".join(parts) if len(parts) > 1 else parts[0]
+    if isinstance(value, dict):
+        return None
+    return value
+
+
 async def _sanitize_enum_properties(
     schema_service: HubSpotSchemaService,
     properties: dict[str, Any],
@@ -95,7 +128,9 @@ async def _sanitize_enum_properties(
 
         prop = prop_map.get(key)
         if not prop or prop.type not in ("enumeration", "checkbox", "radio", "select") or not prop.options:
-            sanitized[key] = value
+            coerced = _coerce_scalar_property_value(value)
+            if coerced is not None and not (isinstance(coerced, str) and not coerced.strip()):
+                sanitized[key] = coerced
             continue
 
         tokens = _parse_enum_tokens(value)
@@ -297,25 +332,13 @@ class HubSpotDealService:
             # sending EUR (or other) can fail if not configured for the portal. Amount uses portal default.
             # dealstage: omit - must be resolved via pipeline schema (label→ID); never send raw labels like "Cierre"
             # competitors: included - it's a HubSpot deal property in many portals (enumeration)
-            skip_fields = [
-                "dealname", "amount", "closedate", "description",
-                "summary", "painPoints", "nextSteps",
-                "objections", "decisionMakers", "confidence",
-                "contactName", "companyName", "contactEmail",  # Used for associations, not deal props
-                "deal_currency_code",  # Portal-specific; omit to avoid INVALID_OPTION validation
-                "dealstage",  # Resolved separately via _resolve_stage_id; labels (e.g. "Cierre") are invalid
-            ]
-            # competitors: in schema as single-enum (HubSpot expects string), kept in skip for raw loop;
-            # handled explicitly below from extraction.competitors (List[str]) or raw
-            competitors_skip_in_loop = "competitors"
-
+            # competitors: handled explicitly below from extraction.competitors (List[str]) or raw
             for key, value in extraction.raw_extraction.items():
                 norm_key = normalize_hubspot_deal_property_key(key)
                 if (
-                    norm_key in skip_fields
-                    or norm_key == competitors_skip_in_loop
+                    norm_key in _RAW_EXTRACTION_SKIP_KEYS
                     or norm_key in HUBSPOT_READ_ONLY_DEAL_PROPERTIES
-                    or value is None
+                    or _is_empty_raw_value(value)
                 ):
                     continue
 
@@ -327,9 +350,10 @@ class HubSpotDealService:
                 # Special handling for numbers
                 elif isinstance(value, (int, float)):
                     properties[norm_key] = str(value)
-                # Everything else is passed through
                 else:
-                    properties[norm_key] = value
+                    coerced = _coerce_scalar_property_value(value)
+                    if coerced is not None and not (isinstance(coerced, str) and not coerced.strip()):
+                        properties[norm_key] = coerced
 
         # competitors: HubSpot expects single enum value (string), e.g. "cobee"
         competitors_val = extraction.competitors
