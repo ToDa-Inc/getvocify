@@ -7,12 +7,14 @@ Users are created in Supabase Auth and then a profile is created in user_profile
 
 import logging
 import re
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
 from typing import Optional
 
+from app.config import settings
 from app.deps import get_supabase, get_supabase_auth, get_user_id
+from app.rate_limit import limiter
 from supabase import Client
 
 
@@ -81,8 +83,10 @@ class AuthResponse(BaseModel):
 # ============================================================================
 
 @router.post("/signup", response_model=AuthResponse)
+@limiter.limit("5/hour")
 async def signup(
-    request: SignupRequest,
+    request: Request,
+    body: SignupRequest,
     supabase: Client = Depends(get_supabase),
     auth_client: Client = Depends(get_supabase_auth),
 ):
@@ -100,8 +104,8 @@ async def signup(
         # Auth only on the anon client — never sign_up on the service-role DB client
         # (supabase-py replaces Authorization with the user JWT on SIGNED_IN).
         auth_response = auth_client.auth.sign_up({
-            "email": request.email,
-            "password": request.password,
+            "email": body.email,
+            "password": body.password,
         })
         
         if not auth_response.user:
@@ -117,8 +121,8 @@ async def signup(
         # Create user profile in user_profiles table
         profile_data = {
             "id": user_id,
-            "full_name": request.full_name,
-            "company_name": request.company_name,
+            "full_name": body.full_name,
+            "company_name": body.company_name,
         }
         
         profile_result = supabase.table("user_profiles").insert(profile_data).execute()
@@ -136,7 +140,7 @@ async def signup(
         return AuthResponse(
             user=UserResponse(
                 id=user_id,
-                email=request.email,
+                email=body.email,
                 full_name=profile.get("full_name"),
                 company_name=profile.get("company_name"),
                 avatar_url=profile.get("avatar_url"),
@@ -170,8 +174,10 @@ async def signup(
 
 
 @router.post("/login", response_model=AuthResponse)
+@limiter.limit("10/minute")
 async def login(
-    request: LoginRequest,
+    request: Request,
+    body: LoginRequest,
     supabase: Client = Depends(get_supabase),
     auth_client: Client = Depends(get_supabase_auth),
 ):
@@ -185,8 +191,8 @@ async def login(
         # Auth only on the anon client — never sign_in on the service-role DB client
         # (supabase-py replaces Authorization with the user JWT on SIGNED_IN → RLS 42501).
         auth_response = auth_client.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password,
+            "email": body.email,
+            "password": body.password,
         })
         
         if not auth_response.user or not auth_response.session:
@@ -234,7 +240,7 @@ async def login(
         raise
     except Exception as e:
         error_msg = str(e)
-        logger.warning("Login failed for %s: %s", request.email, error_msg[:200])
+        logger.warning("Login failed for %s: %s", body.email, error_msg[:200])
         if "Invalid login credentials" in error_msg or "invalid" in error_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -368,43 +374,67 @@ class RefreshResponse(BaseModel):
     expires_in: int = 3600
 
 
-def _email_from_access_token(access_token: Optional[str]) -> Optional[str]:
-    """Decode JWT claims without verifying expiry (token may already be expired)."""
+def _decode_access_token_claims(access_token: Optional[str]) -> Optional[dict]:
+    """
+    Decode a Supabase-issued access token's claims, tolerating expiry (the whole
+    point of calling this is that the token has usually just expired).
+
+    Used ONLY to identify who to re-issue a session for when GoTrue's own
+    refresh_session call is broken (see _reissue_session_bypassing_broken_refresh)
+    - never to authorize a request. When SUPABASE_JWT_SECRET is configured, the
+    signature IS verified (exp is still ignored), so a tampered/forged token
+    is rejected outright instead of being trusted. Without that secret set, we
+    fall back to an unverified decode, matching prior behavior.
+    """
     if not access_token or access_token in ("undefined", "null"):
         return None
     try:
         import jwt as pyjwt
 
-        claims = pyjwt.decode(
+        secret = settings.SUPABASE_JWT_SECRET
+        if secret:
+            try:
+                return pyjwt.decode(
+                    access_token,
+                    secret,
+                    algorithms=["HS256"],
+                    options={"verify_exp": False},
+                    audience="authenticated",
+                )
+            except pyjwt.InvalidTokenError as e:
+                # Signature (or audience) didn't verify - do NOT fall back to an
+                # unverified decode here, that would defeat the point of setting
+                # the secret in the first place.
+                logger.warning("Access token signature verification failed during refresh bypass: %s", e)
+                return None
+        return pyjwt.decode(
             access_token,
             options={"verify_signature": False, "verify_exp": False},
         )
-        email = claims.get("email")
-        if isinstance(email, str) and "@" in email:
-            return email
-        meta = claims.get("user_metadata") or {}
-        meta_email = meta.get("email") if isinstance(meta, dict) else None
-        if isinstance(meta_email, str) and "@" in meta_email:
-            return meta_email
-        return None
     except Exception:
         return None
+
+
+def _email_from_access_token(access_token: Optional[str]) -> Optional[str]:
+    claims = _decode_access_token_claims(access_token)
+    if not claims:
+        return None
+    email = claims.get("email")
+    if isinstance(email, str) and "@" in email:
+        return email
+    meta = claims.get("user_metadata") or {}
+    meta_email = meta.get("email") if isinstance(meta, dict) else None
+    if isinstance(meta_email, str) and "@" in meta_email:
+        return meta_email
+    return None
 
 
 def _user_id_from_access_token(access_token: Optional[str]) -> Optional[str]:
-    if not access_token or access_token in ("undefined", "null"):
+    claims = _decode_access_token_claims(access_token)
+    if not claims:
         return None
-    try:
-        import jwt as pyjwt
-
-        claims = pyjwt.decode(
-            access_token,
-            options={"verify_signature": False, "verify_exp": False},
-        )
-        sub = claims.get("sub")
-        return str(sub) if sub else None
-    except Exception:
-        return None
+    sub = claims.get("sub")
+    return str(sub) if sub else None
 
 
 def _reissue_session_bypassing_broken_refresh(email: Optional[str], user_id: Optional[str]) -> RefreshResponse:
@@ -473,8 +503,10 @@ def _reissue_session_bypassing_broken_refresh(email: Optional[str], user_id: Opt
 
 
 @router.post("/refresh", response_model=RefreshResponse)
+@limiter.limit("30/minute")
 async def refresh_token(
-    request: RefreshRequest,
+    request: Request,
+    body: RefreshRequest,
     supabase: Client = Depends(get_supabase_auth),
 ):
     """
@@ -484,7 +516,7 @@ async def refresh_token(
     Uses the anon-key auth client when available (more reliable than service role).
     If GoTrue refresh is broken (oauth_client_id), falls back to admin session re-issue.
     """
-    token = (request.refresh_token or "").strip()
+    token = (body.refresh_token or "").strip()
     if not token or token in ("undefined", "null"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -531,8 +563,8 @@ async def refresh_token(
                 error_msg,
             )
             return _reissue_session_bypassing_broken_refresh(
-                email=_email_from_access_token(request.access_token),
-                user_id=_user_id_from_access_token(request.access_token),
+                email=_email_from_access_token(body.access_token),
+                user_id=_user_id_from_access_token(body.access_token),
             )
 
         # GoTrue often returns 500 for already-used / invalid refresh tokens

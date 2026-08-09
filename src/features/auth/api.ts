@@ -81,11 +81,18 @@ export const authApi = {
   },
 
   /**
-   * Refresh the access token
+   * Refresh the access token.
+   *
+   * accessToken (the current, possibly just-expired one) lets the backend
+   * identify the user if Supabase's refresh_session hits the known
+   * "oauth_client_id" platform bug and has to fall back to re-issuing a
+   * session via admin magiclink - without it, that fallback can't resolve
+   * who to re-issue for and the session is lost instead of renewed.
    */
-  refresh: async (refreshToken: string): Promise<RefreshResponse> => {
+  refresh: async (refreshToken: string, accessToken?: string | null): Promise<RefreshResponse> => {
     const raw = await api.post<Record<string, unknown>>('/auth/refresh', {
       refresh_token: refreshToken,
+      ...(accessToken && { access_token: accessToken }),
     });
     return {
       accessToken: raw.access_token as string,

@@ -1389,7 +1389,28 @@ async def _extract_and_create_memo(
         }
         if conversation_id:
             insert["conversation_id"] = conversation_id
-        r = supabase.table("memos").insert(insert).execute()
+        try:
+            r = supabase.table("memos").insert(insert).execute()
+        except Exception as insert_exc:
+            # Lost a race against a redelivered webhook for the same message_id
+            # (see migrations/014_whatsapp_message_id_unique.sql) - the other
+            # request already created the memo, fetch and return it instead of
+            # failing (and instead of silently dropping the message).
+            if "duplicate key" in str(insert_exc).lower() or "23505" in str(insert_exc):
+                logger.info(
+                    "📋 Memo idempotent hit (race on insert)",
+                    extra=log_domain(DOMAIN_WHATSAPP, "memo_idempotent_race", whatsapp_message_id=whatsapp_message_id),
+                )
+                retry = (
+                    supabase.table("memos")
+                    .select("id", "extraction")
+                    .eq("whatsapp_message_id", whatsapp_message_id)
+                    .limit(1)
+                    .execute()
+                )
+                if retry.data:
+                    return retry.data[0]["id"], MemoExtraction(**retry.data[0]["extraction"])
+            raise
         if not r.data:
             return None, None
         memo_id = r.data[0]["id"]

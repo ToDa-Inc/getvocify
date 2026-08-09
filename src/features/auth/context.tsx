@@ -145,7 +145,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       throw new Error('No refresh token');
     }
 
-    const response = await authApi.refresh(refreshToken);
+    const response = await authApi.refresh(refreshToken, getStoredToken());
     localStorage.setItem(TOKEN_KEY, response.accessToken);
     api.setToken(response.accessToken);
     if (response.refreshToken) {

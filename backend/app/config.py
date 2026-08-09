@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     # Anon/publishable key for Auth (login/refresh). Falls back to service role if unset.
     SUPABASE_ANON_KEY: Optional[str] = None
+    # Project Settings > API > JWT Secret. Lets the backend verify the signature
+    # of a Supabase-issued access token locally (e.g. to identify a user from an
+    # already-expired token during the GoTrue refresh bypass) without trusting
+    # unverified claims. Optional: falls back to unverified decode if unset, but
+    # setting this closes a theoretical spoofing gap in that fallback path.
+    SUPABASE_JWT_SECRET: Optional[str] = None
     
     # Application
     ENVIRONMENT: str = "development"
@@ -110,13 +116,28 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
+    # Meta App Secret (App Dashboard > Settings > Basic). Used to verify the
+    # X-Hub-Signature-256 header on incoming webhooks - without it, anyone who
+    # discovers the webhook URL can POST fake WhatsApp messages that get
+    # processed (fake CRM syncs, wasted LLM credits, spoofed sender numbers).
+    WHATSAPP_APP_SECRET: Optional[str] = None
 
     # Unipile (optional - for WhatsApp via Unipile instead of Meta)
     UNIPILE_API_KEY: Optional[str] = None
     UNIPILE_BASE_URL: str = "https://api23.unipile.com:15349"
+    # Per-webhook secret from the Unipile dashboard (Webhooks > your endpoint) or
+    # the "GET webhook" API response. Verifies the `unipile-signature` header so
+    # only genuine Unipile events are processed - without it, anyone who finds
+    # the webhook URL can POST fake WhatsApp messages.
+    UNIPILE_WEBHOOK_SECRET: Optional[str] = None
 
     # Metrics (optional - required for Grafana Cloud Metrics Endpoint integration)
     METRICS_TOKEN: Optional[str] = None  # Bearer token; if set, /metrics requires Authorization
+
+    # Error tracking (optional - app runs without it, just with no alerting).
+    # Get a DSN free at sentry.io (new project > Python > FastAPI).
+    SENTRY_DSN: Optional[str] = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1
     
     @field_validator('SUPABASE_URL')
     @classmethod

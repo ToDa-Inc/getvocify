@@ -27,9 +27,11 @@ from app.services.hubspot.client import HubSpotClient
 from app.services.hubspot.webhook_signature import verify_hubspot_webhook
 from app.services.whatsapp.client import WhatsAppClient
 from app.services.whatsapp.webhook_parser import parse_webhook
+from app.services.whatsapp.webhook_signature import verify_meta_webhook_signature
 from app.services.whatsapp.processor import process_whatsapp_message
 from app.services.unipile import UnipileClient, parse_unipile_webhook
 from app.services.unipile.webhook_parser import normalize_unipile_payload
+from app.services.unipile.webhook_signature import verify_unipile_webhook_signature
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +70,29 @@ async def whatsapp_webhook(request: Request):
         extra=log_domain(DOMAIN_WEBHOOK, "whatsapp_received", correlation_id=cid),
     )
 
+    raw_body = await request.body()
+
+    import os
+    skip_sig = os.environ.get("WHATSAPP_SKIP_SIG_CHECK", "").lower() in ("1", "true", "yes")
+    app_secret = settings.WHATSAPP_APP_SECRET or ""
+    if skip_sig:
+        logger.warning(
+            "WhatsApp webhook signature check SKIPPED (WHATSAPP_SKIP_SIG_CHECK=1, dev only)",
+            extra=log_domain(DOMAIN_WEBHOOK, "whatsapp_sig_skipped"),
+        )
+    elif app_secret:
+        sig = request.headers.get("x-hub-signature-256") or request.headers.get("x-hub-signature") or ""
+        if not verify_meta_webhook_signature(raw_body, sig, app_secret):
+            inc_webhook_message("whatsapp", "error")
+            return PlainTextResponse("Forbidden", status_code=403)
+    else:
+        logger.warning(
+            "WhatsApp webhook accepted without WHATSAPP_APP_SECRET (dev only)",
+            extra=log_domain(DOMAIN_WEBHOOK, "whatsapp_no_secret"),
+        )
+
     try:
-        body = await request.json()
+        body = json.loads(raw_body.decode("utf-8") or "null")
     except Exception:
         inc_webhook_message("whatsapp", "error")
         return JSONResponse(
@@ -116,8 +139,29 @@ async def unipile_webhook(request: Request):
     cid = f"wh_{uuid4().hex[:8]}"
     set_correlation_id(cid)
 
+    raw_body = await request.body()
+
+    import os
+    skip_sig = os.environ.get("UNIPILE_SKIP_SIG_CHECK", "").lower() in ("1", "true", "yes")
+    unipile_secret = settings.UNIPILE_WEBHOOK_SECRET or ""
+    if skip_sig:
+        logger.warning(
+            "Unipile webhook signature check SKIPPED (UNIPILE_SKIP_SIG_CHECK=1, dev only)",
+            extra=log_domain(DOMAIN_WEBHOOK, "unipile_sig_skipped"),
+        )
+    elif unipile_secret:
+        sig = request.headers.get("unipile-signature") or ""
+        if not verify_unipile_webhook_signature(raw_body, sig, unipile_secret):
+            inc_webhook_message("unipile", "error")
+            return PlainTextResponse("Forbidden", status_code=403)
+    else:
+        logger.warning(
+            "Unipile webhook accepted without UNIPILE_WEBHOOK_SECRET (dev only)",
+            extra=log_domain(DOMAIN_WEBHOOK, "unipile_no_secret"),
+        )
+
     try:
-        body = await request.json()
+        body = json.loads(raw_body.decode("utf-8") or "null")
     except Exception as e:
         inc_webhook_message("unipile", "error")
         logger.error(

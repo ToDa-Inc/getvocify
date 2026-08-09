@@ -85,7 +85,23 @@ async def initiate_hubspot_call_memo(
         "hubspot_contact_id": str(ct) if ct else None,
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
     }
-    ins = supabase.table("memos").insert(row).execute()
+    try:
+        ins = supabase.table("memos").insert(row).execute()
+    except Exception as insert_exc:
+        # Lost a race against a redelivered HubSpot webhook for the same
+        # call_id (unique index from migration 009) - the other request
+        # already created the memo, return it instead of failing.
+        if "duplicate key" in str(insert_exc).lower() or "23505" in str(insert_exc):
+            retry = (
+                supabase.table("memos")
+                .select("id")
+                .eq("hubspot_engagement_id", cid)
+                .limit(1)
+                .execute()
+            )
+            if retry.data:
+                return str(retry.data[0]["id"]), False
+        raise
     if not ins.data:
         return None, False
     return str(ins.data[0]["id"]), True
