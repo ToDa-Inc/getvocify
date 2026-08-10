@@ -92,7 +92,10 @@ Required for Vocify:
 - `crm.objects.contacts.read/write`
 - `crm.objects.companies.read/write`
 - `crm.objects.deals.read/write`
-- `crm.schemas.contacts/companies/deals.read`
+- `crm.objects.line_items.read/write`
+- `crm.schemas.contacts/companies/deals/line_items.read`
+
+After changing scopes, run `hs project upload`, then existing installs must **reconnect** (disconnect → Connect HubSpot again) so HubSpot re-issues a token with the new grants. New installs get them on first consent.
 
 ## Distribution
 

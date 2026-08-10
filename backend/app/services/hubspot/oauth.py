@@ -29,9 +29,12 @@ HUBSPOT_OAUTH_SCOPES = [
     "crm.objects.companies.write",
     "crm.objects.deals.read",
     "crm.objects.deals.write",
+    "crm.objects.line_items.read",
+    "crm.objects.line_items.write",
     "crm.schemas.contacts.read",
     "crm.schemas.companies.read",
     "crm.schemas.deals.read",
+    "crm.schemas.line_items.read",
 ]
 
 _refresh_locks: dict[str, threading.Lock] = {}
