@@ -22,6 +22,41 @@ CALL_PROPERTIES = (
     "hs_timestamp",
 )
 
+MAX_RECORDINGS_PER_RECORD = 20
+
+
+def call_duration_seconds(props: dict) -> float:
+    raw = props.get("hs_call_duration")
+    if raw is None or raw == "":
+        return 0.0
+    try:
+        ms = float(str(raw).strip())
+    except ValueError:
+        return 0.0
+    if ms > 10_000:
+        return round(ms / 1000.0, 2)
+    return float(ms)
+
+
+def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
+    props = data.get("properties") or {}
+    rec = (props.get("hs_call_recording_url") or "").strip()
+    ts_raw = props.get("hs_timestamp")
+    ts_ms: Optional[int] = None
+    if ts_raw is not None and str(ts_raw).strip():
+        try:
+            ts_ms = int(str(ts_raw).strip())
+        except ValueError:
+            ts_ms = None
+    title = (props.get("hs_call_title") or "").strip() or "Call"
+    return {
+        "call_id": str(data.get("id")),
+        "title": title,
+        "timestamp_ms": ts_ms,
+        "duration_seconds": call_duration_seconds(props),
+        "has_recording": bool(rec),
+    }
+
 
 async def get_call_engagement(client: HubSpotClient, call_id: str) -> Optional[dict[str, Any]]:
     """GET /crm/v3/objects/calls/{id} with call properties."""
@@ -62,6 +97,83 @@ async def get_call_associations(client: HubSpotClient, call_id: str) -> tuple[li
     deals = await list_association_ids(client, call_id, "deals")
     contacts = await list_association_ids(client, call_id, "contacts")
     return deals, contacts
+
+
+async def list_associated_call_ids(
+    client: HubSpotClient,
+    from_object_type: str,
+    record_id: str,
+    *,
+    limit: int = MAX_RECORDINGS_PER_RECORD,
+) -> list[str]:
+    """Call IDs associated with a deal or contact (newest association order from HubSpot)."""
+    endpoint = f"/crm/v4/objects/{from_object_type}/{record_id}/associations/calls"
+    try:
+        data = await client.get(endpoint, params={"limit": min(limit, 500)})
+    except HubSpotError:
+        return []
+    if not data:
+        return []
+    ids: list[str] = []
+    for result in data.get("results") or []:
+        # HubSpot v4 often returns flat { toObjectId, associationTypes }
+        oid = (
+            result.get("toObjectId")
+            or result.get("objectId")
+            or result.get("id")
+        )
+        if oid is not None:
+            ids.append(str(oid))
+            continue
+        # Older/nested shapes: { to: [{ toObjectId }] }
+        for to_item in result.get("to") or []:
+            nested = to_item.get("toObjectId") or to_item.get("id")
+            if nested is not None:
+                ids.append(str(nested))
+    # Preserve order, dedupe
+    seen: set[str] = set()
+    out: list[str] = []
+    for cid in ids:
+        if cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+    return out[:limit]
+
+
+async def batch_get_calls(client: HubSpotClient, call_ids: list[str]) -> list[dict[str, Any]]:
+    if not call_ids:
+        return []
+    props = list(CALL_PROPERTIES)
+    results: list[dict[str, Any]] = []
+    for i in range(0, len(call_ids), 100):
+        chunk = call_ids[i : i + 100]
+        body = {
+            "inputs": [{"id": cid} for cid in chunk],
+            "properties": props,
+        }
+        resp = await client.post("/crm/v3/objects/calls/batch/read", data=body)
+        if resp and resp.get("results"):
+            results.extend(resp["results"])
+    return results
+
+
+async def list_recordings_for_record(
+    client: HubSpotClient,
+    from_object_type: str,
+    record_id: str,
+    *,
+    limit: int = MAX_RECORDINGS_PER_RECORD,
+) -> list[dict[str, Any]]:
+    """Summaries for calls linked to a deal or contact, newest first."""
+    call_ids = await list_associated_call_ids(
+        client, from_object_type, record_id, limit=limit
+    )
+    if not call_ids:
+        return []
+    raw = await batch_get_calls(client, call_ids)
+    items = [parse_call_summary(c) for c in raw if c.get("id")]
+    items.sort(key=lambda x: x.get("timestamp_ms") or 0, reverse=True)
+    return items[:limit]
 
 
 async def download_recording(recording_url: str, access_token: str) -> tuple[bytes, str]:
