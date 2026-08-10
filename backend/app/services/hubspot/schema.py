@@ -17,6 +17,18 @@ from .types import HubSpotProperty, HubSpotPipeline, CRMSchema
 from supabase import Client
 
 
+# HubSpot Properties API path segment per Vocify object_type.
+# Line items use singular `line_item` on the properties API.
+_HUBSPOT_PROPERTIES_PATH: dict[str, str] = {
+    "contacts": "contacts",
+    "companies": "companies",
+    "deals": "deals",
+    "line_items": "line_item",
+}
+
+ObjectType = Literal["contacts", "companies", "deals", "line_items"]
+
+
 class HubSpotSchemaService:
     """
     Fetches and caches HubSpot object schemas.
@@ -76,13 +88,13 @@ class HubSpotSchemaService:
     
     async def get_properties(
         self,
-        object_type: Literal["contacts", "companies", "deals"],
+        object_type: ObjectType,
     ) -> list[HubSpotProperty]:
         """
         Get all properties for an object type.
         
         Args:
-            object_type: Object type (contacts, companies, or deals)
+            object_type: Object type (contacts, companies, deals, or line_items)
             
         Returns:
             List of property definitions
@@ -90,8 +102,9 @@ class HubSpotSchemaService:
         Raises:
             HubSpotError if API call fails
         """
+        api_path = _HUBSPOT_PROPERTIES_PATH.get(object_type, object_type)
         try:
-            response = await self.client.get(f"/crm/v3/properties/{object_type}")
+            response = await self.client.get(f"/crm/v3/properties/{api_path}")
             
             if not response or "results" not in response:
                 return []
@@ -112,7 +125,7 @@ class HubSpotSchemaService:
     
     async def get_pipelines(
         self,
-        object_type: Literal["contacts", "companies", "deals"] = "deals",
+        object_type: ObjectType = "deals",
     ) -> list[HubSpotPipeline]:
         """
         Get pipelines and stages for an object type.
@@ -221,7 +234,7 @@ class HubSpotSchemaService:
     
     async def get_schema(
         self,
-        object_type: Literal["contacts", "companies", "deals"],
+        object_type: ObjectType,
         use_cache: bool = True,
     ) -> CRMSchema:
         """
@@ -230,7 +243,7 @@ class HubSpotSchemaService:
         Checks database cache first, then in-memory cache, then API.
         
         Args:
-            object_type: Object type (contacts, companies, or deals)
+            object_type: Object type (contacts, companies, deals, or line_items)
             use_cache: Whether to use cached schema if available
             
         Returns:
@@ -284,9 +297,13 @@ class HubSpotSchemaService:
         """Get deal schema (includes pipelines)"""
         return await self.get_schema("deals", use_cache)
 
+    async def get_line_item_schema(self, use_cache: bool = True) -> CRMSchema:
+        """Get line item schema"""
+        return await self.get_schema("line_items", use_cache)
+
     async def get_curated_field_specs(
         self,
-        object_type: Literal["contacts", "companies", "deals"],
+        object_type: ObjectType,
         field_names: list[str],
     ) -> list[dict]:
         """
@@ -298,6 +315,7 @@ class HubSpotSchemaService:
         - description
         - type (HubSpot schema type: string, number, bool, datetime, enumeration, etc.)
         - options: list of {value, label} for enums (LLM must output the value for HubSpot API)
+        - object_type: which CRM object the field belongs to
         """
         schema = await self.get_schema(object_type)
         all_props = {p.name: p for p in schema.properties}
@@ -313,6 +331,7 @@ class HubSpotSchemaService:
                 "label": prop.label,
                 "type": prop.type,
                 "description": prop.description or "",
+                "object_type": object_type,
             }
             
             # For enumerations: provide both value and label so LLM outputs HubSpot API value
@@ -326,4 +345,28 @@ class HubSpotSchemaService:
             curated_specs.append(spec)
             
         return curated_specs
+
+    async def get_multi_object_field_specs(
+        self,
+        allowed_deal_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """Curated specs for all configured object allowlists, each tagged with object_type."""
+        specs: list[dict] = []
+        for object_type, fields in (
+            ("deals", allowed_deal_fields),
+            ("contacts", allowed_contact_fields),
+            ("companies", allowed_company_fields),
+            ("line_items", allowed_line_item_fields),
+        ):
+            if not fields:
+                continue
+            try:
+                specs.extend(await self.get_curated_field_specs(object_type, fields))
+            except Exception:
+                # Missing scope (e.g. line_items) should not block other objects
+                continue
+        return specs
 

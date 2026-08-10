@@ -110,24 +110,15 @@ class HubSpotContactService:
             pass
         return None
 
-    async def get(self, contact_id: str) -> HubSpotContact:
+    async def get(self, contact_id: str, properties: Optional[list[str]] = None) -> HubSpotContact:
         """
         Get a contact by ID.
-        
-        Args:
-            contact_id: HubSpot contact ID
-            
-        Returns:
-            HubSpotContact object
-            
-        Raises:
-            HubSpotNotFoundError if contact doesn't exist
-            HubSpotError for other errors
         """
+        props = properties or ["email", "firstname", "lastname", "phone", "jobtitle"]
         try:
             response = await self.client.get(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}/{contact_id}",
-                params={"properties": "email,firstname,lastname,phone,jobtitle"},
+                params={"properties": ",".join(props)},
             )
             
             if not response:
@@ -224,6 +215,7 @@ class HubSpotContactService:
     async def create_or_update(
         self,
         extraction: MemoExtraction,
+        allowed_fields: Optional[list[str]] = None,
     ) -> Optional[HubSpotContact]:
         """
         Create or update a contact based on extraction data.
@@ -234,51 +226,45 @@ class HubSpotContactService:
         3. If found, update it with new data
         4. If not found, create new contact
         5. If no contactName and no contactEmail, return None
-        
-        Args:
-            extraction: MemoExtraction with contact data
-            
-        Returns:
-            HubSpotContact if created/updated, None if no contact data
-            
-        Raises:
-            HubSpotError for API errors
         """
+        from .object_properties import contact_properties_from_extraction
+
         has_real_email = extraction.contactEmail and str(extraction.contactEmail).strip()
         if has_real_email:
             email = extraction.contactEmail.strip().lower()
         elif extraction.contactName and str(extraction.contactName).strip():
-            # Placeholder: create contact with name so it can be associated with deal
             email = self._placeholder_email(extraction.contactName)
             extraction = extraction.model_copy(update={"contactEmail": email})
         else:
             return None
         
-        properties = self.map_extraction_to_properties(extraction)
+        identity = self.map_extraction_to_properties(extraction)
+        properties = contact_properties_from_extraction(
+            extraction,
+            allowed_fields=allowed_fields,
+            identity_props=identity,
+        )
+        if "email" not in properties:
+            properties["email"] = email
         
-        # Try to find existing contact (Search API or GET-by-email fallback)
         existing = None
         try:
             existing = await self.search.find_contact_by_email(email)
         except Exception:
-            # Search may fail (e.g. missing crm.objects.contacts.read scope)
             existing = await self.get_by_email(email)
         
         if existing:
-            # Update existing contact
             update_properties = {
                 k: v for k, v in properties.items()
-                if v and k != "email"  # Don't update email
+                if v and k != "email"
             }
             if update_properties:
                 return await self.update(existing.id, update_properties)
             return existing
         
-        # Create new contact
         try:
             return await self.create(properties)
         except HubSpotConflictError:
-            # Contact already exists (409) - fetch by email and return
             existing = await self.get_by_email(email)
             return existing
 

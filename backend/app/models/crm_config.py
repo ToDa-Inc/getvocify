@@ -25,6 +25,10 @@ class CRMConfigurationRequest(BaseModel):
         default=["name", "domain"],
         description="List of company fields AI can update"
     )
+    allowed_line_item_fields: list[str] = Field(
+        default=["name", "quantity", "price"],
+        description="List of line item fields AI can create/update"
+    )
     auto_create_contacts: bool = Field(
         default=True,
         description="Automatically create contacts if not found"
@@ -46,6 +50,9 @@ class CRMConfigurationResponse(BaseModel):
     allowed_deal_fields: list[str]
     allowed_contact_fields: list[str]
     allowed_company_fields: list[str]
+    allowed_line_item_fields: list[str] = Field(
+        default_factory=lambda: ["name", "quantity", "price"]
+    )
     auto_create_contacts: bool
     auto_create_companies: bool
     is_configured: bool = True

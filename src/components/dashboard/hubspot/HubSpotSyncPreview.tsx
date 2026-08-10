@@ -36,15 +36,43 @@ function optionLabelFor(value: unknown, options?: Array<{ value: string; label?:
 /** Build extraction object from base memo extraction + proposed updates for approve API */
 function buildExtractionFromUpdates(
   base: Record<string, unknown>,
-  updates: Array<{ field_name: string; field_label?: string; field_type?: string; new_value?: string | number; options?: Array<{ value: string; label?: string }> }>,
+  updates: Array<{
+    field_name: string;
+    field_label?: string;
+    field_type?: string;
+    object_type?: string;
+    new_value?: string | number;
+    options?: Array<{ value: string; label?: string }>;
+  }>,
   editedFieldNames?: Set<string> | null
 ): Record<string, unknown> {
   const result = { ...base };
   const raw = { ...((result.raw_extraction as Record<string, unknown>) || {}) };
+  const contactProps = {
+    ...((raw.contact_properties as Record<string, unknown>) || {}),
+  };
+  const companyProps = {
+    ...((raw.company_properties as Record<string, unknown>) || {}),
+  };
 
   for (const u of updates) {
     const val = u.new_value != null && u.new_value !== "" ? String(u.new_value).trim() : null;
     if (!val && u.field_name !== "description") continue;
+    const objectType = u.object_type || "deals";
+
+    if (objectType === "contacts" && !["contact_name"].includes(u.field_name)) {
+      if (u.field_type === "number") contactProps[u.field_name] = parseFloat(val!) || null;
+      else contactProps[u.field_name] = val;
+      continue;
+    }
+    if (objectType === "companies" && !["company_name"].includes(u.field_name)) {
+      if (u.field_type === "number") companyProps[u.field_name] = parseFloat(val!) || null;
+      else companyProps[u.field_name] = val;
+      continue;
+    }
+    if (objectType === "line_items" || u.field_name.startsWith("line_item_")) {
+      continue; // line items stay as extracted raw.line_items
+    }
 
     switch (u.field_name) {
       case "contact_name":
@@ -62,7 +90,7 @@ function buildExtractionFromUpdates(
         break;
       case "amount":
       case "Amount": {
-        const amt = parseFloat(val);
+        const amt = parseFloat(val!);
         result.dealAmount = Number.isFinite(amt) ? amt : null;
         raw.amount = result.dealAmount;
         raw.Amount = result.dealAmount;
@@ -70,7 +98,7 @@ function buildExtractionFromUpdates(
       }
       case "closedate":
       case "CloseDate": {
-        const iso = parseFlexibleDateToIso(val) || val;
+        const iso = parseFlexibleDateToIso(val!) || val;
         result.closeDate = iso;
         raw.closedate = iso;
         raw.CloseDate = iso;
@@ -122,6 +150,9 @@ function buildExtractionFromUpdates(
         }
     }
   }
+
+  if (Object.keys(contactProps).length) raw.contact_properties = contactProps;
+  if (Object.keys(companyProps).length) raw.company_properties = companyProps;
 
   return { ...result, raw_extraction: raw };
 }
@@ -288,6 +319,12 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
 
   const updates = editedUpdates ?? preview?.proposed_updates ?? [];
   const availableFields = preview?.available_fields ?? [];
+  const OBJECT_ORDER = ["deals", "contacts", "companies", "line_items", "task"];
+  const sortedUpdateEntries = [...updates.map((u: any, idx: number) => ({ u, idx }))].sort((a, b) => {
+    const ao = OBJECT_ORDER.indexOf(a.u?.object_type || "deals");
+    const bo = OBJECT_ORDER.indexOf(b.u?.object_type || "deals");
+    return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
+  });
   const currentDealId = preview?.selected_deal?.deal_id ?? null;
   const isNewDeal = preview?.is_new_deal ?? true;
 
@@ -635,25 +672,51 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
           <p className="text-sm text-muted-foreground py-6 text-center">No field updates extracted.</p>
         ) : (
           <div className="grid gap-4">
-            {updates.map((update: any, idx: number) => {
+            {sortedUpdateEntries.map(({ u: update, idx }) => {
               const hadExisting =
                 update.current_value != null &&
                 String(update.current_value).trim() !== "" &&
                 String(update.current_value).trim() !== "(empty)";
               const isOverride = !!hadExisting;
               const isDealField =
-                !["contact_name", "company_name"].includes(update.field_name);
+                (update.object_type || "deals") === "deals" &&
+                !["contact_name", "company_name"].includes(update.field_name) &&
+                !String(update.field_name).startsWith("line_item_") &&
+                !String(update.field_name).startsWith("next_step_task_");
               const isEditing = editingIdx === idx;
+              const entryPos = sortedUpdateEntries.findIndex((e) => e.idx === idx);
+              const prevObject =
+                entryPos > 0
+                  ? sortedUpdateEntries[entryPos - 1].u?.object_type || "deals"
+                  : null;
+              const currentObject = update.object_type || "deals";
+              const showSection = entryPos === 0 || prevObject !== currentObject;
+              const sectionLabel =
+                {
+                  deals: "Deal",
+                  contacts: "Contact",
+                  companies: "Company",
+                  line_items: "Line items",
+                  task: "Tasks",
+                }[String(currentObject)] || currentObject;
 
               return (
+                <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-3">
+                  {showSection && (
+                    <div className="flex items-center gap-2 px-1 pt-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-beige">
+                        {sectionLabel}
+                      </span>
+                      <span className="h-px flex-1 bg-border/30" />
+                    </div>
+                  )}
                 <div
-                  key={`${update.field_name}-${idx}`}
                   className={`group relative rounded-3xl p-6 transition-all flex items-start justify-between gap-4 ${
                     isOverride ? "bg-destructive/5 border border-destructive/30 hover:border-destructive/40" : "bg-success/5 border border-success/20 hover:border-success/30"
                   }`}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-start justify-between mb-2 gap-2">
                       <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">{update.field_label}</span>
                       {isOverride ? (
                         <span className="bg-destructive/10 text-destructive text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">Override</span>
@@ -726,6 +789,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                       </Button>
                     </div>
                   )}
+                </div>
                 </div>
               );
             })}

@@ -141,6 +141,16 @@ async def approve_memo_core(
         # Config or DB may still list Salesforce-style names; HubSpot API requires lowercase keys.
         allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
+    allowed_contact_fields = (
+        list(config.allowed_contact_fields) if config and config.allowed_contact_fields else None
+    )
+    allowed_company_fields = (
+        list(config.allowed_company_fields) if config and config.allowed_company_fields else None
+    )
+    allowed_line_item_fields = (
+        list(getattr(config, "allowed_line_item_fields", None) or []) if config else None
+    )
+
     if config is not None:
         auto_create_companies = config.auto_create_companies
         auto_create_contacts = config.auto_create_contacts
@@ -180,6 +190,9 @@ async def approve_memo_core(
         deal_id=deal_id,
         is_new_deal=is_new_deal,
         allowed_fields=allowed_fields,
+        allowed_contact_fields=allowed_contact_fields,
+        allowed_company_fields=allowed_company_fields,
+        allowed_line_item_fields=allowed_line_item_fields,
         transcript=memo_data.get("transcript"),
         auto_create_contact_company=auto_create_contact_company,
         auto_create_companies=auto_create_companies,
@@ -187,6 +200,7 @@ async def approve_memo_core(
         default_stage_name=default_stage,
         default_pipeline_id=default_pipeline_id,
         default_stage_id=default_stage_id,
+        create_note=True if not payload else bool(getattr(payload, "create_note", True)),
     )
 
     if not sync_result.success:

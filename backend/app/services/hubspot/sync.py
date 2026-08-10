@@ -41,6 +41,11 @@ from app.services.crm_updates import CRMUpdatesService
 from app.services.task_merge import TaskMergeService
 from app.services.deal_merge import DealMergeService
 from app.services.extraction import _clean_extracted_name
+from .object_properties import (
+    contact_properties_from_extraction,
+    company_properties_from_extraction,
+    line_items_from_extraction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,19 +189,23 @@ class HubSpotSyncService:
         deal_id: Optional[str] = None,
         is_new_deal: bool = False,
         allowed_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
         transcript: Optional[str] = None,
         auto_create_contact_company: bool = False,
         auto_create_companies: Optional[bool] = None,
         auto_create_contacts: Optional[bool] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        create_note: bool = True,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
         
         Supports both creating new deals and updating existing deals.
-        Filters properties based on allowed_fields whitelist.
-        Creates a note with the transcript for deal context.
+        Filters properties based on allowed_*_fields whitelists.
+        Optionally creates a note with summary + transcript for deal context.
         
         Company/contact creation is controlled by:
         - auto_create_companies / auto_create_contacts when provided (from crm_configurations)
@@ -209,7 +218,10 @@ class HubSpotSyncService:
             extraction: MemoExtraction with extracted data
             deal_id: Optional deal ID to update (None = create new)
             is_new_deal: Whether to create a new deal (if deal_id is None)
-            allowed_fields: List of field names AI is allowed to update
+            allowed_fields: Deal field names AI is allowed to update
+            allowed_contact_fields: Contact field names AI is allowed to update
+            allowed_company_fields: Company field names AI is allowed to update
+            allowed_line_item_fields: Line item field names AI may create
             transcript: Full transcript text to add as note on the deal
             auto_create_contact_company: Legacy flag; used for both when auto_create_* not provided
             auto_create_companies: If True, create/upsert company (from crm_configurations)
@@ -218,6 +230,7 @@ class HubSpotSyncService:
                 applied only when creating a brand new deal.
             default_stage_id: User-configured default stage, applied only when creating
                 a brand new deal and the transcript didn't resolve an explicit stage.
+            create_note: If True and transcript present, create HubSpot note on the deal
         Returns:
             SyncResult with success status and created/updated object IDs
         """
@@ -252,6 +265,12 @@ class HubSpotSyncService:
         # Default allowed fields if not provided
         if allowed_fields is None:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
+        if allowed_contact_fields is None:
+            allowed_contact_fields = ["firstname", "lastname", "email", "phone", "jobtitle"]
+        if allowed_company_fields is None:
+            allowed_company_fields = ["name", "domain"]
+        if allowed_line_item_fields is None:
+            allowed_line_item_fields = ["name", "quantity", "price"]
         
         # Check for existing company/contact IDs from previous failed attempts
         # This prevents creating duplicates on retry
@@ -291,7 +310,9 @@ class HubSpotSyncService:
                             extra=log_domain(DOMAIN_HUBSPOT, "company_reused", company_id=company_id, memo_id=str(memo_id)),
                         )
                     else:
-                        company = await self.companies.create_or_update(extraction)
+                        company = await self.companies.create_or_update(
+                            extraction, allowed_fields=allowed_company_fields
+                        )
                         if company:
                             company_id = company.id
                             result.company_id = company_id
@@ -357,7 +378,13 @@ class HubSpotSyncService:
                             contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                             if contact_ids:
                                 primary_contact_id = contact_ids[0]
-                                props = self.contacts.map_extraction_to_properties(extraction_for_contact)
+                                props = contact_properties_from_extraction(
+                                    extraction_for_contact,
+                                    allowed_fields=allowed_contact_fields,
+                                    identity_props=self.contacts.map_extraction_to_properties(
+                                        extraction_for_contact
+                                    ),
+                                )
                                 if props:
                                     await self.contacts.update(primary_contact_id, props)
                                     contact_id = primary_contact_id
@@ -381,7 +408,9 @@ class HubSpotSyncService:
                                 extra=log_domain(DOMAIN_HUBSPOT, "contact_update_fallback", memo_id=str(memo_id)),
                             )
                         if not contact_id:
-                            contact = await self.contacts.create_or_update(extraction_for_contact)
+                            contact = await self.contacts.create_or_update(
+                                extraction_for_contact, allowed_fields=allowed_contact_fields
+                            )
                             if contact:
                                 contact_id = contact.id
                                 result.contact_id = contact_id
@@ -398,7 +427,9 @@ class HubSpotSyncService:
                                     data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
                                 )
                     else:
-                        contact = await self.contacts.create_or_update(extraction_for_contact)
+                        contact = await self.contacts.create_or_update(
+                            extraction_for_contact, allowed_fields=allowed_contact_fields
+                        )
                         if contact:
                             contact_id = contact.id
                             result.contact_id = contact_id
@@ -575,13 +606,19 @@ class HubSpotSyncService:
             
             # Step 4b: UPDATE MODE - Update deal's primary contact when extraction has contact info but no email
             # (create_or_update requires email; deal's contact can still be updated by ID)
-            if deal_id and not is_new_deal and (extraction_for_contact.contactName or extraction_for_contact.contactRole or extraction_for_contact.contactPhone):
+            if deal_id and not is_new_deal and (extraction_for_contact.contactName or extraction_for_contact.contactRole or extraction_for_contact.contactPhone or (extraction.raw_extraction or {}).get("contact_properties")):
                 if not contact_id:
                     try:
                         contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                         if contact_ids:
                             primary_contact_id = contact_ids[0]
-                            props = self.contacts.map_extraction_to_properties(extraction_for_contact)
+                            props = contact_properties_from_extraction(
+                                extraction_for_contact,
+                                allowed_fields=allowed_contact_fields,
+                                identity_props=self.contacts.map_extraction_to_properties(
+                                    extraction_for_contact
+                                ),
+                            )
                             props.pop("email", None)
                             if props:
                                 await self.contacts.update(primary_contact_id, props)
@@ -593,13 +630,112 @@ class HubSpotSyncService:
                                 )
                     except Exception as e:
                         logger.warning(
-                            "⚠️ Failed to update deal contact: %s",
+                            "⚠️ Failed to update associated contact: %s",
                             e,
-                            extra=log_domain(DOMAIN_HUBSPOT, "contact_update_failed", memo_id=str(memo_id), error=str(e)),
+                            extra=log_domain(DOMAIN_HUBSPOT, "contact_assoc_update_failed", memo_id=str(memo_id)),
                         )
 
-            # Step 5: Associate deal → contact, deal → company (always when we have them)
-            # Applies to both new deals and existing deals being updated
+            # Step 4c: UPDATE MODE - Patch associated company with allowlisted company_properties
+            if deal_id and not is_new_deal and allowed_company_fields:
+                company_props = company_properties_from_extraction(
+                    extraction,
+                    allowed_fields=allowed_company_fields,
+                    identity_props=self.companies.map_extraction_to_properties(extraction),
+                )
+                company_props.pop("name", None)  # don't rename company from memo by default
+                if company_props:
+                    try:
+                        cids = await self.associations.get_associations("deals", deal_id, "companies")
+                        if cids:
+                            await self.companies.update(cids[0], company_props)
+                            company_id = company_id or cids[0]
+                            result.company_id = company_id
+                            logger.info(
+                                "✅ Company properties updated",
+                                extra=log_domain(
+                                    DOMAIN_HUBSPOT,
+                                    "company_props_updated",
+                                    company_id=cids[0],
+                                    memo_id=str(memo_id),
+                                    fields=list(company_props.keys()),
+                                ),
+                            )
+                            await self.crm_updates.create_update(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="upsert_company",
+                                resource_type="company",
+                                data={
+                                    "company_id": cids[0],
+                                    "updated_fields": list(company_props.keys()),
+                                },
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "⚠️ Failed to update associated company: %s",
+                            e,
+                            extra=log_domain(DOMAIN_HUBSPOT, "company_assoc_update_failed", memo_id=str(memo_id)),
+                        )
+
+            # Step 4d: Create line items on the deal when allowlisted and extracted
+            line_items = line_items_from_extraction(
+                extraction, allowed_fields=allowed_line_item_fields
+            )
+            if deal_id and line_items:
+                for item_props in line_items:
+                    try:
+                        # Prefer parent deal property (commerce) + default association
+                        create_body: dict[str, Any] = {
+                            "properties": {
+                                **item_props,
+                                "hs_parent_deal_id": str(deal_id),
+                            }
+                        }
+                        created = await self.client.post(
+                            "/crm/v3/objects/line_items",
+                            data=create_body,
+                        )
+                        line_item_id = (created or {}).get("id")
+                        if line_item_id:
+                            try:
+                                await self.client.put(
+                                    f"/crm/v4/objects/line_item/{line_item_id}/associations/default/deal/{deal_id}",
+                                    data=None,
+                                )
+                            except Exception:
+                                pass
+                            await self.crm_updates.create_update(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="create_line_item",
+                                resource_type="line_item",
+                                data={
+                                    "line_item_id": line_item_id,
+                                    "deal_id": deal_id,
+                                    "properties": item_props,
+                                },
+                            )
+                            logger.info(
+                                "✅ Line item created",
+                                extra=log_domain(
+                                    DOMAIN_HUBSPOT,
+                                    "line_item_created",
+                                    line_item_id=line_item_id,
+                                    deal_id=deal_id,
+                                    memo_id=str(memo_id),
+                                ),
+                            )
+                    except Exception as e:
+                        # Missing scopes or portal commerce setup should not fail the whole sync
+                        logger.warning(
+                            "⚠️ Line item create failed: %s",
+                            e,
+                            extra=log_domain(DOMAIN_HUBSPOT, "line_item_failed", memo_id=str(memo_id)),
+                        )
+
+            # Step 5: Associate deal → contact, deal → company (always when we have them)            # Applies to both new deals and existing deals being updated
             if deal_id and contact_id:
                 try:
                     await self.associations.associate_deal_to_contact(deal_id, contact_id)
@@ -736,8 +872,8 @@ class HubSpotSyncService:
                     extra=log_domain(DOMAIN_HUBSPOT, "tasks_skipped_duplicate", deal_id=deal_id, memo_id=str(memo_id)),
                 )
 
-            # Step 7: Create note with transcript for deal context (once per memo+deal)
-            if deal_id and transcript and transcript.strip():
+            # Step 7: Create one formatted note per memo and deal.
+            if create_note and deal_id and transcript and transcript.strip():
                 note_already_created = any(
                     u.get("action_type") == "create_note"
                     and str((u.get("data") or {}).get("deal_id")) == str(deal_id)
@@ -750,9 +886,13 @@ class HubSpotSyncService:
                     )
                 else:
                     try:
-                        note_body = transcript.strip()
-                        if len(note_body) > 65536:
-                            note_body = note_body[:65533] + "..."
+                        from .note_format import format_hubspot_note_body
+
+                        note_body = format_hubspot_note_body(
+                            summary=getattr(extraction, "summary", None),
+                            transcript=transcript,
+                            source="hubspot_call",
+                        )
                         note_payload = {
                             "properties": {
                                 "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

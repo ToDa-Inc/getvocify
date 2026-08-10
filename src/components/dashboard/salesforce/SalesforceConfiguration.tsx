@@ -29,6 +29,7 @@ export const SalesforceConfiguration = ({ onSaved }: SalesforceConfigurationProp
     allowed_deal_fields: ["Name", "Amount", "CloseDate", "StageName", "Description"],
     allowed_contact_fields: ["FirstName", "LastName", "Email", "Phone"],
     allowed_company_fields: ["Name"],
+    allowed_line_item_fields: [],
     auto_create_contacts: true,
     auto_create_companies: true,
   });

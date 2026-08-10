@@ -32,10 +32,12 @@ class HubSpotCRMProvider:
     """Thin facade over HubSpot services for multi-CRM orchestration."""
 
     def __init__(self, supabase: Client, connection: dict[str, Any]) -> None:
+        from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
+
         self._supabase = supabase
-        self._connection = connection
-        self._client = HubSpotClient(connection["access_token"])
-        self._connection_id = str(connection["id"])
+        self._connection = ensure_fresh_hubspot_connection(supabase, connection)
+        self._client = HubSpotClient(self._connection["access_token"])
+        self._connection_id = str(self._connection["id"])
 
     def _schema_service(self) -> HubSpotSchemaService:
         return HubSpotSchemaService(self._client, self._supabase, self._connection_id)
@@ -81,6 +83,9 @@ class HubSpotCRMProvider:
         deal_id: Optional[str] = None,
         is_new_deal: bool = False,
         allowed_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
         transcript: Optional[str] = None,
         auto_create_contact_company: bool = False,
         auto_create_companies: Optional[bool] = None,
@@ -88,6 +93,7 @@ class HubSpotCRMProvider:
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        create_note: bool = True,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -101,12 +107,16 @@ class HubSpotCRMProvider:
             deal_id=deal_id,
             is_new_deal=is_new_deal,
             allowed_fields=allowed_fields,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
+            allowed_line_item_fields=allowed_line_item_fields,
             transcript=transcript,
             auto_create_contact_company=auto_create_contact_company,
             auto_create_companies=auto_create_companies,
             auto_create_contacts=auto_create_contacts,
             default_pipeline_id=default_pipeline_id,
             default_stage_id=default_stage_id,
+            create_note=create_note,
         )
 
     async def build_preview(
@@ -117,6 +127,9 @@ class HubSpotCRMProvider:
         matched_deals: list[DealMatch],
         selected_deal_id: Optional[str],
         allowed_fields: Optional[list[str]],
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
@@ -131,6 +144,9 @@ class HubSpotCRMProvider:
             allowed_fields=allowed_fields,
             default_pipeline_id=default_pipeline_id,
             default_stage_id=default_stage_id,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
+            allowed_line_item_fields=allowed_line_item_fields,
         )
 
     async def find_matching_deals(
@@ -144,3 +160,17 @@ class HubSpotCRMProvider:
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]:
         return await self._schema_service().get_curated_field_specs("deals", allowed_fields)
+
+    async def get_extraction_field_specs(
+        self,
+        allowed_deal_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        return await self._schema_service().get_multi_object_field_specs(
+            allowed_deal_fields=allowed_deal_fields,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
+            allowed_line_item_fields=allowed_line_item_fields,
+        )

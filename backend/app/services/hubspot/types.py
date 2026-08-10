@@ -70,7 +70,7 @@ class CRMSchema(BaseModel):
     
     Contains all properties and pipelines for an object type.
     """
-    object_type: Literal["contacts", "companies", "deals"]
+    object_type: Literal["contacts", "companies", "deals", "line_items"]
     properties: list[HubSpotProperty] = Field(default_factory=list)
     pipelines: list[HubSpotPipeline] = Field(default_factory=list)
 

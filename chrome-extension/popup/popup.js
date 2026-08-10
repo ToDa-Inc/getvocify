@@ -39,8 +39,27 @@ let sessionHeartbeatId = null;
 let lastPreviewData = null;
 /** Edits/removals from proposed updates (index → update or null if removed) */
 let editedProposedUpdates = null;
+/** Action items for HubSpot tasks: { id, text, checked } */
+let reviewActionItems = [];
+let actionItemIdSeq = 0;
 /** Click-outside handler for Add field dropdown */
 let addFieldCloseHandler = null;
+/** Avoid re-fetching recent memos on every STATE_UPDATED while watching */
+let recentMemosLoaded = false;
+let recentMemosInFlight = false;
+let lastRenderedStatus = null;
+/** Cache key: deal:<id> | contact:<id> | global */
+let recentMemosScopeKey = null;
+
+function getRecentMemosScope(context) {
+  if (context?.objectType === 'deal' && context?.recordId) {
+    return { key: `deal:${context.recordId}`, dealId: context.recordId, contactId: null, label: 'Memos for this deal' };
+  }
+  if (context?.objectType === 'contact' && context?.recordId) {
+    return { key: `contact:${context.recordId}`, dealId: null, contactId: context.recordId, label: 'Memos for this contact' };
+  }
+  return { key: 'global', dealId: null, contactId: null, label: 'Recent Memos' };
+}
 
 function isCrmDateField(u) {
   if (!u || !u.field_name) return false;
@@ -119,11 +138,201 @@ function hideExtractionError() {
 let _processingAnimTimer = null;
 
 const HUBSPOT_CALL_MESSAGES = [
-  { title: 'Transcribing your call...', msg: 'Converting speech to text with speaker detection.' },
-  { title: 'Identifying speakers...', msg: 'Separating rep and prospect voices.' },
-  { title: 'AI is doing its magic...', msg: 'Analyzing the conversation for CRM insights.' },
-  { title: 'Almost there...', msg: 'Preparing your transcript for review.' },
+  { title: 'HubSpot recording found. Transcribing…', msg: 'Converting speech to text with speaker detection.' },
+  { title: 'Identifying speakers…', msg: 'Separating rep and prospect voices.' },
+  { title: 'Analyzing the conversation…', msg: 'Preparing your transcript for review.' },
+  { title: 'Almost there…', msg: 'Your call will be ready to review shortly.' },
 ];
+
+const WATCH_STATUS_COPY = {
+  awaiting_recording: 'Waiting for HubSpot to attach a recording…',
+  awaiting_next: 'Recordings on this page — pick one to continue',
+  ready: 'Recordings ready — tap Transcribe or Continue',
+  new_recording: 'New recording available — tap Transcribe',
+};
+
+function isWatchableHubSpotContext(context) {
+  return context?.recordId && ['deal', 'contact'].includes(context.objectType);
+}
+
+function getRecordDisplayName(context) {
+  if (!context?.recordId) return null;
+  if (context.objectType === 'deal') return context.dealName || 'Deal on this page';
+  if (context.objectType === 'contact') return context.contactName || 'Contact on this page';
+  return null;
+}
+
+function formatCallTimestamp(ts) {
+  if (!ts) return 'Unknown date';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return 'Unknown date';
+  return d.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatCallDuration(seconds) {
+  const s = Number(seconds);
+  if (!s || s <= 0) return '';
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}m ${r}s` : `${r}s`;
+}
+
+function getMemoStatusPill(rec) {
+  const st = rec.memo_status;
+  if (!rec.memo_id) return null;
+  if (st === 'approved') return { class: 'status-approved', text: 'Synced' };
+  if (st === 'failed') return { class: 'status-failed', text: 'Failed' };
+  if (st === 'pending_review' || st === 'pending_transcript') return { class: 'status-pending', text: 'Review' };
+  if (['transcribing', 'uploading', 'extracting'].includes(st)) {
+    return { class: 'status-processing', text: 'Processing' };
+  }
+  return { class: 'status-processing', text: (st || 'processing').replace(/_/g, ' ') };
+}
+
+function getRecordingAction(rec) {
+  if (!rec.has_recording) return null;
+  const st = rec.memo_status;
+  if (!rec.memo_id || st === 'failed') return { label: 'Transcribe', action: 'transcribe' };
+  if (['transcribing', 'uploading', 'extracting'].includes(st)) {
+    return { label: 'Processing', action: 'none', disabled: true };
+  }
+  if (st === 'pending_transcript' || st === 'pending_review') {
+    return { label: 'Continue', action: 'continue', memoId: rec.memo_id };
+  }
+  if (st === 'approved') return { label: 'View', action: 'view', memoId: rec.memo_id };
+  if (st === 'rejected') return { label: 'Transcribe', action: 'transcribe' };
+  return { label: 'Transcribe', action: 'transcribe' };
+}
+
+function renderRecordContextStrip(state) {
+  const strip = document.getElementById('record-context-strip');
+  const typeEl = document.getElementById('record-context-type');
+  const nameEl = document.getElementById('record-context-name');
+  if (!strip) return;
+
+  const name = getRecordDisplayName(state.context);
+  const show = !!name && (state.status === 'idle' || state.isRecording);
+  strip.style.display = show ? 'flex' : 'none';
+  if (!show) return;
+
+  if (typeEl) {
+    typeEl.textContent = state.context.objectType === 'contact' ? 'Contact' : 'Deal';
+  }
+  if (nameEl) nameEl.textContent = name;
+}
+
+function renderReviewRecordName(context) {
+  const el = document.getElementById('review-record-name');
+  if (!el) return;
+  const name = getRecordDisplayName(context);
+  if (name) {
+    el.textContent = name;
+    el.style.display = 'block';
+  } else {
+    el.textContent = '';
+    el.style.display = 'none';
+  }
+}
+
+function renderRecordingsSection(state) {
+  const section = document.getElementById('recordings-section');
+  const listEl = document.getElementById('recordings-list');
+  const statusEl = document.getElementById('recordings-status-line');
+  const dotEl = document.getElementById('recordings-watch-dot');
+  if (!section) return;
+
+  const show = isWatchableHubSpotContext(state.context) && state.status === 'idle';
+  section.style.display = show ? 'block' : 'none';
+  if (!show) return;
+
+  if (statusEl) {
+    if (state.recordingsLoading && !(state.recordings || []).some((r) => r.has_recording)) {
+      statusEl.textContent = 'Loading recordings…';
+    } else if (state.watchingForRecording) {
+      statusEl.textContent = WATCH_STATUS_COPY[state.watchPhase] || WATCH_STATUS_COPY.awaiting_recording;
+    } else {
+      statusEl.textContent = 'Call recordings on this record';
+    }
+  }
+  if (dotEl) {
+    dotEl.style.display = state.watchingForRecording ? 'inline-block' : 'none';
+  }
+
+  const recordings = (state.recordings || []).filter((r) => r.has_recording);
+  if (!listEl) return;
+
+  if (state.recordingsLoading && !recordings.length) {
+    listEl.innerHTML = '<p class="body-muted recordings-empty">Loading…</p>';
+    return;
+  }
+  if (!recordings.length) {
+    listEl.innerHTML = '<p class="body-muted recordings-empty">No call recordings yet on this record.</p>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  recordings.forEach((rec) => {
+    const row = document.createElement('div');
+    row.className = 'recording-row';
+    const action = getRecordingAction(rec);
+    const pill = getMemoStatusPill(rec);
+    const dateStr = formatCallTimestamp(rec.timestamp);
+    const durStr = formatCallDuration(rec.duration_seconds);
+    const title = rec.title || 'Call';
+
+    row.innerHTML = `
+      <div class="recording-row-main">
+        <span class="recording-row-title">${escapeHtml(title)}</span>
+        <span class="recording-row-meta">${escapeHtml(dateStr)}${durStr ? ` · ${escapeHtml(durStr)}` : ''}</span>
+      </div>
+      <div class="recording-row-actions">
+        ${pill ? `<span class="status-pill ${pill.class}">${escapeHtml(pill.text)}</span>` : ''}
+        ${action && action.action !== 'none'
+          ? `<button type="button" class="btn-recording-action" data-call-id="${escapeHtml(rec.call_id)}" data-action="${action.action}"${action.memoId ? ` data-memo-id="${escapeHtml(action.memoId)}"` : ''}>${escapeHtml(action.label)}</button>`
+          : ''}
+        ${action?.disabled ? '<span class="recording-processing-label">Processing…</span>' : ''}
+      </div>
+    `;
+    listEl.appendChild(row);
+  });
+
+  listEl.querySelectorAll('.btn-recording-action').forEach((btn) => {
+    btn.addEventListener('click', handleRecordingAction);
+  });
+}
+
+async function handleRecordingAction(e) {
+  const btn = e.currentTarget;
+  const callId = btn.dataset.callId;
+  const action = btn.dataset.action;
+  const memoId = btn.dataset.memoId;
+  if (!callId && !memoId) return;
+
+  btn.disabled = true;
+  try {
+    if (action === 'transcribe' && callId) {
+      const res = await chrome.runtime.sendMessage({ type: 'PROCESS_HUBSPOT_CALL', callId });
+      if (res?.error) throw new Error(res.error);
+      const s = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+      renderState(s);
+    } else if ((action === 'continue' || action === 'view') && memoId) {
+      await chrome.runtime.sendMessage({
+        type: 'SET_STATE',
+        state: { status: 'review', currentMemoId: memoId },
+      });
+      const s = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+      renderState(s);
+    }
+  } catch (err) {
+    console.error('[Popup] recording action error:', err);
+    btn.disabled = false;
+  }
+}
 
 /** Set processing screen text: 'transcribing' | 'extracting' | 'hubspot_call' */
 function setProcessingScreenMode(mode) {
@@ -195,11 +404,8 @@ function renderState(state) {
     if (pasteSection) pasteSection.style.display = 'none';
 
     const dealContextBadge = document.getElementById('deal-context-badge');
-    if (dealContextBadge) {
-      const isDealPage = state.context?.objectType === 'deal';
-      dealContextBadge.style.display = isDealPage ? 'flex' : 'none';
-      if (isDealPage) dealContextBadge.textContent = 'Target: Deal on this page';
-    }
+    if (dealContextBadge) dealContextBadge.style.display = 'none';
+    renderRecordContextStrip(state);
 
     // Show transcript with interim text styled differently
     liveTranscriptText.innerHTML = state.finalTranscript
@@ -231,7 +437,10 @@ function renderState(state) {
       }
       
       // Ensure all idle elements are visible
-      if (shortcutBox) shortcutBox.style.display = 'block';
+      if (shortcutBox) {
+        shortcutBox.style.display = 'block';
+        shortcutBox.classList.toggle('shortcut-box--muted', isWatchableHubSpotContext(state.context));
+      }
       if (recentMemos) recentMemos.style.display = 'block';
       if (pasteToggle) pasteToggle.style.display = 'flex';
       if (mainActions) mainActions.style.display = 'flex';
@@ -239,11 +448,17 @@ function renderState(state) {
 
       previewLoaded = false;
       currentMemoId = null;
-      const watchInd = document.getElementById('call-watch-indicator');
-      if (watchInd) {
-        watchInd.style.display = (state.watchingForRecording && state.status === 'idle') ? 'flex' : 'none';
+      renderRecordContextStrip(state);
+      renderRecordingsSection(state);
+      const scope = getRecentMemosScope(state.context);
+      const scopeChanged = scope.key !== recentMemosScopeKey;
+      if (scopeChanged) {
+        recentMemosScopeKey = scope.key;
+        recentMemosLoaded = false;
       }
-      loadRecentMemos(); // Refresh recent list
+      if (lastRenderedStatus !== 'idle' || !recentMemosLoaded || scopeChanged) {
+        loadRecentMemos(scope);
+      }
       break;
       
     case 'processing':
@@ -253,6 +468,7 @@ function renderState(state) {
       
     case 'review':
       showScreen('review');
+      renderReviewRecordName(state.context);
       if (state.currentMemoId && currentMemoId !== state.currentMemoId) {
         currentMemoId = state.currentMemoId;
         previewLoaded = false;
@@ -270,6 +486,7 @@ function renderState(state) {
       renderSuccess(state.syncResult);
       break;
   }
+  lastRenderedStatus = state.status;
 }
 
 // ============================================
@@ -299,16 +516,25 @@ async function handleReviewState(memoId, context) {
     const pendingSection = document.getElementById('pending-transcript-section');
     const proposedMain = document.getElementById('proposed-changes-main');
     const reviewActions = document.getElementById('review-actions');
+    const stepLabel = document.getElementById('review-step-label');
+    const reviewScreen = document.getElementById('screen-review');
 
     if (pendingTranscript) {
-      pendingSection.style.display = 'block';
-      proposedMain.style.display = 'none';
-      reviewActions.style.display = 'none';
+      if (pendingSection) pendingSection.style.display = 'flex';
+      if (proposedMain) proposedMain.style.display = 'none';
+      if (reviewActions) reviewActions.style.display = 'none';
+      if (stepLabel) stepLabel.textContent = 'Review transcript';
+      if (reviewScreen) reviewScreen.classList.add('review-mode-transcript');
+      renderReviewRecordName(context);
+      syncTranscriptModalDeal(context);
       loadTranscriptForReview(memoId);
     } else {
-      pendingSection.style.display = 'none';
-      proposedMain.style.display = 'block';
-      reviewActions.style.display = 'flex';
+      if (pendingSection) pendingSection.style.display = 'none';
+      if (proposedMain) proposedMain.style.display = 'block';
+      if (reviewActions) reviewActions.style.display = 'flex';
+      if (stepLabel) stepLabel.textContent = 'Review & sync';
+      if (reviewScreen) reviewScreen.classList.remove('review-mode-transcript');
+      renderReviewRecordName(context);
       const onDealPage = context?.objectType === 'deal' && context?.recordId;
       const dealIdToLoad = onDealPage ? context.recordId : currentDealId;
       if (!previewLoaded || currentMemoId !== memoId || (onDealPage && currentDealId !== context?.recordId)) {
@@ -318,15 +544,163 @@ async function handleReviewState(memoId, context) {
         await loadPreview(memoId, dealIdToLoad, null);
       }
       showUseCurrentDealOption(onDealPage ? context : null);
-      const transcriptEl = document.getElementById('transcript-expanded');
       const preview = lastPreviewData;
-      if (transcriptEl && preview?.transcript) {
-        transcriptEl.textContent = preview.transcript;
+      const tx = preview?.transcript || memo?.transcript || '';
+      renderTranscriptConversation(tx, {
+        editable: false,
+        container: document.getElementById('review-transcript-conversation'),
+      });
+      const noteCb = document.getElementById('create-note-checkbox');
+      const noteRow = document.getElementById('create-note-row');
+      if (noteCb) {
+        noteCb.checked = !!tx.trim();
+        noteCb.disabled = !tx.trim();
       }
+      if (noteRow) noteRow.classList.toggle('is-disabled', !tx.trim());
     }
   } catch (e) {
     console.error('[Popup] handleReviewState error:', e);
   }
+}
+
+function syncTranscriptModalDeal(context) {
+  const el = document.getElementById('transcript-modal-deal');
+  if (!el) return;
+  const name = getRecordDisplayName(context);
+  if (name) {
+    el.textContent = name;
+    el.style.display = 'inline-flex';
+  } else {
+    el.textContent = '';
+    el.style.display = 'none';
+  }
+}
+
+function speakerLabel(raw) {
+  const s = String(raw || '').trim().toUpperCase();
+  if (s === 'S1' || s === 'SPEAKER 1' || s === 'SPEAKER1') return 'Speaker 1';
+  if (s === 'S2' || s === 'SPEAKER 2' || s === 'SPEAKER2') return 'Speaker 2';
+  if (/^S\d+$/i.test(s)) return `Speaker ${s.slice(1)}`;
+  return raw || 'Speaker';
+}
+
+function speakerSide(raw) {
+  const s = String(raw || '').trim().toUpperCase();
+  if (s === 'S1' || s === 'SPEAKER 1' || s === 'SPEAKER1') return 's1';
+  if (s === 'S2' || s === 'SPEAKER 2' || s === 'SPEAKER2') return 's2';
+  if (/^S1\b/i.test(s)) return 's1';
+  if (/^S2\b/i.test(s)) return 's2';
+  return 'other';
+}
+
+/**
+ * Parse Speechmatics-style "SPEAKER: S1\\n..." transcripts into conversation turns.
+ */
+function parseTranscriptTurns(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+
+  const lines = raw.split(/\r?\n/);
+  const turns = [];
+  let current = null;
+
+  const speakerRe = /^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*:?\s*$/i;
+  const inlineRe = /^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*[:.-]\s*(.+)$/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (current) current.text += '\n';
+      continue;
+    }
+    const inline = trimmed.match(inlineRe);
+    if (inline) {
+      if (current && current.text.trim()) turns.push(current);
+      current = { speaker: inline[1].replace(/\s+/g, ''), text: inline[2].trim() };
+      continue;
+    }
+    const onlySpeaker = trimmed.match(speakerRe);
+    if (onlySpeaker) {
+      if (current && current.text.trim()) turns.push(current);
+      current = { speaker: onlySpeaker[1].replace(/\s+/g, ''), text: '' };
+      continue;
+    }
+    if (!current) current = { speaker: null, text: trimmed };
+    else current.text = current.text ? `${current.text}\n${trimmed}` : trimmed;
+  }
+  if (current && (current.text.trim() || current.speaker)) turns.push(current);
+
+  // Fallback: no speaker markers — one block
+  if (!turns.length && raw) return [{ speaker: null, text: raw }];
+  return turns.map((t) => ({ ...t, text: t.text.replace(/\n+$/g, '').trim() })).filter((t) => t.text);
+}
+
+function serializeTranscriptTurns(container) {
+  const turns = [...(container?.querySelectorAll('.transcript-turn') || [])];
+  if (!turns.length) {
+    return document.getElementById('transcript-content')?.value?.trim() || '';
+  }
+  return turns.map((turn) => {
+    const speaker = turn.dataset.speaker;
+    const bubble = turn.querySelector('.transcript-bubble');
+    const text = (bubble?.innerText || bubble?.textContent || '').trim();
+    if (!text) return '';
+    if (speaker) return `SPEAKER: ${speaker}\n${text}`;
+    return text;
+  }).filter(Boolean).join('\n\n');
+}
+
+function syncTranscriptHiddenField() {
+  const hidden = document.getElementById('transcript-content');
+  const convo = document.getElementById('transcript-conversation');
+  if (!hidden || !convo) return;
+  hidden.value = serializeTranscriptTurns(convo);
+}
+
+function renderTranscriptConversation(text, { editable = true, container = null } = {}) {
+  const convo = container || document.getElementById('transcript-conversation');
+  const hidden = document.getElementById('transcript-content');
+  if (!convo) return;
+
+  const turns = parseTranscriptTurns(text);
+  // Only write the editable step-1 hidden field when rendering into the main conversation
+  if (hidden && !container) hidden.value = text || '';
+
+  if (!turns.length) {
+    convo.innerHTML = '<p class="transcript-empty">No transcript available.</p>';
+    return;
+  }
+
+  convo.innerHTML = '';
+  turns.forEach((turn) => {
+    const side = speakerSide(turn.speaker);
+    const row = document.createElement('div');
+    row.className = `transcript-turn transcript-turn--${side}`;
+    if (turn.speaker) {
+      const m = String(turn.speaker).match(/(\d+)/);
+      row.dataset.speaker = m ? `S${m[1]}` : String(turn.speaker).toUpperCase();
+    }
+
+    if (turn.speaker) {
+      const label = document.createElement('span');
+      label.className = 'transcript-speaker';
+      label.textContent = speakerLabel(row.dataset.speaker || turn.speaker);
+      row.appendChild(label);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'transcript-bubble';
+    bubble.textContent = turn.text;
+    if (editable) {
+      bubble.contentEditable = 'true';
+      bubble.spellcheck = true;
+      bubble.addEventListener('input', syncTranscriptHiddenField);
+      bubble.addEventListener('blur', syncTranscriptHiddenField);
+    }
+    row.appendChild(bubble);
+    convo.appendChild(row);
+  });
+  if (editable && !container) syncTranscriptHiddenField();
 }
 
 /** Show "Use deal on this page" when user is on a HubSpot deal page but viewing different deal/new deal */
@@ -337,15 +711,19 @@ function showUseCurrentDealOption(context) {
 }
 
 async function loadTranscriptForReview(memoId) {
-  const el = document.getElementById('transcript-content');
-  if (!el) return;
-  el.value = 'Loading transcript...';
-  el.readOnly = true;
+  const convo = document.getElementById('transcript-conversation');
+  const hidden = document.getElementById('transcript-content');
+  if (convo) convo.innerHTML = '<p class="transcript-empty">Loading transcript…</p>';
+  if (hidden) {
+    hidden.value = '';
+    hidden.readOnly = true;
+  }
   try {
     const memo = await api.getMemo(memoId);
     const status = memo?.status || '';
-    el.value = memo?.transcript || 'No transcript available.';
-    el.readOnly = status === 'pending_review'; // Editable only when pending_transcript
+    const editable = status === 'pending_transcript';
+    renderTranscriptConversation(memo?.transcript || '', { editable });
+    if (hidden) hidden.readOnly = !editable;
     if (memo?.status === 'failed') {
       showExtractionError(memo?.errorMessage || 'Extraction failed. Click Retry to try again.');
     } else if (memo?.status === 'extracting') {
@@ -355,24 +733,41 @@ async function loadTranscriptForReview(memoId) {
     }
   } catch (e) {
     console.error('[Popup] Failed to load transcript:', e);
-    el.value = 'Failed to load transcript.';
-    el.readOnly = true;
+    if (convo) convo.innerHTML = '<p class="transcript-empty">Failed to load transcript.</p>';
+    if (hidden) {
+      hidden.value = '';
+      hidden.readOnly = true;
+    }
   }
 }
 
 // ============================================
 // PREVIEW & DEAL LOGIC
 // ============================================
-async function loadRecentMemos() {
+async function loadRecentMemos(scope) {
   const listElement = document.getElementById('recent-memos-list');
+  const labelEl = document.getElementById('recent-memos-label');
   if (!listElement) return;
+  if (recentMemosInFlight) return;
+  recentMemosInFlight = true;
+
+  const resolved = scope || getRecentMemosScope(null);
+  if (labelEl) labelEl.textContent = resolved.label;
 
   try {
-    const memos = await chrome.runtime.sendMessage({ type: 'GET_RECENT_MEMOS' });
+    const memos = await chrome.runtime.sendMessage({
+      type: 'GET_RECENT_MEMOS',
+      dealId: resolved.dealId || undefined,
+      contactId: resolved.contactId || undefined,
+    });
     
     if (memos && !memos.error && Array.isArray(memos)) {
+      recentMemosLoaded = true;
       if (memos.length === 0) {
-        listElement.innerHTML = '<p class="body-muted" style="text-align: center; padding: 10px;">No memos yet.</p>';
+        const empty = resolved.key === 'global'
+          ? 'No memos yet.'
+          : 'No memos for this record yet.';
+        listElement.innerHTML = `<p class="body-muted" style="text-align: center; padding: 10px;">${empty}</p>`;
         return;
       }
 
@@ -423,6 +818,8 @@ async function loadRecentMemos() {
     }
   } catch (e) {
     console.error('[Popup] Failed to load recent memos:', e);
+  } finally {
+    recentMemosInFlight = false;
   }
 }
 
@@ -453,6 +850,20 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
 
       // Reset edited state when loading fresh preview
       editedProposedUpdates = null;
+      initCallInsights(preview);
+      try {
+        const memo = await api.getMemo(memoId);
+        const summaryEl = document.getElementById('review-summary');
+        if (summaryEl && !summaryEl.value.trim() && memo?.extraction?.summary) {
+          summaryEl.value = memo.extraction.summary;
+        }
+        if (!reviewActionItems.length && Array.isArray(memo?.extraction?.nextSteps)) {
+          reviewActionItems = memo.extraction.nextSteps
+            .filter((s) => s && String(s).trim())
+            .map((text) => ({ id: ++actionItemIdSeq, text: String(text).trim(), checked: true }));
+          renderActionItems();
+        }
+      } catch (_) { /* optional enrichment */ }
       renderProposedUpdates(preview.proposed_updates || [], preview.available_fields || []);
     } else {
       document.getElementById('target-deal-name').textContent = 'Error';
@@ -465,30 +876,147 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
   }
 }
 
+function isInsightsField(fieldName) {
+  return (
+    fieldName === 'description' ||
+    fieldName === 'hs_next_step' ||
+    String(fieldName || '').startsWith('next_step_task_')
+  );
+}
+
+function initCallInsights(preview) {
+  const updates = preview?.proposed_updates || [];
+  const summaryEl = document.getElementById('review-summary');
+  const desc = updates.find((u) => u?.field_name === 'description');
+  const summaryText =
+    (desc?.new_value && String(desc.new_value).trim()) ||
+    preview?.transcript_summary ||
+    '';
+  if (summaryEl) summaryEl.value = summaryText;
+
+  const steps = [];
+  updates.forEach((u) => {
+    if (!u) return;
+    if (u.field_name?.startsWith('next_step_task_') || u.field_name === 'hs_next_step') {
+      const text = String(u.new_value || '').trim();
+      if (text) steps.push({ id: ++actionItemIdSeq, text, checked: true });
+    }
+  });
+  // Dedupe identical strings
+  const seen = new Set();
+  reviewActionItems = steps.filter((s) => {
+    const key = s.text.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  renderActionItems();
+}
+
+function renderActionItems() {
+  const list = document.getElementById('action-items-list');
+  const empty = document.getElementById('action-items-empty');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!reviewActionItems.length) {
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  reviewActionItems.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'action-item' + (item.checked ? '' : ' is-unchecked');
+    row.dataset.id = String(item.id);
+    row.innerHTML = `
+      <label class="action-item-check">
+        <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle">
+        <span class="action-item-box" aria-hidden="true"></span>
+      </label>
+      <input type="text" class="action-item-text" value="${escapeHtml(item.text)}" data-action="edit">
+      <button type="button" class="action-item-remove" data-action="remove" title="Remove">×</button>
+    `;
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    const textInput = row.querySelector('.action-item-text');
+    const removeBtn = row.querySelector('[data-action="remove"]');
+
+    checkbox?.addEventListener('change', () => {
+      item.checked = !!checkbox.checked;
+      row.classList.toggle('is-unchecked', !item.checked);
+    });
+    textInput?.addEventListener('input', () => {
+      item.text = textInput.value;
+    });
+    removeBtn?.addEventListener('click', () => {
+      reviewActionItems = reviewActionItems.filter((x) => x.id !== item.id);
+      renderActionItems();
+    });
+    list.appendChild(row);
+  });
+}
+
+function addActionItem(text = '') {
+  reviewActionItems.push({ id: ++actionItemIdSeq, text: text || '', checked: true });
+  renderActionItems();
+  const list = document.getElementById('action-items-list');
+  const last = list?.querySelector('.action-item:last-child .action-item-text');
+  last?.focus();
+}
+
 function renderProposedUpdates(updates, availableFields) {
   proposedUpdatesList.innerHTML = '';
   const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
-  const filteredList = list.filter(u => u && !['contact_name', 'company_name', 'dealname'].includes(u.field_name));
+  // Insights (summary / tasks) live in dedicated sections — keep out of deal field list
+  const filteredList = list.filter(
+    (u) =>
+      u &&
+      !['contact_name', 'company_name', 'dealname'].includes(u.field_name) &&
+      !isInsightsField(u.field_name)
+  );
+
+  if (!filteredList.length) {
+    proposedUpdatesList.innerHTML =
+      '<p class="body-muted" style="padding: 8px 4px;">No field updates proposed for this call.</p>';
+  }
 
   filteredList.forEach((update, idx) => {
       if (!update) return; // removed
+      // Map back to original index in editedProposedUpdates / updates for edit/remove
+      const sourceList = editedProposedUpdates !== null ? editedProposedUpdates : updates;
+      const realIdx = sourceList.findIndex((u) => u === update || (u && update && u.field_name === update.field_name && u.new_value === update.new_value));
+      const idxForEdit = realIdx >= 0 ? realIdx : idx;
+
       const hadExisting =
         update.current_value != null &&
         String(update.current_value).trim() !== '' &&
         String(update.current_value).trim() !== '(empty)';
       const isOverride = !!hadExisting;
-      const isDealField = !update.field_name.startsWith('next_step_task_');
+      const isDealField =
+        (update.object_type || 'deals') === 'deals' &&
+        !String(update.field_name || '').startsWith('line_item_') &&
+        !String(update.field_name || '').startsWith('next_step_task_');
+      const objectLabel = ({
+        deals: 'Deal',
+        contacts: 'Contact',
+        companies: 'Company',
+        line_items: 'Line item',
+        task: 'Task',
+      })[update.object_type || 'deals'] || 'Deal';
 
       const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
       const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
 
       const div = document.createElement('div');
       div.className = 'update-item' + (isOverride ? ' override' : ' new');
-      div.dataset.idx = String(idx);
+      div.dataset.idx = String(idxForEdit);
       div.innerHTML = `
         <div class="update-content">
           <div class="update-header-row">
-            <p class="update-label">${update.field_label || update.field_name}</p>
+            <div>
+              <p class="update-object-type">${objectLabel}</p>
+              <p class="update-label">${update.field_label || update.field_name}</p>
+            </div>
             ${isDealField ? `
               <div class="update-actions">
                 <button class="update-action-btn edit" title="Edit">${editIcon}</button>
@@ -559,56 +1087,63 @@ function renderProposedUpdates(updates, availableFields) {
           e.stopPropagation();
           const v = opt.dataset.value ?? '';
           const label = opt.dataset.label || v || '—';
-          if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
-          if (editedProposedUpdates[idx]) {
-            editedProposedUpdates[idx].new_value = v;
-            valueEl.textContent = label;
+          if (customTrigger) customTrigger.textContent = label;
+          update.new_value = v;
+          if (editedProposedUpdates === null) {
+            editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
           }
-          customTrigger.textContent = label;
-          div.classList.remove('editing');
-          valueEl.style.display = 'block';
-          customSelectWrapper.style.display = 'none';
+          const i = Number(div.dataset.idx);
+          if (editedProposedUpdates[i]) editedProposedUpdates[i] = { ...editedProposedUpdates[i], new_value: v };
           closeCustomSelect();
+          valueEl.style.display = '';
+          valueEl.textContent = label || '—';
+          if (customSelectWrapper) customSelectWrapper.style.display = 'none';
+          div.classList.remove('editing');
         };
       });
     }
     if (editInput && editInput.tagName === 'INPUT') {
-      const saveEdit = () => {
-        let v = editInput.value?.trim() || '';
-        if (isCrmDateField(update)) {
-          const iso = parseFlexibleDateToIso(v);
-          if (iso) v = iso;
+      editInput.onblur = () => {
+        const v = editInput.value;
+        update.new_value = v;
+        if (editedProposedUpdates === null) {
+          editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
         }
-        div.classList.remove('editing');
-        valueEl.style.display = 'block';
-        if (customSelectWrapper) customSelectWrapper.style.display = 'none';
+        const i = Number(div.dataset.idx);
+        if (editedProposedUpdates[i]) editedProposedUpdates[i] = { ...editedProposedUpdates[i], new_value: v };
+        valueEl.style.display = '';
+        valueEl.textContent = isCrmDateField(update)
+          ? (formatCrmDateDisplay(v) || v || '—')
+          : (v || '—');
         editInput.style.display = 'none';
-        if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
-        if (editedProposedUpdates[idx]) {
-          editedProposedUpdates[idx].new_value = v;
-          valueEl.textContent = isCrmDateField(update)
-            ? (formatCrmDateDisplay(v) || v || '—')
-            : (v || '—');
-        }
+        div.classList.remove('editing');
       };
-      editInput.addEventListener('blur', saveEdit);
-      editInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveEdit(); });
+      editInput.onkeydown = (e) => {
+        if (e.key === 'Enter') editInput.blur();
+      };
     }
     if (removeBtn) {
       removeBtn.onclick = () => {
-        if (editedProposedUpdates === null) editedProposedUpdates = list.map((u) => (u ? { ...u } : null));
-        editedProposedUpdates[idx] = null;
-        const af = (lastPreviewData && lastPreviewData.available_fields) || [];
-        renderProposedUpdates(editedProposedUpdates.filter(Boolean), af);
+        if (editedProposedUpdates === null) {
+          editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
+        }
+        const i = Number(div.dataset.idx);
+        editedProposedUpdates[i] = null;
+        renderProposedUpdates(editedProposedUpdates.filter(Boolean), availableFields);
       };
     }
 
     proposedUpdatesList.appendChild(div);
   });
 
+  // Keep Add field working — available fields still exclude insights handled above
   const addBtn = document.getElementById('btn-add-field');
   const dropdown = document.getElementById('add-field-dropdown');
-  if (availableFields.length > 0 && addBtn) {
+  const sourceForAdd = editedProposedUpdates !== null ? editedProposedUpdates : updates;
+  const remaining = (availableFields || []).filter(
+    (f) => f?.name && !sourceForAdd.some((u) => u && u.field_name === f.name) && !isInsightsField(f.name)
+  );
+  if (remaining.length > 0 && addBtn) {
     addBtn.style.display = 'block';
     addBtn.onclick = () => {
       const expanded = dropdown.style.display === 'block';
@@ -619,8 +1154,7 @@ function renderProposedUpdates(updates, availableFields) {
           addFieldCloseHandler = null;
         }
       } else {
-        dropdown.innerHTML = availableFields
-          .filter((f) => !list.some((u) => u && u.field_name === f.name))
+        dropdown.innerHTML = remaining
           .map(
             (f) =>
               `<div class="add-field-opt" data-name="${escapeHtml(f.name)}" data-label="${escapeHtml(f.label)}" data-type="${escapeHtml(f.type)}">${escapeHtml(f.label)}</div>`
@@ -636,7 +1170,9 @@ function renderProposedUpdates(updates, availableFields) {
               new_value: '',
               options: availableFields.find((af) => af.name === opt.dataset.name)?.options
             };
-            const nextList = editedProposedUpdates !== null ? [...editedProposedUpdates.filter(Boolean), newUpdate] : [...list, newUpdate];
+            const nextList = editedProposedUpdates !== null
+              ? [...editedProposedUpdates.filter(Boolean), newUpdate]
+              : [...updates.map((u) => (u ? { ...u } : null)).filter(Boolean), newUpdate];
             editedProposedUpdates = nextList;
             if (addFieldCloseHandler) {
               document.removeEventListener('click', addFieldCloseHandler);
@@ -646,7 +1182,6 @@ function renderProposedUpdates(updates, availableFields) {
             renderProposedUpdates(editedProposedUpdates, availableFields);
           };
         });
-        // Close dropdown when clicking outside
         if (addFieldCloseHandler) document.removeEventListener('click', addFieldCloseHandler);
         addFieldCloseHandler = (e) => {
           if (dropdown.style.display !== 'block') {
@@ -660,14 +1195,10 @@ function renderProposedUpdates(updates, availableFields) {
         };
         setTimeout(() => document.addEventListener('click', addFieldCloseHandler), 0);
       }
-    }
+    };
   } else if (addBtn) {
     addBtn.style.display = 'none';
-    dropdown.style.display = 'none';
-  }
-
-  if (list.filter(Boolean).length === 0 && !editedProposedUpdates) {
-    proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px;">No field updates extracted.</p>';
+    if (dropdown) dropdown.style.display = 'none';
   }
 }
 
@@ -686,14 +1217,30 @@ async function buildExtractionForApprove() {
   const memo = await api.getMemo(currentMemoId);
   const base = memo?.extraction ? { ...memo.extraction } : {};
   const raw = { ...(base.raw_extraction || {}) };
+  const contactProps = { ...((raw.contact_properties && typeof raw.contact_properties === 'object') ? raw.contact_properties : {}) };
+  const companyProps = { ...((raw.company_properties && typeof raw.company_properties === 'object') ? raw.company_properties : {}) };
 
   const updates = editedProposedUpdates !== null
     ? editedProposedUpdates.filter(Boolean)
     : (preview.proposed_updates || []);
 
   for (const u of updates) {
+    if (isInsightsField(u.field_name)) continue; // handled below from dedicated UI
     const val = u.new_value?.trim() || null;
-    if (!val && u.field_name !== 'description') continue;
+    if (!val) continue;
+    const objectType = u.object_type || 'deals';
+
+    if (objectType === 'contacts' && u.field_name !== 'contact_name') {
+      contactProps[u.field_name] = u.field_type === 'number' ? (parseFloat(val) || null) : val;
+      continue;
+    }
+    if (objectType === 'companies' && u.field_name !== 'company_name') {
+      companyProps[u.field_name] = u.field_type === 'number' ? (parseFloat(val) || null) : val;
+      continue;
+    }
+    if (objectType === 'line_items' || String(u.field_name || '').startsWith('line_item_')) {
+      continue;
+    }
 
     if (u.field_name === 'contact_name') {
       base.contactName = val;
@@ -715,20 +1262,6 @@ async function buildExtractionForApprove() {
     } else if (u.field_name === 'dealstage') {
       base.dealStage = val;
       raw.dealstage = val;
-    } else if (u.field_name === 'description') {
-      base.summary = val || '';
-      raw.description = val || '';
-    } else if (u.field_name === 'hs_next_step') {
-      raw.hs_next_step = val;
-      base.nextSteps = val ? [val] : [];
-    } else if (u.field_name.startsWith('next_step_task_')) {
-      const steps = [...(base.nextSteps || [])];
-      const i = parseInt(u.field_name.replace('next_step_task_', ''), 10);
-      if (val && !Number.isNaN(i)) {
-        steps[i] = val;
-        base.nextSteps = steps.filter(Boolean);
-        if (base.nextSteps[0]) raw.hs_next_step = base.nextSteps[0];
-      }
     } else if (val) {
       if (u.field_type === 'number') {
         raw[u.field_name] = parseFloat(val) || null;
@@ -739,6 +1272,22 @@ async function buildExtractionForApprove() {
       }
     }
   }
+
+  if (Object.keys(contactProps).length) raw.contact_properties = contactProps;
+  if (Object.keys(companyProps).length) raw.company_properties = companyProps;
+
+  // Summary + action items from dedicated review sections (Option A)
+  const summaryEl = document.getElementById('review-summary');
+  const summary = (summaryEl?.value || '').trim();
+  base.summary = summary;
+  raw.description = summary;
+
+  const selectedSteps = reviewActionItems
+    .filter((i) => i.checked && (i.text || '').trim())
+    .map((i) => i.text.trim());
+  base.nextSteps = selectedSteps;
+  if (selectedSteps[0]) raw.hs_next_step = selectedSteps[0];
+  else delete raw.hs_next_step;
 
   return { ...base, raw_extraction: raw };
 }
@@ -933,12 +1482,14 @@ approveSyncButton?.addEventListener('click', async () => {
 
   try {
     const extraction = await buildExtractionForApprove();
+    const createNote = document.getElementById('create-note-checkbox')?.checked !== false;
     await chrome.runtime.sendMessage({
       type: 'APPROVE_SYNC',
       memoId: currentMemoId,
       dealId: currentDealId,
       isNewDeal: !currentDealId,
-      extraction: extraction || undefined
+      extraction: extraction || undefined,
+      createNote,
     });
   } catch (e) {
     console.error('[Popup] Approve error:', e);
@@ -948,8 +1499,10 @@ approveSyncButton?.addEventListener('click', async () => {
   }
 });
 
-// Stop HubSpot call watch
-document.getElementById('call-watch-stop')?.addEventListener('click', () => {
+document.getElementById('btn-add-action-item')?.addEventListener('click', () => addActionItem(''));
+
+// Stop HubSpot recordings watch
+document.getElementById('recordings-stop-watch')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'STOP_CALL_WATCH' });
   chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
 });
@@ -961,6 +1514,7 @@ document.getElementById('discard-button')?.addEventListener('click', () => {
 
 // Review - confirm transcript (Extract & Continue)
 document.getElementById('review-confirm-transcript-btn')?.addEventListener('click', async function () {
+  syncTranscriptHiddenField();
   const transcriptEl = document.getElementById('transcript-content');
   const transcript = transcriptEl?.value?.trim() || '';
   if (!transcript) return;
@@ -1109,17 +1663,46 @@ async function init() {
     const emailEl = document.getElementById('user-email');
     if (emailEl) emailEl.textContent = user.email;
     
-    // Get current state from background
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-    renderState(state);
+    // Service worker may return undefined if the message channel closed before sendResponse
+    renderState(state && typeof state === 'object' ? state : { status: 'idle', isRecording: false });
   } catch (e) {
     console.error('[Popup] Init error:', e);
-    const isNetworkError = e?.message === 'Failed to fetch' || e?.name === 'TypeError' || (e?.message && /network|connection|refused/i.test(e.message));
-    if (isNetworkError) {
+    const msg = String(e?.message || '');
+    const detail = typeof e?.data?.detail === 'string' ? e.data.detail : msg;
+    const isAuthError =
+      e?.status === 401 ||
+      (e?.name === 'ApiError' && e?.status === 401) ||
+      /session expired|unauthorized|401/i.test(msg);
+    const isAuthPlatformError =
+      e?.status === 503 ||
+      /oauth_client_id|supabase auth|token refresh failed|platform bug/i.test(detail);
+    const isNetworkError =
+      msg === 'Failed to fetch' ||
+      (/network|connection|refused|load failed/i.test(msg) && !isAuthPlatformError);
+
+    if (isAuthError) {
+      showScreen('login');
+    } else if (isAuthPlatformError || isNetworkError) {
       document.getElementById('loading-spinner').style.display = 'none';
       document.getElementById('loading-backend-error').style.display = 'block';
+      const titleEl = document.getElementById('loading-error-title');
+      const detailEl = document.getElementById('loading-error-detail');
+      if (isAuthPlatformError) {
+        if (titleEl) titleEl.textContent = 'Could not restore your session.';
+        if (detailEl) {
+          detailEl.textContent = /oauth_client_id|platform bug|infrastructure/i.test(detail)
+            ? 'Supabase Auth token refresh is broken on this project. Upgrade/restart infrastructure in the Supabase dashboard, then sign in again.'
+            : (detail || 'Sign out and sign in again. If this keeps happening, check Supabase Auth.');
+        }
+      } else {
+        if (titleEl) titleEl.textContent = 'Could not connect to the server.';
+        if (detailEl) detailEl.textContent = 'Please check your internet connection and try again.';
+      }
     } else {
-      showScreen('login');
+      // Unknown error (e.g. render bug) — don't wipe session; show idle record screen
+      showScreen('record');
+      renderState({ status: 'idle', isRecording: false });
     }
   }
 }

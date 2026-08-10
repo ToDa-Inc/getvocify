@@ -161,6 +161,7 @@ CREATE TABLE crm_configurations (
   allowed_deal_fields TEXT[] DEFAULT ARRAY['dealname', 'amount', 'description', 'closedate'],
   allowed_contact_fields TEXT[] DEFAULT ARRAY['firstname', 'lastname', 'email', 'phone'],
   allowed_company_fields TEXT[] DEFAULT ARRAY['name', 'domain'],
+  allowed_line_item_fields TEXT[] DEFAULT ARRAY['name', 'quantity', 'price'],
   
   -- Behavior settings
   auto_create_contacts BOOLEAN DEFAULT true,
@@ -176,7 +177,7 @@ CREATE TABLE crm_configurations (
 CREATE TABLE crm_schemas (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
-  object_type TEXT NOT NULL CHECK (object_type IN ('deals', 'contacts', 'companies')),
+  object_type TEXT NOT NULL CHECK (object_type IN ('deals', 'contacts', 'companies', 'line_items')),
   
   properties JSONB NOT NULL,
   pipelines JSONB, -- Only for deals

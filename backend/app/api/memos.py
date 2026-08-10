@@ -61,7 +61,9 @@ async def _curated_field_specs_for_primary_crm(
         config = await config_service.get_configuration(user_id)
     except Exception:
         config = None
-    allowed_fields = list(config.allowed_deal_fields) if config and config.allowed_deal_fields else []
+    if not config:
+        return None
+    allowed_fields = list(config.allowed_deal_fields or [])
     try:
         provider, conn = await get_memo_crm_or_none_with_hubspot_refresh(supabase, user_id)
     except HTTPException:
@@ -72,7 +74,16 @@ async def _curated_field_specs_for_primary_crm(
     if stage_field not in allowed_fields:
         allowed_fields.append(stage_field)
     try:
-        specs = await provider.get_curated_field_specs(allowed_fields)
+        get_specs = getattr(provider, "get_extraction_field_specs", None)
+        if callable(get_specs):
+            specs = await get_specs(
+                allowed_deal_fields=allowed_fields,
+                allowed_contact_fields=config.allowed_contact_fields,
+                allowed_company_fields=config.allowed_company_fields,
+                allowed_line_item_fields=getattr(config, "allowed_line_item_fields", None),
+            )
+        else:
+            specs = await provider.get_curated_field_specs(allowed_fields)
     except Exception:
         return None
     for spec in specs:
@@ -438,11 +449,39 @@ async def list_memos(
     user_id: str = Depends(get_user_id),
     limit: int = 20,
     offset: int = 0,
+    hubspot_deal_id: Optional[str] = None,
+    hubspot_contact_id: Optional[str] = None,
 ):
-    """List user's memos"""
-    result = supabase.table("memos").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).offset(offset).execute()
-    
-    memos = [_memo_from_row(memo_data) for memo_data in result.data]
+    """
+    List user's memos.
+
+    Optional HubSpot filters (for the extension on a deal/contact page):
+    - hubspot_deal_id: memos from calls on that deal, or approved against it
+    - hubspot_contact_id: memos from calls on that contact
+    """
+    limit = max(1, min(limit, 50))
+    offset = max(0, offset)
+
+    q = (
+        supabase.table("memos")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .offset(offset)
+    )
+
+    deal_id = (hubspot_deal_id or "").strip() or None
+    contact_id = (hubspot_contact_id or "").strip() or None
+
+    if deal_id:
+        # Call memos linked at ingest + memos later matched/approved to this deal
+        q = q.or_(f"hubspot_deal_id.eq.{deal_id},matched_deal_id.eq.{deal_id}")
+    elif contact_id:
+        q = q.eq("hubspot_contact_id", contact_id)
+
+    result = q.execute()
+    memos = [_memo_from_row(memo_data) for memo_data in (result.data or [])]
     return memos
 
 
@@ -720,7 +759,9 @@ def get_hubspot_client_from_connection(
     user_id: str,
     supabase: Client,
 ) -> tuple[HubSpotClient, str]:
-    """Get HubSpot client and connection ID from user's connection"""
+    """Get HubSpot client and connection ID from user's connection (refreshes OAuth token if needed)."""
+    from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
+
     try:
         result = supabase.table("crm_connections").select("*").eq(
             "user_id", user_id
@@ -732,8 +773,10 @@ def get_hubspot_client_from_connection(
                 detail="HubSpot connection not found",
             )
         
-        connection = result.data
+        connection = ensure_fresh_hubspot_connection(supabase, result.data)
         return HubSpotClient(connection["access_token"]), connection["id"]
+    except HTTPException:
+        raise
     except Exception as e:
         error_str = str(e)
         if "no rows" in error_str.lower() or "PGRST116" in error_str:
@@ -864,6 +907,17 @@ async def get_approval_preview(
     allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields
     if conn.get("provider") == "hubspot":
         allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
+    allowed_contact_fields = (
+        list(config.allowed_contact_fields) if config and config.allowed_contact_fields else []
+    )
+    allowed_company_fields = (
+        list(config.allowed_company_fields) if config and config.allowed_company_fields else []
+    )
+    allowed_line_item_fields = (
+        list(getattr(config, "allowed_line_item_fields", None) or [])
+        if config
+        else []
+    )
 
     extraction = MemoExtraction(**extraction_data)
     # Always compute matches (even when deal_id is already known) so build_preview can
@@ -885,6 +939,9 @@ async def get_approval_preview(
             matched_deals=matches,
             selected_deal_id=deal_id,
             allowed_fields=allowed_fields,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
+            allowed_line_item_fields=allowed_line_item_fields,
             default_stage_name=config.default_stage_name if config else None,
             default_pipeline_id=config.default_pipeline_id if config else None,
             default_stage_id=config.default_stage_id if config else None,
@@ -974,6 +1031,15 @@ async def post_approval_preview(
             matched_deals=matches,
             selected_deal_id=deal_id,
             allowed_fields=allowed_fields,
+            allowed_contact_fields=(
+                list(config.allowed_contact_fields) if config and config.allowed_contact_fields else []
+            ),
+            allowed_company_fields=(
+                list(config.allowed_company_fields) if config and config.allowed_company_fields else []
+            ),
+            allowed_line_item_fields=(
+                list(getattr(config, "allowed_line_item_fields", None) or []) if config else []
+            ),
             default_stage_name=config.default_stage_name if config else None,
             default_pipeline_id=config.default_pipeline_id if config else None,
             default_stage_id=config.default_stage_id if config else None,
@@ -1015,6 +1081,8 @@ async def cleanup_orphans(
     
     # Check if HubSpot is connected
     try:
+        from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
+
         conn_result = supabase.table("crm_connections").select("*").eq(
             "user_id", user_id
         ).eq("provider", "hubspot").eq("status", "connected").single().execute()
@@ -1025,8 +1093,11 @@ async def cleanup_orphans(
                 detail="HubSpot connection not found",
             )
         
-        connection_id = conn_result.data["id"]
-        access_token = conn_result.data["access_token"]
+        connection = ensure_fresh_hubspot_connection(supabase, conn_result.data)
+        connection_id = connection["id"]
+        access_token = connection["access_token"]
+    except HTTPException:
+        raise
     except Exception as e:
         error_str = str(e)
         if "no rows" in error_str.lower() or "PGRST116" in error_str:

@@ -30,14 +30,22 @@ class ProposedUpdate(BaseModel):
     extraction_confidence: float = Field(ge=0.0, le=1.0)
     field_type: Optional[str] = Field(None, description="HubSpot schema type for inline edit")
     options: Optional[list[dict]] = Field(None, description="Enum options {value, label} for dropdowns")
+    object_type: Optional[str] = Field(
+        None,
+        description="CRM object this field belongs to: deals | contacts | companies | line_items | task",
+    )
 
 
 class AvailableField(BaseModel):
-    """Field available to add (in allowed_deal_fields but not in proposed_updates)"""
+    """Field available to add (in allowed_*_fields but not in proposed_updates)"""
     name: str
     label: str
     type: str = "string"
     options: Optional[list[dict]] = None
+    object_type: Optional[str] = Field(
+        default="deals",
+        description="CRM object this field belongs to",
+    )
 
 
 class ApprovalPreview(BaseModel):
@@ -55,8 +63,13 @@ class ApprovalPreview(BaseModel):
     proposed_updates: list[ProposedUpdate] = Field(default_factory=list)
     available_fields: list[AvailableField] = Field(
         default_factory=list,
-        description="Fields in allowed_deal_fields not yet in proposed_updates (for Add field)",
+        description="Fields in allowed_*_fields not yet in proposed_updates (for Add field)",
     )
+    # Allowlists used for this preview (so UI can show what is in scope)
+    allowed_deal_fields: list[str] = Field(default_factory=list)
+    allowed_contact_fields: list[str] = Field(default_factory=list)
+    allowed_company_fields: list[str] = Field(default_factory=list)
+    allowed_line_item_fields: list[str] = Field(default_factory=list)
 
     # Contact/Company if creating
     new_contact: Optional[dict] = None

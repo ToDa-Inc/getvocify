@@ -2,11 +2,12 @@
 CRM integration API endpoints
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from uuid import UUID
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
@@ -44,6 +45,15 @@ from app.services.hubspot.oauth import (
     build_authorize_url,
     decode_state,
     exchange_code_for_tokens,
+    ensure_fresh_hubspot_connection,
+)
+from app.services.hubspot.calls import (
+    get_call_engagement,
+    list_recordings_for_record,
+)
+from app.services.hubspot.call_processor import (
+    initiate_hubspot_call_memo,
+    process_hubspot_call_background,
 )
 from supabase import Client
 
@@ -57,6 +67,7 @@ def get_hubspot_client_from_connection(
 ) -> HubSpotClient:
     """
     Get HubSpot client from user's connection.
+    Refreshes OAuth access_token when expired (HubSpot tokens last ~30 min).
     
     Raises:
         HTTPException if no connection exists or token is invalid
@@ -79,8 +90,16 @@ def get_hubspot_client_from_connection(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"HubSpot connection status: {connection['status']}",
         )
+
+    try:
+        connection = ensure_fresh_hubspot_connection(supabase, connection)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
+        ) from e
     
-    access_token = connection["access_token"]
+    access_token = connection.get("access_token")
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -88,6 +107,78 @@ def get_hubspot_client_from_connection(
         )
     
     return HubSpotClient(access_token)
+
+
+def _hubspot_access_token(user_id: str, supabase: Client) -> str:
+    result = (
+        supabase.table("crm_connections")
+        .select("id, access_token, refresh_token, token_expires_at, status")
+        .eq("user_id", user_id)
+        .eq("provider", "hubspot")
+        .single()
+        .execute()
+    )
+    if not result.data or result.data.get("status") != "connected":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HubSpot connection not found. Please connect your HubSpot account first.",
+        )
+    try:
+        connection = ensure_fresh_hubspot_connection(supabase, result.data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
+        ) from e
+    token = (connection.get("access_token") or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="HubSpot access token is missing",
+        )
+    return token
+
+
+def _join_memo_state(
+    supabase: Client,
+    user_id: str,
+    recordings: list[dict],
+) -> list[dict]:
+    call_ids = [r["call_id"] for r in recordings if r.get("call_id")]
+    if not call_ids:
+        return recordings
+    memos_res = (
+        supabase.table("memos")
+        .select("id, status, hubspot_engagement_id")
+        .eq("user_id", user_id)
+        .in_("hubspot_engagement_id", call_ids)
+        .execute()
+    )
+    by_call: dict[str, dict] = {}
+    for row in memos_res.data or []:
+        eid = str(row.get("hubspot_engagement_id") or "")
+        if eid:
+            by_call[eid] = row
+    out = []
+    for rec in recordings:
+        m = by_call.get(rec["call_id"])
+        out.append({
+            **rec,
+            "memo_id": str(m["id"]) if m else None,
+            "memo_status": m.get("status") if m else None,
+        })
+    return out
+
+
+async def _recordings_for_record(
+    user_id: str,
+    supabase: Client,
+    from_object_type: str,
+    record_id: str,
+) -> list[dict]:
+    client = get_hubspot_client_from_connection(user_id, supabase)
+    items = await list_recordings_for_record(client, from_object_type, record_id)
+    return _join_memo_state(supabase, user_id, items)
 
 
 def _query_call_memo(supabase: Client, user_id: str, field: str, value: str) -> dict:
@@ -123,8 +214,7 @@ async def get_hubspot_call_memo_for_deal(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """Poll for a HubSpot call memo created by webhook for this deal."""
-    get_hubspot_client_from_connection(user_id, supabase)
+    """Poll for a HubSpot call memo created by webhook for this deal (DB only)."""
     return _query_call_memo(supabase, user_id, "hubspot_deal_id", deal_id)
 
 
@@ -134,9 +224,120 @@ async def get_hubspot_call_memo_for_contact(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """Poll for a HubSpot call memo created by webhook for this contact."""
-    get_hubspot_client_from_connection(user_id, supabase)
+    """Poll for a HubSpot call memo created by webhook for this contact (DB only)."""
     return _query_call_memo(supabase, user_id, "hubspot_contact_id", contact_id)
+
+
+@router.get("/hubspot/deals/{deal_id}/recordings")
+async def list_hubspot_recordings_for_deal(
+    deal_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """HubSpot calls with recordings linked to this deal, plus Vocify memo state."""
+    return await _recordings_for_record(user_id, supabase, "deals", deal_id)
+
+
+@router.get("/hubspot/contacts/{contact_id}/recordings")
+async def list_hubspot_recordings_for_contact(
+    contact_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """HubSpot calls with recordings linked to this contact, plus Vocify memo state."""
+    return await _recordings_for_record(user_id, supabase, "contacts", contact_id)
+
+
+@router.post("/hubspot/calls/{call_id}/process")
+async def process_hubspot_call(
+    call_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Start (or retry) transcription for a HubSpot call recording.
+    Idempotent on hubspot_engagement_id; retries failed memos.
+    """
+    client = get_hubspot_client_from_connection(user_id, supabase)
+    access_token = _hubspot_access_token(user_id, supabase)
+
+    eng = await get_call_engagement(client, call_id)
+    if not eng:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
+    props = eng.get("properties") or {}
+    if not (props.get("hs_call_recording_url") or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This call has no recording yet.",
+        )
+
+    memo_id, created = await initiate_hubspot_call_memo(
+        supabase, user_id, call_id, access_token
+    )
+    if not memo_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not create memo for this call",
+        )
+
+    should_process = created
+    memo_row = (
+        supabase.table("memos")
+        .select("status")
+        .eq("id", memo_id)
+        .single()
+        .execute()
+    )
+    current_status = (memo_row.data or {}).get("status") if memo_row.data else "transcribing"
+
+    if not created and current_status == "failed":
+        supabase.table("memos").update(
+            {
+                "status": "transcribing",
+                "error_message": None,
+                "processing_started_at": datetime.utcnow().isoformat(),
+            }
+        ).eq("id", memo_id).execute()
+        should_process = True
+        current_status = "transcribing"
+
+    if should_process:
+        asyncio.create_task(
+            process_hubspot_call_background(
+                memo_id, user_id, access_token, call_id, supabase
+            )
+        )
+
+    return {
+        "memo_id": memo_id,
+        "status": current_status,
+        "created": created,
+        "processing_started": should_process,
+    }
+
+
+@router.get("/hubspot/contacts/{contact_id}/context")
+async def get_contact_context_for_extension(
+    contact_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Contact display name for extension header on HubSpot contact pages."""
+    client = get_hubspot_client_from_connection(user_id, supabase)
+    search_service = HubSpotSearchService(client)
+    contact_service = HubSpotContactService(client, search_service)
+    try:
+        contact = await contact_service.get(contact_id)
+        props = contact.properties or {}
+        first = props.get("firstname") or ""
+        last = props.get("lastname") or ""
+        name = f"{first} {last}".strip() or None
+        return {
+            "contactName": name,
+            "contactEmail": props.get("email") or None,
+        }
+    except Exception:
+        return {"contactName": None, "contactEmail": None}
 
 
 @router.post("/hubspot/connect", response_model=ConnectHubSpotResponse)
@@ -471,14 +672,15 @@ async def disconnect_hubspot(
 
 
 @router.get("/hubspot/schema", response_model=CRMSchema)
-async def get_hubspot_deal_schema(
+async def get_hubspot_schema(
+    object_type: Literal["deals", "contacts", "companies", "line_items"] = "deals",
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
     """
-    Get HubSpot deal schema (properties and pipelines).
+    Get HubSpot schema (properties and pipelines) for an object type.
     
-    Used by frontend to build dynamic forms for field mapping.
+    Used by frontend to build field allowlists for deals, contacts, companies, line items.
     Uses database caching to avoid repeated API calls.
     
     Requires:
@@ -527,7 +729,13 @@ async def get_hubspot_deal_schema(
     client = get_hubspot_client_from_connection(user_id, supabase)
     schema_service = HubSpotSchemaService(client, supabase, connection_id)
     
-    schema = await schema_service.get_deal_schema()
+    try:
+        schema = await schema_service.get_schema(object_type)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch HubSpot {object_type} schema: {e}",
+        ) from e
     
     return schema
 

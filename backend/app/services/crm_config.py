@@ -93,6 +93,7 @@ class CRMConfigurationService:
             allowed_deal_fields=config_data.get("allowed_deal_fields") or ["dealname", "amount", "description", "closedate"],
             allowed_contact_fields=config_data.get("allowed_contact_fields") or ["firstname", "lastname", "email", "phone"],
             allowed_company_fields=config_data.get("allowed_company_fields") or ["name", "domain"],
+            allowed_line_item_fields=config_data.get("allowed_line_item_fields") or ["name", "quantity", "price"],
             auto_create_contacts=config_data.get("auto_create_contacts", True),
             auto_create_companies=config_data.get("auto_create_companies", True),
             created_at=config_data.get("created_at") or "",
@@ -141,6 +142,7 @@ class CRMConfigurationService:
             "allowed_deal_fields": config.allowed_deal_fields,
             "allowed_contact_fields": config.allowed_contact_fields,
             "allowed_company_fields": config.allowed_company_fields,
+            "allowed_line_item_fields": config.allowed_line_item_fields,
             "auto_create_contacts": config.auto_create_contacts,
             "auto_create_companies": config.auto_create_companies,
         }
@@ -169,6 +171,8 @@ class CRMConfigurationService:
             allowed_deal_fields=saved_config["allowed_deal_fields"],
             allowed_contact_fields=saved_config["allowed_contact_fields"],
             allowed_company_fields=saved_config["allowed_company_fields"],
+            allowed_line_item_fields=saved_config.get("allowed_line_item_fields")
+            or ["name", "quantity", "price"],
             auto_create_contacts=saved_config["auto_create_contacts"],
             auto_create_companies=saved_config["auto_create_companies"],
             created_at=saved_config["created_at"],

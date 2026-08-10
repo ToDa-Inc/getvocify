@@ -24,6 +24,9 @@ class CRMExtractionSyncProtocol(Protocol):
         deal_id: Optional[str] = None,
         is_new_deal: bool = False,
         allowed_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
         transcript: Optional[str] = None,
         auto_create_contact_company: bool = False,
         auto_create_companies: Optional[bool] = None,
@@ -31,6 +34,7 @@ class CRMExtractionSyncProtocol(Protocol):
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        create_note: bool = True,
     ) -> SyncResult: ...
 
 
@@ -45,6 +49,9 @@ class CRMPreviewProtocol(Protocol):
         matched_deals: list[DealMatch],
         selected_deal_id: Optional[str],
         allowed_fields: Optional[list[str]],
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
@@ -63,6 +70,14 @@ class CRMDealMatchProtocol(Protocol):
 
 
 class CRMFieldSpecsProtocol(Protocol):
-    """Curated field metadata for LLM extraction (allowed deal-like fields)."""
+    """Curated field metadata for LLM extraction (allowed CRM fields)."""
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]: ...
+
+    async def get_extraction_field_specs(
+        self,
+        allowed_deal_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]: ...

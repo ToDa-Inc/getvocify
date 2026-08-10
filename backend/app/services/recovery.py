@@ -10,10 +10,9 @@ from datetime import datetime, timedelta
 from supabase import Client
 from typing import List
 
+from app.services.extraction import ExtractionService
 from app.logging_config import log_domain, DOMAIN_RECOVERY
 logger = logging.getLogger(__name__)
-from app.services.extraction import ExtractionService
-from app.services.crm_config import CRMConfigurationService
 
 
 class RecoveryService:
@@ -89,31 +88,17 @@ class RecoveryService:
                 }).eq("id", memo_id).execute()
                 return False
             
-            # Re-queue extraction
-            from app.api.memos import extract_memo_async
+            # Re-queue extraction with the same multi-object field specs as live extract
+            from app.api.memos import _curated_field_specs_for_primary_crm, extract_memo_async
             from app.services.extraction import ExtractionService
             import asyncio
             
-            # Get user's CRM config for field specs
             user_id = memo_data.get("user_id")
-            config_service = CRMConfigurationService(self.supabase)
-            config = await config_service.get_configuration(user_id)
-            allowed_fields = list(config.allowed_deal_fields) if config and config.allowed_deal_fields else []
-            # Deal stage is always inferred from the conversation, regardless of
-            # Editable Fields (see api/memos.py's _curated_field_specs_for_primary_crm).
-            if "dealstage" not in allowed_fields:
-                allowed_fields.append("dealstage")
-
             field_specs = None
-            if allowed_fields:
-                try:
-                    from app.api.memos import get_hubspot_client_from_connection
-                    client, connection_id = get_hubspot_client_from_connection(user_id, self.supabase)
-                    from app.services.hubspot import HubSpotSchemaService
-                    schema_service = HubSpotSchemaService(client, self.supabase, connection_id)
-                    field_specs = await schema_service.get_curated_field_specs("deals", allowed_fields)
-                except Exception:
-                    field_specs = None
+            try:
+                field_specs = await _curated_field_specs_for_primary_crm(self.supabase, user_id)
+            except Exception:
+                field_specs = None
             
             extraction_service = ExtractionService()
             

@@ -1,9 +1,8 @@
 """
 Approval preview service for showing proposed CRM updates.
 
-Uses the same property mapping as sync (map_extraction_to_properties) so that
-proposed_updates reflects exactly what the config's allowed_deal_fields specify,
-and what the LLM extracted from the transcript.
+Uses the same property mapping as sync so proposed_updates reflects
+allowed_*_fields (deals, contacts, companies, line_items) and LLM extraction.
 """
 
 from uuid import UUID
@@ -11,7 +10,6 @@ from typing import Optional, Any
 from app.models.memo import MemoExtraction
 from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, AvailableField
 from .client import HubSpotClient
-from .exceptions import HubSpotError
 from app.services.deal_merge import merge_description
 from .deals import HubSpotDealService, _sanitize_enum_properties
 from .tasks import format_next_step_task, _next_step_schedule_hints
@@ -19,6 +17,11 @@ from .schema import HubSpotSchemaService
 from .associations import HubSpotAssociationService
 from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
+from .object_properties import (
+    contact_properties_from_extraction,
+    company_properties_from_extraction,
+    line_items_from_extraction,
+)
 
 
 def _format_value_for_display(value: Any) -> str:
@@ -35,9 +38,6 @@ def _format_value_for_display(value: Any) -> str:
 class HubSpotPreviewService:
     """
     Builds approval previews showing what will be updated in HubSpot.
-    
-    Uses map_extraction_to_properties (same as sync) so proposed_updates
-    reflects config's allowed_deal_fields and LLM extraction.
     """
 
     def __init__(
@@ -66,21 +66,25 @@ class HubSpotPreviewService:
         allowed_fields: Optional[list[str]] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
+        allowed_line_item_fields: Optional[list[str]] = None,
     ) -> ApprovalPreview:
         """
-        Build approval preview with proposed updates.
-        
-        Uses config's allowed_deal_fields and the exact same mapping + validation
-        pipeline as sync (map_extraction_to_properties_with_stage + schema-driven
-        sanitization). This is what guarantees the preview never promises a field
-        update that sync can't actually deliver: whatever passes validation here is
-        exactly what will be sent when the user approves.
+        Build a preview from the same allowlist, stage-resolution, and validation
+        paths used by sync so every proposed update is actually deliverable.
         """
         transcript_summary = transcript[:200] + "..." if len(transcript) > 200 else transcript
         transcript_full = transcript if transcript else None
 
         if allowed_fields is None:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
+        if allowed_contact_fields is None:
+            allowed_contact_fields = ["firstname", "lastname", "email", "phone", "jobtitle"]
+        if allowed_company_fields is None:
+            allowed_company_fields = ["name", "domain"]
+        if allowed_line_item_fields is None:
+            allowed_line_item_fields = ["name", "quantity", "price"]
 
         is_new_deal = selected_deal_id is None
         selected_deal: Optional[DealMatch] = None
@@ -123,21 +127,26 @@ class HubSpotPreviewService:
         # Filter by allowed fields (+ dealstage, always) - only show what config permits
         filtered_properties = {k: v for k, v in properties.items() if k in preview_fields}
 
-        # Get field labels and metadata from schema (single fetch for all allowed fields)
         field_labels: dict[str, str] = {}
         field_specs_map: dict[str, dict] = {}
         try:
-            field_specs = await self.schema.get_curated_field_specs("deals", preview_fields)
-            for s in field_specs:
-                field_labels[s["name"]] = s["label"]
-                field_specs_map[s["name"]] = s
-        except Exception:
-            pass
+            multi_specs = await self.schema.get_multi_object_field_specs(
+                allowed_deal_fields=preview_fields,
+                allowed_contact_fields=allowed_contact_fields,
+                allowed_company_fields=allowed_company_fields,
+                allowed_line_item_fields=allowed_line_item_fields,
+            )
+            for s in multi_specs:
+                object_type = s.get("object_type") or "deals"
+                key = f"{object_type}:{s['name']}"
+                field_labels[key] = s["label"]
+                field_specs_map[key] = s
+                if object_type == "deals":
+                    field_labels[s["name"]] = s["label"]
+                    field_specs_map[s["name"]] = s
 
-        # Deal stage options must come from the target pipeline's own stages, not the
-        # flat "dealstage" property (which mixes stage labels from every pipeline) -
-        # otherwise the dropdown would offer stages that don't belong together.
-        try:
+            # Deal stage options must come from the target pipeline's own stages,
+            # rather than the flattened property options across all pipelines.
             stage_pipeline_id = default_pipeline_id if is_new_deal else existing_deal_pipeline_id
             deal_schema = await self.schema.get_deal_schema()
             stage_pipeline = next(
@@ -175,6 +184,7 @@ class HubSpotPreviewService:
                     current_value=None,
                     new_value=formatted.subject,
                     extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                    object_type="task",
                 ))
 
         # For display: use human-readable extraction values when available.
@@ -186,14 +196,15 @@ class HubSpotPreviewService:
             if value is None or value == "":
                 return ""
             if field_name == "closedate" and extraction.closeDate:
-                return extraction.closeDate  # ISO date more readable than timestamp
+                return extraction.closeDate
             return _format_value_for_display(value)
 
+        current_contact_props: dict = {}
+        current_company_props: dict = {}
         current_contact_name_from_deal: Optional[str] = None
         current_company_name_from_deal: Optional[str] = None
 
         if is_new_deal:
-            # New deal: all values are "new", no current values
             for field_name, new_value in filtered_properties.items():
                 if new_value is None or new_value == "":
                     continue
@@ -208,9 +219,9 @@ class HubSpotPreviewService:
                     extraction_confidence=confidence,
                     field_type=spec.get("type"),
                     options=spec.get("options"),
+                    object_type="deals",
                 ))
         else:
-            # Update existing deal: compare with current values
             selected_deal = next(
                 (d for d in matched_deals if d.deal_id == selected_deal_id),
                 None
@@ -227,8 +238,11 @@ class HubSpotPreviewService:
                         try:
                             cids = await self.associations.get_associations("deals", selected_deal_id, "companies")
                             if cids:
-                                comp = await self.company_service.get(cids[0])
-                                company_name = comp.properties.get("name")
+                                comp = await self.company_service.get(
+                                    cids[0], properties=list(set(allowed_company_fields + ["name", "domain"]))
+                                )
+                                current_company_props = comp.properties or {}
+                                company_name = current_company_props.get("name")
                         except Exception:
                             pass
                     contact_email = None
@@ -236,8 +250,17 @@ class HubSpotPreviewService:
                         try:
                             ctids = await self.associations.get_associations("deals", selected_deal_id, "contacts")
                             if ctids:
-                                contact = await self.contact_service.get(ctids[0])
-                                cp = contact.properties
+                                contact = await self.contact_service.get(
+                                    ctids[0],
+                                    properties=list(
+                                        set(
+                                            allowed_contact_fields
+                                            + ["email", "firstname", "lastname", "phone", "jobtitle"]
+                                        )
+                                    ),
+                                )
+                                current_contact_props = contact.properties or {}
+                                cp = current_contact_props
                                 contact_name = f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
                                 contact_email = cp.get("email")
                         except Exception:
@@ -266,16 +289,28 @@ class HubSpotPreviewService:
                         try:
                             cids = await self.associations.get_associations("deals", selected_deal_id, "companies")
                             if cids:
-                                comp = await self.company_service.get(cids[0])
-                                current_company_name_from_deal = comp.properties.get("name")
+                                comp = await self.company_service.get(
+                                    cids[0], properties=list(set(allowed_company_fields + ["name", "domain"]))
+                                )
+                                current_company_props = comp.properties or {}
+                                current_company_name_from_deal = current_company_props.get("name")
                         except Exception:
                             pass
                     if self.associations and self.contact_service:
                         try:
                             ctids = await self.associations.get_associations("deals", selected_deal_id, "contacts")
                             if ctids:
-                                contact = await self.contact_service.get(ctids[0])
-                                cp = contact.properties
+                                contact = await self.contact_service.get(
+                                    ctids[0],
+                                    properties=list(
+                                        set(
+                                            allowed_contact_fields
+                                            + ["email", "firstname", "lastname", "phone", "jobtitle"]
+                                        )
+                                    ),
+                                )
+                                current_contact_props = contact.properties or {}
+                                cp = current_contact_props
                                 current_contact_name_from_deal = f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
                         except Exception:
                             pass
@@ -286,12 +321,10 @@ class HubSpotPreviewService:
                 for field_name, new_value in filtered_properties.items():
                     if new_value is None or new_value == "":
                         continue
-                    # Deal name is preserved when updating existing deal (sync mirrors FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL)
                     if field_name == "dealname" and not is_new_deal:
                         continue
 
                     current_value = current_props.get(field_name)
-
                     # For description, append only when content is new (same as sync merge)
                     if field_name == "description" and current_value:
                         merged_desc = merge_description(current_value, new_value)
@@ -303,7 +336,6 @@ class HubSpotPreviewService:
 
                     current_display = _display_value(field_name, current_value)
 
-                    # Only show if there's a change
                     if current_display != new_display:
                         spec = field_specs_map.get(field_name, {})
                         label = field_labels.get(field_name, field_name.replace("_", " ").title())
@@ -316,9 +348,10 @@ class HubSpotPreviewService:
                             extraction_confidence=confidence,
                             field_type=spec.get("type"),
                             options=spec.get("options"),
+                            object_type="deals",
                         ))
 
-        # Contact and Company - only show for new deals (existing deal target section already shows them)
+        # Contact identity + allowlisted contact properties
         if is_new_deal:
             extracted_contact_name = extraction.contactName or (
                 f"Contact at {extraction.companyName}" if extraction.companyName else None
@@ -330,6 +363,7 @@ class HubSpotPreviewService:
                     current_value=None,
                     new_value=extracted_contact_name,
                     extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
+                    object_type="contacts",
                 ))
             if extraction.companyName:
                 proposed_updates.insert(0, ProposedUpdate(
@@ -338,21 +372,100 @@ class HubSpotPreviewService:
                     current_value=None,
                     new_value=extraction.companyName,
                     extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
+                    object_type="companies",
                 ))
 
-        # Deal stage is the field the user most needs to sanity-check per memo (it's
-        # inferred fresh each time, not a fixed setting) - always surface it first so
-        # it's the first thing reviewed, not buried among other fields.
-        for i, u in enumerate(proposed_updates):
-            if u.field_name == "dealstage":
+        contact_props = contact_properties_from_extraction(
+            extraction,
+            allowed_fields=allowed_contact_fields,
+            identity_props=(
+                self.contact_service.map_extraction_to_properties(extraction)
+                if self.contact_service else {}
+            ),
+        )
+        for field_name, new_value in contact_props.items():
+            if field_name == "email" and is_new_deal:
+                continue  # shown via new_contact
+            new_display = _display_value(field_name, new_value)
+            if not new_display:
+                continue
+            current_display = _display_value(field_name, current_contact_props.get(field_name))
+            if not is_new_deal and current_display == new_display:
+                continue
+            key = f"contacts:{field_name}"
+            spec = field_specs_map.get(key, {})
+            label = field_labels.get(key, field_name.replace("_", " ").title())
+            proposed_updates.append(ProposedUpdate(
+                field_name=field_name,
+                field_label=label,
+                current_value=(current_display or "(empty)") if not is_new_deal else None,
+                new_value=new_display,
+                extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                field_type=spec.get("type"),
+                options=spec.get("options"),
+                object_type="contacts",
+            ))
+
+        company_props = company_properties_from_extraction(
+            extraction,
+            allowed_fields=allowed_company_fields,
+            identity_props=(
+                self.company_service.map_extraction_to_properties(extraction)
+                if self.company_service else {}
+            ),
+        )
+        for field_name, new_value in company_props.items():
+            if field_name == "name" and is_new_deal:
+                continue
+            new_display = _display_value(field_name, new_value)
+            if not new_display:
+                continue
+            current_display = _display_value(field_name, current_company_props.get(field_name))
+            if not is_new_deal and (current_display == new_display or field_name == "name"):
+                continue
+            key = f"companies:{field_name}"
+            spec = field_specs_map.get(key, {})
+            label = field_labels.get(key, field_name.replace("_", " ").title())
+            proposed_updates.append(ProposedUpdate(
+                field_name=field_name,
+                field_label=label,
+                current_value=(current_display or "(empty)") if not is_new_deal else None,
+                new_value=new_display,
+                extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                field_type=spec.get("type"),
+                options=spec.get("options"),
+                object_type="companies",
+            ))
+
+        # Line items (create proposals)
+        for i, item in enumerate(line_items_from_extraction(extraction, allowed_line_item_fields)):
+            name = item.get("name") or f"Line item {i + 1}"
+            qty = item.get("quantity", "")
+            price = item.get("price", "")
+            summary = f"{name}"
+            if qty != "" or price != "":
+                summary = f"{name} · qty {qty} · {price}"
+            proposed_updates.append(ProposedUpdate(
+                field_name=f"line_item_{i}",
+                field_label=name,
+                current_value=None,
+                new_value=summary,
+                extraction_confidence=0.7,
+                object_type="line_items",
+            ))
+
+        # Available deal fields not yet proposed
+        # Deal stage is inferred for every memo and should remain prominent in review.
+        for i, update in enumerate(proposed_updates):
+            if update.field_name == "dealstage":
                 proposed_updates.insert(0, proposed_updates.pop(i))
                 break
 
-        # Compute available_fields: allowed_deal_fields not yet in proposed_updates (reuse field_specs_map)
         proposed_field_names = {
             u.field_name for u in proposed_updates
-            if u.field_name in allowed_fields
+            if (u.object_type or "deals") == "deals"
             and not u.field_name.startswith("next_step_task_")
+            and not u.field_name.startswith("line_item_")
         }
         available_field_names = [f for f in allowed_fields if f not in proposed_field_names]
         available_fields_list: list[AvailableField] = []
@@ -363,9 +476,9 @@ class HubSpotPreviewService:
                 label=spec.get("label", name.replace("_", " ").title()),
                 type=spec.get("type", "string"),
                 options=spec.get("options"),
+                object_type="deals",
             ))
 
-        # Only include contact/company when creating new deal (sync skips them for existing deals)
         new_contact = None
         new_company = None
         if is_new_deal:
@@ -387,6 +500,10 @@ class HubSpotPreviewService:
             is_new_deal=is_new_deal,
             proposed_updates=proposed_updates,
             available_fields=available_fields_list,
+            allowed_deal_fields=list(allowed_fields),
+            allowed_contact_fields=list(allowed_contact_fields),
+            allowed_company_fields=list(allowed_company_fields),
+            allowed_line_item_fields=list(allowed_line_item_fields),
             new_contact=new_contact,
             new_company=new_company,
         )

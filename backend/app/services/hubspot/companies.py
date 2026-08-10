@@ -54,24 +54,15 @@ class HubSpotCompanyService:
         
         return properties
     
-    async def get(self, company_id: str) -> HubSpotCompany:
+    async def get(self, company_id: str, properties: Optional[list[str]] = None) -> HubSpotCompany:
         """
         Get a company by ID.
-        
-        Args:
-            company_id: HubSpot company ID
-            
-        Returns:
-            HubSpotCompany object
-            
-        Raises:
-            HubSpotNotFoundError if company doesn't exist
-            HubSpotError for other errors
         """
+        props = properties or ["name", "domain"]
         try:
             response = await self.client.get(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}/{company_id}",
-                params={"properties": "name,domain"},
+                params={"properties": ",".join(props)},
             )
             
             if not response:
@@ -158,40 +149,37 @@ class HubSpotCompanyService:
     async def create_or_update(
         self,
         extraction: MemoExtraction,
+        allowed_fields: Optional[list[str]] = None,
     ) -> Optional[HubSpotCompany]:
         """
         Create or update a company based on extraction data.
         
         Logic:
         1. If company name exists, search for existing company
-        2. If found, update it (if needed)
+        2. If found, update allowlisted properties when present
         3. If not found, create new company
         4. If no company name, return None
-        
-        Args:
-            extraction: MemoExtraction with company data
-            
-        Returns:
-            HubSpotCompany if created/updated, None if no company name
-            
-        Raises:
-            HubSpotError for API errors
         """
-        # Can't create company without name
+        from .object_properties import company_properties_from_extraction
+
         if not extraction.companyName:
             return None
         
-        properties = self.map_extraction_to_properties(extraction)
+        identity = self.map_extraction_to_properties(extraction)
+        properties = company_properties_from_extraction(
+            extraction,
+            allowed_fields=allowed_fields,
+            identity_props=identity,
+        )
+        if not properties.get("name") and extraction.companyName:
+            properties["name"] = extraction.companyName.strip()
         
-        # Try to find existing company by name
         existing = await self.search.find_company_by_name(extraction.companyName)
         
         if existing:
-            # Update existing company (only if we have new data)
-            # For MVP, we'll just return existing company
-            # In future, we could merge data intelligently
+            update_props = {k: v for k, v in properties.items() if k != "name" and v}
+            if update_props:
+                return await self.update(existing.id, update_props)
             return existing
-        else:
-            # Create new company
-            return await self.create(properties)
+        return await self.create(properties)
 

@@ -14,7 +14,7 @@ from app.metrics import record_extraction_duration, inc_pipeline_error
 
 logger = logging.getLogger(__name__)
 from app.services.llm import LLMClient
-from typing import Optional
+from typing import Any, Optional
 
 
 _PLACEHOLDER_VALUES = frozenset({
@@ -73,35 +73,56 @@ def _normalize_raw_extraction(
     if not extracted:
         return extracted
     out = dict(extracted)
-    spec_map = {s["name"]: s for s in (field_specs or [])}
-    
-    for key, value in list(out.items()):
+    spec_map = {
+        (s.get("object_type") or "deals", s["name"]): s
+        for s in (field_specs or [])
+        if s.get("name")
+    }
+    # Backward-compat: also index by bare name for deal fields
+    for s in field_specs or []:
+        if s.get("name") and (s.get("object_type") or "deals") == "deals":
+            spec_map.setdefault(("deals", s["name"]), s)
+            spec_map.setdefault((None, s["name"]), s)
+
+    def _coerce(obj_type: Optional[str], key: str, value: Any) -> Any:
         if value is None:
-            continue
-        spec = spec_map.get(key)
+            return value
+        spec = spec_map.get((obj_type or "deals", key)) or spec_map.get((None, key))
         if not spec:
-            continue
+            return value
         field_type = spec.get("type", "string")
         options = spec.get("options", [])
-        
         if field_type == "number":
             parsed = _parse_amount(value)
-            if parsed is not None:
-                out[key] = parsed
-        elif options and isinstance(value, str):
-            # Enum: ensure we have a valid value (deals.py will normalize label→value)
+            return parsed if parsed is not None else value
+        if options and isinstance(value, str):
             values = [
                 o.get("value", o.get("label", "")) if isinstance(o, dict) else o
                 for o in options
             ]
             if value not in values:
-                # Try case-insensitive match
                 v_lower = value.strip().lower()
                 for v in values:
                     if str(v).lower() == v_lower:
-                        out[key] = v
-                        break
-    
+                        return v
+        return value
+
+    for key, value in list(out.items()):
+        if key in ("contact_properties", "company_properties") and isinstance(value, dict):
+            obj = "contacts" if key == "contact_properties" else "companies"
+            out[key] = {k: _coerce(obj, k, v) for k, v in value.items()}
+            continue
+        if key == "line_items" and isinstance(value, list):
+            coerced_items = []
+            for item in value:
+                if isinstance(item, dict):
+                    coerced_items.append({k: _coerce("line_items", k, v) for k, v in item.items()})
+                else:
+                    coerced_items.append(item)
+            out[key] = coerced_items
+            continue
+        out[key] = _coerce("deals", key, value)
+
     return out
 
 
@@ -143,14 +164,20 @@ class ExtractionService:
             ),
             "contactEmail": ("string | null", "Email if mentioned."),
             "contactPhone": ("string | null", "Phone if mentioned."),
-            "summary": ("string", "2-3 sentence meeting summary."),
+            "summary": (
+                "string",
+                "Call/meeting summary for a CRM note: 3–5 sentences covering (1) who spoke and context, "
+                "(2) what was discussed / outcome, (3) any concrete numbers or decisions stated. "
+                "Ground ONLY in the transcript — do not invent. Same language as the transcript.",
+            ),
             "painPoints": ("string[]", "Pain points discussed."),
             "nextSteps": (
                 "string[]",
-                "Concise HubSpot task titles (3-8 words): verb + what to do. "
+                "Concrete follow-up tasks ONLY when a speaker explicitly commits. "
+                "Use concise HubSpot task titles (3-8 words): verb + what to do. "
                 "NO dates, times, weekdays, or scheduling ('martes', '18:00', 'mañana'). "
                 "Good: 'Llamada de seguimiento', 'Enviar propuesta comercial'. "
-                "Bad: 'Hablar el martes a las 18:00'.",
+                "Bad: 'Hablar el martes a las 18:00'. Empty array if none were committed.",
             ),
             "nextStepSchedules": (
                 "string[]",
@@ -163,70 +190,121 @@ class ExtractionService:
         }
         standard_fields = {k: v for k, v in all_standard.items() if k not in schema_field_names}
 
-        # Build schema-driven instructions: description-first, then type/format
-        schema_description = []
-        json_field_types = []
+        # Group schema fields by CRM object so the LLM writes the right bags
+        specs_by_object: dict[str, list[dict]] = {}
+        for spec in field_specs or []:
+            obj = spec.get("object_type") or "deals"
+            specs_by_object.setdefault(obj, []).append(spec)
 
-        if field_specs:
-            schema_description.append("### CRM FIELDS (from HubSpot schema – output MUST match exactly)")
-            for spec in field_specs:
-                field_name = spec["name"]
-                label = spec["label"]
-                field_type = spec.get("type", "string")
-                desc = (spec.get("description") or "").strip()
-                options = spec.get("options", [])
+        object_labels = {
+            "deals": "DEAL",
+            "contacts": "CONTACT",
+            "companies": "COMPANY",
+            "line_items": "LINE ITEM",
+        }
 
-                # Description-first: HubSpot description is the primary semantic guide
-                parts = []
-                if desc:
-                    parts.append(f'"{field_name}" ({label}): {desc}')
-                else:
-                    parts.append(f'"{field_name}" ({label})')
-
-                # Type/format constraints
-                if options:
-                    values = []
-                    labels = []
-                    for o in options:
-                        if isinstance(o, dict):
-                            values.append(o.get("value", o.get("label", "")))
-                            labels.append(o.get("label", o.get("value", "")))
-                        elif isinstance(o, str):
-                            values.append(o)
-                            labels.append(o)
-                    if values:
-                        mapping = ", ".join(f'"{l}"→"{v}"' for l, v in zip(labels, values))
-                        parts.append(f"Output one of: {values}. Map: {mapping}.")
-                        json_type = f'"{field_name}": "{values[0]}" | null  // one of {values}'
-                    else:
-                        parts.append(f"Type: {field_type}.")
-                        json_type = f'"{field_name}": string | null'
-                elif field_type == "number":
-                    parts.append("Type: number. Output numeric value only. NO currency symbols or units.")
-                    json_type = f'"{field_name}": number | null'
-                elif field_type in ("datetime", "date"):
-                    parts.append("Type: date. Output ISO YYYY-MM-DD only.")
-                    json_type = f'"{field_name}": "YYYY-MM-DD" | null'
-                elif field_type == "bool":
-                    parts.append("Type: boolean. Output true or false only.")
-                    json_type = f'"{field_name}": boolean | null'
+        def _describe_spec(spec: dict) -> tuple[str, str]:
+            field_name = spec["name"]
+            label = spec["label"]
+            field_type = spec.get("type", "string")
+            desc = (spec.get("description") or "").strip()
+            options = spec.get("options", [])
+            parts = []
+            if desc:
+                parts.append(f'"{field_name}" ({label}): {desc}')
+            else:
+                parts.append(f'"{field_name}" ({label})')
+            if options:
+                values = []
+                labels = []
+                for o in options:
+                    if isinstance(o, dict):
+                        values.append(o.get("value", o.get("label", "")))
+                        labels.append(o.get("label", o.get("value", "")))
+                    elif isinstance(o, str):
+                        values.append(o)
+                        labels.append(o)
+                if values:
+                    mapping = ", ".join(f'"{l}"→"{v}"' for l, v in zip(labels, values))
+                    parts.append(f"Output one of: {values}. Map: {mapping}.")
+                    json_type = f'"{field_name}": "{values[0]}" | null  // one of {values}'
                 else:
                     parts.append(f"Type: {field_type}.")
                     json_type = f'"{field_name}": string | null'
+            elif field_type == "number":
+                parts.append("Type: number. Output numeric value only. NO currency symbols or units.")
+                json_type = f'"{field_name}": number | null'
+            elif field_type in ("datetime", "date"):
+                parts.append("Type: date. Output ISO YYYY-MM-DD only.")
+                json_type = f'"{field_name}": "YYYY-MM-DD" | null'
+            elif field_type == "bool":
+                parts.append("Type: boolean. Output true or false only.")
+                json_type = f'"{field_name}": boolean | null'
+            else:
+                parts.append(f"Type: {field_type}.")
+                json_type = f'"{field_name}": string | null'
+            return " ".join(parts), json_type
 
-                schema_description.append("- " + " ".join(parts))
-                json_field_types.append(json_type)
-        
+        schema_description: list[str] = []
+        json_structure_parts: list[str] = []
+
+        if specs_by_object.get("deals"):
+            schema_description.append("### DEAL FIELDS (top-level JSON keys – HubSpot deal properties)")
+            for spec in specs_by_object["deals"]:
+                line, jt = _describe_spec(spec)
+                schema_description.append(f"- {line}")
+                json_structure_parts.append(f"  {jt},")
+
+        if specs_by_object.get("contacts"):
+            schema_description.append(
+                "### CONTACT FIELDS (nested under contact_properties – only if explicitly stated)"
+            )
+            contact_inner = []
+            for spec in specs_by_object["contacts"]:
+                line, jt = _describe_spec(spec)
+                schema_description.append(f"- {line}")
+                contact_inner.append(f"    {jt}")
+            json_structure_parts.append(
+                '  "contact_properties": {\n' + ",\n".join(contact_inner) + "\n  } | null,"
+            )
+
+        if specs_by_object.get("companies"):
+            schema_description.append(
+                "### COMPANY FIELDS (nested under company_properties – only if explicitly stated)"
+            )
+            company_inner = []
+            for spec in specs_by_object["companies"]:
+                line, jt = _describe_spec(spec)
+                schema_description.append(f"- {line}")
+                company_inner.append(f"    {jt}")
+            json_structure_parts.append(
+                '  "company_properties": {\n' + ",\n".join(company_inner) + "\n  } | null,"
+            )
+
+        if specs_by_object.get("line_items"):
+            schema_description.append(
+                "### LINE ITEMS (array under line_items – only products/services explicitly sold; prefer [] if unsure)"
+            )
+            li_inner = []
+            for spec in specs_by_object["line_items"]:
+                line, jt = _describe_spec(spec)
+                schema_description.append(f"- {line}")
+                li_inner.append(f"    {jt}")
+            json_structure_parts.append(
+                '  "line_items": [\n    {\n' + ",\n".join(li_inner) + "\n    }\n  ],"
+            )
+
         # Build the expected JSON structure with schema-aligned types
         json_structure = "{\n"
-        for jt in json_field_types:
-            json_structure += f"  {jt},\n"
+        for part in json_structure_parts:
+            json_structure += f"{part}\n"
         for field, (type_str, _) in standard_fields.items():
             json_structure += f'  "{field}": {type_str},\n'
         json_structure += '  "confidence": { "overall": number (0-1), "fields": { "fieldName": number (0-1) } }\n'
         json_structure += "}"
 
         schema_text = "\n".join(schema_description) if schema_description else ""
+        del object_labels  # kept for readability of grouping above
 
         # Source-specific context hints to guide the LLM
         source_hint = ""
@@ -236,6 +314,7 @@ class ExtractionService:
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
 It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
 Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
+**summary**: CRM-ready note (who, outcome, key facts stated). **nextSteps**: only explicit commitments → task-ready strings; prefer [] over vague fluff. Never invent.
 """
         elif source_context == "hubspot_call":
             source_hint = """
@@ -256,8 +335,13 @@ Key characteristics:
 Extraction discipline:
 - **Conservative**: extract only what is explicitly stated. Implied or inferred values → `null`.
 - **No hallucination**: never infer company names, deal sizes, or dates from context alone.
+- **This transcript only**: ignore any CRM deal fields, prior notes, or other calls — extract solely from the text below.
 - **Short/inconclusive calls**: most fields will be `null` — that is correct and expected.
-- **Next steps**: only extract if a speaker explicitly commits to a concrete action. Titles = what to do (no dates in title); timing goes in nextStepSchedules.
+- **Summary**: write a CRM-ready note summary (outcome + key points stated). Still no invention.
+- **Next steps → HubSpot tasks**: each item must be a concrete, assignable action someone committed to
+  (send X, schedule call, share doc, confirm Y). Titles contain only what to do; put any owner, date,
+  time, or deadline in the parallel `nextStepSchedules` item. Reject vague fluff: "seguir en contacto", "mantener el follow-up", "hablar pronto",
+  "cerrar el trato", "quedamos pendientes". If nothing concrete was agreed → `nextSteps: []`.
 - **Sentiment/outcome**: base these on what was actually said, not on tone assumptions.
 """
         
@@ -291,14 +375,17 @@ TRANSCRIPT:
 {schema_text}
 
 ### EXTRACTION RULES:
-1. **Conservative**: Extract only what is explicitly mentioned. If missing or ambiguous, set to `null`. Do not invent data.
+1. **Conservative**: Extract only what is explicitly mentioned **in this transcript**. If missing or ambiguous, set to `null`. Do not invent data. Do not use prior CRM knowledge or other calls.
 2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
 3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
-4. **Format**: Return JSON in this structure:
+4. **summary**: CRM note quality — who + context, discussion/outcome, concrete facts stated. 3–5 sentences. No filler.
+5. **nextSteps**: Only explicit commitments → task-ready strings ("[Who] [verb] [object] [when if said]").
+   Prefer empty array over vague items. Do NOT invent follow-ups the speakers did not agree to.
+6. **Format**: Return JSON in this structure:
 
 {json_structure}
 
-5. **Confidence**: Provide overall (0-1) and per-field scores.
+7. **Confidence**: Provide overall (0-1) and per-field scores.
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
@@ -348,7 +435,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             )
         
         messages = [
-            {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language. (5) nextSteps = short task titles only (what to do); put dates/times in nextStepSchedules (same order, empty string if none)."},
+            {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language. (5) summary = factual CRM call note (3–5 sentences); never invent. (6) nextSteps = only explicit committed tasks; use short titles without dates/times, and put timing in parallel nextStepSchedules (empty string when absent). Prefer [] over vague fluff."},
             {"role": "user", "content": prompt},
         ]
         try:

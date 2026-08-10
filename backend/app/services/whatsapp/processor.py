@@ -147,6 +147,34 @@ def _default_deal_fields(provider: str) -> list[str]:
     return ["dealname", "amount", "description", "closedate"]
 
 
+def _default_contact_fields(provider: str) -> list[str]:
+    if provider == "salesforce":
+        return ["FirstName", "LastName", "Email", "Phone"]
+    return ["firstname", "lastname", "email", "phone", "jobtitle"]
+
+
+def _default_company_fields(provider: str) -> list[str]:
+    if provider == "salesforce":
+        return ["Name"]
+    return ["name", "domain"]
+
+
+def _default_line_item_fields(provider: str) -> list[str]:
+    if provider == "salesforce":
+        return []
+    return ["name", "quantity", "price"]
+
+
+_OBJECT_PREVIEW_ORDER = ("deals", "contacts", "companies", "line_items", "task")
+_OBJECT_PREVIEW_LABELS = {
+    "deals": "Deal",
+    "contacts": "Contact",
+    "companies": "Company",
+    "line_items": "Line items",
+    "task": "Tasks",
+}
+
+
 def _crm_display_name(provider: Optional[str]) -> str:
     p = (provider or "").lower()
     if p == "salesforce":
@@ -230,17 +258,26 @@ def _get_proposed_updates_display(
     field_specs: Optional[list[dict]] = None,
     *,
     omit_empty: bool = True,
-) -> list[tuple[str, str]]:
-    """Return (label, display_value) for each allowed property.
+    allowed_contact_fields: Optional[list[str]] = None,
+    allowed_company_fields: Optional[list[str]] = None,
+    allowed_line_item_fields: Optional[list[str]] = None,
+) -> list[tuple[str, str, str]]:
+    """Return (object_type, label, display_value) for allowlisted extracted properties."""
+    from app.services.hubspot.object_properties import (
+        company_properties_from_extraction,
+        contact_properties_from_extraction,
+        line_items_from_extraction,
+    )
 
-    When omit_empty is True (WhatsApp), skip unset fields so the message stays scannable.
-    When False, show '—' for missing values (e.g. future email / audit templates).
-    """
     allowed = list(allowed_fields or [])
-    labels = {s["name"]: s["label"] for s in (field_specs or []) if s.get("name") and s.get("label")}
+    labels = {
+        (s.get("object_type") or "deals", s["name"]): s["label"]
+        for s in (field_specs or [])
+        if s.get("name") and s.get("label")
+    }
 
-    def _label(name: str) -> str:
-        return labels.get(name, name.replace("_", " ").title())
+    def _label(object_type: str, name: str) -> str:
+        return labels.get((object_type, name), name.replace("_", " ").title())
 
     def _value(name: str, val: Any) -> str:
         if _is_value_empty(val):
@@ -249,7 +286,8 @@ def _get_proposed_updates_display(
 
     skip_raw = {
         "summary", "painPoints", "nextSteps", "objections", "decisionMakers",
-        "confidence", "contactName", "companyName", "contactEmail",
+        "confidence", "contactName", "companyName", "contactEmail", "contactPhone",
+        "contactRole", "contact_properties", "company_properties", "line_items",
         "deal_currency_code",
     }
     read_only = {
@@ -257,11 +295,14 @@ def _get_proposed_updates_display(
         "hs_lastmodifieddate", "hs_createdate", "hs_object_id",
     }
 
-    # Build extraction → property value map (same sources as sync)
     raw = extraction.raw_extraction or {}
     values: dict[str, Any] = {}
     if "dealname" in allowed:
-        values["dealname"] = raw.get("dealname") or (f"{extraction.companyName} Deal" if extraction.companyName else f"{extraction.contactName} Deal" if extraction.contactName else "New Deal")
+        values["dealname"] = raw.get("dealname") or (
+            f"{extraction.companyName} Deal" if extraction.companyName
+            else f"{extraction.contactName} Deal" if extraction.contactName
+            else "New Deal"
+        )
     if "amount" in allowed:
         values["amount"] = extraction.dealAmount if extraction.dealAmount is not None else raw.get("amount")
     if "closedate" in allowed:
@@ -274,7 +315,7 @@ def _get_proposed_updates_display(
         if k not in values and k not in skip_raw and k not in read_only:
             values[k] = raw.get(k)
 
-    updates: list[tuple[str, str]] = []
+    updates: list[tuple[str, str, str]] = []
     for name in allowed:
         if name in read_only:
             continue
@@ -282,7 +323,41 @@ def _get_proposed_updates_display(
         display = _value(name, val)
         if omit_empty and display == NOT_SET:
             continue
-        updates.append((_label(name), display))
+        updates.append(("deals", _label("deals", name), display))
+
+    contact_allow = allowed_contact_fields if allowed_contact_fields is not None else []
+    if contact_allow:
+        contact_props = contact_properties_from_extraction(
+            extraction, allowed_fields=contact_allow
+        )
+        for name, val in contact_props.items():
+            display = _value(name, val)
+            if omit_empty and display == NOT_SET:
+                continue
+            updates.append(("contacts", _label("contacts", name), display))
+
+    company_allow = allowed_company_fields if allowed_company_fields is not None else []
+    if company_allow:
+        company_props = company_properties_from_extraction(
+            extraction, allowed_fields=company_allow
+        )
+        for name, val in company_props.items():
+            if name == "name":
+                continue
+            display = _value(name, val)
+            if omit_empty and display == NOT_SET:
+                continue
+            updates.append(("companies", _label("companies", name), display))
+
+    line_allow = allowed_line_item_fields if allowed_line_item_fields is not None else []
+    for i, item in enumerate(line_items_from_extraction(extraction, allowed_fields=line_allow)):
+        name = item.get("name") or f"Line item {i + 1}"
+        qty = item.get("quantity", "")
+        price = item.get("price", "")
+        summary = f"{name}"
+        if qty != "" or price != "":
+            summary = f"{name} · qty {qty} · {price}"
+        updates.append(("line_items", name, summary))
 
     return updates
 
@@ -291,6 +366,10 @@ def _format_extraction_summary(
     extraction: MemoExtraction,
     allowed_fields: Optional[list[str]] = None,
     field_specs: Optional[list[dict]] = None,
+    *,
+    allowed_contact_fields: Optional[list[str]] = None,
+    allowed_company_fields: Optional[list[str]] = None,
+    allowed_line_item_fields: Optional[list[str]] = None,
 ) -> str:
     """Format extracted fields for WhatsApp: section headers, bullets, no empty CRM rows."""
     sections: list[str] = []
@@ -331,14 +410,46 @@ def _format_extraction_summary(
     if s:
         sections.append(s)
 
+    # Infer object allowlists from field_specs when callers only pass specs
+    if field_specs and allowed_contact_fields is None:
+        allowed_contact_fields = [
+            s["name"] for s in field_specs if s.get("object_type") == "contacts" and s.get("name")
+        ]
+    if field_specs and allowed_company_fields is None:
+        allowed_company_fields = [
+            s["name"] for s in field_specs if s.get("object_type") == "companies" and s.get("name")
+        ]
+    if field_specs and allowed_line_item_fields is None:
+        allowed_line_item_fields = [
+            s["name"] for s in field_specs if s.get("object_type") == "line_items" and s.get("name")
+        ]
+    if field_specs and not allowed_fields:
+        allowed_fields = [
+            s["name"] for s in field_specs
+            if (s.get("object_type") or "deals") == "deals" and s.get("name")
+        ]
+
     updates = _get_proposed_updates_display(
-        extraction, allowed_fields or [], field_specs, omit_empty=True
+        extraction,
+        allowed_fields or [],
+        field_specs,
+        omit_empty=True,
+        allowed_contact_fields=allowed_contact_fields,
+        allowed_company_fields=allowed_company_fields,
+        allowed_line_item_fields=allowed_line_item_fields,
     )
     if updates:
-        crm_lines = [f"{label}: {val}" for label, val in updates]
-        crm_block = _format_whatsapp_section(_SECTION_CRM, "Fields we'll update", crm_lines)
-        if crm_block:
-            sections.append(crm_block)
+        by_object: dict[str, list[str]] = {}
+        for object_type, label, val in updates:
+            by_object.setdefault(object_type, []).append(f"{label}: {val}")
+        for object_type in _OBJECT_PREVIEW_ORDER:
+            lines = by_object.get(object_type)
+            if not lines:
+                continue
+            title = _OBJECT_PREVIEW_LABELS.get(object_type, object_type)
+            block = _format_whatsapp_section(_SECTION_CRM, f"{title} fields", lines)
+            if block:
+                sections.append(block)
 
     if not sections:
         return "I couldn't extract structured CRM fields from this. You can still approve to save the transcript."
@@ -409,11 +520,33 @@ def _format_preview_message(
     if updates:
         lines.append("")
         lines.append("*I will update:*")
-        for update in updates[:6]:
-            label = update.field_label or update.field_name
-            lines.append(f"• *{label}:* {_shorten(update.new_value, 120)}")
-        if len(updates) > 6:
-            lines.append(f"• +{len(updates) - 6} more fields")
+        by_object: dict[str, list] = {}
+        for update in updates:
+            obj = update.object_type or "deals"
+            by_object.setdefault(obj, []).append(update)
+        shown = 0
+        max_items = 8
+        for object_type in _OBJECT_PREVIEW_ORDER:
+            group = by_object.get(object_type) or []
+            if not group:
+                continue
+            lines.append(f"_{_OBJECT_PREVIEW_LABELS.get(object_type, object_type)}_")
+            for update in group:
+                if shown >= max_items:
+                    break
+                label = update.field_label or update.field_name
+                # Strip redundant "Contact · " / "Company · " prefixes if present
+                for prefix in ("Contact · ", "Company · ", "Line item · "):
+                    if label.startswith(prefix):
+                        label = label[len(prefix):]
+                        break
+                lines.append(f"• *{label}:* {_shorten(update.new_value, 100)}")
+                shown += 1
+            if shown >= max_items:
+                break
+        remaining = len(updates) - shown
+        if remaining > 0:
+            lines.append(f"• +{remaining} more fields")
     else:
         lines.append("")
         lines.append("I did not find confident field updates. I can still save the transcript as a CRM note.")
@@ -676,6 +809,14 @@ async def get_field_specs(supabase: Client, user_id: str) -> Optional[list[dict]
         if not allowed:
             return None
         provider = build_crm_provider(supabase, conn)
+        get_specs = getattr(provider, "get_extraction_field_specs", None)
+        if callable(get_specs):
+            return await get_specs(
+                allowed_deal_fields=config.allowed_deal_fields,
+                allowed_contact_fields=config.allowed_contact_fields,
+                allowed_company_fields=config.allowed_company_fields,
+                allowed_line_item_fields=getattr(config, "allowed_line_item_fields", None),
+            )
         return await provider.get_curated_field_specs(allowed)
     except Exception:
         return None
@@ -707,7 +848,7 @@ async def _load_memo_extraction(supabase: Client, memo_id: str, user_id: str) ->
 async def _crm_context(supabase: Client, user_id: str):
     conn = resolve_sync_connection(supabase, user_id)
     if not conn:
-        return None, None, None, [], None
+        return None, None, None, [], [], [], [], None
     if conn.get("provider") == "hubspot":
         # Deal matching/preview here hit the HubSpot API directly (unlike the final
         # approve step, which refreshes on its own) - a WhatsApp conversation can
@@ -724,12 +865,40 @@ async def _crm_context(supabase: Client, user_id: str):
         connection_id=str(conn["id"]),
     )
     allowed_fields = (
-        config.allowed_deal_fields
+        list(config.allowed_deal_fields)
         if config and config.allowed_deal_fields
         else _default_deal_fields(provider_name)
     )
+    if provider_name == "hubspot":
+        from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
+        allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
+
+    allowed_contact_fields = (
+        list(config.allowed_contact_fields)
+        if config and config.allowed_contact_fields is not None
+        else _default_contact_fields(provider_name)
+    )
+    allowed_company_fields = (
+        list(config.allowed_company_fields)
+        if config and config.allowed_company_fields is not None
+        else _default_company_fields(provider_name)
+    )
+    allowed_line_item_fields = (
+        list(getattr(config, "allowed_line_item_fields", None) or [])
+        if config
+        else _default_line_item_fields(provider_name)
+    )
     pipeline_id = config.default_pipeline_id if config else None
-    return provider, conn, config, allowed_fields, pipeline_id
+    return (
+        provider,
+        conn,
+        config,
+        allowed_fields,
+        allowed_contact_fields,
+        allowed_company_fields,
+        allowed_line_item_fields,
+        pipeline_id,
+    )
 
 
 async def _find_candidate_deals(
@@ -738,7 +907,8 @@ async def _find_candidate_deals(
     extraction: MemoExtraction,
 ) -> tuple[list[DealMatch], Optional[str], Optional[str]]:
     try:
-        provider, conn, _config, _allowed_fields, pipeline_id = await _crm_context(supabase, user_id)
+        provider, conn, _config, *_rest = await _crm_context(supabase, user_id)
+        pipeline_id = _rest[-1] if _rest else None
     except AmbiguousPrimaryCRMError:
         raise ValueError("Multiple CRMs are connected. Choose a primary CRM in Integrations first.")
     if not provider or not conn:
@@ -757,7 +927,16 @@ async def _build_preview_for_selection(
     matched_deals: Optional[list[DealMatch]] = None,
 ) -> tuple[Optional[ApprovalPreview], str, Optional[str], list[dict]]:
     try:
-        provider, conn, config, allowed_fields, pipeline_id = await _crm_context(supabase, user_id)
+        (
+            provider,
+            conn,
+            config,
+            allowed_fields,
+            allowed_contact_fields,
+            allowed_company_fields,
+            allowed_line_item_fields,
+            pipeline_id,
+        ) = await _crm_context(supabase, user_id)
     except AmbiguousPrimaryCRMError:
         raise ValueError("Multiple CRMs are connected. Choose a primary CRM in Integrations first.")
 
@@ -779,6 +958,9 @@ async def _build_preview_for_selection(
         matched_deals=matches,
         selected_deal_id=deal_id,
         allowed_fields=allowed_fields,
+        allowed_contact_fields=allowed_contact_fields,
+        allowed_company_fields=allowed_company_fields,
+        allowed_line_item_fields=allowed_line_item_fields,
         default_stage_name=config.default_stage_name if config else None,
         default_pipeline_id=config.default_pipeline_id if config else None,
         default_stage_id=config.default_stage_id if config else None,

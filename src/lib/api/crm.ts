@@ -20,6 +20,7 @@ export interface CRMConfiguration {
   allowed_deal_fields: string[];
   allowed_contact_fields: string[];
   allowed_company_fields: string[];
+  allowed_line_item_fields?: string[];
   auto_create_contacts: boolean;
   auto_create_companies: boolean;
 }
@@ -121,7 +122,7 @@ export const crmApi = {
     return api.post("/crm/hubspot/configure", config);
   },
 
-  async getSchema(objectType: "deals" | "contacts" | "companies") {
+  async getSchema(objectType: "deals" | "contacts" | "companies" | "line_items") {
     return api.get<CRMSchema>(`/crm/hubspot/schema?object_type=${objectType}`);
   },
 
