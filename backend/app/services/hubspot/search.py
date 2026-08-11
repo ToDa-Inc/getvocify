@@ -6,7 +6,8 @@ Finds existing records before creating duplicates.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+import re
+from typing import Any, Literal, Optional
 
 from .client import HubSpotClient
 from .exceptions import HubSpotError
@@ -18,6 +19,22 @@ from .types import (
     Filter,
     FilterGroup,
 )
+
+
+def normalize_phone_digits(phone: Optional[str]) -> str:
+    return re.sub(r"\D+", "", phone or "")
+
+
+def split_person_name(name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return (firstname, lastname). Single token → (token, None)."""
+    if not name or not str(name).strip():
+        return None, None
+    parts = [p for p in str(name).strip().split() if p]
+    if not parts:
+        return None, None
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], parts[-1]
 
 
 class HubSpotSearchService:
@@ -119,48 +136,118 @@ class HubSpotSearchService:
 
     async def find_contact_by_name(self, name: Optional[str]) -> Optional[HubSpotContact]:
         """
-        Find contact by name (firstname or lastname contains the search term).
+        Find a single contact by name. Prefer unique first+last matches.
         """
-        if not name or not name.strip():
-            return None
-        search_term = name.strip()
-        filters = [
-            Filter(
-                propertyName="firstname",
-                operator="CONTAINS_TOKEN",
-                value=search_term,
-            )
-        ]
-        results = await self.search(
-            self.CONTACTS,
-            filters,
-            properties=["email", "firstname", "lastname", "phone"],
-            limit=1,
-        )
-        if results:
-            try:
-                return HubSpotContact(**results[0])
-            except Exception:
-                pass
-        filters = [
-            Filter(
-                propertyName="lastname",
-                operator="CONTAINS_TOKEN",
-                value=search_term,
-            )
-        ]
-        results = await self.search(
-            self.CONTACTS,
-            filters,
-            properties=["email", "firstname", "lastname", "phone"],
-            limit=1,
-        )
-        if not results:
-            return None
+        hits = await self.find_contacts_by_name(name, limit=5)
+        return hits[0] if len(hits) == 1 else (hits[0] if hits else None)
+
+    async def find_contacts_by_name(
+        self,
+        name: Optional[str],
+        limit: int = 5,
+    ) -> list[HubSpotContact]:
+        """
+        Find contacts by person name.
+
+        - "First Last" → firstname AND lastname token match (stronger)
+        - Single token → firstname OR lastname contains (weaker; may return several)
+        """
+        first, last = split_person_name(name)
+        if not first:
+            return []
+
+        props = ["email", "firstname", "lastname", "phone", "mobilephone", "jobtitle"]
+        results: list[dict] = []
         try:
-            return HubSpotContact(**results[0])
+            if last:
+                results = await self.search(
+                    self.CONTACTS,
+                    [
+                        Filter(propertyName="firstname", operator="CONTAINS_TOKEN", value=first),
+                        Filter(propertyName="lastname", operator="CONTAINS_TOKEN", value=last),
+                    ],
+                    properties=props,
+                    limit=limit,
+                )
+            else:
+                # Single token: try firstname, then lastname; merge unique
+                by_first = await self.search(
+                    self.CONTACTS,
+                    [Filter(propertyName="firstname", operator="CONTAINS_TOKEN", value=first)],
+                    properties=props,
+                    limit=limit,
+                )
+                by_last = await self.search(
+                    self.CONTACTS,
+                    [Filter(propertyName="lastname", operator="CONTAINS_TOKEN", value=first)],
+                    properties=props,
+                    limit=limit,
+                )
+                seen: set[str] = set()
+                merged: list[dict] = []
+                for row in list(by_first or []) + list(by_last or []):
+                    rid = str(row.get("id") or "")
+                    if not rid or rid in seen:
+                        continue
+                    seen.add(rid)
+                    merged.append(row)
+                results = merged[:limit]
         except Exception:
-            return None
+            return []
+
+        out: list[HubSpotContact] = []
+        for row in results or []:
+            try:
+                out.append(HubSpotContact(**row))
+            except Exception:
+                continue
+        return out
+
+    async def find_contacts_by_phone(
+        self,
+        phone: Optional[str],
+        limit: int = 5,
+    ) -> list[HubSpotContact]:
+        """
+        Find contacts by phone / mobilephone using digit-normalized needle.
+        """
+        digits = normalize_phone_digits(phone)
+        if len(digits) < 7:
+            return []
+        needle = digits[-9:] if len(digits) >= 9 else digits
+        props = ["email", "firstname", "lastname", "phone", "mobilephone", "jobtitle"]
+        seen: set[str] = set()
+        out: list[HubSpotContact] = []
+        for prop in ("phone", "mobilephone"):
+            try:
+                rows = await self.search(
+                    self.CONTACTS,
+                    [Filter(propertyName=prop, operator="CONTAINS_TOKEN", value=needle)],
+                    properties=props,
+                    limit=limit,
+                )
+            except Exception:
+                continue
+            for row in rows or []:
+                rid = str(row.get("id") or "")
+                if not rid or rid in seen:
+                    continue
+                # Prefer digit overlap to reduce false positives
+                row_digits = normalize_phone_digits(
+                    (row.get("properties") or {}).get(prop)
+                    or (row.get("properties") or {}).get("phone")
+                    or (row.get("properties") or {}).get("mobilephone")
+                )
+                if row_digits and needle not in row_digits and row_digits[-7:] not in digits:
+                    continue
+                seen.add(rid)
+                try:
+                    out.append(HubSpotContact(**row))
+                except Exception:
+                    continue
+                if len(out) >= limit:
+                    return out
+        return out
 
     async def find_company_by_name(self, name: Optional[str]) -> Optional[HubSpotCompany]:
         """
@@ -172,9 +259,16 @@ class HubSpotSearchService:
         Returns:
             HubSpotCompany if found, None otherwise
         """
+        hits = await self.find_companies_by_name(name, limit=3)
+        return hits[0] if hits else None
+
+    async def find_companies_by_name(
+        self,
+        name: Optional[str],
+        limit: int = 5,
+    ) -> list[HubSpotCompany]:
         if not name or not name.strip():
-            return None
-        
+            return []
         filters = [
             Filter(
                 propertyName="name",
@@ -182,22 +276,23 @@ class HubSpotSearchService:
                 value=name.strip(),
             )
         ]
-        
-        results = await self.search(
-            self.COMPANIES,
-            filters,
-            properties=["name", "domain"],
-            limit=1,
-        )
-        
-        if not results:
-            return None
-        
         try:
-            return HubSpotCompany(**results[0])
+            results = await self.search(
+                self.COMPANIES,
+                filters,
+                properties=["name", "domain"],
+                limit=limit,
+            )
         except Exception:
-            return None
-    
+            return []
+        out: list[HubSpotCompany] = []
+        for row in results or []:
+            try:
+                out.append(HubSpotCompany(**row))
+            except Exception:
+                continue
+        return out
+
     async def find_company_by_domain(self, domain: Optional[str]) -> Optional[HubSpotCompany]:
         """
         Find company by domain name.

@@ -94,11 +94,15 @@ class SalesforceCRMProvider:
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
         create_note: bool = True,
+        contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
+        skip_deal: bool = False,
     ) -> SyncResult:
         # Salesforce opportunities use a flat picklist (StageName), not pipeline+stage IDs.
         del default_pipeline_id, default_stage_id
         del create_note  # Salesforce path does not create HubSpot-style notes here
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
+        del contact_id, company_id, skip_deal  # HubSpot contact-first; not used for SF yet
         return await self._sync_service().sync_memo(
             memo_id=memo_id,
             user_id=user_id,
@@ -128,9 +132,13 @@ class SalesforceCRMProvider:
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        selected_contact: Optional[Any] = None,
+        contact_candidates: Optional[Any] = None,
+        create_new_deal: bool = False,
     ) -> ApprovalPreview:
         del default_pipeline_id, default_stage_id
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
+        del selected_contact, contact_candidates, create_new_deal
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,
@@ -149,6 +157,26 @@ class SalesforceCRMProvider:
     ) -> list[DealMatch]:
         m = SalesforceMatchingService(self._client, self._search())
         return await m.find_matching_deals(extraction, limit=limit, pipeline_id=pipeline_id)
+
+    async def resolve_contact_anchor(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ) -> None:
+        del extraction, limit_deals, pipeline_id, preferred_contact_id
+        return None
+
+    async def resolve_identity(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ):
+        del extraction, limit_deals, pipeline_id, preferred_contact_id
+        return None
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]:
         return await self._schema().get_curated_field_specs(allowed_fields)

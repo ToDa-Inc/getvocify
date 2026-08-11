@@ -8,7 +8,7 @@ allowed_*_fields (deals, contacts, companies, line_items) and LLM extraction.
 from uuid import UUID
 from typing import Optional, Any
 from app.models.memo import MemoExtraction
-from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, AvailableField
+from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, AvailableField, ContactMatch
 from .client import HubSpotClient
 from app.services.deal_merge import merge_description
 from .deals import HubSpotDealService, _sanitize_enum_properties
@@ -69,10 +69,19 @@ class HubSpotPreviewService:
         allowed_contact_fields: Optional[list[str]] = None,
         allowed_company_fields: Optional[list[str]] = None,
         allowed_line_item_fields: Optional[list[str]] = None,
+        selected_contact: Optional[ContactMatch] = None,
+        contact_candidates: Optional[list[ContactMatch]] = None,
+        create_new_deal: bool = False,
     ) -> ApprovalPreview:
         """
         Build a preview from the same allowlist, stage-resolution, and validation
         paths used by sync so every proposed update is actually deliverable.
+
+        Modes:
+        - selected_deal_id set → update that deal (+ optional contact anchor)
+        - create_new_deal → create deal preview
+        - selected_contact only → contact/company fields, skip deal (Option A)
+        - none of the above → legacy create-new-deal preview
         """
         transcript_summary = transcript[:200] + "..." if len(transcript) > 200 else transcript
         transcript_full = transcript if transcript else None
@@ -86,7 +95,21 @@ class HubSpotPreviewService:
         if allowed_line_item_fields is None:
             allowed_line_item_fields = ["name", "quantity", "price"]
 
-        is_new_deal = selected_deal_id is None
+        if selected_deal_id:
+            is_new_deal = False
+            skip_deal = False
+        elif create_new_deal:
+            is_new_deal = True
+            skip_deal = False
+            selected_deal_id = None
+        elif selected_contact is not None:
+            is_new_deal = False
+            skip_deal = True
+            selected_deal_id = None
+        else:
+            is_new_deal = True
+            skip_deal = False
+
         selected_deal: Optional[DealMatch] = None
         proposed_updates: list[ProposedUpdate] = []
 
@@ -95,7 +118,7 @@ class HubSpotPreviewService:
         # when the user explicitly enabled "dealstage" in Editable Fields - same rule
         # as every other field, so a rep's manual pipeline management is never
         # silently overridden by the preview/sync.
-        show_stage = is_new_deal or "dealstage" in allowed_fields
+        show_stage = (is_new_deal and not skip_deal) or "dealstage" in allowed_fields
         if "dealstage" in allowed_fields or not show_stage:
             preview_fields = allowed_fields
         else:
@@ -106,26 +129,26 @@ class HubSpotPreviewService:
         # pipeline's stage of the same name, which sync would then reject (or worse,
         # preview one thing and sync would resolve a different one).
         existing_deal_pipeline_id: Optional[str] = None
-        if not is_new_deal:
+        if selected_deal_id and not is_new_deal:
             try:
                 _pipeline_probe = await self.deals.get(selected_deal_id, properties=["pipeline"])
                 existing_deal_pipeline_id = (_pipeline_probe.properties or {}).get("pipeline")
             except Exception:
                 pass
 
-        # Get properties using the exact same mapping + validation as sync, so a
-        # field only shows up here if it will actually be written on approval.
-        properties = await self.deals.map_extraction_to_properties_with_stage(
-            extraction,
-            allowed_fields=allowed_fields,
-            default_pipeline_id=default_pipeline_id if is_new_deal else existing_deal_pipeline_id,
-            default_stage_id=default_stage_id if is_new_deal else None,
-            is_new_deal=is_new_deal,
-        )
-        properties = await _sanitize_enum_properties(self.schema, properties)
-
-        # Filter by allowed fields (+ dealstage, always) - only show what config permits
-        filtered_properties = {k: v for k, v in properties.items() if k in preview_fields}
+        filtered_properties: dict[str, Any] = {}
+        if not skip_deal:
+            # Get properties using the exact same mapping + validation as sync, so a
+            # field only shows up here if it will actually be written on approval.
+            properties = await self.deals.map_extraction_to_properties_with_stage(
+                extraction,
+                allowed_fields=allowed_fields,
+                default_pipeline_id=default_pipeline_id if is_new_deal else existing_deal_pipeline_id,
+                default_stage_id=default_stage_id if is_new_deal else None,
+                is_new_deal=is_new_deal,
+            )
+            properties = await _sanitize_enum_properties(self.schema, properties)
+            filtered_properties = {k: v for k, v in properties.items() if k in preview_fields}
 
         field_labels: dict[str, str] = {}
         field_specs_map: dict[str, dict] = {}
@@ -164,28 +187,29 @@ class HubSpotPreviewService:
         except Exception:
             pass
 
-        # Next steps (create HubSpot tasks) - always show in preview so user can confirm
-        next_steps = extraction.nextSteps or []
-        if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
-            hs_next = extraction.raw_extraction["hs_next_step"]
-            next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
-        for i, step in enumerate(next_steps):
-            if step and str(step).strip():
-                schedule_hints = _next_step_schedule_hints(extraction)
-                hint = schedule_hints[i] if i < len(schedule_hints) else None
-                formatted = format_next_step_task(
-                    str(step).strip(),
-                    contact_name=extraction.contactName,
-                    schedule_hint=hint or None,
-                )
-                proposed_updates.append(ProposedUpdate(
-                    field_name=f"next_step_task_{i}",
-                    field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
-                    current_value=None,
-                    new_value=formatted.subject,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
-                    object_type="task",
-                ))
+        # Next steps (HubSpot tasks) require a deal — skip in contact-only mode
+        if not skip_deal:
+            next_steps = extraction.nextSteps or []
+            if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
+                hs_next = extraction.raw_extraction["hs_next_step"]
+                next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
+            for i, step in enumerate(next_steps):
+                if step and str(step).strip():
+                    schedule_hints = _next_step_schedule_hints(extraction)
+                    hint = schedule_hints[i] if i < len(schedule_hints) else None
+                    formatted = format_next_step_task(
+                        str(step).strip(),
+                        contact_name=extraction.contactName,
+                        schedule_hint=hint or None,
+                    )
+                    proposed_updates.append(ProposedUpdate(
+                        field_name=f"next_step_task_{i}",
+                        field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
+                        current_value=None,
+                        new_value=formatted.subject,
+                        extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                        object_type="task",
+                    ))
 
         # For display: use human-readable extraction values when available.
         # Note: enum/select fields intentionally keep their raw API value here (not
@@ -204,7 +228,39 @@ class HubSpotPreviewService:
         current_contact_name_from_deal: Optional[str] = None
         current_company_name_from_deal: Optional[str] = None
 
-        if is_new_deal:
+        # Contact-first: load current props from the resolved contact (not only via deal)
+        if selected_contact and self.contact_service:
+            try:
+                contact = await self.contact_service.get(
+                    selected_contact.contact_id,
+                    properties=list(
+                        set(
+                            allowed_contact_fields
+                            + ["email", "firstname", "lastname", "phone", "jobtitle"]
+                        )
+                    ),
+                )
+                current_contact_props = contact.properties or {}
+                cp = current_contact_props
+                current_contact_name_from_deal = (
+                    f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
+                )
+            except Exception:
+                pass
+            if selected_contact.company_id and self.company_service:
+                try:
+                    comp = await self.company_service.get(
+                        selected_contact.company_id,
+                        properties=list(set(allowed_company_fields + ["name", "domain"])),
+                    )
+                    current_company_props = comp.properties or {}
+                    current_company_name_from_deal = current_company_props.get("name")
+                except Exception:
+                    pass
+
+        if skip_deal:
+            pass  # no deal field proposals
+        elif is_new_deal:
             for field_name, new_value in filtered_properties.items():
                 if new_value is None or new_value == "":
                     continue
@@ -352,7 +408,8 @@ class HubSpotPreviewService:
                         ))
 
         # Contact identity + allowlisted contact properties
-        if is_new_deal:
+        show_identity_create = is_new_deal and not selected_contact and not skip_deal
+        if show_identity_create:
             extracted_contact_name = extraction.contactName or (
                 f"Contact at {extraction.companyName}" if extraction.companyName else None
             )
@@ -375,6 +432,7 @@ class HubSpotPreviewService:
                     object_type="companies",
                 ))
 
+        has_existing_contact = bool(selected_contact) or (bool(selected_deal_id) and not is_new_deal)
         contact_props = contact_properties_from_extraction(
             extraction,
             allowed_fields=allowed_contact_fields,
@@ -384,13 +442,13 @@ class HubSpotPreviewService:
             ),
         )
         for field_name, new_value in contact_props.items():
-            if field_name == "email" and is_new_deal:
+            if field_name == "email" and show_identity_create:
                 continue  # shown via new_contact
             new_display = _display_value(field_name, new_value)
             if not new_display:
                 continue
             current_display = _display_value(field_name, current_contact_props.get(field_name))
-            if not is_new_deal and current_display == new_display:
+            if has_existing_contact and current_display == new_display:
                 continue
             key = f"contacts:{field_name}"
             spec = field_specs_map.get(key, {})
@@ -398,7 +456,7 @@ class HubSpotPreviewService:
             proposed_updates.append(ProposedUpdate(
                 field_name=field_name,
                 field_label=label,
-                current_value=(current_display or "(empty)") if not is_new_deal else None,
+                current_value=(current_display or "(empty)") if has_existing_contact else None,
                 new_value=new_display,
                 extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
                 field_type=spec.get("type"),
@@ -406,6 +464,9 @@ class HubSpotPreviewService:
                 object_type="contacts",
             ))
 
+        has_existing_company = bool(current_company_props) or (
+            bool(selected_deal_id) and not is_new_deal
+        )
         company_props = company_properties_from_extraction(
             extraction,
             allowed_fields=allowed_company_fields,
@@ -415,13 +476,13 @@ class HubSpotPreviewService:
             ),
         )
         for field_name, new_value in company_props.items():
-            if field_name == "name" and is_new_deal:
+            if field_name == "name" and show_identity_create:
                 continue
             new_display = _display_value(field_name, new_value)
             if not new_display:
                 continue
             current_display = _display_value(field_name, current_company_props.get(field_name))
-            if not is_new_deal and (current_display == new_display or field_name == "name"):
+            if has_existing_company and (current_display == new_display or field_name == "name"):
                 continue
             key = f"companies:{field_name}"
             spec = field_specs_map.get(key, {})
@@ -429,7 +490,7 @@ class HubSpotPreviewService:
             proposed_updates.append(ProposedUpdate(
                 field_name=field_name,
                 field_label=label,
-                current_value=(current_display or "(empty)") if not is_new_deal else None,
+                current_value=(current_display or "(empty)") if has_existing_company else None,
                 new_value=new_display,
                 extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
                 field_type=spec.get("type"),
@@ -437,22 +498,23 @@ class HubSpotPreviewService:
                 object_type="companies",
             ))
 
-        # Line items (create proposals)
-        for i, item in enumerate(line_items_from_extraction(extraction, allowed_line_item_fields)):
-            name = item.get("name") or f"Line item {i + 1}"
-            qty = item.get("quantity", "")
-            price = item.get("price", "")
-            summary = f"{name}"
-            if qty != "" or price != "":
-                summary = f"{name} · qty {qty} · {price}"
-            proposed_updates.append(ProposedUpdate(
-                field_name=f"line_item_{i}",
-                field_label=name,
-                current_value=None,
-                new_value=summary,
-                extraction_confidence=0.7,
-                object_type="line_items",
-            ))
+        # Line items (create proposals) — deal-scoped
+        if not skip_deal:
+            for i, item in enumerate(line_items_from_extraction(extraction, allowed_line_item_fields)):
+                name = item.get("name") or f"Line item {i + 1}"
+                qty = item.get("quantity", "")
+                price = item.get("price", "")
+                summary = f"{name}"
+                if qty != "" or price != "":
+                    summary = f"{name} · qty {qty} · {price}"
+                proposed_updates.append(ProposedUpdate(
+                    field_name=f"line_item_{i}",
+                    field_label=name,
+                    current_value=None,
+                    new_value=summary,
+                    extraction_confidence=0.7,
+                    object_type="line_items",
+                ))
 
         # Available deal fields not yet proposed
         # Deal stage is inferred for every memo and should remain prominent in review.
@@ -461,27 +523,46 @@ class HubSpotPreviewService:
                 proposed_updates.insert(0, proposed_updates.pop(i))
                 break
 
-        proposed_field_names = {
-            u.field_name for u in proposed_updates
-            if (u.object_type or "deals") == "deals"
-            and not u.field_name.startswith("next_step_task_")
+        # Fields the user can still add manually (allowlisted but not yet proposed).
+        # Include contacts/companies so dashboard review can edit those objects too —
+        # not only deal properties. Line items stay proposal-only (array create path).
+        proposed_keys = {
+            f"{(u.object_type or 'deals')}:{u.field_name}"
+            for u in proposed_updates
+            if not u.field_name.startswith("next_step_task_")
             and not u.field_name.startswith("line_item_")
         }
-        available_field_names = [f for f in allowed_fields if f not in proposed_field_names]
         available_fields_list: list[AvailableField] = []
-        for name in available_field_names:
-            spec = field_specs_map.get(name, {})
-            available_fields_list.append(AvailableField(
-                name=name,
-                label=spec.get("label", name.replace("_", " ").title()),
-                type=spec.get("type", "string"),
-                options=spec.get("options"),
-                object_type="deals",
-            ))
+        object_field_sources = (
+            [("contacts", allowed_contact_fields), ("companies", allowed_company_fields)]
+            if skip_deal
+            else [
+                ("deals", allowed_fields),
+                ("contacts", allowed_contact_fields),
+                ("companies", allowed_company_fields),
+            ]
+        )
+        for object_type, names in object_field_sources:
+            for name in names:
+                if f"{object_type}:{name}" in proposed_keys:
+                    continue
+                # Identity labels already covered by contact_name / company_name rows
+                if object_type == "companies" and name == "name":
+                    continue
+                spec = field_specs_map.get(f"{object_type}:{name}") or (
+                    field_specs_map.get(name, {}) if object_type == "deals" else {}
+                )
+                available_fields_list.append(AvailableField(
+                    name=name,
+                    label=spec.get("label", name.replace("_", " ").title()),
+                    type=spec.get("type", "string"),
+                    options=spec.get("options"),
+                    object_type=object_type,
+                ))
 
         new_contact = None
         new_company = None
-        if is_new_deal:
+        if is_new_deal and not selected_contact:
             if extraction.contactEmail and str(extraction.contactEmail).strip():
                 new_contact = {
                     "name": extraction.contactName,
@@ -498,6 +579,9 @@ class HubSpotPreviewService:
             matched_deals=matched_deals,
             selected_deal=selected_deal,
             is_new_deal=is_new_deal,
+            selected_contact=selected_contact,
+            contact_candidates=list(contact_candidates or []),
+            skip_deal=skip_deal,
             proposed_updates=proposed_updates,
             available_fields=available_fields_list,
             allowed_deal_fields=list(allowed_fields),

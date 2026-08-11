@@ -44,10 +44,10 @@ STT BEHAVIOR GUIDELINES (Phonetic Physics):
 4. **Context Drift**: How would a native Spanish speaker's accent sound to an English-centric AI?
 
 EXAMPLES:
-- "Edenred": ["En red", "Enred", "Eden red", "Edén red"]
 - "FTES": ["FPS", "FTS", "FT is", "Efetes", "Efete ese", "Efectivos"]
 - "50k": ["50 kas", "50 cash", "Cincuenta kas"]
-- "Cobee": ["Covid", "Cobi", "Kobi", "Cobe"]
+- "Follow-up": ["Fólow up", "Folouap", "Seguimiento"]
+- "Forecast": ["Forcas", "Fórcast"]
 
 TARGET WORD: "{target_word}"
 
@@ -124,7 +124,7 @@ STT BEHAVIOR (Phonetic Physics):
 - Context Drift: Spanish accent to English-centric AI
 
 Return ONLY a JSON object. Each key is the EXACT word, each value is an array of strings.
-Example: {{"Edenred": ["En red", "Enred", "Eden red"], "FTES": ["FPS", "FTS", "FT is"]}}
+Example: {{"FTES": ["FPS", "FTS", "FT is"], "50k": ["50 kas", "50 cash"]}}
 
 Words to process: {words_str}
 """

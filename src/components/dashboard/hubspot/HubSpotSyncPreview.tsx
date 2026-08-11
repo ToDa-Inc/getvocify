@@ -183,10 +183,10 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   const searchQueryRef = useRef("");
 
   const fetchPreview = useCallback(
-    async (dealId?: string) => {
+    async (dealId?: string, opts?: { createNewDeal?: boolean; contactId?: string }) => {
       setLoading(true);
       try {
-        const previewData = await crmApi.getPreview(memoId, dealId);
+        const previewData = await crmApi.getPreview(memoId, dealId, opts);
         setPreview(previewData);
         setEditedUpdates(null);
         return previewData;
@@ -216,31 +216,34 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
           setLoading(false);
           return;
         }
-        let matches: any[] = [];
-        try {
-          const matchData = await crmApi.findMatches(memoId);
-          matches = Array.isArray(matchData) ? matchData : [];
-        } catch (matchErr: any) {
-          const errStr = String(matchErr?.data?.detail ?? "");
-          if (matchErr?.status === 400 && errStr.includes("extraction not available")) {
-            setExtractionError(true);
-            toast.error("Extraction not ready. Please wait for processing or try re-extract.");
-            return;
-          }
-          toast.error("Failed to find matching deals");
-        }
-        const topMatch = matches[0];
-        const isConfident = !!topMatch && (topMatch.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
-        if (isConfident) {
-          await fetchPreview(topMatch.deal_id);
-        } else {
-          // No reliable signal either way (missing name or weak match) - show the
-          // extracted fields for reference but require an explicit decision before
-          // the deal target is considered final.
-          setWeakMatches(matches);
-          setNeedsDealDecision(true);
+        // Contact-first: email / unique phone / unique name auto-lock.
+        const previewData = await fetchPreview(undefined);
+        if (!previewData) return;
+
+        const candidates = Array.isArray(previewData.contact_candidates)
+          ? previewData.contact_candidates
+          : [];
+        if (candidates.length > 0 && !previewData.selected_contact) {
+          // Ambiguous identity — wait for user to pick a contact before deal decisions.
+          setNeedsDealDecision(false);
           setDealDecisionMade(false);
-          await fetchPreview(undefined);
+          setWeakMatches(previewData.matched_deals || []);
+        } else if (previewData.selected_contact) {
+          // Contact locked. Deal is optional unless already auto-selected (single linked deal).
+          setNeedsDealDecision(false);
+          setDealDecisionMade(true);
+          setWeakMatches(previewData.matched_deals || []);
+        } else {
+          const matches = Array.isArray(previewData.matched_deals) ? previewData.matched_deals : [];
+          const topMatch = matches[0];
+          const isConfident = !!topMatch && (topMatch.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
+          if (isConfident && topMatch.deal_id && !previewData.selected_deal) {
+            await fetchPreview(topMatch.deal_id);
+          } else if (!isConfident && !previewData.selected_deal) {
+            setWeakMatches(matches);
+            setNeedsDealDecision(true);
+            setDealDecisionMade(false);
+          }
         }
       } catch (error: any) {
         const errStr = String(error?.data?.detail ?? "");
@@ -326,7 +329,23 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
   });
   const currentDealId = preview?.selected_deal?.deal_id ?? null;
-  const isNewDeal = preview?.is_new_deal ?? true;
+  const isNewDeal = preview?.is_new_deal ?? false;
+  const selectedContact = preview?.selected_contact ?? null;
+  const contactCandidates = Array.isArray(preview?.contact_candidates)
+    ? preview.contact_candidates
+    : [];
+  const needsContactDecision = !selectedContact && contactCandidates.length > 0;
+  const skipDeal = !!preview?.skip_deal;
+  const dealMatch = preview?.selected_deal;
+
+  const selectContact = async (contactId: string) => {
+    const data = await fetchPreview(currentDealId ?? undefined, { contactId });
+    if (data?.selected_contact) {
+      setNeedsDealDecision(false);
+      setDealDecisionMade(true);
+      setWeakMatches(data.matched_deals || []);
+    }
+  };
 
   /**
    * Explicit "create a new deal" decision. If there's no company/contact name to
@@ -337,11 +356,12 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     setShowAllSearch(false);
     setSearchResults([]);
     setSearchQuery("");
-    const data = preview?.is_new_deal ? preview : await fetchPreview(undefined);
+    const data = await fetchPreview(undefined, { createNewDeal: true });
     const candidateUpdates = data?.proposed_updates ?? [];
     const hasNameSignal =
       !!data?.new_company ||
       !!data?.new_contact ||
+      !!data?.selected_contact ||
       candidateUpdates.some((u: any) => u.field_name === "company_name" || u.field_name === "contact_name");
     if (hasNameSignal) {
       setNeedsDealDecision(false);
@@ -369,6 +389,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
         field_name: "dealname",
         field_label: "Deal Name",
         field_type: "string",
+        object_type: "deals",
         current_value: null,
         new_value: name,
       },
@@ -394,8 +415,21 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     setSyncing(true);
     try {
       const extraction = await buildExtractionForSync();
-      const result = await crmApi.approveSync(memoId, currentDealId ?? undefined, isNewDeal, extraction);
-      toast.success("CRM updated successfully!");
+      const contactId = preview?.selected_contact?.contact_id;
+      const companyId = preview?.selected_contact?.company_id;
+      const skipDeal = !!preview?.skip_deal && !isNewDeal && !currentDealId;
+      const result = await crmApi.approveSync(
+        memoId,
+        currentDealId ?? undefined,
+        isNewDeal && !skipDeal,
+        extraction,
+        {
+          contactId,
+          companyId,
+          skipDeal,
+        }
+      );
+      toast.success(skipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
       onSuccess(result);
     } catch {
       toast.error("Failed to sync with HubSpot");
@@ -421,7 +455,14 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     setEditedUpdates(next.filter(Boolean));
   };
 
-  const addField = (field: { name: string; label: string; type?: string; options?: unknown[] }) => {
+  const addField = (field: {
+    name: string;
+    label: string;
+    type?: string;
+    options?: unknown[];
+    object_type?: string;
+  }) => {
+    const objectType = field.object_type || "deals";
     const newUpdate = {
       field_name: field.name,
       field_label: field.label,
@@ -429,6 +470,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
       current_value: null,
       new_value: "",
       options: field.options,
+      object_type: objectType,
     };
     const list = editedUpdates ?? updates.map((u) => ({ ...u }));
     setEditedUpdates([...list, newUpdate]);
@@ -473,16 +515,76 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     );
   }
 
-  const dealMatch = preview?.selected_deal;
-
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {needsContactDecision && (
+        <div className="space-y-3 px-2">
+          <h5 className={THEME_TOKENS.typography.capsLabel}>Confirm Contact</h5>
+          <p className="text-xs text-muted-foreground px-1">
+            Multiple contacts matched — pick the right one to continue.
+          </p>
+          <div className="space-y-2">
+            {contactCandidates.map((c: any) => (
+              <button
+                key={c.contact_id}
+                type="button"
+                onClick={() => selectContact(c.contact_id)}
+                className="w-full text-left bg-secondary/5 hover:bg-beige/10 rounded-[1.5rem] p-5 border-2 border-beige/15 hover:border-beige/40 transition-colors"
+              >
+                <p className="text-sm font-bold text-foreground">{c.name || "Contact"}</p>
+                {c.email ? (
+                  <p className="text-xs text-muted-foreground mt-1">{c.email}</p>
+                ) : null}
+                {c.phone ? (
+                  <p className="text-xs text-muted-foreground mt-0.5">{c.phone}</p>
+                ) : null}
+                {c.company_name ? (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 mt-2">
+                    {c.company_name}
+                  </p>
+                ) : null}
+                <p className="text-[10px] text-muted-foreground/50 mt-2">{c.match_reason}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {selectedContact && (
+        <div className="space-y-3 px-2">
+          <h5 className={THEME_TOKENS.typography.capsLabel}>Contact Target</h5>
+          <div className="bg-secondary/5 rounded-[2rem] p-6 border-2 border-beige/20">
+            <p className="text-sm font-bold text-foreground">
+              {selectedContact.name || "Contact"}
+            </p>
+            {selectedContact.email ? (
+              <p className="text-xs text-muted-foreground mt-1">{selectedContact.email}</p>
+            ) : null}
+            {selectedContact.phone ? (
+              <p className="text-xs text-muted-foreground mt-0.5">{selectedContact.phone}</p>
+            ) : null}
+            {selectedContact.company_name && (
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 mt-2">
+                {selectedContact.company_name}
+              </p>
+            )}
+            <p className="text-[10px] text-muted-foreground/50 mt-3">
+              {selectedContact.match_reason || "Matched contact"} — contact fields update this record
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!needsContactDecision && (
+      <>
       <div className="flex items-center justify-between px-2">
-        <h5 className={THEME_TOKENS.typography.capsLabel}>Deal Target</h5>
+        <h5 className={THEME_TOKENS.typography.capsLabel}>
+          {selectedContact ? "Deal Target (optional)" : "Deal Target"}
+        </h5>
         {!showSearch && !(needsDealDecision && !dealDecisionMade) && (
           <Button variant="ghost" size="sm" onClick={() => setShowAllSearch(true)} className="text-[9px] font-black uppercase tracking-widest text-beige hover:bg-beige/10">
             <Search className="h-3 w-3 mr-1.5" />
-            Change Deal
+            {selectedContact ? "Choose Deal" : "Change Deal"}
           </Button>
         )}
       </div>
@@ -627,17 +729,25 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
         </div>
       ) : (
         <div
-          className={`p-8 rounded-[2rem] border-2 transition-all duration-500 ${dealMatch ? "bg-success/[0.02] border-success/20" : "bg-beige/[0.02] border-beige/20"}`}
+          className={`p-8 rounded-[2rem] border-2 transition-all duration-500 ${
+            dealMatch
+              ? "bg-success/[0.02] border-success/20"
+              : skipDeal
+                ? "bg-secondary/5 border-border/20"
+                : "bg-beige/[0.02] border-beige/20"
+          }`}
         >
           <div className="flex items-start gap-6">
             <div
-              className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors duration-500 ${dealMatch ? "bg-success/10 text-success" : "bg-beige/10 text-beige"}`}
+              className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors duration-500 ${
+                dealMatch ? "bg-success/10 text-success" : skipDeal ? "bg-secondary/10 text-muted-foreground" : "bg-beige/10 text-beige"
+              }`}
             >
-              {dealMatch ? <Check className="h-7 w-7" /> : <Sparkles className="h-7 w-7" />}
+              {dealMatch ? <Check className="h-7 w-7" /> : skipDeal ? <AlertCircle className="h-7 w-7" /> : <Sparkles className="h-7 w-7" />}
             </div>
             <div className="flex-1 space-y-1">
               <h4 className="text-xl font-black tracking-tight text-foreground">
-                {dealMatch ? "Existing Deal Targeted" : "New Deal Creation"}
+                {dealMatch ? "Existing Deal Targeted" : skipDeal ? "Contact Only" : "New Deal Creation"}
               </h4>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {dealMatch ? (
@@ -645,13 +755,43 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                     Targeting <span className="text-foreground font-bold">&quot;{dealMatch.deal_name}&quot;</span>.
                     <span className="block mt-1 text-xs opacity-60 italic">Matched via {dealMatch.match_reason?.toLowerCase()}</span>
                   </>
+                ) : skipDeal ? (
+                  <>
+                    No deal selected. Sync will update the matched contact
+                    {selectedContact?.company_name ? " and company" : ""} only.
+                    {(preview?.matched_deals?.length ?? 0) > 0 && (
+                      <span className="block mt-2 text-xs">Linked deals are available via Choose Deal.</span>
+                    )}
+                  </>
                 ) : (
                   "No existing deal selected. A new record will be created in your primary pipeline."
                 )}
               </p>
+              {skipDeal && (preview?.matched_deals?.length ?? 0) > 0 && (
+                <div className="pt-4 space-y-2">
+                  {(preview.matched_deals as any[]).slice(0, 3).map((m: any) => (
+                    <button
+                      key={m.deal_id}
+                      onClick={() => selectDeal(m.deal_id)}
+                      className="w-full text-left p-3 rounded-xl bg-white border border-border/20 hover:border-beige/40 text-sm font-medium"
+                    >
+                      {m.deal_name}
+                      <span className="block text-[10px] text-muted-foreground/60">{m.match_reason}</span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={handleCreateNewDeal}
+                    className="w-full py-2 text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige"
+                  >
+                    + Create a brand new deal
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
 
       <div className="space-y-6">
@@ -807,24 +947,44 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
               <Plus className="h-3 w-3 mr-1.5" />
               Add field
             </Button>
-            {showAddField && (
-              <div className="absolute left-0 top-full mt-2 z-10 w-56 max-h-48 overflow-y-auto py-2 rounded-2xl bg-background border border-border/40 shadow-lg">
-                {availableFields
-                  .filter((f: { name: string }) => !updates.some((u: any) => u?.field_name === f.name))
-                  .map((f: { name: string; label: string; type?: string; options?: unknown[] }) => (
+            {showAddField && (() => {
+              const unused = availableFields.filter((f: { name: string; object_type?: string }) => {
+                const ot = f.object_type || "deals";
+                return !updates.some(
+                  (u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot
+                );
+              });
+              const OBJECT_LABELS: Record<string, string> = {
+                deals: "Deal",
+                contacts: "Contact",
+                companies: "Company",
+              };
+              return (
+                <div className="absolute left-0 top-full mt-2 z-10 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-background border border-border/40 shadow-lg">
+                  {unused.map((f: {
+                    name: string;
+                    label: string;
+                    type?: string;
+                    options?: unknown[];
+                    object_type?: string;
+                  }) => (
                     <button
-                      key={f.name}
+                      key={`${f.object_type || "deals"}:${f.name}`}
                       onClick={() => addField(f)}
                       className="w-full text-left px-4 py-2 text-sm hover:bg-beige/10 transition-colors"
                     >
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50 mr-2">
+                        {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
+                      </span>
                       {f.label || f.name}
                     </button>
                   ))}
-                {availableFields.filter((f: { name: string }) => !updates.some((u: any) => u?.field_name === f.name)).length === 0 && (
-                  <p className="px-4 py-2 text-xs text-muted-foreground">All fields added</p>
-                )}
-              </div>
-            )}
+                  {unused.length === 0 && (
+                    <p className="px-4 py-2 text-xs text-muted-foreground">All fields added</p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -842,17 +1002,23 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
         <Button
           variant="hero"
           onClick={handleSync}
-          disabled={syncing || loading || (needsDealDecision && !dealDecisionMade)}
+          disabled={syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade)}
           className="flex-1 bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-large h-14"
         >
           {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
           {syncing
             ? "Syncing..."
+            : needsContactDecision
+              ? "Confirm Contact First"
             : needsDealDecision && !dealDecisionMade
               ? "Confirm Deal Target First"
-              : dealMatch
-                ? `Update ${dealMatch.deal_name}`
-                : "Create & Sync Deal"}
+              : skipDeal && selectedContact
+                ? `Update ${selectedContact.name || selectedContact.email}`
+                : dealMatch
+                  ? `Update ${dealMatch.deal_name}`
+                  : selectedContact
+                    ? "Create & Sync Deal"
+                    : "Create & Sync Deal"}
         </Button>
       </div>
     </div>

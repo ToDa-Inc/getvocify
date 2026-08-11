@@ -358,8 +358,8 @@ The transcript often contains "Phonetic Collisions" where English business terms
 
 Apply these Collision Patterns to the Glossary items:
 1. **Acronym Collision**: Acronyms (like FTES, CRM, ROI) are often heard as Spanish-sounding fragments (FT is, Se erre eme, Erre oi) or similar-sounding acronyms (FPS, FTS).
-2. **Vowel Flattening**: English "ee" or "ea" sounds (Cobee, Deal) are often transcribed as Spanish "i" (Cobi, Dil).
-3. **Consonant Softening**: Terminal "k", "t", or "d" sounds (50k, Target, Edenred) are often dropped or replaced by "s", "sh", or "ch" (50 cash, Targe, En red).
+2. **Vowel Flattening**: English "ee" or "ea" sounds (Deal, fee) are often transcribed as Spanish "i" (Dil, fi).
+3. **Consonant Softening**: Terminal "k", "t", or "d" sounds (50k, Target) are often dropped or replaced by "s", "sh", or "ch" (50 cash, Targe).
 4. **Entity Priority**: If a transcript phrase sounds like a word in the Glossary, ALWAYS prioritize the Glossary term.
 """
 

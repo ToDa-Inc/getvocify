@@ -283,7 +283,7 @@ export const UserGlossary = () => {
               <textarea
                 value={bulkInput}
                 onChange={(e) => setBulkInput(e.target.value)}
-                placeholder={'Edenred\nFTES\nCobee, 50k\n\nOr CSV: word,category,hints'}
+                placeholder={'Acme Corp\nFTES\n50k\n\nOr CSV: word,category,hints'}
                 className="w-full min-h-[140px] p-4 pr-12 rounded-2xl bg-transparent text-sm resize-y focus:outline-none focus:ring-0 placeholder:text-muted-foreground/50"
               />
               <label className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-beige/10 cursor-pointer text-muted-foreground/60 hover:text-beige transition-colors">
@@ -455,7 +455,7 @@ export const UserGlossary = () => {
               <label className={THEME_TOKENS.typography.capsLabel}>Word / Name</label>
               <div className="relative">
                 <Input 
-                  placeholder="e.g. Edenred" 
+                  placeholder="e.g. Acme Corp" 
                   value={newWord}
                   onChange={(e) => setNewWord(e.target.value)}
                   className="rounded-full bg-white font-bold pr-10"

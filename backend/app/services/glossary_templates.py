@@ -7,18 +7,6 @@ GLOSSARY_TEMPLATES = {
         "description": "Common Spanglish terms, phonetic fixes for Spanish accents, and sales lingo used in Spain.",
         "items": [
             {
-                "target_word": "Edenred",
-                "phonetic_hints": ["En red", "Enred", "Eden red", "Edén red"],
-                "boost_factor": 8,
-                "category": "Company"
-            },
-            {
-                "target_word": "Cobee",
-                "phonetic_hints": ["Covid", "Cobi", "Kobi", "Cobe"],
-                "boost_factor": 8,
-                "category": "Company"
-            },
-            {
                 "target_word": "Fee mensual",
                 "phonetic_hints": ["Femen sual", "Fin mensual", "Fimen sual"],
                 "boost_factor": 6,

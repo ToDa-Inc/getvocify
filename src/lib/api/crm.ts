@@ -144,24 +144,49 @@ export const crmApi = {
     return api.post(`/memos/${memoId}/match`);
   },
 
-  async getPreview(memoId: string, dealId?: string) {
-    const endpoint = `/memos/${memoId}/preview${dealId ? `?deal_id=${dealId}` : ""}`;
+  async getPreview(
+    memoId: string,
+    dealId?: string,
+    opts?: { createNewDeal?: boolean; contactId?: string }
+  ) {
+    const params = new URLSearchParams();
+    if (dealId) params.set("deal_id", dealId);
+    if (opts?.createNewDeal) params.set("create_new_deal", "true");
+    if (opts?.contactId) params.set("contact_id", opts.contactId);
+    const qs = params.toString();
+    const endpoint = `/memos/${memoId}/preview${qs ? `?${qs}` : ""}`;
     return api.get(endpoint);
   },
 
   /** Get preview with optional edited extraction (user edits before confirming) */
-  async getPreviewWithExtraction(memoId: string, dealId?: string, extraction?: object) {
+  async getPreviewWithExtraction(
+    memoId: string,
+    dealId?: string,
+    extraction?: object,
+    opts?: { createNewDeal?: boolean; contactId?: string }
+  ) {
     return api.post(`/memos/${memoId}/preview`, {
       deal_id: dealId || undefined,
+      create_new_deal: opts?.createNewDeal || false,
+      contact_id: opts?.contactId || undefined,
       extraction: extraction || undefined,
     });
   },
 
-  async approveSync(memoId: string, dealId?: string, isNewDeal: boolean = false, extraction?: any) {
+  async approveSync(
+    memoId: string,
+    dealId?: string,
+    isNewDeal: boolean = false,
+    extraction?: any,
+    opts?: { contactId?: string; companyId?: string; skipDeal?: boolean }
+  ) {
     return api.post(`/memos/${memoId}/approve`, {
       deal_id: dealId,
       is_new_deal: isNewDeal,
       extraction: extraction,
+      contact_id: opts?.contactId,
+      company_id: opts?.companyId,
+      skip_deal: opts?.skipDeal || false,
     });
   },
 };

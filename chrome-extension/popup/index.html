@@ -85,7 +85,7 @@
       <div class="footer-actions">
         <div class="user-minimal">
           <span id="user-name">...</span>
-          <span class="version-tag">v1.0.2</span>
+          <span class="version-tag">v1.0.3</span>
         </div>
         <button id="logout-button" class="logout-link">Log Out</button>
       </div>
@@ -128,8 +128,18 @@
       <!-- Main: Deal + Proposed Changes (when pending_review or after extract) -->
       <div id="proposed-changes-main" class="review-scroll-area" style="display: none;">
         <div id="deal-target-section">
+          <div id="contact-target-section" style="display: none;">
+            <p class="caps-label" style="margin: 0 0 10px 4px;">Contact Target</p>
+            <div id="contact-card" class="card-glass" style="margin-bottom: 14px;">
+              <div class="card-content">
+                <h3 id="target-contact-name" class="deal-title">—</h3>
+                <p id="target-contact-meta" class="deal-subtitle"></p>
+              </div>
+            </div>
+            <div id="contact-candidates" class="search-results" style="display: none; margin-bottom: 14px;"></div>
+          </div>
           <div class="section-header">
-            <p class="caps-label">Deal Target</p>
+            <p class="caps-label" id="deal-target-label">Deal Target</p>
             <button id="btn-change-deal" class="text-btn">Change Deal</button>
           </div>
           <div id="use-current-deal-option" class="use-current-deal-option" style="display: none;">

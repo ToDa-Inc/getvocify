@@ -32,6 +32,10 @@ const approveSyncButton = document.getElementById('approve-sync-button');
 
 let currentMemoId = null;
 let currentDealId = null;
+let currentContactId = null;
+let currentCompanyId = null;
+/** Latest background state (includes HubSpot page context) */
+let lastBgState = null;
 let searchTimeout = null;
 let previewLoaded = false;
 let sessionHeartbeatId = null;
@@ -368,6 +372,7 @@ function setProcessingScreenMode(mode) {
 // RENDER STATE (Core Logic)
 // ============================================
 function renderState(state) {
+  lastBgState = state && typeof state === 'object' ? state : lastBgState;
   console.log('[Popup] Rendering state:', state.status, 'isRecording:', state.isRecording);
   
   // Build full transcript for display
@@ -536,12 +541,21 @@ async function handleReviewState(memoId, context) {
       if (reviewScreen) reviewScreen.classList.remove('review-mode-transcript');
       renderReviewRecordName(context);
       const onDealPage = context?.objectType === 'deal' && context?.recordId;
+      const onContactPage = context?.objectType === 'contact' && context?.recordId;
       const dealIdToLoad = onDealPage ? context.recordId : currentDealId;
-      if (!previewLoaded || currentMemoId !== memoId || (onDealPage && currentDealId !== context?.recordId)) {
+      const contactIdToLoad = onContactPage
+        ? context.recordId
+        : (context?.contactId || null);
+      if (
+        !previewLoaded ||
+        currentMemoId !== memoId ||
+        (onDealPage && currentDealId !== context?.recordId) ||
+        (onContactPage && currentContactId !== context?.recordId)
+      ) {
         currentMemoId = memoId;
         currentDealId = onDealPage ? context.recordId : currentDealId;
         previewLoaded = true;
-        await loadPreview(memoId, dealIdToLoad, null);
+        await loadPreview(memoId, dealIdToLoad, null, contactIdToLoad);
       }
       showUseCurrentDealOption(onDealPage ? context : null);
       const preview = lastPreviewData;
@@ -823,16 +837,25 @@ async function loadRecentMemos(scope) {
   }
 }
 
-async function loadPreview(memoId, dealId = null, extraction = null) {
+async function loadPreview(memoId, dealId = null, extraction = null, contactId = null) {
   document.getElementById('target-deal-name').textContent = 'Loading...';
   document.getElementById('target-deal-reason').textContent = '';
   proposedUpdatesList.innerHTML = '<div class="spinner" style="margin: 20px auto;"></div>';
+
+  // Prefer explicit contact, then page context contact
+  const ctx = lastBgState?.context;
+  const pageContactId =
+    contactId ||
+    (ctx?.objectType === 'contact' ? ctx.recordId : null) ||
+    ctx?.contactId ||
+    null;
 
   try {
     const preview = await chrome.runtime.sendMessage({
       type: 'GET_PREVIEW',
       memoId,
       dealId,
+      contactId: pageContactId || undefined,
       extraction: extraction || undefined
     });
 
@@ -841,12 +864,29 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
       previewLoaded = true;
       const match = preview.selected_deal;
       currentDealId = match ? match.deal_id : null;
+      currentContactId = preview.selected_contact?.contact_id || pageContactId || null;
+      currentCompanyId =
+        preview.selected_contact?.company_id || lastBgState?.context?.companyId || null;
 
-      document.getElementById('target-deal-name').textContent = match ? match.deal_name : 'New Deal';
+      renderContactTarget(preview);
+
+      const skipDeal = !!preview.skip_deal && !match;
+      document.getElementById('target-deal-name').textContent = match
+        ? match.deal_name
+        : skipDeal
+          ? 'Contact only (no deal)'
+          : 'New Deal';
       const reasonText = match
         ? (match.match_reason === 'Manual Selection' ? 'From current page' : `Matched via ${(match.match_reason || 'AI').toLowerCase()}`)
-        : 'A new record will be created';
+        : skipDeal
+          ? 'Sync will update the matched contact'
+          : 'A new record will be created';
       document.getElementById('target-deal-reason').textContent = reasonText;
+
+      const dealLabel = document.getElementById('deal-target-label');
+      if (dealLabel) {
+        dealLabel.textContent = preview.selected_contact ? 'Deal Target (optional)' : 'Deal Target';
+      }
 
       // Reset edited state when loading fresh preview
       editedProposedUpdates = null;
@@ -864,6 +904,15 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
           renderActionItems();
         }
       } catch (_) { /* optional enrichment */ }
+
+      const candidates = Array.isArray(preview.contact_candidates) ? preview.contact_candidates : [];
+      const needsContactPick = !preview.selected_contact && candidates.length > 0;
+      if (approveSyncButton) {
+        approveSyncButton.disabled = needsContactPick;
+        if (needsContactPick) approveSyncButton.textContent = 'Confirm Contact First';
+        else approveSyncButton.textContent = 'Confirm & Update CRM';
+      }
+
       renderProposedUpdates(preview.proposed_updates || [], preview.available_fields || []);
     } else {
       document.getElementById('target-deal-name').textContent = 'Error';
@@ -873,6 +922,59 @@ async function loadPreview(memoId, dealId = null, extraction = null) {
     console.error('[Popup] Failed to load preview:', e);
     document.getElementById('target-deal-name').textContent = 'Error';
     proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Error loading preview.</p>';
+  }
+}
+
+function renderContactTarget(preview) {
+  const section = document.getElementById('contact-target-section');
+  const candidatesEl = document.getElementById('contact-candidates');
+  const nameEl = document.getElementById('target-contact-name');
+  const metaEl = document.getElementById('target-contact-meta');
+  const card = document.getElementById('contact-card');
+  if (!section) return;
+
+  const selected = preview?.selected_contact;
+  const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
+
+  if (!selected && !candidates.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  if (selected) {
+    if (card) card.style.display = 'block';
+    if (nameEl) nameEl.textContent = selected.name || selected.email || 'Contact';
+    const bits = [selected.email, selected.phone, selected.company_name, selected.match_reason]
+      .filter(Boolean);
+    if (metaEl) metaEl.textContent = bits.join(' · ');
+    if (candidatesEl) {
+      candidatesEl.style.display = 'none';
+      candidatesEl.innerHTML = '';
+    }
+    return;
+  }
+
+  if (card) card.style.display = 'none';
+  if (candidatesEl) {
+    candidatesEl.style.display = 'block';
+    candidatesEl.innerHTML = '';
+    const hint = document.createElement('p');
+    hint.className = 'deal-subtitle';
+    hint.style.margin = '0 0 8px';
+    hint.textContent = 'Multiple contacts matched — pick one:';
+    candidatesEl.appendChild(hint);
+    candidates.forEach((c) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'search-result-item';
+      btn.style.cssText = 'display:block;width:100%;text-align:left;margin-bottom:6px;';
+      btn.innerHTML = `<strong>${escapeHtml(c.name || 'Contact')}</strong><br><span class="deal-subtitle">${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>`;
+      btn.addEventListener('click', () => {
+        loadPreview(currentMemoId, currentDealId, null, c.contact_id);
+      });
+      candidatesEl.appendChild(btn);
+    });
   }
 }
 
@@ -1483,13 +1585,17 @@ approveSyncButton?.addEventListener('click', async () => {
   try {
     const extraction = await buildExtractionForApprove();
     const createNote = document.getElementById('create-note-checkbox')?.checked !== false;
+    const skipDeal = !!lastPreviewData?.skip_deal && !currentDealId;
     await chrome.runtime.sendMessage({
       type: 'APPROVE_SYNC',
       memoId: currentMemoId,
       dealId: currentDealId,
-      isNewDeal: !currentDealId,
+      isNewDeal: !currentDealId && !skipDeal,
       extraction: extraction || undefined,
       createNote,
+      contactId: currentContactId || lastPreviewData?.selected_contact?.contact_id || undefined,
+      companyId: currentCompanyId || lastPreviewData?.selected_contact?.company_id || undefined,
+      skipDeal,
     });
   } catch (e) {
     console.error('[Popup] Approve error:', e);

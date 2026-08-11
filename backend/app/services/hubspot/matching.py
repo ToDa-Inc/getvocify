@@ -46,18 +46,20 @@ class HubSpotMatchingService:
     ) -> list[DealMatch]:
         """
         Find existing deals that match the extraction.
-        
-        Args:
-            extraction: MemoExtraction with company/contact/deal info
-            limit: Maximum number of matches to return
-            pipeline_id: Optional pipeline ID to filter by
-            
-        Returns:
-            List of DealMatch objects sorted by confidence (highest first)
+
+        Contact-first: when a real email resolves to a HubSpot contact, prefer
+        deals associated to that contact. Then fall back to company/deal-name strategies.
         """
         matches: list[DealMatch] = []
-        
-        # Strategy 1 (highest): Match by company association - company → deals
+
+        # Strategy 0 (highest): deals linked to email-matched contact
+        anchor = await self.resolve_contact_anchor(
+            extraction, limit_deals=limit, pipeline_id=pipeline_id
+        )
+        if anchor and anchor.deal_matches:
+            matches.extend(anchor.deal_matches)
+
+        # Strategy 1: Match by company association - company → deals
         if extraction.companyName:
             assoc_matches = await self._find_by_company_association(
                 extraction.companyName,
@@ -65,7 +67,7 @@ class HubSpotMatchingService:
                 pipeline_id=pipeline_id,
             )
             matches.extend(assoc_matches)
-        
+
         # Strategy 2: Match by deal name containing company
         if extraction.companyName:
             company_matches = await self._find_by_company(
@@ -74,9 +76,9 @@ class HubSpotMatchingService:
                 pipeline_id=pipeline_id,
             )
             matches.extend(company_matches)
-        
-        # Strategy 3: Match by contact email/name
-        if extraction.contactEmail or extraction.contactName:
+
+        # Strategy 3: Weak dealname contains contact — only when no contact lock
+        if not anchor and (extraction.contactEmail or extraction.contactName or extraction.contactPhone):
             contact_matches = await self._find_by_contact(
                 extraction.contactEmail,
                 extraction.contactName,
@@ -84,7 +86,7 @@ class HubSpotMatchingService:
                 pipeline_id=pipeline_id,
             )
             matches.extend(contact_matches)
-        
+
         # If pipeline filter excluded all matches, retry without pipeline
         if not matches and pipeline_id and extraction.companyName:
             logger.info("No matches with pipeline %s, retrying without pipeline filter", pipeline_id)
@@ -97,20 +99,62 @@ class HubSpotMatchingService:
                 )
             )
             matches.extend(fallback)
-        
+
         # Deduplicate by deal_id and sort by confidence
         seen_ids = set()
         unique_matches = []
-        
+
         for match in sorted(matches, key=lambda m: m.match_confidence, reverse=True):
             if match.deal_id not in seen_ids:
                 seen_ids.add(match.deal_id)
                 unique_matches.append(match)
-                
+
                 if len(unique_matches) >= limit:
                     break
-        
+
         return unique_matches
+
+    async def resolve_contact_anchor(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ):
+        """Resolve contact identity and return linked deals/companies when locked."""
+        from .contact_identity import resolve_contact_anchor
+        from .contacts import HubSpotContactService
+
+        return await resolve_contact_anchor(
+            extraction=extraction,
+            search=self.search,
+            associations=self.associations,
+            contacts=HubSpotContactService(self.client, self.search),
+            limit_deals=limit_deals,
+            pipeline_id=pipeline_id,
+            preferred_contact_id=preferred_contact_id,
+        )
+
+    async def resolve_identity(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ):
+        """Full identity cascade including ambiguous candidates."""
+        from .contact_identity import resolve_identity
+        from .contacts import HubSpotContactService
+
+        return await resolve_identity(
+            extraction=extraction,
+            search=self.search,
+            associations=self.associations,
+            contacts=HubSpotContactService(self.client, self.search),
+            limit_deals=limit_deals,
+            pipeline_id=pipeline_id,
+            preferred_contact_id=preferred_contact_id,
+        )
     
     def _company_search_terms(self, company_name: str) -> list[str]:
         """Generate search terms for company name - try full name, then first/last word."""

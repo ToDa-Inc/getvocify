@@ -153,5 +153,18 @@ class ApproveMemoRequest(BaseModel):
     """Request body for approving a memo"""
     deal_id: Optional[str] = Field(None, description="Deal ID to update (None = create new)")
     is_new_deal: bool = Field(default=False, description="Whether to create a new deal")
+    contact_id: Optional[str] = Field(
+        None,
+        description="Resolved HubSpot contact to update (contact-first identity)",
+    )
+    company_id: Optional[str] = Field(
+        None,
+        description="Optional HubSpot company linked to the resolved contact",
+    )
+    skip_deal: bool = Field(
+        default=False,
+        description="Update contact/company only; do not create or update a deal",
+    )
     extraction: Optional[MemoExtraction] = None
+    create_note: bool = Field(default=True, description="Create CRM note when a deal is synced")
 

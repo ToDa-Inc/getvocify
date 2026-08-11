@@ -94,6 +94,9 @@ class HubSpotCRMProvider:
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
         create_note: bool = True,
+        contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
+        skip_deal: bool = False,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -117,6 +120,9 @@ class HubSpotCRMProvider:
             default_pipeline_id=default_pipeline_id,
             default_stage_id=default_stage_id,
             create_note=create_note,
+            contact_id=contact_id,
+            company_id=company_id,
+            skip_deal=skip_deal,
         )
 
     async def build_preview(
@@ -133,6 +139,9 @@ class HubSpotCRMProvider:
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        selected_contact=None,
+        contact_candidates=None,
+        create_new_deal: bool = False,
     ) -> ApprovalPreview:
         del default_stage_name  # HubSpot Configuration stores canonical IDs, not names
         return await self._preview_service().build_preview(
@@ -147,6 +156,9 @@ class HubSpotCRMProvider:
             allowed_contact_fields=allowed_contact_fields,
             allowed_company_fields=allowed_company_fields,
             allowed_line_item_fields=allowed_line_item_fields,
+            selected_contact=selected_contact,
+            contact_candidates=contact_candidates,
+            create_new_deal=create_new_deal,
         )
 
     async def find_matching_deals(
@@ -155,8 +167,50 @@ class HubSpotCRMProvider:
         limit: int = 3,
         pipeline_id: Optional[str] = None,
     ) -> list[DealMatch]:
-        matching = HubSpotMatchingService(self._client, self._search_service())
+        matching = HubSpotMatchingService(
+            self._client,
+            self._search_service(),
+            HubSpotAssociationService(self._client),
+        )
         return await matching.find_matching_deals(extraction, limit=limit, pipeline_id=pipeline_id)
+
+    async def resolve_contact_anchor(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ):
+        matching = HubSpotMatchingService(
+            self._client,
+            self._search_service(),
+            HubSpotAssociationService(self._client),
+        )
+        return await matching.resolve_contact_anchor(
+            extraction,
+            limit_deals=limit_deals,
+            pipeline_id=pipeline_id,
+            preferred_contact_id=preferred_contact_id,
+        )
+
+    async def resolve_identity(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ):
+        matching = HubSpotMatchingService(
+            self._client,
+            self._search_service(),
+            HubSpotAssociationService(self._client),
+        )
+        return await matching.resolve_identity(
+            extraction,
+            limit_deals=limit_deals,
+            pipeline_id=pipeline_id,
+            preferred_contact_id=preferred_contact_id,
+        )
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]:
         return await self._schema_service().get_curated_field_specs("deals", allowed_fields)

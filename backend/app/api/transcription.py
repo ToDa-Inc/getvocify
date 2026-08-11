@@ -214,7 +214,8 @@ async def live_transcription(
     await websocket.accept()
     language = websocket.query_params.get("language", "multi")
     user_id = websocket.query_params.get("user_id")
-    
+    session_vocab_raw = websocket.query_params.get("session_vocab") or ""
+
     glossary = []
     if user_id:
         try:
@@ -223,6 +224,20 @@ async def live_transcription(
             logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
         except Exception as e:
             logger.error("Failed to load glossary: %s", e)
+
+    # Page-context terms (contact/company names from HubSpot URL) boost STT accuracy
+    if session_vocab_raw:
+        seen = {
+            (g.get("target_word") or g.get("term") or "").strip().lower()
+            for g in glossary
+            if isinstance(g, dict)
+        }
+        for part in session_vocab_raw.split("|"):
+            term = part.strip()
+            if not term or term.lower() in seen:
+                continue
+            seen.add(term.lower())
+            glossary.append({"target_word": term, "phonetic_hints": []})
 
     proxy = SpeechmaticsOnlyProxy(language=language, glossary=glossary)
     await proxy.proxy_session(websocket)

@@ -849,22 +849,24 @@ async def match_memo_to_deals(
 async def get_approval_preview(
     memo_id: UUID,
     deal_id: Optional[str] = None,
+    create_new_deal: bool = False,
+    contact_id: Optional[str] = None,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
     """
     Get approval preview showing what will be updated in CRM.
-    
-    Shows proposed field changes comparing extraction to current deal.
-    If deal_id is None, shows preview for creating a new deal.
-    
-    Args:
-        memo_id: Memo ID
-        deal_id: Optional deal ID to update (None or empty = create new)
+
+    Contact-first: email / unique phone / unique name auto-lock the contact.
+    Ambiguous name/phone matches return contact_candidates for confirmation.
+    With a locked contact and zero linked deals (and create_new_deal=false),
+    preview is contact/company-only (skip_deal).
     """
     # Handle empty string from query param
     if deal_id == "":
         deal_id = None
+    if contact_id == "":
+        contact_id = None
         
     # Get memo
     memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
@@ -920,24 +922,66 @@ async def get_approval_preview(
     )
 
     extraction = MemoExtraction(**extraction_data)
-    # Always compute matches (even when deal_id is already known) so build_preview can
-    # show the real match reason/confidence for the targeted deal, instead of falling
-    # back to a generic "Manual Selection" label for what was actually an auto-match
-    # (the frontend pre-selects the top candidate before the user does anything).
     pipeline_id = config.default_pipeline_id if config else None
-    matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+    matches = await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id)
+
+    identity = await provider.resolve_identity(
+        extraction,
+        limit_deals=5,
+        pipeline_id=pipeline_id,
+        preferred_contact_id=contact_id,
+    )
+    # Salesforce stub returns None
+    if identity is None:
+        anchor = None
+        contact_candidates = []
+        selected_contact = None
+    else:
+        anchor = identity.selected
+        contact_candidates = list(identity.candidates or [])
+        selected_contact = anchor.to_contact_match() if anchor else None
+    if anchor and anchor.deal_matches:
+        seen: set[str] = set()
+        merged: list = []
+        for d in list(anchor.deal_matches) + list(matches):
+            if d.deal_id in seen:
+                continue
+            seen.add(d.deal_id)
+            merged.append(d)
+        matches = merged[:5]
+
+    selected_deal_id = deal_id
+    create_new = bool(create_new_deal)
+    if selected_deal_id:
+        create_new = False
+    elif create_new:
+        pass
+    elif selected_contact and anchor and len(anchor.deal_matches) == 1:
+        selected_deal_id = anchor.deal_matches[0].deal_id
+    elif selected_contact:
+        create_new = False  # contact-only / pick deal later
+    elif contact_candidates:
+        create_new = False  # wait for contact confirmation
+    else:
+        create_new = True
 
     try:
         logger.info(
             "👁️ Get approval preview",
-            extra=log_domain(DOMAIN_MEMO, "preview", memo_id=str(memo_id), deal_id=deal_id),
+            extra=log_domain(
+                DOMAIN_MEMO,
+                "preview",
+                memo_id=str(memo_id),
+                deal_id=selected_deal_id,
+                contact_id=selected_contact.contact_id if selected_contact else None,
+            ),
         )
         preview = await provider.build_preview(
             memo_id=memo_id,
             transcript=transcript,
             extraction=extraction,
             matched_deals=matches,
-            selected_deal_id=deal_id,
+            selected_deal_id=selected_deal_id,
             allowed_fields=allowed_fields,
             allowed_contact_fields=allowed_contact_fields,
             allowed_company_fields=allowed_company_fields,
@@ -945,6 +989,9 @@ async def get_approval_preview(
             default_stage_name=config.default_stage_name if config else None,
             default_pipeline_id=config.default_pipeline_id if config else None,
             default_stage_id=config.default_stage_id if config else None,
+            selected_contact=selected_contact,
+            contact_candidates=contact_candidates,
+            create_new_deal=create_new,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -960,7 +1007,7 @@ async def get_approval_preview(
             "matched_deal_name": preview.selected_deal.deal_name if preview.selected_deal else None,
             "is_new_deal": False
         }).eq("id", str(memo_id)).execute()
-    elif deal_id == "": # Explicitly "Create New"
+    elif create_new_deal:
         supabase.table("memos").update({
             "matched_deal_id": None,
             "matched_deal_name": None,
@@ -982,8 +1029,12 @@ async def post_approval_preview(
     Use this when the user has edited extraction in the UI before confirming.
     """
     deal_id = payload.deal_id if payload else None
+    create_new_deal = bool(payload.create_new_deal) if payload else False
+    contact_id = payload.contact_id if payload else None
     if deal_id == "":
         deal_id = None
+    if contact_id == "":
+        contact_id = None
 
     memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
     if not memo_result.data:
@@ -1017,11 +1068,46 @@ async def post_approval_preview(
         allowed_fields = normalize_hubspot_allowed_deal_fields(allowed_fields)
 
     extraction = MemoExtraction(**extraction_data)
-    # Always compute matches (even when deal_id is already known) so build_preview can
-    # show the real match reason/confidence for the targeted deal, instead of falling
-    # back to a generic "Manual Selection" label for what was actually an auto-match.
     pipeline_id = config.default_pipeline_id if config else None
-    matches = await provider.find_matching_deals(extraction, limit=3, pipeline_id=pipeline_id)
+    matches = await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id)
+    identity = await provider.resolve_identity(
+        extraction,
+        limit_deals=5,
+        pipeline_id=pipeline_id,
+        preferred_contact_id=contact_id,
+    )
+    if identity is None:
+        anchor = None
+        contact_candidates = []
+        selected_contact = None
+    else:
+        anchor = identity.selected
+        contact_candidates = list(identity.candidates or [])
+        selected_contact = anchor.to_contact_match() if anchor else None
+    if anchor and anchor.deal_matches:
+        seen: set[str] = set()
+        merged: list = []
+        for d in list(anchor.deal_matches) + list(matches):
+            if d.deal_id in seen:
+                continue
+            seen.add(d.deal_id)
+            merged.append(d)
+        matches = merged[:5]
+
+    selected_deal_id = deal_id
+    create_new = create_new_deal
+    if selected_deal_id:
+        create_new = False
+    elif create_new:
+        pass
+    elif selected_contact and anchor and len(anchor.deal_matches) == 1:
+        selected_deal_id = anchor.deal_matches[0].deal_id
+    elif selected_contact:
+        create_new = False
+    elif contact_candidates:
+        create_new = False
+    else:
+        create_new = True
 
     try:
         preview = await provider.build_preview(
@@ -1029,7 +1115,7 @@ async def post_approval_preview(
             transcript=transcript,
             extraction=extraction,
             matched_deals=matches,
-            selected_deal_id=deal_id,
+            selected_deal_id=selected_deal_id,
             allowed_fields=allowed_fields,
             allowed_contact_fields=(
                 list(config.allowed_contact_fields) if config and config.allowed_contact_fields else []
@@ -1043,6 +1129,9 @@ async def post_approval_preview(
             default_stage_name=config.default_stage_name if config else None,
             default_pipeline_id=config.default_pipeline_id if config else None,
             default_stage_id=config.default_stage_id if config else None,
+            selected_contact=selected_contact,
+            contact_candidates=contact_candidates,
+            create_new_deal=create_new,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)

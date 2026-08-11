@@ -187,6 +187,38 @@ async function startRecording() {
     wsUrl.searchParams.set('language', 'multi');
     if (userId) wsUrl.searchParams.set('user_id', userId);
 
+    // Inject page-context names into STT vocab (contact / company / deal)
+    let enrichedContext = context;
+    try {
+      if (context?.objectType === 'deal' && context?.recordId) {
+        const dealCtx = await api.get(`/crm/hubspot/deals/${context.recordId}/context`);
+        const vocab = Array.isArray(dealCtx?.sessionVocab) ? dealCtx.sessionVocab : [];
+        if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
+        enrichedContext = {
+          ...context,
+          dealName: dealCtx?.raw_extraction?.dealname || context.dealName,
+          companyName: dealCtx?.companyName || null,
+          contactName: dealCtx?.contactName || null,
+          contactEmail: dealCtx?.contactEmail || null,
+          contactId: dealCtx?.contactId || null,
+        };
+      } else if (context?.objectType === 'contact' && context?.recordId) {
+        const contactCtx = await api.get(`/crm/hubspot/contacts/${context.recordId}/context`);
+        const vocab = Array.isArray(contactCtx?.sessionVocab) ? contactCtx.sessionVocab : [];
+        if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
+        enrichedContext = {
+          ...context,
+          contactName: contactCtx?.contactName || null,
+          contactEmail: contactCtx?.contactEmail || null,
+          contactId: context.recordId,
+          companyName: contactCtx?.companyName || null,
+          companyId: contactCtx?.companyId || null,
+        };
+      }
+    } catch (e) {
+      console.warn('[BG] Failed to load page context for vocab:', e);
+    }
+
     await getOffscreenDocument();
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'START_RECORDING', wsUrl: wsUrl.toString() });
     
@@ -195,7 +227,7 @@ async function startRecording() {
       status: 'recording', 
       finalTranscript: '',
       interimTranscript: '',
-      context,
+      context: enrichedContext,
       syncResult: null,
       currentMemoId: null
     });
@@ -407,12 +439,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.extraction) {
         api.post(`/memos/${message.memoId}/preview`, { 
           deal_id: message.dealId || null,
+          contact_id: message.contactId || null,
           extraction: message.extraction 
         })
           .then(sendResponse)
           .catch(e => sendResponse({ error: e.message }));
       } else {
-        const previewUrl = `/memos/${message.memoId}/preview${message.dealId ? `?deal_id=${message.dealId}` : ''}`;
+        const params = new URLSearchParams();
+        if (message.dealId) params.set('deal_id', message.dealId);
+        if (message.contactId) params.set('contact_id', message.contactId);
+        const qs = params.toString();
+        const previewUrl = `/memos/${message.memoId}/preview${qs ? `?${qs}` : ''}`;
         api.get(previewUrl)
           .then(sendResponse)
           .catch(e => sendResponse({ error: e.message }));
@@ -423,7 +460,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       api.post(`/memos/${message.memoId}/approve`, { 
         deal_id: message.dealId,
         is_new_deal: message.isNewDeal,
-        extraction: message.extraction || undefined
+        extraction: message.extraction || undefined,
+        contact_id: message.contactId || undefined,
+        company_id: message.companyId || undefined,
+        skip_deal: !!message.skipDeal,
+        create_note: message.createNote !== false,
       })
         .then(result => {
           updateState({ status: 'success', syncResult: result });
@@ -434,6 +475,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'GET_DEAL_CONTEXT':
       api.get(`/crm/hubspot/deals/${message.dealId}/context`)
+        .then(sendResponse)
+        .catch(e => sendResponse({ error: e.message }));
+      return true;
+
+    case 'GET_CONTACT_CONTEXT':
+      api.get(`/crm/hubspot/contacts/${message.contactId}/context`)
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;

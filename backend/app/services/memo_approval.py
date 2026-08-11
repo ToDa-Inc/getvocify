@@ -114,12 +114,21 @@ async def approve_memo_core(
     extraction = MemoExtraction(**extraction_data)
     deal_id: Optional[str] = None
     is_new_deal = False
+    contact_id: Optional[str] = None
+    company_id: Optional[str] = None
+    skip_deal = False
     if payload:
         if payload.is_new_deal:
             is_new_deal = True
         else:
             deal_id = payload.deal_id or memo_data.get("matched_deal_id")
             is_new_deal = False
+        contact_id = getattr(payload, "contact_id", None)
+        company_id = getattr(payload, "company_id", None)
+        skip_deal = bool(getattr(payload, "skip_deal", False))
+        if skip_deal:
+            is_new_deal = False
+            deal_id = None
     else:
         deal_id = memo_data.get("matched_deal_id")
         is_new_deal = bool(memo_data.get("is_new_deal", False) if not deal_id else False)
@@ -168,10 +177,14 @@ async def approve_memo_core(
         auto_create_companies = None
         auto_create_contacts = None
 
-    if deal_id and not is_new_deal:
+    if deal_id and not is_new_deal and not skip_deal:
         auto_create_contact_company = False
         auto_create_companies = False
         auto_create_contacts = False
+    if contact_id:
+        auto_create_contacts = False
+    if company_id:
+        auto_create_companies = False
 
     try:
         provider = build_crm_provider(supabase, crm_connection)
@@ -201,6 +214,9 @@ async def approve_memo_core(
         default_pipeline_id=default_pipeline_id,
         default_stage_id=default_stage_id,
         create_note=True if not payload else bool(getattr(payload, "create_note", True)),
+        contact_id=contact_id,
+        company_id=company_id,
+        skip_deal=skip_deal,
     )
 
     if not sync_result.success:

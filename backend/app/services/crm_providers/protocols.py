@@ -35,6 +35,9 @@ class CRMExtractionSyncProtocol(Protocol):
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
         create_note: bool = True,
+        contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
+        skip_deal: bool = False,
     ) -> SyncResult: ...
 
 
@@ -55,6 +58,9 @@ class CRMPreviewProtocol(Protocol):
         default_stage_name: Optional[str] = None,
         default_pipeline_id: Optional[str] = None,
         default_stage_id: Optional[str] = None,
+        selected_contact: Optional[Any] = None,
+        contact_candidates: Optional[Any] = None,
+        create_new_deal: bool = False,
     ) -> ApprovalPreview: ...
 
 
@@ -67,6 +73,22 @@ class CRMDealMatchProtocol(Protocol):
         limit: int = 3,
         pipeline_id: Optional[str] = None,
     ) -> list[DealMatch]: ...
+
+    async def resolve_contact_anchor(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ) -> Any: ...
+
+    async def resolve_identity(
+        self,
+        extraction: MemoExtraction,
+        limit_deals: int = 5,
+        pipeline_id: Optional[str] = None,
+        preferred_contact_id: Optional[str] = None,
+    ) -> Any: ...
 
 
 class CRMFieldSpecsProtocol(Protocol):

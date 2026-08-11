@@ -951,6 +951,41 @@ async def _build_preview_for_selection(
     if not deal_id and not is_new_deal:
         matches = await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id)
 
+    identity = await provider.resolve_identity(
+        extraction, limit_deals=5, pipeline_id=pipeline_id
+    )
+    if identity is None:
+        anchor = None
+        selected_contact = None
+        contact_candidates = []
+    else:
+        anchor = identity.selected
+        selected_contact = anchor.to_contact_match() if anchor else None
+        contact_candidates = list(identity.candidates or [])
+    if anchor and anchor.deal_matches:
+        seen: set[str] = set()
+        merged: list = []
+        for d in list(anchor.deal_matches) + list(matches):
+            if d.deal_id in seen:
+                continue
+            seen.add(d.deal_id)
+            merged.append(d)
+        matches = merged[:5]
+
+    create_new = bool(is_new_deal)
+    if deal_id:
+        create_new = False
+    elif create_new:
+        pass
+    elif selected_contact and anchor and len(anchor.deal_matches) == 1:
+        deal_id = anchor.deal_matches[0].deal_id
+    elif selected_contact:
+        create_new = False
+    elif contact_candidates:
+        create_new = False
+    else:
+        create_new = True
+
     preview = await provider.build_preview(
         memo_id=UUID(str(memo_id)),
         transcript=transcript,
@@ -964,6 +999,9 @@ async def _build_preview_for_selection(
         default_stage_name=config.default_stage_name if config else None,
         default_pipeline_id=config.default_pipeline_id if config else None,
         default_stage_id=config.default_stage_id if config else None,
+        selected_contact=selected_contact,
+        contact_candidates=contact_candidates,
+        create_new_deal=create_new,
     )
     crm_name = _crm_display_name(conn.get("provider"))
     option_rows = [m.model_dump() for m in matches]
@@ -1026,8 +1064,11 @@ async def _send_preview_for_selection(
         "crm_connected": True,
         "connection_id": connection_id,
         "crm_name": crm_name,
-        "selected_deal_id": selected_deal_id,
-        "is_new_deal": is_new_deal,
+        "selected_deal_id": preview.selected_deal.deal_id if preview.selected_deal else selected_deal_id,
+        "is_new_deal": bool(preview.is_new_deal),
+        "skip_deal": bool(preview.skip_deal),
+        "contact_id": preview.selected_contact.contact_id if preview.selected_contact else None,
+        "company_id": preview.selected_contact.company_id if preview.selected_contact else None,
         "deal_options": option_rows,
     }
     conv_svc.set_state(
@@ -1060,6 +1101,9 @@ async def _approve_pending_memo(
     payload = ApproveMemoRequest(
         deal_id=artifacts.get("selected_deal_id"),
         is_new_deal=bool(artifacts.get("is_new_deal", False)),
+        contact_id=artifacts.get("contact_id"),
+        company_id=artifacts.get("company_id"),
+        skip_deal=bool(artifacts.get("skip_deal", False)),
     )
     try:
         result = await approve_memo_core(supabase, memo_id, user_id, payload)

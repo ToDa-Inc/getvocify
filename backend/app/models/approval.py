@@ -21,6 +21,19 @@ class DealMatch(BaseModel):
     match_reason: str = Field(..., description="Why this deal was matched")
 
 
+class ContactMatch(BaseModel):
+    """Resolved HubSpot contact used as the identity anchor for approval/sync."""
+    contact_id: str
+    email: str = ""
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    jobtitle: Optional[str] = None
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
+    match_confidence: float = Field(ge=0.0, le=1.0, default=0.98)
+    match_reason: str = Field(default="Contact email match")
+
+
 class ProposedUpdate(BaseModel):
     """A proposed field update"""
     field_name: str
@@ -58,7 +71,17 @@ class ApprovalPreview(BaseModel):
     matched_deals: list[DealMatch] = Field(default_factory=list)
     selected_deal: Optional[DealMatch] = None
     is_new_deal: bool = False
-    
+    # Contact-first identity. Deals are optional when this is set.
+    selected_contact: Optional[ContactMatch] = None
+    contact_candidates: list[ContactMatch] = Field(
+        default_factory=list,
+        description="Ambiguous contact matches requiring user confirmation",
+    )
+    skip_deal: bool = Field(
+        default=False,
+        description="True when syncing contact/company without creating or updating a deal",
+    )
+
     # Proposed changes
     proposed_updates: list[ProposedUpdate] = Field(default_factory=list)
     available_fields: list[AvailableField] = Field(
@@ -86,5 +109,10 @@ class ApproveRequest(BaseModel):
 class PreviewRequest(BaseModel):
     """Request body for preview with optional edited extraction"""
     deal_id: Optional[str] = Field(None, description="Deal ID to update (None = create new)")
+    create_new_deal: bool = Field(default=False, description="Force create-new-deal preview mode")
+    contact_id: Optional[str] = Field(
+        None,
+        description="Explicit HubSpot contact ID (page context or candidate pick)",
+    )
     extraction: Optional[dict] = Field(None, description="Edited extraction data (overrides stored)")
 
