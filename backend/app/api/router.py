@@ -3,7 +3,18 @@ Main API router combining all route modules
 """
 
 from fastapi import APIRouter
-from app.api import health, memos, crm, crm_salesforce, transcription, auth, glossary, webhooks
+from app.api import (
+    health,
+    memos,
+    crm,
+    crm_salesforce,
+    transcription,
+    auth,
+    glossary,
+    webhooks,
+    copilot,
+    voice_enrollment,
+)
 
 api_router = APIRouter()
 
@@ -16,5 +27,7 @@ api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")
 api_router.include_router(transcription.router)
 api_router.include_router(glossary.router)
 api_router.include_router(webhooks.router, prefix="/webhooks")
+api_router.include_router(copilot.router)
+api_router.include_router(voice_enrollment.router)
 
 

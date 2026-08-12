@@ -172,6 +172,21 @@ export interface ProviderTranscript {
   full: string;
 }
 
+/** Word/segment with optional speaker label from Speechmatics */
+export interface TranscriptWord {
+  text: string;
+  speaker: string | null;
+  is_punct?: boolean;
+}
+
+export type TranscriptionMode = "default" | "memo" | "enroll" | "copilot";
+
+export interface RealtimeTranscriptionOptions {
+  mode?: TranscriptionMode;
+  /** Fired once when enrollment SpeakersResult arrives (opaque IDs — save via API) */
+  onSpeakersResult?: (identifiers: string[]) => void;
+}
+
 /**
  * Return type for useRealtimeTranscription hook
  */
@@ -190,6 +205,14 @@ export interface UseRealtimeTranscriptionReturn {
   fullTranscript: string;
   /** Multi-provider transcripts (deepgram, speechmatics, etc.) */
   providerTranscripts: Record<string, ProviderTranscript>;
+  /** Final word segments with speaker labels (copilot/enroll modes) */
+  finalWords: TranscriptWord[];
+  /** Opaque identifiers from SpeakersResult (enroll mode only; cleared after consume) */
+  pendingSpeakerIdentifiers: string[] | null;
+  /** Increments when the STT server signals end-of-utterance */
+  endOfUtteranceSeq: number;
+  /** Ask the STT server to finalize the current utterance immediately */
+  forceEndOfUtterance: () => void;
   /** Start real-time transcription */
   start: (stream?: MediaStream) => Promise<void>;
   /** Stop real-time transcription */

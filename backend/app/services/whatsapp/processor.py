@@ -1619,7 +1619,7 @@ async def _extract_and_create_memo(
             r = supabase.table("memos").insert(insert).execute()
         except Exception as insert_exc:
             # Lost a race against a redelivered webhook for the same message_id
-            # (see migrations/014_whatsapp_message_id_unique.sql) - the other
+            # (see migrations/016_whatsapp_message_id_unique.sql) - the other
             # request already created the memo, fetch and return it instead of
             # failing (and instead of silently dropping the message).
             if "duplicate key" in str(insert_exc).lower() or "23505" in str(insert_exc):

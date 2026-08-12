@@ -198,6 +198,7 @@ async function startRecording() {
           ...context,
           dealName: dealCtx?.raw_extraction?.dealname || context.dealName,
           companyName: dealCtx?.companyName || null,
+          companyId: dealCtx?.companyId || null,
           contactName: dealCtx?.contactName || null,
           contactEmail: dealCtx?.contactEmail || null,
           contactId: dealCtx?.contactId || null,
@@ -213,6 +214,19 @@ async function startRecording() {
           contactId: context.recordId,
           companyName: contactCtx?.companyName || null,
           companyId: contactCtx?.companyId || null,
+        };
+      } else if (context?.objectType === 'company' && context?.recordId) {
+        const companyCtx = await api.get(`/crm/hubspot/companies/${context.recordId}/context`);
+        const vocab = Array.isArray(companyCtx?.sessionVocab) ? companyCtx.sessionVocab : [];
+        if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
+        enrichedContext = {
+          ...context,
+          companyName: companyCtx?.companyName || null,
+          companyId: context.recordId,
+          contactId: companyCtx?.contactId || null,
+          contactName: companyCtx?.contactName || null,
+          contactEmail: companyCtx?.contactEmail || null,
+          companyContacts: Array.isArray(companyCtx?.contacts) ? companyCtx.contacts : [],
         };
       }
     } catch (e) {
@@ -343,7 +357,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
           if (tab?.url) {
             const ctx = parseHubSpotUrl(tab.url);
-            if (ctx?.objectType === 'deal' && ctx?.recordId) {
+            if (ctx?.recordId && ['deal', 'contact', 'company'].includes(ctx.objectType)) {
               state = { ...state, context: ctx };
               updateState({ context: ctx });
             }
@@ -372,12 +386,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     case 'SET_STATE': {
       const newState = { ...message.state };
-      // When opening a memo for review, refresh context from active tab (deal on current page)
+      // When opening a memo for review, refresh context from active HubSpot tab
       if (newState.status === 'review' && newState.currentMemoId) {
         chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
           if (tab?.url) {
             const ctx = parseHubSpotUrl(tab.url);
-            if (ctx?.objectType === 'deal' && ctx?.recordId) {
+            if (ctx?.recordId && ['deal', 'contact', 'company'].includes(ctx.objectType)) {
               newState.context = ctx;
             }
           }
@@ -440,6 +454,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         api.post(`/memos/${message.memoId}/preview`, { 
           deal_id: message.dealId || null,
           contact_id: message.contactId || null,
+          create_new_deal: !!message.createNewDeal,
           extraction: message.extraction 
         })
           .then(sendResponse)
@@ -448,6 +463,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const params = new URLSearchParams();
         if (message.dealId) params.set('deal_id', message.dealId);
         if (message.contactId) params.set('contact_id', message.contactId);
+        if (message.createNewDeal) params.set('create_new_deal', 'true');
         const qs = params.toString();
         const previewUrl = `/memos/${message.memoId}/preview${qs ? `?${qs}` : ''}`;
         api.get(previewUrl)
@@ -481,6 +497,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'GET_CONTACT_CONTEXT':
       api.get(`/crm/hubspot/contacts/${message.contactId}/context`)
+        .then(sendResponse)
+        .catch(e => sendResponse({ error: e.message }));
+      return true;
+
+    case 'GET_COMPANY_CONTEXT':
+      api.get(`/crm/hubspot/companies/${message.companyId}/context`)
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;

@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openrouter"
     OPENROUTER_API_KEY: Optional[str] = None
     EXTRACTION_MODEL: str = "x-ai/grok-4.1-fast"
+    # Live call objection copilot (OpenRouter chat; abortable stream)
+    # Note: gemini-3.6-flash has mandatory reasoning (~4s TTFT) — too slow for live coaching.
+    # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
+    COPILOT_MODEL: str = "google/gemini-2.5-flash-lite"
 
     # Vertex AI (enterprise path: ISO 27001 + SOC 2, Madrid region)
     GOOGLE_CLOUD_PROJECT: str = "pro-sylph-501508-g5"

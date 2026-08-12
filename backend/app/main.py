@@ -65,6 +65,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
         # Skip timeout for transcription, upload, upload-transcript, re-extract, webhooks, metrics
         if (
             "/transcription" in path
+            or "/copilot" in path
             or "/memos/upload" in path
             or "/upload-transcript" in path
             or "/re-extract" in path

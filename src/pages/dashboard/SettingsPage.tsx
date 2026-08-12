@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { ShieldCheck, Loader2 } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
@@ -12,10 +13,15 @@ const SettingsPage = () => {
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        const config = await crmApi.getConfiguration();
-        setIsHubSpotConnected(!!config);
+        // Connection ≠ saved configuration: use connections list, not config 404.
+        const { connections } = await crmApi.listConnections();
+        const hubspotConnected = (connections || []).some(
+          (c) => c.provider === "hubspot" && c.status === "connected",
+        );
+        setIsHubSpotConnected(hubspotConnected);
       } catch (error) {
         console.error("Failed to check connection", error);
+        setIsHubSpotConnected(false);
       } finally {
         setIsLoading(false);
       }
@@ -41,8 +47,7 @@ const SettingsPage = () => {
         <p className={THEME_TOKENS.typography.body}>Manage integrations and glossary.</p>
       </div>
 
-      {/* HubSpot Configuration */}
-      {isHubSpotConnected && (
+      {isHubSpotConnected ? (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 border-2 border-beige/10`}>
           <div className="flex items-center gap-4 mb-10">
             <div className="w-12 h-12 rounded-2xl bg-beige/10 flex items-center justify-center">
@@ -53,12 +58,24 @@ const SettingsPage = () => {
               <p className="text-xs text-muted-foreground mt-1">Manage your pipeline and field mapping preferences.</p>
             </div>
           </div>
-          
+
           <HubSpotConfiguration />
+        </div>
+      ) : (
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 border-2 border-border/30`}>
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>CRM configuration</h2>
+          <p className="text-sm text-muted-foreground mt-2 mb-4">
+            Connect HubSpot in Integrations to manage pipelines and field allowlists here.
+          </p>
+          <Link
+            to="/dashboard/integrations"
+            className="inline-flex items-center justify-center rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-black uppercase tracking-widest"
+          >
+            Open Integrations
+          </Link>
         </div>
       )}
 
-      {/* AI Glossary / Custom Vocabulary */}
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10 border-2 border-beige/10 bg-gradient-to-br from-white to-beige/5`}>
         <UserGlossary />
       </div>

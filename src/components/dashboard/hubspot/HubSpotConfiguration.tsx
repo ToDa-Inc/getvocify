@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { ApiError } from "@/shared/lib/api-client";
 
 interface HubSpotConfigurationProps {
   onSaved?: () => void;
@@ -45,6 +46,8 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
+  const [lineItemsScopeMissing, setLineItemsScopeMissing] = useState(false);
+  const [lineItemsSchemaError, setLineItemsSchemaError] = useState(false);
 
   const [config, setConfig] = useState<CRMConfiguration>({
     default_pipeline_id: "",
@@ -62,16 +65,42 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [pipelinesData, dealSchema, contactSchema, companySchema, lineItemSchema, currentConfig] =
+        const [pipelinesData, dealSchema, contactSchema, companySchema, lineItemResult, currentConfig] =
           await Promise.all([
             crmApi.getPipelines(),
             crmApi.getSchema("deals"),
             crmApi.getSchema("contacts").catch(() => null),
             crmApi.getSchema("companies").catch(() => null),
-            crmApi.getSchema("line_items").catch(() => null),
+            crmApi.getSchema("line_items").then(
+              (schema) => ({ ok: true as const, schema }),
+              (err: unknown) => ({ ok: false as const, err }),
+            ),
             crmApi.getConfiguration(),
           ]);
 
+        const lineItemSchema = lineItemResult.ok ? lineItemResult.schema : null;
+        if (lineItemResult.ok) {
+          setLineItemsScopeMissing(false);
+          setLineItemsSchemaError(false);
+        } else {
+          const detail = String(
+            lineItemResult.err instanceof ApiError
+              ? (typeof lineItemResult.err.data === "object" &&
+                lineItemResult.err.data &&
+                "detail" in (lineItemResult.err.data as object)
+                  ? (lineItemResult.err.data as { detail?: string }).detail
+                  : lineItemResult.err.message)
+              : lineItemResult.err instanceof Error
+                ? lineItemResult.err.message
+                : lineItemResult.err,
+          ).toLowerCase();
+          const looksLikeScope =
+            detail.includes("permission") ||
+            detail.includes("scope") ||
+            detail.includes("deal-line-item");
+          setLineItemsScopeMissing(looksLikeScope);
+          setLineItemsSchemaError(!looksLikeScope);
+        }
         setPipelines(pipelinesData);
         setSchemas({
           deals: dealSchema,
@@ -253,6 +282,21 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
           </div>
         </div>
       </div>
+
+      {(lineItemsScopeMissing || lineItemsSchemaError) && (
+        <div className="rounded-2xl border border-warning/30 bg-warning/5 px-5 py-4 text-sm text-foreground">
+          <p className="font-bold mb-1">
+            {lineItemsScopeMissing
+              ? "HubSpot needs a reconnect for line items"
+              : "Couldn't load HubSpot line item fields"}
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {lineItemsScopeMissing
+              ? "Your current HubSpot grant is missing line-item scopes. Token refresh cannot add them — go to Integrations, disconnect HubSpot, then connect again so consent includes line items."
+              : "Deals/contacts still work. Retry later, or reconnect HubSpot from Integrations if this keeps happening."}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-6">
         <div className="flex items-center gap-3 text-beige">

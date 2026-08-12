@@ -475,6 +475,9 @@ body {
 .use-current-deal-option { margin-bottom: 12px; }
 .btn-use-current-deal { padding: 8px 14px; font-size: 11px; font-weight: 700; background: rgba(5, 150, 105, 0.1); color: var(--success); border: 1px solid rgba(5, 150, 105, 0.3); border-radius: 10px; cursor: pointer; width: 100%; }
 .btn-use-current-deal:hover { background: rgba(5, 150, 105, 0.15); }
+.deal-decision-box { margin-bottom: 12px; padding: 12px; background: rgba(180, 140, 80, 0.06); }
+.matched-deal-item { display: block; width: 100%; text-align: left; margin-bottom: 6px; padding: 10px 12px; background: rgba(255,255,255,0.7); cursor: pointer; }
+.matched-deal-item:hover { background: rgba(5, 150, 105, 0.08); }
 .review-scroll-area::-webkit-scrollbar { width: 4px; }
 .review-scroll-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 

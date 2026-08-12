@@ -11,14 +11,17 @@ import {
   Menu, 
   X,
   Sparkles,
+  Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { DEMO_BOOKING_URL } from "@/lib/app-url";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
+  { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
   { icon: Link2, label: "Integrations", path: "/dashboard/integrations" },
   { icon: BarChart3, label: "Usage", path: "/dashboard/usage" },
   { icon: Settings, label: "Settings", path: "/dashboard/settings" },
@@ -60,7 +63,7 @@ const DashboardLayout = () => {
             <div className="flex items-center gap-3">
               <Logo size="sm" />
               <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-widest bg-beige/10 text-beige rounded-full border border-beige/20">
-                PRO
+                Beta
               </span>
             </div>
             <Button 
@@ -90,25 +93,42 @@ const DashboardLayout = () => {
                 `}
               >
                 <item.icon className={`h-5 w-5 ${isActive(item.path) ? 'text-cream' : 'opacity-40'}`} />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {"beta" in item && item.beta && (
+                  <span
+                    className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${
+                      isActive(item.path)
+                        ? "bg-cream/20 text-cream"
+                        : "bg-beige/10 text-beige"
+                    }`}
+                  >
+                    Beta
+                  </span>
+                )}
               </Link>
             ))}
           </nav>
 
-          {/* Upgrade Card */}
+          {/* Founder-led upgrade CTA (no self-serve billing yet) */}
           <div className="p-6">
             <div className={`${THEME_TOKENS.cards.premium} p-6 border border-white/20 relative overflow-hidden group rounded-[2rem]`}>
               <div className="absolute inset-0 bg-gradient-to-br from-beige/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               <div className="relative z-10">
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles className="h-4 w-4 text-beige" />
-                  <span className={THEME_TOKENS.typography.capsLabel + " !text-foreground"}>Go Pro</span>
+                  <span className={THEME_TOKENS.typography.capsLabel + " !text-foreground"}>Scale with us</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground mb-4 leading-relaxed font-medium">
-                  Unlock unlimited memos and sync with any CRM.
+                  Talk to us about unlimited memos and multi-CRM sync.
                 </p>
-                <Button size="sm" className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-soft transition-transform hover:scale-[1.02] active:scale-95">
-                  Upgrade
+                <Button
+                  asChild
+                  size="sm"
+                  className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-soft transition-transform hover:scale-[1.02] active:scale-95"
+                >
+                  <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
+                    Book a demo
+                  </a>
                 </Button>
               </div>
             </div>
@@ -138,7 +158,7 @@ const DashboardLayout = () => {
                 {user ? getUserDisplayName(user) : 'User'}
               </p>
               <p className="text-[10px] font-medium text-muted-foreground mt-1">
-                {user?.companyName || 'Free Plan'}
+                {user?.companyName || 'Vocify'}
               </p>
             </div>
             

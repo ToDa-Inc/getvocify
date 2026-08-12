@@ -5,9 +5,10 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { memosApi, memoKeys } from "@/features/memos/api";
 
 const UsagePage = () => {
-  const { data: usage, isLoading } = useQuery({
+  const { data: usage, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: memoKeys.usage(),
     queryFn: () => memosApi.getUsage(),
+    retry: 1,
   });
 
   const stats = usage
@@ -18,6 +19,7 @@ const UsagePage = () => {
           value: String(usage.total_memos),
           change: usage.this_week_memos > 0 ? `+${usage.this_week_memos} this week` : "No memos this week",
           color: "text-beige",
+          changeTone: usage.this_week_memos > 0 ? "positive" : "neutral",
         },
         {
           icon: Clock,
@@ -25,6 +27,7 @@ const UsagePage = () => {
           value: `${usage.time_saved_hours} hrs`,
           change: usage.this_week_time_saved_hours > 0 ? `+${usage.this_week_time_saved_hours} hrs this week` : "—",
           color: "text-success",
+          changeTone: usage.this_week_time_saved_hours > 0 ? "positive" : "neutral",
         },
         {
           icon: BarChart3,
@@ -32,6 +35,7 @@ const UsagePage = () => {
           value: String(usage.approved_count),
           change: usage.this_week_approved > 0 ? `+${usage.this_week_approved} this week` : "—",
           color: "text-warning",
+          changeTone: usage.this_week_approved > 0 ? "positive" : "neutral",
         },
         {
           icon: TrendingUp,
@@ -39,6 +43,7 @@ const UsagePage = () => {
           value: usage.accuracy_pct != null ? `${usage.accuracy_pct}%` : "—",
           change: usage.accuracy_pct != null ? "Approved / (Approved + Rejected)" : "No data yet",
           color: "text-beige",
+          changeTone: usage.accuracy_pct != null ? "positive" : "neutral",
         },
       ]
     : [];
@@ -64,6 +69,33 @@ const UsagePage = () => {
     );
   }
 
+  if (isError) {
+    return (
+      <div className={`max-w-5xl mx-auto space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
+        <div className={V_PATTERNS.dashboardHeader}>
+          <h1 className={THEME_TOKENS.typography.pageTitle}>
+            Usage <span className={THEME_TOKENS.typography.accentTitle}>Analytics</span>
+          </h1>
+          <p className={THEME_TOKENS.typography.body}>Track your performance and time saved with Vocify.</p>
+        </div>
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-12 text-center space-y-4`}>
+          <p className="font-bold text-foreground">Couldn't load usage analytics</p>
+          <p className="text-sm text-muted-foreground">
+            {(error as Error)?.message || "Something went wrong fetching your stats."}
+          </p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="inline-flex items-center justify-center rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+          >
+            {isFetching ? "Retrying..." : "Try again"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`max-w-5xl mx-auto space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
       <div className={V_PATTERNS.dashboardHeader}>
@@ -82,7 +114,11 @@ const UsagePage = () => {
             </div>
             <p className="text-3xl font-black tracking-tighter text-foreground mb-1">{stat.value}</p>
             <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>{stat.label}</p>
-            <p className="text-[10px] font-bold text-success bg-success/5 px-2 py-1 rounded-full w-fit">{stat.change}</p>
+            <p className={`text-[10px] font-bold px-2 py-1 rounded-full w-fit ${
+              stat.changeTone === "positive"
+                ? "text-success bg-success/5"
+                : "text-muted-foreground bg-secondary/10"
+            }`}>{stat.change}</p>
           </div>
         ))}
       </div>

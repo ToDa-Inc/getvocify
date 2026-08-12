@@ -372,6 +372,71 @@ async def get_contact_context_for_extension(
         return empty
 
 
+@router.get("/hubspot/companies/{company_id}/context")
+async def get_company_context_for_extension(
+    company_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Company (+ associated contacts) for extension page lock / session vocab."""
+    empty = {
+        "companyId": company_id,
+        "companyName": None,
+        "contactId": None,
+        "contactName": None,
+        "contactEmail": None,
+        "contactPhone": None,
+        "contacts": [],
+        "sessionVocab": [],
+    }
+    try:
+        client = get_hubspot_client_from_connection(user_id, supabase)
+        search_service = HubSpotSearchService(client)
+        company_service = HubSpotCompanyService(client, search_service)
+        contact_service = HubSpotContactService(client, search_service)
+        from app.services.hubspot.associations import HubSpotAssociationService
+
+        company = await company_service.get(company_id)
+        company_name = (company.properties or {}).get("name") or None
+        associations = HubSpotAssociationService(client)
+        contact_ids = await associations.get_associations("companies", company_id, "contacts")
+        contacts_out: list[dict] = []
+        for cid in (contact_ids or [])[:5]:
+            try:
+                contact = await contact_service.get(str(cid))
+                props = contact.properties or {}
+                first = props.get("firstname") or ""
+                last = props.get("lastname") or ""
+                name = f"{first} {last}".strip() or None
+                contacts_out.append(
+                    {
+                        "contact_id": str(cid),
+                        "name": name,
+                        "email": props.get("email") or None,
+                        "phone": props.get("phone") or props.get("mobilephone") or None,
+                        "company_id": company_id,
+                        "company_name": company_name,
+                    }
+                )
+            except Exception:
+                continue
+
+        primary = contacts_out[0] if len(contacts_out) == 1 else None
+        vocab = [t for t in [company_name, *(c.get("name") for c in contacts_out[:2])] if t]
+        return {
+            "companyId": company_id,
+            "companyName": company_name,
+            "contactId": primary["contact_id"] if primary else None,
+            "contactName": primary["name"] if primary else None,
+            "contactEmail": primary["email"] if primary else None,
+            "contactPhone": primary["phone"] if primary else None,
+            "contacts": contacts_out,
+            "sessionVocab": vocab,
+        }
+    except Exception:
+        return empty
+
+
 @router.post("/hubspot/connect", response_model=ConnectHubSpotResponse)
 async def connect_hubspot(
     request: ConnectHubSpotRequest,
@@ -1144,7 +1209,7 @@ async def get_deal_context_for_prefill(
     contact_service = HubSpotContactService(client, search_service)
     company_service = HubSpotCompanyService(client, search_service)
 
-    ctx: dict = {"companyName": None, "contactName": None, "contactEmail": None, "raw_extraction": {}}
+    ctx: dict = {"companyName": None, "companyId": None, "contactName": None, "contactEmail": None, "raw_extraction": {}}
 
     def _parse_amount(v: Any) -> Optional[float]:
         if v is None: return None
@@ -1177,6 +1242,7 @@ async def get_deal_context_for_prefill(
 
         company_ids = await association_service.get_associations("deals", deal_id, "companies")
         if company_ids:
+            ctx["companyId"] = str(company_ids[0])
             comp = await company_service.get(company_ids[0])
             ctx["companyName"] = comp.properties.get("name") or ctx["companyName"]
 

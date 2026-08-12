@@ -22,6 +22,7 @@ import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
+import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
 
 import { LanguageProvider } from "@/lib/i18n";
 import { AuthProvider, useAuth } from "@/features/auth";
@@ -103,6 +104,7 @@ const App = () => (
               <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="usage" element={<UsagePage />} />
+              <Route path="copilot" element={<ObjectionCopilotPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

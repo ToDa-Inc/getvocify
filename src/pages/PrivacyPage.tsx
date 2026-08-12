@@ -7,7 +7,7 @@ const PrivacyPage = () => {
       <Header />
       <main className="max-w-4xl mx-auto px-6 py-24">
         <h1 className="text-4xl font-black mb-4 tracking-tight">Privacy Policy</h1>
-        <p className="text-muted-foreground mb-12">Last Updated: March 1, 2026</p>
+        <p className="text-muted-foreground mb-12">Last Updated: August 12, 2026</p>
 
         <div className="prose prose-slate max-w-none space-y-12">
           <section>
@@ -28,6 +28,9 @@ const PrivacyPage = () => {
                 <strong className="text-foreground">Audio Data:</strong> When you explicitly initiate a recording, we capture your voice via the Chrome Offscreen API. This audio is streamed securely to our backend for transcription and CRM field extraction.
               </li>
               <li>
+                <strong className="text-foreground">Call Copilot voice sample (optional):</strong> If you opt in on the Call Copilot page, we create a voice representation from a short scripted recording so we can tell your voice from the prospect during live speakerphone coaching. You can delete this enrollment anytime. Raw enrollment audio is not kept after identifiers are created.
+              </li>
+              <li>
                 <strong className="text-foreground">Contextual Data (URL):</strong> We read the URL of the active tab only when a recording is active to identify relevant CRM records (e.g., HubSpot Deal IDs) for automatic association.
               </li>
             </ul>
@@ -40,6 +43,7 @@ const PrivacyPage = () => {
               <li>To authenticate your identity and provide access to your Vocify account.</li>
               <li>To transcribe your voice memos into text and extract relevant CRM fields using AI.</li>
               <li>To automate the association of voice memos with the correct records in your CRM.</li>
+              <li>With your consent, to distinguish your voice from other speakers during Call Copilot sessions.</li>
             </ul>
           </section>
 

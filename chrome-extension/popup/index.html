@@ -85,7 +85,7 @@
       <div class="footer-actions">
         <div class="user-minimal">
           <span id="user-name">...</span>
-          <span class="version-tag">v1.0.3</span>
+          <span class="version-tag">v1.0.5</span>
         </div>
         <button id="logout-button" class="logout-link">Log Out</button>
       </div>
@@ -108,20 +108,34 @@
     <div id="screen-review" class="screen" style="display: none;">
       <div class="header-review">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo-small">
-        <p class="subtitle" id="review-step-label">Proposed Changes</p>
+        <div class="header-review-text">
+          <p class="subtitle" id="review-step-label">Review</p>
+          <p id="review-record-name" class="review-record-name" style="display: none;"></p>
+        </div>
       </div>
 
-      <!-- Pending transcript: must confirm before extraction -->
-      <div id="pending-transcript-section" style="display: none; flex: 1; min-height: 0; display: none; flex-direction: column; padding: 20px 24px; gap: 12px; overflow-y: auto;">
-        <p class="caps-label">Review transcript</p>
-        <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
-          <p id="extraction-error-text" class="extraction-error-text"></p>
-          <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
-        </div>
-        <textarea id="transcript-content" class="transcript-content" style="flex: 1; min-height: 160px; width: 100%;" placeholder="Loading transcript..."></textarea>
-        <div class="review-step-actions review-step-actions-row" style="flex-shrink: 0;">
-          <button id="review-confirm-transcript-btn" class="btn btn-primary" style="flex: 1;">Extract & Continue</button>
-          <button id="review-discard-btn" class="btn btn-secondary" style="flex: 1;">Discard</button>
+      <!-- Pending transcript: modal-style conversation review -->
+      <div id="pending-transcript-section" class="transcript-modal" style="display: none;">
+        <div class="transcript-modal-sheet">
+          <div class="transcript-modal-header">
+            <p class="transcript-modal-kicker">Step 1 of 2</p>
+            <h2 class="transcript-modal-title">Review transcript</h2>
+            <p id="transcript-modal-deal" class="transcript-modal-deal" style="display: none;"></p>
+            <p class="transcript-modal-hint">Read the call, tap any line to edit, then extract CRM fields.</p>
+          </div>
+
+          <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
+            <p id="extraction-error-text" class="extraction-error-text"></p>
+            <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
+          </div>
+
+          <div id="transcript-conversation" class="transcript-conversation" role="log" aria-label="Call transcript"></div>
+          <textarea id="transcript-content" class="transcript-content-sr" aria-hidden="true" tabindex="-1"></textarea>
+
+          <div class="transcript-modal-footer">
+            <button id="review-discard-btn" class="btn btn-secondary" type="button">Discard</button>
+            <button id="review-confirm-transcript-btn" class="btn btn-primary" type="button">Extract &amp; Continue</button>
+          </div>
         </div>
       </div>
 
@@ -142,8 +156,13 @@
             <p class="caps-label" id="deal-target-label">Deal Target</p>
             <button id="btn-change-deal" class="text-btn">Change Deal</button>
           </div>
-          <div id="use-current-deal-option" class="use-current-deal-option" style="display: none;">
-            <button type="button" id="btn-use-current-deal" class="btn-use-current-deal">Use deal on this page</button>
+          <div id="use-page-record-option" class="use-current-deal-option" style="display: none;">
+            <button type="button" id="btn-use-page-record" class="btn-use-current-deal">Use record on this page</button>
+          </div>
+          <div id="deal-decision-box" class="deal-decision-box" style="display: none;">
+            <p class="deal-subtitle" id="deal-decision-hint" style="margin: 0 0 8px;">Confirm the deal target before syncing.</p>
+            <div id="matched-deals-list"></div>
+            <button type="button" id="btn-create-new-deal" class="btn-add-field" style="display: block; width: 100%; margin-top: 8px;">+ Create a brand new deal</button>
           </div>
           <div id="deal-search-box" class="search-box" style="display: none;">
             <div class="input-with-icon">
@@ -151,6 +170,7 @@
               <input type="text" id="deal-search-input" placeholder="Search deals...">
             </div>
             <div id="search-results" class="search-results"></div>
+            <button type="button" id="btn-create-new-deal-search" class="btn-add-field" style="display: block; width: 100%; margin-top: 8px;">+ Create a brand new deal</button>
           </div>
           <div id="deal-card" class="card-glass success-glow">
             <div class="card-content">
@@ -159,6 +179,33 @@
             </div>
           </div>
         </div>
+
+        <section id="call-insights-section" class="call-insights">
+          <div class="call-insights-block">
+            <div class="section-header">
+              <p class="caps-label">Call summary</p>
+            </div>
+            <textarea id="review-summary" class="review-summary-input" rows="4" placeholder="Summary of what was discussed…"></textarea>
+          </div>
+
+          <div class="call-insights-block">
+            <div class="section-header">
+              <p class="caps-label">Action items → HubSpot tasks</p>
+              <button type="button" id="btn-add-action-item" class="text-btn">+ Add</button>
+            </div>
+            <div id="action-items-list" class="action-items-list"></div>
+            <p id="action-items-empty" class="action-items-empty" style="display: none;">No action items from this call. Add one if something was agreed.</p>
+          </div>
+
+          <label id="create-note-row" class="note-toggle" for="create-note-checkbox">
+            <input type="checkbox" id="create-note-checkbox" checked>
+            <span class="note-toggle-box" aria-hidden="true"></span>
+            <span class="note-toggle-copy">
+              <span class="note-toggle-title">Create HubSpot note</span>
+              <span class="note-toggle-desc">Posts summary + transcript on the deal timeline</span>
+            </span>
+          </label>
+        </section>
 
         <div id="proposed-changes-section">
           <p class="caps-label" style="margin: 12px 0 10px 4px;">Proposed Changes</p>
@@ -171,7 +218,8 @@
 
         <details id="transcript-collapsible" class="transcript-collapsible">
           <summary>View transcript</summary>
-          <div id="transcript-expanded" class="transcript-expanded"></div>
+          <div id="review-transcript-conversation" class="transcript-conversation transcript-conversation--compact"></div>
+          <div id="transcript-expanded" class="transcript-expanded" style="display: none;"></div>
         </details>
       </div>
 

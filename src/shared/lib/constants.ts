@@ -91,6 +91,7 @@ export const ROUTES = {
   PROFILE: '/dashboard/profile',
   SETTINGS: '/dashboard/settings',
   USAGE: '/dashboard/usage',
+  COPILOT: '/dashboard/copilot',
 } as const;
 
 // Pagination defaults

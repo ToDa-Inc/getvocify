@@ -257,8 +257,17 @@ async def login(
         )
 
 
+def _bearer_token_from_request(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization") or ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        return token or None
+    return None
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user(
+    request: Request,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -279,14 +288,12 @@ async def get_current_user(
             )
         
         profile = profile_result.data
-        
-        # Get email from auth (if needed)
-        # For MVP, we'll get it from the JWT token or skip it
-        # In production, decode JWT to get email
+        # Token already authenticated by get_user_id; decode claims for email only.
+        email = _email_from_access_token(_bearer_token_from_request(request)) or ""
         
         return UserResponse(
             id=user_id,
-            email="",
+            email=email,
             full_name=profile.get("full_name"),
             company_name=profile.get("company_name"),
             avatar_url=profile.get("avatar_url"),
@@ -311,6 +318,7 @@ async def get_current_user(
 @router.patch("/me", response_model=UserResponse)
 async def update_profile(
     request: UpdateProfileRequest,
+    http_request: Request,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -326,9 +334,10 @@ async def update_profile(
     if not profile_result.data:
         raise HTTPException(status_code=404, detail="Profile not found")
     p = profile_result.data
+    email = _email_from_access_token(_bearer_token_from_request(http_request)) or ""
     return UserResponse(
         id=user_id,
-        email="",
+        email=email,
         full_name=p.get("full_name"),
         company_name=p.get("company_name"),
         avatar_url=p.get("avatar_url"),

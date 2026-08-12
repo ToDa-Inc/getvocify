@@ -36,6 +36,13 @@ let currentContactId = null;
 let currentCompanyId = null;
 /** Latest background state (includes HubSpot page context) */
 let lastBgState = null;
+/** Mirror dashboard HubSpotSyncPreview confidence gate */
+const CONFIDENT_MATCH_THRESHOLD = 0.7;
+/** When true, user must explicitly pick/create a deal before approve */
+let needsDealDecision = false;
+let dealDecisionMade = true;
+/** Force create-new-deal on next/current preview */
+let createNewDealRequested = false;
 let searchTimeout = null;
 let previewLoaded = false;
 let sessionHeartbeatId = null;
@@ -163,6 +170,7 @@ function getRecordDisplayName(context) {
   if (!context?.recordId) return null;
   if (context.objectType === 'deal') return context.dealName || 'Deal on this page';
   if (context.objectType === 'contact') return context.contactName || 'Contact on this page';
+  if (context.objectType === 'company') return context.companyName || 'Company on this page';
   return null;
 }
 
@@ -225,7 +233,8 @@ function renderRecordContextStrip(state) {
   if (!show) return;
 
   if (typeEl) {
-    typeEl.textContent = state.context.objectType === 'contact' ? 'Contact' : 'Deal';
+    const labels = { contact: 'Contact', company: 'Company', deal: 'Deal' };
+    typeEl.textContent = labels[state.context.objectType] || 'Record';
   }
   if (nameEl) nameEl.textContent = name;
 }
@@ -542,22 +551,76 @@ async function handleReviewState(memoId, context) {
       renderReviewRecordName(context);
       const onDealPage = context?.objectType === 'deal' && context?.recordId;
       const onContactPage = context?.objectType === 'contact' && context?.recordId;
-      const dealIdToLoad = onDealPage ? context.recordId : currentDealId;
-      const contactIdToLoad = onContactPage
+      const onCompanyPage = context?.objectType === 'company' && context?.recordId;
+      let dealIdToLoad = onDealPage ? context.recordId : currentDealId;
+      let contactIdToLoad = onContactPage
         ? context.recordId
-        : (context?.contactId || null);
+        : (context?.contactId || currentContactId || null);
+      if (onCompanyPage) {
+        currentCompanyId = context.recordId;
+        let companyCtx = context;
+        if (!context.companyName || !Array.isArray(context.companyContacts)) {
+          try {
+            const fetched = await chrome.runtime.sendMessage({
+              type: 'GET_COMPANY_CONTEXT',
+              companyId: context.recordId,
+            });
+            if (fetched && !fetched.error) {
+              companyCtx = {
+                ...context,
+                companyName: fetched.companyName,
+                companyId: context.recordId,
+                contactId: fetched.contactId,
+                companyContacts: fetched.contacts || [],
+              };
+              lastBgState = { ...(lastBgState || {}), context: companyCtx };
+              context = companyCtx;
+            }
+          } catch (_) { /* keep raw context */ }
+        }
+        if (companyCtx.contactId) contactIdToLoad = companyCtx.contactId;
+        else if (Array.isArray(companyCtx.companyContacts) && companyCtx.companyContacts.length === 1) {
+          contactIdToLoad = companyCtx.companyContacts[0].contact_id;
+        }
+      }
       if (
         !previewLoaded ||
         currentMemoId !== memoId ||
         (onDealPage && currentDealId !== context?.recordId) ||
-        (onContactPage && currentContactId !== context?.recordId)
+        (onContactPage && currentContactId !== context?.recordId) ||
+        (onCompanyPage && currentCompanyId !== context?.recordId)
       ) {
         currentMemoId = memoId;
-        currentDealId = onDealPage ? context.recordId : currentDealId;
+        if (onDealPage) currentDealId = context.recordId;
         previewLoaded = true;
-        await loadPreview(memoId, dealIdToLoad, null, contactIdToLoad);
+        // Company with multiple contacts and no preferred: show picker first
+        if (
+          onCompanyPage &&
+          !contactIdToLoad &&
+          Array.isArray(context.companyContacts) &&
+          context.companyContacts.length > 1
+        ) {
+          renderContactTarget({ selected_contact: null, contact_candidates: [] });
+          if (approveSyncButton) {
+            approveSyncButton.disabled = true;
+            approveSyncButton.textContent = 'Confirm Contact First';
+          }
+        } else {
+          let extractionOverride = null;
+          if (onCompanyPage && !contactIdToLoad && context.companyName) {
+            try {
+              const memoFull = await api.getMemo(memoId);
+              const base = memoFull?.extraction && typeof memoFull.extraction === 'object'
+                ? { ...memoFull.extraction }
+                : {};
+              base.companyName = context.companyName;
+              extractionOverride = base;
+            } catch (_) { /* optional */ }
+          }
+          await loadPreview(memoId, dealIdToLoad, extractionOverride, contactIdToLoad);
+        }
       }
-      showUseCurrentDealOption(onDealPage ? context : null);
+      showUsePageRecordOption(context);
       const preview = lastPreviewData;
       const tx = preview?.transcript || memo?.transcript || '';
       renderTranscriptConversation(tx, {
@@ -674,6 +737,9 @@ function syncTranscriptHiddenField() {
 function renderTranscriptConversation(text, { editable = true, container = null } = {}) {
   const convo = container || document.getElementById('transcript-conversation');
   const hidden = document.getElementById('transcript-content');
+  // Always keep the hidden field in sync — Extract & Continue reads from it
+  if (hidden && !container) hidden.value = text || '';
+
   if (!convo) return;
 
   const turns = parseTranscriptTurns(text);
@@ -717,11 +783,21 @@ function renderTranscriptConversation(text, { editable = true, container = null 
   if (editable && !container) syncTranscriptHiddenField();
 }
 
-/** Show "Use deal on this page" when user is on a HubSpot deal page but viewing different deal/new deal */
-function showUseCurrentDealOption(context) {
-  const opt = document.getElementById('use-current-deal-option');
-  if (!opt) return;
-  opt.style.display = context?.objectType === 'deal' && context?.recordId ? 'block' : 'none';
+/** Show "Use X on this page" for deal / contact / company HubSpot pages */
+function showUsePageRecordOption(context) {
+  const opt = document.getElementById('use-page-record-option');
+  const btn = document.getElementById('btn-use-page-record');
+  if (!opt || !btn) return;
+  const type = context?.objectType;
+  const ok = !!context?.recordId && ['deal', 'contact', 'company'].includes(type);
+  opt.style.display = ok ? 'block' : 'none';
+  if (!ok) return;
+  const labels = {
+    deal: 'Use deal on this page',
+    contact: 'Use contact on this page',
+    company: 'Use company on this page',
+  };
+  btn.textContent = labels[type] || 'Use record on this page';
 }
 
 async function loadTranscriptForReview(memoId) {
@@ -837,10 +913,13 @@ async function loadRecentMemos(scope) {
   }
 }
 
-async function loadPreview(memoId, dealId = null, extraction = null, contactId = null) {
+async function loadPreview(memoId, dealId = null, extraction = null, contactId = null, opts = null) {
   document.getElementById('target-deal-name').textContent = 'Loading...';
   document.getElementById('target-deal-reason').textContent = '';
   proposedUpdatesList.innerHTML = '<div class="spinner" style="margin: 20px auto;"></div>';
+
+  const createNewDeal = !!(opts && opts.createNewDeal) || createNewDealRequested;
+  if (createNewDeal) createNewDealRequested = true;
 
   // Prefer explicit contact, then page context contact
   const ctx = lastBgState?.context;
@@ -848,14 +927,16 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
     contactId ||
     (ctx?.objectType === 'contact' ? ctx.recordId : null) ||
     ctx?.contactId ||
+    currentContactId ||
     null;
 
   try {
     const preview = await chrome.runtime.sendMessage({
       type: 'GET_PREVIEW',
       memoId,
-      dealId,
+      dealId: createNewDeal ? null : dealId,
       contactId: pageContactId || undefined,
+      createNewDeal: createNewDeal || undefined,
       extraction: extraction || undefined
     });
 
@@ -866,7 +947,11 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
       currentDealId = match ? match.deal_id : null;
       currentContactId = preview.selected_contact?.contact_id || pageContactId || null;
       currentCompanyId =
-        preview.selected_contact?.company_id || lastBgState?.context?.companyId || null;
+        preview.selected_contact?.company_id ||
+        currentCompanyId ||
+        lastBgState?.context?.companyId ||
+        (lastBgState?.context?.objectType === 'company' ? lastBgState.context.recordId : null) ||
+        null;
 
       renderContactTarget(preview);
 
@@ -875,17 +960,23 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         ? match.deal_name
         : skipDeal
           ? 'Contact only (no deal)'
-          : 'New Deal';
+          : (createNewDeal || preview.is_new_deal ? 'New Deal' : 'No deal selected');
       const reasonText = match
         ? (match.match_reason === 'Manual Selection' ? 'From current page' : `Matched via ${(match.match_reason || 'AI').toLowerCase()}`)
         : skipDeal
           ? 'Sync will update the matched contact'
-          : 'A new record will be created';
+          : (createNewDeal || preview.is_new_deal
+            ? 'A new record will be created'
+            : 'Choose a deal or create a new one');
       document.getElementById('target-deal-reason').textContent = reasonText;
 
       const dealLabel = document.getElementById('deal-target-label');
+      const changeBtn = document.getElementById('btn-change-deal');
       if (dealLabel) {
         dealLabel.textContent = preview.selected_contact ? 'Deal Target (optional)' : 'Deal Target';
+      }
+      if (changeBtn) {
+        changeBtn.textContent = preview.selected_contact ? 'Choose Deal' : 'Change Deal';
       }
 
       // Reset edited state when loading fresh preview
@@ -905,14 +996,14 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         }
       } catch (_) { /* optional enrichment */ }
 
-      const candidates = Array.isArray(preview.contact_candidates) ? preview.contact_candidates : [];
-      const needsContactPick = !preview.selected_contact && candidates.length > 0;
-      if (approveSyncButton) {
-        approveSyncButton.disabled = needsContactPick;
-        if (needsContactPick) approveSyncButton.textContent = 'Confirm Contact First';
-        else approveSyncButton.textContent = 'Confirm & Update CRM';
+      const decision = evaluateDealDecision(preview, { createNewDeal });
+      if (decision.autoSelectDealId && !createNewDeal) {
+        createNewDealRequested = false;
+        await loadPreview(memoId, decision.autoSelectDealId, null, pageContactId);
+        return;
       }
-
+      renderDealDecisionUI(preview);
+      updateApproveButtonState(preview);
       renderProposedUpdates(preview.proposed_updates || [], preview.available_fields || []);
     } else {
       document.getElementById('target-deal-name').textContent = 'Error';
@@ -925,6 +1016,129 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
   }
 }
 
+/**
+ * Mirror dashboard HubSpotSyncPreview init:
+ * - ambiguous contacts → wait for contact pick
+ * - contact locked → deal optional (skip_deal OK)
+ * - no contact → confident deal auto-select, else force confirm
+ */
+function evaluateDealDecision(preview, { createNewDeal = false } = {}) {
+  const selectedContact = preview?.selected_contact;
+  const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
+  const matches = Array.isArray(preview?.matched_deals) ? preview.matched_deals : [];
+  const selectedDeal = preview?.selected_deal;
+
+  if (candidates.length > 0 && !selectedContact) {
+    needsDealDecision = false;
+    dealDecisionMade = false;
+    return {};
+  }
+  if (selectedContact) {
+    needsDealDecision = false;
+    dealDecisionMade = true;
+    return {};
+  }
+  if (selectedDeal || createNewDeal) {
+    needsDealDecision = false;
+    dealDecisionMade = true;
+    return {};
+  }
+  const top = matches[0];
+  const confident = !!top && (top.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
+  if (confident && top.deal_id) {
+    return { autoSelectDealId: top.deal_id };
+  }
+  needsDealDecision = true;
+  dealDecisionMade = false;
+  return {};
+}
+
+function updateApproveButtonState(preview) {
+  if (!approveSyncButton) return;
+  const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
+  const needsContactPick = !preview?.selected_contact && candidates.length > 0;
+  if (needsContactPick) {
+    approveSyncButton.disabled = true;
+    approveSyncButton.textContent = 'Confirm Contact First';
+    return;
+  }
+  if (needsDealDecision && !dealDecisionMade) {
+    approveSyncButton.disabled = true;
+    approveSyncButton.textContent = 'Confirm Deal Target First';
+    return;
+  }
+  approveSyncButton.disabled = false;
+  const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
+  if (skipDeal && preview?.selected_contact) {
+    approveSyncButton.textContent = `Update ${preview.selected_contact.name || preview.selected_contact.email || 'Contact'}`;
+  } else if (preview?.selected_deal) {
+    approveSyncButton.textContent = `Update ${preview.selected_deal.deal_name}`;
+  } else {
+    approveSyncButton.textContent = 'Confirm & Update CRM';
+  }
+}
+
+function renderDealDecisionUI(preview) {
+  const box = document.getElementById('deal-decision-box');
+  const list = document.getElementById('matched-deals-list');
+  const card = document.getElementById('deal-card');
+  const hint = document.getElementById('deal-decision-hint');
+  if (!box || !list) return;
+
+  const selectedContact = preview?.selected_contact;
+  const matches = Array.isArray(preview?.matched_deals) ? preview.matched_deals : [];
+  const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
+  const showWeakConfirm = needsDealDecision && !dealDecisionMade;
+  const showLinkedDeals = !!selectedContact && skipDeal && matches.length > 0 && !createNewDealRequested;
+
+  if (!showWeakConfirm && !showLinkedDeals) {
+    box.style.display = 'none';
+    list.innerHTML = '';
+    if (card) card.style.display = 'block';
+    return;
+  }
+
+  box.style.display = 'block';
+  if (card && showWeakConfirm) card.style.display = 'none';
+  else if (card) card.style.display = 'block';
+
+  if (hint) {
+    hint.textContent = showWeakConfirm
+      ? "We couldn't confidently match this memo to a deal. Choose one below or create a new deal."
+      : 'Linked deals available — pick one or keep contact-only sync.';
+  }
+
+  list.innerHTML = '';
+  matches.slice(0, 5).forEach((m) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'matched-deal-item';
+    btn.innerHTML = `<strong>${escapeHtml(m.deal_name || 'Deal')}</strong><br><span class="deal-subtitle">${escapeHtml(m.match_reason || '')}</span>`;
+    btn.addEventListener('click', () => selectDealTarget(m.deal_id));
+    list.appendChild(btn);
+  });
+}
+
+function selectDealTarget(dealId) {
+  createNewDealRequested = false;
+  needsDealDecision = false;
+  dealDecisionMade = true;
+  previewLoaded = false;
+  currentDealId = dealId;
+  loadPreview(currentMemoId, dealId, null, currentContactId);
+}
+
+function createNewDealTarget() {
+  createNewDealRequested = true;
+  needsDealDecision = false;
+  dealDecisionMade = true;
+  previewLoaded = false;
+  currentDealId = null;
+  const searchBox = document.getElementById('deal-search-box');
+  if (searchBox) searchBox.style.display = 'none';
+  loadPreview(currentMemoId, null, null, currentContactId, { createNewDeal: true });
+}
+
 function renderContactTarget(preview) {
   const section = document.getElementById('contact-target-section');
   const candidatesEl = document.getElementById('contact-candidates');
@@ -935,8 +1149,14 @@ function renderContactTarget(preview) {
 
   const selected = preview?.selected_contact;
   const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
+  const pageCompanyContacts =
+    lastBgState?.context?.objectType === 'company' && Array.isArray(lastBgState.context.companyContacts)
+      ? lastBgState.context.companyContacts
+      : [];
+  const companyPickList =
+    !selected && !candidates.length && pageCompanyContacts.length > 1 ? pageCompanyContacts : [];
 
-  if (!selected && !candidates.length) {
+  if (!selected && !candidates.length && !companyPickList.length) {
     section.style.display = 'none';
     return;
   }
@@ -956,21 +1176,24 @@ function renderContactTarget(preview) {
   }
 
   if (card) card.style.display = 'none';
+  const pick = candidates.length ? candidates : companyPickList;
   if (candidatesEl) {
     candidatesEl.style.display = 'block';
     candidatesEl.innerHTML = '';
     const hint = document.createElement('p');
     hint.className = 'deal-subtitle';
     hint.style.margin = '0 0 8px';
-    hint.textContent = 'Multiple contacts matched — pick one:';
+    hint.textContent = candidates.length
+      ? 'Multiple contacts matched — pick one:'
+      : 'Multiple contacts on this company — pick one:';
     candidatesEl.appendChild(hint);
-    candidates.forEach((c) => {
+    pick.forEach((c) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'search-result-item';
-      btn.style.cssText = 'display:block;width:100%;text-align:left;margin-bottom:6px;';
+      btn.className = 'matched-deal-item';
       btn.innerHTML = `<strong>${escapeHtml(c.name || 'Contact')}</strong><br><span class="deal-subtitle">${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>`;
       btn.addEventListener('click', () => {
+        currentContactId = c.contact_id;
         loadPreview(currentMemoId, currentDealId, null, c.contact_id);
       });
       candidatesEl.appendChild(btn);
@@ -1423,9 +1646,10 @@ async function searchDeals(query) {
           <span>${deal.stage?.replace(/_/g, ' ') || 'No stage'}</span>
         `;
         item.onclick = () => {
+          createNewDealRequested = false;
           previewLoaded = false;
           currentDealId = deal.deal_id;
-          loadPreview(currentMemoId, deal.deal_id, null);
+          loadPreview(currentMemoId, deal.deal_id, null, currentContactId);
           document.getElementById('deal-search-box').style.display = 'none';
           dealSearchInput.value = '';
           searchResultsBox.innerHTML = '';
@@ -1571,6 +1795,9 @@ document.getElementById('btn-change-deal')?.addEventListener('click', () => {
   }
 });
 
+document.getElementById('btn-create-new-deal')?.addEventListener('click', () => createNewDealTarget());
+document.getElementById('btn-create-new-deal-search')?.addEventListener('click', () => createNewDealTarget());
+
 // Deal search input
 dealSearchInput?.addEventListener('input', (e) => {
   clearTimeout(searchTimeout);
@@ -1579,18 +1806,22 @@ dealSearchInput?.addEventListener('input', (e) => {
 
 // Approve sync
 approveSyncButton?.addEventListener('click', async () => {
+  if (needsDealDecision && !dealDecisionMade) return;
+  const candidates = Array.isArray(lastPreviewData?.contact_candidates) ? lastPreviewData.contact_candidates : [];
+  if (!lastPreviewData?.selected_contact && candidates.length > 0) return;
+
   approveSyncButton.disabled = true;
   approveSyncButton.textContent = 'Syncing...';
 
   try {
     const extraction = await buildExtractionForApprove();
     const createNote = document.getElementById('create-note-checkbox')?.checked !== false;
-    const skipDeal = !!lastPreviewData?.skip_deal && !currentDealId;
+    const skipDeal = !!lastPreviewData?.skip_deal && !currentDealId && !createNewDealRequested;
     await chrome.runtime.sendMessage({
       type: 'APPROVE_SYNC',
       memoId: currentMemoId,
       dealId: currentDealId,
-      isNewDeal: !currentDealId && !skipDeal,
+      isNewDeal: (!!createNewDealRequested || (!currentDealId && !skipDeal)),
       extraction: extraction || undefined,
       createNote,
       contactId: currentContactId || lastPreviewData?.selected_contact?.contact_id || undefined,
@@ -1600,8 +1831,7 @@ approveSyncButton?.addEventListener('click', async () => {
   } catch (e) {
     console.error('[Popup] Approve error:', e);
   } finally {
-    approveSyncButton.disabled = false;
-    approveSyncButton.textContent = 'Confirm & Update CRM';
+    updateApproveButtonState(lastPreviewData);
   }
 });
 
@@ -1623,7 +1853,10 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
   syncTranscriptHiddenField();
   const transcriptEl = document.getElementById('transcript-content');
   const transcript = transcriptEl?.value?.trim() || '';
-  if (!transcript) return;
+  if (!transcript) {
+    showExtractionError('Transcript is empty. Wait for it to load, or re-record.');
+    return;
+  }
   this.disabled = true;
   this.textContent = 'Extracting...';
   hideExtractionError();
@@ -1637,24 +1870,27 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
       const memo = await api.getMemo(currentMemoId);
       if (memo.status === 'pending_review') {
         hideExtractionError();
-        chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
+        chrome.runtime.sendMessage({
+          type: 'SET_STATE',
+          state: { status: 'review', currentMemoId },
+        });
         return;
       }
       if (memo.status === 'failed') {
         showExtractionError(memo.errorMessage || 'Extraction failed.');
         showScreen('review');
-        handleReviewState(currentMemoId, {});
+        handleReviewState(currentMemoId, lastBgState?.context || {});
         return;
       }
       pollCount++;
     }
     showExtractionError('Extraction is taking longer than expected. Click Retry to try again.');
     showScreen('review');
-    handleReviewState(currentMemoId, {});
+    handleReviewState(currentMemoId, lastBgState?.context || {});
   } catch (err) {
     showExtractionError(err?.message || 'Something went wrong. Click Retry to try again.');
     showScreen('review');
-    handleReviewState(currentMemoId, {});
+    handleReviewState(currentMemoId, lastBgState?.context || {});
   } finally {
     this.disabled = false;
     this.textContent = 'Extract & Continue';
@@ -1693,16 +1929,85 @@ document.getElementById('retry-extraction-btn')?.addEventListener('click', async
   }
 });
 
-// Use current deal (from deal page)
-document.getElementById('btn-use-current-deal')?.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((state) => {
-    const dealId = state.context?.objectType === 'deal' ? state.context.recordId : null;
-    if (dealId) {
-      currentDealId = dealId;
-      previewLoaded = false;
-      loadPreview(currentMemoId, dealId, null);
+// Use deal / contact / company from the active HubSpot page
+document.getElementById('btn-use-page-record')?.addEventListener('click', async () => {
+  const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+  const ctx = state?.context;
+  if (!ctx?.recordId) return;
+
+  createNewDealRequested = false;
+  previewLoaded = false;
+
+  if (ctx.objectType === 'deal') {
+    currentDealId = ctx.recordId;
+    await loadPreview(currentMemoId, ctx.recordId, null, ctx.contactId || currentContactId);
+    return;
+  }
+
+  if (ctx.objectType === 'contact') {
+    currentContactId = ctx.recordId;
+    currentCompanyId = ctx.companyId || currentCompanyId;
+    await loadPreview(currentMemoId, currentDealId, null, ctx.recordId);
+    return;
+  }
+
+  if (ctx.objectType === 'company') {
+    currentCompanyId = ctx.recordId;
+    let companyCtx = ctx;
+    if (!ctx.companyName && !Array.isArray(ctx.companyContacts)) {
+      companyCtx = await chrome.runtime.sendMessage({
+        type: 'GET_COMPANY_CONTEXT',
+        companyId: ctx.recordId,
+      });
+      if (companyCtx && !companyCtx.error) {
+        lastBgState = {
+          ...(lastBgState || state),
+          context: {
+            ...ctx,
+            companyName: companyCtx.companyName,
+            companyId: ctx.recordId,
+            contactId: companyCtx.contactId,
+            companyContacts: companyCtx.contacts || [],
+          },
+        };
+      }
     }
-  });
+    const contacts = Array.isArray(companyCtx?.contacts)
+      ? companyCtx.contacts
+      : (Array.isArray(ctx.companyContacts) ? ctx.companyContacts : []);
+    if (companyCtx?.contactId || contacts.length === 1) {
+      const cid = companyCtx?.contactId || contacts[0].contact_id;
+      currentContactId = cid;
+      await loadPreview(currentMemoId, null, null, cid);
+      return;
+    }
+    if (contacts.length > 1) {
+      // Show company contacts as pick list via renderContactTarget path
+      lastPreviewData = {
+        ...(lastPreviewData || {}),
+        selected_contact: null,
+        contact_candidates: [],
+        matched_deals: lastPreviewData?.matched_deals || [],
+        skip_deal: false,
+      };
+      if (lastBgState?.context) {
+        lastBgState.context.companyContacts = contacts;
+      }
+      renderContactTarget({ selected_contact: null, contact_candidates: [] });
+      approveSyncButton.disabled = true;
+      approveSyncButton.textContent = 'Confirm Contact First';
+      return;
+    }
+    // Company with no contacts: stamp company name into extraction for identity cascade
+    let extractionOverride = null;
+    try {
+      const memo = await api.getMemo(currentMemoId);
+      const base = memo?.extraction && typeof memo.extraction === 'object' ? { ...memo.extraction } : {};
+      base.companyName = companyCtx?.companyName || ctx.companyName || base.companyName;
+      extractionOverride = base;
+    } catch (_) { /* optional */ }
+    await loadPreview(currentMemoId, null, extractionOverride, null);
+  }
 });
 
 // Success done button
