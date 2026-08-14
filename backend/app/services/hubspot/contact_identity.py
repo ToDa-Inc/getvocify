@@ -254,25 +254,31 @@ async def _deal_matches_for_contact(
                 ),
             ))
     except Exception as e:
-        logger.warning("Contact→deal associations failed: %s", e)
+        # outcome=failed: the call to HubSpot itself raised (network, 4xx/5xx, scope).
+        # Kept as its own distinct message (not folded into the line below) precisely so
+        # "the call failed" and "the call succeeded with zero associations" can never
+        # look the same in the logs again - that ambiguity is what let both the
+        # pipeline-exclusion bug and this parser bug go unnoticed.
+        logger.warning(
+            "Contact→deal association resolution: contact=%s outcome=failed error=%s",
+            contact_id, e,
+        )
         return []
 
     # Stable sort: default-pipeline deals first, ties keep HubSpot's association order.
     candidates.sort(key=lambda c: 0 if c[0] else 1)
     deal_matches = [dm for _, dm in candidates][:limit_deals]
+    off_default_pipeline = sum(1 for is_default, _ in candidates if not is_default)
 
-    # Log every time there was something to resolve, so a future filter that drops
-    # candidates again shows up here instead of going unnoticed for months like the
-    # pipeline-exclusion bug this replaced - this line is what would have caught it
-    # the day it happened instead of the day someone happened to hit it manually.
-    if deal_ids or fetch_failed:
-        off_default_pipeline = sum(1 for is_default, _ in candidates if not is_default)
-        logger.info(
-            "Contact→deal association resolution: contact=%s associated=%d resolved=%d "
-            "kept_after_limit=%d off_default_pipeline=%d fetch_failed=%d",
-            contact_id, len(deal_ids), len(candidates), len(deal_matches),
-            off_default_pipeline, fetch_failed,
-        )
+    # outcome=ok, logged unconditionally - including associated=0 - so a silent zero is
+    # always visible in the same place as a real match, instead of only showing up when
+    # there happened to be something to resolve.
+    logger.info(
+        "Contact→deal association resolution: contact=%s outcome=ok associated=%d "
+        "resolved=%d kept_after_limit=%d off_default_pipeline=%d fetch_failed=%d",
+        contact_id, len(deal_ids), len(candidates), len(deal_matches),
+        off_default_pipeline, fetch_failed,
+    )
     return deal_matches
 
 

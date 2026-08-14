@@ -5,8 +5,12 @@ Handles creating relationships between HubSpot objects
 (contacts, companies, deals).
 """
 
+import logging
+
 from .client import HubSpotClient
 from .exceptions import HubSpotError
+
+logger = logging.getLogger(__name__)
 
 
 class HubSpotAssociationService:
@@ -182,13 +186,27 @@ class HubSpotAssociationService:
             
             if not response or "results" not in response:
                 return []
-            
-            # Extract IDs - HubSpot v4 returns two formats:
-            # 1) Basic: results[].objectId
-            # 2) Batch/guide: results[].to[].toObjectId
+
+            raw_results = response.get("results", [])
+
+            # This single-object GET returns MultiAssociatedObjectWithLabel per HubSpot's
+            # own OpenAPI schema: `toObjectId` sits directly on each result item, not
+            # under `objectId`/`id`, and not nested under a `to[]` array. That last shape
+            # belongs to the *batch* associations endpoints, not this one - a previous
+            # version of this parser checked for it here anyway, unverified against the
+            # real response, and it silently matched nothing: this call always returned
+            # an empty list even when HubSpot had associations to report, for every
+            # object type pair that ever went through this method (contacts→companies,
+            # deals→contacts, deals→companies, etc.) - see contact_identity.py's
+            # deal-matching regression this was found from. `objectId`/`id`/`to[]` are
+            # kept below as a defensive fallback only, not because they're expected here.
             ids = []
-            for result in response.get("results", []):
-                oid = result.get("objectId") or result.get("id")
+            for result in raw_results:
+                oid = (
+                    result.get("toObjectId")
+                    or result.get("objectId")
+                    or result.get("id")
+                )
                 if oid is not None:
                     ids.append(str(oid))
                     continue
@@ -196,6 +214,19 @@ class HubSpotAssociationService:
                     oid = to_item.get("toObjectId")
                     if oid is not None:
                         ids.append(str(oid))
+
+            if raw_results and not ids:
+                # HubSpot returned associations but none of the known shapes matched -
+                # this is the exact signature of a parsing bug, not "no associations".
+                # Logged at ERROR (not swallowed as a normal empty result) because a
+                # caller several layers up may otherwise treat this identically to a
+                # real "no associations" case with no way to tell them apart.
+                logger.error(
+                    "get_associations(%s:%s -> %s): HubSpot returned %d result(s) but "
+                    "none matched a known id field - sample keys: %s",
+                    object_type, object_id, to_object_type, len(raw_results),
+                    list(raw_results[0].keys()) if raw_results else [],
+                )
             return ids
             
         except Exception as e:
