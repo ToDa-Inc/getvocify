@@ -3,7 +3,7 @@ Prometheus metrics for full backend visibility.
 All metric calls are wrapped to never break the main flow.
 """
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 # Histograms for latency
 transcription_duration = Histogram(
@@ -46,6 +46,19 @@ unipile_api_calls = Counter(
     ["operation", "status"],
 )
 
+# Gauge, not Counter: point-in-time count of crm_updates rows stuck in
+# 'pending' past their TTL (see CRM_UPDATES_PENDING_TTL_MINUTES in
+# app.services.crm_updates). Refreshed periodically by a background task
+# (see app.main's startup event), not on every request - a stale-pending row
+# doesn't map to a single request/response cycle the way the counters above
+# do. A sustained non-zero value means track() reservations are dying
+# between reserve and confirm (crashes, hangs) faster than they're being
+# resolved - worth alerting on, not just graphing.
+crm_updates_stale_pending = Gauge(
+    "vocify_crm_updates_stale_pending",
+    "crm_updates rows still 'pending' past their TTL - reserved but never confirmed",
+)
+
 
 def _safe(fn, *args, **kwargs) -> None:
     """Run metric operation; swallow any error."""
@@ -81,3 +94,7 @@ def inc_webhook_message(provider: str, outcome: str) -> None:
 
 def inc_unipile_api_call(operation: str, status: str) -> None:
     _safe(unipile_api_calls.labels(operation=operation, status=status).inc)
+
+
+def set_crm_updates_stale_pending(count: int) -> None:
+    _safe(crm_updates_stale_pending.set, count)

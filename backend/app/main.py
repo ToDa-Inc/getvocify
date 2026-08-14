@@ -204,13 +204,66 @@ except ImportError:
     pass  # Run without metrics if package not installed
 
 
+async def _refresh_crm_updates_stale_pending_gauge():
+    """
+    Every 5 minutes, count crm_updates rows still 'pending' past their TTL
+    and publish it as a gauge. Runs forever in the background - errors are
+    swallowed per-iteration (metrics.set_crm_updates_stale_pending already
+    does this too) so a transient DB hiccup doesn't kill the loop or the app.
+    """
+    from app.deps import get_supabase
+    from app.metrics import set_crm_updates_stale_pending
+    from app.services.crm_updates import CRMUpdatesService
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    crm_updates_service = CRMUpdatesService(supabase)
+    while True:
+        try:
+            count = await crm_updates_service.count_stale_pending()
+            set_crm_updates_stale_pending(count)
+            if count > 0:
+                # ERROR, not WARNING: Sentry's LoggingIntegration here is
+                # configured with event_level=logging.ERROR (see the
+                # sentry_sdk.init call above) - only ERROR+ becomes an
+                # actual Sentry issue, WARNING only attaches as a breadcrumb
+                # nobody sees unless another event fires first. This is
+                # currently the ONLY place this gauge is "consulted" in
+                # practice: there's no Grafana/Railway dashboard wired to
+                # the raw /metrics endpoint (prometheus_fastapi_instrumentator
+                # only exposes it for scraping, nothing scrapes it today).
+                # If Grafana/Railway metrics ever get set up, this can drop
+                # back to a plain gauge-only signal.
+                logger.error(
+                    "⏳ crm_updates has stale pending rows past TTL",
+                    extra={"domain": "crm_updates", "phase": "stale_pending_check", "count": count},
+                )
+        except Exception as e:
+            logger.exception(
+                "❌ Failed to refresh crm_updates stale pending gauge",
+                extra={"domain": "crm_updates", "phase": "stale_pending_check", "error": str(e)},
+            )
+        await asyncio.sleep(5 * 60)
+
+
 @app.on_event("startup")
 async def startup_event():
     """
     Startup event handler.
-    Recovers stuck memo processing tasks on server startup.
+    Recovers stuck memo processing tasks on server startup, and starts the
+    periodic crm_updates stale-pending gauge refresh.
     """
     logger = logging.getLogger(__name__)
+
+    # Deliberately NOT inside the try/except below: a misconfigured
+    # CRM_UPDATES_LEGACY_PENDING_CUTOFF must fail the deploy at boot (visible
+    # in Railway's deploy logs, no traffic served) rather than surface as a
+    # 500 on whichever real user's memo happens to hit a legacy pending row
+    # first. See CRMUpdatesService.is_action_already_done's "WHERE this
+    # fires" note for the full reasoning.
+    from app.services.crm_updates import validate_startup_config
+    validate_startup_config()
+
     try:
         from app.deps import get_supabase
         from app.services.recovery import RecoveryService
@@ -234,6 +287,8 @@ async def startup_event():
             "❌ Startup recovery failed",
             extra={"domain": "recovery", "phase": "startup", "error": str(e)},
         )
+
+    asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
 
 
 @app.get("/")
