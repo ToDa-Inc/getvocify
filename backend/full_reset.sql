@@ -177,7 +177,10 @@ CREATE TABLE crm_configurations (
 CREATE TABLE crm_schemas (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
-  object_type TEXT NOT NULL CHECK (object_type IN ('deals', 'contacts', 'companies', 'line_items')),
+  -- Includes Salesforce sObject names (migration 008) and line_items (migration 014).
+  object_type TEXT NOT NULL CHECK (
+    object_type IN ('deals', 'contacts', 'companies', 'line_items', 'Opportunity', 'Contact', 'Account')
+  ),
   
   properties JSONB NOT NULL,
   pipelines JSONB, -- Only for deals
@@ -193,10 +196,14 @@ CREATE TABLE memos (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   
   status TEXT NOT NULL DEFAULT 'uploading' CHECK (
-    status IN ('uploading', 'transcribing', 'extracting', 'pending_review', 'approved', 'rejected', 'failed')
+    status IN (
+      'uploading', 'transcribing', 'extracting', 'pending_transcript',
+      'pending_review', 'approved', 'rejected', 'failed'
+    )
   ),
   
-  audio_url TEXT NOT NULL,
+  -- Optional: we now store transcript only, no audio storage (migration 004).
+  audio_url TEXT DEFAULT '',
   audio_duration REAL,
   
   transcript TEXT,
@@ -213,7 +220,113 @@ CREATE TABLE memos (
   
   created_at TIMESTAMPTZ DEFAULT NOW(),
   processed_at TIMESTAMPTZ,
-  approved_at TIMESTAMPTZ
+  approved_at TIMESTAMPTZ,
+
+  -- Recovery: track when processing started to identify stuck memos (see add_processing_started_at.sql).
+  processing_started_at TIMESTAMPTZ,
+
+  -- Origin + WhatsApp/HubSpot-call integration fields (migrations 009-011).
+  source TEXT DEFAULT 'web' CHECK (source IN ('web', 'voice_memo', 'whatsapp', 'unipile', 'hubspot_call')),
+  source_type VARCHAR(50) DEFAULT 'voice_memo',
+  whatsapp_message_id TEXT,
+  conversation_id UUID,
+  hubspot_engagement_id TEXT,
+  hubspot_deal_id TEXT,
+  hubspot_contact_id TEXT,
+  speechmatics_job_id TEXT
+);
+
+-- 6. CRM UPDATES (audit trail) - exists in production with no versioned
+-- CREATE TABLE anywhere; only ALTER TABLEs for it exist (migrations 003, 015).
+-- All 7 constraints transcribed verbatim from the production
+-- pg_get_constraintdef dump (2026-08-11) - see migrations/018_schema_baseline.sql.
+CREATE TABLE crm_updates (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  memo_id UUID NOT NULL REFERENCES memos(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  crm_connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
+  action_type TEXT NOT NULL CHECK (action_type IN (
+    'create_deal',
+    'update_deal',
+    'upsert_company',
+    'upsert_contact',
+    'merge_tasks',
+    'create_tasks',
+    'create_note',
+    'create_line_item'
+  )),
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('deal', 'contact', 'company', 'task', 'note')),
+  resource_id TEXT,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  response JSONB,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'success', 'failed', 'retrying')),
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+-- 7. WHATSAPP CONVERSATIONS (migration 012). Created after memos so
+-- pending_memo_id can reference it; memos.conversation_id is added below via
+-- ALTER TABLE for the same reason (mirrors the real migration order).
+--
+-- UNIQUE(chat_id, account_id, user_id) matches migration 012's own text
+-- on purpose. Production actually enforces UNIQUE(chat_id) alone - a real
+-- product bug (two different users can't share a WhatsApp chat_id), NOT
+-- reproduced here. See docs/DATABASE_SCHEMA.md.
+CREATE TABLE conversations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  chat_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  state TEXT NOT NULL DEFAULT 'idle' CHECK (
+    state IN (
+      'idle',
+      'waiting_approval',
+      'waiting_add_fields',
+      'waiting_crm_instruction',
+      'waiting_deal_choice'
+    )
+  ),
+  pending_memo_id UUID REFERENCES memos(id) ON DELETE SET NULL,
+  pending_artifact_ids JSONB,
+  state_expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(chat_id, account_id, user_id)
+);
+
+CREATE TABLE conversation_messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+  content_type TEXT NOT NULL DEFAULT 'text' CHECK (
+    content_type IN ('text', 'extraction_summary', 'system')
+  ),
+  content TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE memos ADD CONSTRAINT memos_conversation_id_fkey
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL;
+
+-- 8. VOICE ENROLLMENTS (migration 017) - per-user Speechmatics speaker
+-- identifiers for Call Copilot. No divergence found against production.
+CREATE TABLE user_voice_enrollments (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  rep_label TEXT NOT NULL DEFAULT 'Salesperson',
+  speaker_identifiers JSONB NOT NULL DEFAULT '[]'::jsonb,
+  sample_count INT NOT NULL DEFAULT 1,
+  consent_version TEXT NOT NULL,
+  consented_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT user_voice_enrollments_identifiers_array
+    CHECK (jsonb_typeof(speaker_identifiers) = 'array'),
+  CONSTRAINT user_voice_enrollments_sample_count_positive
+    CHECK (sample_count > 0)
 );
 
 -- ============================================
@@ -222,6 +335,22 @@ CREATE TABLE memos (
 
 CREATE INDEX idx_memos_user_status ON memos(user_id, status);
 CREATE INDEX idx_memos_user_created ON memos(user_id, created_at DESC);
+CREATE UNIQUE INDEX idx_memos_hubspot_engagement_id_unique
+  ON memos (hubspot_engagement_id)
+  WHERE hubspot_engagement_id IS NOT NULL;
+CREATE INDEX idx_memos_hubspot_deal_created
+  ON memos (hubspot_deal_id, created_at DESC)
+  WHERE hubspot_deal_id IS NOT NULL;
+CREATE INDEX memos_speechmatics_job_id_idx
+  ON memos (speechmatics_job_id) WHERE speechmatics_job_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_memos_whatsapp_message_id_unique
+  ON memos (whatsapp_message_id)
+  WHERE whatsapp_message_id IS NOT NULL;
+CREATE INDEX idx_memos_conversation_id ON memos(conversation_id);
+CREATE INDEX idx_conversations_user_chat ON conversations(user_id, chat_id, account_id);
+CREATE INDEX idx_conversations_state ON conversations(user_id, state, state_expires_at);
+CREATE INDEX idx_conversation_messages_conversation_created
+  ON conversation_messages(conversation_id, created_at DESC);
 CREATE INDEX idx_crm_configurations_user ON crm_configurations(user_id);
 CREATE INDEX idx_crm_configurations_connection ON crm_configurations(connection_id);
 CREATE INDEX idx_crm_schemas_connection ON crm_schemas(connection_id);
@@ -279,6 +408,51 @@ CREATE POLICY "Users can manage own memos"
   ON memos FOR ALL
   USING (auth.uid() = user_id);
 
+-- crm_updates, conversations and conversation_messages: RLS + policies below
+-- match production exactly (confirmed via pg_tables.rowsecurity and
+-- pg_policies, 2026-08-13), even though none of migrations 003, 012 or 015
+-- ever added them. crm_updates only gets a SELECT policy - writes to it go
+-- through the backend's service_role client, which bypasses RLS.
+ALTER TABLE crm_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own conversations"
+  ON conversations FOR ALL
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can manage messages in own conversations"
+  ON conversation_messages FOR ALL
+  USING (
+    conversation_id IN (
+      SELECT id FROM conversations WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can view own crm updates"
+  ON crm_updates FOR SELECT
+  USING (auth.uid() = user_id);
+
+-- User Voice Enrollments Policies (migration 017)
+ALTER TABLE user_voice_enrollments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY user_voice_enrollments_select_own
+  ON user_voice_enrollments FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY user_voice_enrollments_insert_own
+  ON user_voice_enrollments FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY user_voice_enrollments_update_own
+  ON user_voice_enrollments FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY user_voice_enrollments_delete_own
+  ON user_voice_enrollments FOR DELETE
+  USING (auth.uid() = user_id);
+
 -- ============================================
 -- FUNCTIONS & TRIGGERS
 -- ============================================
@@ -302,6 +476,22 @@ CREATE TRIGGER crm_connections_updated_at
 CREATE TRIGGER crm_configurations_updated_at
   BEFORE UPDATE ON crm_configurations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- No trigger for conversations.updated_at: migration 012 never added one
+-- (the column has a DEFAULT but nothing bumps it on UPDATE). Not adding one
+-- here either - full_reset.sql should match what's actually versioned.
+
+CREATE OR REPLACE FUNCTION set_user_voice_enrollments_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER user_voice_enrollments_updated_at
+  BEFORE UPDATE ON user_voice_enrollments
+  FOR EACH ROW EXECUTE FUNCTION set_user_voice_enrollments_updated_at();
 
 -- ============================================
 -- DONE!
