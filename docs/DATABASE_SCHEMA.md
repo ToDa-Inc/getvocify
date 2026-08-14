@@ -223,6 +223,26 @@ conversations` / `ALL`; `conversation_messages` / `Users can manage messages
 in own conversations` / `ALL`; `crm_updates` / `Users can view own crm
 updates` / `SELECT`.
 
+## `crm_updates.resource_type` CHECK missed `line_item` since migration 015
+
+Found 2026-08-14 while auditing every `resource_type` value used in
+`sync.py` before migrating call sites to `track()` (FASE 2.2). Migration
+`015_crm_updates_line_item_action.sql` added `create_line_item` to the
+`action_type` CHECK, but nobody added the matching `line_item` value to the
+`resource_type` CHECK - that constraint only ever allows `('deal',
+'contact', 'company', 'task', 'note')`, in production and in every
+migration through `018`. The code has used `resource_type="line_item"` for
+that action since 015, so every `INSERT` for a `create_line_item` row has
+been violating the CHECK constraint, silently, the entire time - swallowed
+by `sync.py`'s per-line-item `except Exception` and logged as a generic
+"line item create failed" warning, indistinguishable from a real HubSpot
+failure even though the item itself was created fine in HubSpot. Never
+observed because no account has exercised the line-items path yet (0 of the
+8 pre-backfill `crm_updates` rows are `create_line_item`).
+
+Fixed by `020_fix_line_item_resource_type_check.sql` (purely additive - adds
+`line_item` to the allowed list; no existing rows to migrate).
+
 ## Adding new columns/constraints going forward
 
 Every schema change must ship as a new numbered file in `backend/migrations/`

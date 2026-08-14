@@ -255,7 +255,10 @@ CREATE TABLE crm_updates (
     'create_note',
     'create_line_item'
   )),
-  resource_type TEXT NOT NULL CHECK (resource_type IN ('deal', 'contact', 'company', 'task', 'note')),
+  -- 'line_item' added by migration 020 - action_type already allowed
+  -- create_line_item since migration 015, but resource_type never got the
+  -- matching value until 020. See that migration for the full story.
+  resource_type TEXT NOT NULL CHECK (resource_type IN ('deal', 'contact', 'company', 'task', 'note', 'line_item')),
   resource_id TEXT,
   data JSONB NOT NULL DEFAULT '{}'::jsonb,
   response JSONB,
