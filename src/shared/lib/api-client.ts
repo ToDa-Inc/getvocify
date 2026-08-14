@@ -138,19 +138,16 @@ class ApiClient {
     }
     try {
       const url = `${API_BASE}/auth/refresh`;
-      // Include the current (possibly just-expired) access token: the backend
-      // decodes it - without checking expiry - to identify the user when GoTrue's
-      // refresh_session hits the known "oauth_client_id" platform bug and has to
-      // fall back to re-issuing a session via admin magiclink. Without it, that
-      // fallback can't resolve who to re-issue for and the session is lost.
-      const currentAccessToken = this.getAuthToken();
+      // The backend no longer accepts an access_token here: it can't verify
+      // that it belongs to the same session as this refresh_token, so it
+      // stopped trusting it to decide whose session to re-issue (see
+      // backend/app/api/auth.py's refresh_token docstring). If GoTrue's own
+      // "oauth_client_id" platform bug hits, this call now fails cleanly
+      // (401) and the user has to log in again.
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          refresh_token: refreshToken,
-          ...(currentAccessToken && { access_token: currentAccessToken }),
-        }),
+        body: JSON.stringify({ refresh_token: refreshToken }),
       });
       if (!res.ok) return null;
       const data = (await res.json()) as { access_token?: string; refresh_token?: string };

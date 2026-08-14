@@ -255,14 +255,26 @@ async def startup_event():
     """
     logger = logging.getLogger(__name__)
 
-    # Deliberately NOT inside the try/except below: a misconfigured
-    # CRM_UPDATES_LEGACY_PENDING_CUTOFF must fail the deploy at boot (visible
-    # in Railway's deploy logs, no traffic served) rather than surface as a
-    # 500 on whichever real user's memo happens to hit a legacy pending row
-    # first. See CRMUpdatesService.is_action_already_done's "WHERE this
-    # fires" note for the full reasoning.
+    # Deliberately NOT inside the try/except below: misconfiguration of
+    # either of these must fail the deploy at boot (visible in Railway's
+    # deploy logs, no traffic served) rather than surface later as a 500 on
+    # whichever real request hits it first, or worse - a security check that
+    # silently degrades.
+    # - CRM_UPDATES_LEGACY_PENDING_CUTOFF: see CRMUpdatesService.
+    #   is_action_already_done's "WHERE this fires" note for the reasoning.
+    # - SUPABASE_JWT_SECRET: gates whether /auth/refresh can verify a token
+    #   before using it to decide whose session to touch. See auth.py's
+    #   refresh_token docstring.
+    # - JWT_SECRET: signs the HubSpot/Salesforce OAuth "state" param. See
+    #   config.py's validate_startup_config docstring.
     from app.services.crm_updates import validate_startup_config
     validate_startup_config()
+
+    from app.api.auth import validate_startup_config as validate_auth_startup_config
+    validate_auth_startup_config()
+
+    from app.config import validate_startup_config as validate_jwt_secret_config
+    validate_jwt_secret_config()
 
     try:
         from app.deps import get_supabase

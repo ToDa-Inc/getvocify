@@ -83,11 +83,12 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     # Anon/publishable key for Auth (login/refresh). Falls back to service role if unset.
     SUPABASE_ANON_KEY: Optional[str] = None
-    # Project Settings > API > JWT Secret. Lets the backend verify the signature
-    # of a Supabase-issued access token locally (e.g. to identify a user from an
-    # already-expired token during the GoTrue refresh bypass) without trusting
-    # unverified claims. Optional: falls back to unverified decode if unset, but
-    # setting this closes a theoretical spoofing gap in that fallback path.
+    # Project Settings > API > JWT Secret. REQUIRED, not optional despite the
+    # type hint below: app.api.auth.validate_startup_config refuses to start
+    # the app without it. /auth/refresh needs it to verify (signature +
+    # expiry) any token it uses to identify who a session should be re-issued
+    # for when GoTrue's own refresh call fails. Without it, that check has no
+    # basis to trust the caller's claimed identity.
     SUPABASE_JWT_SECRET: Optional[str] = None
     
     # Application
@@ -113,7 +114,11 @@ class Settings(BaseSettings):
     # login.salesforce.com (prod) or test.salesforce.com (sandbox)
     SALESFORCE_LOGIN_BASE: str = "https://login.salesforce.com"
 
-    # JWT secret for signing OAuth state (prevents CSRF)
+    # JWT secret for signing the HubSpot/Salesforce OAuth "state" param
+    # (prevents CSRF and, more importantly, prevents forging a state that
+    # names a different user_id - see validate_startup_config below).
+    # REQUIRED despite the type hint: validate_startup_config refuses to
+    # start the app without a real value.
     JWT_SECRET: Optional[str] = None
 
     # WhatsApp (optional - app runs without these)
@@ -173,6 +178,47 @@ class Settings(BaseSettings):
         env_file = ENV_FILES
         case_sensitive = True
         extra = "ignore"  # Ignore extra fields in .env
+
+
+# Known-insecure placeholder from .env.example. This repo is public, so this
+# exact string is public too - if it's ever live in a real deployment, JWT_SECRET
+# provides no security at all. See validate_startup_config below.
+_INSECURE_JWT_SECRET_PLACEHOLDER = "your-super-secret-key-change-in-production"
+
+
+def validate_startup_config() -> None:
+    """
+    Fail the app's boot, not a user's OAuth connect click, if JWT_SECRET is
+    missing or still the publicly-known placeholder. Same pattern as
+    app.services.crm_updates.validate_startup_config and
+    app.api.auth.validate_startup_config - call from app.main's startup_event
+    before the app is marked ready for traffic.
+
+    JWT_SECRET signs the OAuth "state" param for the HubSpot and Salesforce
+    connect flows (app/services/hubspot/oauth.py, app/services/salesforce/oauth.py).
+    That state carries a user_id, and the callback trusts it to decide whose
+    crm_connections row to overwrite with the tokens from whatever CRM account
+    just completed the OAuth consent screen. Anyone who knows this secret can
+    forge a state for an arbitrary user_id, connect their own CRM account
+    through the real consent flow, and have our callback silently store their
+    tokens under someone else's account - every future sync for that victim
+    would then write into the attacker's CRM instead of the victim's.
+    """
+    if not settings.JWT_SECRET:
+        raise RuntimeError(
+            "JWT_SECRET is not configured. It signs the OAuth 'state' param for "
+            "HubSpot/Salesforce connect flows - without it, that state can't be "
+            "trusted, and every CRM connect attempt will fail anyway (see "
+            "oauth_enabled() in hubspot/oauth.py and salesforce/oauth.py). "
+            "Set it to a random value, e.g. `openssl rand -hex 32`. Refusing to start."
+        )
+    if settings.JWT_SECRET.strip() == _INSECURE_JWT_SECRET_PLACEHOLDER:
+        raise RuntimeError(
+            "JWT_SECRET is set to the placeholder value documented in "
+            ".env.example. This repo is public, so that value is public too - "
+            "it provides no security. Generate a real secret, e.g. "
+            "`openssl rand -hex 32`. Refusing to start."
+        )
 
 
 # Global settings instance

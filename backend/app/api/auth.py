@@ -372,8 +372,6 @@ async def logout(
 class RefreshRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
-    # Optional expired access token — used only if GoTrue refresh is broken (oauth_client_id)
-    access_token: Optional[str] = None
 
 
 class RefreshResponse(BaseModel):
@@ -383,132 +381,25 @@ class RefreshResponse(BaseModel):
     expires_in: int = 3600
 
 
-def _decode_access_token_claims(access_token: Optional[str]) -> Optional[dict]:
+def validate_startup_config() -> None:
     """
-    Decode a Supabase-issued access token's claims, tolerating expiry (the whole
-    point of calling this is that the token has usually just expired).
+    Fail the app's boot, not a user's /auth/refresh request, if this module is
+    misconfigured. Call from app.main's startup_event, before the app is
+    marked ready for traffic - same pattern as
+    crm_updates.validate_startup_config for CRM_UPDATES_LEGACY_PENDING_CUTOFF.
 
-    Used ONLY to identify who to re-issue a session for when GoTrue's own
-    refresh_session call is broken (see _reissue_session_bypassing_broken_refresh)
-    - never to authorize a request. When SUPABASE_JWT_SECRET is configured, the
-    signature IS verified (exp is still ignored), so a tampered/forged token
-    is rejected outright instead of being trusted. Without that secret set, we
-    fall back to an unverified decode, matching prior behavior.
+    SUPABASE_JWT_SECRET security-gates the GoTrue "oauth_client_id" bug
+    handling below (see refresh_token): without it, that code path used to
+    fall back to trusting an unverified, client-supplied token to decide who
+    gets a new session. It's not "optional but recommended" - treat it the
+    same as any other credential this app can't run safely without.
     """
-    if not access_token or access_token in ("undefined", "null"):
-        return None
-    try:
-        import jwt as pyjwt
-
-        secret = settings.SUPABASE_JWT_SECRET
-        if secret:
-            try:
-                return pyjwt.decode(
-                    access_token,
-                    secret,
-                    algorithms=["HS256"],
-                    options={"verify_exp": False},
-                    audience="authenticated",
-                )
-            except pyjwt.InvalidTokenError as e:
-                # Signature (or audience) didn't verify - do NOT fall back to an
-                # unverified decode here, that would defeat the point of setting
-                # the secret in the first place.
-                logger.warning("Access token signature verification failed during refresh bypass: %s", e)
-                return None
-        return pyjwt.decode(
-            access_token,
-            options={"verify_signature": False, "verify_exp": False},
+    if not settings.SUPABASE_JWT_SECRET:
+        raise RuntimeError(
+            "SUPABASE_JWT_SECRET is not configured. This is required so that "
+            "/auth/refresh can verify (signature + expiry) any token it uses "
+            "to decide whose session to touch. Refusing to start."
         )
-    except Exception:
-        return None
-
-
-def _email_from_access_token(access_token: Optional[str]) -> Optional[str]:
-    claims = _decode_access_token_claims(access_token)
-    if not claims:
-        return None
-    email = claims.get("email")
-    if isinstance(email, str) and "@" in email:
-        return email
-    meta = claims.get("user_metadata") or {}
-    meta_email = meta.get("email") if isinstance(meta, dict) else None
-    if isinstance(meta_email, str) and "@" in meta_email:
-        return meta_email
-    return None
-
-
-def _user_id_from_access_token(access_token: Optional[str]) -> Optional[str]:
-    claims = _decode_access_token_claims(access_token)
-    if not claims:
-        return None
-    sub = claims.get("sub")
-    return str(sub) if sub else None
-
-
-def _reissue_session_bypassing_broken_refresh(email: Optional[str], user_id: Optional[str]) -> RefreshResponse:
-    """
-    GoTrue refresh is broken on this project (oauth_client_id). Password login and
-    magiclink verify still work — re-issue a session via admin generate_link + OTP.
-    """
-    admin = get_supabase()
-    resolved_email = email
-
-    if not resolved_email and user_id:
-        try:
-            user_resp = admin.auth.admin.get_user_by_id(user_id)
-            user = getattr(user_resp, "user", None) or user_resp
-            resolved_email = getattr(user, "email", None)
-            if not resolved_email and isinstance(user, dict):
-                resolved_email = user.get("email")
-        except Exception as e:
-            logger.warning("Admin get_user_by_id failed during refresh bypass: %s", e)
-
-    if not resolved_email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired. Please sign in again.",
-        )
-
-    try:
-        link = admin.auth.admin.generate_link({"type": "magiclink", "email": resolved_email})
-        props = getattr(link, "properties", None)
-        email_otp = getattr(props, "email_otp", None) if props else None
-        hashed = getattr(props, "hashed_token", None) if props else None
-        if not email_otp and not hashed:
-            raise RuntimeError("generate_link returned no otp")
-
-        auth_client = get_supabase_auth()
-        if email_otp:
-            verified = auth_client.auth.verify_otp(
-                {"email": resolved_email, "token": email_otp, "type": "magiclink"}
-            )
-        else:
-            verified = auth_client.auth.verify_otp(
-                {"token_hash": hashed, "type": "magiclink"}
-            )
-
-        session = getattr(verified, "session", None)
-        if not session:
-            raise RuntimeError("verify_otp returned no session")
-
-        logger.warning(
-            "Supabase refresh broken (oauth_client_id); re-issued session via magiclink bypass for %s",
-            resolved_email,
-        )
-        return RefreshResponse(
-            access_token=session.access_token,
-            refresh_token=session.refresh_token,
-            expires_in=session.expires_in or 3600,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Refresh bypass failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired. Please sign in again.",
-        ) from e
 
 
 @router.post("/refresh", response_model=RefreshResponse)
@@ -520,10 +411,23 @@ async def refresh_token(
 ):
     """
     Refresh the access token using a refresh token.
-    
+
     Returns new access token and refresh token.
     Uses the anon-key auth client when available (more reliable than service role).
-    If GoTrue refresh is broken (oauth_client_id), falls back to admin session re-issue.
+
+    If GoTrue itself is broken (the "oauth_client_id" platform bug - see
+    https://github.com/supabase/supabase/issues/39394), this fails the refresh
+    cleanly (401) instead of re-issuing a session. There used to be an admin
+    magiclink bypass here that resolved *who* to re-issue a session for from a
+    client-supplied access_token. It was removed: there is no Admin API or
+    exposed table that lets us independently confirm that access_token
+    belongs to the *same* session as the refresh_token that failed - Supabase
+    only exposes that binding via the refresh_session call itself, which is
+    exactly what's broken. Trusting a second, unrelated token to pick whose
+    session to touch is a forgeable/replayable identity check, not a real
+    one. Forcing a clean re-login is the safe failure mode until Supabase
+    fixes their infrastructure (Project Settings → Infrastructure → Upgrade,
+    or a support ticket).
     """
     token = (body.refresh_token or "").strip()
     if not token or token in ("undefined", "null"):
@@ -565,15 +469,19 @@ async def refresh_token(
                 detail="Auth service temporarily unreachable. Please try again.",
             )
 
-        # Known Supabase Auth platform bug — bypass via admin magiclink re-issue
+        # Known Supabase Auth platform bug (see docstring above) — no safe way
+        # to identify the caller independently of the broken call, so fail
+        # clean instead of guessing. Logged at ERROR (not just observability -
+        # every occurrence is a forced re-login) so frequency is visible.
         if "oauth_client_id" in lower or "unexpected_failure" in lower:
             logger.error(
-                "Supabase Auth refresh broken (oauth_client_id); attempting session re-issue bypass — %s",
+                "Supabase Auth refresh broken (oauth_client_id) — no safe bypass "
+                "available, forcing re-login — %s",
                 error_msg,
             )
-            return _reissue_session_bypassing_broken_refresh(
-                email=_email_from_access_token(body.access_token),
-                user_id=_user_id_from_access_token(body.access_token),
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired due to a Supabase Auth platform issue. Please sign in again.",
             )
 
         # GoTrue often returns 500 for already-used / invalid refresh tokens
