@@ -138,6 +138,71 @@ given time.
 3. `.env.example`'s `JWT_SECRET` line changed to an empty `FIELD=`, matching
    every other secret in the file, so it no longer looks pre-filled.
 
+### Exposure assessment
+
+Worst-case exposure window: **~7.5 months** (2025-12-30, when the placeholder
+was committed to this public repo, through 2026-08-14, when it was rotated).
+We don't know if the Railway variable actually held the placeholder for all
+or any of that window - only that it's the maximum possible span.
+
+Checked `crm_connections` for signs of exploitation: 9 rows total, reviewed
+individually. 6 point at our own test portal, the other 3 at portals we
+recognize as legitimate. No user's portal changed unexpectedly, and no
+unfamiliar portal is shared across multiple users - the pattern a hijack
+(attacker's tokens written under a victim's `user_id`) would produce. No
+signs of exploitation in the data we retain, given the small number of
+connections this covers (9) and that "no signs today" doesn't rule out a
+row that was hijacked and later reconnected/overwritten by the legitimate
+owner, which would leave no trace in the current row.
+
+### Known debt: `state` still relies on `JWT_SECRET` as its only defense
+
+Rotating `JWT_SECRET` and gating startup on it (above) closes the exposure
+from this specific incident, but the design itself still has a single point
+of failure: possessing `JWT_SECRET` remains sufficient, by itself, to forge
+a `state` for an arbitrary `user_id` and hijack another user's CRM
+connection. A future leak of this secret (logs, memory dump, an env var
+exposed some other way) reopens the exact same hijack, instantly, with no
+additional barrier.
+
+Approved design, not yet implemented: replace the signed-JWT `state` with a
+single-use, database-backed nonce.
+
+- `GET /hubspot/authorize` and `GET /salesforce/authorize` already resolve
+  `user_id` from a verified Supabase bearer token (`Depends(get_user_id)`)
+  before calling `build_authorize_url` - that is the moment of real,
+  verified identity. Instead of encoding that `user_id` into a client-
+  visible signed token, generate an opaque random nonce
+  (`secrets.token_urlsafe(32)`), store `(nonce, user_id, provider,
+  created_at, expires_at, used_at)` server-side, and send only the nonce as
+  `state`.
+- On callback, resolve `user_id` by looking up the nonce, not by decoding
+  anything the client echoed back. Reject if the nonce is missing, expired,
+  or already used; mark it used on a successful callback (single-use).
+- Effect: a leaked `JWT_SECRET` alone is no longer sufficient to forge
+  anything - an attacker would also need write access to our database,
+  which is a materially higher bar. As a side effect (not the original ask,
+  found while designing this), it also closes replay of a legitimate
+  `state` intercepted within its 10-minute window - today's JWT-based
+  design has no single-use enforcement either, so that replay is possible
+  right now, independent of any secret leak.
+- Needs a TTL sweep for expired, unused nonce rows - same pattern as
+  `crm_updates`' orphaned-`pending` cleanup.
+- **`JWT_SECRET` becomes orphaned once this ships.** It is used nowhere
+  else in the codebase (confirmed by a repo-wide search - only
+  `hubspot/oauth.py` and `salesforce/oauth.py` read it, both only for this
+  `state` signing). Follow-on cleanup at that point: remove the setting
+  from `config.py`, `validate_startup_config`, and `.env.example`, and drop
+  the Railway variable - do not do this until the nonce design has actually
+  shipped and been verified against real HubSpot/Salesforce callbacks.
+- Rejected alternative: binding `state` to the caller's browser session at
+  callback time. HubSpot/Salesforce redirect straight to this backend
+  (`HUBSPOT_REDIRECT_URI`/`SALESFORCE_REDIRECT_URI` point at the API, not
+  the frontend), so there is no cookie or Authorization header to bind to
+  at that hop without first rerouting the callback through the frontend -
+  more architectural change for no benefit the nonce design doesn't already
+  provide.
+
 ## Lessons
 
 1. **A variable security depends on cannot be "optional" in code or in
