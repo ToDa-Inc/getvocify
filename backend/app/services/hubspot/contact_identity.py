@@ -210,7 +210,16 @@ async def _deal_matches_for_contact(
     pipeline_id: Optional[str],
     match_confidence: float = 0.95,
 ) -> list[DealMatch]:
-    deal_matches: list[DealMatch] = []
+    # (is_default_pipeline, DealMatch) pairs, sorted below so a deal in the account's
+    # default pipeline is preferred when a contact has several - but every deal
+    # HubSpot's association API confirms belongs to this contact stays a candidate,
+    # regardless of pipeline. Excluding by pipeline here was a real bug: an association
+    # HubSpot already confirmed is not something to second-guess by pipeline the way
+    # find_matching_deals' free-text search has to (that one keeps its pipeline filter -
+    # different context, genuine ambiguity with no known contact to anchor on).
+    candidates: list[tuple[bool, DealMatch]] = []
+    fetch_failed = 0
+    deal_ids: list[str] = []
     try:
         deal_ids = await associations.get_associations("contacts", contact_id, "deals")
         for did in deal_ids[: max(limit_deals * 2, limit_deals)]:
@@ -222,13 +231,15 @@ async def _deal_matches_for_contact(
                     },
                 )
             except Exception:
+                fetch_failed += 1
                 continue
             if not deal_data:
+                fetch_failed += 1
                 continue
             dprops = deal_data.get("properties") or {}
-            if pipeline_id and dprops.get("pipeline") and dprops.get("pipeline") != pipeline_id:
-                continue
-            deal_matches.append(
+            is_default_pipeline = bool(pipeline_id) and dprops.get("pipeline") == pipeline_id
+            candidates.append((
+                is_default_pipeline,
                 DealMatch(
                     deal_id=str(deal_data.get("id") or did),
                     deal_name=dprops.get("dealname") or "Deal",
@@ -240,12 +251,28 @@ async def _deal_matches_for_contact(
                     last_updated=dprops.get("hs_lastmodifieddate") or "",
                     match_confidence=match_confidence,
                     match_reason="Linked to matched contact",
-                )
-            )
-            if len(deal_matches) >= limit_deals:
-                break
+                ),
+            ))
     except Exception as e:
         logger.warning("Contact→deal associations failed: %s", e)
+        return []
+
+    # Stable sort: default-pipeline deals first, ties keep HubSpot's association order.
+    candidates.sort(key=lambda c: 0 if c[0] else 1)
+    deal_matches = [dm for _, dm in candidates][:limit_deals]
+
+    # Log every time there was something to resolve, so a future filter that drops
+    # candidates again shows up here instead of going unnoticed for months like the
+    # pipeline-exclusion bug this replaced - this line is what would have caught it
+    # the day it happened instead of the day someone happened to hit it manually.
+    if deal_ids or fetch_failed:
+        off_default_pipeline = sum(1 for is_default, _ in candidates if not is_default)
+        logger.info(
+            "Contact→deal association resolution: contact=%s associated=%d resolved=%d "
+            "kept_after_limit=%d off_default_pipeline=%d fetch_failed=%d",
+            contact_id, len(deal_ids), len(candidates), len(deal_matches),
+            off_default_pipeline, fetch_failed,
+        )
     return deal_matches
 
 
