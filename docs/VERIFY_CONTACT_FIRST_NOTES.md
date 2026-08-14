@@ -48,16 +48,11 @@ Aplica primero, en este orden (independientes entre sí, pero ambas antes de des
      de hace 2 horas es ruido de pruebas antiguas, no una sync en curso. Lo que importa es
      la antigüedad, no el conteo.
 
-Luego:
-
-```bash
-make backend
-```
-
-Deja el terminal abierto y visible: vas a grepear su salida en tiempo real (o pegarla
-después). El formato de log local es texto plano con pares `clave=valor` al final de
-cada línea (no JSON) - los greps de este documento buscan el texto del mensaje, que
-aparece igual en ambos formatos.
+Este documento se ejecuta contra producción (`https://api.getvocify.com`, ya
+desplegado), no en local - no hace falta `make backend`. Deja abierta la pestaña de
+**Deploy Logs** de Railway (el mismo sitio donde confirmaste `Application startup
+complete`): ahí es donde aparecen las líneas que buscan las secciones 4, 6 y 7, en
+texto plano con pares `clave=valor`, mezcladas con el resto del tráfico en tiempo real.
 
 ## 1. Qué grabar y dónde
 
@@ -130,20 +125,22 @@ Si algo del Caso B cambió de comportamiento respecto a antes de este trabajo (p
 tarea acaba en el contacto en vez del deal), es una regresión - para y avísame antes de
 seguir.
 
-## 4. Líneas de log a grepear en el backend
+## 4. Líneas de log a buscar en Railway Deploy Logs
 
-Busca por el texto del mensaje (ignora mayúsculas/minúsculas y emoji si tu terminal los
-recorta):
+En Railway no hay `grep` - usa el buscador de la propia vista de Deploy Logs (icono de
+lupa o Cmd/Ctrl+F según la versión de la UI) y busca cada una de estas frases, en el
+orden en que deberían aparecer justo después de aprobar la memo desde el popup (ignora
+mayúsculas/minúsculas y emoji, busca por el texto):
 
-```bash
-grep -i "hubspot sync started" backend.log
-grep -i "task association target resolved" backend.log
-grep -i "tasks created" backend.log
-grep -i "note association targets resolved" backend.log
-grep -i "note associated" backend.log
-grep -i "note created" backend.log
-grep -i "skipping duplicate" backend.log
-grep -i "hubspot sync complete" backend.log
+```text
+hubspot sync started
+task association target resolved
+tasks created
+note association targets resolved
+note associated
+note created
+skipping duplicate
+hubspot sync complete
 ```
 
 Orden esperado y qué confirma cada línea (con el `target_type`/`targets` variando entre
@@ -264,7 +261,7 @@ directo al backend con un `company_id` que no existe.
    deja `company_id` tal cual, es el ID inválido a propósito):
 
 ```bash
-curl -i -X POST "http://localhost:8000/memos/<memo_id>/approve" \
+curl -i -X POST "https://api.getvocify.com/api/v1/memos/<memo_id>/approve" \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -276,6 +273,11 @@ curl -i -X POST "http://localhost:8000/memos/<memo_id>/approve" \
   }'
 ```
 
+(Contra producción, no local - es el código que acabas de desplegar el que quieres
+probar. El prefijo `/api/v1` es el mismo en local y producción, es el mismo servidor
+FastAPI - si alguna vez pruebas contra `make backend` en local, solo cambia el host a
+`http://localhost:8000`, el path se queda igual.)
+
 No incluyas `"extraction"` - si la memo aún no estaba aprobada, `approve_memo_core` usa
 la extracción ya guardada de la transcripción. Si la memo YA estaba aprobada, omitir
 `extraction` hace que el endpoint devuelva el resultado cacheado sin volver a
@@ -284,8 +286,16 @@ sincronizar (mira el bloque `if memo_data.get("status") == "approved" ...` en
 
 ### Qué comprobar después
 
-Grepea el log por `note_create_with_assoc_failed`, `note_associated`, y
-`note_association_failed` para esta memo, y mira el deal y el contacto en HubSpot.
+Grepea el log por `note_create_with_assoc_failed`, `note_associated`,
+`note_association_failed` y **`note_failed`** para esta memo, y mira el deal y el
+contacto en HubSpot. Son logs de la aplicación (structlog a stdout) - en Railway
+aparecen en **Deploy Logs**, la misma pestaña donde viste el arranque; el stream sigue
+mostrando líneas nuevas mientras el proceso corre, no se corta después del startup. No
+son los Network Logs (esos son a nivel de proxy/edge: método, ruta, código HTTP, latencia
+- no los eventos de la aplicación).
+
+Hay tres resultados posibles, no dos - el tercero sale de leer el bloque `except`
+completo en `sync.py` (líneas 1160-1227), no de asumir el comportamiento de HubSpot:
 
 - **Supuesto correcto (esperado)**: aparece `⚠️ Note create with associations failed
   (safe to retry bare)` seguido de `✅ Note associated (fallback)` **dos veces** (deal y
@@ -304,6 +314,17 @@ Grepea el log por `note_create_with_assoc_failed`, `note_associated`, y
   obsoleto, ID de un objeto bordado/mergeado) puede quedar reportada como éxito en
   `crm_updates` sin que sea verdad, aunque en este caso concreto no genere una nota
   duplicada (ese riesgo específico sigue cerrado por el diseño del fallback).
+- **Tercer resultado - HubSpot devolvió algo que no es 403/400/404 (p. ej. un 5xx, un
+  timeout, o el propio fallback bare también falla)**: no aparece ni
+  `note_create_with_assoc_failed` ni `note_associated` ninguna vez - aparece
+  **`note_failed`** en su lugar. En HubSpot: **no hay ninguna nota**, ni en el deal ni en
+  el contacto - no falla solo la asociación inválida, falla la nota entera. El `curl`
+  devuelve `200` igualmente (el bloque que envuelve todo el paso de la nota no relanza la
+  excepción, y `result.success = True` se fija después sin condición sobre si la nota se
+  creó). En `crm_updates`, la fila de `create_note` para esta memo queda en `'failed'`. Si
+  ves esto, para y avísame con el mensaje de error exacto de `note_failed` - dice qué
+  código devolvió HubSpot realmente, y con eso confirmamos si el fallback necesita cubrir
+  ese caso también.
 
 Nota sobre el alcance de esta prueba: un ID completamente inexistente es el caso más
 fácil de forzar y el más probable de ser rechazado por la validación de HubSpot antes de
@@ -533,6 +554,50 @@ búsqueda-antes-de-crear) bloquea el despliegue ni la verificación manual de es
 Ninguno de los tres se implementa todavía. El diseño queda parado aquí hasta después de
 la verificación manual de este documento - la prueba de atomicidad de la sección 7 puede
 cambiar el contrato de "éxito" de `create_note` y con él parte de este análisis.
+
+**Actualización (2026-08-14): sección 7 ejecutada, supuesto de atomicidad confirmado**
+contra HubSpot real (400 "one or more associations are not valid", HubSpot no creó nada,
+fallback bare + asociación uno por uno funcionó sin duplicados, `crm_updates` con las 3
+filas en `success`). No hace falta rediseñar nada de 11.A/11.B/11.C - el contrato asumido
+por el fallback es el real.
+
+### 11.D. `disconnect` de HubSpot borra `crm_updates`, `crm_configurations` y `crm_schemas` por CASCADE
+
+Encontrado al investigar por qué faltaba el scope `crm.objects.owners.read` (ver
+post-mortem, punto 9): el procedimiento que tanto `hubspot-app/README.md` como
+`HubSpotConfiguration.tsx` recomendaban para "conceder un scope nuevo" era desconectar y
+volver a conectar. Verificado contra el esquema real, no asumido:
+
+```247:247:backend/full_reset.sql
+  crm_connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
+```
+
+`disconnect_hubspot` hace un `DELETE FROM crm_connections` literal. Ese `DELETE` cascada
+sobre `crm_configurations` (pipeline/stage por defecto y los allowlists de campos que el
+cliente configuró a mano), `crm_schemas` (caché de propiedades) y **`crm_updates`** - el
+rastro de auditoría completo que `track()` existe para preservar, borrado sin aviso en el
+momento en que el cliente hace exactamente lo que el producto le pedía hacer.
+
+**Corregido para el caso de "conceder un scope nuevo" (implementado):** el callback de
+OAuth ya hace `upsert(on_conflict="user_id,provider")` sobre una tabla con
+`UNIQUE(user_id, provider)` - volver a pasar por el consentimiento de HubSpot sin
+desconectar primero actualiza la fila existente en vez de borrarla y crear otra. Se añadió
+un botón "Refresh permissions" en `IntegrationsPage.tsx` que dispara ese camino
+directamente, y se corrigió el aviso de `HubSpotConfiguration.tsx` que apuntaba al
+destructivo.
+
+**Sin resolver, deuda explícita:** el `CASCADE` en sí sigue ahí. Un cliente que se dé de
+baja *de verdad* (no para renovar permisos, sino porque quiere desconectar HubSpot) sigue
+borrando su propia auditoría al hacerlo, sin que se le avise de que eso es lo que va a
+pasar. Pregunta abierta, sin decidir: ¿debería `crm_updates` sobrevivir a la desconexión?
+Es la misma pregunta que ya quedó anotada para el `ON DELETE CASCADE` de `memos` (ver
+`docs/DATABASE_SCHEMA.md` y el docstring de `delete_memo`) - si la respuesta acaba siendo
+sí para los memos borrados, probablemente sea sí también aquí, y la solución sería la
+misma: una tabla de auditoría aparte, sin PII, que sobreviva al `DELETE` del origen, no un
+`SET NULL` sobre `crm_connection_id` (eso dejaría filas de auditoría sin saber a qué
+conexión pertenecieron). No implementado, no bloqueante - nadie usa hoy el camino
+destructivo salvo por error, y con el botón de refresh ya no hace falta usarlo para
+scopes nuevos.
 
 ## 12. ROLLBACK - qué hacer si algo falla después de que la app arranque bien
 
