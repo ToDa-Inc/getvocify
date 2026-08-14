@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Check, X, Loader2, Settings2 } from "lucide-react";
+import { Check, X, Loader2, Settings2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
@@ -65,6 +65,7 @@ const IntegrationsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [primaryConnectionId, setPrimaryConnectionId] = useState<string | null>(null);
   const [connectionRows, setConnectionRows] = useState<{ id: string; provider: string }[]>([]);
+  const [isRefreshingHubSpotPermissions, setIsRefreshingHubSpotPermissions] = useState(false);
 
   const fetchConnections = useCallback(async () => {
     try {
@@ -219,6 +220,23 @@ const IntegrationsPage = () => {
     setIsConfigModalOpen(true);
   };
 
+  // Re-run HubSpot OAuth consent without disconnecting first. The backend upserts on
+  // (user_id, provider) - same connection row, same id - so crm_configurations,
+  // crm_schemas, and the crm_updates audit trail all survive. This exists specifically
+  // so "grant a newly-added scope" never has to go through disconnect (which cascades
+  // and deletes all three).
+  const handleRefreshHubSpotPermissions = async () => {
+    setIsRefreshingHubSpotPermissions(true);
+    try {
+      const { redirect_url } = await crmApi.getHubSpotAuthorizeUrl();
+      window.location.href = redirect_url;
+    } catch (error: any) {
+      setIsRefreshingHubSpotPermissions(false);
+      const msg = error?.data?.detail ?? error.message ?? "Failed to refresh HubSpot permissions";
+      toast.error(msg);
+    }
+  };
+
   const handleDisconnect = async (id: string) => {
     try {
       if (id === "hubspot") await crmApi.disconnectHubSpot();
@@ -366,6 +384,22 @@ const IntegrationsPage = () => {
                     <Settings2 className="h-4 w-4 mr-2" />
                     {integration.details?.portal ? "Configure" : "Set Up Pipeline"}
                   </Button>
+                  {integration.id === "hubspot" && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      title="Refresh permissions - re-authorize without losing your saved configuration or sync history"
+                      className="w-12 h-12 rounded-full border-border/50 hover:bg-secondary/10"
+                      onClick={handleRefreshHubSpotPermissions}
+                      disabled={isRefreshingHubSpotPermissions}
+                    >
+                      {isRefreshingHubSpotPermissions ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
                   <Button 
                     variant="outline" 
                     size="icon" 

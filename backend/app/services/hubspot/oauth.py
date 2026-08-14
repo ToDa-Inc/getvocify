@@ -29,6 +29,7 @@ HUBSPOT_OAUTH_SCOPES = [
     "crm.objects.companies.write",
     "crm.objects.deals.read",
     "crm.objects.deals.write",
+    "crm.objects.owners.read",
     "crm.objects.line_items.read",
     "crm.objects.line_items.write",
     "crm.schemas.contacts.read",

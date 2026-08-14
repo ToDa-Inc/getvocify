@@ -95,7 +95,20 @@ Required for Vocify:
 - `crm.objects.line_items.read/write`
 - `crm.schemas.contacts/companies/deals/line_items.read`
 
-After changing scopes, run `hs project upload`, then existing installs must **reconnect** (disconnect → Connect HubSpot again) so HubSpot re-issues a token with the new grants. New installs get them on first consent.
+After changing scopes, run `hs project upload`, then existing installs must
+re-authorize so HubSpot re-issues a token with the new grants. New installs get them on
+first consent.
+
+**Do not tell customers to disconnect first.** `crm_connections` has
+`UNIQUE(user_id, provider)`, and the OAuth callback (`hubspot_callback` in
+`backend/app/api/crm.py`) upserts on that conflict - re-running the consent flow while
+already connected updates the existing row in place, same `id`. Disconnecting first
+instead runs a hard `DELETE` on that row, which cascades (`ON DELETE CASCADE`) and wipes
+`crm_configurations` (the customer's saved pipeline/stage defaults and field allowlists),
+`crm_schemas`, and `crm_updates` (the sync audit trail) for that connection. Use the
+"Refresh permissions" button in the dashboard's Integrations page instead
+(`IntegrationsPage.tsx` → `handleRefreshHubSpotPermissions`) - it calls
+`GET /api/v1/crm/hubspot/authorize` directly without disconnecting.
 
 ## Distribution
 

@@ -292,7 +292,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
           </p>
           <p className="text-xs text-muted-foreground leading-relaxed">
             {lineItemsScopeMissing
-              ? "Your current HubSpot grant is missing line-item scopes. Token refresh cannot add them — go to Integrations, disconnect HubSpot, then connect again so consent includes line items."
+              ? "Your current HubSpot grant is missing line-item scopes. Token refresh cannot add them — go to Integrations and click the shield icon next to HubSpot (\"Refresh permissions\") to re-authorize with line items included. This keeps your saved configuration and sync history; disconnecting would delete both."
               : "Deals/contacts still work. Retry later, or reconnect HubSpot from Integrations if this keeps happening."}
           </p>
         </div>

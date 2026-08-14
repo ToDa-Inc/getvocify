@@ -20,11 +20,15 @@ class HubSpotValidationService:
     3. Required scopes (can read/write contacts, companies, deals)
     """
     
+    # NOTE: this dict is documentation only - _test_scopes() below does not read it.
+    # Adding a scope here without also adding a matching test call is a no-op; the
+    # health check will keep reporting scopes_ok=True regardless.
     REQUIRED_SCOPES = {
         "read": [
             "crm.objects.contacts.read",
             "crm.objects.companies.read",
             "crm.objects.deals.read",
+            "crm.objects.owners.read",
             "crm.schemas.contacts.read",
             "crm.schemas.companies.read",
             "crm.schemas.deals.read",
@@ -119,6 +123,12 @@ class HubSpotValidationService:
             await self.client.get("/crm/v3/properties/contacts", params={"limit": 1})
             await self.client.get("/crm/v3/properties/companies", params={"limit": 1})
             await self.client.get("/crm/v3/properties/deals", params={"limit": 1})
+            # Missing owners.read doesn't block deals/contacts/companies sync - it only
+            # silently disables automatic deal-owner assignment (sync.py catches the
+            # 403 and logs a warning, never raises). Test it explicitly here so a missing
+            # grant shows up as scopes_ok=False instead of only in a log line nobody is
+            # watching - this is exactly the gap that let it go unnoticed until now.
+            await self.client.get("/crm/v3/owners", params={"limit": 1})
             
             # Test write scopes (these will fail gracefully if missing)
             # We don't actually create anything, just check if we have permission
