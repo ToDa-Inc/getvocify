@@ -10,6 +10,7 @@ __pycache__/
 .Python
 .venv/
 venv/
+.venv-test/
 
 # Node
 node_modules
@@ -21,6 +22,10 @@ bun.lockb
 # Logs and local runtime
 logs/
 *.log
+
+# Point-in-time schema snapshot from backend/scripts/dump_schema.py - a
+# diagnostic artifact, never a source of truth (git is). Regenerate on demand.
+backend/migrations/_schema_dump.sql
 
 # GTM / workspace data (lives in ../vocify-workspace)
 *.csv

@@ -1,0 +1,8 @@
+# Test-only dependencies. NOT used by Railway/Nixpacks (which builds from
+# requirements.txt only) — install locally / in CI with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+respx>=0.20.2

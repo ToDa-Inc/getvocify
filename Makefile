@@ -3,11 +3,19 @@
 #   Unipile:  https://<ngrok>/webhooks/unipile
 #   HubSpot:  https://<ngrok>/webhooks/hubspot  (GET returns JSON with curl examples)
 
-.PHONY: backend ngrok ngrok-static ngrok-url
+.PHONY: backend ngrok ngrok-static ngrok-url test
 
 # Backend on port 8000
 backend:
 	cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Backend test suite (characterization/golden-master tests). Mocks all HTTP
+# (respx) and Supabase - no network, no real credentials needed beyond the
+# SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY placeholders app.config validates on
+# import (backend/.env). Install dev deps first:
+#   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+test:
+	cd backend && python -m pytest
 
 # Expose localhost:8000 via ngrok. Run `make backend` first in another terminal.
 ngrok:
