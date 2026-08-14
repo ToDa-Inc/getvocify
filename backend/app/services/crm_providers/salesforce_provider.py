@@ -102,7 +102,21 @@ class SalesforceCRMProvider:
         del default_pipeline_id, default_stage_id
         del create_note  # Salesforce path does not create HubSpot-style notes here
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
-        del contact_id, company_id, skip_deal  # HubSpot contact-first; not used for SF yet
+        del contact_id, company_id  # HubSpot contact-first anchors; not used for SF yet
+        if skip_deal:
+            # Salesforce doesn't support contact-first sync yet: an Opportunity is
+            # always required. Fail loudly instead of silently creating one while the
+            # preview told the user "Contact only (no deal)" - a visible error beats a
+            # sync that does something different from what was promised.
+            return SyncResult(
+                memo_id=str(memo_id),
+                success=False,
+                error=(
+                    "Salesforce doesn't support contact-only sync yet. "
+                    "An Opportunity is required - select or create one to sync this memo."
+                ),
+                error_code="SKIP_DEAL_UNSUPPORTED",
+            )
         return await self._sync_service().sync_memo(
             memo_id=memo_id,
             user_id=user_id,

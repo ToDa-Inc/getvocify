@@ -29,6 +29,16 @@ class HubSpotAssociationService:
     CONTACT_TO_DEAL = "4"
     DEAL_TO_COMPANY = "5"
     COMPANY_TO_DEAL = "6"
+
+    # Note (activity) association types - one-directional (note -> object).
+    # Required explicitly in the `associations` array when creating a note via
+    # POST /crm/v3/objects/notes (unlike the default-association PUT endpoint
+    # above, which infers the type). Verified against HubSpot's default
+    # associationTypeId table (developers.hubspot.com/docs/api-reference/.../
+    # crm/associations/associate-records/guide, "Note to object" section).
+    NOTE_TO_CONTACT = 202
+    NOTE_TO_COMPANY = 190
+    NOTE_TO_DEAL = 214
     
     def __init__(self, client: HubSpotClient):
         self.client = client

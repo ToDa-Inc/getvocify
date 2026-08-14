@@ -25,6 +25,23 @@ from app.services.hubspot.types import SyncResult
 logger = logging.getLogger(__name__)
 
 
+class CRMSyncError(ValueError):
+    """
+    Raised when provider.sync_memo() returns success=False.
+
+    Subclasses ValueError so existing `except ValueError` call sites (the
+    WhatsApp processor) keep working unmodified - str(e) is still just the
+    message. The HTTP layer (app/api/memos.py) catches this specifically,
+    before the generic ValueError branch, so it can map error_code to a
+    proper 4xx instead of collapsing every predictable business failure
+    (e.g. "Salesforce needs a deal") into a 500.
+    """
+
+    def __init__(self, message: str, error_code: Optional[str] = None):
+        super().__init__(message)
+        self.error_code = error_code
+
+
 async def approve_memo_core(
     supabase: Client,
     memo_id: str,
@@ -226,7 +243,7 @@ async def approve_memo_core(
                 DOMAIN_MEMO, "approve_core_failed", memo_id=memo_id, error=sync_result.error or "unknown"
             ),
         )
-        raise ValueError(sync_result.error or "Failed to sync to CRM")
+        raise CRMSyncError(sync_result.error or "Failed to sync to CRM", error_code=sync_result.error_code)
 
     logger.info(
         "✅ Approve memo core complete",

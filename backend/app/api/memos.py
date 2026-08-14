@@ -17,7 +17,7 @@ from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
-from app.services.memo_approval import approve_memo_core
+from app.services.memo_approval import approve_memo_core, CRMSyncError
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
@@ -613,6 +613,26 @@ async def get_memo(
     return _memo_from_row(memo_data)
 
 
+# Maps SyncResult.error_code (set in sync.py / salesforce_provider.py) to an HTTP
+# status for the /approve endpoint. Only codes that represent a predictable,
+# user-actionable business failure get a 4xx here - anything else (API_ERROR,
+# UNKNOWN_ERROR, SF_SYNC_FAILED, or an unrecognized code) defaults to 500,
+# matching prior behavior for those genuinely opaque/operational failures.
+_CRM_SYNC_ERROR_STATUS: dict[Optional[str], int] = {
+    # Request was well-formed, but the current CRM connection can't satisfy it
+    # (Salesforce requires an Opportunity; the caller asked to skip it). This is
+    # a conflict between the request's intent and the connection's capabilities,
+    # not a malformed body - 422 is reserved for that (FastAPI emits it itself
+    # for pydantic validation errors), so 409 is the accurate fit here.
+    "SKIP_DEAL_UNSUPPORTED": status.HTTP_409_CONFLICT,
+    # The CRM connection's token is invalid or lacks a required scope. Same
+    # class of problem as "you need to reconnect" - 401 signals that directly
+    # instead of a misleading 500.
+    "AUTH_ERROR": status.HTTP_401_UNAUTHORIZED,
+    "SCOPE_ERROR": status.HTTP_401_UNAUTHORIZED,
+}
+
+
 @router.post("/{memo_id}/approve", response_model=Union[Memo, SyncResult])
 async def approve_memo(
     memo_id: UUID,
@@ -682,6 +702,17 @@ async def approve_memo(
     
     try:
         return await approve_memo_core(supabase, str(memo_id), user_id, payload)
+    except CRMSyncError as e:
+        # A predictable business failure from the CRM provider (e.g. "Salesforce
+        # needs a deal") is not a server bug: a 500 hides it in the same bucket as
+        # real crashes and monitoring can't tell them apart. Map the SyncResult's
+        # own error_code (never invented here, only forwarded) to a 4xx, and fall
+        # back to 500 only for codes that are genuinely opaque/operational.
+        status_code = _CRM_SYNC_ERROR_STATUS.get(e.error_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": str(e), "error_code": e.error_code},
+        )
     except ValueError as e:
         detail = str(e)
         if "Memo not found" in detail:
@@ -1334,9 +1365,15 @@ async def delete_memo(
 ):
     """
     Delete a memo and its audio file.
-    
+
     Permanently removes the memo record and associated audio file from storage.
-    CRM updates are preserved for audit trail.
+    crm_updates rows for this memo are removed too (ON DELETE CASCADE on
+    crm_updates.memo_id) - this is intentional, not a bug: if a user deletes a
+    memo (including for a data-deletion/GDPR request), its audit trail should
+    not survive the memo. There is currently no separate, PII-free record of
+    "a sync happened" that outlives the memo - if that's ever needed, it has
+    to be a distinct table that doesn't key off personal data, not a change to
+    this cascade. Tracked as debt, not implemented.
     """
     # Get memo
     memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
