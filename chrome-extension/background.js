@@ -486,7 +486,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           updateState({ status: 'success', syncResult: result });
           sendResponse({ success: true, result });
         })
-        .catch(e => sendResponse({ error: e.message }));
+        .catch(e => sendResponse({
+          // e.data is the parsed JSON body ({ detail, error_code }) the backend
+          // sends on failure; e.message defaults to a generic "API Error: <status>"
+          // that hides the real reason (e.g. "select a deal for Salesforce").
+          error: (e && e.data && e.data.detail) || e.message,
+          errorCode: (e && e.data && e.data.error_code) || null,
+        }));
       return true;
 
     case 'GET_DEAL_CONTEXT':

@@ -431,8 +431,8 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
       );
       toast.success(skipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
       onSuccess(result);
-    } catch {
-      toast.error("Failed to sync with HubSpot");
+    } catch (err: any) {
+      toast.error(err?.data?.detail || err?.message || "Failed to sync with HubSpot");
     } finally {
       setSyncing(false);
     }

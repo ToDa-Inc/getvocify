@@ -1812,12 +1812,13 @@ approveSyncButton?.addEventListener('click', async () => {
 
   approveSyncButton.disabled = true;
   approveSyncButton.textContent = 'Syncing...';
+  hideExtractionError();
 
   try {
     const extraction = await buildExtractionForApprove();
     const createNote = document.getElementById('create-note-checkbox')?.checked !== false;
     const skipDeal = !!lastPreviewData?.skip_deal && !currentDealId && !createNewDealRequested;
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: 'APPROVE_SYNC',
       memoId: currentMemoId,
       dealId: currentDealId,
@@ -1828,8 +1829,14 @@ approveSyncButton?.addEventListener('click', async () => {
       companyId: currentCompanyId || lastPreviewData?.selected_contact?.company_id || undefined,
       skipDeal,
     });
+    // Background never rejects this message (it always calls sendResponse), so
+    // a failed sync surfaces as response.error here, not as a thrown exception.
+    if (response?.error) {
+      showExtractionError(response.error);
+    }
   } catch (e) {
     console.error('[Popup] Approve error:', e);
+    showExtractionError(e?.message || 'Something went wrong. Please try again.');
   } finally {
     updateApproveButtonState(lastPreviewData);
   }
