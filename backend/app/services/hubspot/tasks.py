@@ -243,6 +243,10 @@ class HubSpotTasksService:
     OBJECT_TYPE = "tasks"
     # Task-to-deal association type (HubSpot default: 216 = Task to deal)
     TASK_TO_DEAL_ASSOCIATION_TYPE = "216"
+    # Task-to-contact association type (HubSpot default: 204 = Task to contact).
+    # Used when a memo has no associated deal (contact-first flow) so next-step
+    # tasks still land somewhere instead of being silently dropped.
+    TASK_TO_CONTACT_ASSOCIATION_TYPE = "204"
 
     def __init__(self, client: HubSpotClient):
         self.client = client
@@ -256,18 +260,22 @@ class HubSpotTasksService:
         subject: str,
         due_date: datetime,
         deal_id: Optional[str] = None,
+        contact_id: Optional[str] = None,
         body: Optional[str] = None,
         priority: str = "MEDIUM",
         task_type: str = "TODO",
         hubspot_owner_id: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Create a task in HubSpot and optionally associate with a deal.
+        Create a task in HubSpot and associate it with a generic target.
 
         Args:
             subject: Task title (hs_task_subject)
             due_date: Due date for hs_timestamp
-            deal_id: Optional deal ID to associate
+            deal_id: Optional deal ID to associate (kept optional - existing callers
+                that only pass deal_id keep working unchanged)
+            contact_id: Optional contact ID to associate. Used for the contact-first
+                flow when there's no deal to hang the task off of.
             body: Optional task notes (hs_task_body)
             priority: LOW, MEDIUM, HIGH
             task_type: EMAIL, CALL, TODO
@@ -288,8 +296,9 @@ class HubSpotTasksService:
             properties["hs_task_body"] = body[:65535]
 
         payload: dict = {"properties": properties}
+        associations = []
         if deal_id:
-            payload["associations"] = [
+            associations.append(
                 {
                     "to": {"id": deal_id},
                     "types": [
@@ -299,7 +308,21 @@ class HubSpotTasksService:
                         }
                     ],
                 }
-            ]
+            )
+        if contact_id:
+            associations.append(
+                {
+                    "to": {"id": contact_id},
+                    "types": [
+                        {
+                            "associationCategory": "HUBSPOT_DEFINED",
+                            "associationTypeId": int(self.TASK_TO_CONTACT_ASSOCIATION_TYPE),
+                        }
+                    ],
+                }
+            )
+        if associations:
+            payload["associations"] = associations
 
         try:
             response = await self.client.post(
@@ -316,12 +339,14 @@ class HubSpotTasksService:
         self,
         extraction: MemoExtraction,
         deal_id: Optional[str] = None,
+        contact_id: Optional[str] = None,
         hubspot_owner_id: Optional[str] = None,
         existing_subjects: Optional[set[str]] = None,
     ) -> list[str]:
         """
         Create HubSpot tasks from extraction nextSteps.
         Skips generic items like "Cerrar el trato" and subjects already on the deal.
+        Associates to deal_id when present, else to contact_id (contact-first flow).
 
         Returns:
             List of created task IDs
@@ -351,6 +376,7 @@ class HubSpotTasksService:
                 subject=formatted.subject,
                 due_date=formatted.due_date,
                 deal_id=deal_id,
+                contact_id=None if deal_id else contact_id,
                 body=extraction.summary or "",
                 hubspot_owner_id=hubspot_owner_id,
                 task_type=formatted.task_type,
@@ -377,11 +403,44 @@ class HubSpotTasksService:
         Returns:
             List of task dicts with id, subject, due_date (datetime or None)
         """
+        return await self._list_tasks_for_object("deals", deal_id, properties)
+
+    async def list_tasks_for_contact(
+        self,
+        contact_id: str,
+        properties: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """
+        List tasks associated with a contact. Mirrors list_tasks_for_deal -
+        needed for the no-deal (contact-first / skip_deal) flow, where tasks
+        are associated to the contact instead of a deal: without this,
+        create_tasks_from_extraction's existing_subjects dedupe always sees
+        an empty set for that flow (sync.py only ever populated it from
+        list_tasks_for_deal, gated on `deal_id and not is_new_deal`), so a
+        retry of the same memo with no deal can create duplicate tasks on
+        the contact - the exact protection the deal flow already has.
+
+        Args:
+            contact_id: HubSpot contact ID
+            properties: Optional list of properties to fetch (default: hs_task_subject, hs_timestamp)
+
+        Returns:
+            List of task dicts with id, subject, due_date (datetime or None)
+        """
+        return await self._list_tasks_for_object("contacts", contact_id, properties)
+
+    async def _list_tasks_for_object(
+        self,
+        object_type: str,
+        object_id: str,
+        properties: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """Shared implementation behind list_tasks_for_deal/list_tasks_for_contact."""
         props = properties or ["hs_task_subject", "hs_timestamp"]
         try:
-            # Get task IDs associated with deal (v4 associations)
+            # Get task IDs associated with the object (v4 associations)
             resp = await self.client.get(
-                f"/crm/v4/objects/deals/{deal_id}/associations/tasks"
+                f"/crm/v4/objects/{object_type}/{object_id}/associations/tasks"
             )
             if not resp or "results" not in resp:
                 return []
@@ -433,7 +492,7 @@ class HubSpotTasksService:
                 })
             return tasks
         except HubSpotError as e:
-            logger.warning("Failed to list tasks for deal %s: %s", deal_id, e)
+            logger.warning("Failed to list tasks for %s %s: %s", object_type, object_id, e)
             return []
 
     async def update_task(

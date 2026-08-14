@@ -18,7 +18,13 @@ from app.logging_config import log_domain, with_timing, DOMAIN_HUBSPOT
 from app.metrics import record_sync_duration, inc_pipeline_error
 
 from .client import HubSpotClient
-from .exceptions import HubSpotAuthError, HubSpotScopeError, HubSpotError
+from .exceptions import (
+    HubSpotAuthError,
+    HubSpotScopeError,
+    HubSpotError,
+    HubSpotValidationError,
+    HubSpotNotFoundError,
+)
 from .types import SyncResult
 from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
@@ -251,6 +257,15 @@ class HubSpotSyncService:
         if skip_deal:
             is_new_deal = False
             deal_id = None
+            # deal_id=None here is load-bearing beyond this block: Step 6's
+            # task merge guard (`if deal_id and not is_new_deal and
+            # existing_tasks:`) relies on deal_id being falsy to keep the
+            # no-deal flow OUT of merge_tasks (UPDATE/DELETE of existing
+            # tasks) even though it now populates existing_tasks from
+            # list_tasks_for_contact for dedupe. If deal_id ever stops being
+            # forced to None here, that guard silently starts letting the
+            # no-deal flow into merge - see the comment there before
+            # changing either side of this.
         result = SyncResult(memo_id=str(memo_id))
         t0 = time.perf_counter()
         logger.info(
@@ -330,17 +345,26 @@ class HubSpotSyncService:
                     )
                     company_props.pop("name", None)
                     if company_props:
-                        await self.companies.update(company_id, company_props)
-                        logger.info(
-                            "✅ Company properties updated (contact-first)",
-                            extra=log_domain(
-                                DOMAIN_HUBSPOT,
-                                "company_props_updated",
-                                company_id=company_id,
-                                memo_id=str(memo_id),
-                                fields=list(company_props.keys()),
-                            ),
-                        )
+                        async with self.crm_updates.track(
+                            memo_id=str(memo_id),
+                            user_id=user_id,
+                            crm_connection_id=str(connection_id),
+                            action_type="upsert_company",
+                            resource_type="company",
+                        ) as tracked:
+                            await self.companies.update(company_id, company_props)
+                            tracked.data = {"company_id": company_id, "updated_fields": list(company_props.keys())}
+                            tracked.resource_id = company_id
+                            logger.info(
+                                "✅ Company properties updated (contact-first)",
+                                extra=log_domain(
+                                    DOMAIN_HUBSPOT,
+                                    "company_props_updated",
+                                    company_id=company_id,
+                                    memo_id=str(memo_id),
+                                    fields=list(company_props.keys()),
+                                ),
+                            )
                 except Exception as e:
                     logger.warning(
                         "⚠️ Contact-first company update failed: %s",
@@ -358,37 +382,30 @@ class HubSpotSyncService:
                             extra=log_domain(DOMAIN_HUBSPOT, "company_reused", company_id=company_id, memo_id=str(memo_id)),
                         )
                     else:
-                        company = await self.companies.create_or_update(
-                            extraction, allowed_fields=allowed_company_fields
-                        )
-                        if company:
-                            company_id = company.id
-                            result.company_id = company_id
-                            logger.info(
-                                "✅ Company upserted",
-                                extra=log_domain(DOMAIN_HUBSPOT, "company_upserted", company_id=company_id, company_name=extraction.companyName),
+                        async with self.crm_updates.track(
+                            memo_id=str(memo_id),
+                            user_id=user_id,
+                            crm_connection_id=str(connection_id),
+                            action_type="upsert_company",
+                            resource_type="company",
+                        ) as tracked:
+                            company = await self.companies.create_or_update(
+                                extraction, allowed_fields=allowed_company_fields
                             )
-                            await self.crm_updates.create_update(
-                                memo_id=str(memo_id),
-                                user_id=user_id,
-                                crm_connection_id=str(connection_id),
-                                action_type="upsert_company",
-                                resource_type="company",
-                                data={"company_id": company_id, "name": extraction.companyName},
-                            )
+                            if company:
+                                company_id = company.id
+                                result.company_id = company_id
+                                tracked.data = {"company_id": company_id, "name": extraction.companyName}
+                                tracked.resource_id = company_id
+                                logger.info(
+                                    "✅ Company upserted",
+                                    extra=log_domain(DOMAIN_HUBSPOT, "company_upserted", company_id=company_id, company_name=extraction.companyName),
+                                )
                 except Exception as e:
                     inc_pipeline_error(DOMAIN_HUBSPOT, "company_upsert")
                     logger.warning(
                         "⚠️ Company upsert failed",
                         extra=log_domain(DOMAIN_HUBSPOT, "company_failed", memo_id=str(memo_id), error=str(e)),
-                    )
-                    await self.crm_updates.create_update(
-                        memo_id=str(memo_id),
-                        user_id=user_id,
-                        crm_connection_id=str(connection_id),
-                        action_type="upsert_company",
-                        resource_type="company",
-                        data={"error": str(e)},
                     )
             
             # Step 2: Contact (only when user setting allows)
@@ -410,36 +427,37 @@ class HubSpotSyncService:
             # Contact-first: update the resolved contact by ID (not deal's primary contact)
             if resolved_contact_id:
                 try:
-                    props = contact_properties_from_extraction(
-                        extraction_for_contact,
-                        allowed_fields=allowed_contact_fields,
-                        identity_props=self.contacts.map_extraction_to_properties(
-                            extraction_for_contact
-                        ),
-                    )
-                    props.pop("email", None)  # never rotate the locked identity email
-                    if props:
-                        await self.contacts.update(resolved_contact_id, props)
-                    contact_id = resolved_contact_id
-                    result.contact_id = contact_id
-                    logger.info(
-                        "✅ Contact updated (contact-first)",
-                        extra=log_domain(
-                            DOMAIN_HUBSPOT,
-                            "contact_anchor_updated",
-                            contact_id=contact_id,
-                            memo_id=str(memo_id),
-                            fields=list(props.keys()),
-                        ),
-                    )
-                    await self.crm_updates.create_update(
+                    async with self.crm_updates.track(
                         memo_id=str(memo_id),
                         user_id=user_id,
                         crm_connection_id=str(connection_id),
                         action_type="upsert_contact",
                         resource_type="contact",
-                        data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
-                    )
+                    ) as tracked:
+                        props = contact_properties_from_extraction(
+                            extraction_for_contact,
+                            allowed_fields=allowed_contact_fields,
+                            identity_props=self.contacts.map_extraction_to_properties(
+                                extraction_for_contact
+                            ),
+                        )
+                        props.pop("email", None)  # never rotate the locked identity email
+                        if props:
+                            await self.contacts.update(resolved_contact_id, props)
+                        contact_id = resolved_contact_id
+                        result.contact_id = contact_id
+                        tracked.data = {"contact_id": contact_id, "email": extraction_for_contact.contactEmail}
+                        tracked.resource_id = contact_id
+                        logger.info(
+                            "✅ Contact updated (contact-first)",
+                            extra=log_domain(
+                                DOMAIN_HUBSPOT,
+                                "contact_anchor_updated",
+                                contact_id=contact_id,
+                                memo_id=str(memo_id),
+                                fields=list(props.keys()),
+                            ),
+                        )
                 except Exception as e:
                     logger.warning(
                         "⚠️ Contact-first update failed: %s",
@@ -474,78 +492,79 @@ class HubSpotSyncService:
                                         ),
                                     )
                                     if props:
-                                        await self.contacts.update(primary_contact_id, props)
-                                        contact_id = primary_contact_id
-                                        result.contact_id = contact_id
-                                        logger.info(
-                                            "✅ Contact updated (deal association)",
-                                            extra=log_domain(DOMAIN_HUBSPOT, "contact_updated", contact_id=primary_contact_id, memo_id=str(memo_id)),
-                                        )
-                                        await self.crm_updates.create_update(
+                                        async with self.crm_updates.track(
                                             memo_id=str(memo_id),
                                             user_id=user_id,
                                             crm_connection_id=str(connection_id),
                                             action_type="upsert_contact",
                                             resource_type="contact",
-                                            data={"contact_id": primary_contact_id, "email": extraction_for_contact.contactEmail},
-                                        )
+                                        ) as tracked:
+                                            await self.contacts.update(primary_contact_id, props)
+                                            contact_id = primary_contact_id
+                                            result.contact_id = contact_id
+                                            tracked.data = {"contact_id": primary_contact_id, "email": extraction_for_contact.contactEmail}
+                                            tracked.resource_id = primary_contact_id
+                                            logger.info(
+                                                "✅ Contact updated (deal association)",
+                                                extra=log_domain(DOMAIN_HUBSPOT, "contact_updated", contact_id=primary_contact_id, memo_id=str(memo_id)),
+                                            )
                             except Exception as e:
+                                # NOT re-raised: this is the "try updating the deal's
+                                # existing contact" step specifically. Its own HubSpot
+                                # write (if props was non-empty) is tracked above and
+                                # already has its 'failed' row - this local except only
+                                # decides whether to fall through to the create fallback
+                                # below, it doesn't need its own row.
                                 logger.warning(
                                     "⚠️ Failed to update deal contact, will create: %s",
                                     e,
                                     extra=log_domain(DOMAIN_HUBSPOT, "contact_update_fallback", memo_id=str(memo_id)),
                                 )
                             if not contact_id:
+                                async with self.crm_updates.track(
+                                    memo_id=str(memo_id),
+                                    user_id=user_id,
+                                    crm_connection_id=str(connection_id),
+                                    action_type="upsert_contact",
+                                    resource_type="contact",
+                                ) as tracked:
+                                    contact = await self.contacts.create_or_update(
+                                        extraction_for_contact, allowed_fields=allowed_contact_fields
+                                    )
+                                    if contact:
+                                        contact_id = contact.id
+                                        result.contact_id = contact_id
+                                        tracked.data = {"contact_id": contact_id, "email": extraction_for_contact.contactEmail}
+                                        tracked.resource_id = contact_id
+                                        logger.info(
+                                            "✅ Contact upserted (fallback)",
+                                            extra=log_domain(DOMAIN_HUBSPOT, "contact_upserted", contact_id=contact_id, memo_id=str(memo_id)),
+                                        )
+                        else:
+                            async with self.crm_updates.track(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="upsert_contact",
+                                resource_type="contact",
+                            ) as tracked:
                                 contact = await self.contacts.create_or_update(
                                     extraction_for_contact, allowed_fields=allowed_contact_fields
                                 )
                                 if contact:
                                     contact_id = contact.id
                                     result.contact_id = contact_id
+                                    tracked.data = {"contact_id": contact_id, "email": extraction_for_contact.contactEmail}
+                                    tracked.resource_id = contact_id
                                     logger.info(
-                                        "✅ Contact upserted (fallback)",
-                                        extra=log_domain(DOMAIN_HUBSPOT, "contact_upserted", contact_id=contact_id, memo_id=str(memo_id)),
+                                        "✅ Contact upserted",
+                                        extra=log_domain(DOMAIN_HUBSPOT, "contact_upserted", contact_id=contact_id, memo_id=str(memo_id), company=extraction_for_contact.companyName, contact_name=extraction_for_contact.contactName),
                                     )
-                                    await self.crm_updates.create_update(
-                                        memo_id=str(memo_id),
-                                        user_id=user_id,
-                                        crm_connection_id=str(connection_id),
-                                        action_type="upsert_contact",
-                                        resource_type="contact",
-                                        data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
-                                    )
-                        else:
-                            contact = await self.contacts.create_or_update(
-                                extraction_for_contact, allowed_fields=allowed_contact_fields
-                            )
-                            if contact:
-                                contact_id = contact.id
-                                result.contact_id = contact_id
-                                logger.info(
-                                    "✅ Contact upserted",
-                                    extra=log_domain(DOMAIN_HUBSPOT, "contact_upserted", contact_id=contact_id, memo_id=str(memo_id), company=extraction_for_contact.companyName, contact_name=extraction_for_contact.contactName),
-                                )
-                                await self.crm_updates.create_update(
-                                    memo_id=str(memo_id),
-                                    user_id=user_id,
-                                    crm_connection_id=str(connection_id),
-                                    action_type="upsert_contact",
-                                    resource_type="contact",
-                                    data={"contact_id": contact_id, "email": extraction_for_contact.contactEmail},
-                                )
                     except Exception as e:
                         inc_pipeline_error(DOMAIN_HUBSPOT, "contact_upsert")
                         logger.warning(
                             "⚠️ Contact upsert failed",
                             extra=log_domain(DOMAIN_HUBSPOT, "contact_failed", memo_id=str(memo_id), error=str(e), company=extraction_for_contact.companyName, contact=extraction_for_contact.contactName),
-                        )
-                        await self.crm_updates.create_update(
-                            memo_id=str(memo_id),
-                            user_id=user_id,
-                            crm_connection_id=str(connection_id),
-                            action_type="upsert_contact",
-                            resource_type="contact",
-                            data={"error": str(e)},
                         )
             
             # Step 3: Associate contact → company
@@ -616,62 +635,67 @@ class HubSpotSyncService:
                             result.deal_name = existing_props.get("dealname") or "Deal"
                         else:
                             # Update deal with merged properties
-                            deal = await self.deals.update(
-                                deal_id,
-                                filtered_properties,
-                                hubspot_owner_id=hubspot_owner_id,
-                            )
-                            result.deal_id = deal.id
-                            await self.crm_updates.create_update(
+                            async with self.crm_updates.track(
                                 memo_id=str(memo_id),
                                 user_id=user_id,
                                 crm_connection_id=str(connection_id),
                                 action_type="update_deal",
                                 resource_type="deal",
-                                data={
+                            ) as tracked:
+                                deal = await self.deals.update(
+                                    deal_id,
+                                    filtered_properties,
+                                    hubspot_owner_id=hubspot_owner_id,
+                                )
+                                result.deal_id = deal.id
+                                tracked.data = {
                                     "deal_id": deal.id,
                                     "updated_fields": list(filtered_properties.keys()),
-                                },
-                            )
-                            logger.info(
-                                "✅ Deal updated",
-                                extra=log_domain(DOMAIN_HUBSPOT, "deal_updated", deal_id=deal.id, memo_id=str(memo_id), updated_fields=list(filtered_properties.keys())),
-                            )
+                                }
+                                tracked.resource_id = deal.id
+                                logger.info(
+                                    "✅ Deal updated",
+                                    extra=log_domain(DOMAIN_HUBSPOT, "deal_updated", deal_id=deal.id, memo_id=str(memo_id), updated_fields=list(filtered_properties.keys())),
+                                )
                         result.deal_name = existing_props.get("dealname") or "Deal"
                     else:
                         # CREATE MODE: Create new deal
-                        deal = await self.deals.create_or_update(
-                            extraction,
-                            contact_id=contact_id,
-                            company_id=company_id,
-                            hubspot_owner_id=hubspot_owner_id,
-                            allowed_fields=allowed_fields,
-                            default_pipeline_id=default_pipeline_id,
-                            default_stage_id=default_stage_id,
-                        )
-                        result.deal_id = deal.id
-
-                        await self.crm_updates.create_update(
+                        async with self.crm_updates.track(
                             memo_id=str(memo_id),
                             user_id=user_id,
                             crm_connection_id=str(connection_id),
                             action_type="create_deal",
                             resource_type="deal",
-                            data={
+                        ) as tracked:
+                            deal = await self.deals.create_or_update(
+                                extraction,
+                                contact_id=contact_id,
+                                company_id=company_id,
+                                hubspot_owner_id=hubspot_owner_id,
+                                allowed_fields=allowed_fields,
+                                default_pipeline_id=default_pipeline_id,
+                                default_stage_id=default_stage_id,
+                            )
+                            result.deal_id = deal.id
+                            tracked.data = {
                                 "deal_id": deal.id,
                                 "amount": extraction.dealAmount,
                                 "stage": extraction.dealStage,
-                            },
-                        )
-                        logger.info(
-                            "✅ Deal created",
-                            extra=log_domain(DOMAIN_HUBSPOT, "deal_created", deal_id=deal.id, memo_id=str(memo_id), amount=extraction.dealAmount, stage=extraction.dealStage),
-                        )
+                            }
+                            tracked.resource_id = deal.id
+                            logger.info(
+                                "✅ Deal created",
+                                extra=log_domain(DOMAIN_HUBSPOT, "deal_created", deal_id=deal.id, memo_id=str(memo_id), amount=extraction.dealAmount, stage=extraction.dealStage),
+                            )
                         result.deal_name = (deal.properties or {}).get("dealname") or extraction.companyName or "Deal"
 
                     deal_id = result.deal_id
 
                 except Exception as e:
+                    # track() above already wrote the 'failed' row (if a HubSpot
+                    # call was attempted at all - e.g. this also catches
+                    # exceptions raised before either track() block, like
+                    # merge_svc.merge_properties itself failing).
                     action = "update" if deal_id and not is_new_deal else "create"
                     result.error = f"Failed to {action} deal: {str(e)}"
                     result.error_code = f"DEAL_{action.upper()}_FAILED"
@@ -682,14 +706,6 @@ class HubSpotSyncService:
                         action,
                         str(e),
                         extra=log_domain(DOMAIN_HUBSPOT, f"deal_{action}_failed", memo_id=str(memo_id), error=str(e)),
-                    )
-                    await self.crm_updates.create_update(
-                        memo_id=str(memo_id),
-                        user_id=user_id,
-                        crm_connection_id=str(connection_id),
-                        action_type=f"{action}_deal",
-                        resource_type="deal",
-                        data={"error": str(e)},
                     )
                     return result
 
@@ -710,13 +726,22 @@ class HubSpotSyncService:
                                 )
                                 props.pop("email", None)
                                 if props:
-                                    await self.contacts.update(primary_contact_id, props)
-                                    contact_id = primary_contact_id
-                                    result.contact_id = primary_contact_id
-                                    logger.info(
-                                        "✅ Contact updated (deal association)",
-                                        extra=log_domain(DOMAIN_HUBSPOT, "contact_updated", contact_id=primary_contact_id, memo_id=str(memo_id)),
-                                    )
+                                    async with self.crm_updates.track(
+                                        memo_id=str(memo_id),
+                                        user_id=user_id,
+                                        crm_connection_id=str(connection_id),
+                                        action_type="upsert_contact",
+                                        resource_type="contact",
+                                    ) as tracked:
+                                        await self.contacts.update(primary_contact_id, props)
+                                        contact_id = primary_contact_id
+                                        result.contact_id = primary_contact_id
+                                        tracked.data = {"contact_id": primary_contact_id, "updated_fields": list(props.keys())}
+                                        tracked.resource_id = primary_contact_id
+                                        logger.info(
+                                            "✅ Contact updated (deal association)",
+                                            extra=log_domain(DOMAIN_HUBSPOT, "contact_updated", contact_id=primary_contact_id, memo_id=str(memo_id)),
+                                        )
                         except Exception as e:
                             logger.warning(
                                 "⚠️ Failed to update associated contact: %s",
@@ -736,30 +761,31 @@ class HubSpotSyncService:
                         try:
                             cids = await self.associations.get_associations("deals", deal_id, "companies")
                             if cids:
-                                await self.companies.update(cids[0], company_props)
-                                company_id = company_id or cids[0]
-                                result.company_id = company_id
-                                logger.info(
-                                    "✅ Company properties updated",
-                                    extra=log_domain(
-                                        DOMAIN_HUBSPOT,
-                                        "company_props_updated",
-                                        company_id=cids[0],
-                                        memo_id=str(memo_id),
-                                        fields=list(company_props.keys()),
-                                    ),
-                                )
-                                await self.crm_updates.create_update(
+                                async with self.crm_updates.track(
                                     memo_id=str(memo_id),
                                     user_id=user_id,
                                     crm_connection_id=str(connection_id),
                                     action_type="upsert_company",
                                     resource_type="company",
-                                    data={
+                                ) as tracked:
+                                    await self.companies.update(cids[0], company_props)
+                                    company_id = company_id or cids[0]
+                                    result.company_id = company_id
+                                    tracked.data = {
                                         "company_id": cids[0],
                                         "updated_fields": list(company_props.keys()),
-                                    },
-                                )
+                                    }
+                                    tracked.resource_id = cids[0]
+                                    logger.info(
+                                        "✅ Company properties updated",
+                                        extra=log_domain(
+                                            DOMAIN_HUBSPOT,
+                                            "company_props_updated",
+                                            company_id=cids[0],
+                                            memo_id=str(memo_id),
+                                            fields=list(company_props.keys()),
+                                        ),
+                                    )
                         except Exception as e:
                             logger.warning(
                                 "⚠️ Failed to update associated company: %s",
@@ -774,48 +800,49 @@ class HubSpotSyncService:
                 if deal_id and line_items:
                     for item_props in line_items:
                         try:
-                            # Prefer parent deal property (commerce) + default association
-                            create_body: dict[str, Any] = {
-                                "properties": {
-                                    **item_props,
-                                    "hs_parent_deal_id": str(deal_id),
+                            async with self.crm_updates.track(
+                                memo_id=str(memo_id),
+                                user_id=user_id,
+                                crm_connection_id=str(connection_id),
+                                action_type="create_line_item",
+                                resource_type="line_item",
+                            ) as tracked:
+                                # Prefer parent deal property (commerce) + default association
+                                create_body: dict[str, Any] = {
+                                    "properties": {
+                                        **item_props,
+                                        "hs_parent_deal_id": str(deal_id),
+                                    }
                                 }
-                            }
-                            created = await self.client.post(
-                                "/crm/v3/objects/line_items",
-                                data=create_body,
-                            )
-                            line_item_id = (created or {}).get("id")
-                            if line_item_id:
-                                try:
-                                    await self.client.put(
-                                        f"/crm/v4/objects/line_item/{line_item_id}/associations/default/deal/{deal_id}",
-                                        data=None,
-                                    )
-                                except Exception:
-                                    pass
-                                await self.crm_updates.create_update(
-                                    memo_id=str(memo_id),
-                                    user_id=user_id,
-                                    crm_connection_id=str(connection_id),
-                                    action_type="create_line_item",
-                                    resource_type="line_item",
-                                    data={
+                                created = await self.client.post(
+                                    "/crm/v3/objects/line_items",
+                                    data=create_body,
+                                )
+                                line_item_id = (created or {}).get("id")
+                                if line_item_id:
+                                    try:
+                                        await self.client.put(
+                                            f"/crm/v4/objects/line_item/{line_item_id}/associations/default/deal/{deal_id}",
+                                            data=None,
+                                        )
+                                    except Exception:
+                                        pass
+                                    tracked.data = {
                                         "line_item_id": line_item_id,
                                         "deal_id": deal_id,
                                         "properties": item_props,
-                                    },
-                                )
-                                logger.info(
-                                    "✅ Line item created",
-                                    extra=log_domain(
-                                        DOMAIN_HUBSPOT,
-                                        "line_item_created",
-                                        line_item_id=line_item_id,
-                                        deal_id=deal_id,
-                                        memo_id=str(memo_id),
-                                    ),
-                                )
+                                    }
+                                    tracked.resource_id = line_item_id
+                                    logger.info(
+                                        "✅ Line item created",
+                                        extra=log_domain(
+                                            DOMAIN_HUBSPOT,
+                                            "line_item_created",
+                                            line_item_id=line_item_id,
+                                            deal_id=deal_id,
+                                            memo_id=str(memo_id),
+                                        ),
+                                    )
                         except Exception as e:
                             # Missing scopes or portal commerce setup should not fail the whole sync
                             logger.warning(
@@ -853,67 +880,115 @@ class HubSpotSyncService:
                             extra=log_domain(DOMAIN_HUBSPOT, "association_failed", deal_id=deal_id, company_id=company_id),
                         )
 
-                # Step 6: Tasks - merge with existing when updating deal, else create new
-                tasks_already_synced = any(
-                    u.get("action_type") in ("create_tasks", "merge_tasks")
-                    for u in previous_updates
+            # Step 6: Tasks - merge with existing when updating a deal, else create new.
+            # Target is the deal when one exists; otherwise (contact-first / skip_deal)
+            # tasks land on the contact instead of being silently dropped. Runs whether
+            # or not skip_deal is set - next steps must not require a deal to survive.
+            tasks_target_id = deal_id or contact_id
+            tasks_target_type = "deal" if deal_id else ("contact" if contact_id else None)
+            if tasks_target_id:
+                logger.info(
+                    "🎯 Task association target resolved",
+                    extra=log_domain(
+                        DOMAIN_HUBSPOT, "task_target_resolved",
+                        memo_id=str(memo_id), target_type=tasks_target_type,
+                        deal_id=deal_id, contact_id=contact_id,
+                    ),
                 )
-                if deal_id and extraction.nextSteps and not tasks_already_synced:
-                    try:
-                        used_merge = False
-                        existing_tasks = (
-                            await self.tasks.list_tasks_for_deal(deal_id)
-                            if not is_new_deal
-                            else []
+            tasks_already_synced = CRMUpdatesService.is_action_already_done(
+                previous_updates, ("create_tasks", "merge_tasks")
+            )
+            if tasks_target_id and extraction.nextSteps and not tasks_already_synced:
+                try:
+                    used_merge = False
+                    if deal_id and not is_new_deal:
+                        existing_tasks = await self.tasks.list_tasks_for_deal(deal_id)
+                    elif contact_id and not deal_id:
+                        # No-deal flow (contact-first / skip_deal): dedupe
+                        # against the contact's own existing tasks instead
+                        # of treating this as a blank slate. Without this,
+                        # existing_subjects was always empty here, so a
+                        # retried memo with no deal could recreate the same
+                        # next-step tasks on the contact every time - the
+                        # deal flow above never had this hole because it
+                        # always looked existing_tasks up first.
+                        existing_tasks = await self.tasks.list_tasks_for_contact(contact_id)
+                    else:
+                        existing_tasks = []
+                    existing_subjects = {
+                        _normalize_task_subject(t.get("subject", "")) for t in existing_tasks
+                    }
+                    # `deal_id and` here is NOT redundant with `existing_tasks`
+                    # being truthy - it's the only thing keeping the no-deal
+                    # (contact-first / skip_deal) flow out of merge_tasks.
+                    # That flow populates existing_tasks too (from
+                    # list_tasks_for_contact, above) so it can dedupe by
+                    # subject on create, but it must NEVER reach merge:
+                    # merge_tasks does UPDATE and DELETE against existing
+                    # tasks, not just comparison, and a contact's tasks may
+                    # have been created by someone/something else entirely -
+                    # not just our own prior syncs. skip_deal forces
+                    # deal_id=None (see that block) specifically so this
+                    # condition short-circuits to False for that flow
+                    # regardless of existing_tasks. Do not drop `deal_id and`
+                    # to "simplify" this - that would silently turn "dedupe
+                    # only" into "merge can delete a contact's tasks".
+                    if deal_id and not is_new_deal and existing_tasks:
+                        # UPDATE MODE: Fetch existing tasks, merge with new extraction
+                        merge_svc = TaskMergeService()
+                        merge_result = await merge_svc.merge_tasks(
+                            existing_tasks=existing_tasks,
+                            extraction=extraction,
+                            transcript=transcript,
                         )
-                        existing_subjects = {
-                            _normalize_task_subject(t.get("subject", "")) for t in existing_tasks
-                        }
-                        if not is_new_deal and existing_tasks:
-                            # UPDATE MODE: Fetch existing tasks, merge with new extraction
-                            merge_svc = TaskMergeService()
-                            merge_result = await merge_svc.merge_tasks(
-                                existing_tasks=existing_tasks,
-                                extraction=extraction,
-                                transcript=transcript,
+                        created_ids = []
+                        # Execute add
+                        for add_op in merge_result.add:
+                            schedule_hints = _next_step_schedule_hints(extraction)
+                            hint = schedule_hints[len(created_ids)] if len(created_ids) < len(schedule_hints) else None
+                            formatted = format_next_step_task(
+                                add_op.subject,
+                                contact_name=extraction.contactName,
+                                schedule_hint=hint or add_op.subject,
                             )
-                            created_ids = []
-                            # Execute add
-                            for add_op in merge_result.add:
-                                schedule_hints = _next_step_schedule_hints(extraction)
-                                hint = schedule_hints[len(created_ids)] if len(created_ids) < len(schedule_hints) else None
-                                formatted = format_next_step_task(
-                                    add_op.subject,
-                                    contact_name=extraction.contactName,
-                                    schedule_hint=hint or add_op.subject,
-                                )
-                                norm = _normalize_task_subject(formatted.subject)
-                                if norm in existing_subjects:
-                                    continue
-                                due = add_op.due_date or formatted.due_date
-                                tid = await self.tasks.create_task(
-                                    subject=formatted.subject,
-                                    due_date=due,
-                                    deal_id=deal_id,
-                                    body=extraction.summary or "",
-                                    hubspot_owner_id=hubspot_owner_id,
-                                    task_type=formatted.task_type,
-                                )
-                                if tid:
-                                    created_ids.append(tid)
-                                    existing_subjects.add(norm)
-                            # Execute update
-                            for upd_op in merge_result.update:
-                                await self.tasks.update_task(
-                                    task_id=upd_op.id,
-                                    subject=upd_op.subject,
-                                    due_date=upd_op.due_date,
-                                    hubspot_owner_id=hubspot_owner_id,
-                                )
-                            # Execute delete
-                            for del_id in merge_result.delete:
-                                await self.tasks.delete_task(del_id)
-                            if created_ids or merge_result.update or merge_result.delete:
+                            norm = _normalize_task_subject(formatted.subject)
+                            if norm in existing_subjects:
+                                continue
+                            due = add_op.due_date or formatted.due_date
+                            tid = await self.tasks.create_task(
+                                subject=formatted.subject,
+                                due_date=due,
+                                deal_id=deal_id,
+                                body=extraction.summary or "",
+                                hubspot_owner_id=hubspot_owner_id,
+                                task_type=formatted.task_type,
+                            )
+                            if tid:
+                                created_ids.append(tid)
+                                existing_subjects.add(norm)
+                        # Execute update
+                        for upd_op in merge_result.update:
+                            await self.tasks.update_task(
+                                task_id=upd_op.id,
+                                subject=upd_op.subject,
+                                due_date=upd_op.due_date,
+                                hubspot_owner_id=hubspot_owner_id,
+                            )
+                        # Execute delete
+                        for del_id in merge_result.delete:
+                            await self.tasks.delete_task(del_id)
+                        if created_ids or merge_result.update or merge_result.delete:
+                            # DEBT, on purpose: NOT migrated to track(). track()'s
+                            # reserve->execute->confirm models ONE HubSpot write; this
+                            # step is a batch of independent sub-operations (N creates,
+                            # M updates, K deletes) executed in three separate loops
+                            # above, any subset of which can succeed while others fail.
+                            # A single crm_updates row can't represent partial success
+                            # at that granularity without inventing a new data shape.
+                            # Kept on the pre-track() write-after-success pattern, with
+                            # the ERROR-level audit_e logging below as the mitigation
+                            # until this gets real per-operation tracking.
+                            try:
                                 await self.crm_updates.create_update(
                                     memo_id=str(memo_id),
                                     user_id=user_id,
@@ -926,55 +1001,95 @@ class HubSpotSyncService:
                                         "deleted": merge_result.delete,
                                     },
                                 )
-                            used_merge = True
-                        if not used_merge:
-                            # CREATE MODE or no existing tasks: create from extraction
+                            except Exception as audit_e:
+                                # HubSpot already applied the merge - only the audit
+                                # write failed. Distinct from the generic "tasks_failed"
+                                # below (that means HubSpot itself failed): this means
+                                # crm_updates has no record of it, so a retry of this
+                                # memo won't see tasks_already_synced and may re-merge
+                                # the same tasks. Logged at ERROR (not swallowed as a
+                                # warning) so it's monitorable until the write-order fix
+                                # (pending row before the HubSpot call) lands.
+                                inc_pipeline_error(DOMAIN_HUBSPOT, "tasks_audit_write_failed")
+                                logger.error(
+                                    "🚨 Tasks merged in HubSpot but crm_updates write failed - retry may re-merge",
+                                    extra=log_domain(
+                                        DOMAIN_HUBSPOT, "tasks_created_but_audit_write_failed",
+                                        memo_id=str(memo_id), deal_id=deal_id, contact_id=contact_id,
+                                        created_ids=created_ids,
+                                        updated=[u.id for u in merge_result.update],
+                                        deleted=merge_result.delete,
+                                        error=str(audit_e),
+                                    ),
+                                )
+                        used_merge = True
+                    if not used_merge:
+                        # CREATE MODE, no existing tasks, or no deal at all: create from
+                        # extraction. Associates to the deal when present, else to the
+                        # contact (contact-first flow).
+                        async with self.crm_updates.track(
+                            memo_id=str(memo_id),
+                            user_id=user_id,
+                            crm_connection_id=str(connection_id),
+                            action_type="create_tasks",
+                            resource_type="task",
+                        ) as tracked:
                             task_ids = await self.tasks.create_tasks_from_extraction(
                                 extraction,
                                 deal_id=deal_id,
+                                contact_id=None if deal_id else contact_id,
                                 hubspot_owner_id=hubspot_owner_id,
                                 existing_subjects=existing_subjects,
                             )
                             if task_ids:
+                                tracked.data = {"task_ids": task_ids, "count": len(task_ids)}
                                 logger.info(
                                     "✅ Tasks created",
-                                    extra=log_domain(DOMAIN_HUBSPOT, "tasks_created", deal_id=deal_id, count=len(task_ids), task_ids=task_ids),
+                                    extra=log_domain(
+                                        DOMAIN_HUBSPOT, "tasks_created",
+                                        target_type=tasks_target_type, deal_id=deal_id, contact_id=contact_id,
+                                        count=len(task_ids), task_ids=task_ids,
+                                    ),
                                 )
-                                await self.crm_updates.create_update(
-                                    memo_id=str(memo_id),
-                                    user_id=user_id,
-                                    crm_connection_id=str(connection_id),
-                                    action_type="create_tasks",
-                                    resource_type="task",
-                                    data={"task_ids": task_ids, "count": len(task_ids)},
-                                )
-                    except Exception as e:
-                        inc_pipeline_error(DOMAIN_HUBSPOT, "create_tasks")
-                        logger.warning(
-                            "Failed to create tasks for deal %s: %s", deal_id, e,
-                            extra=log_domain(DOMAIN_HUBSPOT, "tasks_failed", deal_id=deal_id, error=str(e)),
-                        )
+                except Exception as e:
+                    inc_pipeline_error(DOMAIN_HUBSPOT, "create_tasks")
+                    logger.warning(
+                        "Failed to create tasks for %s %s: %s",
+                        "deal" if deal_id else "contact", tasks_target_id, e,
+                        extra=log_domain(DOMAIN_HUBSPOT, "tasks_failed", deal_id=deal_id, contact_id=contact_id, error=str(e)),
+                    )
 
-                elif deal_id and extraction.nextSteps and tasks_already_synced:
+            elif tasks_target_id and extraction.nextSteps and tasks_already_synced:
+                logger.info(
+                    "Skipping duplicate task sync for memo retry",
+                    extra=log_domain(DOMAIN_HUBSPOT, "tasks_skipped_duplicate", deal_id=deal_id, contact_id=contact_id, memo_id=str(memo_id)),
+                )
+
+            # Step 7: Create one formatted note per memo, associated to every object
+            # that exists (deal, contact, company) in a single call. Runs whether or
+            # not skip_deal is set - the transcript must not be lost when there's no
+            # deal. A failed individual association is logged and skipped, never
+            # escalated: the note (and the associations that did work) still land.
+            if create_note and transcript and transcript.strip() and (deal_id or contact_id or company_id):
+                # Dedupe by memo, not by deal: one memo produces at most one note,
+                # regardless of how many objects it ends up associated with.
+                note_already_created = CRMUpdatesService.is_action_already_done(
+                    previous_updates, ("create_note",)
+                )
+                if note_already_created:
                     logger.info(
-                        "Skipping duplicate task sync for memo retry",
-                        extra=log_domain(DOMAIN_HUBSPOT, "tasks_skipped_duplicate", deal_id=deal_id, memo_id=str(memo_id)),
+                        "Skipping duplicate transcript note",
+                        extra=log_domain(DOMAIN_HUBSPOT, "note_skipped_duplicate", memo_id=str(memo_id)),
                     )
-
-                # Step 7: Create one formatted note per memo and deal.
-                if create_note and deal_id and transcript and transcript.strip():
-                    note_already_created = any(
-                        u.get("action_type") == "create_note"
-                        and str((u.get("data") or {}).get("deal_id")) == str(deal_id)
-                        for u in previous_updates
-                    )
-                    if note_already_created:
-                        logger.info(
-                            "Skipping duplicate transcript note",
-                            extra=log_domain(DOMAIN_HUBSPOT, "note_skipped_duplicate", deal_id=deal_id, memo_id=str(memo_id)),
-                        )
-                    else:
-                        try:
+                else:
+                    try:
+                        async with self.crm_updates.track(
+                            memo_id=str(memo_id),
+                            user_id=user_id,
+                            crm_connection_id=str(connection_id),
+                            action_type="create_note",
+                            resource_type="note",
+                        ) as tracked:
                             from .note_format import format_hubspot_note_body
 
                             note_body = format_hubspot_note_body(
@@ -982,46 +1097,134 @@ class HubSpotSyncService:
                                 transcript=transcript,
                                 source="hubspot_call",
                             )
-                            note_payload = {
-                                "properties": {
-                                    "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                    "hs_note_body": note_body,
-                                },
-                                "associations": [
-                                    {
-                                        "to": {"id": str(deal_id)},
-                                        "types": [
-                                            {
-                                                "associationCategory": "HUBSPOT_DEFINED",
-                                                "associationTypeId": 214,
-                                            }
-                                        ]
-                                    }
-                                ]
+                            note_properties = {
+                                "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "hs_note_body": note_body,
                             }
                             if hubspot_owner_id:
-                                note_payload["properties"]["hubspot_owner_id"] = hubspot_owner_id
-                            await self.client.post("/crm/v3/objects/notes", data=note_payload)
+                                note_properties["hubspot_owner_id"] = hubspot_owner_id
+
+                            # (object_type, object_id, associationTypeId) for every object we have
+                            note_targets: list[tuple[str, str, int]] = []
+                            if deal_id:
+                                note_targets.append(("deals", str(deal_id), self.associations.NOTE_TO_DEAL))
+                            if contact_id:
+                                note_targets.append(("contacts", str(contact_id), self.associations.NOTE_TO_CONTACT))
+                            if company_id:
+                                note_targets.append(("companies", str(company_id), self.associations.NOTE_TO_COMPANY))
+
                             logger.info(
-                                "✅ Note created",
-                                extra=log_domain(DOMAIN_HUBSPOT, "note_created", deal_id=deal_id),
+                                "🎯 Note association targets resolved",
+                                extra=log_domain(
+                                    DOMAIN_HUBSPOT, "note_targets_resolved",
+                                    memo_id=str(memo_id),
+                                    targets=[f"{t}:{oid}" for t, oid, _ in note_targets],
+                                ),
                             )
-                            await self.crm_updates.create_update(
-                                memo_id=str(memo_id),
-                                user_id=user_id,
-                                crm_connection_id=str(connection_id),
-                                action_type="create_note",
-                                resource_type="note",
-                                data={"deal_id": deal_id},
-                            )
-                        except Exception as e:
-                            inc_pipeline_error(DOMAIN_HUBSPOT, "create_note")
-                            logger.warning(
-                                "Failed to create transcript note for deal %s: %s. "
-                                "Ensure crm.objects.notes.write scope.",
-                                deal_id, e,
-                                extra=log_domain(DOMAIN_HUBSPOT, "note_failed", deal_id=deal_id, error=str(e)),
-                            )
+
+                            note_id = None
+                            try:
+                                # Happy path: one call, all associations in the array. HubSpot
+                                # validates the whole create atomically, so if this succeeds,
+                                # every association below was created too.
+                                created = await self.client.post(
+                                    "/crm/v3/objects/notes",
+                                    data={
+                                        "properties": note_properties,
+                                        "associations": [
+                                            {
+                                                "to": {"id": to_id},
+                                                "types": [
+                                                    {
+                                                        "associationCategory": "HUBSPOT_DEFINED",
+                                                        "associationTypeId": type_id,
+                                                    }
+                                                ],
+                                            }
+                                            for _, to_id, type_id in note_targets
+                                        ],
+                                    },
+                                )
+                                note_id = (created or {}).get("id")
+                                if note_id:
+                                    for object_type, to_id, type_id in note_targets:
+                                        logger.info(
+                                            "✅ Note associated",
+                                            extra=log_domain(
+                                                DOMAIN_HUBSPOT, "note_associated",
+                                                note_id=note_id, object_type=object_type,
+                                                object_id=to_id, association_type_id=type_id,
+                                                memo_id=str(memo_id),
+                                            ),
+                                        )
+                            except (HubSpotScopeError, HubSpotValidationError, HubSpotNotFoundError) as e:
+                                # Only retry when HubSpot rejected the request BEFORE creating
+                                # anything: 403 (missing scope), 400 (e.g. bad associationTypeId)
+                                # and 404 (bad target id) are all pre-creation validation
+                                # failures per HubSpot's API - the note above was never
+                                # persisted, so retrying bare cannot produce a duplicate.
+                                # Any other exception (timeout, 5xx, network error) is
+                                # ambiguous about server-side state and is deliberately NOT
+                                # retried here - it propagates out of this async-with, which
+                                # marks the row 'failed' and re-raises to the outer except
+                                # below, which logs and gives up. We'd rather lose this note
+                                # once than risk leaving two on the customer's timeline.
+                                logger.warning(
+                                    "⚠️ Note create with associations failed (safe to retry bare): %s",
+                                    e,
+                                    extra=log_domain(DOMAIN_HUBSPOT, "note_create_with_assoc_failed", memo_id=str(memo_id)),
+                                )
+                                created = await self.client.post(
+                                    "/crm/v3/objects/notes",
+                                    data={"properties": note_properties},
+                                )
+                                note_id = (created or {}).get("id")
+                                if note_id:
+                                    for object_type, to_id, type_id in note_targets:
+                                        try:
+                                            await self.associations.create_association(
+                                                "notes", note_id, object_type, to_id,
+                                            )
+                                            logger.info(
+                                                "✅ Note associated (fallback)",
+                                                extra=log_domain(
+                                                    DOMAIN_HUBSPOT, "note_associated",
+                                                    note_id=note_id, object_type=object_type,
+                                                    object_id=to_id, association_type_id=type_id,
+                                                    memo_id=str(memo_id),
+                                                ),
+                                            )
+                                        except Exception as assoc_e:
+                                            logger.warning(
+                                                "⚠️ Failed to associate note %s to %s %s: %s",
+                                                note_id, object_type, to_id, assoc_e,
+                                                extra=log_domain(
+                                                    DOMAIN_HUBSPOT, "note_association_failed",
+                                                    note_id=note_id, object_type=object_type,
+                                                    object_id=to_id, memo_id=str(memo_id),
+                                                ),
+                                            )
+
+                            if note_id:
+                                tracked.data = {
+                                    "note_id": note_id,
+                                    "deal_id": deal_id,
+                                    "contact_id": contact_id,
+                                    "company_id": company_id,
+                                }
+                                tracked.resource_id = note_id
+                                logger.info(
+                                    "✅ Note created",
+                                    extra=log_domain(DOMAIN_HUBSPOT, "note_created", deal_id=deal_id, contact_id=contact_id, company_id=company_id),
+                                )
+                    except Exception as e:
+                        inc_pipeline_error(DOMAIN_HUBSPOT, "create_note")
+                        logger.warning(
+                            "Failed to create transcript note (deal=%s contact=%s company=%s): %s. "
+                            "Ensure crm.objects.notes.write scope.",
+                            deal_id, contact_id, company_id, e,
+                            extra=log_domain(DOMAIN_HUBSPOT, "note_failed", memo_id=str(memo_id), error=str(e)),
+                        )
 
             # Success!
             result.success = True
