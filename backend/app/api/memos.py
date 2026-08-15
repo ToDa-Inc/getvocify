@@ -1043,17 +1043,18 @@ async def get_approval_preview(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
     )
-    # Self-provisions this portal's call-outcome HubSpot properties on first
-    # use (see ensure_call_outcome_capability) - the extension only shows
-    # the outcome buttons when this comes back True. Failure here (e.g.
-    # HubSpot API hiccup) must not break the whole preview, so it degrades
-    # to "unavailable" rather than raising.
+    # Per-outcome gate (see compute_call_outcome_availability) - each button
+    # only appears once its hs_lead_status mapping is configured AND still
+    # valid against the live schema. Failure here (e.g. HubSpot API hiccup)
+    # must not break the whole preview, so it degrades to "unavailable"
+    # rather than raising.
     try:
-        capability = await provider.ensure_call_outcome_capability()
-        preview.call_outcome_available = capability.available
+        preview.call_outcome_availability = await provider.get_call_outcome_availability(
+            lost_lead_status_value=config.lost_lead_status_value if config else None,
+            on_hold_lead_status_value=config.on_hold_lead_status_value if config else None,
+        )
     except Exception as e:
-        logger.warning("Call outcome capability check failed for memo %s: %s", memo_id, e)
-        preview.call_outcome_available = False
+        logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
 
     # If a deal was explicitly selected, persist it to the memo record
     if deal_id:
@@ -1200,11 +1201,12 @@ async def post_approval_preview(
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
     )
     try:
-        capability = await provider.ensure_call_outcome_capability()
-        preview.call_outcome_available = capability.available
+        preview.call_outcome_availability = await provider.get_call_outcome_availability(
+            lost_lead_status_value=config.lost_lead_status_value if config else None,
+            on_hold_lead_status_value=config.on_hold_lead_status_value if config else None,
+        )
     except Exception as e:
-        logger.warning("Call outcome capability check failed for memo %s: %s", memo_id, e)
-        preview.call_outcome_available = False
+        logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
 
     return preview
 

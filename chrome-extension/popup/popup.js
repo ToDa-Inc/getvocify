@@ -1261,17 +1261,29 @@ function initCallOutcome(preview) {
   selectedCallOutcome = null;
   selectedLostReason = '';
 
-  // Capability gate (backend/app/services/hubspot/call_outcome.py -
-  // ensure_call_outcome_capability): this account's HubSpot properties for
-  // outcome tracking aren't provisioned (not yet, or not possible - e.g.
-  // Salesforce, or a HubSpot connection that needs to be reconnected).
-  // Never show buttons that would fail after the rep clicks one - hide the
-  // whole section instead.
-  const section = document.getElementById('call-outcome-section');
-  const available = !!preview?.call_outcome_available;
-  if (section) section.style.display = available ? '' : 'none';
+  // Per-outcome gate (backend/app/services/hubspot/call_outcome.py -
+  // compute_call_outcome_availability): Converted needs no per-account
+  // setup, but On Hold / Lost each only appear once the admin has mapped
+  // one of their OWN hs_lead_status values to that outcome (HubSpot
+  // Configuration screen) - never show a button that would fail (or
+  // no-op) after the rep clicks it, hide it instead of disabling it, so
+  // there's nothing confusing to explain in the extension itself.
+  const availability = preview?.call_outcome_availability || {};
+  const showConverted = !!availability.converted;
+  const showOnHold = !!availability.on_hold;
+  const showLost = !!availability.lost;
 
-  if (available) {
+  const section = document.getElementById('call-outcome-section');
+  if (section) section.style.display = (showConverted || showOnHold || showLost) ? '' : 'none';
+
+  const convertedBtn = document.getElementById('outcome-btn-converted');
+  if (convertedBtn) convertedBtn.style.display = showConverted ? '' : 'none';
+  const onHoldBtn = document.getElementById('outcome-btn-on_hold');
+  if (onHoldBtn) onHoldBtn.style.display = showOnHold ? '' : 'none';
+  const lostBtn = document.getElementById('outcome-btn-lost');
+  if (lostBtn) lostBtn.style.display = showLost ? '' : 'none';
+
+  if (showLost) {
     const select = document.getElementById('lost-reason-select');
     const otherInput = document.getElementById('lost-reason-other-input');
     if (select) {
@@ -1800,8 +1812,9 @@ function renderSuccess(result) {
     btn.style.display = 'none';
   }
 
-  // outcome_failed is CRITICAL: the outcome itself (hs_lead_status / lost
-  // reason) wasn't saved anywhere - unlike outcome_warning, this must not
+  // outcome_failed is CRITICAL: for Lost, the reason note itself (the one
+  // guaranteed record - see call_outcome.py) wasn't saved anywhere - unlike
+  // outcome_warning, this must not
   // look like plain success (a green check + "Sync Successful" would be
   // misleading about the one thing the rep just explicitly asked for).
   // The rest of the memo (deal/contact/notes) still synced fine, so this

@@ -31,12 +31,15 @@ export interface CRMConfiguration {
    * live deal schema on every call.
    */
   lost_reason_deal_property?: string | null;
-}
-
-export interface CallOutcomeProvisioningStatus {
-  provisioned_at?: string | null;
-  checked_at?: string | null;
-  error?: string | null;
+  /**
+   * This account's own hs_lead_status option value that means "Lost" /
+   * "On hold" - chosen by the admin from their EXISTING options (see
+   * backend/app/services/hubspot/call_outcome.py module docstring for why
+   * Vocify never creates new options itself). null/unset means not
+   * configured: the extension doesn't show that button until it is.
+   */
+  lost_lead_status_value?: string | null;
+  on_hold_lead_status_value?: string | null;
 }
 
 export const crmApi = {
@@ -44,26 +47,6 @@ export const crmApi = {
     connections: { id: string; provider: string; status: string; created_at?: string }[];
   }> {
     return api.get("/crm/connections");
-  },
-
-  /**
-   * Raw connection row (includes metadata.call_outcome_provisioning, written
-   * by ensure_call_outcome_capability the first time a preview runs for this
-   * portal) - used only to show a status line next to the Lost reasons
-   * editor, not as a source of truth for the extension's button gating
-   * (that's computed fresh server-side on every preview).
-   */
-  async getHubSpotConnection(): Promise<{
-    id: string;
-    status: string;
-    metadata: { call_outcome_provisioning?: CallOutcomeProvisioningStatus; [key: string]: unknown };
-  } | null> {
-    try {
-      return await api.get("/crm/hubspot/connection");
-    } catch (error: any) {
-      if (error.status === 404) return null;
-      throw error;
-    }
   },
 
   async getCrmPreferences(): Promise<{ primary_crm_connection_id: string | null }> {

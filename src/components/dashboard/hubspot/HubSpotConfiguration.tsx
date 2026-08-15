@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { crmApi, Pipeline, CRMSchema, CRMConfiguration, CallOutcomeProvisioningStatus } from "@/lib/api/crm";
+import { crmApi, Pipeline, CRMSchema, CRMConfiguration } from "@/lib/api/crm";
 import { toast } from "sonner";
-import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, X, Plus, PhoneOff } from "lucide-react";
+import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, X, Plus, PhoneOff, AlertTriangle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/shared/lib/api-client";
@@ -49,7 +49,6 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
   const [lineItemsScopeMissing, setLineItemsScopeMissing] = useState(false);
   const [lineItemsSchemaError, setLineItemsSchemaError] = useState(false);
   const [newLostReason, setNewLostReason] = useState("");
-  const [outcomeProvisioning, setOutcomeProvisioning] = useState<CallOutcomeProvisioningStatus | null>(null);
 
   const [config, setConfig] = useState<CRMConfiguration>({
     default_pipeline_id: "",
@@ -64,12 +63,14 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
     auto_create_companies: true,
     lost_reasons: ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"],
     lost_reason_deal_property: null,
+    lost_lead_status_value: null,
+    on_hold_lead_status_value: null,
   });
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [pipelinesData, dealSchema, contactSchema, companySchema, lineItemResult, currentConfig, connection] =
+        const [pipelinesData, dealSchema, contactSchema, companySchema, lineItemResult, currentConfig] =
           await Promise.all([
             crmApi.getPipelines(),
             crmApi.getSchema("deals"),
@@ -80,9 +81,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
               (err: unknown) => ({ ok: false as const, err }),
             ),
             crmApi.getConfiguration(),
-            crmApi.getHubSpotConnection().catch(() => null),
           ]);
-        setOutcomeProvisioning(connection?.metadata?.call_outcome_provisioning || null);
 
         const lineItemSchema = lineItemResult.ok ? lineItemResult.schema : null;
         if (lineItemResult.ok) {
@@ -127,6 +126,8 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                 ? currentConfig.lost_reasons
                 : ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"],
             lost_reason_deal_property: currentConfig.lost_reason_deal_property ?? null,
+            lost_lead_status_value: currentConfig.lost_lead_status_value ?? null,
+            on_hold_lead_status_value: currentConfig.on_hold_lead_status_value ?? null,
           });
         } else if (pipelinesData.length > 0) {
           const firstPipeline = pipelinesData[0];
@@ -233,6 +234,27 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
     const rest = dealProps.filter((p) => !isCandidate(p.label, p.name));
     return [...candidates, ...rest];
   }, [schemas.deals]);
+
+  // This account's own live Lead Status options - the ONLY source of
+  // values the On Hold / Lost dropdowns below can pick from. Vocify never
+  // creates HubSpot properties or options (see call_outcome.py module
+  // docstring) - the admin maps an EXISTING value here, or creates one in
+  // HubSpot themselves first if nothing fits.
+  const hsLeadStatusOptions = useMemo(
+    () => schemas.contacts?.properties.find((p) => p.name === "hs_lead_status")?.options || [],
+    [schemas.contacts],
+  );
+  const hsLeadStatusValues = useMemo(
+    () => new Set(hsLeadStatusOptions.map((o) => o.value)),
+    [hsLeadStatusOptions],
+  );
+  const lostConfigured = !!config.lost_lead_status_value;
+  const lostStale = lostConfigured && !hsLeadStatusValues.has(config.lost_lead_status_value as string);
+  const lostReady = lostConfigured && !lostStale;
+  const onHoldConfigured = !!config.on_hold_lead_status_value;
+  const onHoldStale = onHoldConfigured && !hsLeadStatusValues.has(config.on_hold_lead_status_value as string);
+  const onHoldReady = onHoldConfigured && !onHoldStale;
+  const outcomeMappingComplete = lostReady && onHoldReady;
 
   if (isLoading) {
     return (
@@ -363,7 +385,8 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
             deal's stage + lost reason) — even if <code className="text-[9px]">hs_lead_status</code>{" "}
             or <code className="text-[9px]">dealstage</code> aren't selected below. That's a deliberate
             rep action, not an AI extraction, so it's never filtered by these lists. See
-            "Call Outcome" further down to configure the Lost reasons themselves.
+            "Call Outcome" further down to map which of your own Lead Status values each outcome
+            writes, and to configure the Lost reasons themselves.
           </p>
         </div>
 
@@ -487,41 +510,141 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
         <div className="flex items-start gap-2 px-2">
           <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
           <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-            Reasons shown in the extension when a rep marks a call as <strong>Lost</strong> — a
-            reason is always required for Lost. Reps can also type their own via "Other".
+            Vocify never creates or changes properties in your HubSpot - the mapping below points
+            the extension's On Hold / Lost buttons at Lead Status values that already exist in your
+            account (or ones you create yourself in HubSpot first). Converted needs no setup - it
+            reuses HubSpot's own "Open Deal" status.
           </p>
         </div>
 
         {/*
-          Self-provisioning status (see ensure_call_outcome_capability in
-          backend/app/services/hubspot/call_outcome.py). This is informational
-          only - the extension computes its own gate fresh on every preview,
-          this just explains to the admin why the buttons may not appear yet.
-          Three states: never checked (no preview run yet), provisioned, or
-          blocked (needs reconnect).
+          Prominent, can't-miss gate: the On Hold / Lost buttons literally
+          don't exist in the extension for this account until both rows
+          below resolve to a value that's still valid in the live
+          hs_lead_status schema (see compute_call_outcome_availability in
+          backend/app/services/hubspot/call_outcome.py) - revalidated here
+          with the same schema the extension itself checks, so this card
+          never claims "ready" when the extension would actually hide the
+          button.
         */}
-        {outcomeProvisioning?.provisioned_at ? (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-700">
-            <Check className="h-3.5 w-3.5 shrink-0" />
-            Call outcome tracking is enabled for this account.
+        <div
+          className={`rounded-3xl border p-5 space-y-5 ${
+            outcomeMappingComplete
+              ? "border-emerald-500/20 bg-emerald-500/5"
+              : "border-amber-500/30 bg-amber-500/5"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {outcomeMappingComplete ? (
+              <Check className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className={`text-xs font-black ${outcomeMappingComplete ? "text-emerald-700" : "text-amber-700"}`}>
+                {outcomeMappingComplete
+                  ? "On Hold and Lost are mapped and ready"
+                  : "On Hold / Lost aren't mapped yet"}
+              </p>
+              <p className="text-[10px] text-muted-foreground font-medium leading-relaxed mt-1">
+                {outcomeMappingComplete
+                  ? "Reps see both buttons in the extension. Converted always shows - it needs no mapping."
+                  : "Until each row below points at a value, that button won't appear in the extension at all - reps won't know it's missing, they'll just never see it. Map what you can now; anything left unmapped simply stays hidden."}
+              </p>
+            </div>
           </div>
-        ) : outcomeProvisioning?.error ? (
-          <div className="flex items-start gap-2 px-4 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-700 leading-relaxed">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <span>
-              {outcomeProvisioning.error} Reps won't see the Converted/On Hold/Lost buttons until this
-              is resolved.
-            </span>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className={THEME_TOKENS.typography.capsLabel}>"Lost" means</label>
+                {lostReady && <Check className="h-3 w-3 text-emerald-600" />}
+              </div>
+              <div className="relative">
+                <select
+                  value={config.lost_lead_status_value || ""}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, lost_lead_status_value: e.target.value || null }))
+                  }
+                  className="w-full h-11 px-5 rounded-full border border-border/40 bg-background text-foreground appearance-none cursor-pointer font-bold text-xs focus:outline-none"
+                >
+                  <option value="">Not mapped - button hidden</option>
+                  {hsLeadStatusOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                  {lostStale && config.lost_lead_status_value && (
+                    <option value={config.lost_lead_status_value}>
+                      {config.lost_lead_status_value} (no longer exists)
+                    </option>
+                  )}
+                </select>
+                <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
+              </div>
+              {lostStale && (
+                <p className="text-[9px] text-amber-700 font-bold leading-relaxed px-1">
+                  This value was deleted or renamed in HubSpot - pick another one.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className={THEME_TOKENS.typography.capsLabel}>"On Hold" means</label>
+                {onHoldReady && <Check className="h-3 w-3 text-emerald-600" />}
+              </div>
+              <div className="relative">
+                <select
+                  value={config.on_hold_lead_status_value || ""}
+                  onChange={(e) =>
+                    setConfig((prev) => ({ ...prev, on_hold_lead_status_value: e.target.value || null }))
+                  }
+                  className="w-full h-11 px-5 rounded-full border border-border/40 bg-background text-foreground appearance-none cursor-pointer font-bold text-xs focus:outline-none"
+                >
+                  <option value="">Not mapped - button hidden</option>
+                  {hsLeadStatusOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                  {onHoldStale && config.on_hold_lead_status_value && (
+                    <option value={config.on_hold_lead_status_value}>
+                      {config.on_hold_lead_status_value} (no longer exists)
+                    </option>
+                  )}
+                </select>
+                <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
+              </div>
+              {onHoldStale && (
+                <p className="text-[9px] text-amber-700 font-bold leading-relaxed px-1">
+                  This value was deleted or renamed in HubSpot - pick another one.
+                </p>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="flex items-start gap-2 px-4 py-2.5 rounded-2xl bg-secondary/10 border border-border/30 text-[10px] font-bold text-muted-foreground leading-relaxed">
-            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <span>
-              Not checked yet - this is confirmed automatically the first time a rep reviews a memo
-              with this HubSpot account connected.
-            </span>
-          </div>
-        )}
+
+          {!onHoldConfigured && (
+            <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-background/60 border border-border/30">
+              <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
+              <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
+                Don't see anything that fits "on hold"? Most accounts don't - it's rarely a default
+                Lead Status. Create one yourself in HubSpot first:{" "}
+                <strong>Settings → Properties → Contact properties → Lead Status → Edit → Add option</strong>,
+                then come back here and select it.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-start gap-2 px-2">
+          <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
+          <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
+            Reasons shown in the extension when a rep marks a call as <strong>Lost</strong> — a
+            reason is always required for Lost. Reps can also type their own via "Other". The
+            reason itself is always recorded as a HubSpot note regardless of the mapping above.
+          </p>
+        </div>
 
         <div className="space-y-3">
           <label className={THEME_TOKENS.typography.capsLabel}>Lost Reasons</label>

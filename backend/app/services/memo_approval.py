@@ -223,6 +223,8 @@ async def approve_memo_core(
     # resolve_lost_reason_property in hubspot/call_outcome.py). Never guess
     # a default here.
     lost_reason_deal_property = (config.lost_reason_deal_property or None) if config else None
+    lost_lead_status_value = (config.lost_lead_status_value or None) if config else None
+    on_hold_lead_status_value = (config.on_hold_lead_status_value or None) if config else None
 
     sync_result = await provider.sync_memo(
         memo_id=memo_id,
@@ -249,6 +251,8 @@ async def approve_memo_core(
         call_outcome=call_outcome,
         lost_reason=lost_reason,
         lost_reason_deal_property=lost_reason_deal_property,
+        lost_lead_status_value=lost_lead_status_value,
+        on_hold_lead_status_value=on_hold_lead_status_value,
     )
 
     if not sync_result.success:

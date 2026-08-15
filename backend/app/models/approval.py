@@ -61,6 +61,29 @@ class AvailableField(BaseModel):
     )
 
 
+class CallOutcomeAvailability(BaseModel):
+    """
+    Per-outcome gate for the extension's Converted/On Hold/Lost buttons -
+    computed fresh on every preview (see
+    hubspot/call_outcome.py:compute_call_outcome_availability), never just
+    trusted from saved configuration.
+
+    - converted: needs no per-account setup (reuses HubSpot's own
+      'Open Deal' hs_lead_status default) - False only if that default
+      itself is missing from this portal's live schema (rare).
+    - on_hold / lost: each requires the admin to map one of THEIR OWN
+      EXISTING hs_lead_status values to that meaning, from the HubSpot
+      Configuration screen - Vocify never creates HubSpot picklist options
+      itself (see call_outcome.py module docstring). False when unmapped,
+      or when the mapped value no longer exists in the live schema (the
+      client deleted/renamed it since configuring) - never silently write
+      an invalid value, never show a button that would then no-op.
+    """
+    converted: bool = False
+    on_hold: bool = False
+    lost: bool = False
+
+
 class ApprovalPreview(BaseModel):
     """Preview of what will be synced to CRM"""
     memo_id: UUID
@@ -104,13 +127,12 @@ class ApprovalPreview(BaseModel):
     # round-trip as everything else instead of a separate config fetch.
     # "Other" (free text) is UI-only and deliberately not included here.
     lost_reasons: list[str] = Field(default_factory=list)
-    # Capability gate (see hubspot/call_outcome.py:ensure_call_outcome_capability):
-    # False means this portal's HubSpot properties for call outcome
-    # tracking aren't provisioned (yet, or ever - e.g. Salesforce). The
-    # extension must not show the Converted/On Hold/Lost buttons at all
-    # when this is False - never offer them and fail after the rep clicks
-    # one. Set from the API layer alongside lost_reasons, same reason.
-    call_outcome_available: bool = False
+    # Per-outcome gate - see CallOutcomeAvailability above. Set from the API
+    # layer (app/api/memos.py) alongside lost_reasons, same round-trip
+    # reasoning: the extension must not show a button for an outcome that
+    # isn't available for this account - never offer one and fail after the
+    # rep clicks it.
+    call_outcome_availability: CallOutcomeAvailability = Field(default_factory=CallOutcomeAvailability)
 
 
 class ApproveRequest(BaseModel):

@@ -177,6 +177,14 @@ CREATE TABLE crm_configurations (
     '["No budget","No response","Chose a competitor","Bad timing","Not a fit"]'::jsonb,
   lost_reason_deal_property TEXT,
 
+  -- Call outcome status mapping (migration 022). The admin's own portal
+  -- hs_lead_status values that mean "On Hold" / "Lost" - NULL means not
+  -- configured (the button doesn't appear in the extension until it is,
+  -- see call_outcome.py:compute_call_outcome_availability). Vocify never
+  -- creates HubSpot picklist options itself - see oauth.py's scope list.
+  lost_lead_status_value TEXT,
+  on_hold_lead_status_value TEXT,
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   
@@ -265,10 +273,12 @@ CREATE TABLE crm_updates (
     'create_note',
     'create_line_item',
     'update_call_outcome',
-    'create_followup_task'
+    'create_followup_task',
+    'create_outcome_note'
   )),
-  -- 'update_call_outcome' / 'create_followup_task' added by migration 021
-  -- (call outcome: Converted/On Hold/Lost - see app/services/hubspot/call_outcome.py).
+  -- 'update_call_outcome' / 'create_followup_task' added by migration 021,
+  -- 'create_outcome_note' by migration 022 (call outcome: Converted/On
+  -- Hold/Lost - see app/services/hubspot/call_outcome.py).
   -- 'line_item' added by migration 020 - action_type already allowed
   -- create_line_item since migration 015, but resource_type never got the
   -- matching value until 020. See that migration for the full story.

@@ -212,6 +212,8 @@ class HubSpotSyncService:
         call_outcome: Optional[str] = None,
         lost_reason: Optional[str] = None,
         lost_reason_deal_property: Optional[str] = None,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -255,6 +257,13 @@ class HubSpotSyncService:
                 call_outcome.resolve_lost_reason_property auto-detects one from the
                 portal's live deal schema on every sync - not only from the configuration
                 screen, so the reason isn't lost just because nobody configured it.
+            lost_lead_status_value: This account's own hs_lead_status value that means
+                "Lost" (crm_configurations.lost_lead_status_value) - revalidated against
+                the live schema before writing (see call_outcome.py). None means not
+                configured; the extension wouldn't have offered the Lost button in that
+                case, but this method itself just skips the hs_lead_status write and
+                relies on the reason note instead (see call_outcome.py module docstring).
+            on_hold_lead_status_value: Same as above, for "On Hold".
         Returns:
             SyncResult with success status and created/updated object IDs
         """
@@ -1085,6 +1094,13 @@ class HubSpotSyncService:
             # not skip_deal is set - the transcript must not be lost when there's no
             # deal. A failed individual association is logged and skipped, never
             # escalated: the note (and the associations that did work) still land.
+            #
+            # When call_outcome == 'lost', the Lost reason is merged into THIS note
+            # (see format_hubspot_note_body) rather than creating a second one - see
+            # call_outcome.py module docstring for why. outcome_note_merged_this_run
+            # (and outcome_note_already_recorded, computed below from previous_updates
+            # for retries) tell Step 8 whether it still needs its own standalone note.
+            outcome_note_merged_this_run = False
             if create_note and transcript and transcript.strip() and (deal_id or contact_id or company_id):
                 # Dedupe by memo, not by deal: one memo produces at most one note,
                 # regardless of how many objects it ends up associated with.
@@ -1111,6 +1127,8 @@ class HubSpotSyncService:
                                 summary=getattr(extraction, "summary", None),
                                 transcript=transcript,
                                 source="hubspot_call",
+                                call_outcome=call_outcome,
+                                lost_reason=lost_reason,
                             )
                             note_properties = {
                                 "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1221,11 +1239,17 @@ class HubSpotSyncService:
                                             )
 
                             if note_id:
+                                outcome_note_merged_this_run = call_outcome == "lost"
                                 tracked.data = {
                                     "note_id": note_id,
                                     "deal_id": deal_id,
                                     "contact_id": contact_id,
                                     "company_id": company_id,
+                                    # Read back on retries (see previous_updates scan
+                                    # below) so a second approve attempt doesn't create
+                                    # a redundant standalone outcome note - the reason
+                                    # is already merged into this one.
+                                    **({"outcome_note_merged": True} if outcome_note_merged_this_run else {}),
                                 }
                                 tracked.resource_id = note_id
                                 logger.info(
@@ -1251,6 +1275,17 @@ class HubSpotSyncService:
             # 500 that discards a sync that otherwise fully succeeded.
             if call_outcome:
                 try:
+                    # A prior run may have already merged the reason into a
+                    # successful create_note (see outcome_note_merged_this_run
+                    # above) - checked from previous_updates, not just this
+                    # run's local flag, so a retry doesn't create a second,
+                    # redundant standalone note for the same reason.
+                    outcome_note_already_recorded = outcome_note_merged_this_run or any(
+                        u.get("action_type") == "create_note"
+                        and u.get("status") == "success"
+                        and (u.get("data") or {}).get("outcome_note_merged")
+                        for u in previous_updates
+                    )
                     outcome_ctx = CallOutcomeContext(
                         memo_id=str(memo_id),
                         user_id=user_id,
@@ -1258,10 +1293,14 @@ class HubSpotSyncService:
                         call_outcome=call_outcome,
                         lost_reason=lost_reason,
                         lost_reason_deal_property_configured=lost_reason_deal_property,
+                        lost_lead_status_value=lost_lead_status_value,
+                        on_hold_lead_status_value=on_hold_lead_status_value,
                         contact_id=contact_id,
                         deal_id=deal_id,
+                        company_id=company_id,
                         contact_name=extraction_for_contact.contactName or extraction.contactName,
                         hubspot_owner_id=hubspot_owner_id,
+                        outcome_note_already_recorded=outcome_note_already_recorded,
                         previous_updates=previous_updates,
                         extraction=extraction,
                     )
@@ -1271,6 +1310,8 @@ class HubSpotSyncService:
                         contacts=self.contacts,
                         deals=self.deals,
                         tasks=self.tasks,
+                        client=self.client,
+                        associations=self.associations,
                         schema_service=self.deals.schema,
                     )
                     result.outcome_warning = outcome_result.warning

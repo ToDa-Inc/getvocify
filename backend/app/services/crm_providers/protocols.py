@@ -7,9 +7,9 @@ from __future__ import annotations
 from typing import Any, Optional, Protocol, Union
 from uuid import UUID
 
-from app.models.approval import ApprovalPreview, DealMatch
+from app.models.approval import ApprovalPreview, CallOutcomeAvailability, DealMatch
 from app.models.memo import MemoExtraction
-from app.services.hubspot.types import CallOutcomeCapability, SyncResult
+from app.services.hubspot.types import SyncResult
 
 
 class CRMExtractionSyncProtocol(Protocol):
@@ -41,6 +41,8 @@ class CRMExtractionSyncProtocol(Protocol):
         call_outcome: Optional[str] = None,
         lost_reason: Optional[str] = None,
         lost_reason_deal_property: Optional[str] = None,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
     ) -> SyncResult: ...
 
 
@@ -94,11 +96,15 @@ class CRMDealMatchProtocol(Protocol):
     ) -> Any: ...
 
 
-class CRMCallOutcomeCapabilityProtocol(Protocol):
-    """Whether this connection can currently record call outcomes - see
-    app/services/hubspot/call_outcome.py:ensure_call_outcome_capability."""
+class CRMCallOutcomeAvailabilityProtocol(Protocol):
+    """Whether this connection can currently record each call outcome - see
+    app/services/hubspot/call_outcome.py:compute_call_outcome_availability."""
 
-    async def ensure_call_outcome_capability(self) -> CallOutcomeCapability: ...
+    async def get_call_outcome_availability(
+        self,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
+    ) -> CallOutcomeAvailability: ...
 
 
 class CRMFieldSpecsProtocol(Protocol):

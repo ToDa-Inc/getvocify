@@ -3,41 +3,77 @@ Call outcome: Converted / On Hold / Lost.
 
 The rep marks the result of a call on the confirmation screen (optional -
 None means they didn't mark one, unchanged legacy behavior). This is stored
-primarily on the CONTACT (hs_lead_status + vocify_lost_reason), and mirrored
-to the deal only when one exists:
+primarily on the CONTACT (hs_lead_status), and mirrored to the deal only
+when one exists:
 
   converted  -> contact hs_lead_status='OPEN_DEAL' (a real HubSpot default
-               option - no provisioning needed); deal (if any) dealstage ->
+               option - never created here); deal (if any) dealstage ->
                its pipeline's "appointmentscheduled" stage.
-  on_hold    -> contact hs_lead_status='VOCIFY_FOLLOW_UP' + a follow-up task
-               on the deal (or contact, if no deal). Deliberately does NOT
-               touch dealstage even when a deal exists: guessing which stage
-               of an arbitrary customer's pipeline means "on hold" is exactly
-               the kind of heuristic that breaks on portals we've never seen
-               - see find_closed_lost_stage_id below for why "lost" gets to
-               use a real signal (isClosed+probability) instead.
-  lost       -> contact hs_lead_status='VOCIFY_LOST' + vocify_lost_reason;
-               deal (if any) dealstage -> its pipeline's closed-lost stage
-               (found via metadata, see find_closed_lost_stage_id) + the
-               portal's own lost-reason property (see
-               resolve_lost_reason_property), when either can be found.
+  on_hold    -> contact hs_lead_status=<the account's configured On Hold
+               value> + a follow-up task on the deal (or contact, if no
+               deal). Deliberately does NOT touch dealstage even when a
+               deal exists: guessing which stage of an arbitrary
+               customer's pipeline means "on hold" is exactly the kind of
+               heuristic that breaks on portals we've never seen - see
+               find_closed_lost_stage_id below for why "lost" gets to use
+               a real signal (isClosed+probability) instead.
+  lost       -> contact hs_lead_status=<the account's configured Lost
+               value> + a note recording the reason (see "THE LOST REASON
+               NOTE" below); deal (if any) dealstage -> its pipeline's
+               closed-lost stage (found via metadata, see
+               find_closed_lost_stage_id) + the portal's own lost-reason
+               property (see resolve_lost_reason_property), when either
+               can be found.
 
-VOCIFY_LOST / VOCIFY_FOLLOW_UP are custom hs_lead_status options, and
-vocify_lost_reason is a custom contact property - neither is a HubSpot
-default, so every portal needs them created once. This is SELF-PROVISIONED
-(see ensure_call_outcome_capability below), not a manual setup step someone
-has to remember: the first time a preview is built for a portal missing
-them, sync tries to create them right then, idempotently. If that succeeds
-(the common case - it only needs crm.schemas.contacts.write, requested at
-connect time), the buttons just work with zero admin action. If it fails
-(most likely: an existing connection authorized before this app requested
-that scope, so the stored OAuth token doesn't have it), the extension does
-NOT show the Converted/On Hold/Lost buttons for that account at all - never
-"offer it and fail after", per the explicit design decision here. See
-ensure_call_outcome_capability for the caching/backoff around this check,
-and scripts/provision_outcome_properties.py (now optional/dev-only - kept
-for testing against a Private App token in a sandbox portal, not part of
-the production rollout anymore).
+CONFIGURABLE MAPPING, NOT SELF-PROVISIONING: On Hold and Lost each need a
+value on the contact's hs_lead_status property that means that outcome.
+Earlier versions of this feature had Vocify create two new options itself
+(VOCIFY_LOST / VOCIFY_FOLLOW_UP) the first time they were needed, which
+required the crm.schemas.contacts.write scope - permission to modify the
+CLIENT's CRM schema, not just its data. That scope is no longer requested
+at all (see oauth.py). Instead, the admin maps one of their OWN EXISTING
+hs_lead_status values to each outcome from the HubSpot Configuration
+screen (lost_lead_status_value / on_hold_lead_status_value in
+crm_configurations) - if no existing value fits (most commonly "On Hold",
+since portals rarely have a lead-status option for that), the admin
+creates one themselves in their own HubSpot, guided by that same screen.
+Vocify never touches the schema. This is the same reasoning migration 021
+already applied to "which pipeline stage means on hold" - guessing at
+another portal's meaning for a value is the class of heuristic that
+breaks silently; making the client's own admin choose it explicitly (or
+build it, if it doesn't exist) is the only version of this that's both
+correct and honest about what Vocify is asking permission to touch.
+
+Until an account configures a value for On Hold/Lost, the extension does
+not offer that button at all (see compute_call_outcome_availability) -
+never "offer it and fail after", same design principle as before, just
+gated on configuration instead of a provisioning API call. Converted needs
+no configuration (HS_LEAD_STATUS_CONVERTED is a real HubSpot default), but
+is still revalidated against the live schema every time, for the rare
+portal that removed it.
+
+Every mapped value is REVALIDATED against the live hs_lead_status schema,
+both when computing button availability (preview) and again right before
+writing (sync) - a value the client deleted or renamed since configuring
+must never be written, and must not keep showing a button that would then
+silently no-op. See resolve_lead_status_value / _get_contact_lead_status_options.
+
+THE LOST REASON NOTE: with the custom vocify_lost_reason contact property
+gone (it required schema-write to create; confirmed not left behind in any
+connected portal from earlier testing), the Lost reason is recorded as a
+HubSpot note instead - a note is a data write (crm.objects.notes.write),
+never a schema write. It's merged into the memo's own transcript note when
+one is created in the same sync (see sync.py Step 7 and
+note_format.format_hubspot_note_body) so the timeline doesn't get two
+back-to-back entries for the same call; otherwise (create_note=false, no
+transcript, or that step failed) a small standalone note is created here
+instead - see _ensure_lost_reason_note. This note is the one thing this
+module guarantees for Lost, independent of whether hs_lead_status is
+mapped at all: even an account that hasn't configured a Lost value yet
+would have gotten the note (though in practice the extension won't offer
+the Lost button before that's configured either - this guarantee mostly
+covers the narrow race where a value was valid when the preview was built
+and invalidated before the rep hit approve).
 
 IMPORTANT - allowlist bypass, on purpose: every write in this module ignores
 allowed_contact_fields / allowed_deal_fields. This is the one intentional
@@ -62,33 +98,34 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, NamedTuple, Optional
 
-from supabase import Client
-
 from app.logging_config import log_domain, DOMAIN_HUBSPOT
+from app.models.approval import CallOutcomeAvailability
 from app.services.crm_updates import CRMUpdatesService
 
+from .associations import HubSpotAssociationService
 from .client import HubSpotClient
 from .contacts import HubSpotContactService
 from .deals import HubSpotDealService
-from .exceptions import HubSpotError, HubSpotNotFoundError, HubSpotScopeError
+from .note_format import format_standalone_call_outcome_note_body
+from .notes import create_note_with_associations
 from .schema import HubSpotSchemaService
 from .tasks import HubSpotTasksService, _next_step_schedule_hints, _parse_date_from_text
-from .types import CallOutcomeCapability, HubSpotPipeline, HubSpotProperty
+from .types import HubSpotPipeline, HubSpotProperty
 from app.models.memo import MemoExtraction
 
 logger = logging.getLogger(__name__)
 
 CallOutcome = Literal["converted", "on_hold", "lost"]
 
+# The only hardcoded value left: a real HubSpot default option, present on
+# every portal unless an admin explicitly removed it (revalidated below
+# just like the configured On Hold/Lost values, for that edge case).
 HS_LEAD_STATUS_CONVERTED = "OPEN_DEAL"
-HS_LEAD_STATUS_ON_HOLD = "VOCIFY_FOLLOW_UP"
-HS_LEAD_STATUS_LOST = "VOCIFY_LOST"
-
-CONTACT_LOST_REASON_PROPERTY = "vocify_lost_reason"
 HS_LEAD_STATUS_PROPERTY = "hs_lead_status"
 
 ACTION_TYPE = "update_call_outcome"
 FOLLOWUP_TASK_ACTION_TYPE = "create_followup_task"
+OUTCOME_NOTE_ACTION_TYPE = "create_outcome_note"
 
 
 class CallOutcomeWriteResult(NamedTuple):
@@ -101,202 +138,44 @@ class CallOutcomeWriteResult(NamedTuple):
 
 
 # ============================================================================
-# SELF-PROVISIONING (see module docstring for why this replaces a manual step)
+# AVAILABILITY (button gating) - see module docstring for why this is
+# configuration + revalidation, not self-provisioning.
 # ============================================================================
 
-CALL_OUTCOME_PROVISIONING_KEY = "call_outcome_provisioning"
-# Once a portal is confirmed missing the scope, don't retry on every single
-# preview - HubSpot's answer won't change until the customer reconnects.
-_PROVISION_RECHECK_BACKOFF = timedelta(hours=6)
-
-# Must match backend/scripts/provision_outcome_properties.py's
-# NEW_LEAD_STATUS_OPTIONS (that script imports these constants instead of
-# redefining them, to keep the two in sync).
-REQUIRED_LEAD_STATUS_OPTIONS: list[dict[str, str]] = [
-    {"label": "Lost (Vocify)", "value": HS_LEAD_STATUS_LOST},
-    {"label": "Follow-up (Vocify)", "value": HS_LEAD_STATUS_ON_HOLD},
-]
-
-
-async def _fetch_raw_property(
-    client: HubSpotClient, object_type: str, name: str
-) -> Optional[dict[str, Any]]:
-    """Raw (untyped) property fetch - deliberately NOT via HubSpotSchemaService:
-    that returns HubSpotProperty/PropertyOption models which don't round-trip
-    fields like displayOrder, and this needs to PATCH back a faithful merge
-    of the portal's existing options, not a lossy reconstruction."""
+async def _get_contact_lead_status_options(schema_service: HubSpotSchemaService) -> set[str]:
+    """Live set of this portal's current hs_lead_status option values.
+    Empty set (never an exception) on any failure - callers treat that
+    exactly like "nothing is valid right now", the safe default."""
     try:
-        return await client.get(f"/crm/v3/properties/{object_type}/{name}")
-    except HubSpotNotFoundError:
-        return None
-
-
-async def provision_call_outcome_properties(client: HubSpotClient) -> None:
-    """
-    Idempotently create the two things apply_call_outcome writes to that
-    aren't HubSpot defaults. Safe to call every time - only PATCHes/POSTs
-    what's actually missing. Raises on any HubSpot API failure (most
-    commonly HubSpotScopeError when the token lacks
-    crm.schemas.contacts.write); callers decide what that means.
-    """
-    lead_status = await _fetch_raw_property(client, "contacts", HS_LEAD_STATUS_PROPERTY)
-    if lead_status is None:
-        raise HubSpotError(
-            f"Contact property '{HS_LEAD_STATUS_PROPERTY}' not found on this portal - "
-            "this is a HubSpot default that should always exist."
-        )
-
-    existing_options = lead_status.get("options") or []
-    existing_values = {opt.get("value") for opt in existing_options}
-    missing = [opt for opt in REQUIRED_LEAD_STATUS_OPTIONS if opt["value"] not in existing_values]
-    if missing:
-        next_order = max((opt.get("displayOrder", -1) for opt in existing_options), default=-1) + 1
-        merged_options = list(existing_options) + [
-            {**opt, "displayOrder": next_order + i, "hidden": False} for i, opt in enumerate(missing)
-        ]
-        await client.patch(
-            f"/crm/v3/properties/contacts/{HS_LEAD_STATUS_PROPERTY}",
-            {"options": merged_options},
-        )
-
-    lost_reason_prop = await _fetch_raw_property(client, "contacts", CONTACT_LOST_REASON_PROPERTY)
-    if lost_reason_prop is None:
-        await client.post(
-            "/crm/v3/properties/contacts",
-            {
-                "groupName": "contactinformation",
-                "name": CONTACT_LOST_REASON_PROPERTY,
-                "label": "Lost reason (Vocify)",
-                "description": (
-                    "Why this contact was marked Lost from a Vocify call. Written by "
-                    "the extension's call-outcome step, not editable by allowlists."
-                ),
-                "type": "string",
-                "fieldType": "text",
-            },
-        )
-
-
-def _persist_provisioning_status(
-    supabase: Client,
-    connection_id: Any,
-    metadata: dict[str, Any],
-    *,
-    provisioned: bool,
-    error: Optional[str],
-    checked_at_iso: str,
-) -> None:
-    """Best-effort cache write to crm_connections.metadata (no schema change
-    needed - metadata is already a JSONB column used for portal_id/region/
-    etc.). If this write itself fails, the next preview just re-attempts
-    provisioning - safe, since provisioning is idempotent."""
-    metadata = dict(metadata)
-    metadata[CALL_OUTCOME_PROVISIONING_KEY] = {
-        "provisioned_at": checked_at_iso if provisioned else None,
-        "checked_at": checked_at_iso,
-        "error": error,
-    }
-    try:
-        supabase.table("crm_connections").update({"metadata": metadata}).eq(
-            "id", str(connection_id)
-        ).execute()
+        schema = await schema_service.get_contact_schema()
     except Exception as e:
         logger.warning(
-            "⚠️ Failed to persist call outcome provisioning status: %s",
+            "Call outcome: hs_lead_status schema fetch failed: %s",
             e,
-            extra=log_domain(
-                DOMAIN_HUBSPOT, "call_outcome_provision_status_write_failed",
-                connection_id=str(connection_id), error=str(e),
-            ),
+            extra=log_domain(DOMAIN_HUBSPOT, "call_outcome_lead_status_schema_failed", error=str(e)),
         )
+        return set()
+    prop = next((p for p in schema.properties if p.name == HS_LEAD_STATUS_PROPERTY), None)
+    return {opt.value for opt in prop.options} if prop else set()
 
 
-async def ensure_call_outcome_capability(
+async def compute_call_outcome_availability(
     *,
-    supabase: Client,
-    connection: dict[str, Any],
-    client: HubSpotClient,
-) -> CallOutcomeCapability:
+    schema_service: HubSpotSchemaService,
+    lost_lead_status_value: Optional[str],
+    on_hold_lead_status_value: Optional[str],
+) -> CallOutcomeAvailability:
     """
-    Capability gate for the Converted/On Hold/Lost buttons - called once per
-    preview (see app/api/memos.py). This IS the "no manual step" fix:
-
-    - Already provisioned (crm_connections.metadata, set the first time this
-      succeeds for this portal) -> available, zero HubSpot API calls.
-    - Not yet provisioned -> try right now, idempotently
-      (provision_call_outcome_properties). Success is permanent - HubSpot
-      doesn't remove properties on its own - so this never runs again for a
-      portal that succeeds once.
-    - Failure (most commonly: connected before this app requested
-      crm.schemas.contacts.write, so the stored token lacks it) -> stays
-      unavailable, rechecked at most once per _PROVISION_RECHECK_BACKOFF so
-      a permanently-missing scope doesn't turn into a HubSpot API call on
-      every single preview. The extension simply doesn't show the buttons
-      for this account (see popup.js initCallOutcome) - never "offer them
-      and fail after clicking Lost".
+    Called once per preview (see app/api/memos.py) - one schema fetch
+    (cached, see HubSpotSchemaService) covers all three checks.
     """
-    metadata = dict(connection.get("metadata") or {})
-    status_data = dict(metadata.get(CALL_OUTCOME_PROVISIONING_KEY) or {})
-
-    if status_data.get("provisioned_at"):
-        return CallOutcomeCapability(available=True)
-
-    checked_at_raw = status_data.get("checked_at")
-    if checked_at_raw:
-        try:
-            checked_at = datetime.fromisoformat(checked_at_raw)
-            if checked_at.tzinfo is None:
-                checked_at = checked_at.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - checked_at < _PROVISION_RECHECK_BACKOFF:
-                return CallOutcomeCapability(available=False, reason=status_data.get("error"))
-        except ValueError:
-            pass  # Corrupt cache entry - fall through and re-check now.
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    connection_id = connection.get("id")
-    try:
-        await provision_call_outcome_properties(client)
-    except HubSpotScopeError as e:
-        reason = (
-            "This HubSpot account needs to be reconnected to enable Call outcome "
-            "tracking (Vocify now needs permission to add a couple of status "
-            "options to contacts)."
-        )
-        logger.warning(
-            "⚠️ Call outcome provisioning failed: missing scope: %s",
-            e,
-            extra=log_domain(
-                DOMAIN_HUBSPOT, "call_outcome_provision_scope_missing",
-                connection_id=str(connection_id), error=str(e),
-            ),
-        )
-        _persist_provisioning_status(
-            supabase, connection_id, metadata, provisioned=False, error=reason, checked_at_iso=now_iso
-        )
-        return CallOutcomeCapability(available=False, reason=reason)
-    except Exception as e:
-        reason = "Couldn't verify HubSpot is ready for Call outcome tracking yet - retrying automatically."
-        logger.warning(
-            "⚠️ Call outcome provisioning failed: %s",
-            e,
-            extra=log_domain(
-                DOMAIN_HUBSPOT, "call_outcome_provision_failed",
-                connection_id=str(connection_id), error=str(e),
-            ),
-        )
-        _persist_provisioning_status(
-            supabase, connection_id, metadata, provisioned=False, error=reason, checked_at_iso=now_iso
-        )
-        return CallOutcomeCapability(available=False, reason=reason)
-
-    logger.info(
-        "✅ Call outcome properties provisioned",
-        extra=log_domain(DOMAIN_HUBSPOT, "call_outcome_provisioned", connection_id=str(connection_id)),
+    valid_values = await _get_contact_lead_status_options(schema_service)
+    return CallOutcomeAvailability(
+        converted=HS_LEAD_STATUS_CONVERTED in valid_values,
+        on_hold=bool(on_hold_lead_status_value) and on_hold_lead_status_value in valid_values,
+        lost=bool(lost_lead_status_value) and lost_lead_status_value in valid_values,
     )
-    _persist_provisioning_status(
-        supabase, connection_id, metadata, provisioned=True, error=None, checked_at_iso=now_iso
-    )
-    return CallOutcomeCapability(available=True)
+
 
 # HubSpot's own default name (confirmed against HubSpot's default deal
 # properties) tried first, exact match. The label keywords below are a
@@ -399,10 +278,18 @@ class CallOutcomeContext:
     call_outcome: CallOutcome
     lost_reason: Optional[str]
     lost_reason_deal_property_configured: Optional[str]
+    lost_lead_status_value: Optional[str]
+    on_hold_lead_status_value: Optional[str]
     contact_id: Optional[str]
     deal_id: Optional[str]
+    company_id: Optional[str]
     contact_name: Optional[str]
     hubspot_owner_id: Optional[str]
+    # True when sync.py's Step 7 already wrote the Lost reason into the
+    # memo's own transcript note this run, or a prior run did (see
+    # sync.py's outcome_note_already_recorded) - tells _ensure_lost_reason_note
+    # not to create a second, redundant note for the same reason.
+    outcome_note_already_recorded: bool = False
     previous_updates: list[dict[str, Any]] = field(default_factory=list)
     extraction: Optional[MemoExtraction] = None
 
@@ -414,6 +301,8 @@ async def apply_call_outcome(
     contacts: HubSpotContactService,
     deals: HubSpotDealService,
     tasks: HubSpotTasksService,
+    client: HubSpotClient,
+    associations: HubSpotAssociationService,
     schema_service: HubSpotSchemaService,
 ) -> CallOutcomeWriteResult:
     """
@@ -421,13 +310,13 @@ async def apply_call_outcome(
     distinguishing two severities (see SyncResult.outcome_warning/
     outcome_failed in hubspot/types.py for how each surfaces to the rep):
 
-    - .failed: the core write (contact hs_lead_status + vocify_lost_reason -
-      the source of truth per the module docstring) did NOT land anywhere.
-      This must not be presented as success.
-    - .warning: the core write succeeded, but a secondary MIRROR onto the
-      deal (dealstage, the portal's lost-reason property) or the On Hold
-      follow-up task didn't - the outcome IS saved on the contact, this is
-      just a non-blocking heads-up.
+    - .failed: for Lost, the reason note (the one guaranteed record - see
+      module docstring) did NOT land anywhere. For any outcome, no contact
+      was resolved at all. This must not be presented as success.
+    - .warning: everything guaranteed landed, but a secondary write didn't
+      - hs_lead_status has no valid mapped value right now, the contact
+      update itself failed, the deal mirror (dealstage / lost-reason
+      property) didn't apply, or the On Hold follow-up task failed.
 
     Every HubSpot write below is independently try/excepted: a failure here
     logs, is folded into the returned result, and never propagates - it
@@ -454,56 +343,79 @@ async def apply_call_outcome(
         ctx.previous_updates, (ACTION_TYPE,)
     )
     if not outcome_already_done:
-        # --- Contact write (always - the source of truth) ---
-        contact_props: dict[str, Any] = {}
-        if ctx.call_outcome == "lost":
-            contact_props["hs_lead_status"] = HS_LEAD_STATUS_LOST
-            contact_props[CONTACT_LOST_REASON_PROPERTY] = ctx.lost_reason or ""
-        elif ctx.call_outcome == "on_hold":
-            contact_props["hs_lead_status"] = HS_LEAD_STATUS_ON_HOLD
-        elif ctx.call_outcome == "converted":
-            contact_props["hs_lead_status"] = HS_LEAD_STATUS_CONVERTED
+        lead_status_options = await _get_contact_lead_status_options(schema_service)
 
-        try:
-            async with crm_updates.track(
-                memo_id=ctx.memo_id,
-                user_id=ctx.user_id,
-                crm_connection_id=ctx.connection_id,
-                action_type=ACTION_TYPE,
-                resource_type="contact",
-            ) as tracked:
-                await contacts.update(ctx.contact_id, contact_props)
-                tracked.data = {
-                    "contact_id": ctx.contact_id,
-                    "call_outcome": ctx.call_outcome,
-                    "properties": contact_props,
-                }
-                tracked.resource_id = ctx.contact_id
-                logger.info(
-                    "✅ Call outcome written to contact",
+        configured_value: Optional[str] = None
+        if ctx.call_outcome == "lost":
+            configured_value = ctx.lost_lead_status_value
+        elif ctx.call_outcome == "on_hold":
+            configured_value = ctx.on_hold_lead_status_value
+        elif ctx.call_outcome == "converted":
+            configured_value = HS_LEAD_STATUS_CONVERTED
+
+        resolved_value = (
+            configured_value if configured_value and configured_value in lead_status_options else None
+        )
+
+        if resolved_value:
+            try:
+                async with crm_updates.track(
+                    memo_id=ctx.memo_id,
+                    user_id=ctx.user_id,
+                    crm_connection_id=ctx.connection_id,
+                    action_type=ACTION_TYPE,
+                    resource_type="contact",
+                ) as tracked:
+                    await contacts.update(ctx.contact_id, {HS_LEAD_STATUS_PROPERTY: resolved_value})
+                    tracked.data = {
+                        "contact_id": ctx.contact_id,
+                        "call_outcome": ctx.call_outcome,
+                        "properties": {HS_LEAD_STATUS_PROPERTY: resolved_value},
+                    }
+                    tracked.resource_id = ctx.contact_id
+                    logger.info(
+                        "✅ Call outcome written to contact",
+                        extra=log_domain(
+                            DOMAIN_HUBSPOT, "call_outcome_contact_updated",
+                            contact_id=ctx.contact_id, call_outcome=ctx.call_outcome, memo_id=ctx.memo_id,
+                        ),
+                    )
+            except Exception as e:
+                # Not critical: for Lost, the reason is guaranteed via the
+                # note below regardless of whether this write lands; for
+                # Converted/On Hold there's no separate guarantee, but this
+                # is still a secondary field write, not the rep's whole
+                # action disappearing.
+                warning = f"Couldn't update the contact's status in HubSpot for the {ctx.call_outcome} outcome."
+                logger.warning(
+                    "⚠️ Call outcome contact update failed: %s",
+                    e,
                     extra=log_domain(
-                        DOMAIN_HUBSPOT, "call_outcome_contact_updated",
-                        contact_id=ctx.contact_id, call_outcome=ctx.call_outcome, memo_id=ctx.memo_id,
+                        DOMAIN_HUBSPOT, "call_outcome_contact_failed",
+                        memo_id=ctx.memo_id, contact_id=ctx.contact_id, error=str(e),
                     ),
                 )
-        except Exception as e:
-            # Critical: the source of truth didn't get written. Still worth
-            # attempting the deal mirror below (something usable might land
-            # on the deal even if the contact write failed), but this is
-            # reported as .failed regardless of what the mirror does.
-            failed = (
-                f"Couldn't save the {ctx.call_outcome} outcome"
-                + (" or Lost reason" if ctx.call_outcome == "lost" else "")
-                + " to the contact in HubSpot."
+        else:
+            unmapped_warning = (
+                "No 'On hold' status is mapped for this account (or the mapped value no longer "
+                "exists in HubSpot), so the contact's status wasn't changed."
+                if ctx.call_outcome == "on_hold"
+                else "No 'Lost' status is mapped for this account (or the mapped value no longer "
+                "exists in HubSpot), so the contact's status wasn't changed (the reason was still "
+                "recorded in a note)."
+                if ctx.call_outcome == "lost"
+                else "HubSpot's default 'Open Deal' status option is missing from this portal, so "
+                "the contact's status wasn't changed."
             )
             logger.warning(
-                "⚠️ Call outcome contact update failed: %s",
-                e,
+                "Call outcome: no valid hs_lead_status value to write (%s, configured=%r)",
+                ctx.call_outcome, configured_value,
                 extra=log_domain(
-                    DOMAIN_HUBSPOT, "call_outcome_contact_failed",
-                    memo_id=ctx.memo_id, contact_id=ctx.contact_id, error=str(e),
+                    DOMAIN_HUBSPOT, "call_outcome_no_valid_lead_status",
+                    memo_id=ctx.memo_id, call_outcome=ctx.call_outcome,
                 ),
             )
+            warning = unmapped_warning
 
         # --- Deal mirror (only when a deal exists) ---
         if ctx.deal_id:
@@ -518,6 +430,14 @@ async def apply_call_outcome(
             extra=log_domain(DOMAIN_HUBSPOT, "call_outcome_skipped_duplicate", memo_id=ctx.memo_id),
         )
 
+    # --- Lost reason note (guaranteed record - see module docstring) ---
+    if ctx.call_outcome == "lost" and not ctx.outcome_note_already_recorded:
+        note_failure = await _ensure_lost_reason_note(
+            ctx, crm_updates=crm_updates, client=client, associations=associations,
+        )
+        if note_failure:
+            failed = note_failure
+
     # --- Follow-up task for On Hold (independent of the above - its own dedupe) ---
     if ctx.call_outcome == "on_hold":
         followup_warning = await _create_followup_task(
@@ -527,6 +447,88 @@ async def apply_call_outcome(
             warning = f"{warning} {followup_warning}".strip() if warning else followup_warning
 
     return CallOutcomeWriteResult(warning=warning, failed=failed)
+
+
+async def _ensure_lost_reason_note(
+    ctx: CallOutcomeContext,
+    *,
+    crm_updates: CRMUpdatesService,
+    client: HubSpotClient,
+    associations: HubSpotAssociationService,
+) -> Optional[str]:
+    """
+    Guarantees the Lost reason is visible somewhere in HubSpot even when
+    hs_lead_status has no valid mapped value for this account - a small
+    standalone note associated to whatever this memo resolved (contact,
+    plus deal/company if present). Not called at all when sync.py's Step 7
+    already merged the same information into the memo's own transcript
+    note (see ctx.outcome_note_already_recorded) - one note per call, never
+    two saying the same thing.
+
+    Returns a user-facing message on failure. Unlike every other write in
+    this module, this one has no fallback left if it fails - the caller
+    treats that as CRITICAL (see apply_call_outcome).
+    """
+    already_done = CRMUpdatesService.is_action_already_done(
+        ctx.previous_updates, (OUTCOME_NOTE_ACTION_TYPE,)
+    )
+    if already_done:
+        logger.info(
+            "Skipping duplicate outcome note for memo retry",
+            extra=log_domain(DOMAIN_HUBSPOT, "outcome_note_skipped_duplicate", memo_id=ctx.memo_id),
+        )
+        return None
+
+    note_body = format_standalone_call_outcome_note_body(lost_reason=ctx.lost_reason)
+    note_properties: dict[str, Any] = {
+        "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "hs_note_body": note_body,
+    }
+    if ctx.hubspot_owner_id:
+        note_properties["hubspot_owner_id"] = ctx.hubspot_owner_id
+
+    try:
+        async with crm_updates.track(
+            memo_id=ctx.memo_id,
+            user_id=ctx.user_id,
+            crm_connection_id=ctx.connection_id,
+            action_type=OUTCOME_NOTE_ACTION_TYPE,
+            resource_type="note",
+        ) as tracked:
+            note_id = await create_note_with_associations(
+                client,
+                associations,
+                note_properties=note_properties,
+                deal_id=ctx.deal_id,
+                contact_id=ctx.contact_id,
+                company_id=ctx.company_id,
+                memo_id=ctx.memo_id,
+                log_event="call_outcome_note",
+            )
+            if not note_id:
+                raise RuntimeError("HubSpot note creation returned no id")
+            tracked.data = {
+                "note_id": note_id,
+                "contact_id": ctx.contact_id,
+                "deal_id": ctx.deal_id,
+                "company_id": ctx.company_id,
+            }
+            tracked.resource_id = note_id
+            logger.info(
+                "✅ Lost reason note created",
+                extra=log_domain(
+                    DOMAIN_HUBSPOT, "outcome_note_created",
+                    note_id=note_id, contact_id=ctx.contact_id, deal_id=ctx.deal_id, memo_id=ctx.memo_id,
+                ),
+            )
+    except Exception as e:
+        logger.warning(
+            "⚠️ Lost reason note creation failed: %s",
+            e,
+            extra=log_domain(DOMAIN_HUBSPOT, "outcome_note_failed", memo_id=ctx.memo_id, error=str(e)),
+        )
+        return "Couldn't save the Lost reason anywhere in HubSpot (not on the contact, not as a note)."
+    return None
 
 
 async def _create_followup_task(
@@ -637,7 +639,7 @@ async def _apply_deal_mirror(
         else:
             warning = (
                 "This pipeline has no closed-lost stage configured in HubSpot, "
-                "so the deal's stage wasn't changed (the contact was still marked Lost)."
+                "so the deal's stage wasn't changed (the reason was still recorded in a note)."
             )
 
         lost_reason_prop = await resolve_lost_reason_property(
@@ -647,13 +649,13 @@ async def _apply_deal_mirror(
         if lost_reason_prop is None:
             reason_warning = (
                 "No lost-reason property was found on this portal's deals, so the reason "
-                "wasn't written to the deal (it's still saved on the contact)."
+                "wasn't written to the deal (it's still recorded in a note)."
             )
             warning = f"{warning} {reason_warning}".strip() if warning else reason_warning
         elif lost_reason_prop.type == "enumeration" and lost_reason_prop.options and not _reason_matches_option(lost_reason_prop, reason):
             reason_warning = (
                 f"The deal's lost-reason field is a dropdown and doesn't have "
-                f"\"{reason}\" as an option, so it wasn't set there (it's still saved on the contact)."
+                f"\"{reason}\" as an option, so it wasn't set there (it's still recorded in a note)."
             )
             warning = f"{warning} {reason_warning}".strip() if warning else reason_warning
         else:
@@ -695,7 +697,7 @@ async def _apply_deal_mirror(
                 ),
             )
     except Exception as e:
-        deal_write_warning = "Couldn't update the deal's stage/reason in HubSpot (the contact was still updated)."
+        deal_write_warning = "Couldn't update the deal's stage/reason in HubSpot."
         warning = f"{warning} {deal_write_warning}".strip() if warning else deal_write_warning
         logger.warning(
             "⚠️ Call outcome deal update failed: %s",

@@ -36,16 +36,14 @@ HUBSPOT_OAUTH_SCOPES = [
     "crm.schemas.companies.read",
     "crm.schemas.deals.read",
     "crm.schemas.line_items.read",
-    # Added for call-outcome self-provisioning (see
-    # app/services/hubspot/call_outcome.py:ensure_call_outcome_capability) -
-    # the ONLY thing this scope is used for is adding the VOCIFY_LOST /
-    # VOCIFY_FOLLOW_UP options to hs_lead_status and creating the
-    # vocify_lost_reason property on first use. Portals that authorized
-    # before this scope existed do NOT have it retroactively - they must
-    # reconnect HubSpot before the Call outcome buttons can appear (see
-    # ensure_call_outcome_capability's fail-closed behavior). Do not widen
-    # its usage beyond that one provisioning call.
-    "crm.schemas.contacts.write",
+    # NOTE: deliberately NOT requesting crm.schemas.contacts.write. Call
+    # outcome tracking (Converted/On Hold/Lost, see
+    # app/services/hubspot/call_outcome.py) only ever writes to hs_lead_status
+    # options and deal properties the CLIENT already has in their portal -
+    # it never creates or edits schema. If a portal has no suitable
+    # hs_lead_status option for On Hold/Lost, the admin creates one
+    # themselves in HubSpot (guided from the Configuration screen) and maps
+    # it there; Vocify never needs schema-write permission to do that.
 ]
 
 _refresh_locks: dict[str, threading.Lock] = {}

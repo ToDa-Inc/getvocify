@@ -9,7 +9,7 @@ from uuid import UUID
 
 from supabase import Client
 
-from app.models.approval import ApprovalPreview, DealMatch
+from app.models.approval import ApprovalPreview, CallOutcomeAvailability, DealMatch
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
 from app.services.hubspot import (
@@ -26,8 +26,7 @@ from app.services.hubspot import (
     HubSpotTasksService,
     SyncResult,
 )
-from app.services.hubspot.call_outcome import ensure_call_outcome_capability
-from app.services.hubspot.types import CallOutcomeCapability
+from app.services.hubspot.call_outcome import compute_call_outcome_availability
 
 
 class HubSpotCRMProvider:
@@ -102,6 +101,8 @@ class HubSpotCRMProvider:
         call_outcome: Optional[str] = None,
         lost_reason: Optional[str] = None,
         lost_reason_deal_property: Optional[str] = None,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -131,6 +132,8 @@ class HubSpotCRMProvider:
             call_outcome=call_outcome,
             lost_reason=lost_reason,
             lost_reason_deal_property=lost_reason_deal_property,
+            lost_lead_status_value=lost_lead_status_value,
+            on_hold_lead_status_value=on_hold_lead_status_value,
         )
 
     async def build_preview(
@@ -220,11 +223,15 @@ class HubSpotCRMProvider:
             preferred_contact_id=preferred_contact_id,
         )
 
-    async def ensure_call_outcome_capability(self) -> CallOutcomeCapability:
-        return await ensure_call_outcome_capability(
-            supabase=self._supabase,
-            connection=self._connection,
-            client=self._client,
+    async def get_call_outcome_availability(
+        self,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
+    ) -> CallOutcomeAvailability:
+        return await compute_call_outcome_availability(
+            schema_service=self._schema_service(),
+            lost_lead_status_value=lost_lead_status_value,
+            on_hold_lead_status_value=on_hold_lead_status_value,
         )
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]:

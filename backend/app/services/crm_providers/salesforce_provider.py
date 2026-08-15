@@ -8,10 +8,10 @@ from uuid import UUID
 
 from supabase import Client
 
-from app.models.approval import ApprovalPreview, DealMatch
+from app.models.approval import ApprovalPreview, CallOutcomeAvailability, DealMatch
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
-from app.services.hubspot.types import CallOutcomeCapability, SyncResult
+from app.services.hubspot.types import SyncResult
 from app.services.salesforce.client import SalesforceClient
 from app.services.salesforce.matching import SalesforceMatchingService
 from app.services.salesforce.opportunities import SalesforceOpportunityService
@@ -100,6 +100,8 @@ class SalesforceCRMProvider:
         call_outcome: Optional[str] = None,
         lost_reason: Optional[str] = None,
         lost_reason_deal_property: Optional[str] = None,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
     ) -> SyncResult:
         # Salesforce opportunities use a flat picklist (StageName), not pipeline+stage IDs.
         del default_pipeline_id, default_stage_id
@@ -107,6 +109,7 @@ class SalesforceCRMProvider:
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
         del contact_id, company_id  # HubSpot contact-first anchors; not used for SF yet
         del lost_reason_deal_property  # HubSpot-only config; irrelevant to this error path
+        del lost_lead_status_value, on_hold_lead_status_value  # HubSpot-only mapping
         if skip_deal:
             # Salesforce doesn't support contact-first sync yet: an Opportunity is
             # always required. Fail loudly instead of silently creating one while the
@@ -208,14 +211,16 @@ class SalesforceCRMProvider:
         del extraction, limit_deals, pipeline_id, preferred_contact_id
         return None
 
-    async def ensure_call_outcome_capability(self) -> CallOutcomeCapability:
+    async def get_call_outcome_availability(
+        self,
+        lost_lead_status_value: Optional[str] = None,
+        on_hold_lead_status_value: Optional[str] = None,
+    ) -> CallOutcomeAvailability:
         # Mirrors the sync_memo(call_outcome=...) error above: fail loudly
-        # and consistently rather than letting the extension think it just
-        # hasn't been provisioned yet.
-        return CallOutcomeCapability(
-            available=False,
-            reason="Call outcome tracking isn't available for Salesforce yet.",
-        )
+        # and consistently rather than letting the extension think a button
+        # would work if only it were configured.
+        del lost_lead_status_value, on_hold_lead_status_value
+        return CallOutcomeAvailability(converted=False, on_hold=False, lost=False)
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]:
         return await self._schema().get_curated_field_specs(allowed_fields)

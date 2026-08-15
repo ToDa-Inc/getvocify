@@ -49,6 +49,23 @@ class CRMConfigurationRequest(BaseModel):
             "live deal schema on every call (see resolve_lost_reason_property)."
         ),
     )
+    lost_lead_status_value: Optional[str] = Field(
+        None,
+        description=(
+            "This portal's OWN hs_lead_status option value that means 'Lost' - "
+            "chosen by the admin from their EXISTING options, never created by "
+            "Vocify (see call_outcome.py module docstring for why). None means "
+            "not configured: the extension does not show the Lost button at all "
+            "until this is set (see compute_call_outcome_availability)."
+        ),
+    )
+    on_hold_lead_status_value: Optional[str] = Field(
+        None,
+        description=(
+            "Same as lost_lead_status_value, for the 'On Hold' outcome. None "
+            "means not configured: the On Hold button doesn't appear until set."
+        ),
+    )
 
 
 class CRMConfigurationResponse(BaseModel):
@@ -71,6 +88,8 @@ class CRMConfigurationResponse(BaseModel):
         default_factory=lambda: ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
     )
     lost_reason_deal_property: Optional[str] = None
+    lost_lead_status_value: Optional[str] = None
+    on_hold_lead_status_value: Optional[str] = None
     is_configured: bool = True
     created_at: str
     updated_at: str

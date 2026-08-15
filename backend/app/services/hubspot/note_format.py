@@ -21,7 +21,7 @@ _SPEAKER_INLINE = re.compile(
 )
 
 
-def _looks_spanish(text: str) -> bool:
+def looks_spanish(text: str) -> bool:
     t = (text or "").lower()
     if re.search(r"[áéíóúñ¿¡]", t):
         return True
@@ -87,20 +87,68 @@ def parse_transcript_turns(transcript: str) -> list[dict]:
     return out
 
 
+_OUTCOME_LABELS_EN = {"converted": "Converted", "on_hold": "On hold", "lost": "Lost"}
+_OUTCOME_LABELS_ES = {"converted": "Convertido", "on_hold": "En pausa", "lost": "Perdido"}
+
+
+def format_call_outcome_section(
+    *,
+    call_outcome: str,
+    lost_reason: Optional[str],
+    spanish: bool,
+) -> str:
+    """
+    HTML block for the rep-marked call outcome - either appended to the
+    memo's own transcript note (merged case, see format_hubspot_note_body
+    below) or used as the whole body of a small standalone note (see
+    format_standalone_call_outcome_note_body / call_outcome.py's
+    _ensure_lost_reason_note). Only Lost carries a free-text reason today;
+    Converted/On Hold have nothing beyond the outcome label itself, since
+    their state is already visible on the contact's hs_lead_status.
+    """
+    label = (_OUTCOME_LABELS_ES if spanish else _OUTCOME_LABELS_EN).get(call_outcome, call_outcome)
+    title = "Resultado de la llamada (Vocify)" if spanish else "Call outcome (Vocify)"
+    parts = [f"<p><strong>{html.escape(title)}:</strong> {html.escape(label)}</p>"]
+    reason = (lost_reason or "").strip()
+    if call_outcome == "lost" and reason:
+        reason_label = "Motivo" if spanish else "Reason"
+        parts.append(f"<p><strong>{html.escape(reason_label)}:</strong> {html.escape(reason)}</p>")
+    return "\n".join(parts)
+
+
+def format_standalone_call_outcome_note_body(*, lost_reason: Optional[str], spanish: Optional[bool] = None) -> str:
+    """
+    Whole body for the standalone Lost-reason note - used only when the
+    memo's own transcript note doesn't exist or wasn't created in this sync
+    (see call_outcome.py's _ensure_lost_reason_note for exactly when).
+    """
+    if spanish is None:
+        spanish = looks_spanish(lost_reason or "")
+    return format_call_outcome_section(call_outcome="lost", lost_reason=lost_reason, spanish=spanish)
+
+
 def format_hubspot_note_body(
     *,
     summary: Optional[str],
     transcript: str,
     source: Optional[str] = None,
+    call_outcome: Optional[str] = None,
+    lost_reason: Optional[str] = None,
 ) -> str:
     """
-    Build an HTML HubSpot note: summary first, then readable transcript.
+    Build an HTML HubSpot note: summary first, then readable transcript,
+    then (when call_outcome == 'lost') a visually separated outcome section
+    - see format_call_outcome_section. Merging it in here (one note, not
+    two) is deliberate: a rep marking Lost on the same memo that generates
+    the transcript note would otherwise get two back-to-back timeline
+    entries for the same call, which reads as noise (see call_outcome.py
+    module docstring / sync.py Step 7 for the merge bookkeeping).
 
     Strips raw SPEAKER: S1 diarization labels into human speaker names.
     """
     transcript = (transcript or "").strip()
     summary = (summary or "").strip()
-    spanish = _looks_spanish(f"{summary}\n{transcript}")
+    spanish = looks_spanish(f"{summary}\n{transcript}\n{lost_reason or ''}")
 
     parts: list[str] = []
 
@@ -141,6 +189,10 @@ def format_hubspot_note_body(
                 )
             else:
                 parts.append(f"<p>{text}</p>")
+
+    if call_outcome == "lost":
+        parts.append("<hr>")
+        parts.append(format_call_outcome_section(call_outcome=call_outcome, lost_reason=lost_reason, spanish=spanish))
 
     body = "\n".join(parts)
     if len(body) > 65536:
