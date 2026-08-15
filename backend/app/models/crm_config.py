@@ -37,6 +37,18 @@ class CRMConfigurationRequest(BaseModel):
         default=True,
         description="Automatically create companies if not found"
     )
+    lost_reasons: list[str] = Field(
+        default=["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"],
+        description="Configured Lost reasons shown in the extension's Lost picker (plus a UI-only 'Other')",
+    )
+    lost_reason_deal_property: Optional[str] = Field(
+        None,
+        description=(
+            "Confirmed override for the deal property that stores the portal's "
+            "closed-lost reason. Leave unset to let sync auto-detect it from the "
+            "live deal schema on every call (see resolve_lost_reason_property)."
+        ),
+    )
 
 
 class CRMConfigurationResponse(BaseModel):
@@ -55,6 +67,10 @@ class CRMConfigurationResponse(BaseModel):
     )
     auto_create_contacts: bool
     auto_create_companies: bool
+    lost_reasons: list[str] = Field(
+        default_factory=lambda: ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
+    )
+    lost_reason_deal_property: Optional[str] = None
     is_configured: bool = True
     created_at: str
     updated_at: str

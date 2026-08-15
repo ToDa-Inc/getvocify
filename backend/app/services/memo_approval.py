@@ -134,6 +134,8 @@ async def approve_memo_core(
     contact_id: Optional[str] = None
     company_id: Optional[str] = None
     skip_deal = False
+    call_outcome: Optional[str] = None
+    lost_reason: Optional[str] = None
     if payload:
         if payload.is_new_deal:
             is_new_deal = True
@@ -143,6 +145,11 @@ async def approve_memo_core(
         contact_id = getattr(payload, "contact_id", None)
         company_id = getattr(payload, "company_id", None)
         skip_deal = bool(getattr(payload, "skip_deal", False))
+        # call_outcome is a rep-driven action, not tied to the deal/skip_deal
+        # branching above - it's read straight off the payload regardless of
+        # which deal (if any) ends up resolved.
+        call_outcome = getattr(payload, "call_outcome", None)
+        lost_reason = getattr(payload, "lost_reason", None)
         if skip_deal:
             is_new_deal = False
             deal_id = None
@@ -211,6 +218,11 @@ async def approve_memo_core(
     default_stage = config.default_stage_name if config else None
     default_pipeline_id = (config.default_pipeline_id or None) if config else None
     default_stage_id = (config.default_stage_id or None) if config else None
+    # Confirmed override only - None here is not "not configured yet", it's
+    # "let the sync auto-detect it from the live deal schema" (see
+    # resolve_lost_reason_property in hubspot/call_outcome.py). Never guess
+    # a default here.
+    lost_reason_deal_property = (config.lost_reason_deal_property or None) if config else None
 
     sync_result = await provider.sync_memo(
         memo_id=memo_id,
@@ -234,6 +246,9 @@ async def approve_memo_core(
         contact_id=contact_id,
         company_id=company_id,
         skip_deal=skip_deal,
+        call_outcome=call_outcome,
+        lost_reason=lost_reason,
+        lost_reason_deal_property=lost_reason_deal_property,
     )
 
     if not sync_result.success:

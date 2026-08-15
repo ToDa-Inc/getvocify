@@ -26,6 +26,8 @@ from app.services.hubspot import (
     HubSpotTasksService,
     SyncResult,
 )
+from app.services.hubspot.call_outcome import ensure_call_outcome_capability
+from app.services.hubspot.types import CallOutcomeCapability
 
 
 class HubSpotCRMProvider:
@@ -97,6 +99,9 @@ class HubSpotCRMProvider:
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         skip_deal: bool = False,
+        call_outcome: Optional[str] = None,
+        lost_reason: Optional[str] = None,
+        lost_reason_deal_property: Optional[str] = None,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -123,6 +128,9 @@ class HubSpotCRMProvider:
             contact_id=contact_id,
             company_id=company_id,
             skip_deal=skip_deal,
+            call_outcome=call_outcome,
+            lost_reason=lost_reason,
+            lost_reason_deal_property=lost_reason_deal_property,
         )
 
     async def build_preview(
@@ -210,6 +218,13 @@ class HubSpotCRMProvider:
             limit_deals=limit_deals,
             pipeline_id=pipeline_id,
             preferred_contact_id=preferred_contact_id,
+        )
+
+    async def ensure_call_outcome_capability(self) -> CallOutcomeCapability:
+        return await ensure_call_outcome_capability(
+            supabase=self._supabase,
+            connection=self._connection,
+            client=self._client,
         )
 
     async def get_curated_field_specs(self, allowed_fields: list[str]) -> list[dict[str, Any]]:

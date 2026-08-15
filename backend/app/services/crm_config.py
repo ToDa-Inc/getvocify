@@ -96,6 +96,10 @@ class CRMConfigurationService:
             allowed_line_item_fields=config_data.get("allowed_line_item_fields") or ["name", "quantity", "price"],
             auto_create_contacts=config_data.get("auto_create_contacts", True),
             auto_create_companies=config_data.get("auto_create_companies", True),
+            lost_reasons=config_data.get("lost_reasons") or [
+                "No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit",
+            ],
+            lost_reason_deal_property=config_data.get("lost_reason_deal_property"),
             created_at=config_data.get("created_at") or "",
             updated_at=config_data.get("updated_at") or "",
         )
@@ -145,6 +149,8 @@ class CRMConfigurationService:
             "allowed_line_item_fields": config.allowed_line_item_fields,
             "auto_create_contacts": config.auto_create_contacts,
             "auto_create_companies": config.auto_create_companies,
+            "lost_reasons": config.lost_reasons,
+            "lost_reason_deal_property": config.lost_reason_deal_property,
         }
         
         # Upsert configuration
@@ -175,6 +181,10 @@ class CRMConfigurationService:
             or ["name", "quantity", "price"],
             auto_create_contacts=saved_config["auto_create_contacts"],
             auto_create_companies=saved_config["auto_create_companies"],
+            lost_reasons=saved_config.get("lost_reasons") or [
+                "No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit",
+            ],
+            lost_reason_deal_property=saved_config.get("lost_reason_deal_property"),
             created_at=saved_config["created_at"],
             updated_at=saved_config["updated_at"],
         )

@@ -36,6 +36,16 @@ HUBSPOT_OAUTH_SCOPES = [
     "crm.schemas.companies.read",
     "crm.schemas.deals.read",
     "crm.schemas.line_items.read",
+    # Added for call-outcome self-provisioning (see
+    # app/services/hubspot/call_outcome.py:ensure_call_outcome_capability) -
+    # the ONLY thing this scope is used for is adding the VOCIFY_LOST /
+    # VOCIFY_FOLLOW_UP options to hs_lead_status and creating the
+    # vocify_lost_reason property on first use. Portals that authorized
+    # before this scope existed do NOT have it retroactively - they must
+    # reconnect HubSpot before the Call outcome buttons can appear (see
+    # ensure_call_outcome_capability's fail-closed behavior). Do not widen
+    # its usage beyond that one provisioning call.
+    "crm.schemas.contacts.write",
 ]
 
 _refresh_locks: dict[str, threading.Lock] = {}

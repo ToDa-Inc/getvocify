@@ -481,6 +481,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         company_id: message.companyId || undefined,
         skip_deal: !!message.skipDeal,
         create_note: message.createNote !== false,
+        // Optional - the popup only sends these when the rep actually picked
+        // an outcome. lost_reason is validated server-side (422 if missing
+        // for 'lost'), the popup's own gating is just UX, not the real check.
+        call_outcome: message.callOutcome || undefined,
+        lost_reason: message.lostReason || undefined,
       })
         .then(result => {
           updateState({ status: 'success', syncResult: result });

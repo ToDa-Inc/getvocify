@@ -53,6 +53,11 @@ let editedProposedUpdates = null;
 /** Action items for HubSpot tasks: { id, text, checked } */
 let reviewActionItems = [];
 let actionItemIdSeq = 0;
+/** Call outcome (optional): 'converted' | 'on_hold' | 'lost' | null */
+let selectedCallOutcome = null;
+/** Lost reason text actually sent to the backend - resolved from the select
+ * (or the "Other" free-text input when '__other__' is chosen) */
+let selectedLostReason = '';
 /** Click-outside handler for Add field dropdown */
 let addFieldCloseHandler = null;
 /** Avoid re-fetching recent memos on every STATE_UPDATED while watching */
@@ -1067,6 +1072,14 @@ function updateApproveButtonState(preview) {
     approveSyncButton.textContent = 'Confirm Deal Target First';
     return;
   }
+  // Mirrors the backend's own validation (ApproveMemoRequest._lost_requires_reason,
+  // a 422 if violated) - this is UX only, the server is the real enforcement.
+  if (selectedCallOutcome === 'lost' && !getEffectiveLostReason()) {
+    approveSyncButton.disabled = true;
+    approveSyncButton.textContent = 'Add a Lost Reason';
+    return;
+  }
+
   approveSyncButton.disabled = false;
   const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
   if (skipDeal && preview?.selected_contact) {
@@ -1236,7 +1249,99 @@ function initCallInsights(preview) {
     return true;
   });
   renderActionItems();
+  initCallOutcome(preview);
 }
+
+// ============================================
+// CALL OUTCOME (Converted / On Hold / Lost)
+// ============================================
+
+/** Reset to the neutral "no outcome picked" state for a freshly loaded preview. */
+function initCallOutcome(preview) {
+  selectedCallOutcome = null;
+  selectedLostReason = '';
+
+  // Capability gate (backend/app/services/hubspot/call_outcome.py -
+  // ensure_call_outcome_capability): this account's HubSpot properties for
+  // outcome tracking aren't provisioned (not yet, or not possible - e.g.
+  // Salesforce, or a HubSpot connection that needs to be reconnected).
+  // Never show buttons that would fail after the rep clicks one - hide the
+  // whole section instead.
+  const section = document.getElementById('call-outcome-section');
+  const available = !!preview?.call_outcome_available;
+  if (section) section.style.display = available ? '' : 'none';
+
+  if (available) {
+    const select = document.getElementById('lost-reason-select');
+    const otherInput = document.getElementById('lost-reason-other-input');
+    if (select) {
+      const reasons = Array.isArray(preview?.lost_reasons) ? preview.lost_reasons : [];
+      select.innerHTML = '<option value="">Select a reason…</option>' +
+        reasons.map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('') +
+        '<option value="__other__">Other…</option>';
+      select.value = '';
+    }
+    if (otherInput) {
+      otherInput.value = '';
+      otherInput.style.display = 'none';
+    }
+  }
+  renderCallOutcome();
+}
+
+function getEffectiveLostReason() {
+  const select = document.getElementById('lost-reason-select');
+  const otherInput = document.getElementById('lost-reason-other-input');
+  if (!select) return '';
+  if (select.value === '__other__') return (otherInput?.value || '').trim();
+  return select.value || '';
+}
+
+function renderCallOutcome() {
+  ['converted', 'on_hold', 'lost'].forEach((outcome) => {
+    const btn = document.getElementById(`outcome-btn-${outcome}`);
+    if (btn) btn.classList.toggle('is-active', selectedCallOutcome === outcome);
+  });
+  const lostBox = document.getElementById('lost-reason-box');
+  if (lostBox) lostBox.style.display = selectedCallOutcome === 'lost' ? 'flex' : 'none';
+
+  const hint = document.getElementById('lost-reason-hint');
+  if (hint) {
+    const satisfied = selectedCallOutcome !== 'lost' || !!getEffectiveLostReason();
+    hint.classList.toggle('is-satisfied', satisfied);
+    hint.textContent = satisfied
+      ? 'Reason saved.'
+      : 'A reason is required to mark this call as Lost.';
+  }
+  updateApproveButtonState(lastPreviewData);
+}
+
+document.getElementById('call-outcome-buttons')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.outcome-btn');
+  if (!btn) return;
+  const outcome = btn.dataset.outcome;
+  // Clicking the already-active outcome deselects it - outcome is optional,
+  // a rep should be able to change their mind without a page reload.
+  selectedCallOutcome = selectedCallOutcome === outcome ? null : outcome;
+  if (selectedCallOutcome !== 'lost') selectedLostReason = '';
+  renderCallOutcome();
+});
+
+document.getElementById('lost-reason-select')?.addEventListener('change', (e) => {
+  const otherInput = document.getElementById('lost-reason-other-input');
+  const isOther = e.target.value === '__other__';
+  if (otherInput) {
+    otherInput.style.display = isOther ? 'block' : 'none';
+    if (isOther) otherInput.focus();
+  }
+  selectedLostReason = getEffectiveLostReason();
+  renderCallOutcome();
+});
+
+document.getElementById('lost-reason-other-input')?.addEventListener('input', () => {
+  selectedLostReason = getEffectiveLostReason();
+  renderCallOutcome();
+});
 
 function renderActionItems() {
   const list = document.getElementById('action-items-list');
@@ -1682,7 +1787,10 @@ async function searchDeals(query) {
 function renderSuccess(result) {
   const msg = document.getElementById('success-message');
   const btn = document.getElementById('view-in-hubspot');
-  
+  const titleEl = document.querySelector('#screen-success .title-large');
+  const iconEl = document.querySelector('#screen-success .success-checkmark');
+  const iconContainerEl = document.querySelector('#screen-success .success-icon-container');
+
   if (result && result.deal_url) {
     msg.textContent = `Updated "${result.deal_name || 'deal'}" in HubSpot.`;
     btn.href = result.deal_url;
@@ -1690,6 +1798,42 @@ function renderSuccess(result) {
   } else {
     msg.textContent = 'CRM updated successfully!';
     btn.style.display = 'none';
+  }
+
+  // outcome_failed is CRITICAL: the outcome itself (hs_lead_status / lost
+  // reason) wasn't saved anywhere - unlike outcome_warning, this must not
+  // look like plain success (a green check + "Sync Successful" would be
+  // misleading about the one thing the rep just explicitly asked for).
+  // The rest of the memo (deal/contact/notes) still synced fine, so this
+  // swaps the headline/icon rather than blocking the screen entirely.
+  const failedEl = document.getElementById('success-outcome-failed');
+  const hasFailure = !!(result && result.outcome_failed);
+  if (titleEl) titleEl.textContent = hasFailure ? 'Synced - outcome not saved' : 'Sync Successful';
+  if (iconEl) iconEl.textContent = hasFailure ? '!' : '✓';
+  if (iconContainerEl) iconContainerEl.classList.toggle('success-icon-container--warning', hasFailure);
+  if (failedEl) {
+    if (hasFailure) {
+      failedEl.textContent = result.outcome_failed;
+      failedEl.style.display = 'block';
+    } else {
+      failedEl.textContent = '';
+      failedEl.style.display = 'none';
+    }
+  }
+
+  // outcome_warning is MINOR: call_outcome was requested and the core
+  // write succeeded, but a secondary mirror step (deal stage, follow-up
+  // task) didn't - the sync still fully succeeded, this is just a
+  // non-blocking heads-up under the normal success state.
+  const warningEl = document.getElementById('success-outcome-warning');
+  if (warningEl) {
+    if (result && result.outcome_warning) {
+      warningEl.textContent = result.outcome_warning;
+      warningEl.style.display = 'block';
+    } else {
+      warningEl.textContent = '';
+      warningEl.style.display = 'none';
+    }
   }
 }
 
@@ -1809,6 +1953,7 @@ approveSyncButton?.addEventListener('click', async () => {
   if (needsDealDecision && !dealDecisionMade) return;
   const candidates = Array.isArray(lastPreviewData?.contact_candidates) ? lastPreviewData.contact_candidates : [];
   if (!lastPreviewData?.selected_contact && candidates.length > 0) return;
+  if (selectedCallOutcome === 'lost' && !getEffectiveLostReason()) return;
 
   approveSyncButton.disabled = true;
   approveSyncButton.textContent = 'Syncing...';
@@ -1828,6 +1973,8 @@ approveSyncButton?.addEventListener('click', async () => {
       contactId: currentContactId || lastPreviewData?.selected_contact?.contact_id || undefined,
       companyId: currentCompanyId || lastPreviewData?.selected_contact?.company_id || undefined,
       skipDeal,
+      callOutcome: selectedCallOutcome || undefined,
+      lostReason: selectedCallOutcome === 'lost' ? getEffectiveLostReason() : undefined,
     });
     // Background never rejects this message (it always calls sendResponse), so
     // a failed sync surfaces as response.error here, not as a thrown exception.

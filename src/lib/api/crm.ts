@@ -23,6 +23,20 @@ export interface CRMConfiguration {
   allowed_line_item_fields?: string[];
   auto_create_contacts: boolean;
   auto_create_companies: boolean;
+  /** Lost reasons shown in the extension's Lost picker (plus a UI-only "Other"). */
+  lost_reasons?: string[];
+  /**
+   * Confirmed override for the deal property that stores the portal's
+   * closed-lost reason. Leave unset/null to let sync auto-detect it from the
+   * live deal schema on every call.
+   */
+  lost_reason_deal_property?: string | null;
+}
+
+export interface CallOutcomeProvisioningStatus {
+  provisioned_at?: string | null;
+  checked_at?: string | null;
+  error?: string | null;
 }
 
 export const crmApi = {
@@ -30,6 +44,26 @@ export const crmApi = {
     connections: { id: string; provider: string; status: string; created_at?: string }[];
   }> {
     return api.get("/crm/connections");
+  },
+
+  /**
+   * Raw connection row (includes metadata.call_outcome_provisioning, written
+   * by ensure_call_outcome_capability the first time a preview runs for this
+   * portal) - used only to show a status line next to the Lost reasons
+   * editor, not as a source of truth for the extension's button gating
+   * (that's computed fresh server-side on every preview).
+   */
+  async getHubSpotConnection(): Promise<{
+    id: string;
+    status: string;
+    metadata: { call_outcome_provisioning?: CallOutcomeProvisioningStatus; [key: string]: unknown };
+  } | null> {
+    try {
+      return await api.get("/crm/hubspot/connection");
+    } catch (error: any) {
+      if (error.status === 404) return null;
+      throw error;
+    }
   },
 
   async getCrmPreferences(): Promise<{ primary_crm_connection_id: string | null }> {

@@ -29,6 +29,7 @@ from .types import SyncResult
 from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
+from .call_outcome import CallOutcomeContext, apply_call_outcome
 from .account_info import build_deal_record_url, resolve_account_context
 
 # When updating an existing deal (e.g. from extension on a known HubSpot deal page),
@@ -208,6 +209,9 @@ class HubSpotSyncService:
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         skip_deal: bool = False,
+        call_outcome: Optional[str] = None,
+        lost_reason: Optional[str] = None,
+        lost_reason_deal_property: Optional[str] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -240,6 +244,17 @@ class HubSpotSyncService:
             default_stage_id: User-configured default stage, applied only when creating
                 a brand new deal and the transcript didn't resolve an explicit stage.
             create_note: If True and transcript present, create HubSpot note on the deal
+            call_outcome: Optional "converted" | "on_hold" | "lost" marked by the rep on
+                the confirmation screen. None (default) means unchanged legacy behavior -
+                this is optional, not a forced choice on every memo. See
+                backend/app/services/hubspot/call_outcome.py for what each value writes.
+            lost_reason: Required by ApproveMemoRequest validation when call_outcome is
+                "lost" (enforced before this method is ever called); ignored otherwise.
+            lost_reason_deal_property: Confirmed override for the deal property that
+                stores the portal's closed-lost reason (crm_configurations). When None,
+                call_outcome.resolve_lost_reason_property auto-detects one from the
+                portal's live deal schema on every sync - not only from the configuration
+                screen, so the reason isn't lost just because nobody configured it.
         Returns:
             SyncResult with success status and created/updated object IDs
         """
@@ -1225,6 +1240,52 @@ class HubSpotSyncService:
                             deal_id, contact_id, company_id, e,
                             extra=log_domain(DOMAIN_HUBSPOT, "note_failed", memo_id=str(memo_id), error=str(e)),
                         )
+
+            # Step 8: Call outcome (Converted / On Hold / Lost). Optional - only
+            # runs when the rep actually marked one on the confirmation screen.
+            # Deliberately its own top-level try/except (not just relying on the
+            # inner functions' own try/excepts): a bug in call_outcome.py itself
+            # (e.g. an unexpected exception building CallOutcomeContext) must
+            # degrade the same way as every HubSpot write in this method - log,
+            # warn, keep whatever Steps 1-7 already wrote - never turn into a
+            # 500 that discards a sync that otherwise fully succeeded.
+            if call_outcome:
+                try:
+                    outcome_ctx = CallOutcomeContext(
+                        memo_id=str(memo_id),
+                        user_id=user_id,
+                        connection_id=str(connection_id),
+                        call_outcome=call_outcome,
+                        lost_reason=lost_reason,
+                        lost_reason_deal_property_configured=lost_reason_deal_property,
+                        contact_id=contact_id,
+                        deal_id=deal_id,
+                        contact_name=extraction_for_contact.contactName or extraction.contactName,
+                        hubspot_owner_id=hubspot_owner_id,
+                        previous_updates=previous_updates,
+                        extraction=extraction,
+                    )
+                    outcome_result = await apply_call_outcome(
+                        outcome_ctx,
+                        crm_updates=self.crm_updates,
+                        contacts=self.contacts,
+                        deals=self.deals,
+                        tasks=self.tasks,
+                        schema_service=self.deals.schema,
+                    )
+                    result.outcome_warning = outcome_result.warning
+                    result.outcome_failed = outcome_result.failed
+                except Exception as e:
+                    # Unexpected bug in call_outcome.py itself (not a normal
+                    # HubSpot write failure, those are already caught inside
+                    # apply_call_outcome) - treat as critical: we genuinely
+                    # don't know whether anything was saved.
+                    result.outcome_failed = "Couldn't record the call outcome in HubSpot."
+                    logger.warning(
+                        "⚠️ Call outcome step failed: %s",
+                        e,
+                        extra=log_domain(DOMAIN_HUBSPOT, "call_outcome_step_failed", memo_id=str(memo_id), error=str(e)),
+                    )
 
             # Success!
             result.success = True

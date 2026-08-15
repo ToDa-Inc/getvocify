@@ -98,6 +98,20 @@ class ApprovalPreview(BaseModel):
     new_contact: Optional[dict] = None
     new_company: Optional[dict] = None
 
+    # Call outcome (Converted / On Hold / Lost). Configured reasons for the
+    # Lost picker - set from crm_configurations.lost_reasons in the API layer,
+    # not by build_preview itself, so the extension gets the list in the same
+    # round-trip as everything else instead of a separate config fetch.
+    # "Other" (free text) is UI-only and deliberately not included here.
+    lost_reasons: list[str] = Field(default_factory=list)
+    # Capability gate (see hubspot/call_outcome.py:ensure_call_outcome_capability):
+    # False means this portal's HubSpot properties for call outcome
+    # tracking aren't provisioned (yet, or ever - e.g. Salesforce). The
+    # extension must not show the Converted/On Hold/Lost buttons at all
+    # when this is False - never offer them and fail after the rep clicks
+    # one. Set from the API layer alongside lost_reasons, same reason.
+    call_outcome_available: bool = False
+
 
 class ApproveRequest(BaseModel):
     """Request to approve and sync"""

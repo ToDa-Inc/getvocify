@@ -208,4 +208,36 @@ class SyncResult(BaseModel):
     deal_url: Optional[str] = None
     error: Optional[str] = None
     error_code: Optional[str] = None
+    # MINOR degradation: call_outcome was requested and the core write (see
+    # outcome_failed below) succeeded, but a secondary mirror step didn't -
+    # e.g. no closed-lost stage configured on this pipeline, or no
+    # lost-reason property found on the portal's deals. The outcome IS
+    # saved (on the contact); this is a non-blocking heads-up, shown as a
+    # banner UNDER the normal "Sync Successful" screen (see popup.js
+    # renderSuccess). None when call_outcome wasn't requested, or nothing
+    # degraded.
+    outcome_warning: Optional[str] = None
+    # CRITICAL failure: call_outcome was requested but the core write
+    # (contact hs_lead_status + vocify_lost_reason - the source of truth,
+    # see call_outcome.py module docstring) could NOT be saved anywhere.
+    # Unlike outcome_warning, the extension must NOT present this as
+    # success (see popup.js renderSuccess) - the rep needs to know the
+    # outcome they just picked did not stick, even though the rest of the
+    # memo (deal/contact/notes from Steps 1-7) synced fine (success=True
+    # at the top level is still correct - only the outcome step failed).
+    outcome_failed: Optional[str] = None
+
+
+class CallOutcomeCapability(BaseModel):
+    """
+    Whether this portal can currently record call outcomes (see
+    app/services/hubspot/call_outcome.py:ensure_call_outcome_capability).
+    Computed once per preview; drives whether the extension shows the
+    Converted/On Hold/Lost buttons at all.
+    """
+    available: bool
+    reason: Optional[str] = Field(
+        None,
+        description="Human-readable explanation when available=False (shown in the dashboard, not the extension).",
+    )
 

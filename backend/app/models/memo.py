@@ -3,7 +3,7 @@ Pydantic models for Memo entities
 """
 
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, List, Any
+from typing import Optional, List, Literal, Any
 from datetime import datetime
 from uuid import UUID
 
@@ -167,4 +167,33 @@ class ApproveMemoRequest(BaseModel):
     )
     extraction: Optional[MemoExtraction] = None
     create_note: bool = Field(default=True, description="Create CRM note when a deal is synced")
+    call_outcome: Optional[Literal["converted", "on_hold", "lost"]] = Field(
+        None,
+        description=(
+            "Result of the call as marked by the rep on the confirmation screen. "
+            "None means the rep didn't mark an outcome (unchanged legacy behavior) - "
+            "this is optional, not a forced choice on every memo."
+        ),
+    )
+    lost_reason: Optional[str] = Field(
+        None,
+        description=(
+            "Required when call_outcome='lost' (see validator below). One of "
+            "crm_configurations.lost_reasons, or free text when the rep picked "
+            "'Other' in the UI - the backend does not restrict it to the "
+            "configured list, since the account's list can change independently."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _lost_requires_reason(self) -> "ApproveMemoRequest":
+        """
+        Enforced here, not just in the extension UI: a rep marking a call
+        Lost must always record why. A UI can be bypassed (direct API call,
+        a future integration); this validator cannot - FastAPI turns this
+        into a 422 before any handler code runs, for every caller.
+        """
+        if self.call_outcome == "lost" and not (self.lost_reason or "").strip():
+            raise ValueError("lost_reason is required when call_outcome is 'lost'")
+        return self
 

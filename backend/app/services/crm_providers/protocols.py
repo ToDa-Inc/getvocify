@@ -9,7 +9,7 @@ from uuid import UUID
 
 from app.models.approval import ApprovalPreview, DealMatch
 from app.models.memo import MemoExtraction
-from app.services.hubspot.types import SyncResult
+from app.services.hubspot.types import CallOutcomeCapability, SyncResult
 
 
 class CRMExtractionSyncProtocol(Protocol):
@@ -38,6 +38,9 @@ class CRMExtractionSyncProtocol(Protocol):
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         skip_deal: bool = False,
+        call_outcome: Optional[str] = None,
+        lost_reason: Optional[str] = None,
+        lost_reason_deal_property: Optional[str] = None,
     ) -> SyncResult: ...
 
 
@@ -89,6 +92,13 @@ class CRMDealMatchProtocol(Protocol):
         pipeline_id: Optional[str] = None,
         preferred_contact_id: Optional[str] = None,
     ) -> Any: ...
+
+
+class CRMCallOutcomeCapabilityProtocol(Protocol):
+    """Whether this connection can currently record call outcomes - see
+    app/services/hubspot/call_outcome.py:ensure_call_outcome_capability."""
+
+    async def ensure_call_outcome_capability(self) -> CallOutcomeCapability: ...
 
 
 class CRMFieldSpecsProtocol(Protocol):

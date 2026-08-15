@@ -166,7 +166,17 @@ CREATE TABLE crm_configurations (
   -- Behavior settings
   auto_create_contacts BOOLEAN DEFAULT true,
   auto_create_companies BOOLEAN DEFAULT true,
-  
+
+  -- Call outcome (migration 021). lost_reasons: editable list shown in the
+  -- extension's Lost picker. lost_reason_deal_property: confirmed override
+  -- for the deal property that stores the portal's closed-lost reason -
+  -- NULL means "let sync auto-detect it from the live deal schema" (see
+  -- resolve_lost_reason_property in app/services/hubspot/call_outcome.py),
+  -- not "not configured yet".
+  lost_reasons JSONB NOT NULL DEFAULT
+    '["No budget","No response","Chose a competitor","Bad timing","Not a fit"]'::jsonb,
+  lost_reason_deal_property TEXT,
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   
@@ -253,8 +263,12 @@ CREATE TABLE crm_updates (
     'merge_tasks',
     'create_tasks',
     'create_note',
-    'create_line_item'
+    'create_line_item',
+    'update_call_outcome',
+    'create_followup_task'
   )),
+  -- 'update_call_outcome' / 'create_followup_task' added by migration 021
+  -- (call outcome: Converted/On Hold/Lost - see app/services/hubspot/call_outcome.py).
   -- 'line_item' added by migration 020 - action_type already allowed
   -- create_line_item since migration 015, but resource_type never got the
   -- matching value until 020. See that migration for the full story.

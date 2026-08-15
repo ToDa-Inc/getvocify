@@ -26,7 +26,8 @@
         "crm.schemas.contacts.read",
         "crm.schemas.companies.read",
         "crm.schemas.deals.read",
-        "crm.schemas.line_items.read"
+        "crm.schemas.line_items.read",
+        "crm.schemas.contacts.write"
       ],
       "optionalScopes": [],
       "conditionallyRequiredScopes": []

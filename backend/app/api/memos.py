@@ -625,6 +625,10 @@ _CRM_SYNC_ERROR_STATUS: dict[Optional[str], int] = {
     # not a malformed body - 422 is reserved for that (FastAPI emits it itself
     # for pydantic validation errors), so 409 is the accurate fit here.
     "SKIP_DEAL_UNSUPPORTED": status.HTTP_409_CONFLICT,
+    # Same class of conflict as SKIP_DEAL_UNSUPPORTED above: the rep marked a
+    # call outcome, but the connected CRM (Salesforce, for now) has no
+    # implementation for it yet - see salesforce_provider.py.
+    "CALL_OUTCOME_UNSUPPORTED": status.HTTP_409_CONFLICT,
     # The CRM connection's token is invalid or lacks a required scope. Same
     # class of problem as "you need to reconnect" - 401 signals that directly
     # instead of a misleading 500.
@@ -1030,7 +1034,27 @@ async def get_approval_preview(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to build preview: {str(e)}",
         ) from e
-    
+
+    # Lost reasons for the extension's Lost picker - set here (not inside
+    # build_preview, which is provider-generic) so the extension gets them
+    # in the same round-trip as everything else. Falls back to the same
+    # default crm_configurations ships with when there's no config row yet.
+    preview.lost_reasons = list(
+        config.lost_reasons if config and config.lost_reasons else
+        ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
+    )
+    # Self-provisions this portal's call-outcome HubSpot properties on first
+    # use (see ensure_call_outcome_capability) - the extension only shows
+    # the outcome buttons when this comes back True. Failure here (e.g.
+    # HubSpot API hiccup) must not break the whole preview, so it degrades
+    # to "unavailable" rather than raising.
+    try:
+        capability = await provider.ensure_call_outcome_capability()
+        preview.call_outcome_available = capability.available
+    except Exception as e:
+        logger.warning("Call outcome capability check failed for memo %s: %s", memo_id, e)
+        preview.call_outcome_available = False
+
     # If a deal was explicitly selected, persist it to the memo record
     if deal_id:
         supabase.table("memos").update({
@@ -1170,6 +1194,17 @@ async def post_approval_preview(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to build preview: {str(e)}",
         ) from e
+
+    preview.lost_reasons = list(
+        config.lost_reasons if config and config.lost_reasons else
+        ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
+    )
+    try:
+        capability = await provider.ensure_call_outcome_capability()
+        preview.call_outcome_available = capability.available
+    except Exception as e:
+        logger.warning("Call outcome capability check failed for memo %s: %s", memo_id, e)
+        preview.call_outcome_available = False
 
     return preview
 

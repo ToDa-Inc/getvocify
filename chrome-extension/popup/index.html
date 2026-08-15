@@ -205,6 +205,25 @@
               <span class="note-toggle-desc">Posts summary + transcript on the deal timeline</span>
             </span>
           </label>
+
+          <div class="call-insights-block" id="call-outcome-section">
+            <div class="section-header">
+              <p class="caps-label">Call outcome (optional)</p>
+            </div>
+            <div id="call-outcome-buttons" class="call-outcome-buttons">
+              <button type="button" class="outcome-btn" id="outcome-btn-converted" data-outcome="converted">Converted</button>
+              <button type="button" class="outcome-btn" id="outcome-btn-on_hold" data-outcome="on_hold">On Hold</button>
+              <button type="button" class="outcome-btn outcome-btn--lost" id="outcome-btn-lost" data-outcome="lost">Lost</button>
+            </div>
+            <div id="lost-reason-box" class="lost-reason-box" style="display: none;">
+              <select id="lost-reason-select" class="lost-reason-select">
+                <option value="">Select a reason…</option>
+                <option value="__other__">Other…</option>
+              </select>
+              <input type="text" id="lost-reason-other-input" class="lost-reason-other-input" placeholder="Type a reason…" style="display: none;">
+              <p id="lost-reason-hint" class="lost-reason-hint">A reason is required to mark this call as Lost.</p>
+            </div>
+          </div>
         </section>
 
         <div id="proposed-changes-section">
@@ -239,6 +258,8 @@
         </div>
         <h2 class="title-large">Sync Successful</h2>
         <p id="success-message" class="body-muted">Updated deal in HubSpot.</p>
+        <p id="success-outcome-warning" class="outcome-warning-banner" style="display: none;"></p>
+        <p id="success-outcome-failed" class="outcome-failed-banner" style="display: none;"></p>
       </div>
       <div class="review-step-actions review-step-actions-row" style="padding: 0 24px 32px; box-sizing: border-box;">
         <a id="view-in-hubspot" href="#" target="_blank" class="btn btn-primary" style="flex: 1;">View in HubSpot</a>
