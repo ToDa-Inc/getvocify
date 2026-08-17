@@ -9,6 +9,6 @@ Chrome cachea la extensión. Para ver los cambios:
 5. **Vuelve** a abrir la extensión haciendo clic en el icono.
 
 **Cómo comprobar que los cambios están aplicados:**
-- En la pantalla Record, debajo del email deberías ver **v1.0.5**.
+- En la pantalla Record, debajo del email deberías ver **v1.0.7**.
 - En la pantalla Review, el subtítulo debe decir **"Review transcript & updates"**.
 - En Review, la transcripción debe aparecer arriba de "Deal Target".

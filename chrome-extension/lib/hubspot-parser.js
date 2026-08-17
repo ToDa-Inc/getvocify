@@ -14,36 +14,60 @@
  * @param {string} url - The HubSpot URL
  * @returns {Object|null} Parsed context or null if not a HubSpot URL
  */
+const OBJECT_TYPES = {
+  '0-1': 'contact',
+  '0-2': 'company',
+  '0-3': 'deal',
+};
+
+const LEGACY_PATH_TYPES = {
+  contact: { objectTypeId: '0-1', objectType: 'contact' },
+  company: { objectTypeId: '0-2', objectType: 'company' },
+  deal: { objectTypeId: '0-3', objectType: 'deal' },
+};
+
+function parseRegion(hostMatch) {
+  return hostMatch || 'na1';
+}
+
 export function parseHubSpotUrl(url) {
   if (!url || typeof url !== 'string') {
     return null;
   }
 
-  // Match HubSpot URL pattern
-  // Groups: region (eu1/na1), hubId, objectTypeId (0-1, 0-2, 0-3), recordId
-  const regex = /app(?:-(\w+))?\.hubspot\.com\/contacts\/(\d+)\/record\/([\d-]+)\/(\d+)/;
-  const match = url.match(regex);
-
-  if (!match) {
-    return null;
+  // Current CRM record URL:
+  // https://app-eu1.hubspot.com/contacts/{hubId}/record/0-1/{recordId}/
+  const recordMatch = url.match(
+    /app(?:-(\w+))?\.hubspot\.com\/contacts\/(\d+)\/record\/([\d-]+)\/(\d+)/
+  );
+  if (recordMatch) {
+    const [, region, hubId, objectTypeId, recordId] = recordMatch;
+    return {
+      region: parseRegion(region),
+      hubId,
+      objectTypeId,
+      objectType: OBJECT_TYPES[objectTypeId] || 'unknown',
+      recordId,
+    };
   }
 
-  const [, region, hubId, objectTypeId, recordId] = match;
+  // Legacy CRM URLs: /contacts/{hubId}/contact/{recordId}
+  const legacyMatch = url.match(
+    /app(?:-(\w+))?\.hubspot\.com\/contacts\/(\d+)\/(contact|company|deal)\/(\d+)/
+  );
+  if (legacyMatch) {
+    const [, region, hubId, pathType, recordId] = legacyMatch;
+    const mapped = LEGACY_PATH_TYPES[pathType];
+    return {
+      region: parseRegion(region),
+      hubId,
+      objectTypeId: mapped.objectTypeId,
+      objectType: mapped.objectType,
+      recordId,
+    };
+  }
 
-  // Map object type IDs to names
-  const objectTypes = {
-    '0-1': 'contact',
-    '0-2': 'company',
-    '0-3': 'deal',
-  };
-
-  return {
-    region: region || 'na1', // Default to na1 if no region specified
-    hubId,
-    objectTypeId,
-    objectType: objectTypes[objectTypeId] || 'unknown',
-    recordId,
-  };
+  return null;
 }
 
 /**

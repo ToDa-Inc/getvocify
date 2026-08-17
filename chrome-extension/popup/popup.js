@@ -280,6 +280,8 @@ function renderRecordingsSection(state) {
   if (dotEl) {
     dotEl.style.display = state.watchingForRecording ? 'inline-block' : 'none';
   }
+  const stopBtn = document.getElementById('recordings-stop-watch');
+  if (stopBtn) stopBtn.style.display = state.watchingForRecording ? '' : 'none';
 
   const recordings = (state.recordings || []).filter((r) => r.has_recording);
   if (!listEl) return;
@@ -299,7 +301,7 @@ function renderRecordingsSection(state) {
     row.className = 'recording-row';
     const action = getRecordingAction(rec);
     const pill = getMemoStatusPill(rec);
-    const dateStr = formatCallTimestamp(rec.timestamp);
+    const dateStr = formatCallTimestamp(rec.timestamp || rec.timestamp_ms);
     const durStr = formatCallDuration(rec.duration_seconds);
     const title = rec.title || 'Call';
 
@@ -2004,8 +2006,15 @@ approveSyncButton?.addEventListener('click', async () => {
 
 document.getElementById('btn-add-action-item')?.addEventListener('click', () => addActionItem(''));
 
-// Stop HubSpot recordings watch
+document.getElementById('processing-cancel-button')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
+});
+
 document.getElementById('recordings-stop-watch')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'STOP_CALL_WATCH' });
+  chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
+});
+document.getElementById('call-watch-stop')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'STOP_CALL_WATCH' });
   chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
 });

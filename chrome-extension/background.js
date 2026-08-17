@@ -6,6 +6,7 @@
 
 import { api } from './lib/api.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
+import { panelOpenState } from './lib/call-watch.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -22,14 +23,78 @@ let state = {
   syncResult: null,
   watchingForRecording: false,
   processingSource: null, // 'hubspot_call' | null
+  recordings: [],
+  recordingsLoading: false,
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
 let lastActiveTabId = null;
+/** Last deal/contact key we fetched HubSpot recordings for */
+let recordingsKey = null;
+
+/**
+ * Side panel / service worker have no "current window". Prefer the last HubSpot
+ * tab we saw, then the last focused window — otherwise contact pages look like
+ * the global inbox.
+ */
+async function getContextTab() {
+  const candidates = [];
+
+  for (const query of [
+    { active: true, lastFocusedWindow: true },
+    { active: true, currentWindow: true },
+  ]) {
+    try {
+      const [tab] = await chrome.tabs.query(query);
+      if (tab) candidates.push(tab);
+    } catch (_) { /* continue */ }
+  }
+
+  if (lastActiveTabId != null) {
+    try {
+      candidates.push(await chrome.tabs.get(lastActiveTabId));
+    } catch (_) {
+      lastActiveTabId = null;
+    }
+  }
+
+  try {
+    const hubspotTabs = await chrome.tabs.query({ url: ['https://*.hubspot.com/*'] });
+    candidates.push(...hubspotTabs.filter((t) => t.active));
+    candidates.push(...hubspotTabs.filter((t) => !t.active));
+  } catch (_) { /* host permission may be missing */ }
+
+  const seen = new Set();
+  const unique = [];
+  for (const tab of candidates) {
+    if (!tab?.id || seen.has(tab.id)) continue;
+    seen.add(tab.id);
+    unique.push(tab);
+  }
+
+  const focused = unique[0];
+  if (focused?.url && /hubspot\.com/i.test(focused.url)) {
+    lastActiveTabId = focused.id;
+    return focused;
+  }
+
+  const recordTab = unique.find((t) => t.url && parseHubSpotUrl(t.url)?.recordId);
+  const chosen = recordTab || focused || unique[0] || null;
+  if (chosen?.id != null) lastActiveTabId = chosen.id;
+  return chosen;
+}
+
+function rememberTab(tab) {
+  if (tab?.id != null) lastActiveTabId = tab.id;
+}
 
 let callWatchTimerId = null;
 let callWatchingRecordId = null;  // deal or contact id being watched
 let callWatchingRecordType = null; // 'deal' | 'contact'
+/** Interval for user-initiated memo processing (mic upload or Transcribe). */
+let memoPollTimerId = null;
+/** Memos the user dismissed. Never auto-open these. */
+const ignoredCallMemoIds = new Set();
 
 // ============================================
 // STATE MANAGEMENT
@@ -74,12 +139,21 @@ function clearCallWatch() {
   }
   callWatchingRecordId = null;
   callWatchingRecordType = null;
-  updateState({ watchingForRecording: false });
+  if (state.watchingForRecording) {
+    updateState({ watchingForRecording: false });
+  }
+}
+
+function clearMemoPoll() {
+  if (memoPollTimerId != null) {
+    clearInterval(memoPollTimerId);
+    memoPollTimerId = null;
+  }
 }
 
 /**
- * Start polling for a HubSpot call memo on a deal or contact page.
- * Supports both deal and contact record types.
+ * Refresh HubSpot recordings for the record in the address bar.
+ * Does not change status, start capture, or open a memo — the list is the UI.
  */
 function startCallWatch(recordId, recordType) {
   if (!recordId) return;
@@ -87,9 +161,6 @@ function startCallWatch(recordId, recordType) {
   clearCallWatch();
   callWatchingRecordId = recordId;
   callWatchingRecordType = recordType || 'deal';
-  updateState({ watchingForRecording: true });
-
-  let pollCount = 0;
 
   const scheduleNext = (ms) => {
     callWatchTimerId = setTimeout(tick, ms);
@@ -97,48 +168,12 @@ function startCallWatch(recordId, recordType) {
 
   async function tick() {
     callWatchTimerId = null;
-    try {
-      const { accessToken } = await api.getTokens();
-      if (!accessToken) {
-        scheduleNext(10000);
-        return;
-      }
-      // Build endpoint based on record type
-      const endpoint = callWatchingRecordType === 'contact'
-        ? `/crm/hubspot/contacts/${callWatchingRecordId}/call-memo`
-        : `/crm/hubspot/deals/${callWatchingRecordId}/call-memo`;
-      const res = await api.get(endpoint);
-      if (res.memo_id) {
-        const st = res.status;
-        // Already completed memos — keep watching for the next new call
-        if (st === 'approved' || st === 'rejected') {
-          pollCount += 1;
-          if (pollCount > 48) { clearCallWatch(); return; }
-          scheduleNext(pollCount <= 24 ? 5000 : 20000);
-          return;
-        }
-        clearCallWatch();
-        if (st === 'transcribing' || st === 'uploading' || st === 'extracting') {
-          updateState({ status: 'processing', currentMemoId: res.memo_id, watchingForRecording: false, processingSource: 'hubspot_call' });
-          showNotification('Vocify', 'Analyzing your call recording...');
-          startPolling(res.memo_id);
-        } else if (st === 'pending_transcript' || st === 'pending_review') {
-          updateState({ status: 'review', currentMemoId: res.memo_id, watchingForRecording: false });
-          showNotification('Call ready', 'Review your transcript.');
-        }
-        return;
-      }
-    } catch (e) {
-      console.warn('[BG] call-memo poll error:', e);
-    }
-    pollCount += 1;
-    if (pollCount > 48) {
-      clearCallWatch();
-      showNotification('Vocify', 'No call recording found. Reopen the panel to try again.');
-      return;
-    }
-    const delay = pollCount <= 24 ? 2000 : 10000;
-    scheduleNext(delay);
+    if (callWatchingRecordId !== recordId) return;
+    fetchRecordingsIfNeeded(
+      { objectType: callWatchingRecordType, recordId: callWatchingRecordId },
+      { force: true }
+    );
+    scheduleNext(20000);
   }
   scheduleNext(0);
 }
@@ -175,7 +210,8 @@ async function startRecording() {
   clearCallWatch();
   
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getContextTab();
+    rememberTab(tab);
     const context = tab?.url ? parseHubSpotUrl(tab.url) : null;
 
     // Build WebSocket URL with user_id for glossary (same pattern as dashboard useRealtimeTranscription)
@@ -312,34 +348,39 @@ async function processAudioData(audioData) {
 }
 
 function startPolling(memoId) {
+  clearMemoPoll();
   let pollCount = 0;
   console.log('[BG] Starting polling for memo:', memoId);
-  
-  const interval = setInterval(async () => {
+
+  memoPollTimerId = setInterval(async () => {
+    pollCount += 1;
     try {
       const memo = await api.getMemo(memoId);
-      pollCount++;
       console.log('[BG] Poll #', pollCount, 'status:', memo.status);
 
-        if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
-        clearInterval(interval);
+      if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
+        clearMemoPoll();
         showNotification('Ready for Review', 'Review and confirm your transcript.');
         updateState({ status: 'review', currentMemoId: memoId });
-        // Stay in extension: side panel (if open) receives STATE_UPDATED; user clicks icon to open
       } else if (memo.status === 'approved') {
-        clearInterval(interval);
+        clearMemoPoll();
         updateState({ status: 'success', syncResult: memo });
       } else if (memo.status === 'failed') {
-        clearInterval(interval);
-        updateState({ status: 'idle', currentMemoId: null });
+        clearMemoPoll();
+        updateState({ status: 'idle', currentMemoId: null, processingSource: null });
         showNotification('Analysis Failed', memo.errorMessage || 'Unknown error');
       } else if (pollCount > 60) {
-        clearInterval(interval);
-        updateState({ status: 'idle', currentMemoId: null });
+        clearMemoPoll();
+        updateState({ status: 'idle', currentMemoId: null, processingSource: null });
         showNotification('Timeout', 'Processing took too long.');
       }
     } catch (e) {
       console.error('[BG] Polling error:', e);
+      if (pollCount > 60) {
+        clearMemoPoll();
+        updateState({ status: 'idle', currentMemoId: null, processingSource: null });
+        showNotification('Timeout', 'Processing took too long.');
+      }
     }
   }, 2000);
 }
@@ -353,31 +394,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     // State queries
     case 'GET_STATE': {
+      const opened = panelOpenState(state);
+      if (opened !== state && opened.status === 'idle' && state.status === 'processing') {
+        if (state.currentMemoId) ignoredCallMemoIds.add(String(state.currentMemoId));
+        clearMemoPoll();
+        updateState({
+          status: 'idle',
+          processingSource: null,
+        });
+      }
       if (state.status === 'review' && state.currentMemoId) {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getContextTab().then((tab) => {
+          rememberTab(tab);
           if (tab?.url) {
             const ctx = parseHubSpotUrl(tab.url);
             if (ctx?.recordId && ['deal', 'contact', 'company'].includes(ctx.objectType)) {
-              state = { ...state, context: ctx };
-              updateState({ context: ctx });
+              applyContextAsync(ctx);
             }
           }
           sendResponse(state);
-        });
+        }).catch(() => sendResponse(state));
         return true;
       }
       if (state.status === 'idle' && !state.isRecording) {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-          const ctx = tab?.url ? parseHubSpotUrl(tab.url) : null;
-          if (!ctx || ctx.objectType !== 'deal' || !ctx.recordId) {
-            clearCallWatch();
-            updateState({ context: ctx });
-          } else {
-            updateState({ context: ctx });
-            startCallWatch(ctx.recordId);
-          }
+        getContextTab().then((tab) => {
+          rememberTab(tab);
+          if (tab?.url) reevaluateTabContext(tab.id, tab.url);
+          else updateState({ context: null, recordings: [], recordingsLoading: false });
           sendResponse(state);
-        });
+        }).catch(() => sendResponse(state));
         return true;
       }
       sendResponse(state);
@@ -388,7 +433,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const newState = { ...message.state };
       // When opening a memo for review, refresh context from active HubSpot tab
       if (newState.status === 'review' && newState.currentMemoId) {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getContextTab().then((tab) => {
+          rememberTab(tab);
           if (tab?.url) {
             const ctx = parseHubSpotUrl(tab.url);
             if (ctx?.recordId && ['deal', 'contact', 'company'].includes(ctx.objectType)) {
@@ -396,7 +442,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
           }
           updateState(newState);
-        });
+        }).catch(() => updateState(newState));
       } else {
         updateState(newState);
       }
@@ -524,15 +570,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(e => sendResponse({ error: e.message }));
       return true;
 
-    case 'GET_RECENT_MEMOS':
-      api.get('/memos')
-        .then(results => {
-          // Only return the last 5
-          const recent = (results || []).slice(0, 5);
-          sendResponse(recent);
-        })
-        .catch(e => sendResponse({ error: e.message }));
+    case 'GET_RECENT_MEMOS': {
+      const params = new URLSearchParams();
+      if (message.dealId) params.set('hubspot_deal_id', String(message.dealId));
+      else if (message.contactId) params.set('hubspot_contact_id', String(message.contactId));
+      params.set('limit', '5');
+      api.get(`/memos?${params.toString()}`)
+        .then((results) => sendResponse(Array.isArray(results) ? results : []))
+        .catch((e) => sendResponse({ error: e.message }));
       return true;
+    }
+
+    case 'PROCESS_HUBSPOT_CALL': {
+      const callId = message.callId;
+      if (!callId) {
+        sendResponse({ error: 'Missing callId' });
+        break;
+      }
+      api.post(`/crm/hubspot/calls/${encodeURIComponent(callId)}/process`, {})
+        .then((res) => {
+          const memoId = res?.memo_id ? String(res.memo_id) : null;
+          const st = res?.status;
+          if (memoId && (st === 'transcribing' || st === 'uploading' || st === 'extracting')) {
+            clearCallWatch();
+            updateState({
+              status: 'processing',
+              currentMemoId: memoId,
+              watchingForRecording: false,
+              processingSource: 'hubspot_call',
+            });
+            startPolling(memoId);
+          } else if (memoId && (st === 'pending_transcript' || st === 'pending_review')) {
+            clearCallWatch();
+            updateState({ status: 'review', currentMemoId: memoId, watchingForRecording: false });
+          }
+          if (state.context) fetchRecordingsIfNeeded(state.context, { force: true });
+          sendResponse(res);
+        })
+        .catch((e) => sendResponse({ error: e.message }));
+      return true;
+    }
 
     case 'STOP_CALL_WATCH':
       clearCallWatch();
@@ -540,6 +617,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'DISCARD_MEMO':
+      // Remember this memo so restarting the contact/deal watcher does not reopen it
+      if (state.currentMemoId) ignoredCallMemoIds.add(String(state.currentMemoId));
+      clearMemoPoll();
       clearCallWatch();
       updateState({ 
         status: 'idle', 
@@ -552,10 +632,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         processingSource: null,
       });
       // Re-evaluate the current tab so the watcher restarts if still on a deal/contact page
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const tab = tabs[0];
+      getContextTab().then((tab) => {
+        rememberTab(tab);
         if (tab?.url) reevaluateTabContext(tab.id, tab.url);
-      });
+      }).catch(() => {});
       break;
   }
 });
@@ -571,34 +651,166 @@ if (chrome.sidePanel?.setPanelBehavior) {
 // PRE-FETCH TAB: sidePanel.open must run sync in user gesture (~1ms)
 // ============================================
 function seedActiveTab() {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs[0]) lastActiveTabId = tabs[0].id;
-  });
+  getContextTab().then((tab) => rememberTab(tab)).catch(() => {});
 }
 
 // ============================================
 // TAB CONTEXT TRACKING
-// Re-evaluates the deal watcher whenever the user navigates or switches tabs.
-// Only acts when idle — never interrupts an active recording or review.
+// Re-evaluates the deal/contact watcher whenever the user navigates or switches tabs.
+// HubSpot is an SPA — URL often changes without a full load, so we must listen to
+// changeInfo.url as well as status===complete.
 // ============================================
+
+/**
+ * Fetch display names for the HubSpot record in the address bar.
+ * Keeps objectType/recordId from the URL; fills contactName / dealName / companyName.
+ */
+async function enrichPageContext(ctx) {
+  if (!ctx?.recordId || !ctx.objectType) return ctx;
+  const key = `${ctx.objectType}:${ctx.recordId}`;
+  try {
+    const { accessToken } = await api.getTokens();
+    if (!accessToken) return ctx;
+
+    if (ctx.objectType === 'contact') {
+      const contactCtx = await api.get(`/crm/hubspot/contacts/${ctx.recordId}/context`);
+      return {
+        ...ctx,
+        contactName: contactCtx?.contactName || ctx.contactName || null,
+        contactEmail: contactCtx?.contactEmail || null,
+        contactId: ctx.recordId,
+        companyName: contactCtx?.companyName || null,
+        companyId: contactCtx?.companyId || null,
+        _enrichedKey: key,
+      };
+    }
+    if (ctx.objectType === 'deal') {
+      const dealCtx = await api.get(`/crm/hubspot/deals/${ctx.recordId}/context`);
+      return {
+        ...ctx,
+        dealName: dealCtx?.raw_extraction?.dealname || ctx.dealName || null,
+        companyName: dealCtx?.companyName || null,
+        companyId: dealCtx?.companyId || null,
+        contactName: dealCtx?.contactName || null,
+        contactEmail: dealCtx?.contactEmail || null,
+        contactId: dealCtx?.contactId || null,
+        _enrichedKey: key,
+      };
+    }
+    if (ctx.objectType === 'company') {
+      const companyCtx = await api.get(`/crm/hubspot/companies/${ctx.recordId}/context`);
+      return {
+        ...ctx,
+        companyName: companyCtx?.companyName || ctx.companyName || null,
+        companyId: ctx.recordId,
+        contactId: companyCtx?.contactId || null,
+        contactName: companyCtx?.contactName || null,
+        contactEmail: companyCtx?.contactEmail || null,
+        companyContacts: Array.isArray(companyCtx?.contacts) ? companyCtx.contacts : [],
+        _enrichedKey: key,
+      };
+    }
+  } catch (e) {
+    console.warn('[BG] Failed to enrich page context:', e);
+  }
+  return ctx;
+}
+
+function applyContextAsync(ctx) {
+  updateState({ context: ctx });
+  fetchRecordingsIfNeeded(ctx);
+  const key = ctx?.recordId ? `${ctx.objectType}:${ctx.recordId}` : null;
+  if (!key || state.context?._enrichedKey === key) return;
+  enrichPageContext(ctx).then((enriched) => {
+    // Only apply if user is still on the same record
+    const current = state.context;
+    if (!current || current.recordId !== enriched.recordId || current.objectType !== enriched.objectType) {
+      return;
+    }
+    updateState({ context: enriched });
+  });
+}
+
+function recordingsEndpoint(ctx) {
+  if (ctx?.objectType === 'contact' && ctx.recordId) {
+    return `/crm/hubspot/contacts/${ctx.recordId}/recordings`;
+  }
+  if (ctx?.objectType === 'deal' && ctx.recordId) {
+    return `/crm/hubspot/deals/${ctx.recordId}/recordings`;
+  }
+  return null;
+}
+
+function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
+  const endpoint = recordingsEndpoint(ctx);
+  if (!endpoint) {
+    if (recordingsKey) {
+      recordingsKey = null;
+      updateState({ recordings: [], recordingsLoading: false });
+    }
+    return;
+  }
+
+  const key = `${ctx.objectType}:${ctx.recordId}`;
+  if (!force && recordingsKey === key) return;
+
+  const prevKey = recordingsKey;
+  recordingsKey = key;
+  updateState({
+    recordingsLoading: true,
+    recordings: prevKey === key ? (state.recordings || []) : [],
+  });
+
+  api.get(endpoint)
+    .then((items) => {
+      if (recordingsKey !== key) return;
+      const list = Array.isArray(items)
+        ? items.map((rec) => ({ ...rec, timestamp: rec.timestamp || rec.timestamp_ms || null }))
+        : [];
+      updateState({ recordings: list, recordingsLoading: false });
+    })
+    .catch((e) => {
+      console.warn('[BG] Failed to load recordings:', e);
+      if (recordingsKey !== key) return;
+      updateState({ recordings: [], recordingsLoading: false });
+    });
+}
+
 function reevaluateTabContext(tabId, url) {
   if (!url) return;
-  // Never interrupt an active flow
-  if (state.isRecording || state.status === 'processing' || state.status === 'review' || state.status === 'success') return;
 
   const ctx = parseHubSpotUrl(url);
   const watchableTypes = ['deal', 'contact'];
   const recordType = ctx?.objectType;
   const recordId = watchableTypes.includes(recordType) ? ctx.recordId : null;
 
+  // Always refresh page context (even during review) so "use contact on this page" stays accurate.
+  // Never start/stop watches or change status while a flow is active.
+  const flowBusy =
+    state.isRecording ||
+    state.status === 'processing' ||
+    state.status === 'review' ||
+    state.status === 'success';
+
+  if (flowBusy) {
+    if (ctx?.recordId) applyContextAsync(ctx);
+    else if (!ctx) {
+      recordingsKey = null;
+      updateState({ context: null, recordings: [], recordingsLoading: false });
+    }
+    return;
+  }
+
   if (recordId) {
-    // Switched to a deal or contact page — start (or switch) the watcher
-    updateState({ context: ctx });
+    applyContextAsync(ctx);
     startCallWatch(recordId, recordType);
   } else {
-    // Left a watchable page — stop watching, update context
     clearCallWatch();
-    updateState({ context: ctx || null });
+    if (ctx?.objectType === 'company' && ctx.recordId) applyContextAsync(ctx);
+    else {
+      recordingsKey = null;
+      updateState({ context: ctx || null, recordings: [], recordingsLoading: false });
+    }
   }
 }
 
@@ -611,10 +823,15 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  // Only care about the active tab completing a navigation
   if (tabId !== lastActiveTabId) return;
-  if (changeInfo.status !== 'complete') return;
-  reevaluateTabContext(tabId, tab?.url);
+  // HubSpot SPA: URL can change without a document reload
+  if (changeInfo.url) {
+    reevaluateTabContext(tabId, changeInfo.url);
+    return;
+  }
+  if (changeInfo.status === 'complete' && tab?.url) {
+    reevaluateTabContext(tabId, tab.url);
+  }
 });
 
 chrome.windows.onFocusChanged.addListener(() => seedActiveTab());

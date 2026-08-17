@@ -33,6 +33,11 @@
       <!-- Deal context badge (shown when recording on HubSpot deal page) -->
       <div id="deal-context-badge" class="deal-context-badge" style="display: none;"></div>
 
+      <div id="record-context-strip" class="record-context-strip" style="display: none;">
+        <span id="record-context-type" class="record-context-type">Contact</span>
+        <span id="record-context-name" class="record-context-name"></span>
+      </div>
+
       <div id="call-watch-indicator" class="call-watch-indicator" style="display: none;" role="status">
         <span class="call-watch-dot" aria-hidden="true"></span>
         <span class="call-watch-text">Watching for call recording...</span>
@@ -74,9 +79,19 @@
         </div>
       </div>
 
+      <!-- Recordings + memos for the HubSpot record in the address bar -->
+      <div id="recordings-section" class="recordings-section" style="display: none;">
+        <div class="recordings-header-row">
+          <span id="recordings-watch-dot" class="call-watch-dot" style="display: none;" aria-hidden="true"></span>
+          <p id="recordings-status-line" class="recordings-status-line">Call recordings on this record</p>
+          <button type="button" id="recordings-stop-watch" class="call-watch-stop">Stop</button>
+        </div>
+        <div id="recordings-list" class="recordings-list"></div>
+      </div>
+
       <!-- Recent Memos Section -->
       <div id="recent-memos-section" class="recent-memos-section">
-        <p class="caps-label" style="margin-bottom: 12px;">Recent Memos</p>
+        <p class="caps-label" id="recent-memos-label" style="margin-bottom: 12px;">Recent Memos</p>
         <div id="recent-memos-list" class="recent-memos-list">
           <p class="body-muted" style="text-align: center; padding: 10px;">Loading...</p>
         </div>
@@ -85,7 +100,7 @@
       <div class="footer-actions">
         <div class="user-minimal">
           <span id="user-name">...</span>
-          <span class="version-tag">v1.0.5</span>
+          <span class="version-tag">v1.0.10</span>
         </div>
         <button id="logout-button" class="logout-link">Log Out</button>
       </div>
@@ -101,6 +116,7 @@
         <div class="spinner"></div>
         <h2 class="title-large" id="processing-title">Converting speech to text...</h2>
         <p class="body-muted" id="processing-message">Your transcript will be ready to review in a moment.</p>
+        <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="margin-top: 24px;">Back</button>
       </div>
     </div>
 
