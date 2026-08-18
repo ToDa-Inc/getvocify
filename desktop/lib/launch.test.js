@@ -4,6 +4,7 @@ import {
   companionProcess,
   linuxChromiumSwitches,
   mimeFor,
+  ensureRuntimeDir,
   sanitizeSessionBusAddress,
   shouldPreferWebUi,
 } from './launch.js';
@@ -45,6 +46,19 @@ describe('launch', () => {
       busAddress: '',
     });
     assert.equal(mac.cmd, '/app/electron');
+  });
+
+  it('uses a user-owned runtime dir when XDG_RUNTIME_DIR is root-owned /tmp', () => {
+    const created = [];
+    const dir = ensureRuntimeDir({
+      existing: '/tmp',
+      uid: 1000,
+      tmpdir: '/var/tmp',
+      mkdir: (d) => created.push(d),
+      stat: () => ({ uid: 0 }),
+    });
+    assert.equal(dir, '/var/tmp/vocify-runtime-1000');
+    assert.deepEqual(created, ['/var/tmp/vocify-runtime-1000']);
   });
 
   it('serves JS modules with the javascript MIME type', () => {

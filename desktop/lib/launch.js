@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 export function linuxChromiumSwitches({ platform = process.platform } = {}) {
   const switches = ['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage'];
   if (platform === 'linux') switches.push('no-sandbox');
@@ -34,6 +38,26 @@ export function companionProcess({
     return { cmd: dbusLaunch, args: ['--exit-with-session', electronPath, ...args] };
   }
   return { cmd: electronPath, args };
+}
+
+export function ensureRuntimeDir({
+  existing = process.env.XDG_RUNTIME_DIR,
+  uid = typeof process.getuid === 'function' ? process.getuid() : 0,
+  tmpdir = os.tmpdir(),
+  mkdir = (dir, opts) => fs.mkdirSync(dir, opts),
+  stat = (dir) => fs.statSync(dir),
+} = {}) {
+  if (existing) {
+    try {
+      const st = stat(existing);
+      if (typeof st.uid !== 'number' || st.uid === uid) return existing;
+    } catch {
+      // fall through and create a private dir
+    }
+  }
+  const dir = path.join(tmpdir, `vocify-runtime-${uid}`);
+  mkdir(dir, { recursive: true, mode: 0o700 });
+  return dir;
 }
 
 export function mimeFor(filePath) {

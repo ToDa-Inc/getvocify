@@ -1,7 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { linuxChromiumSwitches, sanitizeSessionBusAddress } from './lib/launch.js';
+import { ensureRuntimeDir, linuxChromiumSwitches, sanitizeSessionBusAddress } from './lib/launch.js';
 import { createCompanionServer, listenLocal } from './server.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const bus = sanitizeSessionBusAddress(process.env.DBUS_SESSION_BUS_ADDRESS);
 if (bus) process.env.DBUS_SESSION_BUS_ADDRESS = bus;
 else delete process.env.DBUS_SESSION_BUS_ADDRESS;
-if (!process.env.XDG_RUNTIME_DIR) process.env.XDG_RUNTIME_DIR = '/tmp';
+process.env.XDG_RUNTIME_DIR = ensureRuntimeDir();
 
 app.disableHardwareAcceleration();
 for (const flag of linuxChromiumSwitches()) {

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { companionProcess, shouldPreferWebUi } from './lib/launch.js';
+import { companionProcess, ensureRuntimeDir, shouldPreferWebUi } from './lib/launch.js';
 
 if (shouldPreferWebUi()) {
   await import('./server.mjs');
@@ -10,7 +10,7 @@ if (shouldPreferWebUi()) {
   const electronPath = require('electron');
   const { cmd, args } = companionProcess({ electronPath, dbusLaunch: 'dbus-launch' });
   const env = { ...process.env };
-  if (!env.XDG_RUNTIME_DIR) env.XDG_RUNTIME_DIR = '/tmp';
+  env.XDG_RUNTIME_DIR = ensureRuntimeDir({ existing: env.XDG_RUNTIME_DIR });
   const child = spawn(cmd, args, {
     stdio: 'inherit',
     env,
