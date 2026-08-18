@@ -1,48 +1,59 @@
 # Vocify Companion
 
-Standalone desktop app for Vocify (Granola-style): **system audio = Them**, **mic = You**, tray + always-on-top overlay, dashboard cream UI, CRM transcript upload.
+Desktop app for [Vocify](https://github.com/ToDa-Inc/getvocify): Granola-style **system audio + mic**, dashboard UI, tray, always-on-top overlay. Talks to the production API at **https://api.getvocify.com/api/v1**.
 
-This folder is the full app. The intended GitHub repo is **[ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop)** — create that empty repo, then from getvocify:
+Canonical repo (once populated): **https://github.com/ToDa-Inc/getvocify-desktop**
+
+## If your prompt is `desktop $`
+
+You are **already** in this folder. There is no `getvocify` directory here, so this fails:
 
 ```bash
-bash desktop/scripts/push-standalone-repo.sh
+cd getvocify
+# bash: cd: getvocify: No such file or directory
 ```
 
-(This agent’s GitHub token cannot create org repos: `403 Resource not accessible by integration`.)
+```bash
+pwd          # .../getvocify/desktop  (in this VM: /workspace/desktop)
+npm start    # start the companion from here
+cd ..        # getvocify repo root (in this VM: /workspace)
+```
 
-## Why nothing opened last time
+This Cursor cloud VM is Linux. An Electron window here does **not** appear on your Mac. To see the real app, clone and run on your Mac (below).
 
-The companion is **Electron on the machine that runs `npm start`**. Cursor cloud agents run Linux VMs; that window never appears on your Mac. A `.dmg` also cannot be built on Linux — GitHub Actions on `macos-latest` produces it.
+## Run on your Mac
 
-On your Mac:
+Until `getvocify-desktop` has commits, clone **this** branch of getvocify:
 
 ```bash
-git checkout cursor/field-extraction-speakers-desktop-a838
-cd desktop
+git clone -b cursor/field-extraction-speakers-desktop-a838 https://github.com/ToDa-Inc/getvocify.git
+cd getvocify/desktop
 npm install
 npm start
 ```
 
-You should see a Vocify window **and** a menu-bar icon. If the window is behind others, click **Vocify Companion** in the Dock.
+A window and a menu-bar icon should appear. Log in with the same Vocify account as [app.getvocify.com](https://app.getvocify.com).
 
-## Mac installer (.dmg)
-
-On a Mac, or via **Actions → Companion Mac DMG → Run workflow**:
+Once https://github.com/ToDa-Inc/getvocify-desktop has code:
 
 ```bash
-cd desktop
+git clone https://github.com/ToDa-Inc/getvocify-desktop.git
+cd getvocify-desktop
 npm install
+npm start
+```
+
+## Installer (.dmg)
+
+On a Mac:
+
+```bash
 npm run dist:mac
 open dist/Vocify-Companion-0.2.0.dmg
 ```
 
-Unsigned build: **Right-click the app → Open**. Grant **Microphone** and **Screen Recording**.
+Or GitHub → Actions → **Mac DMG** / **Companion Mac DMG** → download the artifact. Unsigned: **Right-click → Open**. Grant Microphone + Screen Recording.
 
-## Loopback
+## API
 
-| Platform | System audio |
-|----------|----------------|
-| macOS / Windows | Chromium `audio: 'loopback'` |
-| Linux | PipeWire / Pulse monitor (Anarlog-style), then Chromium |
-
-Does not join the meeting as a bot.
+Default `VOCIFY_API` / login field: `https://api.getvocify.com/api/v1`. Local backend: `http://localhost:8888/api/v1`.

@@ -4,6 +4,10 @@
   "private": true,
   "description": "Vocify desktop companion: Granola-style system audio, dashboard UI, tray overlay, CRM handoff.",
   "author": "Vocify",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ToDa-Inc/getvocify-desktop.git"
+  },
   "type": "module",
   "main": "electron-main.mjs",
   "scripts": {
