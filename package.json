@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "start": "node start.js",
     "start:all": "node start.js",
-    "server": "node start.js"
+    "server": "node start.js",
+    "companion": "npm start --prefix desktop"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
