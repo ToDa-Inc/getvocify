@@ -118,6 +118,7 @@ CREATE TABLE user_profiles (
   auto_create_contact_company BOOLEAN DEFAULT false,
   glossary JSONB DEFAULT '[]',
   product_context TEXT DEFAULT '',
+  stt_languages TEXT[] NOT NULL DEFAULT ARRAY['es'],
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

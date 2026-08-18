@@ -23,6 +23,7 @@ from app.services.session_entities import (
 logger = logging.getLogger(__name__)
 
 LISTEN_URL = "https://api.deepgram.com/v1/listen"
+DEEPGRAM_MODEL = "nova-3"
 
 
 def listen_query_params(
@@ -91,12 +92,11 @@ class DeepgramBatchService:
         if not audio_bytes:
             raise RuntimeError("No audio bytes to transcribe")
 
-        lang = resolve_batch_language(language)
+        lang = resolve_batch_language(language, user_id=user_id)
         keyterms = await deepgram_keyterms_for_job(user_id, extra_terms)
-        model = (getattr(settings, "STT_DEEPGRAM_MODEL", None) or "nova-3").strip() or "nova-3"
 
         params = listen_query_params(
-            model=model,
+            model=DEEPGRAM_MODEL,
             language=lang,
             keyterms=keyterms,
             diarization=diarization,
@@ -112,7 +112,7 @@ class DeepgramBatchService:
                 DOMAIN_TRANSCRIPTION,
                 "deepgram_listen_start",
                 language=lang,
-                model=model,
+                model=DEEPGRAM_MODEL,
                 keyterms=len(keyterms),
                 bytes=len(audio_bytes),
             ),

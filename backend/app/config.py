@@ -46,8 +46,6 @@ class Settings(BaseSettings):
     SPEECHMATICS_API_KEY: Optional[str] = None
     # File STT (HubSpot recordings, uploads, WhatsApp). Live copilot stays Speechmatics WS.
     STT_PROVIDER: str = "deepgram"
-    STT_LANGUAGE: str = "es"
-    STT_DEEPGRAM_MODEL: str = "nova-3"
     # Realtime language when the client sends `multi`. Default `auto` matches live STT.
     # Set to `es` only if eu2 rejects `/v2/auto`.
     SPEECHMATICS_RT_LANGUAGE: Optional[str] = None

@@ -33,6 +33,8 @@ export interface User {
   autoCreateContactCompany: boolean;
   /** Seller offer / ICP text used as reference-only context for call extraction */
   productContext?: Nullable<string>;
+  /** File STT languages. First is primary. Extra codes mean mixed-language calls. */
+  sttLanguages?: string[];
   /** When the user was created */
   createdAt: ISODateString;
 }
@@ -122,6 +124,8 @@ export interface UpdateProfileData {
   autoCreateContactCompany?: boolean;
   /** Seller offer / ICP — injected into extraction as reference, not copied into CRM notes */
   productContext?: string;
+  /** File STT languages. First is primary. */
+  sttLanguages?: string[];
 }
 
 // ============================================

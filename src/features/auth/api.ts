@@ -25,6 +25,9 @@ function mapRawUser(raw: Record<string, unknown>): User {
     phone: (raw.phone as string) ?? null,
     autoCreateContactCompany: Boolean(raw.auto_create_contact_company),
     productContext: (raw.product_context as string) ?? '',
+    sttLanguages: Array.isArray(raw.stt_languages)
+      ? (raw.stt_languages as string[])
+      : ['es'],
     createdAt: (raw.created_at as string) || '',
   };
 }
@@ -126,6 +129,9 @@ export const authApi = {
     }
     if (data.productContext !== undefined) {
       body.product_context = data.productContext;
+    }
+    if (data.sttLanguages !== undefined) {
+      body.stt_languages = data.sttLanguages;
     }
     const raw = await api.patch<Record<string, unknown>>('/auth/me', body);
     return mapRawUser(raw);

@@ -282,25 +282,71 @@ def resolve_speechmatics_rt_language(requested: str, override: Optional[str] = N
     return raw
 
 
-def resolve_batch_language(requested: Optional[str] = None) -> str:
-    """Pin file STT language. `auto`/`multi` use STT_LANGUAGE (default es)."""
-    from app.config import settings
+STT_LANGUAGE_CODES = ("es", "en", "fr", "de", "it", "pt", "ca")
+DEFAULT_STT_LANGUAGES = ["es"]
 
-    pinned = (getattr(settings, "STT_LANGUAGE", None) or "es").strip().lower() or "es"
+
+def normalize_stt_languages(raw: Any) -> list[str]:
+    """Keep known ISO 639-1 codes, first unique as primary. Default Spanish."""
+    allowed = set(STT_LANGUAGE_CODES)
+    out: list[str] = []
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, (list, tuple)):
+        values = list(raw)
+    else:
+        values = []
+    for item in values:
+        code = str(item or "").strip().lower()
+        if code not in allowed or code in out:
+            continue
+        out.append(code)
+    return out or list(DEFAULT_STT_LANGUAGES)
+
+
+def deepgram_language_code(langs: list[str]) -> str:
+    """One language → pin it. Two or more → Nova-3 multilingual `multi`."""
+    cleaned = normalize_stt_languages(langs)
+    if len(cleaned) == 1:
+        return cleaned[0]
+    return "multi"
+
+
+def resolve_batch_language(
+    requested: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> str:
+    """File STT language from an explicit code, else the user's profile languages."""
     raw = (requested or "").strip().lower()
-    if raw in ("", "auto", "multi"):
-        return pinned
-    return raw
+    if raw and raw not in ("", "auto", "multi"):
+        return raw if raw in STT_LANGUAGE_CODES else "es"
+    langs = list(DEFAULT_STT_LANGUAGES)
+    if user_id and user_id != "anonymous":
+        try:
+            from app.services.glossary import GlossaryService
+
+            profile = load_stt_profile(GlossaryService().supabase, user_id)
+            langs = profile.get("stt_languages") or langs
+        except Exception as e:
+            logger.warning("Could not resolve STT languages for %s: %s", user_id, e)
+    if raw == "multi":
+        return "multi"
+    return deepgram_language_code(langs)
 
 
 def load_stt_profile(supabase: Any, user_id: Optional[str]) -> dict[str, Any]:
-    empty: dict[str, Any] = {"full_name": None, "company_name": None, "glossary": []}
+    empty: dict[str, Any] = {
+        "full_name": None,
+        "company_name": None,
+        "glossary": [],
+        "stt_languages": list(DEFAULT_STT_LANGUAGES),
+    }
     if not user_id or user_id == "anonymous":
         return empty
     try:
         result = (
             supabase.table("user_profiles")
-            .select("full_name,company_name,glossary")
+            .select("full_name,company_name,glossary,stt_languages")
             .eq("id", user_id)
             .limit(1)
             .execute()
@@ -313,6 +359,7 @@ def load_stt_profile(supabase: Any, user_id: Optional[str]) -> dict[str, Any]:
             "full_name": (row.get("full_name") or None),
             "company_name": (row.get("company_name") or None),
             "glossary": row.get("glossary") or [],
+            "stt_languages": normalize_stt_languages(row.get("stt_languages")),
         }
     except Exception as e:
         logger.warning("Could not load STT profile for %s: %s", user_id, e)

@@ -10,7 +10,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 
 from app.config import settings
 from app.deps import get_supabase, get_supabase_auth, get_user_id
@@ -60,6 +60,7 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     auto_create_contact_company: bool = False
     product_context: Optional[str] = None
+    stt_languages: List[str] = Field(default_factory=lambda: ["es"])
     created_at: str
 
 
@@ -71,9 +72,12 @@ class UpdateProfileRequest(BaseModel):
     phone: Optional[str] = None
     auto_create_contact_company: Optional[bool] = None
     product_context: Optional[str] = Field(default=None, max_length=8000)
+    stt_languages: Optional[List[str]] = None
 
 
 def _user_response(user_id: str, email: str, profile: dict) -> UserResponse:
+    from app.services.session_entities import normalize_stt_languages
+
     return UserResponse(
         id=user_id,
         email=email,
@@ -83,6 +87,7 @@ def _user_response(user_id: str, email: str, profile: dict) -> UserResponse:
         phone=profile.get("phone"),
         auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
         product_context=profile.get("product_context") or "",
+        stt_languages=normalize_stt_languages(profile.get("stt_languages")),
         created_at=profile.get("created_at", ""),
     )
 
@@ -318,6 +323,10 @@ async def update_profile(
     if "phone" in updates:
         normalized_phone = normalize_phone_for_lookup(updates.get("phone"))
         updates["phone"] = normalized_phone
+    if "stt_languages" in updates:
+        from app.services.session_entities import normalize_stt_languages
+
+        updates["stt_languages"] = normalize_stt_languages(updates.get("stt_languages"))
     supabase.table("user_profiles").update(updates).eq("id", user_id).execute()
     profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
     if not profile_result.data:
