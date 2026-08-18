@@ -16,7 +16,7 @@ npm install
 npm start
 ```
 
-On Linux cloud VMs / containers (no GPU, no D-Bus) `npm start` now disables the GPU and Chromium sandbox so the window can open. D-Bus `Unknown address type` lines are harmless.
+On Linux cloud VMs / containers (no GPU, no D-Bus) `npm start` disables the GPU and Chromium sandbox and starts a session bus so the window can open.
 
 If Electron still cannot open a window (no display), use the same UI in a browser:
 
@@ -49,8 +49,8 @@ If system audio has no track, Companion tells you instead of uploading silence.
 
 | Log line | Meaning |
 |----------|---------|
-| `Failed to connect to the bus: Could not parse server address` | No D-Bus session. Harmless; ignored. |
-| `Exiting GPU process due to errors during initialization` | No usable GPU. `npm start` now passes `--disable-gpu` so this should not kill the app. |
+| `Failed to connect to the bus: Could not parse server address` | No D-Bus session. Harmless leftover Chromium noise; the app still runs. |
+| `Exiting GPU process due to errors during initialization` | No usable GPU. `npm start` passes `--disable-gpu` so this should not kill the app. |
 | Window never appears | No `DISPLAY` / Wayland. Run `npm run web` instead. |
 
 ## Tests (no Electron UI)
