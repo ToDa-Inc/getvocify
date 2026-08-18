@@ -1,10 +1,22 @@
 import { app, BrowserWindow, desktopCapturer, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { linuxChromiumSwitches, sanitizeSessionBusAddress } from './lib/launch.js';
+import { createCompanionServer, listenLocal } from './server.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function createWindow() {
+const bus = sanitizeSessionBusAddress(process.env.DBUS_SESSION_BUS_ADDRESS);
+if (bus) process.env.DBUS_SESSION_BUS_ADDRESS = bus;
+else delete process.env.DBUS_SESSION_BUS_ADDRESS;
+if (!process.env.XDG_RUNTIME_DIR) process.env.XDG_RUNTIME_DIR = '/tmp';
+
+app.disableHardwareAcceleration();
+for (const flag of linuxChromiumSwitches()) {
+  app.commandLine.appendSwitch(flag);
+}
+
+function createWindow(url) {
   const win = new BrowserWindow({
     width: 440,
     height: 760,
@@ -12,6 +24,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#f7f4ee',
     title: 'Vocify Companion',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -19,10 +32,20 @@ function createWindow() {
       sandbox: false,
     },
   });
-  win.loadFile(path.join(__dirname, 'renderer/index.html'));
+  win.once('ready-to-show', () => win.show());
+  win.loadURL(url);
 }
 
-app.whenReady().then(() => {
+app.on('gpu-process-crashed', () => {
+  console.warn('GPU process crashed; continuing with software rendering.');
+});
+app.on('child-process-gone', (_event, details) => {
+  if (details?.type === 'GPU') {
+    console.warn('GPU child process gone; window stays open.');
+  }
+});
+
+app.whenReady().then(async () => {
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer
       .getSources({ types: ['screen'] })
@@ -37,9 +60,14 @@ app.whenReady().then(() => {
       .catch(() => callback({}));
   });
 
-  createWindow();
+  const server = createCompanionServer();
+  const url = await listenLocal(server);
+  createWindow(url);
+  console.log(`Vocify Companion is running at ${url}`);
+  console.log('Keep this terminal open. D-Bus warnings on Linux are harmless.');
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
   });
 });
 

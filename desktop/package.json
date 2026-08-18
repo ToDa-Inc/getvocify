@@ -6,7 +6,8 @@
   "type": "module",
   "main": "electron-main.mjs",
   "scripts": {
-    "start": "electron .",
+    "start": "node start.mjs",
+    "web": "node server.mjs",
     "test": "node --test lib/*.test.js"
   },
   "devDependencies": {
