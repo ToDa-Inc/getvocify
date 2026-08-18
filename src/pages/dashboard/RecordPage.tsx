@@ -396,7 +396,9 @@ const RecordPage = () => {
           New <span className={THEME_TOKENS.typography.accentTitle}>Memo</span>
         </h1>
         <p className={THEME_TOKENS.typography.body}>
-          Record a voice memo or import a meeting transcript.
+          Record a voice memo or import a meeting transcript. For Zoom, Meet, or Teams
+          system audio (Granola-style, no meeting bot), run the Vocify Companion in{" "}
+          <code className="text-[11px]">desktop/</code>.
         </p>
       </div>
 

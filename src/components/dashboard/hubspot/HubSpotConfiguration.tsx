@@ -7,6 +7,7 @@ import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, I
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/shared/lib/api-client";
+import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/fill-policy";
 
 interface HubSpotConfigurationProps {
   onSaved?: () => void;
@@ -46,6 +47,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
+  const [fieldView, setFieldView] = useState<"mapped" | "recommended" | "all">("mapped");
   const [lineItemsScopeMissing, setLineItemsScopeMissing] = useState(false);
   const [lineItemsSchemaError, setLineItemsSchemaError] = useState(false);
   const [newLostReason, setNewLostReason] = useState("");
@@ -170,7 +172,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
   const filteredProperties = useMemo(() => {
     if (!activeSchema) return [];
 
-    return activeSchema.properties.filter((p) => {
+    const rows = activeSchema.properties.filter((p) => {
       if (SYSTEM_FIELDS.includes(p.name)) return false;
 
       const matchesSearch =
@@ -181,9 +183,18 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
 
       const isRecommended = recommended.includes(p.name);
       const isSelected = selectedFields.includes(p.name);
+      if (fieldView === "mapped") return isSelected;
+      if (fieldView === "recommended") return isRecommended || isSelected;
       return showAllFields || isRecommended || isSelected;
     });
-  }, [activeSchema, searchQuery, showAllFields, selectedFields, recommended]);
+
+    return [...rows].sort((a, b) => {
+      const aSel = selectedFields.includes(a.name) ? 0 : 1;
+      const bSel = selectedFields.includes(b.name) ? 0 : 1;
+      if (aSel !== bSel) return aSel - bSel;
+      return a.label.localeCompare(b.label);
+    });
+  }, [activeSchema, searchQuery, showAllFields, selectedFields, recommended, fieldView]);
 
   const toggleField = (name: string) => {
     setConfig((prev) => {
@@ -372,14 +383,17 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
         <div className="flex items-center gap-3 text-beige">
           <ShieldCheck className="h-4 w-4" />
           <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
-            Editable Fields
+            Field mapping
           </h4>
         </div>
 
         <div className="flex items-start gap-2 px-2">
           <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
           <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-            One exception to the allowlists below: when a rep marks a call as{" "}
+            Select the HubSpot properties AI may fill from a call. Only selected fields
+            are extracted and shown in review. Badges show how each field is treated:
+            identity stays on the existing record, pre-call fields are never written from
+            a live call, research/ICP only fills when empty. One exception: when a rep marks a call as{" "}
             <strong>Converted / On Hold / Lost</strong> in the extension, Vocify always
             writes the contact's lead status (and, if the call was marked Lost, the
             deal's stage + lost reason) — even if <code className="text-[9px]">hs_lead_status</code>{" "}
@@ -402,6 +416,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                   setActiveTab(tab.id);
                   setSearchQuery("");
                   setShowAllFields(false);
+                  setFieldView("mapped");
                 }}
                 className={`px-4 py-2 rounded-full text-[9px] font-medium border transition-all ${
                   activeTab === tab.id
@@ -428,18 +443,28 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
               />
             </div>
             {!searchQuery && activeSchema && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAllFields(!showAllFields)}
-                className={`rounded-full px-6 h-11 text-[9px] font-medium border-border/50 transition-all ${
-                  showAllFields ? "bg-beige/10 border-beige/30 text-beige" : ""
-                }`}
-              >
-                {showAllFields
-                  ? "Show Recommended Only"
-                  : `Show All Fields (${activeSchema.properties.length})`}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {(["mapped", "recommended", "all"] as const).map((mode) => (
+                  <Button
+                    key={mode}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFieldView(mode);
+                      setShowAllFields(mode === "all");
+                    }}
+                    className={`rounded-full px-4 h-11 text-[9px] font-medium border-border/50 transition-all ${
+                      fieldView === mode ? "bg-beige/10 border-beige/30 text-beige" : ""
+                    }`}
+                  >
+                    {mode === "mapped"
+                      ? `Mapped (${selectedFields.length})`
+                      : mode === "recommended"
+                        ? "Recommended"
+                        : `All fields (${activeSchema.properties.length})`}
+                  </Button>
+                ))}
+              </div>
             )}
           </div>
 
@@ -453,9 +478,11 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                     : "Schema unavailable for this object."
                   : searchQuery
                     ? `Showing matches for "${searchQuery}"`
-                    : showAllFields
+                    : fieldView === "all" || showAllFields
                       ? `Displaying all available ${activeTab.replace("_", " ")} properties`
-                      : `Displaying recommended ${activeTab.replace("_", " ")} fields — AI will only write selected ones`}
+                      : fieldView === "mapped"
+                        ? `Mapped ${activeTab.replace("_", " ")} fields — AI extracts only these`
+                        : `Displaying recommended ${activeTab.replace("_", " ")} fields — AI will only write selected ones`}
               </p>
             </div>
 
@@ -475,6 +502,9 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                     <div className="flex flex-col min-w-0">
                       <span className="text-[10px] font-bold truncate">{prop.label}</span>
                       <span className="text-[8px] font-mono opacity-40 truncate">{prop.name}</span>
+                      <span className="text-[8px] font-medium uppercase tracking-tighter opacity-50 mt-0.5">
+                        {FILL_POLICY_LABELS[classifyFillPolicy(prop as { name: string; label: string; description?: string; fill_policy?: FillPolicy })]}
+                      </span>
                       {recommended.includes(prop.name) && (
                         <span className="text-[8px] font-black uppercase tracking-tighter opacity-30 group-hover:opacity-60">
                           Recommended
@@ -490,7 +520,11 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                 <div className="col-span-full py-12 flex flex-col items-center justify-center text-muted-foreground/40">
                   <FilterX className="h-10 w-10 mb-4 opacity-20" />
                   <p className="text-sm font-bold">
-                    {activeSchema ? "No matching properties found" : "No schema loaded"}
+                    {activeSchema
+                      ? fieldView === "mapped" && !searchQuery
+                        ? "No fields mapped yet — open Recommended or All to add some"
+                        : "No matching properties found"
+                      : "No schema loaded"}
                   </p>
                 </div>
               )}

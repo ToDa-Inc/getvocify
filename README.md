@@ -9,6 +9,7 @@ AI-powered sales conversation capture — record calls, transcribe, extract CRM 
 | `src/` | React web app (Vite + TypeScript) |
 | `backend/` | FastAPI API (deployed on Railway) |
 | `chrome-extension/` | Browser extension for in-CRM recording |
+| `desktop/` | Vocify Companion — system-audio listener (Granola-style) |
 | `hubspot-app/` | HubSpot OAuth app definition |
 | `remotion/` | Product demo video (local render) |
 | `docs/` | Product documentation |
@@ -55,6 +56,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Web app | Vercel | `vercel.json` — builds `src/` via `npm run build` |
 | API | Railway | `backend/railway.json` |
 | Chrome extension | Manual | Load `chrome-extension/` unpacked, or zip for store |
+| Desktop companion | Local Electron | `cd desktop && npm install && npm start` |
 | HubSpot app | HubSpot CLI | `hubspot-app/` — `hs project upload` |
 
 ## Documentation

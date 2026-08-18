@@ -35,6 +35,7 @@ class HubSpotProperty(BaseModel):
     readOnlyValue: bool = False
     hidden: bool = False
     description: Optional[str] = None
+    fill_policy: Optional[Literal["identity", "strategy", "research", "call_note", "explicit"]] = None
     
     class Config:
         # HubSpot uses camelCase in API responses

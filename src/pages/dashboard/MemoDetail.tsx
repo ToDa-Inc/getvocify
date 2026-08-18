@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
+import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
 
@@ -101,6 +102,7 @@ const MemoDetail = () => {
   const [syncResult, setSyncResult] = useState<any>(null);
   const [isReExtracting, setIsReExtracting] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
+  const [reviewContactName, setReviewContactName] = useState<string | null>(null);
 
   /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {
@@ -399,13 +401,10 @@ const MemoDetail = () => {
               )}
             </div>
             {memo.transcript ? (
-                <div className="prose prose-sm text-muted-foreground max-h-[500px] overflow-y-auto pr-4 scrollbar-thin">
-                  {memo.transcript.split("\n").map((line: string, i: number) => (
-                    <p key={i} className="mb-4 leading-relaxed tracking-tight">
-                      {line}
-                    </p>
-                  ))}
-                </div>
+                <TranscriptConversation
+                  transcript={memo.transcript}
+                  contactName={reviewContactName || extraction.contactName}
+                />
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center opacity-40">
                 <Sparkles className="h-8 w-8 mb-4 animate-pulse" />
@@ -437,6 +436,7 @@ const MemoDetail = () => {
                 memoId={id || ""}
                 initialDealId={dealIdFromUrl}
                 onSuccess={handleSyncSuccess}
+                onContactName={setReviewContactName}
               />
             </div>
           </div>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vocify Companion</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <div class="brand">Vocify</div>
+        <p class="eyebrow">Companion</p>
+      </header>
+
+      <section id="login-panel" class="card">
+        <h1>Sign in</h1>
+        <p class="muted">Same account as the Vocify dashboard. System audio is sent as the prospect; your mic is You.</p>
+        <label>Email <input id="email" type="email" autocomplete="username" /></label>
+        <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
+        <label>API base <input id="api-base" type="url" placeholder="https://api.getvocify.com/api/v1" /></label>
+        <button id="btn-login" type="button">Log in</button>
+        <p id="login-error" class="error" hidden></p>
+      </section>
+
+      <section id="listen-panel" class="card" hidden>
+        <div class="who">
+          <span>You</span>
+          <span class="dot"></span>
+          <span id="them-label">Them</span>
+        </div>
+        <p id="status" class="muted">Idle — start a Zoom/Meet/Teams call, then listen.</p>
+        <div id="transcript" class="transcript" aria-live="polite">
+          <p class="empty">Transcript will appear here, labeled You / Them.</p>
+        </div>
+        <div class="actions">
+          <button id="btn-listen" type="button">Listen</button>
+          <button id="btn-stop" type="button" disabled>Stop &amp; send</button>
+        </div>
+        <button id="btn-logout" class="ghost" type="button">Log out</button>
+        <p id="listen-error" class="error" hidden></p>
+      </section>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
