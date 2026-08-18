@@ -9,6 +9,8 @@ describe('companion static server', () => {
     try {
       const html = await fetch(url).then((r) => r.text());
       assert.match(html, /Vocify Companion/);
+      const overlay = await fetch(url.replace(/index\.html$/, 'overlay.html')).then((r) => r.text());
+      assert.match(overlay, /Listening to the call/);
       const jsUrl = url.replace(/index\.html$/, 'app.js');
       const js = await fetch(jsUrl);
       assert.equal(js.status, 200);

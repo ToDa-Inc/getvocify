@@ -14,7 +14,7 @@ describe('launch', () => {
     const flags = linuxChromiumSwitches({ platform: 'linux' });
     assert.ok(flags.includes('disable-gpu'));
     assert.ok(flags.includes('no-sandbox'));
-    assert.equal(linuxChromiumSwitches({ platform: 'darwin' }).includes('no-sandbox'), false);
+    assert.deepEqual(linuxChromiumSwitches({ platform: 'darwin' }), []);
   });
 
   it('drops empty or unparseable D-Bus addresses (Chromium "Unknown address type")', () => {
@@ -46,6 +46,7 @@ describe('launch', () => {
       busAddress: '',
     });
     assert.equal(mac.cmd, '/app/electron');
+    assert.deepEqual(mac.args, ['.']);
   });
 
   it('uses a user-owned runtime dir when XDG_RUNTIME_DIR is root-owned /tmp', () => {

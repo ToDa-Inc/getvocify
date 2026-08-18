@@ -4,40 +4,67 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vocify Companion</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
-    <div class="shell">
-      <header>
-        <div class="brand">Vocify</div>
-        <p class="eyebrow">Companion</p>
+  <body class="paper-app">
+    <div class="title-drag"></div>
+    <div class="app">
+      <header class="topbar">
+        <div>
+          <div class="wordmark">Vocify</div>
+          <p class="eyebrow">Companion</p>
+        </div>
+        <span id="session-chip" class="chip" hidden></span>
       </header>
 
-      <section id="login-panel" class="card">
-        <h1>Sign in</h1>
-        <p class="muted">Same account as the Vocify dashboard. System audio is sent as the prospect; your mic is You.</p>
+      <section id="login-panel" class="card glass">
+        <p class="caps">Same account as the dashboard</p>
+        <h1>Sign in to <span class="accent">listen</span></h1>
+        <p class="lede">System audio is the prospect. Your mic is You. Stop sends a memo into Vocify review.</p>
         <label>Email <input id="email" type="email" autocomplete="username" /></label>
         <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
-        <label>API base <input id="api-base" type="url" placeholder="https://api.getvocify.com/api/v1" /></label>
-        <button id="btn-login" type="button">Log in</button>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <label>API base <input id="api-base" type="url" placeholder="https://api.getvocify.com/api/v1" /></label>
+        </details>
+        <button id="btn-login" class="primary" type="button">Log in</button>
         <p id="login-error" class="error" hidden></p>
       </section>
 
-      <section id="listen-panel" class="card" hidden>
-        <div class="who">
-          <span>You</span>
-          <span class="dot"></span>
-          <span id="them-label">Them</span>
+      <section id="listen-panel" hidden>
+        <div class="hero-card glass">
+          <div class="live-row">
+            <span id="live-dot" class="pulse-dot idle"></span>
+            <div>
+              <p class="caps" id="live-label">Idle</p>
+              <p class="timer" id="timer">00:00</p>
+            </div>
+            <span id="backend-chip" class="chip subtle">Loopback</span>
+          </div>
+          <p id="status" class="lede">Start Zoom, Meet, or Teams. Companion hears the meeting as Them.</p>
         </div>
-        <p id="status" class="muted">Idle — start a Zoom/Meet/Teams call, then listen.</p>
-        <div id="transcript" class="transcript" aria-live="polite">
-          <p class="empty">Transcript will appear here, labeled You / Them.</p>
+
+        <div class="card transcript-card">
+          <div class="who">
+            <span>You</span>
+            <span class="dot"></span>
+            <span id="them-label">Them</span>
+          </div>
+          <div id="transcript" class="transcript" aria-live="polite">
+            <p class="empty">Transcript will appear here — same You / Them labels as the dashboard.</p>
+          </div>
         </div>
+
         <div class="actions">
-          <button id="btn-listen" type="button">Listen</button>
-          <button id="btn-stop" type="button" disabled>Stop &amp; send</button>
+          <button id="btn-listen" class="primary" type="button">Listen</button>
+          <button id="btn-stop" class="danger" type="button" disabled>Stop &amp; send</button>
         </div>
-        <button id="btn-logout" class="ghost" type="button">Log out</button>
+        <div class="actions secondary-actions">
+          <button id="btn-dashboard" class="ghost" type="button">Open dashboard</button>
+          <button id="btn-logout" class="ghost" type="button">Log out</button>
+        </div>
         <p id="listen-error" class="error" hidden></p>
       </section>
     </div>

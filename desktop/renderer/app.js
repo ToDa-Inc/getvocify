@@ -2,6 +2,7 @@ import { applyChannelLabelsToLiveUrl, encodeChannelAudio, liveTranscriptionUrl }
 import { backendLabel } from '../lib/capture-labels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../lib/listen-policy.js';
+import { dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
 const STORAGE = {
@@ -19,14 +20,22 @@ const statusEl = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
 const btnListen = document.getElementById('btn-listen');
 const btnStop = document.getElementById('btn-stop');
+const liveDot = document.getElementById('live-dot');
+const liveLabel = document.getElementById('live-label');
+const timerEl = document.getElementById('timer');
+const backendChip = document.getElementById('backend-chip');
+const sessionChip = document.getElementById('session-chip');
 
 let listening = false;
+let currentBackend = 'chromium';
 let audioContext = null;
 let websocket = null;
 let captureStreams = [];
 let processors = [];
 let nativePcmUnsub = null;
 let transcriptState = { finalTranscript: '', interimTranscript: '' };
+let startedAt = 0;
+let timerTick = null;
 
 function desktop() {
   return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
@@ -43,9 +52,50 @@ function showError(el, message) {
   el.textContent = message || '';
 }
 
+function formatTimer(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const mins = String(Math.floor(total / 60)).padStart(2, '0');
+  const secs = String(total % 60).padStart(2, '0');
+  return `${mins}:${secs}`;
+}
+
+function notifyShell() {
+  const email = localStorage.getItem(STORAGE.email) || '';
+  if (sessionChip) {
+    sessionChip.hidden = !email;
+    sessionChip.textContent = email;
+  }
+  desktop()?.shell?.setState({
+    listening,
+    loggedIn: Boolean(localStorage.getItem(STORAGE.token)),
+    lastLine: overlaySnippet(transcriptState),
+    backend: currentBackend,
+    email,
+    apiBase: apiBase(),
+  });
+}
+
+function setLiveUi(on) {
+  liveDot.classList.toggle('live', on);
+  liveDot.classList.toggle('idle', !on);
+  liveLabel.textContent = on ? 'Listening' : 'Idle';
+  if (on) {
+    startedAt = Date.now();
+    timerEl.textContent = '00:00';
+    clearInterval(timerTick);
+    timerTick = setInterval(() => {
+      timerEl.textContent = formatTimer(Date.now() - startedAt);
+    }, 250);
+  } else {
+    clearInterval(timerTick);
+    timerTick = null;
+  }
+}
+
 function setLoggedIn(on) {
   loginPanel.hidden = on;
   listenPanel.hidden = !on;
+  notifyShell();
 }
 
 async function request(path, { method = 'GET', body, token } = {}) {
@@ -67,7 +117,8 @@ async function request(path, { method = 'GET', body, token } = {}) {
 function renderTranscript() {
   const text = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
   if (!text) {
-    transcriptEl.innerHTML = '<p class="empty">Transcript will appear here, labeled You / Them.</p>';
+    transcriptEl.innerHTML = '<p class="empty">Transcript will appear here — same You / Them labels as the dashboard.</p>';
+    notifyShell();
     return;
   }
   const parts = text.split(/(?=(?:You|Them): )/).filter(Boolean);
@@ -86,6 +137,7 @@ function renderTranscript() {
     transcriptEl.appendChild(row);
   }
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  notifyShell();
 }
 
 function hookPcm(ctx, stream, onPcm) {
@@ -137,6 +189,9 @@ function stopCapture() {
   }
   btnListen.disabled = false;
   btnStop.disabled = true;
+  setLiveUi(false);
+  desktop()?.shell?.hideOverlay();
+  notifyShell();
 }
 
 async function startListen() {
@@ -189,13 +244,18 @@ async function startListen() {
   }
 
   listening = true;
+  currentBackend = nativeBackend || 'chromium';
   captureStreams = system ? [mic, system] : [mic];
   transcriptState = { finalTranscript: '', interimTranscript: '' };
   renderTranscript();
   btnListen.disabled = true;
   btnStop.disabled = false;
-  const via = backendLabel(nativeBackend || 'chromium');
-  statusEl.innerHTML = `<span class="live">Listening</span> via ${via} (Them) and mic (You).`;
+  setLiveUi(true);
+  backendChip.textContent = backendLabel(currentBackend);
+  const via = backendLabel(currentBackend);
+  statusEl.textContent = `Hearing the meeting via ${via}. Overlay stays on top.`;
+  desktop()?.shell?.showOverlay();
+  notifyShell();
 
   const wsUrl = applyChannelLabelsToLiveUrl(liveTranscriptionUrl(apiBase()), ['prospect', 'rep']);
   websocket = new WebSocket(wsUrl);
@@ -277,11 +337,20 @@ document.getElementById('btn-logout').addEventListener('click', () => {
   setLoggedIn(false);
 });
 
+document.getElementById('btn-dashboard').addEventListener('click', () => {
+  desktop()?.shell?.openExternal(dashboardMemosUrl(apiBase()));
+});
+
 btnListen.addEventListener('click', () => {
   startListen().catch((err) => showError(listenError, err.message || 'Could not start'));
 });
 btnStop.addEventListener('click', () => {
   stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
+});
+
+desktop()?.shell?.onCommand((command) => {
+  if (command === 'listen') startListen().catch((err) => showError(listenError, err.message || 'Could not start'));
+  if (command === 'stop') stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
 });
 
 document.getElementById('api-base').value = localStorage.getItem(STORAGE.api) || PROD_API;

@@ -96,7 +96,9 @@ Desktop companion
 ### Desktop companion (`desktop/`)
 
 - Super-simple Vocify-themed window: login (existing `/auth/login`), Listen, live You/Them transcript, Stop & send to Vocify.
-- Main process: `setDisplayMediaRequestHandler` with `audio: 'loopback'` on macOS/Windows. On Linux, native speaker capture modeled on [Anarlog](https://github.com/fastrepl/anarlog): PipeWire `stream.capture.sink`, else PulseAudio `<default-sink>.monitor` (`pw-record` / `parec` / `ffmpeg`), then Chromium share-picker.
+- Main process: tray + always-on-top overlay; `setDisplayMediaRequestHandler` with `audio: 'loopback'` on macOS/Windows. On Linux, native speaker capture modeled on [Anarlog](https://github.com/fastrepl/anarlog): PipeWire `stream.capture.sink`, else PulseAudio `<default-sink>.monitor` (`pw-record` / `parec` / `ffmpeg`), then Chromium share-picker.
+- Mac installer: `npm run dist:mac` (unsigned `.dmg` / zip).
+- Renderer: mic as `rep`; system audio as `prospect` (native PCM IPC or MediaStream). Dashboard cream/beige UI, live overlay while listening.
 - Renderer: mic as `rep`; system audio as `prospect` (native PCM IPC or MediaStream).
 - Tokens in `localStorage`. Default API `https://api.getvocify.com/api/v1`, overridable.
 - Do **not** vendor Anarlog’s Tauri/Rust tree; Vocify stays Electron + SaaS STT/CRM.

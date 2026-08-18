@@ -1,66 +1,63 @@
 # Vocify Companion
 
-A tiny desktop window that **emulates the Vocify listen flow** the way Granola does: it hears **system audio** (Zoom / Meet / Teams / the call playing on your machine) as the prospect, and your **microphone** as You. When you stop, it uploads the transcript into the same SaaS review pipeline.
+Desktop companion for Vocify. Same cream / beige dashboard language, **You / Them** labels, and CRM handoff — with Granola-style **system-audio loopback**, a **menu-bar tray**, and an **always-on-top live overlay**.
 
-This does **not** join the meeting as a bot. It captures loopback audio on the machine.
+It does **not** join Zoom as a bot. Mic = You. Speakers = Them.
 
-Capture follows the same split as [Anarlog](https://github.com/fastrepl/anarlog) (MIT, Granola-style): **microphone = You**, **system audio = Them**. Vocify keeps the Electron shell and existing SaaS STT/CRM pipeline; it does not vendor Anarlog’s Tauri/Rust app.
+## On your Mac (this is how you actually see the app)
 
-| Platform | System audio |
-|----------|----------------|
-| macOS / Windows | Chromium `audio: 'loopback'` (Screen Recording / WASAPI) |
-| Linux | PipeWire `stream.capture.sink`, else PulseAudio `<default-sink>.monitor` via `pw-record` / `parec` / `ffmpeg`, then Chromium share-picker |
-
-## Why this exists
-
-The Chrome extension can capture a **tab**. Desktop meeting apps have no tab. Companion captures **system audio** the way Granola / [Anarlog](https://github.com/fastrepl/anarlog) do: native speaker loopback on Linux, Chromium `audio: 'loopback'` on macOS and Windows.
-
-## Run
+Cloud agents cannot put a window on your laptop. Build and open it locally:
 
 ```bash
+git checkout cursor/field-extraction-speakers-desktop-a838
 cd desktop
 npm install
 npm start
 ```
 
-On Linux cloud VMs / containers (no GPU, no D-Bus) `npm start` disables the GPU and Chromium sandbox and starts a session bus so the window can open.
+A Vocify-styled window appears, plus a tray icon. Close the window to keep listening from the overlay / tray.
 
-If Electron still cannot open a window (no display), use the same UI in a browser:
+### Mac installer (unsigned .dmg)
+
+On a Mac:
 
 ```bash
 cd desktop
-npm run web
-# open http://127.0.0.1:3847/renderer/index.html
+npm install
+npm run icons
+npm run dist:mac
 ```
 
-Browser mode uses the Chrome share-picker for tab/window audio instead of silent loopback.
+Open `dist/Vocify Companion-0.2.0.dmg`. Unsigned Gatekeeper: **Right-click → Open**. Grant **Microphone** and **Screen Recording**.
 
-Log in with your Vocify email/password. Default API is `https://api.getvocify.com/api/v1`. For local backend, set API base to `http://localhost:8888/api/v1`.
+## What you get
 
-1. Start the meeting and make sure you can hear the other person.
-2. Click **Listen**. macOS will ask for Screen Recording (required for system audio).
-3. Speak on your mic. You/Them labels appear live.
-4. **Stop & send** creates a memo (`meeting_transcript`) — review it in the dashboard with the same speaker labels and field mapping.
+| Piece | Behavior |
+|-------|----------|
+| Main window | Dashboard tokens, Instrument Serif, Listen / Stop & send |
+| Overlay | Always-on-top pill while live; Stop; double-click to show main |
+| Tray | Open Vocify, Listen, Stop & send, Open dashboard, Quit |
+| Loopback | Chromium `audio: 'loopback'` on macOS/Windows; PipeWire/Pulse on Linux |
+| Handoff | `POST /memos/upload-transcript` → review in the dashboard |
+
+## Browser fallback
+
+```bash
+npm run web
+# http://127.0.0.1:3847/renderer/index.html
+```
+
+No tray/overlay. Chrome’s share picker instead of silent loopback.
 
 ## Permissions
 
 | Platform | Needed |
 |----------|--------|
-| macOS | Microphone + Screen Recording (System Settings → Privacy) |
-| Windows | Microphone; loopback via Chromium |
-| Linux | Microphone; PipeWire/Pulse. Loopback may require sharing a window that has audio |
+| macOS | Microphone + Screen Recording |
+| Windows | Microphone; WASAPI loopback via Chromium |
+| Linux | Microphone; `pw-record` / `parec` if Chromium loopback is empty |
 
-If system audio has no track, Companion tells you instead of uploading silence.
-
-## Linux troubleshooting
-
-| Log line | Meaning |
-|----------|---------|
-| `Failed to connect to the bus: Could not parse server address` | No D-Bus session. Harmless leftover Chromium noise; the app still runs. |
-| `Exiting GPU process due to errors during initialization` | No usable GPU. `npm start` passes `--disable-gpu` so this should not kill the app. |
-| Window never appears | No `DISPLAY` / Wayland. Run `npm run web` instead. |
-
-## Tests (no Electron UI)
+## Tests
 
 ```bash
 cd desktop

@@ -1,16 +1,59 @@
 {
   "name": "vocify-companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Super-simple Vocify desktop companion: listen to system audio like Granola, transcribe, send to CRM.",
+  "description": "Vocify desktop companion: Granola-style system audio, dashboard UI, tray overlay, CRM handoff.",
+  "author": "Vocify",
   "type": "module",
   "main": "electron-main.mjs",
   "scripts": {
     "start": "node start.mjs",
     "web": "node server.mjs",
-    "test": "node --test lib/*.test.js"
+    "test": "node --test lib/*.test.js",
+    "icons": "node scripts/generate-icons.mjs",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac dmg zip"
   },
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.vocify.companion",
+    "productName": "Vocify Companion",
+    "files": [
+      "electron-main.mjs",
+      "preload.cjs",
+      "start.mjs",
+      "server.mjs",
+      "lib/**/*",
+      "renderer/**/*",
+      "build/icon.png",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Vocify records your microphone as You.",
+        "NSAudioCaptureUsageDescription": "Vocify captures meeting playback as the prospect.",
+        "NSScreenCaptureDescription": "Screen Recording lets Vocify hear Zoom, Meet, and Teams."
+      }
+    },
+    "dmg": {
+      "title": "Vocify Companion"
+    }
   }
 }

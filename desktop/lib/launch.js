@@ -3,9 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 export function linuxChromiumSwitches({ platform = process.platform } = {}) {
-  const switches = ['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage'];
-  if (platform === 'linux') switches.push('no-sandbox');
-  return switches;
+  if (platform !== 'linux') return [];
+  return ['disable-gpu', 'disable-gpu-compositing', 'disable-dev-shm-usage', 'no-sandbox'];
 }
 
 export function sanitizeSessionBusAddress(addr) {

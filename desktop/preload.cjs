@@ -14,4 +14,21 @@ contextBridge.exposeInMainWorld('vocifyDesktop', {
       return () => ipcRenderer.removeListener('system-audio:pcm', handler);
     },
   },
+  shell: {
+    setState: (state) => ipcRenderer.send('shell:state', state),
+    showOverlay: () => ipcRenderer.invoke('overlay:show'),
+    hideOverlay: () => ipcRenderer.invoke('overlay:hide'),
+    openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+    command: (name) => ipcRenderer.send('shell:command', name),
+    onCommand: (cb) => {
+      const handler = (_event, name) => cb(name);
+      ipcRenderer.on('shell:command', handler);
+      return () => ipcRenderer.removeListener('shell:command', handler);
+    },
+    onOverlayState: (cb) => {
+      const handler = (_event, state) => cb(state);
+      ipcRenderer.on('overlay:state', handler);
+      return () => ipcRenderer.removeListener('overlay:state', handler);
+    },
+  },
 });
