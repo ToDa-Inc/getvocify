@@ -31,6 +31,8 @@ export interface User {
   phone?: Nullable<string>;
   /** When true, create contact/company from memo extraction; when false, only update deals */
   autoCreateContactCompany: boolean;
+  /** Seller offer / ICP text used as reference-only context for call extraction */
+  productContext?: Nullable<string>;
   /** When the user was created */
   createdAt: ISODateString;
 }
@@ -118,6 +120,8 @@ export interface UpdateProfileData {
   phone?: string;
   /** Create contact/company when extraction contains that data; false = deal-only updates */
   autoCreateContactCompany?: boolean;
+  /** Seller offer / ICP — injected into extraction as reference, not copied into CRM notes */
+  productContext?: string;
 }
 
 // ============================================

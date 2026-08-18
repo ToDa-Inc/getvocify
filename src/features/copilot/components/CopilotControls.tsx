@@ -19,7 +19,7 @@ export function CopilotControls({
       <Button
         size="lg"
         onClick={onToggle}
-        className={`h-16 px-10 rounded-full text-base font-black tracking-tight shadow-medium ${
+        className={`h-12 px-8 rounded-lg text-base font-semibold ${
           isListening
             ? "bg-red-500 hover:bg-red-600 text-white"
             : "bg-beige hover:bg-beige/90 text-cream"

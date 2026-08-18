@@ -148,7 +148,7 @@ export function VoiceEnrollmentPanel({
     <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+          <h2 className="text-xs font-medium text-muted-foreground">
             Tu voz (una sola vez)
           </h2>
           <p className="text-sm text-muted-foreground mt-1 max-w-xl leading-relaxed">
@@ -158,7 +158,7 @@ export function VoiceEnrollmentPanel({
           </p>
         </div>
         {status?.enrolled && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest shrink-0">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[10px] font-medium shrink-0">
             <Check className="h-3 w-3" />
             Lista
           </span>

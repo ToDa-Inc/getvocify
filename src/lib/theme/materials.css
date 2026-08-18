@@ -1,0 +1,158 @@
+/* Product materials. Loaded after index.css so glass/paper win over the old milky overlay. */
+
+:root {
+  --radius: 0.625rem;
+  --hairline: 38 18% 28% / 0.12;
+  --shadow-soft: 0 1px 2px rgba(40, 30, 20, 0.04);
+  --shadow-medium: 0 8px 24px -16px rgba(40, 30, 20, 0.18);
+  --shadow-large: 0 18px 40px -24px rgba(40, 30, 20, 0.22);
+  --shadow-float: 0 18px 40px -24px rgba(40, 30, 20, 0.22);
+  --shadow-card: 0 0 0 1px hsl(var(--hairline));
+  --shadow-glow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+  --shadow-glow-sm: inset 0 1px 0 rgb(255 255 255 / 0.18);
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+  Glass is a lens for floating chrome: nav, sticky bars, overlays, live copilot.
+  Top-edge highlight + inner rim + saturate, not a milky white sheet.
+*/
+.glass-panel,
+.glass-card,
+.glass-card-strong,
+.glass-morphism {
+  isolation: isolate;
+  background:
+    radial-gradient(120% 80% at 18% -20%, rgb(255 255 255 / 0.7), transparent 46%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.56) 0%, rgb(255 255 255 / 0.28) 100%);
+  backdrop-filter: blur(22px) saturate(1.65);
+  -webkit-backdrop-filter: blur(22px) saturate(1.65);
+  border: 1px solid rgb(255 255 255 / 0.55);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.78),
+    inset 0 -1px 0 rgb(40 30 20 / 0.04),
+    0 1px 1px rgb(40 30 20 / 0.03),
+    0 16px 40px -22px rgb(40 30 20 / 0.28);
+}
+
+.glass-card-strong {
+  background:
+    radial-gradient(120% 80% at 18% -20%, rgb(255 255 255 / 0.82), transparent 46%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.7) 0%, rgb(255 255 255 / 0.42) 100%);
+  border-color: rgb(255 255 255 / 0.68);
+}
+
+.glass-card-dark {
+  isolation: isolate;
+  background:
+    radial-gradient(120% 70% at 20% -30%, rgb(255 255 255 / 0.16), transparent 50%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1) 0%, rgb(255 255 255 / 0.03) 100%),
+    rgb(20 16 12 / 0.42);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 16px 40px -20px rgb(0 0 0 / 0.45);
+}
+
+.grid-texture {
+  background-image: none;
+}
+
+.paper {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--hairline));
+  box-shadow: none;
+}
+
+.btn-glow {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 1px 2px rgb(40 30 20 / 0.12);
+}
+
+.btn-glow:hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 6px 16px -8px hsl(var(--beige) / 0.45);
+}
+
+.chip-glow {
+  display: inline-block;
+  padding: 0.08em 0.42em;
+  border-radius: 10px;
+  transform: none;
+  color: hsl(var(--cream));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.18), transparent 55%),
+    hsl(var(--beige));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 1px 2px rgb(40 30 20 / 0.18);
+  outline: none;
+  filter: none;
+}
+
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: hsl(var(--beige-light));
+}
+
+.section-label::before {
+  content: none;
+}
+
+.transition-snap {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.shadow-directional {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 16px 40px -22px rgb(40 30 20 / 0.22);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-panel,
+  .glass-card,
+  .glass-card-strong,
+  .glass-morphism {
+    background: hsl(var(--card));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .glass-card-dark {
+    background: hsl(var(--ink));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-pulse-wave,
+  .animate-recording-pulse,
+  .animate-rotate-slow,
+  .animate-fade-in-up,
+  .stagger-children > * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

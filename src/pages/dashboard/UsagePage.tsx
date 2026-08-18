@@ -87,7 +87,7 @@ const UsagePage = () => {
             type="button"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="inline-flex items-center justify-center rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-medium disabled:opacity-60"
           >
             {isFetching ? "Retrying..." : "Try again"}
           </button>
@@ -112,7 +112,7 @@ const UsagePage = () => {
             <div className="w-12 h-12 rounded-2xl bg-secondary/5 flex items-center justify-center mb-6">
               <stat.icon className={`h-6 w-6 ${stat.color}`} />
             </div>
-            <p className="text-3xl font-black tracking-tighter text-foreground mb-1">{stat.value}</p>
+            <p className="text-3xl font-semibold tracking-tight text-foreground mb-1">{stat.value}</p>
             <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>{stat.label}</p>
             <p className={`text-[10px] font-bold px-2 py-1 rounded-full w-fit ${
               stat.changeTone === "positive"

@@ -59,7 +59,7 @@ const ProfilePage = () => {
             <div
               className={`w-24 h-24 ${THEME_TOKENS.radius.pill} bg-secondary/10 flex items-center justify-center border-4 border-white shadow-medium`}
             >
-              <span className="text-3xl font-black text-beige">
+              <span className="text-2xl font-semibold text-beige">
                 {user ? getUserInitials(user) : "?"}
               </span>
             </div>
@@ -112,7 +112,7 @@ const ProfilePage = () => {
           <Button
             onClick={handleSave}
             disabled={isSaving}
-            className="rounded-full px-8 h-12 bg-beige text-cream shadow-medium hover:scale-105 transition-transform"
+            className="rounded-lg px-6 h-11 bg-beige text-cream"
           >
             {isSaving ? (
               <>

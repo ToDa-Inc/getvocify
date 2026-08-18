@@ -2,15 +2,14 @@ import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
-import { 
-  Home, 
-  Mic, 
-  Link2, 
-  BarChart3, 
-  Settings, 
-  Menu, 
+import {
+  Home,
+  Mic,
+  Link2,
+  BarChart3,
+  Settings,
+  Menu,
   X,
-  Sparkles,
   Headphones,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,109 +40,87 @@ const DashboardLayout = () => {
 
   return (
     <div className="min-h-screen bg-background flex w-full">
-      {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-foreground/20 z-40 lg:hidden backdrop-blur-sm"
+        <div
+          className="fixed inset-0 bg-foreground/20 z-40 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
-      <aside 
+      <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-border/40
-          transform transition-transform duration-300 lg:transform-none
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          fixed lg:static inset-y-0 left-0 z-50 w-60 bg-background border-r border-border
+          transform transition-transform duration-150 lg:transform-none
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
       >
         <div className="flex flex-col h-full">
-          {/* Logo */}
-          <div className="p-8 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="px-5 py-6 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
               <Logo size="sm" />
-              <span className="px-2 py-0.5 text-[8px] font-black uppercase tracking-widest bg-beige/10 text-beige rounded-full border border-beige/20">
+              <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
                 Beta
               </span>
             </div>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="lg:hidden rounded-full"
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
               onClick={() => setSidebarOpen(false)}
             >
               <X className="h-5 w-5" />
             </Button>
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 px-4 space-y-2 mt-4">
+          <nav className="flex-1 px-3 space-y-0.5">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
                 onClick={() => setSidebarOpen(false)}
                 className={`
-                  flex items-center gap-4 px-6 py-3.5 rounded-full text-sm font-bold tracking-tight
-                  transition-all duration-300
-                  ${isActive(item.path) 
-                    ? 'bg-beige text-cream shadow-medium scale-[1.02]' 
-                    : 'text-muted-foreground hover:bg-beige/5 hover:text-beige'
-                  }
+                  flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium
+                  transition-colors duration-150
+                  ${isActive(item.path)
+                    ? "bg-beige/10 text-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"}
                 `}
               >
-                <item.icon className={`h-5 w-5 ${isActive(item.path) ? 'text-cream' : 'opacity-40'}`} />
+                <item.icon className={`h-4 w-4 ${isActive(item.path) ? "text-beige" : "opacity-70"}`} />
                 <span className="flex-1">{item.label}</span>
                 {"beta" in item && item.beta && (
-                  <span
-                    className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full ${
-                      isActive(item.path)
-                        ? "bg-cream/20 text-cream"
-                        : "bg-beige/10 text-beige"
-                    }`}
-                  >
-                    Beta
-                  </span>
+                  <span className="text-[10px] font-medium text-beige">Beta</span>
                 )}
               </Link>
             ))}
           </nav>
 
-          {/* Founder-led upgrade CTA (no self-serve billing yet) */}
-          <div className="p-6">
-            <div className={`${THEME_TOKENS.cards.premium} p-6 border border-white/20 relative overflow-hidden group rounded-[2rem]`}>
-              <div className="absolute inset-0 bg-gradient-to-br from-beige/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-              <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="h-4 w-4 text-beige" />
-                  <span className={THEME_TOKENS.typography.capsLabel + " !text-foreground"}>Scale with us</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground mb-4 leading-relaxed font-medium">
-                  Talk to us about unlimited memos and multi-CRM sync.
-                </p>
-                <Button
-                  asChild
-                  size="sm"
-                  className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-soft transition-transform hover:scale-[1.02] active:scale-95"
-                >
-                  <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
-                    Book a demo
-                  </a>
-                </Button>
-              </div>
+          <div className="p-4">
+            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
+              <p className="text-sm font-medium text-foreground mb-1">Scale with us</p>
+              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                Unlimited memos and multi-CRM sync.
+              </p>
+              <Button
+                asChild
+                size="sm"
+                className="w-full bg-beige text-cream hover:bg-beige-dark"
+              >
+                <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
+                  Book a demo
+                </a>
+              </Button>
             </div>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
-        <header className="h-20 border-b border-border/40 bg-white/50 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-30">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="lg:hidden rounded-full"
+        <header className="h-14 sticky top-0 z-30 px-6 flex items-center justify-between glass-panel border-b border-white/40">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
             onClick={() => setSidebarOpen(true)}
           >
             <Menu className="h-5 w-5" />
@@ -151,31 +128,26 @@ const DashboardLayout = () => {
 
           <div className="flex-1" />
 
-          {/* User Menu */}
-          <div className="flex items-center gap-4">
-            <div className="hidden md:block text-right mr-2">
-              <p className="text-xs font-bold text-foreground leading-none">
-                {user ? getUserDisplayName(user) : 'User'}
+          <div className="flex items-center gap-3">
+            <div className="hidden md:block text-right">
+              <p className="text-sm font-medium text-foreground leading-none">
+                {user ? getUserDisplayName(user) : "User"}
               </p>
-              <p className="text-[10px] font-medium text-muted-foreground mt-1">
-                {user?.companyName || 'Vocify'}
+              <p className="text-xs text-muted-foreground mt-1">
+                {user?.companyName || "Vocify"}
               </p>
             </div>
-            
+
             <Link
               to="/dashboard/profile"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-border/40 bg-white shadow-soft overflow-hidden group hover:bg-beige/5 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-xs font-medium text-beige hover:border-beige/40 transition-colors"
             >
-              <div className="absolute inset-0 bg-beige/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-              <span className="text-xs font-black text-beige relative z-10">
-                {user ? getUserInitials(user) : 'U'}
-              </span>
+              {user ? getUserInitials(user) : "U"}
             </Link>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-auto p-8 bg-secondary/5">
+        <main className="flex-1 overflow-auto p-6 md:p-8">
           <Outlet />
         </main>
       </div>

@@ -59,7 +59,7 @@ async def get_memo_crm_or_none_with_hubspot_refresh(
             row = await ensure_hubspot_connection_tokens_fresh(supabase, row)
         except ValueError as e:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=str(e),
             ) from e
     try:

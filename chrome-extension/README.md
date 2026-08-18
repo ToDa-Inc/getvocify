@@ -48,10 +48,15 @@ chrome-extension/
 
 ### API Configuration
 
-The extension uses `https://api.getvocify.com/api/v1` by default (production). For local development:
+Load unpacked (this folder in `chrome://extensions`) talks to `http://localhost:8888/api/v1`. Chrome Web Store / packed builds talk to production.
 
-1. Set `api_base` in chrome.storage.local: `chrome.storage.local.set({ api_base: 'http://localhost:8888/api/v1' })`
-2. Ensure `host_permissions` in manifest.json includes your dev URLs (localhost is included for development)
+To force either side, in the service worker console:
+
+```js
+chrome.storage.local.set({ api_base: 'https://api.getvocify.com/api/v1' })  // unpacked → prod
+chrome.storage.local.set({ api_base: 'http://localhost:8888/api/v1' })     // packed → local
+chrome.storage.local.remove('api_base')  // back to the automatic default
+```
 
 ### Testing
 
@@ -65,7 +70,7 @@ The extension uses `https://api.getvocify.com/api/v1` by default (production). F
 
 ## Production Build
 
-The extension is configured for production by default (`https://api.getvocify.com`). To publish:
+Packed / store builds use `https://api.getvocify.com` automatically (`update_url` in the manifest). To publish:
 
 1. Create proper icons (16x16, 48x48, 128x128)
 2. Package extension: `zip -r vocify-extension.zip chrome-extension/`

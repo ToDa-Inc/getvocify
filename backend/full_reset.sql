@@ -117,6 +117,7 @@ CREATE TABLE user_profiles (
   phone TEXT,
   auto_create_contact_company BOOLEAN DEFAULT false,
   glossary JSONB DEFAULT '[]',
+  product_context TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -228,6 +229,7 @@ CREATE TABLE memos (
   transcript_confidence REAL CHECK (transcript_confidence IS NULL OR transcript_confidence BETWEEN 0 AND 1),
   
   extraction JSONB,
+  pipeline_meta JSONB DEFAULT '{}'::jsonb,
   
   -- Deal matching fields
   matched_deal_id TEXT,

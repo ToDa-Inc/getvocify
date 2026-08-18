@@ -11,14 +11,7 @@ import re
 from typing import Optional
 
 
-_SPEAKER_LINE = re.compile(
-    r"^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*:?\s*$",
-    re.IGNORECASE,
-)
-_SPEAKER_INLINE = re.compile(
-    r"^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*[:.-]\s*(.+)$",
-    re.IGNORECASE,
-)
+from app.services.transcript_turns import parse_transcript_turns
 
 
 def looks_spanish(text: str) -> bool:
@@ -40,51 +33,6 @@ def _speaker_display(raw: Optional[str], spanish: bool) -> str:
     if num:
         return f"Interlocutor {num}" if spanish else f"Speaker {num}"
     return "Interlocutor" if spanish else "Speaker"
-
-
-def parse_transcript_turns(transcript: str) -> list[dict]:
-    """Parse Speechmatics-style SPEAKER: S1 blocks into turns."""
-    raw = (transcript or "").strip()
-    if not raw:
-        return []
-
-    turns: list[dict] = []
-    current: Optional[dict] = None
-    for line in raw.splitlines():
-        trimmed = line.strip()
-        if not trimmed:
-            if current and current.get("text"):
-                current["text"] += "\n"
-            continue
-        inline = _SPEAKER_INLINE.match(trimmed)
-        if inline:
-            if current and (current.get("text") or "").strip():
-                turns.append(current)
-            current = {"speaker": inline.group(1), "text": inline.group(2).strip()}
-            continue
-        only = _SPEAKER_LINE.match(trimmed)
-        if only:
-            if current and (current.get("text") or "").strip():
-                turns.append(current)
-            current = {"speaker": only.group(1), "text": ""}
-            continue
-        if not current:
-            current = {"speaker": None, "text": trimmed}
-        else:
-            current["text"] = f"{current['text']}\n{trimmed}" if current["text"] else trimmed
-
-    if current and (current.get("text") or "").strip():
-        turns.append(current)
-
-    if not turns and raw:
-        return [{"speaker": None, "text": raw}]
-
-    out = []
-    for t in turns:
-        text = re.sub(r"\n+$", "", (t.get("text") or "")).strip()
-        if text:
-            out.append({"speaker": t.get("speaker"), "text": text})
-    return out
 
 
 _OUTCOME_LABELS_EN = {"converted": "Converted", "on_hold": "On hold", "lost": "Lost"}

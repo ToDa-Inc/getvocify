@@ -215,7 +215,7 @@ const RecordPage = () => {
   if (importPhase === "uploading" || importPhase === "done") {
     return (
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
-        <div className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/50 mb-10">
+        <div className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground mb-10">
           <ArrowLeft className="h-3 w-3" />
           Back to Dashboard
         </div>
@@ -239,7 +239,7 @@ const RecordPage = () => {
               </div>
             )}
           </div>
-          <h2 className="text-xl font-black text-foreground mb-2">
+          <h2 className="text-xl font-semibold text-foreground mb-2">
             {importPhase === "uploading" ? "Importing transcript..." : "Done!"}
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -266,7 +266,7 @@ const RecordPage = () => {
           <div className={`relative w-48 h-48 mx-auto mb-8 ${THEME_TOKENS.radius.pill} bg-secondary/5 flex items-center justify-center`}>
             <div className="flex flex-col items-center gap-4">
               <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin" />
-              <div className="text-4xl font-black text-foreground">{formatTime(duration)}</div>
+              <div className="text-4xl font-semibold tracking-tight tabular-nums text-foreground">{formatTime(duration)}</div>
             </div>
           </div>
           <UploadProgress progress={progress} className="mb-4" />
@@ -284,7 +284,7 @@ const RecordPage = () => {
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
         <Link 
           to={ROUTES.DASHBOARD} 
-          className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige mb-10 transition-colors group"
+          className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-beige mb-10 transition-colors group"
         >
           <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
           Back to Dashboard
@@ -305,8 +305,7 @@ const RecordPage = () => {
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
             <div className="flex items-center justify-between mb-6">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Your Transcript</h3>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-success/10 text-success">
-                <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-success/10 text-success">
                 Real-time
               </span>
             </div>
@@ -314,10 +313,10 @@ const RecordPage = () => {
               value={editedTranscript}
               onChange={(e) => setEditedTranscript(e.target.value)}
               placeholder="Edit your transcript..."
-              className="w-full min-h-[320px] rounded-2xl bg-secondary/[0.03] p-6 border border-border/20 text-sm leading-relaxed text-muted-foreground/90 font-medium tracking-tight whitespace-pre-wrap resize-y focus:outline-none focus:ring-2 focus:ring-beige/30 focus:border-beige/40 placeholder:text-muted-foreground/40"
+              className="w-full min-h-[320px] rounded-xl bg-secondary/40 p-5 border border-border text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap resize-y focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring placeholder:text-muted-foreground"
             />
             <div className="flex gap-3 mt-6">
-              <Button variant="outline" onClick={handleReRecord} disabled={isUploading} className="flex-1 rounded-full">
+              <Button variant="outline" onClick={handleReRecord} disabled={isUploading} className="flex-1">
                 Re-record
               </Button>
               <Button
@@ -340,7 +339,7 @@ const RecordPage = () => {
                     toast.error(uploadError || "Failed to upload");
                   }
                 }}
-                className="flex-1 rounded-full bg-beige text-cream"
+                className="flex-1 bg-beige text-cream"
               >
                 {isUploading ? (
                   <>
@@ -414,10 +413,9 @@ const RecordPage = () => {
         </TabsList>
 
         <TabsContent value="record" className="mt-0">
-      <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-12 text-center relative overflow-hidden group`}>
-        <div className="absolute inset-0 bg-gradient-to-br from-beige/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-        <p className={`${THEME_TOKENS.typography.capsLabel} mb-10 transition-colors relative z-10 ${state === "recording" ? "text-destructive" : "text-muted-foreground/40"}`}>{getStatusText()}</p>
-        <div className={`relative w-56 h-56 mx-auto mb-12 ${THEME_TOKENS.radius.pill} bg-secondary/5 flex items-center justify-center border border-border/20 z-10`}>
+      <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 text-center`}>
+        <p className={`${THEME_TOKENS.typography.capsLabel} mb-8 ${state === "recording" ? "text-destructive" : ""}`}>{getStatusText()}</p>
+        <div className={`relative w-48 h-48 mx-auto mb-8 rounded-full bg-secondary/40 flex items-center justify-center border border-border`}>
           {state === "recording" && (
             <>
               <div className="absolute inset-0 rounded-full border-4 border-destructive/20 animate-ping" />
@@ -426,7 +424,7 @@ const RecordPage = () => {
           )}
           <div className="flex flex-col items-center gap-6">
             <AudioWaveform visualization={visualization} isRecording={state === "recording"} />
-            <div className={`text-5xl font-black tracking-tighter transition-colors ${state === "recording" ? "text-destructive" : "text-foreground"}`}>{formatTime(duration)}</div>
+            <div className={`text-4xl font-semibold tracking-tight tabular-nums ${state === "recording" ? "text-destructive" : "text-foreground"}`}>{formatTime(duration)}</div>
           </div>
         </div>
 
@@ -441,29 +439,29 @@ const RecordPage = () => {
           </div>
         )}
 
-        <div className="relative z-10">
+        <div>
           <Button
             variant={state === "recording" ? "destructive" : "default"}
             size="xl"
             onClick={handleRecordClick}
             disabled={state === "requesting"}
-            className={`rounded-full mx-auto px-10 h-16 shadow-large transition-all duration-500 hover:scale-105 active:scale-95 ${state !== "recording" ? "bg-beige text-cream" : "bg-destructive text-white"}`}
+            className={`mx-auto px-8 ${state !== "recording" ? "bg-beige text-cream" : ""}`}
           >
             {state === "requesting" ? (
-              <div className="w-6 h-6 border-2 border-cream border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-cream border-t-transparent rounded-full animate-spin" />
             ) : state === "recording" ? (
               <>
-                <Square className="h-5 w-5 mr-3 fill-current" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Stop Recording</span>
+                <Square className="h-4 w-4 mr-2 fill-current" />
+                Stop recording
               </>
             ) : (
               <>
-                <Mic className="h-6 w-6 mr-3" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Start Recording</span>
+                <Mic className="h-4 w-4 mr-2" />
+                Start recording
               </>
             )}
           </Button>
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/30 mt-6">
+          <p className="text-xs text-muted-foreground mt-4">
             {state === "idle" && "Tap to start or upload below"}
             {state === "recording" && "Tap stop when finished"}
             {state === "requesting" && "Checking microphone permissions..."}
@@ -471,20 +469,20 @@ const RecordPage = () => {
         </div>
 
         {state === "idle" && (
-          <div className="mt-16 pt-12 border-t border-border/40 relative z-10">
-            <p className={`${THEME_TOKENS.typography.capsLabel} mb-8`}>OR IMPORT AUDIO FILE</p>
+          <div className="mt-12 pt-8 border-t border-border">
+            <p className={`${THEME_TOKENS.typography.capsLabel} mb-4`}>Or import an audio file</p>
             <input ref={fileInputRef} type="file" accept="audio/*" onChange={handleFileInputChange} className="hidden" />
             <div
               onClick={handleDropzoneClick}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
-              className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-10 hover:border-beige/20 transition-all cursor-pointer group/upload shadow-[inset_4px_4px_8px_rgba(255,255,255,0.8),inset_-4px_-4px_8px_rgba(0,0,0,0.02)]`}
+              className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 hover:border-beige/30 transition-colors cursor-pointer`}
             >
               <div className="w-16 h-16 bg-beige/10 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover/upload:scale-110 transition-transform">
                 <Upload className="h-8 w-8 text-beige" />
               </div>
               <p className="text-sm font-bold text-foreground mb-2 leading-tight">Drop your recording here</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">MP3, WAV, M4A up to {formatFileSize(AUDIO.MAX_FILE_SIZE_BYTES)}</p>
+              <p className="text-xs text-muted-foreground">MP3, WAV, M4A up to {formatFileSize(AUDIO.MAX_FILE_SIZE_BYTES)}</p>
             </div>
           </div>
         )}

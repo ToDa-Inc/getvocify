@@ -11,6 +11,12 @@ import time
 from app.models.memo import MemoExtraction
 from app.logging_config import log_domain, DOMAIN_EXTRACTION
 from app.metrics import record_extraction_duration, inc_pipeline_error
+from app.services.extraction_policy import (
+    apply_fill_policies,
+    classify_fill_policy,
+    fill_policy_instruction,
+    format_existing_values_block,
+)
 
 logger = logging.getLogger(__name__)
 from app.services.llm import LLMClient
@@ -126,6 +132,41 @@ def _normalize_raw_extraction(
     return out
 
 
+EXTRACTION_SYSTEM_PROMPT = (
+    "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
+    "(1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / "
+    "'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. "
+    "(3) competitors = only company names explicitly said—do not infer or guess. "
+    "(4) All text in transcript language. "
+    "(5) summary = prospect-centric CRM note (outcome + what they revealed, 3–5 sentences). "
+    "Do NOT recap the pitch or product; never invent. "
+    "(6) nextSteps = only explicit committed tasks; use short titles without dates/times, "
+    "and put timing in parallel nextStepSchedules (empty string when absent). Prefer [] over vague fluff. "
+    "(7) Do not overwrite identity, pre-call, or account-research fields that already have CURRENT VALUES. "
+    "(8) Sales-motion / fit fields describe the prospect's company, never how we ran this call."
+)
+
+
+def build_extraction_prompt(
+    transcript: str,
+    field_specs: Optional[list[dict]] = None,
+    glossary_text: str = "",
+    source_context: str = "voice_memo",
+    product_context: str = "",
+    existing_values: Optional[dict] = None,
+) -> str:
+    """Build the extraction user prompt without constructing an LLM client."""
+    return ExtractionService._build_prompt(
+        None,  # type: ignore[arg-type]
+        transcript,
+        field_specs,
+        glossary_text,
+        source_context,
+        product_context,
+        existing_values,
+    )
+
+
 class ExtractionService:
     """Service for extracting structured CRM data from transcripts via LLM."""
 
@@ -138,6 +179,8 @@ class ExtractionService:
         field_specs: Optional[list[dict]] = None,
         glossary_text: str = "",
         source_context: str = "voice_memo",
+        product_context: str = "",
+        existing_values: Optional[dict] = None,
     ) -> str:
         """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
@@ -159,16 +202,27 @@ class ExtractionService:
             ),
             "contactName": (
                 "string | null",
-                "Person spoken with, by their actual name. If not mentioned, return null — "
-                "never write a placeholder like 'Unknown' or 'Desconocido'.",
+                "Person spoken with on this call, by their actual name. If not mentioned, return null — "
+                "never write a placeholder like 'Unknown' or 'Desconocido'. This is meeting intelligence, "
+                "not a CRM identity overwrite: if CURRENT VALUE firstname is a different person, still "
+                "record who spoke here, but leave contact_properties.firstname null.",
             ),
-            "contactEmail": ("string | null", "Email if mentioned."),
-            "contactPhone": ("string | null", "Phone if mentioned."),
+            "contactEmail": (
+                "string | null",
+                "Email only if the prospect actually said or spelled a real address. "
+                "Phone and/or name are enough to create a CRM contact — never invent, guess, "
+                "or fabricate an email, and never use placeholder domains "
+                "(lead.vocify, lead.getvocify, example.com). If not mentioned, return null.",
+            ),
+            "contactPhone": ("string | null", "Phone if mentioned. Enough on its own to create a contact."),
             "summary": (
                 "string",
-                "Call/meeting summary for a CRM note: 3–5 sentences covering (1) who spoke and context, "
-                "(2) what was discussed / outcome, (3) any concrete numbers or decisions stated. "
-                "Ground ONLY in the transcript — do not invent. Same language as the transcript.",
+                "Sales CRM note about THIS conversation, 3–5 sentences, same language as the transcript. "
+                "Write for a rep who already knows the product. Cover: (1) outcome / disposition "
+                "(fit, next step, or explicit none), (2) who the prospect actually is and context THEY gave "
+                "(role, company, constraints), (3) why they buy or don't if they said it. "
+                "Do NOT recap the pitch, product, or what we offer. Do NOT start with who called whom "
+                "to present a tool. Ground ONLY in the transcript — never invent.",
             ),
             "painPoints": ("string[]", "Pain points discussed."),
             "nextSteps": (
@@ -243,6 +297,12 @@ class ExtractionService:
             else:
                 parts.append(f"Type: {field_type}.")
                 json_type = f'"{field_name}": string | null'
+            policy = classify_fill_policy(spec)
+            parts.append(fill_policy_instruction(policy))
+            obj = spec.get("object_type") or "deals"
+            current = ((existing_values or {}).get(obj) or {}).get(field_name)
+            if current is not None and str(current).strip():
+                parts.append(f"CURRENT VALUE: {current}.")
             return " ".join(parts), json_type
 
         schema_description: list[str] = []
@@ -314,7 +374,7 @@ class ExtractionService:
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
 It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
 Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
-**summary**: CRM-ready note (who, outcome, key facts stated). **nextSteps**: only explicit commitments → task-ready strings; prefer [] over vague fluff. Never invent.
+**summary**: prospect-centric CRM note (outcome + what they revealed). Do NOT recap the pitch. **nextSteps**: only explicit commitments → task-ready strings; prefer [] over vague fluff. Never invent.
 """
         elif source_context == "hubspot_call":
             source_hint = """
@@ -335,9 +395,10 @@ Key characteristics:
 Extraction discipline:
 - **Conservative**: extract only what is explicitly stated. Implied or inferred values → `null`.
 - **No hallucination**: never infer company names, deal sizes, or dates from context alone.
-- **This transcript only**: ignore any CRM deal fields, prior notes, or other calls — extract solely from the text below.
+- **Transcript + CURRENT CRM VALUES**: do not invent from other calls. If CURRENT VALUE is set, prefer `null` over an inferred replacement.
 - **Short/inconclusive calls**: most fields will be `null` — that is correct and expected.
-- **Summary**: write a CRM-ready note summary (outcome + key points stated). Still no invention.
+- **Summary**: prospect-centric CRM note (outcome + what they revealed). Do NOT recap the pitch. Still no invention.
+- **Their company vs our motion**: sales-motion / fit / ICP fields describe the PROSPECT's world, never how we ran this outreach.
 - **Next steps → HubSpot tasks**: each item must be a concrete, assignable action someone committed to
   (send X, schedule call, share doc, confirm Y). Titles contain only what to do; put any owner, date,
   time, or deadline in the parallel `nextStepSchedules` item. Reject vague fluff: "seguir en contacto", "mantener el follow-up", "hablar pronto",
@@ -363,8 +424,19 @@ Apply these Collision Patterns to the Glossary items:
 4. **Entity Priority**: If a transcript phrase sounds like a word in the Glossary, ALWAYS prioritize the Glossary term.
 """
 
+        product_text = (product_context or "").strip() or "(none provided)"
+        product_section = f"""
+### PRODUCT / OFFER CONTEXT (reference only)
+Use this to understand the call and to correct product-name transcription errors.
+Do NOT copy this into summary, description, or other CRM fields. Do NOT recap the pitch.
+{product_text}
+"""
+        existing_block = format_existing_values_block(existing_values)
+
         return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
 {source_hint}
+{product_section}
+{existing_block}
 {glossary_section}
 
 TRANSCRIPT:
@@ -378,9 +450,11 @@ TRANSCRIPT:
 1. **Conservative**: Extract only what is explicitly mentioned **in this transcript**. If missing or ambiguous, set to `null`. Do not invent data. Do not use prior CRM knowledge or other calls.
 2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
 3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
-4. **summary**: CRM note quality — who + context, discussion/outcome, concrete facts stated. 3–5 sentences. No filler.
+4. **summary**: Prospect-centric CRM note — outcome, who they are, context they gave, why they buy/don't. 3–5 sentences. Do NOT recap the pitch or product. No filler.
 5. **nextSteps**: Only explicit commitments → task-ready strings ("[Who] [verb] [object] [when if said]").
    Prefer empty array over vague items. Do NOT invent follow-ups the speakers did not agree to.
+5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach.
+5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.
 6. **Format**: Return JSON in this structure:
 
 {json_structure}
@@ -395,6 +469,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         field_specs: Optional[list[dict]] = None,
         glossary_text: str = "",
         source_context: str = "voice_memo",
+        product_context: str = "",
+        existing_values: Optional[dict] = None,
     ) -> MemoExtraction:
         """
         Extract structured CRM data from transcript.
@@ -404,12 +480,19 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             field_specs: Optional list of curated field specifications
             glossary_text: Optional text describing custom vocabulary for correction
             source_context: 'voice_memo' (default), 'meeting_transcript', or 'hubspot_call'
+            product_context: Seller offer/ICP text — reference only, never copied into CRM notes
+            existing_values: Current CRM snapshot {contacts|companies|deals: {field: value}}
 
         Returns:
             MemoExtraction with extracted data and confidence scores
         """
         prompt = self._build_prompt(
-            transcript, field_specs, glossary_text, source_context=source_context
+            transcript,
+            field_specs,
+            glossary_text,
+            source_context=source_context,
+            product_context=product_context,
+            existing_values=existing_values,
         )
         schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
         logger.info(
@@ -421,6 +504,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 prompt_len=len(prompt),
                 has_schema=bool(field_specs),
                 has_glossary=bool(glossary_text and glossary_text.strip()),
+                has_product_context=bool((product_context or "").strip()),
                 schema_field_names=schema_field_names,
             ),
         )
@@ -435,14 +519,18 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             )
         
         messages = [
-            {"role": "system", "content": "You are a precise CRM data extraction engine. Output valid JSON only. Rules: (1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / 'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. (3) competitors = only company names explicitly said—do not infer or guess. (4) All text in transcript language. (5) summary = factual CRM call note (3–5 sentences); never invent. (6) nextSteps = only explicit committed tasks; use short titles without dates/times, and put timing in parallel nextStepSchedules (empty string when absent). Prefer [] over vague fluff."},
+            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         try:
+            from app.config import settings
+            from app.services.pipeline_meta import record_stage, snapshot_prompts
+
             t0 = time.perf_counter()
             extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
+            extracted = apply_fill_policies(extracted, field_specs, existing_values)
 
             # Post-process: clear closeDate if transcript only has relative dates (no explicit calendar date)
             transcript_lower = transcript.lower()
@@ -468,9 +556,16 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 dn = str(extracted.get("dealname", ""))
                 if dn.rstrip().lower().endswith(" deal"):
                     company = _clean_extracted_name(dn.rsplit(" ", 1)[0].strip())
-            # contactName, contactEmail, contactPhone: explicit extraction
+            # contactName, contactEmail, contactPhone: explicit extraction.
+            # Never keep invented placeholder emails — HubSpot/Salesforce do not require email.
+            from app.services.hubspot.contact_identity import (
+                real_contact_email_or_none,
+                strip_invented_emails,
+            )
+
+            extracted = strip_invented_emails(extracted)
             contact = _clean_extracted_name(extracted.get("contactName"))
-            contact_email = extracted.get("contactEmail") or None
+            contact_email = real_contact_email_or_none(extracted.get("contactEmail"))
             contact_phone = extracted.get("contactPhone") or None
             # amount: ensure numeric (schema type number)
             deal_amount = extracted.get("amount")
@@ -510,6 +605,15 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 else:
                     extracted_fields_log[k] = v
             record_extraction_duration(time.perf_counter() - t0)
+            record_stage(
+                "extract",
+                t0,
+                provider=getattr(settings, "LLM_PROVIDER", None) or "openrouter",
+                model=getattr(settings, "EXTRACTION_MODEL", None),
+                prompts=snapshot_prompts(messages),
+                includes=["summary", "crm_fields", "next_steps"],
+                note="One JSON call: CRM note (summary), fields to update, and next steps.",
+            )
             logger.info(
                 "✅ Extraction complete",
                 extra=log_domain(
@@ -526,6 +630,20 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             return result
         except Exception as e:
             inc_pipeline_error(DOMAIN_EXTRACTION, "extract")
+            try:
+                from app.config import settings
+                from app.services.pipeline_meta import record_stage, snapshot_prompts
+
+                record_stage(
+                    "extract",
+                    t0,
+                    provider=getattr(settings, "LLM_PROVIDER", None) or "openrouter",
+                    model=getattr(settings, "EXTRACTION_MODEL", None),
+                    prompts=snapshot_prompts(messages),
+                    error=str(e)[:500],
+                )
+            except Exception:
+                pass
             logger.exception(
                 "❌ Extraction failed",
                 extra=log_domain(DOMAIN_EXTRACTION, "extract_failed", error=str(e), transcript_len=len(transcript or "")),

@@ -18,6 +18,7 @@ from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
 from app.services.memo_approval import approve_memo_core, CRMSyncError
+from app.services.preview_targets import resolve_preview_deal_selection
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
@@ -119,6 +120,7 @@ def _memo_from_row(memo_data: dict) -> Memo:
             createdAt=memo_data["created_at"],
             processedAt=memo_data.get("processed_at"),
             approvedAt=memo_data.get("approved_at"),
+            pipelineMeta=memo_data.get("pipeline_meta") or None,
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -142,7 +144,9 @@ async def extract_memo_async(
     source_type ('voice_memo' | 'meeting_transcript') adjusts LLM prompt context.
     """
     from datetime import datetime
-    
+    from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
+
+    stages: list = []
     try:
         logger.info(
             "📝 Extract memo async started",
@@ -156,23 +160,40 @@ async def extract_memo_async(
         # Fetch user glossary for LLM correction
         glossary_service = GlossaryService(supabase)
         glossary = await glossary_service.get_user_glossary(user_id)
-        glossary_text = glossary_service.format_for_llm(glossary)
 
-        # Extract structured data
-        extraction = await extraction_service.extract(
-            transcript,
-            field_specs,
-            glossary_text=glossary_text,
-            source_context=source_type,
+        from app.services.extraction_context import load_extraction_llm_context
+        from app.services.session_entities import load_stt_profile
+        from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
+
+        product_context, existing_values = await load_extraction_llm_context(
+            supabase, user_id, memo_id=memo_id, field_specs=field_specs
         )
-        
-        # Update with extraction and mark as pending_review
+        profile = load_stt_profile(supabase, user_id)
+
+        with pipeline_run() as stages:
+            transcript, glossary_text = await prepare_transcript_for_extraction_async(
+                transcript,
+                glossary,
+                existing_values,
+                extra_names=[profile.get("full_name"), profile.get("company_name")],
+            )
+            extraction = await extraction_service.extract(
+                transcript,
+                field_specs,
+                glossary_text=glossary_text,
+                source_context=source_type,
+                product_context=product_context,
+                existing_values=existing_values,
+            )
+
         supabase.table("memos").update({
             "status": "pending_review",
+            "transcript": transcript,
             "extraction": extraction.model_dump(),
             "processed_at": datetime.utcnow().isoformat(),
             "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
+        persist_pipeline_meta(supabase, memo_id, stages)
         logger.info(
             "✅ Extract memo async complete",
             extra=log_domain(DOMAIN_MEMO, "extract_async_complete", memo_id=memo_id),
@@ -188,6 +209,7 @@ async def extract_memo_async(
             "error_message": str(e),
             "processing_started_at": None,
         }).eq("id", memo_id).execute()
+        persist_pipeline_meta(supabase, memo_id, stages)
 
 
 async def process_memo_async(
@@ -198,15 +220,17 @@ async def process_memo_async(
     supabase: Client,
 ):
     """
-    Background task to process memo: transcribe (Speechmatics batch) → update status.
+    Background task to process memo: transcribe (Deepgram Nova-3) → update status.
     No audio storage - transcribe directly from in-memory bytes.
     """
     from datetime import datetime
-    from app.services.speechmatics_batch import SpeechmaticsBatchService
+    from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
+    from app.services.stt_batch import transcribe_bytes
 
+    stages: list = []
     try:
         logger.info(
-            "🚀 Process memo async started (Speechmatics batch)",
+            "🚀 Process memo async started (batch STT)",
             extra=log_domain(DOMAIN_MEMO, "process_async_started", memo_id=memo_id, user_id=user_id),
         )
         supabase.table("memos").update({
@@ -214,24 +238,28 @@ async def process_memo_async(
             "processing_started_at": datetime.utcnow().isoformat(),
         }).eq("id", memo_id).execute()
 
-        # Transcribe from bytes via Speechmatics (glossary injected when user_id provided)
         t0 = time.perf_counter()
-        batch_svc = SpeechmaticsBatchService()
-        transcript_text = await batch_svc.transcribe(
-            audio_bytes=audio_bytes,
-            content_type=content_type,
-            language="auto",
-            user_id=user_id,
-        )
+        with pipeline_run() as stages:
+            transcript_text = await transcribe_bytes(
+                audio_bytes,
+                content_type=content_type,
+                user_id=user_id,
+                diarization=True,
+            )
+            from app.services.transcript_sanitize import sanitize_user_transcript
+
+            transcript_text = await sanitize_user_transcript(
+                transcript_text, user_id, supabase
+            )
         record_transcription_duration(time.perf_counter() - t0, "upload")
 
-        # Update with transcript - do NOT extract yet; user reviews transcript first
         supabase.table("memos").update({
             "status": "pending_transcript",
             "transcript": transcript_text,
             "transcript_confidence": 0.95,
             "processing_started_at": None,  # Clear on success
         }).eq("id", memo_id).execute()
+        persist_pipeline_meta(supabase, memo_id, stages)
         logger.info(
             "✅ Process memo async complete",
             extra=log_domain(DOMAIN_MEMO, "process_async_complete", memo_id=memo_id),
@@ -247,6 +275,7 @@ async def process_memo_async(
             "error_message": str(e),
             "processing_started_at": None,
         }).eq("id", memo_id).execute()
+        persist_pipeline_meta(supabase, memo_id, stages)
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -281,13 +310,16 @@ async def upload_memo(
             "📤 Upload memo with transcript",
             extra=log_domain(DOMAIN_MEMO, "upload", user_id=user_id, has_transcript=True),
         )
+        from app.services.transcript_sanitize import sanitize_user_transcript
+
+        transcript = await sanitize_user_transcript(transcript.strip(), user_id, supabase)
         estimated_duration = len(transcript) / 15  # rough: ~15 chars/sec speech
         result = supabase.table("memos").insert({
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "pending_transcript",
-            "transcript": transcript.strip(),
+            "transcript": transcript,
             "transcript_confidence": 1.0,
         }).execute()
         
@@ -372,6 +404,9 @@ async def upload_transcript_only(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transcript is required",
         )
+    from app.services.transcript_sanitize import sanitize_user_transcript
+
+    transcript = await sanitize_user_transcript(transcript, user_id, supabase)
     source_type = body.source_type or "voice_memo"
     if source_type not in ("voice_memo", "meeting_transcript"):
         source_type = "voice_memo"
@@ -415,6 +450,9 @@ async def upload_transcript_and_extract(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transcript is required",
         )
+    from app.services.transcript_sanitize import sanitize_user_transcript
+
+    transcript = await sanitize_user_transcript(transcript, user_id, supabase)
 
     field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
 
@@ -739,7 +777,7 @@ async def approve_memo(
             )
         ):
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=detail if "HubSpot" in detail else "HubSpot session expired. Disconnect and reconnect in Integrations.",
             ) from e
         raise HTTPException(
@@ -985,20 +1023,13 @@ async def get_approval_preview(
             merged.append(d)
         matches = merged[:5]
 
-    selected_deal_id = deal_id
-    create_new = bool(create_new_deal)
-    if selected_deal_id:
-        create_new = False
-    elif create_new:
-        pass
-    elif selected_contact and anchor and len(anchor.deal_matches) == 1:
-        selected_deal_id = anchor.deal_matches[0].deal_id
-    elif selected_contact:
-        create_new = False  # contact-only / pick deal later
-    elif contact_candidates:
-        create_new = False  # wait for contact confirmation
-    else:
-        create_new = True
+    selected_deal_id, create_new = resolve_preview_deal_selection(
+        deal_id=deal_id,
+        create_new_deal=bool(create_new_deal),
+        has_selected_contact=selected_contact is not None,
+        has_contact_candidates=bool(contact_candidates),
+        linked_deal_count=len(anchor.deal_matches) if anchor else 0,
+    )
 
     try:
         logger.info(
@@ -1150,20 +1181,13 @@ async def post_approval_preview(
             merged.append(d)
         matches = merged[:5]
 
-    selected_deal_id = deal_id
-    create_new = create_new_deal
-    if selected_deal_id:
-        create_new = False
-    elif create_new:
-        pass
-    elif selected_contact and anchor and len(anchor.deal_matches) == 1:
-        selected_deal_id = anchor.deal_matches[0].deal_id
-    elif selected_contact:
-        create_new = False
-    elif contact_candidates:
-        create_new = False
-    else:
-        create_new = True
+    selected_deal_id, create_new = resolve_preview_deal_selection(
+        deal_id=deal_id,
+        create_new_deal=create_new_deal,
+        has_selected_contact=selected_contact is not None,
+        has_contact_candidates=bool(contact_candidates),
+        linked_deal_count=len(anchor.deal_matches) if anchor else 0,
+    )
 
     try:
         preview = await provider.build_preview(
@@ -1574,7 +1598,6 @@ async def re_extract_memo(
     # Fetch user glossary for LLM correction
     glossary_service = GlossaryService(supabase)
     glossary = await glossary_service.get_user_glossary(user_id)
-    glossary_text = glossary_service.format_for_llm(glossary)
 
     # Clear previous error before retry
     from datetime import datetime
@@ -1586,50 +1609,54 @@ async def re_extract_memo(
     source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
     if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
         source_type = "voice_memo"
-    try:
-        extraction_service = ExtractionService()
-        extraction = await extraction_service.extract(
-            transcript, field_specs,
-            glossary_text=glossary_text,
-            source_context=source_type,
-        )
-    except Exception as e:
-        err_msg = str(e)
-        logger.exception("Re-extract failed for memo %s: %s", memo_id, e)
-        hint = " Check OPENROUTER_API_KEY in backend .env and restart the server." if "401" in err_msg else ""
-        supabase.table("memos").update({
-            "status": "failed",
-            "error_message": f"Extraction failed: {err_msg}",
-        }).eq("id", str(memo_id)).execute()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Re-extraction failed: {err_msg}{hint}",
-        ) from e
+        from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
+        from app.services.extraction_context import load_extraction_llm_context
+        from app.services.session_entities import load_stt_profile
+        from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
 
-    # Update memo with new extraction
-    supabase.table("memos").update({
-        "status": "pending_review",
-        "extraction": extraction.model_dump(),
-        "processed_at": datetime.utcnow().isoformat(),
-        "error_message": None,
-    }).eq("id", str(memo_id)).execute()
-    
-    # Return updated memo
-    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
-    updated_memo = updated_result.data
-    
-    return Memo(
-        id=updated_memo["id"],
-        userId=updated_memo["user_id"],
-        audioUrl=updated_memo["audio_url"],
-        audioDuration=updated_memo["audio_duration"],
-        status=updated_memo["status"],
-        transcript=updated_memo.get("transcript"),
-        transcriptConfidence=updated_memo.get("transcript_confidence"),
-        extraction=updated_memo.get("extraction"),
-        errorMessage=updated_memo.get("error_message"),
-        createdAt=updated_memo["created_at"],
-        processedAt=updated_memo.get("processed_at"),
-        approvedAt=updated_memo.get("approved_at"),
-    )
+        product_context, existing_values = await load_extraction_llm_context(
+            supabase, user_id, memo_data=memo_data, field_specs=field_specs
+        )
+        profile = load_stt_profile(supabase, user_id)
+        with pipeline_run() as stages:
+            transcript, glossary_text = await prepare_transcript_for_extraction_async(
+                transcript,
+                glossary,
+                existing_values,
+                extra_names=[profile.get("full_name"), profile.get("company_name")],
+            )
+            try:
+                extraction_service = ExtractionService()
+                extraction = await extraction_service.extract(
+                    transcript, field_specs,
+                    glossary_text=glossary_text,
+                    source_context=source_type,
+                    product_context=product_context,
+                    existing_values=existing_values,
+                )
+            except Exception as e:
+                err_msg = str(e)
+                logger.exception("Re-extract failed for memo %s: %s", memo_id, e)
+                hint = " Check OPENROUTER_API_KEY in backend .env and restart the server." if "401" in err_msg else ""
+                supabase.table("memos").update({
+                    "status": "failed",
+                    "error_message": f"Extraction failed: {err_msg}",
+                }).eq("id", str(memo_id)).execute()
+                persist_pipeline_meta(supabase, str(memo_id), stages)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Re-extraction failed: {err_msg}{hint}",
+                ) from e
+
+        supabase.table("memos").update({
+            "status": "pending_review",
+            "transcript": transcript,
+            "extraction": extraction.model_dump(),
+            "processed_at": datetime.utcnow().isoformat(),
+            "error_message": None,
+        }).eq("id", str(memo_id)).execute()
+        persist_pipeline_meta(supabase, str(memo_id), stages)
+        
+        updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+        return _memo_from_row(updated_result.data)
 

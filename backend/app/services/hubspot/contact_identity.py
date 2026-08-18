@@ -29,14 +29,27 @@ from .types import HubSpotContact
 logger = logging.getLogger(__name__)
 
 PLACEHOLDER_EMAIL_SUFFIX = "@lead.getvocify.com"
+# Invented CRM emails we used to mint, plus LLM copies. Do not treat company
+# addresses like toni@getvocify.com as fake.
+_PLACEHOLDER_EMAIL_RE = re.compile(
+    r"@lead\.(?:get)?vocify\.com$|@lead\.voicfy\.com$|@lead\.[a-z0-9.-]*vocify",
+    re.IGNORECASE,
+)
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def is_placeholder_contact_email(email: Optional[str]) -> bool:
+    e = (email or "").strip().lower()
+    if not e:
+        return False
+    return e.endswith(PLACEHOLDER_EMAIL_SUFFIX) or bool(_PLACEHOLDER_EMAIL_RE.search(e))
 
 
 def is_real_contact_email(email: Optional[str]) -> bool:
     if not email or not str(email).strip():
         return False
     e = str(email).strip().lower()
-    if e.endswith(PLACEHOLDER_EMAIL_SUFFIX):
+    if is_placeholder_contact_email(e):
         return False
     if any(tok in e for tok in ("example.com", "test@", "noreply", "no-reply")):
         return False
@@ -44,6 +57,28 @@ def is_real_contact_email(email: Optional[str]) -> bool:
     if not local or not domain or "." not in domain:
         return False
     return bool(_EMAIL_RE.match(e))
+
+
+def real_contact_email_or_none(email: Optional[str]) -> Optional[str]:
+    e = (email or "").strip() or None
+    if not e or not is_real_contact_email(e):
+        return None
+    return e.lower()
+
+
+def strip_invented_emails(extracted: dict[str, Any]) -> dict[str, Any]:
+    """Drop invented/placeholder emails from an extraction dict. Phone/name stay."""
+    if not isinstance(extracted, dict):
+        return extracted
+    extracted["contactEmail"] = real_contact_email_or_none(extracted.get("contactEmail"))
+    props = extracted.get("contact_properties")
+    if isinstance(props, dict) and "email" in props:
+        cleaned = real_contact_email_or_none(props.get("email") if isinstance(props.get("email"), str) else None)
+        if cleaned:
+            props["email"] = cleaned
+        else:
+            props.pop("email", None)
+    return extracted
 
 
 @dataclass
@@ -95,12 +130,12 @@ def _nested_contact_props(extraction: MemoExtraction) -> dict[str, Any]:
 
 
 def extraction_email(extraction: MemoExtraction) -> Optional[str]:
-    top = (extraction.contactEmail or "").strip() or None
+    top = real_contact_email_or_none(extraction.contactEmail)
     if top:
         return top
     nested = _nested_contact_props(extraction).get("email")
-    if isinstance(nested, str) and nested.strip():
-        return nested.strip()
+    if isinstance(nested, str):
+        return real_contact_email_or_none(nested)
     return None
 
 

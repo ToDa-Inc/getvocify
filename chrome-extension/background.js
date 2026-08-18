@@ -5,8 +5,29 @@
  */
 
 import { api } from './lib/api.js';
+import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
-import { panelOpenState } from './lib/call-watch.js';
+import { pickContextTab } from './lib/review-targets.js';
+import { planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './lib/page-scope.js';
+import {
+  applyTranscriptUpdate,
+  canStartTabCapture,
+  isListenEpochCurrent,
+  listenFailureReason,
+  listenReasonFromOffscreenError,
+  requestTabCaptureStreamId,
+  shouldApplyTabCaptureLifecycle,
+  startDeniedMessage,
+  tabCaptureOffscreenReasons,
+} from './lib/tab-capture.js';
+import { TurnDetector } from './lib/turn-detector.js';
+import {
+  DEFAULT_PRODUCT_CONTEXT,
+  PRODUCT_CONTEXT_STORAGE_KEY,
+} from './lib/copilot-sse.js';
+import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js';
+import { mergeSessionVocab } from './lib/session-vocab.js';
+import { apiBaseToWsOrigin } from './lib/api-base.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -15,22 +36,39 @@ const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 // ============================================
 let state = {
   isRecording: false,
+  isCopilotListening: false,
   finalTranscript: '',
   interimTranscript: '',
+  prospectFinal: '',
+  prospectInterim: '',
+  finalWords: [],
   currentMemoId: null,
-  status: 'idle', // idle, recording, processing, review, success
+  status: 'idle', // idle, recording, copilot, processing, review, success
   context: null,
   syncResult: null,
   watchingForRecording: false,
   processingSource: null, // 'hubspot_call' | null
   recordings: [],
   recordingsLoading: false,
+  recordingsError: null,
+  copilotSuggestion: null,
+  copilotRawStream: '',
+  copilotIsLoading: false,
+  copilotLastTurn: null,
+  copilotError: null,
+  copilotLatencyMs: null,
+  copilotTabTitle: null,
+  captureTabId: null,
+  listenPhase: 'idle',
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
 let lastActiveTabId = null;
-/** Last deal/contact key we fetched HubSpot recordings for */
+/** Recordings cache key: deal:/contact:/company: or inbox */
 let recordingsKey = null;
+let recordingsFetchGen = 0;
+/** Last URL we applied per tab — HubSpot SPA often updates url without changeInfo.url */
+const lastSeenUrlByTab = new Map();
 
 /**
  * Side panel / service worker have no "current window". Prefer the last HubSpot
@@ -59,9 +97,8 @@ async function getContextTab() {
   }
 
   try {
-    const hubspotTabs = await chrome.tabs.query({ url: ['https://*.hubspot.com/*'] });
-    candidates.push(...hubspotTabs.filter((t) => t.active));
-    candidates.push(...hubspotTabs.filter((t) => !t.active));
+    const hubspotTabs = await chrome.tabs.query({ active: true, url: ['https://*.hubspot.com/*'] });
+    candidates.push(...hubspotTabs);
   } catch (_) { /* host permission may be missing */ }
 
   const seen = new Set();
@@ -72,25 +109,21 @@ async function getContextTab() {
     unique.push(tab);
   }
 
-  const focused = unique[0];
-  if (focused?.url && /hubspot\.com/i.test(focused.url)) {
-    lastActiveTabId = focused.id;
-    return focused;
-  }
-
-  const recordTab = unique.find((t) => t.url && parseHubSpotUrl(t.url)?.recordId);
-  const chosen = recordTab || focused || unique[0] || null;
+  const chosen = pickContextTab(unique, { lastActiveTabId });
   if (chosen?.id != null) lastActiveTabId = chosen.id;
   return chosen;
 }
 
 function rememberTab(tab) {
-  if (tab?.id != null) lastActiveTabId = tab.id;
+  if (tab?.id != null) {
+    lastActiveTabId = tab.id;
+    state = { ...state, captureTabId: tab.id };
+  }
 }
 
 let callWatchTimerId = null;
 let callWatchingRecordId = null;  // deal or contact id being watched
-let callWatchingRecordType = null; // 'deal' | 'contact'
+let callWatchingRecordType = null; // 'deal' | 'contact' | 'company'
 /** Interval for user-initiated memo processing (mic upload or Transcribe). */
 let memoPollTimerId = null;
 /** Memos the user dismissed. Never auto-open these. */
@@ -100,13 +133,19 @@ const ignoredCallMemoIds = new Set();
 // STATE MANAGEMENT
 // ============================================
 function updateState(newState) {
-  state = { ...state, ...newState };
-  
-  // Update badge
-  chrome.action.setBadgeText({ text: state.isRecording ? 'REC' : '' });
-  if (state.isRecording) chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
-  
-  // Broadcast to popup (if open)
+  state = { ...state, ...newState, captureTabId: lastActiveTabId };
+
+  if (state.listenPhase === 'live' || state.isCopilotListening) {
+    chrome.action.setBadgeText({ text: 'LIVE' });
+    chrome.action.setBadgeBackgroundColor({ color: '#C4A37A' });
+  } else if (state.listenPhase === 'starting') {
+    chrome.action.setBadgeText({ text: '…' });
+    chrome.action.setBadgeBackgroundColor({ color: '#C4A37A' });
+  } else {
+    chrome.action.setBadgeText({ text: state.isRecording ? 'REC' : '' });
+    if (state.isRecording) chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+  }
+
   chrome.runtime.sendMessage({ type: 'STATE_UPDATED', state }).catch(() => {});
 }
 
@@ -191,22 +230,73 @@ function showNotification(title, message) {
 // ============================================
 // OFFSCREEN DOCUMENT
 // ============================================
-async function getOffscreenDocument() {
+async function getOffscreenDocument({ recreate = false } = {}) {
   const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
-  if (contexts.length > 0) return;
+  if (contexts.length > 0) {
+    if (!recreate) return;
+    await chrome.offscreen.closeDocument().catch(() => {});
+  }
 
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
-    reasons: ['USER_MEDIA'],
-    justification: 'Recording audio for voice memos',
+    reasons: tabCaptureOffscreenReasons(),
+    justification: 'Microphone memos and live tab-audio copilot',
   });
 }
 
 // ============================================
 // RECORDING CONTROLS
 // ============================================
+async function loadPageSessionContext(tab, user) {
+  const context = tab?.url ? parseHubSpotUrl(tab.url) : null;
+  let pageVocab = [];
+  let enriched = context;
+  if (context?.objectType === 'deal' && context?.recordId) {
+    const dealCtx = await api.get(`/crm/hubspot/deals/${context.recordId}/context`);
+    pageVocab = Array.isArray(dealCtx?.sessionVocab) ? dealCtx.sessionVocab : [];
+    enriched = {
+      ...context,
+      dealName: dealCtx?.raw_extraction?.dealname || context.dealName,
+      companyName: dealCtx?.companyName || null,
+      companyId: dealCtx?.companyId || null,
+      contactName: dealCtx?.contactName || null,
+      contactEmail: dealCtx?.contactEmail || null,
+      contactId: dealCtx?.contactId || null,
+      dealContacts: Array.isArray(dealCtx?.contacts) ? dealCtx.contacts : [],
+    };
+  } else if (context?.objectType === 'contact' && context?.recordId) {
+    const contactCtx = await api.get(`/crm/hubspot/contacts/${context.recordId}/context`);
+    pageVocab = Array.isArray(contactCtx?.sessionVocab) ? contactCtx.sessionVocab : [];
+    enriched = {
+      ...context,
+      contactName: contactCtx?.contactName || null,
+      contactEmail: contactCtx?.contactEmail || null,
+      contactId: context.recordId,
+      companyName: contactCtx?.companyName || null,
+      companyId: contactCtx?.companyId || null,
+    };
+  } else if (context?.objectType === 'company' && context?.recordId) {
+    const companyCtx = await api.get(`/crm/hubspot/companies/${context.recordId}/context`);
+    pageVocab = Array.isArray(companyCtx?.sessionVocab) ? companyCtx.sessionVocab : [];
+    enriched = {
+      ...context,
+      companyName: companyCtx?.companyName || null,
+      companyId: context.recordId,
+      contactId: companyCtx?.contactId || null,
+      contactName: companyCtx?.contactName || null,
+      contactEmail: companyCtx?.contactEmail || null,
+      companyContacts: Array.isArray(companyCtx?.contacts) ? companyCtx.contacts : [],
+    };
+  }
+  return { vocab: mergeSessionVocab(pageVocab, user), enriched, context };
+}
+
 async function startRecording() {
   if (state.isRecording) return;
+  if (state.isCopilotListening) {
+    showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
+    return;
+  }
   clearCallWatch();
   
   try {
@@ -216,55 +306,19 @@ async function startRecording() {
 
     // Build WebSocket URL with user_id for glossary (same pattern as dashboard useRealtimeTranscription)
     const apiBase = await api.getApiBase();
-    const wsBase = apiBase.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '');
+    const wsBase = apiBaseToWsOrigin(apiBase);
     const user = await api.getCurrentUser().catch(() => null);
     const userId = user?.id || '';
     const wsUrl = new URL(`${wsBase}/api/v1/transcription/live`);
     wsUrl.searchParams.set('language', 'multi');
     if (userId) wsUrl.searchParams.set('user_id', userId);
 
-    // Inject page-context names into STT vocab (contact / company / deal)
+    // Inject page-context names into STT vocab (contact / company / deal + caller)
     let enrichedContext = context;
     try {
-      if (context?.objectType === 'deal' && context?.recordId) {
-        const dealCtx = await api.get(`/crm/hubspot/deals/${context.recordId}/context`);
-        const vocab = Array.isArray(dealCtx?.sessionVocab) ? dealCtx.sessionVocab : [];
-        if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
-        enrichedContext = {
-          ...context,
-          dealName: dealCtx?.raw_extraction?.dealname || context.dealName,
-          companyName: dealCtx?.companyName || null,
-          companyId: dealCtx?.companyId || null,
-          contactName: dealCtx?.contactName || null,
-          contactEmail: dealCtx?.contactEmail || null,
-          contactId: dealCtx?.contactId || null,
-        };
-      } else if (context?.objectType === 'contact' && context?.recordId) {
-        const contactCtx = await api.get(`/crm/hubspot/contacts/${context.recordId}/context`);
-        const vocab = Array.isArray(contactCtx?.sessionVocab) ? contactCtx.sessionVocab : [];
-        if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
-        enrichedContext = {
-          ...context,
-          contactName: contactCtx?.contactName || null,
-          contactEmail: contactCtx?.contactEmail || null,
-          contactId: context.recordId,
-          companyName: contactCtx?.companyName || null,
-          companyId: contactCtx?.companyId || null,
-        };
-      } else if (context?.objectType === 'company' && context?.recordId) {
-        const companyCtx = await api.get(`/crm/hubspot/companies/${context.recordId}/context`);
-        const vocab = Array.isArray(companyCtx?.sessionVocab) ? companyCtx.sessionVocab : [];
-        if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
-        enrichedContext = {
-          ...context,
-          companyName: companyCtx?.companyName || null,
-          companyId: context.recordId,
-          contactId: companyCtx?.contactId || null,
-          contactName: companyCtx?.contactName || null,
-          contactEmail: companyCtx?.contactEmail || null,
-          companyContacts: Array.isArray(companyCtx?.contacts) ? companyCtx.contacts : [],
-        };
-      }
+      const { vocab, enriched } = await loadPageSessionContext(tab, user);
+      enrichedContext = enriched || context;
+      if (vocab.length) wsUrl.searchParams.set('session_vocab', vocab.join('|'));
     } catch (e) {
       console.warn('[BG] Failed to load page context for vocab:', e);
     }
@@ -303,6 +357,10 @@ async function stopRecording() {
 }
 
 async function handleToggleRecording() {
+  if (state.isCopilotListening) {
+    showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
+    return;
+  }
   if (state.isRecording) {
     await stopRecording();
   } else {
@@ -313,6 +371,315 @@ async function handleToggleRecording() {
     }
     await startRecording();
   }
+}
+
+let cachedCopilotUserId = '';
+let cachedSessionVocab = [];
+
+async function buildFastCopilotWsUrl() {
+  const apiBase = await api.getApiBase();
+  const wsBase = apiBaseToWsOrigin(apiBase);
+  const wsUrl = new URL(`${wsBase}/api/v1/transcription/live`);
+  wsUrl.searchParams.set('language', 'multi');
+  wsUrl.searchParams.set('mode', COPILOT_CHANNEL_MODE);
+  wsUrl.searchParams.set('channel_labels', 'prospect,rep');
+  if (cachedCopilotUserId) wsUrl.searchParams.set('user_id', cachedCopilotUserId);
+  if (cachedSessionVocab.length) {
+    wsUrl.searchParams.set('session_vocab', cachedSessionVocab.join('|'));
+  }
+  return wsUrl;
+}
+
+function prefetchCopilotWsBits(tab) {
+  api.getTokens()
+    .then(({ accessToken }) => {
+      if (!accessToken) return null;
+      return api.getCurrentUser();
+    })
+    .then((user) => {
+      if (!user) return null;
+      cachedCopilotUserId = user.id || '';
+      return loadPageSessionContext(tab, user);
+    })
+    .then((result) => {
+      if (Array.isArray(result?.vocab)) cachedSessionVocab = result.vocab;
+    })
+    .catch(() => {});
+}
+
+async function getCaptureTab(requestedTabId) {
+  if (requestedTabId != null) {
+    try {
+      return await chrome.tabs.get(requestedTabId);
+    } catch (_) { /* fall through */ }
+  }
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id) return tab;
+  } catch (_) { /* fall through */ }
+  if (lastActiveTabId != null) {
+    try {
+      return await chrome.tabs.get(lastActiveTabId);
+    } catch (_) { /* fall through */ }
+  }
+  return null;
+}
+
+function emptyCopilotUi() {
+  return {
+    copilotSuggestion: null,
+    copilotRawStream: '',
+    copilotIsLoading: false,
+    copilotLastTurn: null,
+    copilotError: null,
+    copilotLatencyMs: null,
+    copilotTabTitle: null,
+  };
+}
+
+let copilotAbort = null;
+
+function abortCopilotSuggest() {
+  copilotAbort?.abort();
+  copilotAbort = null;
+}
+
+async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRole = 'prospect') {
+  abortCopilotSuggest();
+  const controller = new AbortController();
+  copilotAbort = controller;
+  updateState({
+    copilotIsLoading: true,
+    copilotRawStream: '',
+    copilotSuggestion: null,
+    copilotLastTurn: latestTurn,
+    copilotError: null,
+    copilotLatencyMs: null,
+  });
+
+  const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
+  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] || DEFAULT_PRODUCT_CONTEXT;
+
+  try {
+    await api.streamCopilotSuggest(
+      {
+        transcript_window: String(transcriptWindow || '').slice(-6000),
+        latest_turn: latestTurn,
+        product_context: productContext,
+        language: 'auto',
+        call_mode: 'meeting',
+        speaker_role:
+          speakerRole === 'rep' || speakerRole === 'unknown' ? speakerRole : 'prospect',
+      },
+      (event) => {
+        if (controller.signal.aborted) return;
+        if (event.type === 'token') {
+          updateState({ copilotRawStream: `${state.copilotRawStream || ''}${event.text}` });
+        } else if (event.type === 'result') {
+          updateState({
+            copilotSuggestion: event.suggestion,
+            copilotIsLoading: false,
+            copilotLatencyMs: event.latency_ms ?? null,
+          });
+        } else if (event.type === 'error') {
+          updateState({ copilotError: event.message, copilotIsLoading: false });
+        } else if (event.type === 'done') {
+          updateState({ copilotIsLoading: false });
+        }
+      },
+      controller.signal
+    );
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    updateState({
+      copilotError: err instanceof Error ? err.message : 'Suggestion failed',
+      copilotIsLoading: false,
+    });
+  }
+}
+
+const copilotDetector = new TurnDetector({
+  settleMs: 900,
+  minWords: 6,
+  speakerRole: 'prospect',
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (id) => clearTimeout(id),
+  onTurn: (turn, _full, meta) => {
+    requestCopilotSuggestion(turn, state.finalTranscript, meta?.speakerRole || 'prospect');
+  },
+});
+
+let listenStartTimerId = null;
+/** Bumped on each Listen start and Stop so a late offscreen start cannot revive the session. */
+let listenEpoch = 0;
+/** Popup click generation — a Stop click invalidates an in-flight Start. */
+let listenCommandSeq = 0;
+
+function acceptListenCommandSeq(commandSeq) {
+  if (commandSeq == null || !Number.isFinite(Number(commandSeq))) return true;
+  const seq = Number(commandSeq);
+  if (seq < listenCommandSeq) return false;
+  listenCommandSeq = seq;
+  return true;
+}
+
+function clearListenStartTimeout() {
+  if (listenStartTimerId != null) {
+    clearTimeout(listenStartTimerId);
+    listenStartTimerId = null;
+  }
+}
+
+function armListenStartTimeout() {
+  clearListenStartTimeout();
+  listenStartTimerId = setTimeout(() => {
+    listenStartTimerId = null;
+    if (state.listenPhase === 'starting') {
+      failListen('stream_expired');
+    }
+  }, 8000);
+}
+
+function failListen(reason) {
+  clearListenStartTimeout();
+  copilotDetector.setEnabled(false);
+  copilotDetector.reset();
+  abortCopilotSuggest();
+  listenEpoch += 1;
+  chrome.runtime.sendMessage({
+    target: 'offscreen',
+    type: 'STOP_TAB_CAPTURE',
+    minEpoch: listenEpoch,
+  });
+  chrome.offscreen.closeDocument().catch(() => {});
+  const message = startDeniedMessage(reason);
+  updateState({
+    isCopilotListening: false,
+    status: 'idle',
+    listenPhase: 'error',
+    ...emptyCopilotUi(),
+    copilotError: message,
+  });
+  showNotification('Vocify Copilot', message);
+  return { error: message, reason };
+}
+
+async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq = null) {
+  if (!acceptListenCommandSeq(commandSeq)) {
+    return { ok: true, cancelled: true };
+  }
+  if (state.listenPhase === 'live' || state.isCopilotListening) {
+    return { ok: true, alreadyLive: true };
+  }
+  if (state.listenPhase === 'starting') {
+    return { ok: true, alreadyStarting: true };
+  }
+
+  const tabId = requestedTabId ?? lastActiveTabId;
+  const tokenPromise = api.getTokens();
+  const wsUrlPromise = buildFastCopilotWsUrl();
+
+  const early = canStartTabCapture({
+    isRecording: state.isRecording,
+    isCopilotListening: state.isCopilotListening,
+    hasToken: true,
+    tabId: tabId ?? null,
+    hasStreamId: Boolean(streamIdFromUi),
+  });
+  if (!early.ok) {
+    if (early.reason === 'already_listening') return { ok: true, alreadyLive: true };
+    return failListen(early.reason);
+  }
+
+  // Stream ids expire in a few seconds. Take the Listen-click id first;
+  // otherwise request it here before tokens, HubSpot context, or tab lookup.
+  let streamId = streamIdFromUi || null;
+  if (!streamId) {
+    streamId = await requestTabCaptureStreamId(chrome.tabCapture, tabId);
+  }
+  if (!streamId) {
+    const tab = await getCaptureTab(tabId);
+    const reason = listenFailureReason({ streamId: null, pageUrl: tab?.url });
+    return failListen(reason);
+  }
+
+  const { accessToken } = await tokenPromise;
+  const decision = canStartTabCapture({
+    isRecording: state.isRecording,
+    isCopilotListening: state.isCopilotListening,
+    hasToken: Boolean(accessToken),
+    tabId: tabId ?? null,
+    hasStreamId: true,
+  });
+  if (!decision.ok) {
+    if (decision.reason === 'already_listening') return { ok: true, alreadyLive: true };
+    return failListen(decision.reason);
+  }
+
+  abortCopilotSuggest();
+  copilotDetector.reset();
+
+  await getOffscreenDocument({ recreate: false });
+  const wsUrl = await wsUrlPromise;
+  const epoch = ++listenEpoch;
+
+  chrome.runtime.sendMessage({
+    target: 'offscreen',
+    type: 'START_TAB_CAPTURE',
+    streamId,
+    wsUrl: wsUrl.toString(),
+    epoch,
+  });
+
+  const tab = await getCaptureTab(tabId);
+  rememberTab(tab);
+  prefetchCopilotWsBits(tab);
+  const context = tab?.url ? parseHubSpotUrl(tab.url) : state.context;
+
+  updateState({
+    isCopilotListening: false,
+    listenPhase: 'starting',
+    status: 'copilot',
+    finalTranscript: '',
+    interimTranscript: '',
+    prospectFinal: '',
+    prospectInterim: '',
+    finalWords: [],
+    context,
+    ...emptyCopilotUi(),
+    copilotTabTitle: tab?.title || 'This tab',
+    copilotError: null,
+  });
+  armListenStartTimeout();
+
+  return { ok: true };
+}
+
+async function stopTabCapture(commandSeq = null) {
+  acceptListenCommandSeq(commandSeq);
+  listenEpoch += 1;
+  clearListenStartTimeout();
+  copilotDetector.setEnabled(false);
+  copilotDetector.reset();
+  abortCopilotSuggest();
+  chrome.runtime.sendMessage({
+    target: 'offscreen',
+    type: 'STOP_TAB_CAPTURE',
+    minEpoch: listenEpoch,
+  });
+  updateState({
+    isCopilotListening: false,
+    listenPhase: 'idle',
+    status: 'idle',
+    finalTranscript: '',
+    interimTranscript: '',
+    prospectFinal: '',
+    prospectInterim: '',
+    finalWords: [],
+    ...emptyCopilotUi(),
+  });
+  chrome.offscreen.closeDocument().catch(() => {});
+  return { ok: true };
 }
 
 // ============================================
@@ -352,7 +719,7 @@ function startPolling(memoId) {
   let pollCount = 0;
   console.log('[BG] Starting polling for memo:', memoId);
 
-  memoPollTimerId = setInterval(async () => {
+  const tick = async () => {
     pollCount += 1;
     try {
       const memo = await api.getMemo(memoId);
@@ -368,21 +735,23 @@ function startPolling(memoId) {
       } else if (memo.status === 'failed') {
         clearMemoPoll();
         updateState({ status: 'idle', currentMemoId: null, processingSource: null });
-        showNotification('Analysis Failed', memo.errorMessage || 'Unknown error');
+        showNotification('Couldn’t finish this call', memo.errorMessage || 'Try Transcribe again.');
       } else if (pollCount > 60) {
         clearMemoPoll();
         updateState({ status: 'idle', currentMemoId: null, processingSource: null });
-        showNotification('Timeout', 'Processing took too long.');
+        showNotification('Still working', 'This is taking longer than usual. Try again from the call list.');
       }
     } catch (e) {
       console.error('[BG] Polling error:', e);
       if (pollCount > 60) {
         clearMemoPoll();
         updateState({ status: 'idle', currentMemoId: null, processingSource: null });
-        showNotification('Timeout', 'Processing took too long.');
+        showNotification('Still working', 'This is taking longer than usual. Try again from the call list.');
       }
     }
-  }, 2000);
+  };
+  tick();
+  memoPollTimerId = setInterval(tick, 2000);
 }
 
 // ============================================
@@ -394,40 +763,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     // State queries
     case 'GET_STATE': {
-      const opened = panelOpenState(state);
-      if (opened !== state && opened.status === 'idle' && state.status === 'processing') {
-        if (state.currentMemoId) ignoredCallMemoIds.add(String(state.currentMemoId));
-        clearMemoPoll();
-        updateState({
-          status: 'idle',
-          processingSource: null,
-        });
-      }
-      if (state.status === 'review' && state.currentMemoId) {
-        getContextTab().then((tab) => {
-          rememberTab(tab);
-          if (tab?.url) {
-            const ctx = parseHubSpotUrl(tab.url);
-            if (ctx?.recordId && ['deal', 'contact', 'company'].includes(ctx.objectType)) {
-              applyContextAsync(ctx);
-            }
-          }
-          sendResponse(state);
-        }).catch(() => sendResponse(state));
-        return true;
-      }
-      if (state.status === 'idle' && !state.isRecording) {
-        getContextTab().then((tab) => {
-          rememberTab(tab);
-          if (tab?.url) reevaluateTabContext(tab.id, tab.url);
-          else updateState({ context: null, recordings: [], recordingsLoading: false });
-          sendResponse(state);
-        }).catch(() => sendResponse(state));
-        return true;
-      }
-      sendResponse(state);
-      break;
+      (async () => {
+        const { accessToken } = await api.getTokens().catch(() => ({ accessToken: null }));
+        const payload = () => ({ ...state, authenticated: Boolean(accessToken) });
+        if (!accessToken) {
+          sendResponse(payload());
+          return;
+        }
+        const flowBusy =
+          state.isRecording ||
+          state.isCopilotListening ||
+          state.status === 'copilot';
+        if (!flowBusy) {
+          try {
+            await refreshContextFromActiveTab();
+          } catch (_) { /* keep last state */ }
+        }
+        sendResponse(payload());
+      })();
+      return true;
     }
+
+    case 'LOGOUT':
+      cachedCopilotUserId = '';
+      cachedSessionVocab = [];
+      break;
     
     case 'SET_STATE': {
       const newState = { ...message.state };
@@ -435,16 +795,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (newState.status === 'review' && newState.currentMemoId) {
         getContextTab().then((tab) => {
           rememberTab(tab);
-          if (tab?.url) {
-            const ctx = parseHubSpotUrl(tab.url);
-            if (ctx?.recordId && ['deal', 'contact', 'company'].includes(ctx.objectType)) {
-              newState.context = ctx;
-            }
-          }
+          const ctx = tab?.url ? parseHubSpotUrl(tab.url) : null;
+          newState.context = planPageContextUpdate(state.context, ctx).context;
           updateState(newState);
         }).catch(() => updateState(newState));
       } else {
         updateState(newState);
+        if (newState.status === 'processing' && newState.currentMemoId) {
+          startPolling(String(newState.currentMemoId));
+        }
       }
       break;
     }
@@ -453,6 +812,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'TOGGLE_RECORDING':
       handleToggleRecording();
       break;
+
+    case 'START_TAB_CAPTURE':
+      startTabCapture(message.tabId, message.streamId, message.commandSeq)
+        .then(sendResponse)
+        .catch((e) => sendResponse({ error: e.message }));
+      return true;
+
+    case 'STOP_TAB_CAPTURE':
+      stopTabCapture(message.commandSeq)
+        .then(sendResponse)
+        .catch((e) => sendResponse({ error: e.message }));
+      return true;
 
     case 'RECORDING_STARTED':
       updateState({ isRecording: true, status: 'recording' });
@@ -464,20 +835,68 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'RECORDING_ERROR':
       updateState({ isRecording: false, status: 'idle' });
-      showNotification('Recording Error', message.error);
+      if (message.openSetup) {
+        chrome.tabs.create({ url: chrome.runtime.getURL('setup.html') });
+        showNotification('Microphone access', 'Allow the microphone on the Vocify page, then record again.');
+      } else {
+        showNotification('Recording Error', message.error);
+      }
+      break;
+
+    case 'TAB_CAPTURE_STARTED':
+      if (Number(message.epoch) !== listenEpoch || !shouldApplyTabCaptureLifecycle(state)) {
+        chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: 'STOP_TAB_CAPTURE',
+          minEpoch: listenEpoch,
+        });
+        chrome.offscreen.closeDocument().catch(() => {});
+        break;
+      }
+      clearListenStartTimeout();
+      copilotDetector.setEnabled(true);
+      updateState({ isCopilotListening: true, listenPhase: 'live', status: 'copilot' });
+      break;
+
+    case 'TAB_CAPTURE_STOPPED':
+      if (state.isCopilotListening || state.listenPhase === 'starting' || state.listenPhase === 'live') {
+        clearListenStartTimeout();
+        copilotDetector.setEnabled(false);
+        abortCopilotSuggest();
+        updateState({
+          isCopilotListening: false,
+          listenPhase: 'idle',
+          status: 'idle',
+          ...emptyCopilotUi(),
+        });
+      }
+      break;
+
+    case 'TAB_CAPTURE_ERROR':
+      if (!shouldApplyTabCaptureLifecycle(state)) break;
+      if (message.epoch != null && !isListenEpochCurrent(message.epoch, listenEpoch)) break;
+      failListen(listenReasonFromOffscreenError(message.error));
       break;
 
     // Real-time transcript from offscreen
-    case 'TRANSCRIPT_UPDATE':
-      if (message.isFinal) {
-        // Append to final transcript
-        const newFinal = state.finalTranscript 
-          ? `${state.finalTranscript} ${message.text}` 
-          : message.text;
-        updateState({ finalTranscript: newFinal, interimTranscript: '' });
-      } else {
-        // Update interim only
-        updateState({ interimTranscript: message.text });
+    case 'TRANSCRIPT_UPDATE': {
+      const next = applyTranscriptUpdate(state, {
+        text: message.text,
+        isFinal: message.isFinal,
+        words: message.words,
+        audioChannel: message.audioChannel,
+      });
+      updateState(next);
+      if (state.isCopilotListening) {
+        copilotDetector.onFinalTranscript(next.prospectFinal);
+        copilotDetector.onInterim(next.prospectInterim);
+      }
+      break;
+    }
+
+    case 'END_OF_UTTERANCE':
+      if (state.isCopilotListening && isCoachableChannel(message.audioChannel)) {
+        copilotDetector.onEndOfUtterance();
       }
       break;
 
@@ -577,7 +996,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       params.set('limit', '5');
       api.get(`/memos?${params.toString()}`)
         .then((results) => sendResponse(Array.isArray(results) ? results : []))
-        .catch((e) => sendResponse({ error: e.message }));
+        .catch((e) => {
+          if (isAuthFailure(e)) {
+            chrome.runtime.sendMessage({ type: 'AUTH_REQUIRED' }).catch(() => {});
+          }
+          sendResponse({ error: e.message });
+        });
       return true;
     }
 
@@ -587,12 +1011,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: 'Missing callId' });
         break;
       }
+      clearCallWatch();
+      updateState({
+        status: 'processing',
+        processingSource: 'hubspot_call',
+        watchingForRecording: false,
+      });
       api.post(`/crm/hubspot/calls/${encodeURIComponent(callId)}/process`, {})
         .then((res) => {
           const memoId = res?.memo_id ? String(res.memo_id) : null;
           const st = res?.status;
           if (memoId && (st === 'transcribing' || st === 'uploading' || st === 'extracting')) {
-            clearCallWatch();
             updateState({
               status: 'processing',
               currentMemoId: memoId,
@@ -601,13 +1030,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
             startPolling(memoId);
           } else if (memoId && (st === 'pending_transcript' || st === 'pending_review')) {
-            clearCallWatch();
             updateState({ status: 'review', currentMemoId: memoId, watchingForRecording: false });
+          } else if (memoId && st === 'failed') {
+            updateState({ status: 'idle', currentMemoId: null, processingSource: null });
           }
           if (state.context) fetchRecordingsIfNeeded(state.context, { force: true });
           sendResponse(res);
         })
-        .catch((e) => sendResponse({ error: e.message }));
+        .catch((e) => {
+          updateState({ status: 'idle', processingSource: null });
+          sendResponse({ error: e.message });
+        });
       return true;
     }
 
@@ -626,16 +1059,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentMemoId: null, 
         syncResult: null,
         context: null,
+        recordings: [],
+        recordingsLoading: true,
+        recordingsError: null,
         finalTranscript: '',
         interimTranscript: '',
         watchingForRecording: false,
         processingSource: null,
       });
-      // Re-evaluate the current tab so the watcher restarts if still on a deal/contact page
-      getContextTab().then((tab) => {
-        rememberTab(tab);
-        if (tab?.url) reevaluateTabContext(tab.id, tab.url);
-      }).catch(() => {});
+      recordingsKey = null;
+      recordingsFetchGen += 1;
+      refreshContextFromActiveTab().catch(() => {});
       break;
   }
 });
@@ -691,9 +1125,10 @@ async function enrichPageContext(ctx) {
         dealName: dealCtx?.raw_extraction?.dealname || ctx.dealName || null,
         companyName: dealCtx?.companyName || null,
         companyId: dealCtx?.companyId || null,
+        contactId: dealCtx?.contactId || null,
         contactName: dealCtx?.contactName || null,
         contactEmail: dealCtx?.contactEmail || null,
-        contactId: dealCtx?.contactId || null,
+        dealContacts: Array.isArray(dealCtx?.contacts) ? dealCtx.contacts : [],
         _enrichedKey: key,
       };
     }
@@ -716,19 +1151,48 @@ async function enrichPageContext(ctx) {
   return ctx;
 }
 
+function applyEnrichedIfCurrent(enriched) {
+  if (recordScopeKey(state.context) !== recordScopeKey(enriched)) return;
+  updateState({ context: enriched });
+}
+
+async function refreshContextFromActiveTab() {
+  const tab = await getContextTab();
+  rememberTab(tab);
+  if (!tab?.id || !tab.url) {
+    applyContextAsync(null);
+    return;
+  }
+  lastSeenUrlByTab.set(tab.id, tab.url);
+  reevaluateTabContextAuthenticated(tab.id, tab.url);
+}
+
 function applyContextAsync(ctx) {
-  updateState({ context: ctx });
-  fetchRecordingsIfNeeded(ctx);
-  const key = ctx?.recordId ? `${ctx.objectType}:${ctx.recordId}` : null;
-  if (!key || state.context?._enrichedKey === key) return;
-  enrichPageContext(ctx).then((enriched) => {
-    // Only apply if user is still on the same record
-    const current = state.context;
-    if (!current || current.recordId !== enriched.recordId || current.objectType !== enriched.objectType) {
-      return;
+  const plan = planPageContextUpdate(state.context, ctx);
+  const { context, skipBroadcast, replaceLists } = plan;
+  const key = recordScopeKey(context);
+
+  if (skipBroadcast) {
+    fetchRecordingsIfNeeded(context);
+    if (key && context._enrichedKey !== key) {
+      enrichPageContext(context).then(applyEnrichedIfCurrent);
     }
-    updateState({ context: enriched });
+    return;
+  }
+
+  if (replaceLists) {
+    recordingsKey = null;
+    recordingsFetchGen += 1;
+  }
+  updateState({
+    context,
+    recordings: replaceLists ? [] : (state.recordings || []),
+    recordingsLoading: replaceLists ? true : state.recordingsLoading,
+    recordingsError: replaceLists ? null : state.recordingsError,
   });
+  fetchRecordingsIfNeeded(context);
+  if (!key) return;
+  enrichPageContext(context).then(applyEnrichedIfCurrent);
 }
 
 function recordingsEndpoint(ctx) {
@@ -738,105 +1202,129 @@ function recordingsEndpoint(ctx) {
   if (ctx?.objectType === 'deal' && ctx.recordId) {
     return `/crm/hubspot/deals/${ctx.recordId}/recordings`;
   }
-  return null;
+  if (ctx?.objectType === 'company' && ctx.recordId) {
+    return `/crm/hubspot/companies/${ctx.recordId}/recordings`;
+  }
+  return '/crm/hubspot/recordings?limit=20';
 }
 
 function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
   const endpoint = recordingsEndpoint(ctx);
-  if (!endpoint) {
-    if (recordingsKey) {
-      recordingsKey = null;
-      updateState({ recordings: [], recordingsLoading: false });
-    }
-    return;
-  }
-
-  const key = `${ctx.objectType}:${ctx.recordId}`;
+  const key = recordingsScopeKey(ctx);
   if (!force && recordingsKey === key) return;
 
-  const prevKey = recordingsKey;
+  const keepList = recordingsKey === key;
   recordingsKey = key;
+  const gen = ++recordingsFetchGen;
   updateState({
     recordingsLoading: true,
-    recordings: prevKey === key ? (state.recordings || []) : [],
+    recordings: keepList ? (state.recordings || []) : [],
+    recordingsError: null,
   });
 
   api.get(endpoint)
     .then((items) => {
-      if (recordingsKey !== key) return;
+      if (gen !== recordingsFetchGen) return;
+      if (recordingsScopeKey(state.context) !== key) return;
       const list = Array.isArray(items)
         ? items.map((rec) => ({ ...rec, timestamp: rec.timestamp || rec.timestamp_ms || null }))
         : [];
-      updateState({ recordings: list, recordingsLoading: false });
+      updateState({ recordings: list, recordingsLoading: false, recordingsError: null });
     })
     .catch((e) => {
       console.warn('[BG] Failed to load recordings:', e);
-      if (recordingsKey !== key) return;
-      updateState({ recordings: [], recordingsLoading: false });
+      if (isAuthFailure(e)) {
+        chrome.runtime.sendMessage({ type: 'AUTH_REQUIRED' }).catch(() => {});
+        return;
+      }
+      if (gen !== recordingsFetchGen) return;
+      if (recordingsScopeKey(state.context) !== key) return;
+      const reconnect = isCrmReconnectError(e)
+        ? 'HubSpot login expired. Reconnect HubSpot in Vocify → Integrations, then try again.'
+        : null;
+      updateState({ recordings: [], recordingsLoading: false, recordingsError: reconnect });
     });
 }
 
 function reevaluateTabContext(tabId, url) {
   if (!url) return;
+  lastSeenUrlByTab.set(tabId, url);
+  api.getTokens().then(({ accessToken }) => {
+    if (!accessToken) return;
+    reevaluateTabContextAuthenticated(tabId, url);
+  }).catch(() => {});
+}
 
+function reevaluateTabContextAuthenticated(tabId, url) {
   const ctx = parseHubSpotUrl(url);
-  const watchableTypes = ['deal', 'contact'];
+  const activityTypes = ['deal', 'contact', 'company'];
   const recordType = ctx?.objectType;
-  const recordId = watchableTypes.includes(recordType) ? ctx.recordId : null;
+  const recordId = activityTypes.includes(recordType) ? ctx.recordId : null;
 
   // Always refresh page context (even during review) so "use contact on this page" stays accurate.
   // Never start/stop watches or change status while a flow is active.
   const flowBusy =
     state.isRecording ||
+    state.isCopilotListening ||
+    state.status === 'copilot' ||
     state.status === 'processing' ||
     state.status === 'review' ||
     state.status === 'success';
 
   if (flowBusy) {
-    if (ctx?.recordId) applyContextAsync(ctx);
-    else if (!ctx) {
-      recordingsKey = null;
-      updateState({ context: null, recordings: [], recordingsLoading: false });
-    }
+    applyContextAsync(ctx);
     return;
   }
 
-  if (recordId) {
-    applyContextAsync(ctx);
-    startCallWatch(recordId, recordType);
-  } else {
-    clearCallWatch();
-    if (ctx?.objectType === 'company' && ctx.recordId) applyContextAsync(ctx);
-    else {
-      recordingsKey = null;
-      updateState({ context: ctx || null, recordings: [], recordingsLoading: false });
-    }
-  }
+  applyContextAsync(ctx);
+  if (recordId) startCallWatch(recordId, recordType);
+  else clearCallWatch();
 }
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   lastActiveTabId = tabId;
+  state = { ...state, captureTabId: tabId };
   chrome.tabs.get(tabId, (tab) => {
-    if (chrome.runtime.lastError) return; // tab may be gone
-    reevaluateTabContext(tabId, tab?.url);
+    if (chrome.runtime.lastError) {
+      refreshContextFromActiveTab().catch(() => applyContextAsync(null));
+      return;
+    }
+    if (tab?.url) reevaluateTabContext(tabId, tab.url);
   });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  lastSeenUrlByTab.delete(tabId);
+  if (tabId !== lastActiveTabId) return;
+  lastActiveTabId = null;
+  refreshContextFromActiveTab().catch(() => applyContextAsync(null));
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (tabId !== lastActiveTabId) return;
-  // HubSpot SPA: URL can change without a document reload
-  if (changeInfo.url) {
-    reevaluateTabContext(tabId, changeInfo.url);
-    return;
-  }
-  if (changeInfo.status === 'complete' && tab?.url) {
-    reevaluateTabContext(tabId, tab.url);
+  const url = changeInfo.url || tab?.url;
+  if (!url) return;
+  if (url !== lastSeenUrlByTab.get(tabId) || changeInfo.status === 'complete') {
+    reevaluateTabContext(tabId, url);
   }
 });
 
 chrome.windows.onFocusChanged.addListener(() => seedActiveTab());
 chrome.runtime.onStartup.addListener(seedActiveTab);
 seedActiveTab();
+api.getApiBase().then((base) => {
+  console.log('[BG] API base:', base);
+}).catch(() => {});
+setInterval(() => {
+  if (!lastActiveTabId) return;
+  chrome.tabs.get(lastActiveTabId, (tab) => {
+    if (chrome.runtime.lastError || !tab?.url) return;
+    if (tab.url !== lastSeenUrlByTab.get(lastActiveTabId)) {
+      reevaluateTabContext(lastActiveTabId, tab.url);
+    }
+  });
+}, 400);
+prefetchCopilotWsBits(null);
 
 // ============================================
 // HOTKEY COMMAND

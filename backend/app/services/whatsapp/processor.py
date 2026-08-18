@@ -20,7 +20,7 @@ from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
 from app.services.memo_approval import approve_memo_core
-from app.services.speechmatics_batch import SpeechmaticsBatchService
+from app.services.stt_batch import transcribe_bytes
 from app.services.storage import StorageService
 from app.services.whatsapp.webhook_parser import IncomingMessage
 from app.logging_config import log_domain, DOMAIN_WHATSAPP
@@ -1399,61 +1399,69 @@ async def process_whatsapp_message(
             )
             return
 
+    from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
+
     audio_url: Optional[str] = None
-    if msg.type == "text":
-        transcript = msg.text or ""
-        logger.info(
-            "📱 Processing text message",
-            extra=log_domain(DOMAIN_WHATSAPP, "text_message", message_id=msg.message_id, from_phone=msg.from_phone, user_id=user_id, text_len=len(transcript)),
-        )
-    elif msg.type == "audio" and msg.audio_id:
-        logger.info(
-            "🎙️ Processing audio message",
-            extra=log_domain(DOMAIN_WHATSAPP, "transcribe_started", message_id=msg.message_id, from_phone=msg.from_phone, user_id=user_id),
-        )
-        transcript, audio_url = await _transcribe_audio(
-            supabase, wa_client, msg, user_id
-        )
-        if not transcript:
-            logger.warning(
-                "❌ Audio transcription failed",
-                extra=log_domain(DOMAIN_WHATSAPP, "transcribe_failed", message_id=msg.message_id, from_phone=msg.from_phone),
+    memo_id = None
+    extraction = None
+    with pipeline_run() as stages:
+        if msg.type == "text":
+            transcript = msg.text or ""
+            logger.info(
+                "📱 Processing text message",
+                extra=log_domain(DOMAIN_WHATSAPP, "text_message", message_id=msg.message_id, from_phone=msg.from_phone, user_id=user_id, text_len=len(transcript)),
+            )
+        elif msg.type == "audio" and msg.audio_id:
+            logger.info(
+                "🎙️ Processing audio message",
+                extra=log_domain(DOMAIN_WHATSAPP, "transcribe_started", message_id=msg.message_id, from_phone=msg.from_phone, user_id=user_id),
+            )
+            transcript, audio_url = await _transcribe_audio(
+                supabase, wa_client, msg, user_id
+            )
+            if not transcript:
+                logger.warning(
+                    "❌ Audio transcription failed",
+                    extra=log_domain(DOMAIN_WHATSAPP, "transcribe_failed", message_id=msg.message_id, from_phone=msg.from_phone),
+                )
+                await wa_client.send_text(
+                    msg.from_phone,
+                    "Sorry, I couldn't transcribe the audio. Please try again or send a text message.",
+                    **_client_kwargs(msg),
+                )
+                return
+        else:
+            logger.info(
+                "⚠️ Unsupported message type",
+                extra=log_domain(DOMAIN_WHATSAPP, "unsupported_type", message_id=msg.message_id, from_phone=msg.from_phone, msg_type=msg.type),
             )
             await wa_client.send_text(
                 msg.from_phone,
-                "Sorry, I couldn't transcribe the audio. Please try again or send a text message.",
+                "I only process voice notes and text. Please send one of those.",
                 **_client_kwargs(msg),
             )
             return
-    else:
-        logger.info(
-            "⚠️ Unsupported message type",
-            extra=log_domain(DOMAIN_WHATSAPP, "unsupported_type", message_id=msg.message_id, from_phone=msg.from_phone, msg_type=msg.type),
-        )
-        await wa_client.send_text(
-            msg.from_phone,
-            "I only process voice notes and text. Please send one of those.",
-            **_client_kwargs(msg),
-        )
-        return
 
-    if len(transcript.strip()) < 10:
-        logger.info(
-            "⚠️ Transcript too short",
-            extra=log_domain(DOMAIN_WHATSAPP, "transcript_too_short", message_id=msg.message_id, from_phone=msg.from_phone, transcript_len=len(transcript)),
-        )
-        await wa_client.send_text(
-            msg.from_phone,
-            "The message was too short to extract CRM data. Please send a longer voice note or text.",
-            **_client_kwargs(msg),
-        )
-        return
+        if len(transcript.strip()) < 10:
+            logger.info(
+                "⚠️ Transcript too short",
+                extra=log_domain(DOMAIN_WHATSAPP, "transcript_too_short", message_id=msg.message_id, from_phone=msg.from_phone, transcript_len=len(transcript)),
+            )
+            await wa_client.send_text(
+                msg.from_phone,
+                "The message was too short to extract CRM data. Please send a longer voice note or text.",
+                **_client_kwargs(msg),
+            )
+            return
 
-    conversation_id: Optional[str] = str(conv.id) if conv else None
+        conversation_id: Optional[str] = str(conv.id) if conv else None
 
-    memo_id, extraction = await _extract_and_create_memo(
-        supabase, user_id, transcript, msg.message_id, audio_url, conversation_id
-    )
+        memo_id, extraction = await _extract_and_create_memo(
+            supabase, user_id, transcript, msg.message_id, audio_url, conversation_id
+        )
+    if memo_id:
+        persist_pipeline_meta(supabase, str(memo_id), stages)
+
     if not memo_id:
         logger.warning(
             "❌ Memo creation failed",
@@ -1534,15 +1542,14 @@ async def _transcribe_audio(
     msg: IncomingMessage,
     user_id: str,
 ) -> tuple[Optional[str], Optional[str]]:
-    """Download audio, transcribe via Speechmatics (bytes), upload to storage for memo. Return (transcript, audio_url)."""
+    """Download audio, transcribe via batch STT (bytes), upload to storage for memo. Return (transcript, audio_url)."""
     try:
         audio_bytes, content_type = await wa_client.download_media(msg)
-        batch = SpeechmaticsBatchService()
-        transcript = await batch.transcribe(
-            audio_bytes=audio_bytes,
-            content_type=content_type,
-            language="auto",
+        transcript = await transcribe_bytes(
+            audio_bytes,
+            content_type=content_type or "audio/ogg",
             user_id=user_id,
+            diarization=True,
         )
         logger.info(
             "✅ Transcription complete",
@@ -1556,7 +1563,7 @@ async def _transcribe_audio(
         return transcript, audio_url
     except Exception as e:
         logger.exception(
-            "❌ Speechmatics batch transcription failed: %s",
+            "❌ Batch transcription failed: %s",
             e,
             extra=log_domain(DOMAIN_WHATSAPP, "transcribe_failed", message_id=msg.message_id, error=str(e)),
         )
@@ -1594,11 +1601,24 @@ async def _extract_and_create_memo(
         field_specs = await get_field_specs(supabase, user_id)
         glossary_svc = GlossaryService(supabase)
         glossary = await glossary_svc.get_user_glossary(user_id)
-        glossary_text = glossary_svc.format_for_llm(glossary)
+
+        from app.services.extraction_context import load_product_context
+        from app.services.session_entities import load_stt_profile
+        from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
+
+        product_context = load_product_context(supabase, user_id)
+        profile = load_stt_profile(supabase, user_id)
+        transcript, glossary_text = await prepare_transcript_for_extraction_async(
+            transcript,
+            glossary,
+            extra_names=[profile.get("full_name"), profile.get("company_name")],
+        )
 
         extraction_svc = ExtractionService()
         extraction = await extraction_svc.extract(
-            transcript, field_specs, glossary_text=glossary_text
+            transcript, field_specs,
+            glossary_text=glossary_text,
+            product_context=product_context,
         )
 
         insert = {

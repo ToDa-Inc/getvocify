@@ -101,18 +101,22 @@ class SalesforceSyncService:
             raw = extraction.raw_extraction or {}
             company = extraction.companyName or _clean_extracted_name(raw.get("companyName"))
             contact_name = extraction.contactName or _clean_extracted_name(raw.get("contactName"))
-            contact_email = extraction.contactEmail or raw.get("contactEmail")
+            from app.services.hubspot.contact_identity import real_contact_email_or_none
+
+            contact_email = real_contact_email_or_none(
+                extraction.contactEmail or raw.get("contactEmail")
+            )
             if company and not contact_name and not contact_email:
                 contact_name = f"Contact at {company}"
             ext_c = extraction.model_copy(
                 update={
                     "companyName": company or extraction.companyName,
                     "contactName": contact_name or extraction.contactName,
-                    "contactEmail": contact_email or extraction.contactEmail,
+                    "contactEmail": contact_email,
                 }
             )
 
-            if create_contacts and (ext_c.contactEmail or ext_c.contactName):
+            if create_contacts and (ext_c.contactEmail or ext_c.contactName or ext_c.contactPhone):
                 try:
                     contact_id = await self.contacts.find_or_create(ext_c, account_id)
                     if contact_id:

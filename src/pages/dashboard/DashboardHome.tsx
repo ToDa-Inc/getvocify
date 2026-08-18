@@ -12,37 +12,33 @@ const getStatusBadge = (status: MemoStatus) => {
   switch (status) {
     case "approved":
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
-          <span className="w-1.5 h-1.5 rounded-full bg-success" />
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-success/10 text-success">
           Approved
         </span>
       );
     case "pending_review":
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-warning/10 text-warning">
-          <span className="w-1.5 h-1.5 rounded-full bg-warning" />
-          Pending Review
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-warning">
+          Pending review
         </span>
       );
     case "uploading":
     case "transcribing":
     case "extracting":
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" />
-          Processing...
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
+          Processing
         </span>
       );
     case "failed":
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-destructive/10 text-destructive">
-          <span className="w-1.5 h-1.5 rounded-full bg-destructive" />
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-destructive/10 text-destructive">
           Failed
         </span>
       );
     case "rejected":
       return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
           Rejected
         </span>
       );
@@ -76,24 +72,19 @@ const DashboardHome = () => {
 
       {/* Record Card */}
       <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} ${V_PATTERNS.focusBox}`}>
-        {/* Animated background glow */}
-        <div className="absolute inset-0 bg-gradient-to-tr from-beige/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
-        
-        <div className="relative z-10">
-          <div className={`w-20 h-20 mx-auto mb-8 ${THEME_TOKENS.radius.pill} bg-beige text-cream flex items-center justify-center shadow-large transition-transform duration-500 group-hover:scale-110 group-hover:rotate-3`}>
-            <Mic className="h-10 w-10" />
-          </div>
-          <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-6`}>Record your meeting notes</h2>
-          <Button variant="hero" size="xl" asChild className="px-10 rounded-full shadow-large hover:scale-105 active:scale-95 transition-transform">
-            <Link to="/dashboard/record">
-              <Mic className="h-5 w-5 mr-2" />
-              Start Recording
-            </Link>
-          </Button>
-          <p className={`text-sm ${THEME_TOKENS.colors.muted} mt-6 font-medium`}>
-            Speak for 30-120 seconds about your meeting
-          </p>
+        <div className="w-14 h-14 mx-auto mb-6 rounded-2xl bg-beige text-cream flex items-center justify-center">
+          <Mic className="h-6 w-6" />
         </div>
+        <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-4`}>Record your meeting notes</h2>
+        <Button variant="hero" size="xl" asChild className="px-8">
+          <Link to="/dashboard/record">
+            <Mic className="h-4 w-4 mr-2" />
+            Start Recording
+          </Link>
+        </Button>
+        <p className={`text-sm ${THEME_TOKENS.colors.muted} mt-4`}>
+          Speak for 30-120 seconds about your meeting
+        </p>
       </div>
 
       {/* Recent Memos */}
@@ -134,7 +125,7 @@ const DashboardHome = () => {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-foreground text-lg group-hover:text-beige transition-colors">
+                      <h3 className="font-medium text-foreground text-base truncate">
                         {company}
                       </h3>
                       <p className="text-sm text-muted-foreground truncate mt-1 leading-relaxed">

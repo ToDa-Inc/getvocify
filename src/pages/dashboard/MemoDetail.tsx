@@ -2,12 +2,70 @@ import { useState, useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Play, Pause, Check, ExternalLink, Sparkles, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
+
+/** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
+function formatStageMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  stt: "Speech-to-text",
+  sanitize: "Transcript repair",
+  extract: "CRM note + fields",
+};
+
+function PipelineMetaCard({ meta }: { meta: any }) {
+  const stages = Array.isArray(meta?.stages) ? meta.stages : [];
+  if (!stages.length) return null;
+  return (
+    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+      <div className="flex items-center justify-between mb-6">
+        <h3 className={THEME_TOKENS.typography.capsLabel}>Pipeline</h3>
+        {typeof meta.total_ms === "number" && (
+          <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
+            {formatStageMs(meta.total_ms)} total
+          </span>
+        )}
+      </div>
+      <div className="space-y-4">
+        {stages.map((stage: any, i: number) => (
+          <details key={`${stage.name}-${stage.at || i}`} className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm">
+              <span className="font-medium text-foreground">
+                {STAGE_LABELS[stage.name] || stage.name}
+              </span>
+              <span className="text-muted-foreground tabular-nums">
+                {formatStageMs(Number(stage.ms))}
+                {stage.model ? ` · ${stage.model}` : ""}
+                {stage.error ? " · failed" : ""}
+              </span>
+            </summary>
+            <div className="mt-3 space-y-3 text-xs text-muted-foreground">
+              {stage.note && <p>{stage.note}</p>}
+              {stage.language && <p>Language: {stage.language}</p>}
+              {stage.error && <p className="text-destructive">{stage.error}</p>}
+              {(stage.prompts || []).map((prompt: any, pi: number) => (
+                <pre
+                  key={pi}
+                  className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-secondary/40 p-3 font-mono text-[11px] leading-relaxed text-foreground/80"
+                >
+                  {prompt.role?.toUpperCase()}: {prompt.content || ""}
+                </pre>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
 function labelsFromDealUrl(dealUrl: string | undefined | null): {
@@ -43,11 +101,6 @@ const MemoDetail = () => {
   const [syncResult, setSyncResult] = useState<any>(null);
   const [isReExtracting, setIsReExtracting] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
-  const [editedTranscript, setEditedTranscript] = useState<string>("");
-
-  useEffect(() => {
-    if (memo?.transcript) setEditedTranscript(memo.transcript);
-  }, [memo?.transcript]);
 
   /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {
@@ -85,6 +138,9 @@ const MemoDetail = () => {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
+    setMemo(null);
+    setSyncResult(null);
+    setError(null);
     const load = async () => {
       try {
         setIsLoading(true);
@@ -106,14 +162,19 @@ const MemoDetail = () => {
     const TRANSIENT = ["uploading", "transcribing", "extracting"];
     if (!TRANSIENT.includes(memo.status)) return;
 
+    let cancelled = false;
     const poll = async () => {
       try {
         const data = await api.get<any>(`/memos/${id}`);
+        if (cancelled) return;
         setMemo(data);
       } catch { /* silent — next tick retries */ }
     };
     const interval = window.setInterval(poll, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [id, memo?.status]);
 
   const togglePlay = () => {
@@ -152,7 +213,7 @@ const MemoDetail = () => {
     if (!id) return;
     setIsConfirmingTranscript(true);
     try {
-      await memosApi.confirmTranscript(id, editedTranscript.trim() || undefined);
+      await memosApi.confirmTranscript(id);
       toast.success("AI is extracting CRM fields...");
       setMemo((prev: any) => prev ? { ...prev, status: "extracting" } : prev);
     } catch (err: any) {
@@ -198,7 +259,7 @@ const MemoDetail = () => {
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn} text-center`}>
         <Link
           to="/dashboard/memos"
-          className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige mb-12 transition-colors group"
+          className="inline-flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60 hover:text-beige mb-12 transition-colors group"
         >
           <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
           Back to Memos
@@ -219,7 +280,7 @@ const MemoDetail = () => {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               {syncResult.deal_url ? (
-                <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:scale-105 transition-transform">
+                <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:opacity-90 transition-opacity">
                   <a href={syncResult.deal_url} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-4 w-4 mr-2" />
                     {viewInCrm}
@@ -240,7 +301,7 @@ const MemoDetail = () => {
     <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
       <Link
         to="/dashboard/memos"
-        className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 hover:text-beige mb-10 transition-colors group"
+        className="inline-flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60 hover:text-beige mb-10 transition-colors group"
       >
         <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
         Back to Memos
@@ -303,7 +364,7 @@ const MemoDetail = () => {
                   variant="outline"
                   size="icon"
                   onClick={togglePlay}
-                  className="rounded-full w-12 h-12 bg-beige text-cream border-none hover:scale-105 transition-transform"
+                  className="rounded-full w-12 h-12 bg-beige text-cream border-none hover:opacity-90 transition-opacity"
                 >
                   {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-1" />}
                 </Button>
@@ -331,22 +392,13 @@ const MemoDetail = () => {
             <div className="flex items-center justify-between mb-8">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
               {memo.transcriptConfidence && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-success/10 text-success">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-medium bg-success/10 text-success">
                   <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
                   {Math.round(memo.transcriptConfidence * 100)}% accuracy
                 </span>
               )}
             </div>
             {memo.transcript ? (
-              isPendingTranscript ? (
-                <Textarea
-                  value={editedTranscript}
-                  onChange={(e) => setEditedTranscript(e.target.value)}
-                  placeholder="Edit transcript if needed..."
-                  className="min-h-[200px] font-mono text-sm"
-                  readOnly={false}
-                />
-              ) : (
                 <div className="prose prose-sm text-muted-foreground max-h-[500px] overflow-y-auto pr-4 scrollbar-thin">
                   {memo.transcript.split("\n").map((line: string, i: number) => (
                     <p key={i} className="mb-4 leading-relaxed tracking-tight">
@@ -354,11 +406,10 @@ const MemoDetail = () => {
                     </p>
                   ))}
                 </div>
-              )
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center opacity-40">
                 <Sparkles className="h-8 w-8 mb-4 animate-pulse" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Generating transcript...</p>
+                <p className="text-[10px] font-medium">Generating transcript...</p>
               </div>
             )}
             {isPendingTranscript && !isProcessing && memo?.transcript && (
@@ -366,12 +417,16 @@ const MemoDetail = () => {
                 variant="hero"
                 onClick={handleConfirmTranscript}
                 disabled={isConfirmingTranscript}
-                className="mt-6 w-full rounded-full text-[10px] font-black uppercase tracking-widest bg-beige text-cream"
+                className="mt-6 w-full rounded-full text-[10px] font-medium bg-beige text-cream"
               >
                 {isConfirmingTranscript ? "Extracting..." : "Extract & Continue"}
               </Button>
             )}
           </div>
+
+          {memo.pipelineMeta?.stages?.length ? (
+            <PipelineMetaCard meta={memo.pipelineMeta} />
+          ) : null}
         </div>
 
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
@@ -395,7 +450,7 @@ const MemoDetail = () => {
               <Sparkles className="h-12 w-12 text-beige" />
             </div>
             <p className="mt-6 text-lg font-bold">AI is analyzing your sales conversation</p>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 mt-1">
+            <p className="text-[10px] font-medium text-muted-foreground/40 mt-1">
               Extracting CRM fields...
             </p>
           </div>

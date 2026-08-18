@@ -35,7 +35,7 @@ const LoginPage = () => {
     <div className="min-h-screen flex items-center justify-center p-6 bg-cream">
       <div className={`w-full max-w-md ${THEME_TOKENS.motion.fadeIn}`}>
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-beige/10 mb-6">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-beige/10 mb-6">
             <Mic className="h-8 w-8 text-beige" />
           </div>
           <h1 className={`${THEME_TOKENS.typography.pageTitle} mb-2`}>Welcome Back</h1>
@@ -75,7 +75,7 @@ const LoginPage = () => {
 
             <Button
               type="submit"
-              className="w-full h-12 rounded-full bg-beige text-cream hover:bg-beige/90 transition-all group"
+              className="w-full h-11 rounded-lg bg-beige text-cream hover:bg-beige/90 group"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -92,7 +92,7 @@ const LoginPage = () => {
           <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground">
               Don't have an account?{" "}
-              <Link to="/signup" className="font-bold text-beige hover:underline">
+              <Link to="/signup" className="font-medium text-beige hover:underline">
                 Sign Up
               </Link>
             </p>

@@ -48,6 +48,7 @@ from app.services.crm_updates import CRMUpdatesService
 from app.services.task_merge import TaskMergeService
 from app.services.deal_merge import DealMergeService
 from app.services.extraction import _clean_extracted_name
+from app.services.extraction_policy import drop_call_unsafe_props
 from .object_properties import (
     contact_properties_from_extraction,
     company_properties_from_extraction,
@@ -55,6 +56,25 @@ from .object_properties import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _contact_props_updating_existing(
+    contacts: HubSpotContactService,
+    extraction: MemoExtraction,
+    allowed_fields: Optional[list[str]],
+) -> dict[str, Any]:
+    """Map extraction onto an existing contact without renaming them from a spoken name."""
+    props = contact_properties_from_extraction(
+        extraction,
+        allowed_fields=allowed_fields,
+        identity_props=contacts.map_extraction_to_properties(extraction),
+    )
+    return drop_call_unsafe_props(
+        props,
+        existing_record=True,
+        current={},
+        object_type="contacts",
+    )
 
 
 async def _get_hubspot_owner_id_for_user(
@@ -368,6 +388,12 @@ class HubSpotSyncService:
                         identity_props=self.companies.map_extraction_to_properties(extraction),
                     )
                     company_props.pop("name", None)
+                    company_props = drop_call_unsafe_props(
+                        company_props,
+                        existing_record=True,
+                        current={},
+                        object_type="companies",
+                    )
                     if company_props:
                         async with self.crm_updates.track(
                             memo_id=str(memo_id),
@@ -437,7 +463,11 @@ class HubSpotSyncService:
             raw = extraction.raw_extraction or {}
             company = extraction.companyName or _clean_extracted_name(raw.get("companyName")) or _clean_extracted_name(raw.get("company_name"))
             contact_name = extraction.contactName or _clean_extracted_name(raw.get("contactName")) or _clean_extracted_name(raw.get("contact_name"))
-            contact_email = extraction.contactEmail or raw.get("contactEmail") or raw.get("contact_email")
+            from app.services.hubspot.contact_identity import real_contact_email_or_none
+
+            contact_email = real_contact_email_or_none(
+                extraction.contactEmail or raw.get("contactEmail") or raw.get("contact_email")
+            )
             # Fallback: when we only have company, create "Contact at {company}"
             if company and not contact_name and not contact_email:
                 contact_name = f"Contact at {company}"
@@ -445,7 +475,7 @@ class HubSpotSyncService:
                 update={
                     "companyName": company or extraction.companyName,
                     "contactName": contact_name or extraction.contactName,
-                    "contactEmail": contact_email or extraction.contactEmail,
+                    "contactEmail": contact_email,
                 }
             )
             # Contact-first: update the resolved contact by ID (not deal's primary contact)
@@ -458,12 +488,8 @@ class HubSpotSyncService:
                         action_type="upsert_contact",
                         resource_type="contact",
                     ) as tracked:
-                        props = contact_properties_from_extraction(
-                            extraction_for_contact,
-                            allowed_fields=allowed_contact_fields,
-                            identity_props=self.contacts.map_extraction_to_properties(
-                                extraction_for_contact
-                            ),
+                        props = _contact_props_updating_existing(
+                            self.contacts, extraction_for_contact, allowed_contact_fields
                         )
                         props.pop("email", None)  # never rotate the locked identity email
                         if props:
@@ -490,7 +516,9 @@ class HubSpotSyncService:
                     )
             else:
                 should_create_contact = create_contacts and (
-                    extraction_for_contact.contactEmail or extraction_for_contact.contactName
+                    extraction_for_contact.contactEmail
+                    or extraction_for_contact.contactName
+                    or extraction_for_contact.contactPhone
                 )
                 if should_create_contact:
                     try:
@@ -508,12 +536,8 @@ class HubSpotSyncService:
                                 contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                                 if contact_ids:
                                     primary_contact_id = contact_ids[0]
-                                    props = contact_properties_from_extraction(
-                                        extraction_for_contact,
-                                        allowed_fields=allowed_contact_fields,
-                                        identity_props=self.contacts.map_extraction_to_properties(
-                                            extraction_for_contact
-                                        ),
+                                    props = _contact_props_updating_existing(
+                                        self.contacts, extraction_for_contact, allowed_contact_fields
                                     )
                                     if props:
                                         async with self.crm_updates.track(
@@ -733,20 +757,16 @@ class HubSpotSyncService:
                     )
                     return result
 
-                # Step 4b: UPDATE MODE - Update deal's primary contact when extraction has contact info but no email
-                # (create_or_update requires email; deal's contact can still be updated by ID)
+                # Step 4b: UPDATE MODE — update the deal's primary contact by ID when
+                # we still have name/role/phone (or nested props) and no locked contact.
                 if deal_id and not is_new_deal and (extraction_for_contact.contactName or extraction_for_contact.contactRole or extraction_for_contact.contactPhone or (extraction.raw_extraction or {}).get("contact_properties")):
                     if not contact_id:
                         try:
                             contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                             if contact_ids:
                                 primary_contact_id = contact_ids[0]
-                                props = contact_properties_from_extraction(
-                                    extraction_for_contact,
-                                    allowed_fields=allowed_contact_fields,
-                                    identity_props=self.contacts.map_extraction_to_properties(
-                                        extraction_for_contact
-                                    ),
+                                props = _contact_props_updating_existing(
+                                    self.contacts, extraction_for_contact, allowed_contact_fields
                                 )
                                 props.pop("email", None)
                                 if props:
@@ -781,6 +801,12 @@ class HubSpotSyncService:
                         identity_props=self.companies.map_extraction_to_properties(extraction),
                     )
                     company_props.pop("name", None)  # don't rename company from memo by default
+                    company_props = drop_call_unsafe_props(
+                        company_props,
+                        existing_record=True,
+                        current={},
+                        object_type="companies",
+                    )
                     if company_props:
                         try:
                             cids = await self.associations.get_associations("deals", deal_id, "companies")

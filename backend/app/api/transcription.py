@@ -6,6 +6,10 @@ Modes (query param `mode`):
   - default / memo: plain STT (diarization none) — recording page
   - enroll: speaker ID capture (get_speakers) for one-script voice enrollment
   - copilot: live speaker diarization + inject enrolled rep identifiers
+  - copilot_channels: Speechmatics channel diarization (tab=prospect, mic=rep).
+    Audio arrives as AddChannelAudio JSON, not mixed PCM.
+    Query `channel_labels=prospect,rep` or `prospect` when the mic is unavailable.
+    Docs: https://docs.speechmatics.com/speech-to-text/realtime/realtime-diarization
 """
 
 from __future__ import annotations
@@ -41,13 +45,26 @@ from fastapi import APIRouter, WebSocket
 from app.config import settings
 from app.deps import get_supabase
 from app.services.glossary import GlossaryService
+from app.services.stt_channels import (
+    COPILOT_CHANNEL_MODE,
+    accepts_client_pcm_bytes,
+    client_text_to_sm_item,
+    parse_channel_labels,
+    speechmatics_audio_channel,
+    transcription_diarization_for_mode,
+)
+from app.services.session_entities import (
+    load_stt_profile,
+    parse_session_vocab,
+    resolve_speechmatics_rt_language,
+)
 from app.services.voice_enrollment import REP_LABEL, VoiceEnrollmentService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/transcription", tags=["transcription"])
 
-VALID_MODES = {"default", "memo", "enroll", "copilot"}
+VALID_MODES = {"default", "memo", "enroll", "copilot", COPILOT_CHANNEL_MODE}
 
 
 def _extract_words(data: dict) -> list[dict[str, Any]]:
@@ -114,11 +131,19 @@ class SpeechmaticsProxy:
         *,
         mode: str = "default",
         enrolled_speaker: Optional[dict[str, Any]] = None,
+        channel_labels: Optional[List[str]] = None,
     ):
-        self.language = "es" if language == "multi" else language
+        self.language = resolve_speechmatics_rt_language(language)
         self.glossary = glossary or []
         self.mode = mode if mode in VALID_MODES else "default"
         self.enrolled_speaker = enrolled_speaker
+        self.channel_labels = (
+            list(channel_labels)
+            if channel_labels
+            else parse_channel_labels(None)
+            if self.mode == COPILOT_CHANNEL_MODE
+            else []
+        )
         self.api_key = (
             settings.SPEECHMATICS_API_KEY
             or os.environ.get("SPEECHMATICS_API_KEY")
@@ -129,11 +154,14 @@ class SpeechmaticsProxy:
         self.recognition_started = asyncio.Event()
 
     def _build_transcription_config(self, target_lang: str) -> dict[str, Any]:
-        use_speaker = self.mode in ("enroll", "copilot")
+        diar = transcription_diarization_for_mode(
+            self.mode,
+            channel_labels=self.channel_labels or None,
+        )
+        use_speaker = diar.get("diarization") == "speaker"
         cfg: dict[str, Any] = {
             "language": target_lang,
             "operating_point": "enhanced",
-            "diarization": "speaker" if use_speaker else "none",
             "enable_partials": True,
             # 0.7 was too aggressive for speakerphone — finals were early/garbled.
             # Speechmatics voice-agent guidance ~1.5s; keep enroll a bit snappier.
@@ -142,6 +170,7 @@ class SpeechmaticsProxy:
             "conversation_config": {
                 "end_of_utterance_silence_trigger": 0.8 if use_speaker else 0.6,
             },
+            **diar,
         }
 
         if self.mode == "enroll":
@@ -184,7 +213,7 @@ class SpeechmaticsProxy:
             )
             return
 
-        target_lang = "es" if self.language == "multi" else self.language
+        target_lang = resolve_speechmatics_rt_language(self.language)
         connection_url = f"{self.base_url}/{target_lang}"
         logger.info(
             "Speechmatics connecting to %s (mode=%s enrolled=%s)",
@@ -231,6 +260,9 @@ class SpeechmaticsProxy:
                         if isinstance(audio_chunk, dict):
                             await sm_ws.send(json.dumps(audio_chunk))
                             continue
+                        if self.mode == COPILOT_CHANNEL_MODE:
+                            # Mixed PCM would destroy channel labels. Drop it.
+                            continue
                         await sm_ws.send(audio_chunk)
 
                 async def receive_transcripts():
@@ -273,18 +305,25 @@ class SpeechmaticsProxy:
                             }
                             if words:
                                 response["words"] = words
+                            audio_channel = speechmatics_audio_channel(data)
+                            if audio_channel:
+                                # Keep Deepgram-shaped `channel.alternatives` for text;
+                                # SM's string channel is a different field.
+                                response["audio_channel"] = audio_channel
                             await client_ws.send_json(response)
 
                         elif msg_type == "EndOfUtterance":
                             meta = data.get("metadata") or {}
-                            await client_ws.send_json(
-                                {
-                                    "type": "EndOfUtterance",
-                                    "forced": bool(meta.get("forced") or data.get("forced")),
-                                    "start_time": meta.get("start_time"),
-                                    "end_time": meta.get("end_time"),
-                                }
-                            )
+                            eou: dict[str, Any] = {
+                                "type": "EndOfUtterance",
+                                "forced": bool(meta.get("forced") or data.get("forced")),
+                                "start_time": meta.get("start_time"),
+                                "end_time": meta.get("end_time"),
+                            }
+                            audio_channel = speechmatics_audio_channel(data)
+                            if audio_channel:
+                                eou["audio_channel"] = audio_channel
+                            await client_ws.send_json(eou)
 
                         elif msg_type == "SpeakersResult":
                             identifiers = _identifiers_from_speakers_result(data)
@@ -343,6 +382,7 @@ class SpeechmaticsOnlyProxy:
         *,
         mode: str = "default",
         enrolled_speaker: Optional[dict[str, Any]] = None,
+        channel_labels: Optional[List[str]] = None,
     ):
         self.language = language
         self.glossary = glossary or []
@@ -353,6 +393,7 @@ class SpeechmaticsOnlyProxy:
             glossary=self.glossary,
             mode=mode,
             enrolled_speaker=enrolled_speaker,
+            channel_labels=channel_labels,
         )
 
     async def proxy_session(self, client_ws: WebSocket):
@@ -367,17 +408,30 @@ class SpeechmaticsOnlyProxy:
                         msg = await client_ws.receive()
                         if msg["type"] == "websocket.disconnect":
                             break
-                        if "bytes" in msg:
-                            await self.sm_queue.put(msg["bytes"])
-                        elif "text" in msg:
-                            data = json.loads(msg["text"])
-                            msg_type = data.get("type") or data.get("message")
-                            if msg_type in ("Finalize", "ForceEndOfUtterance"):
-                                await self.sm_queue.put(
-                                    {"message": "ForceEndOfUtterance"}
-                                )
-                            elif msg_type == "CloseStream":
+                        if msg.get("bytes") is not None:
+                            if accepts_client_pcm_bytes(self.mode):
+                                await self.sm_queue.put(msg["bytes"])
+                            continue
+                        text = msg.get("text")
+                        if not text:
+                            continue
+                        data = json.loads(text)
+                        if self.mode == COPILOT_CHANNEL_MODE:
+                            item = client_text_to_sm_item(
+                                data, self.sm_proxy.channel_labels
+                            )
+                            if item == "close":
                                 break
+                            if item is not None:
+                                await self.sm_queue.put(item)
+                            continue
+                        msg_type = data.get("type") or data.get("message")
+                        if msg_type in ("Finalize", "ForceEndOfUtterance"):
+                            await self.sm_queue.put(
+                                {"message": "ForceEndOfUtterance"}
+                            )
+                        elif msg_type == "CloseStream":
+                            break
                 finally:
                     await self.sm_queue.put(None)
 
@@ -413,6 +467,13 @@ async def live_transcription(websocket: WebSocket):
             logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
         except Exception as e:
             logger.error("Failed to load glossary: %s", e)
+        try:
+            profile = load_stt_profile(get_supabase(), user_id)
+            for name in (profile.get("full_name"), profile.get("company_name")):
+                if name:
+                    glossary.append({"target_word": name, "phonetic_hints": []})
+        except Exception as e:
+            logger.error("Failed to load STT profile names: %s", e)
 
     if session_vocab_raw:
         seen = {
@@ -420,15 +481,38 @@ async def live_transcription(websocket: WebSocket):
             for g in glossary
             if isinstance(g, dict)
         }
-        for part in session_vocab_raw.split("|"):
-            term = part.strip()
-            if not term or term.lower() in seen:
+        for term in parse_session_vocab(session_vocab_raw):
+            key = term.canonical.lower()
+            if key in seen:
+                # Merge phonetic hints onto an existing glossary row
+                for g in glossary:
+                    if not isinstance(g, dict):
+                        continue
+                    existing = (g.get("target_word") or g.get("term") or "").strip().lower()
+                    if existing != key:
+                        continue
+                    hints = list(g.get("phonetic_hints") or [])
+                    for alias in term.aliases:
+                        if alias not in hints:
+                            hints.append(alias)
+                    g["phonetic_hints"] = hints
+                    break
                 continue
-            seen.add(term.lower())
-            glossary.append({"target_word": term, "phonetic_hints": []})
+            seen.add(key)
+            glossary.append(
+                {
+                    "target_word": term.canonical,
+                    "phonetic_hints": list(term.aliases),
+                }
+            )
 
     enrolled_speaker = None
-    if mode == "copilot" and user_id and user_id != "anonymous":
+    channel_labels = None
+    if mode == COPILOT_CHANNEL_MODE:
+        channel_labels = parse_channel_labels(
+            websocket.query_params.get("channel_labels")
+        )
+    elif mode == "copilot" and user_id and user_id != "anonymous":
         try:
             enrolled_speaker = VoiceEnrollmentService(
                 get_supabase()
@@ -447,5 +531,6 @@ async def live_transcription(websocket: WebSocket):
         glossary=glossary,
         mode=mode,
         enrolled_speaker=enrolled_speaker,
+        channel_labels=channel_labels,
     )
     await proxy.proxy_session(websocket)

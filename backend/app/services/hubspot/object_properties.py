@@ -40,6 +40,11 @@ def contact_properties_from_extraction(
         props.update(identity_props)
     props.update(nested)
     props = _nonempty_props(props)
+    from app.services.hubspot.contact_identity import is_real_contact_email
+
+    email = props.get("email")
+    if email and not is_real_contact_email(str(email)):
+        props.pop("email", None)
     if allowed_fields is not None:
         allow = set(allowed_fields)
         props = {k: v for k, v in props.items() if k in allow}

@@ -24,6 +24,7 @@ from app.services.hubspot import (
 )
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
+from app.services.preview_targets import unique_associated_contact_id
 from app.models.hubspot import (
     ConnectHubSpotRequest,
     ConnectHubSpotResponse,
@@ -49,6 +50,7 @@ from app.services.hubspot.oauth import (
 )
 from app.services.hubspot.calls import (
     get_call_engagement,
+    list_recent_recordings,
     list_recordings_for_record,
 )
 from app.services.hubspot.call_processor import (
@@ -95,7 +97,7 @@ def get_hubspot_client_from_connection(
         connection = ensure_fresh_hubspot_connection(supabase, connection)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_409_CONFLICT,
             detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
         ) from e
     
@@ -127,7 +129,7 @@ def _hubspot_access_token(user_id: str, supabase: Client) -> str:
         connection = ensure_fresh_hubspot_connection(supabase, result.data)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_409_CONFLICT,
             detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
         ) from e
     token = (connection.get("access_token") or "").strip()
@@ -248,6 +250,28 @@ async def list_hubspot_recordings_for_contact(
     return await _recordings_for_record(user_id, supabase, "contacts", contact_id)
 
 
+@router.get("/hubspot/companies/{company_id}/recordings")
+async def list_hubspot_recordings_for_company(
+    company_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """HubSpot calls with recordings linked to this company, plus Vocify memo state."""
+    return await _recordings_for_record(user_id, supabase, "companies", company_id)
+
+
+@router.get("/hubspot/recordings")
+async def list_recent_hubspot_recordings(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Newest HubSpot calls with recordings across the portal."""
+    client = get_hubspot_client_from_connection(user_id, supabase)
+    items = await list_recent_recordings(client, limit=limit)
+    return _join_memo_state(supabase, user_id, items)
+
+
 @router.post("/hubspot/calls/{call_id}/process")
 async def process_hubspot_call(
     call_id: str,
@@ -358,7 +382,16 @@ async def get_contact_context_for_extension(
                 company_name = (comp.properties or {}).get("name")
         except Exception:
             pass
-        vocab = [t for t in [name, email, company_name, phone] if t]
+        from app.services.session_entities import load_stt_profile, vocab_for_hubspot_context
+
+        profile = load_stt_profile(supabase, user_id)
+        vocab = vocab_for_hubspot_context(
+            first_name=first,
+            last_name=last,
+            company_name=company_name,
+            caller_name=profile.get("full_name"),
+            seller_company=profile.get("company_name"),
+        )
         return {
             "contactId": contact_id,
             "contactName": name,
@@ -421,8 +454,19 @@ async def get_company_context_for_extension(
             except Exception:
                 continue
 
-        primary = contacts_out[0] if len(contacts_out) == 1 else None
-        vocab = [t for t in [company_name, *(c.get("name") for c in contacts_out[:2])] if t]
+        primary = next(
+            (c for c in contacts_out if c["contact_id"] == unique_associated_contact_id(contacts_out)),
+            None,
+        )
+        from app.services.session_entities import load_stt_profile, vocab_for_hubspot_context
+
+        profile = load_stt_profile(supabase, user_id)
+        vocab = vocab_for_hubspot_context(
+            company_name=company_name,
+            extra_names=[c.get("name") for c in contacts_out[:4]],
+            caller_name=profile.get("full_name"),
+            seller_company=profile.get("company_name"),
+        )
         return {
             "companyId": company_id,
             "companyName": company_name,
@@ -1239,6 +1283,8 @@ async def get_deal_context_for_prefill(
         ctx["companyName"] = None
         ctx["contactName"] = None
         ctx["contactEmail"] = None
+        ctx["contactId"] = None
+        ctx["contacts"] = []
 
         company_ids = await association_service.get_associations("deals", deal_id, "companies")
         if company_ids:
@@ -1247,27 +1293,53 @@ async def get_deal_context_for_prefill(
             ctx["companyName"] = comp.properties.get("name") or ctx["companyName"]
 
         contact_ids = await association_service.get_associations("deals", deal_id, "contacts")
-        if contact_ids:
-            contact = await contact_service.get(contact_ids[0])
-            cprops = contact.properties
-            first = cprops.get("firstname") or ""
-            last = cprops.get("lastname") or ""
-            ctx["contactName"] = f"{first} {last}".strip() or None
-            ctx["contactEmail"] = cprops.get("email") or None
-            ctx["contactId"] = str(contact_ids[0])
-            ctx["contactPhone"] = cprops.get("phone") or cprops.get("mobilephone") or None
+        contacts_out: list[dict] = []
+        for cid in (contact_ids or [])[:5]:
+            try:
+                contact = await contact_service.get(str(cid))
+                cprops = contact.properties or {}
+                first = cprops.get("firstname") or ""
+                last = cprops.get("lastname") or ""
+                contacts_out.append(
+                    {
+                        "contact_id": str(cid),
+                        "name": f"{first} {last}".strip() or None,
+                        "email": cprops.get("email") or None,
+                        "phone": cprops.get("phone") or cprops.get("mobilephone") or None,
+                        "company_id": ctx.get("companyId"),
+                        "company_name": ctx.get("companyName"),
+                    }
+                )
+            except Exception:
+                continue
+        ctx["contacts"] = contacts_out
+        locked = unique_associated_contact_id(contacts_out)
+        if locked:
+            primary = next((c for c in contacts_out if c["contact_id"] == locked), None)
+            if primary:
+                ctx["contactId"] = locked
+                ctx["contactName"] = primary.get("name")
+                ctx["contactEmail"] = primary.get("email")
+                ctx["contactPhone"] = primary.get("phone")
+        elif contacts_out:
+            ctx["contactName"] = None
+            ctx["contactEmail"] = None
     except Exception:
         pass
-    vocab = [
-        t
-        for t in [
-            ctx.get("companyName"),
-            ctx.get("contactName"),
-            ctx.get("contactEmail"),
-            (ctx.get("raw_extraction") or {}).get("dealname"),
-        ]
-        if t
-    ]
+    from app.services.session_entities import load_stt_profile, vocab_for_hubspot_context
+
+    profile = load_stt_profile(supabase, user_id)
+    contact_name = ctx.get("contactName") or ""
+    parts = contact_name.split(None, 1)
+    vocab = vocab_for_hubspot_context(
+        first_name=parts[0] if parts else None,
+        last_name=parts[1] if len(parts) > 1 else None,
+        company_name=ctx.get("companyName"),
+        deal_name=(ctx.get("raw_extraction") or {}).get("dealname"),
+        extra_names=[c.get("name") for c in (ctx.get("contacts") or [])[:4]],
+        caller_name=profile.get("full_name"),
+        seller_company=profile.get("company_name"),
+    )
     ctx["sessionVocab"] = vocab
     ctx["dealId"] = deal_id
     return ctx

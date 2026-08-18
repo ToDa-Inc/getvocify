@@ -10,22 +10,19 @@ const getStatusBadge = (status: string) => {
   switch (status) {
     case "approved":
       return (
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-success/10 text-success`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-success/10 text-success">
           Approved
         </span>
       );
     case "pending_review":
       return (
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-warning/10 text-warning`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-warning shadow-[0_0_8px_rgba(234,179,8,0.4)]" />
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-warning">
           Pending
         </span>
       );
     case "pending_transcript":
       return (
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-beige/10 text-beige`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-beige" />
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-beige/10 text-beige">
           Review transcript
         </span>
       );
@@ -33,15 +30,13 @@ const getStatusBadge = (status: string) => {
     case "transcribing":
     case "extracting":
       return (
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-secondary/20 text-muted-foreground`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground animate-pulse" />
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-secondary text-muted-foreground">
           Processing
         </span>
       );
     case "failed":
       return (
-        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-destructive/10 text-destructive`}>
-          <span className="w-1.5 h-1.5 rounded-full bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.4)]" />
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-destructive/10 text-destructive">
           Failed
         </span>
       );
@@ -108,7 +103,7 @@ const MemosPage = () => {
               placeholder="Search memos..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-11 pr-6 h-12 bg-white border-border/40 rounded-full w-full md:w-64 focus:ring-beige focus:border-beige transition-all shadow-soft"
+              className="pl-11 pr-6 h-10 bg-card border-border rounded-lg w-full md:w-64"
             />
           </div>
         </div>
@@ -123,28 +118,28 @@ const MemosPage = () => {
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-12 text-center`}>
           <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-4" />
           <p className="text-muted-foreground">{error}</p>
-          <button onClick={fetchMemos} className="mt-4 text-[10px] font-black uppercase tracking-widest text-beige hover:underline">
+          <button onClick={fetchMemos} className="mt-4 text-sm font-medium text-beige hover:underline">
             Try again
           </button>
         </div>
       ) : filteredMemos.length === 0 ? (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-20 text-center`}>
-          <div className={`w-20 h-20 mx-auto mb-8 rounded-3xl bg-secondary/5 flex items-center justify-center`}>
-            <Mic className="h-10 w-10 text-muted-foreground/20" />
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-16 text-center`}>
+          <div className="w-14 h-14 mx-auto mb-6 rounded-2xl bg-secondary flex items-center justify-center">
+            <Mic className="h-6 w-6 text-muted-foreground/40" />
           </div>
-          <h3 className="text-2xl font-bold text-foreground mb-4">
+          <h3 className="text-xl font-semibold text-foreground mb-2">
             {searchTerm ? "No matches found" : "No voice memos yet"}
           </h3>
-          <p className="text-muted-foreground mb-10 max-w-sm mx-auto leading-relaxed">
+          <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
             {searchTerm ? `No results for "${searchTerm}"` : "Your recorded conversations will appear here once processed."}
           </p>
           {!searchTerm && (
             <Link 
               to="/dashboard/record"
-              className="inline-flex items-center gap-3 px-10 py-4 bg-beige text-cream rounded-full font-black uppercase tracking-widest shadow-large hover:scale-105 transition-transform"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-beige text-cream rounded-lg font-medium"
             >
-              <Mic className="h-5 w-5" />
-              Record First Memo
+              <Mic className="h-4 w-4" />
+              Record first memo
             </Link>
           )}
         </div>
@@ -157,17 +152,17 @@ const MemosPage = () => {
               className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${THEME_TOKENS.cards.hover} ${V_PATTERNS.listItem} group`}
             >
               <div className="flex items-center gap-8">
-                <div className={`w-14 h-14 rounded-2xl bg-secondary/5 flex items-center justify-center flex-shrink-0 group-hover:bg-beige/10 transition-colors`}>
-                  <Mic className="h-6 w-6 text-beige" />
+                <div className={`w-11 h-11 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0`}>
+                  <Mic className="h-5 w-5 text-beige" />
                 </div>
                 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-bold text-foreground text-lg group-hover:text-beige transition-colors truncate">
+                    <h3 className="font-medium text-foreground text-base truncate">
                       {memo.extraction?.companyName || "Untitled Conversation"}
                     </h3>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/30 bg-secondary/20 px-2 py-0.5 rounded-md flex items-center gap-1">
-                      <Clock className="h-2.5 w-2.5" />
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
                       {formatDuration(memo.audioDuration)}
                     </span>
                   </div>
@@ -178,7 +173,7 @@ const MemosPage = () => {
                 
                 <div className="flex flex-col items-end gap-3 flex-shrink-0">
                   {getStatusBadge(memo.status)}
-                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Calendar className="h-3 w-3" />
                     {formatDistanceToNow(new Date(memo.createdAt), { addSuffix: true })}
                   </div>

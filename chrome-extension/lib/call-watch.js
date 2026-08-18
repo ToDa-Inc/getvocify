@@ -38,21 +38,12 @@ export function decideCallWatchAction({
 }
 
 /**
- * Opening the side panel must show the current record, not a leftover
- * "Converting speech to text…" screen. Back already does this via DISCARD_MEMO.
- * Keep a live mic session; keep review because the user is already in that flow.
+ * Opening the side panel should keep live work. A user-started transcribe
+ * must stay on the processing screen — do not idle it away.
  */
 export function panelOpenState(state) {
   if (!state || typeof state !== 'object') {
     return { status: 'idle', isRecording: false };
-  }
-  if (state.isRecording) return state;
-  if (state.status === 'processing') {
-    return {
-      ...state,
-      status: 'idle',
-      processingSource: null,
-    };
   }
   return state;
 }

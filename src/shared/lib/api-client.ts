@@ -10,6 +10,21 @@
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
 const REFRESH_KEY = 'vocify_refresh';
+
+function crmReconnectDetail(data: unknown): string {
+  if (!data || typeof data !== 'object') return '';
+  const detail = (data as { detail?: unknown }).detail;
+  return typeof detail === 'string' ? detail : '';
+}
+
+function isCrmReconnectResponse(status: number, data: unknown): boolean {
+  const detail = crmReconnectDetail(data);
+  if (status === 409) return /hubspot|salesforce|reconnect/i.test(detail);
+  if (status !== 401) return false;
+  return /hubspot authorization expired|reconnect hubspot|could not refresh hubspot|salesforce authorization expired|reconnect salesforce/i.test(
+    detail,
+  );
+}
 /**
  * Custom error class for API errors
  * Provides structured access to error details
@@ -184,20 +199,22 @@ class ApiClient {
 
     const response = await fetch(url, { ...options, headers });
 
-    // On 401: try refresh and retry once (skip for auth endpoints and retries)
     if (response.status === 401 && !isRetry && !endpoint.startsWith('/auth/')) {
-      const newToken = await this.tryRefreshToken();
-      if (newToken) {
-        return this.request<T>(endpoint, {
-          ...options,
-          headers: {
-            ...options.headers,
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${newToken}`,
-          },
-        }, true);
+      const preview = await response.clone().json().catch(() => ({}));
+      if (!isCrmReconnectResponse(401, preview)) {
+        const newToken = await this.tryRefreshToken();
+        if (newToken) {
+          return this.request<T>(endpoint, {
+            ...options,
+            headers: {
+              ...options.headers,
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${newToken}`,
+            },
+          }, true);
+        }
+        this.clearAllAuth();
       }
-      this.clearAllAuth();
     }
 
     // Handle errors
@@ -293,11 +310,14 @@ class ApiClient {
     });
 
     if (response.status === 401 && !isRetry && !endpoint.startsWith('/auth/')) {
-      const newToken = await this.tryRefreshToken();
-      if (newToken) {
-        return this.upload<T>(endpoint, file, fieldName, true);
+      const preview = await response.clone().json().catch(() => ({}));
+      if (!isCrmReconnectResponse(401, preview)) {
+        const newToken = await this.tryRefreshToken();
+        if (newToken) {
+          return this.upload<T>(endpoint, file, fieldName, true);
+        }
+        this.clearAllAuth();
       }
-      this.clearAllAuth();
     }
 
     if (!response.ok) {
@@ -378,7 +398,8 @@ class ApiClient {
         err instanceof ApiError &&
         err.status === 401 &&
         !isRetry &&
-        !endpoint.startsWith('/auth/')
+        !endpoint.startsWith('/auth/') &&
+        !isCrmReconnectResponse(err.status, err.data)
       ) {
         const newToken = await this.tryRefreshToken();
         if (newToken) {

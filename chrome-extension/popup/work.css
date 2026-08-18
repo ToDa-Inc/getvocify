@@ -1,0 +1,7 @@
+.work-on-call-hint {
+  margin: -4px 4px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  font-weight: 500;
+}

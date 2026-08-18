@@ -1,18 +1,23 @@
 /**
  * API Client for Vocify Backend
- * 
+ *
  * Handles all HTTP requests with automatic token management and error handling.
- * API_BASE can be overridden via chrome.storage.local 'api_base' for local dev.
+ * Unpacked (Load unpacked) defaults to localhost:8888.
+ * Packed / Chrome Web Store defaults to production.
+ * chrome.storage.local.api_base always wins when set.
  */
 
-const DEFAULT_API_BASE = 'https://api.getvocify.com/api/v1';
+import { isCrmReconnectError, isPublicAuthPath } from './auth-session.js';
+import { parseSseBuffer } from './copilot-sse.js';
+import { PROD_API_BASE, isUnpackedExtension, resolveApiBase } from './api-base.js';
 
 async function getApiBase() {
   try {
     const r = await chrome.storage.local.get(['api_base']);
-    return r.api_base || DEFAULT_API_BASE;
+    const unpacked = isUnpackedExtension(chrome.runtime?.getManifest?.() || {});
+    return resolveApiBase({ unpacked, override: r.api_base });
   } catch {
-    return DEFAULT_API_BASE;
+    return PROD_API_BASE;
   }
 }
 
@@ -28,28 +33,52 @@ export class ApiError extends Error {
   }
 }
 
+/** Immediate view of tokens so clearTokens() wins over in-flight storage reads. */
+let memoryTokens;
+
+function rememberTokens(accessToken, refreshToken) {
+  memoryTokens = {
+    accessToken: accessToken || null,
+    refreshToken: refreshToken || null,
+  };
+  return memoryTokens;
+}
+
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (!changes.accessToken && !changes.refreshToken) return;
+    const current = memoryTokens || { accessToken: null, refreshToken: null };
+    rememberTokens(
+      changes.accessToken ? changes.accessToken.newValue : current.accessToken,
+      changes.refreshToken ? changes.refreshToken.newValue : current.refreshToken,
+    );
+  });
+} catch { /* non-extension environments */ }
+
 /**
  * Get stored authentication tokens
  */
 async function getTokens() {
+  if (memoryTokens?.accessToken) return memoryTokens;
   const result = await chrome.storage.local.get(['accessToken', 'refreshToken']);
-  return {
-    accessToken: result.accessToken || null,
-    refreshToken: result.refreshToken || null,
-  };
+  return rememberTokens(result.accessToken, result.refreshToken);
 }
 
 /**
  * Store authentication tokens
  */
 async function setTokens(accessToken, refreshToken) {
+  rememberTokens(accessToken, refreshToken);
   await chrome.storage.local.set({ accessToken, refreshToken });
 }
 
 /**
- * Clear stored tokens
+ * Clear stored tokens. Null the in-memory copy first so a concurrent
+ * getTokens() cannot re-read a token that is about to be removed.
  */
 async function clearTokens() {
+  rememberTokens(null, null);
   await chrome.storage.local.remove(['accessToken', 'refreshToken']);
 }
 
@@ -57,21 +86,29 @@ async function clearTokens() {
  * Refresh access token
  */
 async function refreshAccessToken() {
-  const { refreshToken } = await getTokens();
+  const { refreshToken, accessToken } = await getTokens();
   if (!refreshToken) throw new ApiError(401, null, 'No refresh token');
 
   const API_BASE = await getApiBase();
   const response = await fetch(`${API_BASE}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken }),
+    body: JSON.stringify({
+      refresh_token: refreshToken,
+      ...(accessToken ? { access_token: accessToken } : {}),
+    }),
   });
 
   if (!response.ok) throw new ApiError(response.status, null, 'Token refresh failed');
 
   const data = await response.json();
-  await setTokens(data.access_token, refreshToken);
+  await setTokens(data.access_token, data.refresh_token || refreshToken);
   return data.access_token;
+}
+
+function shouldRefreshVocifySession(status, data) {
+  if (status !== 401) return false;
+  return !isCrmReconnectError({ status, data });
 }
 
 /**
@@ -82,6 +119,14 @@ async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
   const { accessToken } = await getTokens();
 
+  if (!accessToken && !isPublicAuthPath(endpoint)) {
+    throw new ApiError(
+      401,
+      { detail: 'Missing authorization header. Please sign in to get an access token.' },
+      'Not signed in',
+    );
+  }
+
   const headers = {
     'Content-Type': 'application/json',
     ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
@@ -90,15 +135,19 @@ async function request(endpoint, options = {}) {
 
   let response = await fetch(url, { ...options, headers });
 
-  // Retry with refreshed token if 401
-  if (response.status === 401 && accessToken) {
-    try {
-      const newToken = await refreshAccessToken();
-      headers.Authorization = `Bearer ${newToken}`;
-      response = await fetch(url, { ...options, headers });
-    } catch {
-      await clearTokens();
-      throw new ApiError(401, null, 'Session expired');
+  // Retry with a new Vocify JWT only when THIS request failed auth — not when
+  // HubSpot/Salesforce OAuth needs a reconnect (those used to 401 and log us out).
+  if (shouldRefreshVocifySession(response.status, null) && accessToken) {
+    const preview = await response.clone().json().catch(() => ({}));
+    if (shouldRefreshVocifySession(response.status, preview)) {
+      try {
+        const newToken = await refreshAccessToken();
+        headers.Authorization = `Bearer ${newToken}`;
+        response = await fetch(url, { ...options, headers });
+      } catch {
+        await clearTokens();
+        throw new ApiError(401, null, 'Session expired');
+      }
     }
   }
 
@@ -117,7 +166,7 @@ async function request(endpoint, options = {}) {
  */
 export const api = {
   getApiBase,
-  get API_BASE() { return DEFAULT_API_BASE; },
+  get API_BASE() { return PROD_API_BASE; },
   setTokens,
   clearTokens,
   getTokens,
@@ -150,7 +199,14 @@ export const api = {
     if (transcript) formData.append('transcript', transcript);
 
     const { accessToken } = await getTokens();
-    const headers = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+    if (!accessToken) {
+      throw new ApiError(
+        401,
+        { detail: 'Missing authorization header. Please sign in to get an access token.' },
+        'Not signed in',
+      );
+    }
+    const headers = { Authorization: `Bearer ${accessToken}` };
 
     const API_BASE = await getApiBase();
     let response = await fetch(`${API_BASE}/memos/upload`, {
@@ -160,13 +216,16 @@ export const api = {
     });
 
     if (response.status === 401 && accessToken) {
-      const newToken = await refreshAccessToken();
-      headers.Authorization = `Bearer ${newToken}`;
-      response = await fetch(`${API_BASE}/memos/upload`, {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
+      const preview = await response.clone().json().catch(() => ({}));
+      if (shouldRefreshVocifySession(401, preview)) {
+        const newToken = await refreshAccessToken();
+        headers.Authorization = `Bearer ${newToken}`;
+        response = await fetch(`${API_BASE}/memos/upload`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        });
+      }
     }
 
     if (!response.ok) throw new ApiError(response.status, null, 'Upload failed');
@@ -186,5 +245,75 @@ export const api = {
 
   async reExtract(memoId) {
     return request(`/memos/${memoId}/re-extract`, { method: 'POST', body: '{}' });
+  },
+
+  /**
+   * Stream POST /copilot/suggest (SSE). Same event shapes as the dashboard client.
+   */
+  async streamCopilotSuggest(body, onEvent, signal) {
+    const API_BASE = await getApiBase();
+    const { accessToken } = await getTokens();
+    if (!accessToken) {
+      onEvent({ type: 'error', message: 'Not signed in' });
+      return;
+    }
+    const headers = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      Authorization: `Bearer ${accessToken}`,
+    };
+
+    const doFetch = (authHeaders) => fetch(`${API_BASE}/copilot/suggest`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    let response = await doFetch(headers);
+    if (response.status === 401 && accessToken) {
+      const preview = await response.clone().json().catch(() => ({}));
+      if (shouldRefreshVocifySession(401, preview)) {
+        try {
+          const newToken = await refreshAccessToken();
+          headers.Authorization = `Bearer ${newToken}`;
+          response = await doFetch(headers);
+        } catch {
+          await clearTokens();
+          onEvent({ type: 'error', message: 'Session expired' });
+          return;
+        }
+      }
+    }
+
+    if (!response.ok) {
+      let detail = `Request failed (${response.status})`;
+      try {
+        const data = await response.json();
+        const raw = data?.detail;
+        if (typeof raw === 'string') detail = raw;
+        else if (raw != null) detail = JSON.stringify(raw);
+      } catch { /* ignore */ }
+      onEvent({ type: 'error', message: detail });
+      return;
+    }
+
+    if (!response.body) {
+      onEvent({ type: 'error', message: 'No response body' });
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSseBuffer(buffer);
+      buffer = parsed.rest;
+      for (const event of parsed.events) onEvent(event);
+    }
   },
 };

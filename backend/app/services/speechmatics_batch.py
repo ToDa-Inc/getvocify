@@ -19,6 +19,52 @@ from app.metrics import record_transcription_duration
 logger = logging.getLogger(__name__)
 
 BATCH_BASE_URL = "https://eu1.asr.api.speechmatics.com/v2"
+
+
+def _filename_for_content_type(content_type: Optional[str]) -> tuple[str, str]:
+    ct = (content_type or "").lower()
+    if "wav" in ct:
+        return "wav", "audio/wav"
+    if "mpeg" in ct or "mp3" in ct:
+        return "mp3", "audio/mpeg"
+    if "ogg" in ct or "opus" in ct:
+        return "ogg", "audio/ogg"
+    return "webm", "audio/webm"
+
+
+def batch_transcription_config(
+    *,
+    language: str,
+    diarization: bool,
+    vocab: Optional[list] = None,
+) -> dict:
+    """Batch v2 job transcription_config. Do not pass realtime-only keys."""
+    transcription_config: dict = {
+        "language": language,
+        "operating_point": "enhanced",
+    }
+    if diarization:
+        transcription_config["diarization"] = "speaker"
+        transcription_config["speaker_diarization_config"] = {
+            "prefer_current_speaker": True,
+            "speaker_sensitivity": 0.4,
+        }
+    if vocab:
+        transcription_config["additional_vocab"] = vocab
+    return transcription_config
+
+
+def _speechmatics_job_error(status_code: int, body: str) -> str:
+    try:
+        data = json.loads(body or "")
+        detail = data.get("detail") or data.get("error")
+        if detail:
+            return f"Speechmatics rejected the job: {detail}"
+    except Exception:
+        pass
+    return f"Speechmatics job create failed ({status_code})"
+
+
 POLL_INTERVAL_SEC = 3
 MAX_POLL_ATTEMPTS = 60  # ~3 minutes max wait
 
@@ -50,6 +96,7 @@ class SpeechmaticsBatchService:
         user_id: Optional[str] = None,
         diarization: bool = False,
         notification_url: Optional[str] = None,
+        extra_vocab: Optional[list] = None,
     ) -> str:
         """
         Create a Speechmatics transcription job and return the job_id.
@@ -60,26 +107,23 @@ class SpeechmaticsBatchService:
         - notification_url: if set, Speechmatics POSTs the transcript here on
           completion — no polling needed. Omit to use the poll-based flow.
         """
-        transcription_config: dict = {
-            "language": language,
-            "operating_point": "enhanced",
-        }
-        if diarization:
-            transcription_config["diarization"] = "speaker"
-            transcription_config["speaker_diarization_config"] = {
-                "prefer_current_speaker": True,
-            }
-        if user_id:
-            from app.services.glossary import GlossaryService
-            glossary_svc = GlossaryService()
-            glossary = await glossary_svc.get_user_glossary(user_id)
-            if glossary:
-                transcription_config["additional_vocab"] = glossary_svc.format_for_speechmatics(glossary)
-                logger.info(
-                    "Speechmatics batch: injected %d glossary terms",
-                    len(glossary),
-                    extra=log_domain(DOMAIN_TRANSCRIPTION, "glossary_injected", user_id=user_id, term_count=len(glossary)),
-                )
+        vocab = extra_vocab
+        if vocab is None and user_id:
+            from app.services.session_entities import speechmatics_vocab_for_job
+
+            vocab = await speechmatics_vocab_for_job(user_id)
+        if vocab:
+            logger.info(
+                "Speechmatics batch: injected %d vocab terms",
+                len(vocab),
+                extra=log_domain(DOMAIN_TRANSCRIPTION, "glossary_injected", user_id=user_id, term_count=len(vocab)),
+            )
+
+        transcription_config = batch_transcription_config(
+            language=language,
+            diarization=diarization,
+            vocab=vocab,
+        )
 
         config: dict = {"type": "transcription", "transcription_config": transcription_config}
         if notification_url:
@@ -124,6 +168,7 @@ class SpeechmaticsBatchService:
                     "❌ Speechmatics create_job failed",
                     extra=log_domain(DOMAIN_TRANSCRIPTION, "job_create_failed", status=resp.status_code, error=err_body),
                 )
+                raise RuntimeError(_speechmatics_job_error(resp.status_code, err_body))
             resp.raise_for_status()
             data = resp.json()
             job_id = data.get("id") or (data.get("job", {}) or {}).get("id")
@@ -175,18 +220,20 @@ class SpeechmaticsBatchService:
         user_id: Optional[str],
         diarization: bool = False,
         notification_url: Optional[str] = None,
+        extra_vocab: Optional[list] = None,
     ) -> dict:
         """Build kwargs for create_job from the common transcribe/submit params."""
         if audio_bytes is not None:
-            ext = "ogg" if "ogg" in (content_type or "") or "opus" in (content_type or "") else "webm"
+            ext, default_ct = _filename_for_content_type(content_type)
             return dict(
                 audio_bytes=audio_bytes,
                 filename=f"audio.{ext}",
-                content_type=content_type or "audio/ogg",
+                content_type=content_type or default_ct,
                 language=language,
                 user_id=user_id,
                 diarization=diarization,
                 notification_url=notification_url,
+                extra_vocab=extra_vocab,
             )
         elif audio_url:
             return dict(
@@ -195,6 +242,7 @@ class SpeechmaticsBatchService:
                 user_id=user_id,
                 diarization=diarization,
                 notification_url=notification_url,
+                extra_vocab=extra_vocab,
             )
         raise ValueError("Either audio_bytes or audio_url required")
 
@@ -207,13 +255,16 @@ class SpeechmaticsBatchService:
         user_id: Optional[str] = None,
         diarization: bool = False,
         notification_url: Optional[str] = None,
+        extra_vocab: Optional[list] = None,
     ) -> str:
         """
         Create a job and return the job_id immediately.
         If notification_url is set, Speechmatics will POST the result there — no polling needed.
         If not set, use get_transcript(job_id) after polling get_job_status().
         """
-        kwargs = self._job_kwargs(audio_bytes, audio_url, content_type, language, user_id, diarization, notification_url)
+        kwargs = self._job_kwargs(
+            audio_bytes, audio_url, content_type, language, user_id, diarization, notification_url, extra_vocab
+        )
         return await self.create_job(**kwargs)
 
     async def transcribe(
@@ -224,13 +275,16 @@ class SpeechmaticsBatchService:
         language: str = "es",
         user_id: Optional[str] = None,
         diarization: bool = False,
+        extra_vocab: Optional[list] = None,
     ) -> str:
         """
         Create job, poll until done, return transcript text.
         Use this for non-webhook flows (WhatsApp, voice memos, etc.).
         For HubSpot calls, prefer submit() + notification_url for push-based completion.
         """
-        kwargs = self._job_kwargs(audio_bytes, audio_url, content_type, language, user_id, diarization)
+        kwargs = self._job_kwargs(
+            audio_bytes, audio_url, content_type, language, user_id, diarization, extra_vocab=extra_vocab
+        )
         job_id = await self.create_job(**kwargs)
 
         _transcribe_start = time.perf_counter()

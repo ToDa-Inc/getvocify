@@ -424,7 +424,7 @@ export const UserGlossary = () => {
       {showTemplates && (
         <div className="p-6 rounded-2xl bg-beige/5 border border-beige/20 space-y-4 animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="text-xs font-black uppercase tracking-widest text-beige">Available Starter Packs</h4>
+            <h4 className="text-xs font-medium text-beige">Available Starter Packs</h4>
             <span className="text-[10px] text-muted-foreground italic">Instant setup for your industry</span>
           </div>
           <div className="grid gap-3">

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Optional
 
 from app.models.memo import MemoExtraction
@@ -21,12 +20,6 @@ def _split_name(full: Optional[str]) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def _placeholder_email(contact_name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", contact_name.strip().lower())
-    slug = slug.strip("-") or "contact"
-    return f"{slug}@lead.getvocify.com"
-
-
 class SalesforceContactService:
     def __init__(self, client: SalesforceClient, search: SalesforceSearchService) -> None:
         self.client = client
@@ -41,9 +34,9 @@ class SalesforceContactService:
         if not fn and not ln and extraction.companyName:
             fn = "Contact"
             ln = f"at {extraction.companyName}"[:80]
-        email = (extraction.contactEmail or "").strip() or None
-        if not email and (fn or ln):
-            email = _placeholder_email(f"{fn} {ln}".strip() or "contact")
+        from app.services.hubspot.contact_identity import real_contact_email_or_none
+
+        email = real_contact_email_or_none(extraction.contactEmail)
         body: dict[str, Any] = {}
         if fn:
             body["FirstName"] = fn[:40]
@@ -65,9 +58,14 @@ class SalesforceContactService:
         account_id: Optional[str],
     ) -> Optional[str]:
         raw = extraction.raw_extraction or {}
-        email = (extraction.contactEmail or raw.get("contactEmail") or raw.get("contact_email") or "").strip()
+        from app.services.hubspot.contact_identity import real_contact_email_or_none
+
+        email = real_contact_email_or_none(
+            extraction.contactEmail or raw.get("contactEmail") or raw.get("contact_email")
+        ) or ""
         name = extraction.contactName or _clean_extracted_name(raw.get("contactName")) or _clean_extracted_name(raw.get("contact_name"))
-        if not email and not (name and str(name).strip()):
+        phone = (extraction.contactPhone or raw.get("contactPhone") or "").strip()
+        if not email and not (name and str(name).strip()) and not phone:
             return None
         if email:
             row = await self.search.find_contact_by_email(email)

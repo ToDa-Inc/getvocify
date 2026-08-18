@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vocify</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="copilot.css">
+  <link rel="stylesheet" href="work.css">
 </head>
 <body>
   <div id="app">
@@ -12,27 +14,35 @@
     <div id="screen-record" class="screen" style="display: none;">
       <div class="header">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
-        <p id="record-header-subtitle" class="subtitle">Ready to record</p>
+        <div class="header-context">
+          <p id="record-header-kicker" class="header-kicker"></p>
+          <p id="record-header-subtitle" class="header-name"></p>
+        </div>
       </div>
 
       <div class="main-actions">
         <div class="record-container">
-          <button id="record-button" class="record-btn">
+          <button id="record-button" class="record-btn" aria-label="Record a voice memo" data-tip="Record a voice memo for this record">
             <div class="record-icon"></div>
           </button>
-          <p id="record-status-label" class="record-label">Tap to record</p>
+          <p id="record-status-label" class="record-label">Record</p>
         </div>
 
-        <!-- Paste transcript toggle -->
-        <button id="paste-transcript-toggle" type="button" class="btn-secondary-hero">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          Paste Meeting Transcript
-        </button>
+        <div class="idle-tools">
+          <button id="paste-transcript-toggle" type="button" class="tool-btn" data-tip="Import a meeting transcript you already have" data-tip-align="start">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h5"></path></svg>
+            Paste transcript
+          </button>
+          <button id="listen-tab-button" type="button" class="tool-btn" aria-pressed="false" data-tip="Hear this tab and coach you live" data-tip-align="end">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-4a9 9 0 0 1 18 0v4"></path><path d="M21 16a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"></path><path d="M3 16a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2z"></path></svg>
+            <span id="listen-tab-label">Listen to tab</span>
+          </button>
+        </div>
+        <p id="listen-status" class="listen-status" role="status" aria-live="polite" style="display: none;"></p>
+        <p id="shortcut-box" class="shortcut-hint" data-tip="Record from anywhere in Chrome"></p>
       </div>
 
-      <!-- Deal context badge (shown when recording on HubSpot deal page) -->
       <div id="deal-context-badge" class="deal-context-badge" style="display: none;"></div>
-
       <div id="record-context-strip" class="record-context-strip" style="display: none;">
         <span id="record-context-type" class="record-context-type">Contact</span>
         <span id="record-context-name" class="record-context-name"></span>
@@ -44,65 +54,50 @@
         <button type="button" id="call-watch-stop" class="call-watch-stop">Stop</button>
       </div>
 
-      <!-- Live Transcript -->
       <div id="live-transcript-container" class="transcript-container" style="display: none;">
         <p class="transcript-label">Transcribing live...</p>
         <div id="live-transcript-text" class="transcript-text"></div>
       </div>
 
-      <!-- Paste transcript section (collapsible) -->
+      <div id="copilot-card" class="copilot-card" style="display: none;">
+        <p class="caps-label copilot-kicker">Say this</p>
+        <p id="copilot-say-this" class="copilot-say-this">Waiting for the other side to finish speaking…</p>
+        <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
+        <p id="copilot-next" class="copilot-next" style="display: none;"></p>
+        <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+      </div>
+
       <div id="paste-transcript-section" class="paste-transcript-section" style="display: none;">
-        <p class="caps-label" style="margin-bottom: 8px;">Import Transcript</p>
         <textarea id="paste-transcript-input" class="transcript-textarea" rows="5" placeholder="Paste your transcript here..."></textarea>
         <div class="paste-actions">
           <button id="paste-transcript-cancel-btn" class="btn btn-secondary">Cancel</button>
-          <button id="paste-transcript-import-btn" class="btn btn-primary">Import & Continue</button>
-        </div>
-      </div>
-      
-      <!-- Shortcut Info -->
-      <div id="shortcut-box" class="shortcut-box">
-        <div class="shortcut-row">
-          <div class="os-group">
-            <span class="os-label">macOS</span>
-            <div class="hotkey-display">
-              <span class="kbd">⌥</span><span class="kbd">⇧</span><span class="kbd">V</span>
-            </div>
-          </div>
-          <div class="os-divider"></div>
-          <div class="os-group">
-            <span class="os-label">Windows</span>
-            <div class="hotkey-display">
-              <span class="kbd">Alt</span><span class="kbd">⇧</span><span class="kbd">V</span>
-            </div>
-          </div>
+          <button id="paste-transcript-import-btn" class="btn btn-primary">Import</button>
         </div>
       </div>
 
-      <!-- Recordings + memos for the HubSpot record in the address bar -->
-      <div id="recordings-section" class="recordings-section" style="display: none;">
-        <div class="recordings-header-row">
-          <span id="recordings-watch-dot" class="call-watch-dot" style="display: none;" aria-hidden="true"></span>
-          <p id="recordings-status-line" class="recordings-status-line">Call recordings on this record</p>
-          <button type="button" id="recordings-stop-watch" class="call-watch-stop">Stop</button>
+      <div id="record-activity" class="record-activity" style="display: none;">
+        <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;">Recent calls</p>
+        <div id="recordings-section" class="recordings-section" style="display: none;">
+          <div class="recordings-header-row" id="recordings-watch-row" style="display: none;">
+            <span id="recordings-watch-dot" class="call-watch-dot" aria-hidden="true"></span>
+            <p id="recordings-status-line" class="recordings-status-line"></p>
+            <button type="button" id="recordings-stop-watch" class="call-watch-stop">Stop</button>
+          </div>
+          <div id="recordings-list" class="recordings-list"></div>
+          <button type="button" id="recordings-show-more" class="btn-show-more" style="display: none;">Show more</button>
         </div>
-        <div id="recordings-list" class="recordings-list"></div>
-      </div>
 
-      <!-- Recent Memos Section -->
-      <div id="recent-memos-section" class="recent-memos-section">
-        <p class="caps-label" id="recent-memos-label" style="margin-bottom: 12px;">Recent Memos</p>
-        <div id="recent-memos-list" class="recent-memos-list">
-          <p class="body-muted" style="text-align: center; padding: 10px;">Loading...</p>
+        <div id="recent-memos-section" class="recent-memos-section" style="display: none;">
+          <div id="recent-memos-list" class="recent-memos-list"></div>
         </div>
+        <p id="activity-empty" class="activity-empty" style="display: none;"></p>
       </div>
       
       <div class="footer-actions">
         <div class="user-minimal">
-          <span id="user-name">...</span>
-          <span class="version-tag">v1.0.10</span>
+          <span id="user-name"></span>
         </div>
-        <button id="logout-button" class="logout-link">Log Out</button>
+        <button id="logout-button" class="logout-link">Log out</button>
       </div>
     </div>
 
@@ -110,13 +105,16 @@
     <div id="screen-processing" class="screen" style="display: none;">
       <div class="header">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
-        <p class="subtitle" id="processing-subtitle">Transcribing</p>
+        <p class="subtitle" id="processing-subtitle">Working</p>
       </div>
       <div class="center-content">
-        <div class="spinner"></div>
-        <h2 class="title-large" id="processing-title">Converting speech to text...</h2>
-        <p class="body-muted" id="processing-message">Your transcript will be ready to review in a moment.</p>
-        <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="margin-top: 24px;">Back</button>
+        <div class="live-loader" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <h2 class="title-large" id="processing-title">Getting the transcript</h2>
+        <p class="body-muted processing-message-live" id="processing-message">Writing the call down…</p>
+        <p class="process-elapsed" id="processing-elapsed"></p>
+        <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="margin-top: 20px;">Back</button>
       </div>
     </div>
 
@@ -130,14 +128,22 @@
         </div>
       </div>
 
+      <div id="review-loading-section" class="review-loading" style="display: none;">
+        <div class="live-loader" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <p id="review-loading-text" class="body-muted">Opening review…</p>
+        <button type="button" id="review-loading-back" class="btn btn-secondary" style="display: none;">Back to record</button>
+      </div>
+
       <!-- Pending transcript: modal-style conversation review -->
       <div id="pending-transcript-section" class="transcript-modal" style="display: none;">
         <div class="transcript-modal-sheet">
           <div class="transcript-modal-header">
             <p class="transcript-modal-kicker">Step 1 of 2</p>
             <h2 class="transcript-modal-title">Review transcript</h2>
+            <p id="transcript-timing" class="transcript-timing" style="display: none;"></p>
             <p id="transcript-modal-deal" class="transcript-modal-deal" style="display: none;"></p>
-            <p class="transcript-modal-hint">Read the call, tap any line to edit, then extract CRM fields.</p>
           </div>
 
           <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
@@ -159,7 +165,7 @@
       <div id="proposed-changes-main" class="review-scroll-area" style="display: none;">
         <div id="deal-target-section">
           <div id="contact-target-section" style="display: none;">
-            <p class="caps-label" style="margin: 0 0 10px 4px;">Contact Target</p>
+            <p class="caps-label" style="margin: 0 0 10px 4px;">Contact</p>
             <div id="contact-card" class="card-glass" style="margin-bottom: 14px;">
               <div class="card-content">
                 <h3 id="target-contact-name" class="deal-title">—</h3>
@@ -169,8 +175,8 @@
             <div id="contact-candidates" class="search-results" style="display: none; margin-bottom: 14px;"></div>
           </div>
           <div class="section-header">
-            <p class="caps-label" id="deal-target-label">Deal Target</p>
-            <button id="btn-change-deal" class="text-btn">Change Deal</button>
+            <p class="caps-label" id="deal-target-label">Deal</p>
+            <button id="btn-change-deal" class="text-btn">Change deal</button>
           </div>
           <div id="use-page-record-option" class="use-current-deal-option" style="display: none;">
             <button type="button" id="btn-use-page-record" class="btn-use-current-deal">Use record on this page</button>
@@ -178,17 +184,17 @@
           <div id="deal-decision-box" class="deal-decision-box" style="display: none;">
             <p class="deal-subtitle" id="deal-decision-hint" style="margin: 0 0 8px;">Confirm the deal target before syncing.</p>
             <div id="matched-deals-list"></div>
-            <button type="button" id="btn-create-new-deal" class="btn-add-field" style="display: block; width: 100%; margin-top: 8px;">+ Create a brand new deal</button>
+            <button type="button" id="btn-create-new-deal" class="btn-quiet-action">Create a new deal</button>
           </div>
           <div id="deal-search-box" class="search-box" style="display: none;">
             <div class="input-with-icon">
-              <span class="search-icon">🔍</span>
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
               <input type="text" id="deal-search-input" placeholder="Search deals...">
             </div>
             <div id="search-results" class="search-results"></div>
-            <button type="button" id="btn-create-new-deal-search" class="btn-add-field" style="display: block; width: 100%; margin-top: 8px;">+ Create a brand new deal</button>
+            <button type="button" id="btn-create-new-deal-search" class="btn-quiet-action">Create a new deal</button>
           </div>
-          <div id="deal-card" class="card-glass success-glow">
+          <div id="deal-card" class="card-glass">
             <div class="card-content">
               <h3 id="target-deal-name" class="deal-title">Loading...</h3>
               <p id="target-deal-reason" class="deal-subtitle"></p>
@@ -199,9 +205,18 @@
         <section id="call-insights-section" class="call-insights">
           <div class="call-insights-block">
             <div class="section-header">
-              <p class="caps-label">Call summary</p>
+              <p class="caps-label">Call note</p>
             </div>
-            <textarea id="review-summary" class="review-summary-input" rows="4" placeholder="Summary of what was discussed…"></textarea>
+            <textarea id="review-summary" class="review-summary-input" rows="5" placeholder="What mattered on this call…"></textarea>
+          </div>
+
+          <div id="proposed-changes-section">
+            <p class="caps-label" style="margin: 0 0 4px 4px;">Fields for this sync</p>
+            <div id="proposed-updates-list" class="updates-list">
+              <!-- Injected via JS -->
+            </div>
+            <button id="btn-add-field" class="btn-add-field" type="button" style="display: none;">+ Add field</button>
+            <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
           </div>
 
           <div class="call-insights-block">
@@ -218,7 +233,7 @@
             <span class="note-toggle-box" aria-hidden="true"></span>
             <span class="note-toggle-copy">
               <span class="note-toggle-title">Create HubSpot note</span>
-              <span class="note-toggle-desc">Posts summary + transcript on the deal timeline</span>
+              <span class="note-toggle-desc">Posts this note + transcript on the deal timeline</span>
             </span>
           </label>
 
@@ -242,23 +257,14 @@
           </div>
         </section>
 
-        <div id="proposed-changes-section">
-          <p class="caps-label" style="margin: 12px 0 10px 4px;">Proposed Changes</p>
-          <div id="proposed-updates-list" class="updates-list">
-            <!-- Injected via JS -->
-          </div>
-          <button id="btn-add-field" class="btn-add-field" type="button" style="display: none;">+ Add field</button>
-          <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
-        </div>
-
-        <details id="transcript-collapsible" class="transcript-collapsible">
+        <details id="transcript-collapsible" class="transcript-collapsible" open>
           <summary>View transcript</summary>
           <div id="review-transcript-conversation" class="transcript-conversation transcript-conversation--compact"></div>
           <div id="transcript-expanded" class="transcript-expanded" style="display: none;"></div>
         </details>
       </div>
 
-      <div class="actions-fixed" id="review-actions">
+      <div class="actions-fixed" id="review-actions" style="display: none;">
         <div id="review-proposed-actions" class="review-step-actions review-step-actions-row">
           <button id="discard-button" class="btn btn-secondary">Discard</button>
           <button id="approve-sync-button" class="btn btn-primary">Confirm & Update CRM</button>
@@ -287,27 +293,28 @@
     <div id="screen-login" class="screen" style="display: none;">
       <div class="header">
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
-        <h1>Vocify</h1>
         <p class="subtitle">Voice to CRM</p>
       </div>
-      <form id="login-form">
+      <form id="login-form" class="login-form">
         <div class="form-group">
-          <label>Email address</label>
-          <input type="email" id="login-email" required placeholder="john@example.com">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" required placeholder="you@company.com" autocomplete="username">
         </div>
         <div class="form-group">
-          <label>Password</label>
-          <input type="password" id="login-password" required placeholder="••••••••">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password">
         </div>
         <div id="login-error" class="error-box" style="display: none;"></div>
-        <button type="submit" class="btn btn-primary">Log In</button>
+        <button type="submit" class="btn btn-primary">Log in</button>
       </form>
     </div>
 
     <!-- LOADING SCREEN -->
     <div id="screen-loading" class="screen">
       <div class="center-content">
-        <div id="loading-spinner" class="spinner"></div>
+        <div id="loading-spinner" class="live-loader" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
         <div id="loading-backend-error" style="display: none; text-align: center; max-width: 280px;">
           <p class="body-muted" style="margin-bottom: 8px;">Could not connect to the server.</p>
           <p class="body-muted" style="font-size: 12px; opacity: 0.8;">Please check your internet connection and try again.</p>

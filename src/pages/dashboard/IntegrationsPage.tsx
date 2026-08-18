@@ -274,7 +274,7 @@ const IntegrationsPage = () => {
 
       {connectionRows.length > 1 && (
         <div className="mt-8 p-6 rounded-3xl border border-border/30 bg-secondary/5">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3">
+          <p className="text-[10px] font-medium text-muted-foreground mb-3">
             Primary CRM for voice memo sync
           </p>
           <div className="flex flex-wrap gap-4">
@@ -317,7 +317,7 @@ const IntegrationsPage = () => {
                 <div>
                   <h3 className="font-bold text-foreground text-xl">{integration.name}</h3>
                   {integration.connected ? (
-                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-success">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-success">
                       <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
                       Connected
                       {connectionRows.length > 1 &&
@@ -327,7 +327,7 @@ const IntegrationsPage = () => {
                         )}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground/30">
                       Available
                     </span>
                   )}
@@ -357,7 +357,7 @@ const IntegrationsPage = () => {
                   {integration.details?.portal && (
                     <div className="flex flex-wrap gap-2 justify-end">
                       {(integration.details?.permissions || ["Deals", "Sync"]).map((perm) => (
-                        <span key={perm} className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest bg-success/10 text-success px-2 py-1 rounded-full border border-success/20">
+                        <span key={perm} className="inline-flex items-center gap-1 text-[8px] font-medium bg-success/10 text-success px-2 py-1 rounded-full border border-success/20">
                           <Check className="h-2.5 w-2.5" />
                           {perm}
                         </span>
@@ -374,7 +374,7 @@ const IntegrationsPage = () => {
                   <Button 
                     size="lg"
                     variant={integration.details?.portal ? "default" : "hero"}
-                    className={`flex-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-medium h-12 transition-all ${
+                    className={`flex-1 rounded-full text-[10px] font-medium shadow-medium h-12 transition-all ${
                       integration.details?.portal 
                         ? 'bg-beige text-cream hover:bg-beige-dark' 
                         : 'bg-beige text-cream hover:bg-beige-dark scale-[1.05] shadow-large'
@@ -412,7 +412,7 @@ const IntegrationsPage = () => {
               ) : (
                 <Button 
                   size="lg" 
-                  className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-medium hover:scale-[1.02] transition-all h-12"
+                  className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-medium hover:scale-[1.02] transition-all h-12"
                   onClick={() => handleConnectClick(integration.id)}
                 >
                   Connect {integration.name}
@@ -421,7 +421,7 @@ const IntegrationsPage = () => {
             </div>
 
             {integration.lastSync && (
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/20 mt-6 text-center">
+              <p className="text-[9px] font-medium text-muted-foreground/20 mt-6 text-center">
                 Last activity: {integration.lastSync}
               </p>
             )}

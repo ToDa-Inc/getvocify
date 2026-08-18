@@ -180,6 +180,12 @@ async def refresh_access_token(refresh_token: str) -> dict:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=15.0,
         )
+        if response.status_code >= 400:
+            logger.warning(
+                "HubSpot token endpoint %s: %s",
+                response.status_code,
+                (response.text or "")[:500],
+            )
         response.raise_for_status()
         return response.json()
 
@@ -229,6 +235,12 @@ def refresh_hubspot_tokens(refresh_token: str) -> dict:
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
+        if response.status_code >= 400:
+            logger.warning(
+                "HubSpot token endpoint %s: %s",
+                response.status_code,
+                (response.text or "")[:500],
+            )
         response.raise_for_status()
         return response.json()
 

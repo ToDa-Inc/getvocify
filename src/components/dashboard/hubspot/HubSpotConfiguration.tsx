@@ -272,7 +272,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
       <div className="space-y-6">
         <div className="flex items-center gap-3 text-beige">
           <Settings2 className="h-4 w-4" />
-          <h4 className="text-[10px] font-black uppercase tracking-widest border-b border-beige/10 pb-1 flex-1">
+          <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
             New Deal Placement
           </h4>
         </div>
@@ -371,7 +371,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
       <div className="space-y-6">
         <div className="flex items-center gap-3 text-beige">
           <ShieldCheck className="h-4 w-4" />
-          <h4 className="text-[10px] font-black uppercase tracking-widest border-b border-beige/10 pb-1 flex-1">
+          <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
             Editable Fields
           </h4>
         </div>
@@ -403,7 +403,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                   setSearchQuery("");
                   setShowAllFields(false);
                 }}
-                className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                className={`px-4 py-2 rounded-full text-[9px] font-medium border transition-all ${
                   activeTab === tab.id
                     ? "bg-beige/15 border-beige/40 text-beige"
                     : "bg-secondary/5 border-border/30 text-muted-foreground hover:border-border/50"
@@ -432,7 +432,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                 variant="outline"
                 size="sm"
                 onClick={() => setShowAllFields(!showAllFields)}
-                className={`rounded-full px-6 h-11 text-[9px] font-black uppercase tracking-widest border-border/50 transition-all ${
+                className={`rounded-full px-6 h-11 text-[9px] font-medium border-border/50 transition-all ${
                   showAllFields ? "bg-beige/10 border-beige/30 text-beige" : ""
                 }`}
               >
@@ -764,7 +764,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
       <Button
         onClick={handleSave}
         disabled={isSaving}
-        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-medium h-12"
+        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-medium h-12"
       >
         {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         Save Configuration

@@ -192,11 +192,16 @@ class SalesforcePreviewService:
         new_contact = None
         new_company = None
         if is_new_deal:
-            if extraction.contactEmail and str(extraction.contactEmail).strip():
+            from app.services.hubspot.contact_identity import real_contact_email_or_none
+
+            email = real_contact_email_or_none(extraction.contactEmail)
+            name = (extraction.contactName or "").strip() or None
+            phone = (extraction.contactPhone or "").strip() or None
+            if name or email or phone:
                 new_contact = {
-                    "name": extraction.contactName,
-                    "email": str(extraction.contactEmail).strip(),
-                    "phone": extraction.contactPhone,
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
                 }
             if extraction.companyName:
                 new_company = {"name": extraction.companyName}

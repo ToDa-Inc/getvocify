@@ -115,7 +115,7 @@ const Header = () => {
             href={DEMO_BOOKING_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="btn-glow inline-flex items-center rounded-full bg-beige px-5 py-2.5 text-sm font-semibold text-cream transition-all duration-500 ease-silk hover:bg-beige-dark active:scale-[0.98]"
+            className="btn-glow inline-flex items-center rounded-full bg-beige px-5 py-2.5 text-sm font-semibold text-cream transition-snap hover:bg-beige-dark active:scale-[0.98]"
           >
             {t.nav.getStarted}
           </a>

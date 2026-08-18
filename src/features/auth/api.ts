@@ -24,6 +24,7 @@ function mapRawUser(raw: Record<string, unknown>): User {
     avatarUrl: (raw.avatar_url as string) ?? null,
     phone: (raw.phone as string) ?? null,
     autoCreateContactCompany: Boolean(raw.auto_create_contact_company),
+    productContext: (raw.product_context as string) ?? '',
     createdAt: (raw.created_at as string) || '',
   };
 }
@@ -122,6 +123,9 @@ export const authApi = {
     };
     if (data.autoCreateContactCompany !== undefined) {
       body.auto_create_contact_company = data.autoCreateContactCompany;
+    }
+    if (data.productContext !== undefined) {
+      body.product_context = data.productContext;
     }
     const raw = await api.patch<Record<string, unknown>>('/auth/me', body);
     return mapRawUser(raw);

@@ -176,6 +176,31 @@ export interface Memo {
   processedAt: Nullable<ISODateString>;
   /** When the user approved the memo */
   approvedAt: Nullable<ISODateString>;
+
+  /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
+  pipelineMeta?: Nullable<PipelineMeta>;
+}
+
+export interface PipelineMeta {
+  total_ms?: number;
+  stages?: PipelineStage[];
+}
+
+export interface PipelineStage {
+  name: string;
+  ms: number;
+  at?: string;
+  provider?: string;
+  model?: string;
+  language?: string;
+  note?: string;
+  includes?: string[];
+  error?: string;
+  prompts?: Array<{
+    role?: string;
+    chars?: number;
+    content?: string;
+  }>;
 }
 
 // ============================================

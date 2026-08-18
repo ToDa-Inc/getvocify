@@ -59,6 +59,7 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
     auto_create_contact_company: bool = False
+    product_context: Optional[str] = None
     created_at: str
 
 
@@ -69,6 +70,21 @@ class UpdateProfileRequest(BaseModel):
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
     auto_create_contact_company: Optional[bool] = None
+    product_context: Optional[str] = Field(default=None, max_length=8000)
+
+
+def _user_response(user_id: str, email: str, profile: dict) -> UserResponse:
+    return UserResponse(
+        id=user_id,
+        email=email,
+        full_name=profile.get("full_name"),
+        company_name=profile.get("company_name"),
+        avatar_url=profile.get("avatar_url"),
+        phone=profile.get("phone"),
+        auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
+        product_context=profile.get("product_context") or "",
+        created_at=profile.get("created_at", ""),
+    )
 
 
 class AuthResponse(BaseModel):
@@ -138,16 +154,7 @@ async def signup(
         profile = profile_result.data[0]
         
         return AuthResponse(
-            user=UserResponse(
-                id=user_id,
-                email=body.email,
-                full_name=profile.get("full_name"),
-                company_name=profile.get("company_name"),
-                avatar_url=profile.get("avatar_url"),
-                phone=profile.get("phone"),
-                auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
-                created_at=profile.get("created_at", ""),
-            ),
+            user=_user_response(user_id, body.email, profile),
             access_token=access_token,
             refresh_token=refresh_token,
         )
@@ -222,16 +229,7 @@ async def login(
             profile = profile_data_list[0]
         
         return AuthResponse(
-            user=UserResponse(
-                id=user_id,
-                email=auth_response.user.email or "",
-                full_name=profile.get("full_name"),
-                company_name=profile.get("company_name"),
-                avatar_url=profile.get("avatar_url"),
-                phone=profile.get("phone"),
-                auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
-                created_at=profile.get("created_at", ""),
-            ),
+            user=_user_response(user_id, auth_response.user.email or "", profile),
             access_token=access_token,
             refresh_token=refresh_token,
         )
@@ -291,16 +289,7 @@ async def get_current_user(
         # Token already authenticated by get_user_id; decode claims for email only.
         email = _email_from_access_token(_bearer_token_from_request(request)) or ""
         
-        return UserResponse(
-            id=user_id,
-            email=email,
-            full_name=profile.get("full_name"),
-            company_name=profile.get("company_name"),
-            avatar_url=profile.get("avatar_url"),
-            phone=profile.get("phone"),
-            auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
-            created_at=profile.get("created_at", ""),
-        )
+        return _user_response(user_id, email, profile)
         
     except Exception as e:
         error_str = str(e)
@@ -335,16 +324,7 @@ async def update_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     p = profile_result.data
     email = _email_from_access_token(_bearer_token_from_request(http_request)) or ""
-    return UserResponse(
-        id=user_id,
-        email=email,
-        full_name=p.get("full_name"),
-        company_name=p.get("company_name"),
-        avatar_url=p.get("avatar_url"),
-        phone=p.get("phone"),
-        auto_create_contact_company=bool(p.get("auto_create_contact_company", False)),
-        created_at=p.get("created_at", ""),
-    )
+    return _user_response(user_id, email, p)
 
 
 @router.post("/logout")

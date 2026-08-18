@@ -42,8 +42,7 @@ class GlossaryService:
 
     def format_for_deepgram(self, glossary: List[Dict[str, Any]]) -> List[str]:
         """
-        Formats glossary for Deepgram's 'keywords' parameter.
-        Note: We use plain words for maximum compatibility with nova-3.
+        Formats glossary for Deepgram Nova-3 `keyterm` (correct spellings only).
         """
         keywords = []
         for item in glossary:

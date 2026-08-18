@@ -31,7 +31,7 @@ export const SalesforceConnection = ({ onConnected }: SalesforceConnectionProps)
       <Button
         onClick={handleConnect}
         disabled={isLoading}
-        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-black uppercase tracking-widest shadow-medium h-12"
+        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-lg text-sm font-medium h-11"
       >
         {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         Connect with Salesforce

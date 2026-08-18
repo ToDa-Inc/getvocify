@@ -42,22 +42,52 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
     
     # AI Services
-    DEEPGRAM_API_KEY: Optional[str] = None  # BACKLOG: Speechmatics only (real-time + batch)
+    DEEPGRAM_API_KEY: Optional[str] = None
     SPEECHMATICS_API_KEY: Optional[str] = None
+    # File STT (HubSpot recordings, uploads, WhatsApp). Live copilot stays Speechmatics WS.
+    STT_PROVIDER: str = "deepgram"
+    STT_LANGUAGE: str = "es"
+    STT_DEEPGRAM_MODEL: str = "nova-3"
+    # Realtime language when the client sends `multi`. Default `auto` matches live STT.
+    # Set to `es` only if eu2 rejects `/v2/auto`.
+    SPEECHMATICS_RT_LANGUAGE: Optional[str] = None
 
     # LLM provider routing: openrouter | vertex_ai
     LLM_PROVIDER: str = "openrouter"
     OPENROUTER_API_KEY: Optional[str] = None
-    EXTRACTION_MODEL: str = "x-ai/grok-4.1-fast"
+    # CRM note, field extraction, fill/update decisions, transcript repair.
+    # Not used for live copilot (COPILOT_MODEL) or the STT engine.
+    EXTRACTION_MODEL: str = "google/gemini-3.5-flash-lite"
     # Live call objection copilot (OpenRouter chat; abortable stream)
     # Note: gemini-3.6-flash has mandatory reasoning (~4s TTFT) — too slow for live coaching.
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
-    COPILOT_MODEL: str = "google/gemini-2.5-flash-lite"
+    COPILOT_MODEL: str = "google/gemini-3.5-flash-lite"
+    # Cheap second pass after deterministic name repair. Not the CRM extractor.
+    TRANSCRIPT_SANITIZE_LLM: bool = True
+    TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
 
     # Vertex AI (enterprise path: ISO 27001 + SOC 2, Madrid region)
     GOOGLE_CLOUD_PROJECT: str = "pro-sylph-501508-g5"
     GOOGLE_CLOUD_LOCATION: str = "europe-southwest1"
     VERTEX_AI_MODEL: str = "gemini-2.5-flash"
+
+    @field_validator("STT_PROVIDER")
+    @classmethod
+    def validate_stt_provider(cls, v: str) -> str:
+        allowed = {"deepgram", "speechmatics"}
+        normalized = (v or "deepgram").strip().lower()
+        if normalized not in allowed:
+            raise ValueError(
+                f"STT_PROVIDER must be one of {sorted(allowed)}, got {v!r}"
+            )
+        return normalized
+
+    @field_validator("DEEPGRAM_API_KEY")
+    @classmethod
+    def strip_deepgram_key(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not v:
+            return None
+        return v.strip().strip('"').strip("'")
 
     @field_validator("LLM_PROVIDER")
     @classmethod

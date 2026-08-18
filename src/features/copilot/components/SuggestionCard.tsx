@@ -61,7 +61,7 @@ export function SuggestionCard({
     <div className="rounded-3xl border border-beige/20 bg-white p-6 md:p-8 shadow-medium space-y-5">
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-beige/15 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-beige">
+          <span className="rounded-full bg-beige/15 px-3 py-1 text-[10px] font-medium text-beige">
             {badge}
           </span>
           {suggestion.is_objection && (
@@ -84,7 +84,7 @@ export function SuggestionCard({
       )}
 
       <div>
-        <p className="text-[10px] font-black uppercase tracking-widest text-beige mb-2">
+        <p className="text-[10px] font-medium text-beige mb-2">
           Say this
         </p>
         <p className="text-xl md:text-2xl font-bold tracking-tight text-foreground leading-snug">
@@ -94,7 +94,7 @@ export function SuggestionCard({
 
       {suggestion.next_question && (
         <div className="rounded-2xl bg-cream/80 px-4 py-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">
+          <p className="text-[10px] font-medium text-muted-foreground mb-1">
             Next question
           </p>
           <p className="text-sm font-semibold text-foreground">{suggestion.next_question}</p>
@@ -104,7 +104,7 @@ export function SuggestionCard({
       <div className="grid gap-3 md:grid-cols-2">
         {suggestion.why_it_works && (
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">
+            <p className="text-[10px] font-medium text-muted-foreground mb-1">
               Why it works
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">{suggestion.why_it_works}</p>
@@ -112,7 +112,7 @@ export function SuggestionCard({
         )}
         {suggestion.dont_say && (
           <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-red-500/80 mb-1">
+            <p className="text-[10px] font-medium text-red-500/80 mb-1">
               Don&apos;t say
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">{suggestion.dont_say}</p>

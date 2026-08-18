@@ -46,9 +46,14 @@ if (!fs.existsSync('logs')) {
 
 log('blue', '🚀 Starting Vocify...\n');
 
+// Prefer backend virtualenv Python (Homebrew python3 has no project deps installed)
+const backendPython = fs.existsSync(path.join(__dirname, 'backend', '.venv', 'bin', 'python3'))
+  ? path.join(__dirname, 'backend', '.venv', 'bin', 'python3')
+  : 'python3';
+
 // Start backend
 log('green', '🔧 Starting backend server (port 8888)...');
-const backend = spawn('python3', [
+const backend = spawn(backendPython, [
   '-m', 'uvicorn',
   'app.main:app',
   '--reload',
@@ -98,6 +103,7 @@ setTimeout(() => {
   log('green', '\n✅ Both servers are starting!');
   log('blue', '📊 Backend:  http://localhost:8888');
   log('blue', '📊 Frontend: http://localhost:5173');
+  log('blue', '🔌 Unpacked Chrome extension talks to this backend');
   log('yellow', '\nPress Ctrl+C to stop both servers\n');
 }, 2000);
 

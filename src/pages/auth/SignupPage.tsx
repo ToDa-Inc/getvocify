@@ -94,7 +94,7 @@ const SignupPage = () => {
 
             <Button
               type="submit"
-              className="w-full h-12 rounded-full bg-beige text-cream hover:bg-beige/90 transition-all group mt-4"
+              className="w-full h-11 rounded-lg bg-beige text-cream hover:bg-beige/90 group mt-4"
               disabled={isLoading}
             >
               {isLoading ? (
@@ -111,7 +111,7 @@ const SignupPage = () => {
           <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link to="/login" className="font-bold text-beige hover:underline">
+              <Link to="/login" className="font-medium text-beige hover:underline">
                 Log In
               </Link>
             </p>

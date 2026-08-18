@@ -1,47 +1,29 @@
 /**
- * VOCIFY THEME TOKENS
- * 
- * This file is the "Brain" of your UI. 
- * Changing a value here updates it across the entire platform.
+ * Shared product tokens. Glass is for floating chrome only
+ * (nav, sticky bars, overlays). Content sits on paper.
  */
-
 export const THEME_TOKENS = {
-  // 1. TYPOGRAPHY
-  // Bold, clean Inter for titles. No more italics.
   typography: {
-    pageTitle: "text-3xl md:text-4xl font-black tracking-tighter text-foreground leading-tight",
-    sectionTitle: "text-xl font-bold tracking-tight text-foreground",
-    accentTitle: "text-beige font-black",
-    editorialHeader: "font-serif italic font-medium",
-    capsLabel: "text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground/60",
-    body: "text-base leading-relaxed text-muted-foreground",
+    pageTitle: "text-[1.75rem] md:text-[2rem] font-semibold tracking-tight text-foreground leading-tight",
+    sectionTitle: "text-lg font-semibold tracking-tight text-foreground",
+    accentTitle: "text-beige font-semibold",
+    editorialHeader: "font-serif italic font-normal",
+    capsLabel: "text-xs font-medium text-muted-foreground",
+    body: "text-[15px] leading-relaxed text-muted-foreground",
   },
 
-  // 2. RADIUS & SHAPES
   radius: {
-    card: "rounded-[2rem]",
+    card: "rounded-xl",
     pill: "rounded-full",
-    container: "rounded-[3rem] md:rounded-[4rem]",
+    container: "rounded-2xl",
   },
 
-  // 3. THE "PREMIUM LIGHT" CARD SYSTEM
-  // This is the new glass + inner shadow concept
   cards: {
-    base: "bg-card border border-border/50 shadow-soft",
-    
-    // The main "Focus" boxes (Record, Billing, etc.)
-    premium: `
-      bg-white/40 
-      backdrop-blur-xl 
-      border border-white/20 
-      shadow-large 
-      shadow-[inset_4px_4px_8px_rgba(255,255,255,0.8),inset_-4px_-4px_8px_rgba(0,0,0,0.02)]
-    `.replace(/\s+/g, ' ').trim(),
-    
-    hover: "hover:shadow-medium hover:border-beige/20 transition-all duration-300 hover:-translate-y-1",
+    base: "bg-card border border-border",
+    premium: "glass-panel",
+    hover: "hover:border-beige/25 transition-colors duration-150",
   },
 
-  // 4. COLORS (Semantic)
   colors: {
     brand: "text-beige bg-beige",
     highlight: "bg-beige/10 text-beige",
@@ -51,24 +33,14 @@ export const THEME_TOKENS = {
     muted: "text-muted-foreground",
   },
 
-  // 5. MOTION
   motion: {
     fadeIn: "animate-fade-in",
-    tapScale: "active:scale-95 transition-transform",
-  }
+    tapScale: "active:scale-[0.98] transition-transform duration-150",
+  },
 };
 
-/**
- * REUSABLE UI PATTERNS
- * High-level building blocks
- */
 export const V_PATTERNS = {
-  // Use for "Welcome back, John" headers
-  dashboardHeader: "mb-12 space-y-2",
-  
-  // The layout for the main record box
-  focusBox: "p-12 text-center relative overflow-hidden group",
-  
-  // Standard list items (memos, etc.)
-  listItem: "block p-6 transition-all duration-300",
+  dashboardHeader: "mb-8 space-y-1.5",
+  focusBox: "p-10 text-center relative overflow-hidden",
+  listItem: "block p-5 transition-colors duration-150",
 };

@@ -137,6 +137,7 @@ class Memo(MemoBase):
     createdAt: datetime
     processedAt: Optional[datetime] = None
     approvedAt: Optional[datetime] = None
+    pipelineMeta: Optional[dict] = None
     
     class Config:
         from_attributes = True

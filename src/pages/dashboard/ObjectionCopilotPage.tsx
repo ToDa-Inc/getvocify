@@ -128,7 +128,7 @@ const ObjectionCopilotPage = () => {
     <div className="max-w-4xl mx-auto space-y-8 pb-16">
       <header className="space-y-3">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-beige/15 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-beige border border-beige/20">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-beige/15 px-3 py-1 text-[10px] font-medium text-beige border border-beige/20">
             <Sparkles className="h-3 w-3" />
             Beta
           </span>
@@ -136,7 +136,7 @@ const ObjectionCopilotPage = () => {
             Call Copilot
           </span>
         </div>
-        <h1 className="text-3xl md:text-4xl font-black tracking-tight text-foreground flex items-center gap-3">
+        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-foreground flex items-center gap-3">
           <Headphones className="h-8 w-8 text-beige" />
           Real-time objection handling
         </h1>
@@ -197,7 +197,7 @@ const ObjectionCopilotPage = () => {
 
       <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+          <h2 className="text-xs font-medium text-muted-foreground">
             Live transcript
           </h2>
           <Button variant="ghost" size="sm" className="text-xs" onClick={handleReset}>
@@ -222,7 +222,7 @@ const ObjectionCopilotPage = () => {
 
       <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+          <h2 className="text-xs font-medium text-muted-foreground">
             Offer context
           </h2>
           <Button

@@ -58,22 +58,10 @@ The logo asset is already included in `icons/logo_transparent.png`. To generate 
 
 ## Production Configuration
 
-Before deploying:
+Load unpacked already uses localhost. A Chrome Web Store build already uses `https://api.getvocify.com`. Do not hardcode `API_BASE` before shipping.
 
-1. Update `API_BASE` in `lib/api.js`:
-   ```javascript
-   const API_BASE = 'https://api.getvocify.com/api/v1';
-   ```
+If traffic still hits production while testing locally, reload the unpacked folder, or clear an override:
 
-2. Update `host_permissions` in `manifest.json`:
-   ```json
-   "host_permissions": [
-     "https://*.hubspot.com/*",
-     "https://api.getvocify.com/*"
-   ]
-   ```
-
-3. Update dashboard link in `popup/index.html`:
-   ```html
-   <a href="https://app.getvocify.com" target="_blank">Open Dashboard</a>
-   ```
+```js
+chrome.storage.local.remove('api_base')
+```

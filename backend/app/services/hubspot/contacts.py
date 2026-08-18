@@ -3,11 +3,10 @@ Contact operations service for HubSpot.
 
 Handles creating, updating, and finding contacts with proper
 field mapping from MemoExtraction to HubSpot properties.
-HubSpot requires email; when only contactName exists we use a placeholder
-so the contact can be created and associated with the deal (user can update in HubSpot).
+Email is optional. Phone and/or name are enough to create a contact.
+Never invent placeholder emails.
 """
 
-import re
 from typing import Any, Optional
 
 from .client import HubSpotClient
@@ -68,8 +67,9 @@ class HubSpotContactService:
         """
         properties: dict[str, Any] = {}
         
-        # Email (unique identifier, required for contacts)
-        if extraction.contactEmail:
+        from .contact_identity import is_real_contact_email
+
+        if is_real_contact_email(extraction.contactEmail):
             properties["email"] = extraction.contactEmail.strip().lower()
         
         # Name parsing
@@ -145,9 +145,9 @@ class HubSpotContactService:
             HubSpotConflictError if email already exists
             HubSpotError for other errors
         """
-        if not properties.get("email"):
-            raise HubSpotError("Email is required to create a contact")
-        
+        if not any(properties.get(k) for k in ("email", "phone", "mobilephone", "firstname", "lastname")):
+            raise HubSpotError("Need an email, phone, or name to create a contact")
+
         request = CreateObjectRequest(properties=properties)
         
         try:
@@ -206,65 +206,67 @@ class HubSpotContactService:
                 raise
             raise HubSpotError(f"Failed to update contact: {str(e)}")
     
-    def _placeholder_email(self, contact_name: str) -> str:
-        """Generate placeholder email when we have name but no email. HubSpot requires email."""
-        slug = re.sub(r"[^a-z0-9]+", "-", contact_name.strip().lower())
-        slug = slug.strip("-") or "contact"
-        return f"{slug}@lead.getvocify.com"
-
     async def create_or_update(
         self,
         extraction: MemoExtraction,
         allowed_fields: Optional[list[str]] = None,
     ) -> Optional[HubSpotContact]:
         """
-        Create or update a contact based on extraction data.
-        
-        Logic:
-        1. HubSpot requires email - use contactEmail if provided, else placeholder when we have contactName
-        2. If email exists (real or placeholder), find existing contact by email
-        3. If found, update it with new data
-        4. If not found, create new contact
-        5. If no contactName and no contactEmail, return None
+        Create or update a contact from extraction.
+
+        Email is optional. Match by real email, then unique phone.
+        Create with phone and/or name when there is no email.
+        Never invent a placeholder address.
         """
+        from .contact_identity import real_contact_email_or_none
         from .object_properties import contact_properties_from_extraction
 
-        has_real_email = extraction.contactEmail and str(extraction.contactEmail).strip()
-        if has_real_email:
-            email = extraction.contactEmail.strip().lower()
-        elif extraction.contactName and str(extraction.contactName).strip():
-            email = self._placeholder_email(extraction.contactName)
-            extraction = extraction.model_copy(update={"contactEmail": email})
-        else:
+        email = real_contact_email_or_none(extraction.contactEmail)
+        if not email and extraction.contactEmail:
+            extraction = extraction.model_copy(update={"contactEmail": None})
+        phone = (extraction.contactPhone or "").strip() or None
+        name = (extraction.contactName or "").strip() or None
+        if not email and not phone and not name:
             return None
-        
+
         identity = self.map_extraction_to_properties(extraction)
         properties = contact_properties_from_extraction(
             extraction,
             allowed_fields=allowed_fields,
             identity_props=identity,
         )
-        if "email" not in properties:
+        if email:
             properties["email"] = email
-        
+        else:
+            properties.pop("email", None)
+
         existing = None
-        try:
-            existing = await self.search.find_contact_by_email(email)
-        except Exception:
-            existing = await self.get_by_email(email)
-        
+        if email:
+            try:
+                existing = await self.search.find_contact_by_email(email)
+            except Exception:
+                existing = await self.get_by_email(email)
+        if existing is None and phone:
+            try:
+                hits = await self.search.find_contacts_by_phone(phone, limit=5)
+                if len(hits) == 1:
+                    existing = hits[0]
+            except Exception:
+                existing = None
+
         if existing:
             update_properties = {
                 k: v for k, v in properties.items()
-                if v and k != "email"
+                if v and (k != "email" or not (existing.properties or {}).get("email"))
             }
             if update_properties:
                 return await self.update(existing.id, update_properties)
             return existing
-        
+
         try:
             return await self.create(properties)
         except HubSpotConflictError:
-            existing = await self.get_by_email(email)
-            return existing
+            if email:
+                return await self.get_by_email(email)
+            return None
 

@@ -22,6 +22,7 @@ from .object_properties import (
     company_properties_from_extraction,
     line_items_from_extraction,
 )
+from app.services.extraction_policy import drop_call_unsafe_props, is_identity_name_field
 
 
 def _format_value_for_display(value: Any) -> str:
@@ -374,6 +375,12 @@ class HubSpotPreviewService:
                     pass
 
             if selected_deal and current_props:
+                filtered_properties = drop_call_unsafe_props(
+                    filtered_properties,
+                    existing_record=True,
+                    current=current_props,
+                    object_type="deals",
+                )
                 for field_name, new_value in filtered_properties.items():
                     if new_value is None or new_value == "":
                         continue
@@ -433,15 +440,25 @@ class HubSpotPreviewService:
                 ))
 
         has_existing_contact = bool(selected_contact) or (bool(selected_deal_id) and not is_new_deal)
+        identity_props = (
+            self.contact_service.map_extraction_to_properties(extraction)
+            if self.contact_service else {}
+        )
         contact_props = contact_properties_from_extraction(
             extraction,
             allowed_fields=allowed_contact_fields,
-            identity_props=(
-                self.contact_service.map_extraction_to_properties(extraction)
-                if self.contact_service else {}
-            ),
+            identity_props=identity_props,
         )
+        if has_existing_contact:
+            contact_props = drop_call_unsafe_props(
+                contact_props,
+                existing_record=True,
+                current=current_contact_props,
+                object_type="contacts",
+            )
         for field_name, new_value in contact_props.items():
+            if is_identity_name_field(field_name):
+                continue
             if field_name == "email" and show_identity_create:
                 continue  # shown via new_contact
             new_display = _display_value(field_name, new_value)
@@ -475,6 +492,13 @@ class HubSpotPreviewService:
                 if self.company_service else {}
             ),
         )
+        if has_existing_company:
+            company_props = drop_call_unsafe_props(
+                company_props,
+                existing_record=True,
+                current=current_company_props,
+                object_type="companies",
+            )
         for field_name, new_value in company_props.items():
             if field_name == "name" and show_identity_create:
                 continue
@@ -549,6 +573,9 @@ class HubSpotPreviewService:
                 # Identity labels already covered by contact_name / company_name rows
                 if object_type == "companies" and name == "name":
                     continue
+                # Existing contacts keep their CRM name — don't offer firstname/lastname as addable updates
+                if has_existing_contact and object_type == "contacts" and is_identity_name_field(name):
+                    continue
                 spec = field_specs_map.get(f"{object_type}:{name}") or (
                     field_specs_map.get(name, {}) if object_type == "deals" else {}
                 )
@@ -563,11 +590,16 @@ class HubSpotPreviewService:
         new_contact = None
         new_company = None
         if is_new_deal and not selected_contact:
-            if extraction.contactEmail and str(extraction.contactEmail).strip():
+            from .contact_identity import real_contact_email_or_none
+
+            email = real_contact_email_or_none(extraction.contactEmail)
+            name = (extraction.contactName or "").strip() or None
+            phone = (extraction.contactPhone or "").strip() or None
+            if name or email or phone:
                 new_contact = {
-                    "name": extraction.contactName,
-                    "email": extraction.contactEmail.strip(),
-                    "phone": extraction.contactPhone,
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
                 }
             if extraction.companyName:
                 new_company = {"name": extraction.companyName}

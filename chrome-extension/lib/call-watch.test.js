@@ -49,16 +49,16 @@ describe('decideCallWatchAction', () => {
 });
 
 describe('panelOpenState', () => {
-  it('drops leftover processing so opening the panel is not the converting screen', () => {
+  it('keeps an in-flight transcribe so the panel can show progress', () => {
     const next = panelOpenState({
       status: 'processing',
       isRecording: false,
       processingSource: 'hubspot_call',
       currentMemoId: 'memo-1',
     });
-    assert.equal(next.status, 'idle');
-    assert.equal(next.isRecording, false);
-    assert.equal(next.processingSource, null);
+    assert.equal(next.status, 'processing');
+    assert.equal(next.processingSource, 'hubspot_call');
+    assert.equal(next.currentMemoId, 'memo-1');
   });
 
   it('keeps a live microphone session', () => {
@@ -68,6 +68,16 @@ describe('panelOpenState', () => {
     });
     assert.equal(next.status, 'recording');
     assert.equal(next.isRecording, true);
+  });
+
+  it('keeps a live tab-listen copilot session', () => {
+    const next = panelOpenState({
+      status: 'copilot',
+      isRecording: false,
+      isCopilotListening: true,
+    });
+    assert.equal(next.status, 'copilot');
+    assert.equal(next.isCopilotListening, true);
   });
 
   it('keeps review — that is a screen the user already opened', () => {

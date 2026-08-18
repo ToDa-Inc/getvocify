@@ -23,19 +23,29 @@ CALL_PROPERTIES = (
 )
 
 MAX_RECORDINGS_PER_RECORD = 20
+RECENT_RECORDINGS_LIMIT = 20
 
 
-def call_duration_seconds(props: dict) -> float:
+def call_duration_ms(props: dict) -> int:
+    """Raw HubSpot hs_call_duration (milliseconds)."""
     raw = props.get("hs_call_duration")
     if raw is None or raw == "":
-        return 0.0
+        return 0
     try:
         ms = float(str(raw).strip())
     except ValueError:
+        return 0
+    if ms < 0:
+        return 0
+    return int(round(ms))
+
+
+def call_duration_seconds(props: dict) -> float:
+    """HubSpot stores hs_call_duration in milliseconds (e.g. 3800 = 3.8s)."""
+    ms = call_duration_ms(props)
+    if not ms:
         return 0.0
-    if ms > 10_000:
-        return round(ms / 1000.0, 2)
-    return float(ms)
+    return round(ms / 1000.0, 2)
 
 
 def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
@@ -53,6 +63,7 @@ def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
         "call_id": str(data.get("id")),
         "title": title,
         "timestamp_ms": ts_ms,
+        "duration_ms": call_duration_ms(props),
         "duration_seconds": call_duration_seconds(props),
         "has_recording": bool(rec),
     }
@@ -164,7 +175,7 @@ async def list_recordings_for_record(
     *,
     limit: int = MAX_RECORDINGS_PER_RECORD,
 ) -> list[dict[str, Any]]:
-    """Summaries for calls linked to a deal or contact, newest first."""
+    """Summaries for calls linked to a deal, contact, or company, newest first."""
     call_ids = await list_associated_call_ids(
         client, from_object_type, record_id, limit=limit
     )
@@ -174,6 +185,32 @@ async def list_recordings_for_record(
     items = [parse_call_summary(c) for c in raw if c.get("id")]
     items.sort(key=lambda x: x.get("timestamp_ms") or 0, reverse=True)
     return items[:limit]
+
+
+async def list_recent_recordings(
+    client: HubSpotClient,
+    *,
+    limit: int = RECENT_RECORDINGS_LIMIT,
+) -> list[dict[str, Any]]:
+    """Newest HubSpot calls with a recording, across the portal."""
+    body = {
+        "filterGroups": [{
+            "filters": [{
+                "propertyName": "hs_call_recording_url",
+                "operator": "HAS_PROPERTY",
+            }],
+        }],
+        "sorts": [{"propertyName": "hs_timestamp", "direction": "DESCENDING"}],
+        "properties": list(CALL_PROPERTIES),
+        "limit": min(max(limit, 1), 100),
+    }
+    try:
+        data = await client.post("/crm/v3/objects/calls/search", data=body)
+    except HubSpotError:
+        return []
+    results = (data or {}).get("results") or []
+    items = [parse_call_summary(c) for c in results if c.get("id")]
+    return [item for item in items if item.get("has_recording")]
 
 
 async def download_recording(recording_url: str, access_token: str) -> tuple[bytes, str]:

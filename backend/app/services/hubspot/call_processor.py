@@ -1,12 +1,10 @@
 """
-Process HubSpot call recordings into memos (transcribe via Speechmatics, pending_transcript).
+Process HubSpot call recordings into memos (Deepgram Nova-3 batch, pending_transcript).
 
 Flow:
   1. initiate_hubspot_call_memo  — idempotent DB row, status=transcribing
-  2. process_hubspot_call_background — download audio, submit to Speechmatics
-     with a notification_url callback + speaker diarization enabled.
-  3. /webhooks/speechmatics — receives the completed transcript, updates memo
-     to pending_transcript. No polling loop needed.
+  2. process_hubspot_call_background — download audio, transcribe (sync listen),
+     sanitize, then pending_transcript. No Speechmatics webhook.
 """
 
 from __future__ import annotations
@@ -18,29 +16,40 @@ from typing import Optional, Tuple
 
 from supabase import Client
 
-from app.config import settings
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.metrics import record_transcription_duration
-from app.services.hubspot.calls import download_recording, get_call_engagement
+from app.services.hubspot.calls import (
+    call_duration_seconds,
+    download_recording,
+    get_call_associations,
+    get_call_engagement,
+)
 from app.services.hubspot.client import HubSpotClient
-from app.services.speechmatics_batch import SpeechmaticsBatchService
-
-from .calls import get_call_associations
+from app.services.session_entities import build_page_terms
+from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
+from app.services.stt_batch import transcribe_bytes
+from app.services.transcript_sanitize import sanitize_user_transcript
 
 logger = logging.getLogger(__name__)
 
 
-def _duration_seconds(props: dict) -> float:
-    raw = props.get("hs_call_duration")
-    if raw is None or raw == "":
-        return 0.0
+async def _contact_terms_for_call(client: HubSpotClient, contact_id: Optional[str]):
+    if not contact_id:
+        return []
     try:
-        ms = float(str(raw).strip())
-    except ValueError:
-        return 0.0
-    if ms > 10_000:
-        return round(ms / 1000.0, 2)
-    return float(ms)
+        data = await client.get(
+            f"/crm/v3/objects/contacts/{contact_id}",
+            params={"properties": "firstname,lastname,company"},
+        )
+        props = (data or {}).get("properties") or {}
+        return build_page_terms(
+            first_name=props.get("firstname"),
+            last_name=props.get("lastname"),
+            company_name=props.get("company"),
+        )
+    except Exception as e:
+        logger.warning("HubSpot call vocab: contact %s lookup failed: %s", contact_id, e)
+        return []
 
 
 async def initiate_hubspot_call_memo(
@@ -57,6 +66,7 @@ async def initiate_hubspot_call_memo(
         supabase.table("memos")
         .select("id")
         .eq("hubspot_engagement_id", cid)
+        .eq("user_id", user_id)
         .limit(1)
         .execute()
     )
@@ -96,6 +106,7 @@ async def initiate_hubspot_call_memo(
                 supabase.table("memos")
                 .select("id")
                 .eq("hubspot_engagement_id", cid)
+                .eq("user_id", user_id)
                 .limit(1)
                 .execute()
             )
@@ -114,14 +125,9 @@ async def process_hubspot_call_background(
     call_id: str,
     supabase: Client,
 ) -> None:
-    """
-    Download recording and submit to Speechmatics with:
-    - Speaker diarization (S1/S2 labels for rep vs prospect)
-    - Push notification callback — no polling loop
-
-    The memo stays in 'transcribing' status until /webhooks/speechmatics fires.
-    """
+    """Download recording, transcribe with Deepgram, sanitize, pending_transcript."""
     t0 = time.perf_counter()
+    stages: list = []
     try:
         client = HubSpotClient(access_token)
         data = await get_call_engagement(client, str(call_id))
@@ -133,42 +139,59 @@ async def process_hubspot_call_background(
             raise RuntimeError("No recording URL on call")
 
         audio_bytes, content_type = await download_recording(url, access_token)
-        dur = _duration_seconds(props)
+        dur = call_duration_seconds(props)
         if dur <= 0:
             dur = max(1.0, len(audio_bytes) / (32 * 1024))
 
-        supabase.table("memos").update({"audio_duration": dur}).eq("id", memo_id).execute()
-
-        # Build the callback URL Speechmatics will POST the transcript to.
-        # Speechmatics appends ?id=<job_id>&status=success|error automatically.
-        notification_url = (
-            f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/webhooks/speechmatics"
-            f"?memo_id={memo_id}"
-        )
-
-        batch = SpeechmaticsBatchService()
-        job_id = await batch.submit(
-            audio_bytes=audio_bytes,
-            content_type=content_type or "audio/mpeg",
-            language="es",
-            user_id=user_id,
-            diarization=True,
-            notification_url=notification_url,
-        )
-        record_transcription_duration(time.perf_counter() - t0, "hubspot_call_submit")
-
-        # Persist job_id for traceability (requires migration 011)
+        extra_terms = []
         try:
-            supabase.table("memos").update(
-                {"speechmatics_job_id": job_id}
-            ).eq("id", memo_id).execute()
-        except Exception:
-            pass  # Column may not exist yet; non-fatal
+            _deals, contacts = await get_call_associations(client, str(call_id))
+            extra_terms = await _contact_terms_for_call(client, contacts[0] if contacts else None)
+        except Exception as e:
+            logger.warning("HubSpot call vocab: associations failed: %s", e)
+
+        with pipeline_run() as stages:
+            transcript = await transcribe_bytes(
+                audio_bytes,
+                content_type=content_type or "audio/mpeg",
+                user_id=user_id,
+                extra_terms=extra_terms,
+                diarization=True,
+            )
+            memo_row = (
+                supabase.table("memos")
+                .select("id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
+                .eq("id", memo_id)
+                .limit(1)
+                .execute()
+            )
+            memo_data = (memo_row.data or [None])[0] or {"id": memo_id, "user_id": user_id}
+            cleaned = await sanitize_user_transcript(
+                transcript, user_id, supabase, memo_data=memo_data
+            )
+        record_transcription_duration(time.perf_counter() - t0, "hubspot_call")
+
+        supabase.table("memos").update(
+            {
+                "audio_duration": dur,
+                "status": "pending_transcript",
+                "transcript": cleaned,
+                "transcript_confidence": 0.95,
+                "processing_started_at": None,
+                "error_message": None,
+            }
+        ).eq("id", memo_id).execute()
+        persist_pipeline_meta(supabase, memo_id, stages)
 
         logger.info(
-            "HubSpot call submitted to Speechmatics",
-            extra=log_domain(DOMAIN_MEMO, "hubspot_call_submitted",
-                             memo_id=memo_id, call_id=call_id, job_id=job_id),
+            "HubSpot call transcribed",
+            extra=log_domain(
+                DOMAIN_MEMO,
+                "hubspot_call_transcribed",
+                memo_id=memo_id,
+                call_id=call_id,
+                transcript_len=len(cleaned),
+            ),
         )
     except Exception as e:
         logger.exception(
@@ -182,3 +205,4 @@ async def process_hubspot_call_background(
                 "processing_started_at": None,
             }
         ).eq("id", memo_id).execute()
+        persist_pipeline_meta(supabase, memo_id, stages)

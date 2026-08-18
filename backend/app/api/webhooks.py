@@ -5,6 +5,7 @@ No auth - verified via provider-specific mechanisms.
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -18,12 +19,6 @@ from app.config import settings
 from app.webhook_context import set_correlation_id
 from app.logging_config import log_domain, DOMAIN_WEBHOOK
 from app.metrics import inc_webhook_message
-from app.services.hubspot.call_processor import (
-    initiate_hubspot_call_memo,
-    process_hubspot_call_background,
-)
-from app.services.hubspot.calls import get_call_engagement
-from app.services.hubspot.client import HubSpotClient
 from app.services.hubspot.webhook_signature import verify_hubspot_webhook
 from app.services.whatsapp.client import WhatsAppClient
 from app.services.whatsapp.webhook_parser import parse_webhook
@@ -271,93 +266,6 @@ async def unipile_webhook(request: Request):
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
 
-async def _refresh_hubspot_token(supabase, row_id: str, refresh_token: str):
-    """Exchange a refresh token for a new access token and persist it. Returns new access token or None."""
-    from app.config import settings
-    import httpx
-    from datetime import timezone, timedelta
-
-    client_id = settings.HUBSPOT_CLIENT_ID
-    client_secret = settings.HUBSPOT_CLIENT_SECRET
-    if not client_id or not client_secret or not refresh_token:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
-                "https://api.hubapi.com/oauth/v1/token",
-                data={
-                    "grant_type": "refresh_token",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "refresh_token": refresh_token,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            r.raise_for_status()
-            data = r.json()
-    except Exception as e:
-        logger.warning("HubSpot token refresh failed", extra=log_domain(DOMAIN_WEBHOOK, "hubspot_refresh_failed", error=str(e)))
-        return None
-
-    new_token = data.get("access_token")
-    expires_in = int(data.get("expires_in", 1800))
-    new_expires = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
-    now = datetime.now(timezone.utc).isoformat()
-
-    try:
-        supabase.table("crm_connections").update({
-            "access_token": new_token,
-            "token_expires_at": new_expires,
-            "updated_at": now,
-        }).eq("id", row_id).execute()
-    except Exception as e:
-        logger.warning("HubSpot token persist failed", extra=log_domain(DOMAIN_WEBHOOK, "hubspot_token_persist_failed", error=str(e)))
-
-    logger.info("HubSpot token refreshed", extra=log_domain(DOMAIN_WEBHOOK, "hubspot_token_refreshed", row_id=row_id))
-    return new_token
-
-
-async def _hubspot_connection_for_portal(supabase, portal_id):
-    """Most-recently-updated connected HubSpot row whose metadata.portal_id matches.
-    Auto-refreshes the access token if it is expired or within 5 minutes of expiry."""
-    from datetime import timezone
-    r = (
-        supabase.table("crm_connections")
-        .select("id, user_id, access_token, refresh_token, token_expires_at, metadata")
-        .eq("provider", "hubspot")
-        .eq("status", "connected")
-        .order("updated_at", desc=True)
-        .execute()
-    )
-    want = str(portal_id)
-    for row in r.data or []:
-        meta = row.get("metadata") or {}
-        if str(meta.get("portal_id")) != want:
-            continue
-
-        access_token = str(row["access_token"])
-
-        # Refresh if expired or expiring within 5 minutes
-        expires_at_str = row.get("token_expires_at")
-        if expires_at_str:
-            try:
-                from dateutil.parser import parse as parse_dt
-                expires_at = parse_dt(str(expires_at_str))
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-                buffer = timedelta(minutes=5)
-                if datetime.now(timezone.utc) >= expires_at - buffer:
-                    refresh_token = row.get("refresh_token") or ""
-                    refreshed = await _refresh_hubspot_token(supabase, str(row["id"]), refresh_token)
-                    if refreshed:
-                        access_token = refreshed
-            except Exception as e:
-                logger.warning("Token expiry check failed", extra=log_domain(DOMAIN_WEBHOOK, "hubspot_expiry_check_failed", error=str(e)))
-
-        return str(row["user_id"]), access_token
-    return None
-
-
 @router.get("/hubspot")
 async def hubspot_webhook_info():
     """
@@ -399,8 +307,11 @@ async def hubspot_webhook_info():
 @router.post("/hubspot")
 async def hubspot_webhook(request: Request):
     """
-    HubSpot app webhooks: call engagements with recording URL.
-    Verified via HUBSPOT_CLIENT_SECRET (v1 or v3 signature).
+    HubSpot app webhooks (recording URL, call create).
+
+    Acknowledged only. Transcription starts when the user presses Transcribe
+    in the extension (POST /crm/hubspot/calls/{id}/process). Auto-STT on every
+    recording would bill Deepgram for calls nobody reviews.
     """
     cid = f"hs_{uuid4().hex[:8]}"
     set_correlation_id(cid)
@@ -437,19 +348,12 @@ async def hubspot_webhook(request: Request):
     else:
         events = []
 
-    supabase = get_supabase()
-    processed = 0
+    skipped = 0
 
     for ev in events:
         if not isinstance(ev, dict):
             continue
         sub = ev.get("subscriptionType") or ev.get("subscription_type")
-        portal_id = ev.get("portalId") or ev.get("portal_id")
-        object_id = ev.get("objectId") or ev.get("object_id")
-        if portal_id is None or object_id is None:
-            continue
-
-        # Accept both legacy engagement.* and new generic object.* subscription types
         if sub in ("engagement.propertyChange", "object.propertyChange"):
             if ev.get("propertyName") != "hs_call_recording_url":
                 continue
@@ -461,51 +365,12 @@ async def hubspot_webhook(request: Request):
         else:
             continue
 
-        conn = await _hubspot_connection_for_portal(supabase, portal_id)
-        if not conn:
-            logger.info(
-                "HubSpot webhook: no Vocify user for portal",
-                extra=log_domain(DOMAIN_WEBHOOK, "hubspot_no_portal", portal_id=portal_id),
-            )
-            inc_webhook_message("hubspot", "skipped")
-            continue
-
-        user_id, access_token = conn
-        call_id = str(object_id)
-        hs = HubSpotClient(access_token)
-        eng = await get_call_engagement(hs, call_id)
-        if not eng:
-            inc_webhook_message("hubspot", "skipped")
-            continue
-        props = eng.get("properties") or {}
-        rec_url = (props.get("hs_call_recording_url") or "").strip()
-        if not rec_url:
-            inc_webhook_message("hubspot", "skipped")
-            continue
-
-        memo_id, created = await initiate_hubspot_call_memo(
-            supabase, user_id, call_id, access_token
-        )
-        if memo_id and created:
-            asyncio.create_task(
-                process_hubspot_call_background(
-                    memo_id,
-                    user_id,
-                    access_token,
-                    call_id,
-                    supabase,
-                )
-            )
-            processed += 1
-            inc_webhook_message("hubspot", "processed")
-        elif memo_id:
-            inc_webhook_message("hubspot", "skipped")
-        else:
-            inc_webhook_message("hubspot", "error")
+        skipped += 1
+        inc_webhook_message("hubspot", "skipped")
 
     logger.info(
-        "HubSpot webhook complete",
-        extra=log_domain(DOMAIN_WEBHOOK, "hubspot_complete", processed=processed, events=len(events)),
+        "HubSpot webhook complete (STT is Transcribe-only)",
+        extra=log_domain(DOMAIN_WEBHOOK, "hubspot_complete", processed=0, skipped=skipped, events=len(events)),
     )
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
@@ -585,22 +450,76 @@ async def speechmatics_webhook(request: Request):
         inc_webhook_message("speechmatics", "error")
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
-    supabase = get_supabase()
-    supabase.table("memos").update(
-        {
-            "status": "pending_transcript",
-            "transcript": transcript,
-            "transcript_confidence": 0.95,
-            "processing_started_at": None,
-            "processed_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", memo_id).execute()
-
+    asyncio.create_task(_finalize_speechmatics_transcript(memo_id, transcript, job_id))
     logger.info(
-        "✅ Speechmatics webhook: memo updated to pending_transcript",
-        extra=log_domain(DOMAIN_WEBHOOK, "speechmatics_complete",
+        "Speechmatics webhook: sanitizing transcript in background",
+        extra=log_domain(DOMAIN_WEBHOOK, "speechmatics_sanitize_queued",
                          job_id=job_id, memo_id=memo_id, transcript_len=len(transcript)),
     )
     inc_webhook_message("speechmatics", "processed")
     return JSONResponse(content={"status": "ok"}, status_code=200)
+
+
+async def _finalize_speechmatics_transcript(memo_id: str, transcript: str, job_id) -> None:
+    """Glossary repair + speaker canonicalize, then pending_transcript."""
+    supabase = get_supabase()
+    cleaned = transcript
+    sanitize_s = 0.0
+    total_s = None
+    try:
+        row = (
+            supabase.table("memos")
+            .select("id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,status,processing_started_at")
+            .eq("id", memo_id)
+            .limit(1)
+            .execute()
+        )
+        memo = (row.data or [None])[0] or {}
+        user_id = memo.get("user_id")
+        started = memo.get("processing_started_at")
+        t0 = time.perf_counter()
+        if user_id:
+            from app.services.transcript_sanitize import sanitize_user_transcript
+
+            cleaned = await sanitize_user_transcript(
+                transcript, user_id, supabase, memo_data=memo
+            )
+        sanitize_s = time.perf_counter() - t0
+        if started:
+            try:
+                raw = str(started).replace("Z", "+00:00")
+                start_dt = datetime.fromisoformat(raw)
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+                total_s = (datetime.now(timezone.utc) - start_dt).total_seconds()
+            except Exception:
+                total_s = None
+    except Exception:
+        logger.exception(
+            "Speechmatics webhook: sanitize failed, storing raw transcript",
+            extra=log_domain(DOMAIN_WEBHOOK, "speechmatics_sanitize_failed", memo_id=memo_id, job_id=job_id),
+        )
+        cleaned = transcript
+
+    now = datetime.now(timezone.utc).isoformat()
+    supabase.table("memos").update(
+        {
+            "status": "pending_transcript",
+            "transcript": cleaned,
+            "transcript_confidence": 0.95,
+            "processed_at": now,
+        }
+    ).eq("id", memo_id).execute()
+    logger.info(
+        "✅ Speechmatics webhook: memo updated to pending_transcript",
+        extra=log_domain(
+            DOMAIN_WEBHOOK,
+            "speechmatics_complete",
+            job_id=job_id,
+            memo_id=memo_id,
+            transcript_len=len(cleaned or ""),
+            sanitize_s=round(sanitize_s, 1),
+            total_s=round(total_s, 1) if total_s is not None else None,
+        ),
+    )
 

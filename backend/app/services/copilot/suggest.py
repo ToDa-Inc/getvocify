@@ -21,7 +21,7 @@ def _resolve_model(explicit: Optional[str] = None) -> str:
     return (
         (explicit or "").strip()
         or (settings.COPILOT_MODEL or "").strip()
-        or "google/gemini-2.5-flash-lite"
+        or "google/gemini-3.5-flash-lite"
     )
 
 
