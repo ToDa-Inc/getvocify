@@ -4,13 +4,16 @@ export function canStartListen({ hasToken = false, isListening = false } = {}) {
   return { ok: true };
 }
 
-export function startDeniedMessage(reason) {
+export function startDeniedMessage(reason, { platform } = {}) {
   switch (reason) {
     case 'already_listening':
       return 'Already listening.';
     case 'login_required':
       return 'Log in to start listening.';
     case 'no_system_audio':
+      if (platform === 'linux') {
+        return 'Could not capture system audio. Install PipeWire (pw-record) or PulseAudio (parec), or share a window that has audio.';
+      }
       return 'Could not capture system audio. On macOS grant Screen Recording, then try again.';
     case 'no_mic':
       return 'Microphone permission is required for your side of the call.';

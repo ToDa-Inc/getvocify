@@ -8,6 +8,7 @@ describe('listen-policy', () => {
     assert.equal(canStartListen({ hasToken: true, isListening: true }).reason, 'already_listening');
     assert.equal(canStartListen({ hasToken: true }).ok, true);
     assert.match(startDeniedMessage('no_system_audio'), /system audio/i);
+    assert.match(startDeniedMessage('no_system_audio', { platform: 'linux' }), /PipeWire|PulseAudio/i);
   });
 
   it('tags prospect vs rep on the live transcript', () => {

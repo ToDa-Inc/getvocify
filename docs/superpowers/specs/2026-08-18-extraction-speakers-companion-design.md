@@ -96,10 +96,10 @@ Desktop companion
 ### Desktop companion (`desktop/`)
 
 - Super-simple Vocify-themed window: login (existing `/auth/login`), Listen, live You/Them transcript, Stop & send to Vocify.
-- Main process: `setDisplayMediaRequestHandler` with `audio: 'loopback'` (Granola-style system audio on macOS/Windows).
-- Renderer: discard video tracks; mic as `rep`; system audio as `prospect`.
+- Main process: `setDisplayMediaRequestHandler` with `audio: 'loopback'` on macOS/Windows. On Linux, native speaker capture modeled on [Anarlog](https://github.com/fastrepl/anarlog): PipeWire `stream.capture.sink`, else PulseAudio `<default-sink>.monitor` (`pw-record` / `parec` / `ffmpeg`), then Chromium share-picker.
+- Renderer: mic as `rep`; system audio as `prospect` (native PCM IPC or MediaStream).
 - Tokens in `localStorage`. Default API `https://api.getvocify.com/api/v1`, overridable.
-- Linux: still start; if loopback yields no audio track, show a clear fallback message (share a window/tab with audio, or use the extension).
+- Do **not** vendor Anarlog’s Tauri/Rust tree; Vocify stays Electron + SaaS STT/CRM.
 
 ## Error handling
 
@@ -121,5 +121,5 @@ Desktop companion
 | `transcript_turns` (py/ts) | Parse/normalize diarized text; display labels | `parseTranscriptTurns`, `speakerDisplayLabel` | None |
 | `extraction_policy` | Classify + annotate fill policy | `classify_fill_policy`, `annotate_schema_fill_policies` | Schema property dicts |
 | `extraction-omit` (ts) | Apply/omit proposed CRM fields | `buildApproveExtraction` | Extraction JSON shape |
-| `desktop/lib` | PCM, channels, listen policy | `floatTo16BitPcm`, `encodeChannelAudio`, `canStartListen` | None |
+| `desktop/lib` | PCM, channels, listen policy, Anarlog-style loopback plan | `floatTo16BitPcm`, `encodeChannelAudio`, `canStartListen`, `buildNativeLoopbackPlan` | None |
 | `TranscriptConversation` | Render You/Them bubbles | `transcript`, `contactName` | transcript-turns |

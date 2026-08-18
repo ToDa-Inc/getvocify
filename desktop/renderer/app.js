@@ -1,4 +1,5 @@
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio, liveTranscriptionUrl } from '../lib/channels.js';
+import { backendLabel } from '../lib/capture-labels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../lib/listen-policy.js';
 
@@ -24,7 +25,12 @@ let audioContext = null;
 let websocket = null;
 let captureStreams = [];
 let processors = [];
+let nativePcmUnsub = null;
 let transcriptState = { finalTranscript: '', interimTranscript: '' };
+
+function desktop() {
+  return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
+}
 
 function apiBase() {
   return (localStorage.getItem(STORAGE.api) || document.getElementById('api-base').value || PROD_API)
@@ -108,6 +114,14 @@ function stopCapture() {
     stream.getTracks().forEach((t) => t.stop());
   });
   captureStreams = [];
+  if (nativePcmUnsub) {
+    try { nativePcmUnsub(); } catch { /* ignore */ }
+    nativePcmUnsub = null;
+  }
+  const native = desktop()?.systemAudio;
+  if (native?.stop) {
+    Promise.resolve(native.stop()).catch(() => {});
+  }
   if (websocket) {
     try {
       if (websocket.readyState === WebSocket.OPEN) {
@@ -135,39 +149,53 @@ async function startListen() {
     return;
   }
   showError(listenError, '');
+  const platform = desktop()?.platform;
   let mic;
   let system;
+  let nativeBackend = null;
   try {
     mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch {
-    showError(listenError, startDeniedMessage('no_mic'));
+    showError(listenError, startDeniedMessage('no_mic', { platform }));
     return;
   }
-  try {
-    system = await navigator.mediaDevices.getDisplayMedia({
-      audio: true,
-      video: true,
-    });
-    system.getVideoTracks().forEach((t) => t.stop());
-  } catch {
-    mic.getTracks().forEach((t) => t.stop());
-    showError(listenError, startDeniedMessage('no_system_audio'));
-    return;
+  const native = desktop()?.systemAudio;
+  if (native?.start) {
+    try {
+      const started = await native.start();
+      if (started?.ok) nativeBackend = started.backend;
+    } catch {
+      nativeBackend = null;
+    }
   }
-  if (!system.getAudioTracks().length) {
-    mic.getTracks().forEach((t) => t.stop());
-    system.getTracks().forEach((t) => t.stop());
-    showError(listenError, startDeniedMessage('no_system_audio'));
-    return;
+  if (!nativeBackend) {
+    try {
+      system = await navigator.mediaDevices.getDisplayMedia({
+        audio: true,
+        video: true,
+      });
+      system.getVideoTracks().forEach((t) => t.stop());
+    } catch {
+      mic.getTracks().forEach((t) => t.stop());
+      showError(listenError, startDeniedMessage('no_system_audio', { platform }));
+      return;
+    }
+    if (!system.getAudioTracks().length) {
+      mic.getTracks().forEach((t) => t.stop());
+      system.getTracks().forEach((t) => t.stop());
+      showError(listenError, startDeniedMessage('no_system_audio', { platform }));
+      return;
+    }
   }
 
   listening = true;
-  captureStreams = [mic, system];
+  captureStreams = system ? [mic, system] : [mic];
   transcriptState = { finalTranscript: '', interimTranscript: '' };
   renderTranscript();
   btnListen.disabled = true;
   btnStop.disabled = false;
-  statusEl.innerHTML = '<span class="live">Listening</span> to system audio (Them) and mic (You).';
+  const via = backendLabel(nativeBackend || 'chromium');
+  statusEl.innerHTML = `<span class="live">Listening</span> via ${via} (Them) and mic (You).`;
 
   const wsUrl = applyChannelLabelsToLiveUrl(liveTranscriptionUrl(apiBase()), ['prospect', 'rep']);
   websocket = new WebSocket(wsUrl);
@@ -196,8 +224,12 @@ async function startListen() {
       websocket.send(encodeChannelAudio(channel, pcm));
     }
   };
-  hookPcm(audioContext, system, send('prospect'));
   hookPcm(audioContext, mic, send('rep'));
+  if (system) {
+    hookPcm(audioContext, system, send('prospect'));
+  } else if (native?.onPcm) {
+    nativePcmUnsub = native.onPcm((pcm) => send('prospect')(pcm));
+  }
 }
 
 async function stopAndSend() {

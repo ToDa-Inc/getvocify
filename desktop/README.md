@@ -4,9 +4,16 @@ A tiny desktop window that **emulates the Vocify listen flow** the way Granola d
 
 This does **not** join the meeting as a bot. It captures loopback audio on the machine.
 
+Capture follows the same split as [Anarlog](https://github.com/fastrepl/anarlog) (MIT, Granola-style): **microphone = You**, **system audio = Them**. Vocify keeps the Electron shell and existing SaaS STT/CRM pipeline; it does not vendor Anarlog’s Tauri/Rust app.
+
+| Platform | System audio |
+|----------|----------------|
+| macOS / Windows | Chromium `audio: 'loopback'` (Screen Recording / WASAPI) |
+| Linux | PipeWire `stream.capture.sink`, else PulseAudio `<default-sink>.monitor` via `pw-record` / `parec` / `ffmpeg`, then Chromium share-picker |
+
 ## Why this exists
 
-The Chrome extension can capture a **tab**. Desktop meeting apps have no tab. Companion uses Chromium `audio: 'loopback'` (Electron `setDisplayMediaRequestHandler`) so the meeting’s speakers become the prospect channel.
+The Chrome extension can capture a **tab**. Desktop meeting apps have no tab. Companion captures **system audio** the way Granola / [Anarlog](https://github.com/fastrepl/anarlog) do: native speaker loopback on Linux, Chromium `audio: 'loopback'` on macOS and Windows.
 
 ## Run
 
