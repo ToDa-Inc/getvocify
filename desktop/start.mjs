@@ -16,6 +16,8 @@ if (shouldPreferWebUi()) {
     env,
     cwd: fileURLToPath(new URL('.', import.meta.url)),
   });
+  console.log('Starting Vocify Companion (Electron). A window should open.');
+  console.log('On Mac look in the Dock and the menu-bar tray.');
   child.on('error', (err) => {
     console.error('Failed to start Vocify Companion:', err.message);
     process.exit(1);

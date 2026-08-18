@@ -56,7 +56,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Web app | Vercel | `vercel.json` — builds `src/` via `npm run build` |
 | API | Railway | `backend/railway.json` |
 | Chrome extension | Manual | Load `chrome-extension/` unpacked, or zip for store |
-| Desktop companion | Local Electron | `cd desktop && npm install && npm start` |
+| Desktop companion | GitHub Actions `.dmg` + local Electron | `desktop/` — workflow `Companion Mac DMG`; intended split repo `ToDa-Inc/getvocify-desktop` |
 | HubSpot app | HubSpot CLI | `hubspot-app/` — `hs project upload` |
 
 ## Documentation

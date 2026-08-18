@@ -1,12 +1,20 @@
 # Vocify Companion
 
-Desktop companion for Vocify. Same cream / beige dashboard language, **You / Them** labels, and CRM handoff — with Granola-style **system-audio loopback**, a **menu-bar tray**, and an **always-on-top live overlay**.
+Standalone desktop app for Vocify (Granola-style): **system audio = Them**, **mic = You**, tray + always-on-top overlay, dashboard cream UI, CRM transcript upload.
 
-It does **not** join Zoom as a bot. Mic = You. Speakers = Them.
+This folder is the full app. The intended GitHub repo is **[ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop)** — create that empty repo, then from getvocify:
 
-## On your Mac (this is how you actually see the app)
+```bash
+bash desktop/scripts/push-standalone-repo.sh
+```
 
-Cloud agents cannot put a window on your laptop. Build and open it locally:
+(This agent’s GitHub token cannot create org repos: `403 Resource not accessible by integration`.)
+
+## Why nothing opened last time
+
+The companion is **Electron on the machine that runs `npm start`**. Cursor cloud agents run Linux VMs; that window never appears on your Mac. A `.dmg` also cannot be built on Linux — GitHub Actions on `macos-latest` produces it.
+
+On your Mac:
 
 ```bash
 git checkout cursor/field-extraction-speakers-desktop-a838
@@ -15,51 +23,26 @@ npm install
 npm start
 ```
 
-A Vocify-styled window appears, plus a tray icon. Close the window to keep listening from the overlay / tray.
+You should see a Vocify window **and** a menu-bar icon. If the window is behind others, click **Vocify Companion** in the Dock.
 
-### Mac installer (unsigned .dmg)
+## Mac installer (.dmg)
 
-On a Mac:
+On a Mac, or via **Actions → Companion Mac DMG → Run workflow**:
 
 ```bash
 cd desktop
 npm install
-npm run icons
 npm run dist:mac
+open dist/Vocify-Companion-0.2.0.dmg
 ```
 
-Open `dist/Vocify Companion-0.2.0.dmg`. Unsigned Gatekeeper: **Right-click → Open**. Grant **Microphone** and **Screen Recording**.
+Unsigned build: **Right-click the app → Open**. Grant **Microphone** and **Screen Recording**.
 
-## What you get
+## Loopback
 
-| Piece | Behavior |
-|-------|----------|
-| Main window | Dashboard tokens, Instrument Serif, Listen / Stop & send |
-| Overlay | Always-on-top pill while live; Stop; double-click to show main |
-| Tray | Open Vocify, Listen, Stop & send, Open dashboard, Quit |
-| Loopback | Chromium `audio: 'loopback'` on macOS/Windows; PipeWire/Pulse on Linux |
-| Handoff | `POST /memos/upload-transcript` → review in the dashboard |
+| Platform | System audio |
+|----------|----------------|
+| macOS / Windows | Chromium `audio: 'loopback'` |
+| Linux | PipeWire / Pulse monitor (Anarlog-style), then Chromium |
 
-## Browser fallback
-
-```bash
-npm run web
-# http://127.0.0.1:3847/renderer/index.html
-```
-
-No tray/overlay. Chrome’s share picker instead of silent loopback.
-
-## Permissions
-
-| Platform | Needed |
-|----------|--------|
-| macOS | Microphone + Screen Recording |
-| Windows | Microphone; WASAPI loopback via Chromium |
-| Linux | Microphone; `pw-record` / `parec` if Chromium loopback is empty |
-
-## Tests
-
-```bash
-cd desktop
-npm test
-```
+Does not join the meeting as a bot.

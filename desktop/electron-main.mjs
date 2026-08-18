@@ -81,6 +81,14 @@ function showMainWindow() {
   mainWindow.focus();
 }
 
+function revealWindow(win) {
+  if (!win || win.isDestroyed()) return;
+  if (process.platform === 'darwin') app.dock?.show();
+  win.show();
+  win.moveTop();
+  win.focus();
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 420,
@@ -89,13 +97,18 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: '#f7f4ee',
     title: 'Vocify Companion',
-    show: false,
+    show: true,
     autoHideMenuBar: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 14, y: 16 },
     webPreferences: webPrefs(),
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => revealWindow(win));
+  win.webContents.on('did-fail-load', (_e, code, desc) => {
+    console.error(`Companion window failed to load (${code}): ${desc}`);
+    revealWindow(win);
+  });
+  setTimeout(() => revealWindow(win), 1500);
   win.loadURL(rendererUrl);
   mainWindow = win;
   win.on('close', (event) => {
@@ -180,13 +193,18 @@ function rebuildTrayMenu() {
 }
 
 function createTray() {
-  const iconFile = process.platform === 'darwin' ? 'trayTemplate.png' : 'icon.png';
-  const iconPath = path.join(__dirname, 'build', iconFile);
-  const image = nativeImage.createFromPath(iconPath);
-  if (process.platform === 'darwin') image.setTemplateImage(true);
-  tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 18, height: 18 }));
-  tray.on('click', () => showMainWindow());
-  rebuildTrayMenu();
+  try {
+    const iconFile = process.platform === 'darwin' ? 'trayTemplate.png' : 'icon.png';
+    const iconPath = path.join(__dirname, 'build', iconFile);
+    const image = nativeImage.createFromPath(iconPath);
+    if (process.platform === 'darwin') image.setTemplateImage(true);
+    const icon = image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 18, height: 18 });
+    tray = new Tray(icon);
+    tray.on('click', () => showMainWindow());
+    rebuildTrayMenu();
+  } catch (err) {
+    console.warn('Tray icon unavailable; window still opens.', err?.message || err);
+  }
 }
 
 ipcMain.handle('system-audio:start', async () => {
@@ -305,12 +323,14 @@ app.whenReady().then(async () => {
   createWindow();
   createOverlay();
   createTray();
+  revealWindow(mainWindow);
   app.on('before-quit', () => {
     isQuitting = true;
     stopNativeCapture();
   });
-  console.log(`Vocify Companion is running at ${rendererUrl}`);
-  console.log('Tray + overlay are on. Keep this terminal open in dev.');
+  console.log(`Vocify Companion window should be visible.`);
+  console.log(`UI also at ${rendererUrl}`);
+  console.log('Look for Vocify in the Dock / menu bar. Keep this terminal open in dev.');
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
