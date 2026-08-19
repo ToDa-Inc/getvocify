@@ -7,7 +7,9 @@ from app.services.auth_session import (
     AccessTokenError,
     AccessTokenExpired,
     RefreshTokenReuseCache,
+    claims_for_refresh_bypass,
     classify_refresh_failure,
+    should_reissue_on_gotrue_bug,
     user_id_from_access_token,
 )
 
@@ -15,19 +17,19 @@ from app.services.auth_session import (
 SECRET = "test-jwt-secret-for-auth-session-32b+"
 
 
-def _token(*, sub="user-123", exp_delta=3600, secret=SECRET, aud="authenticated"):
+def _token(*, sub="user-123", exp_delta=3600, secret=SECRET, aud="authenticated", session_id=None):
     now = datetime.now(timezone.utc)
-    return jwt.encode(
-        {
-            "sub": sub,
-            "aud": aud,
-            "role": "authenticated",
-            "iat": now,
-            "exp": now + timedelta(seconds=exp_delta),
-        },
-        secret,
-        algorithm="HS256",
-    )
+    payload = {
+        "sub": sub,
+        "aud": aud,
+        "role": "authenticated",
+        "iat": now,
+        "exp": now + timedelta(seconds=exp_delta),
+        "email": "user@example.com",
+    }
+    if session_id:
+        payload["session_id"] = session_id
+    return jwt.encode(payload, secret, algorithm="HS256")
 
 
 def test_oauth_client_id_bug_is_unavailable_not_a_dead_session():
@@ -74,6 +76,31 @@ def test_bad_signature_is_invalid():
     token = _token(secret="other-jwt-secret-for-auth-session-32b+")
     with pytest.raises(AccessTokenError):
         user_id_from_access_token(token, SECRET)
+
+
+def test_expired_signed_token_can_identify_who_to_refresh():
+    token = _token(sub="user-123", exp_delta=-10, session_id="sess-1")
+    claims = claims_for_refresh_bypass(token, SECRET)
+    assert claims["sub"] == "user-123"
+    assert claims["session_id"] == "sess-1"
+
+
+def test_forged_unsigned_token_cannot_identify_who_to_refresh():
+    payload = jwt.encode(
+        {"sub": "victim", "email": "a@b.c", "aud": "authenticated", "session_id": "x"},
+        "attacker-secret-that-is-32-bytes-long!",
+        algorithm="HS256",
+    )
+    assert claims_for_refresh_bypass(payload, SECRET) is None
+    assert claims_for_refresh_bypass("not-a-jwt", SECRET) is None
+
+
+def test_oauth_client_id_is_the_only_platform_bug_that_may_reissue():
+    assert should_reissue_on_gotrue_bug(
+        "missing destination name oauth_client_id in *models.Session"
+    )
+    assert not should_reissue_on_gotrue_bug("ConnectTimeout")
+    assert not should_reissue_on_gotrue_bug("Invalid Refresh Token")
 
 
 def test_reuse_cache_returns_the_same_tokens_within_ttl():

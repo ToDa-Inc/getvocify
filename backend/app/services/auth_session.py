@@ -65,6 +65,47 @@ def classify_refresh_failure(error_msg: str) -> tuple[str, int]:
     return "unavailable", 503
 
 
+def should_reissue_on_gotrue_bug(error_msg: str) -> bool:
+    """Only the known GoTrue Session.oauth_client_id scan bug may use the reissue path."""
+    return "oauth_client_id" in (error_msg or "").lower()
+
+
+def claims_for_refresh_bypass(access_token: Optional[str], secret: str) -> Optional[dict[str, str]]:
+    """
+    Identify who a broken GoTrue refresh may re-issue for.
+
+    Signature is verified. Expiry is not: the access JWT is often already expired,
+    which is why the client is refreshing. A token that does not verify is ignored
+    (the Aug 2026 hole was decode-without-verify).
+    """
+    if not access_token or access_token in ("undefined", "null") or not secret:
+        return None
+    try:
+        claims = pyjwt.decode(
+            access_token,
+            secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            options={"verify_exp": False},
+            leeway=30,
+        )
+    except pyjwt.InvalidTokenError:
+        return None
+    sub = claims.get("sub")
+    if not sub:
+        return None
+    email = claims.get("email")
+    if not isinstance(email, str) or "@" not in email:
+        meta = claims.get("user_metadata") or {}
+        meta_email = meta.get("email") if isinstance(meta, dict) else None
+        email = meta_email if isinstance(meta_email, str) else ""
+    session_id = claims.get("session_id")
+    out = {"sub": str(sub), "email": email if isinstance(email, str) else ""}
+    if session_id:
+        out["session_id"] = str(session_id)
+    return out
+
+
 def user_id_from_access_token(
     token: str,
     secret: str,

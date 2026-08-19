@@ -91,8 +91,12 @@ export const authApi = {
    * GoTrue oauth_client_id bug fired — keep the stored session and retry.
    */
   refresh: async (refreshToken: string): Promise<RefreshResponse> => {
+    const accessToken = localStorage.getItem('vocify_token');
     const raw = await api.post<Record<string, unknown>>('/auth/refresh', {
       refresh_token: refreshToken,
+      ...(accessToken && accessToken !== 'undefined' && accessToken !== 'null'
+        ? { access_token: accessToken }
+        : {}),
     });
     return {
       accessToken: raw.access_token as string,

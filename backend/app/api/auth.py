@@ -15,7 +15,12 @@ from typing import Optional, List
 from app.config import settings
 from app.deps import get_supabase, get_supabase_auth, get_user_id
 from app.rate_limit import limiter
-from app.services.auth_session import RefreshTokenReuseCache, classify_refresh_failure
+from app.services.auth_session import (
+    RefreshTokenReuseCache,
+    claims_for_refresh_bypass,
+    classify_refresh_failure,
+    should_reissue_on_gotrue_bug,
+)
 from supabase import Client
 
 _refresh_reuse = RefreshTokenReuseCache(ttl_seconds=30)
@@ -364,6 +369,9 @@ async def logout(
 class RefreshRequest(BaseModel):
     """Refresh token request"""
     refresh_token: str
+    # Expired access JWT. Used only when GoTrue refresh hits oauth_client_id.
+    # Must verify with SUPABASE_JWT_SECRET — never trust an unsigned payload.
+    access_token: Optional[str] = None
 
 
 class RefreshResponse(BaseModel):
@@ -428,6 +436,100 @@ def validate_startup_config() -> None:
         )
 
 
+def _session_still_active(user_id: str, session_id: Optional[str]) -> bool:
+    """True if auth.sessions still has this row, or if we cannot query it."""
+    if not session_id:
+        return True
+    try:
+        admin = get_supabase()
+        result = (
+            admin.postgrest.schema("auth")
+            .from_("sessions")
+            .select("id, user_id")
+            .eq("id", session_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(result.data)
+    except Exception as e:
+        logger.warning("auth.sessions lookup failed during refresh reissue: %s", e)
+        return True
+
+
+def _reissue_session_for_verified_claims(claims: dict) -> RefreshResponse:
+    """
+    GoTrue refresh_session cannot scan oauth_client_id. Login still works.
+    Re-issue only for a signature-verified access JWT (expiry ignored).
+    """
+    admin = get_supabase()
+    user_id = claims.get("sub")
+    resolved_email = (claims.get("email") or "").strip() or None
+    session_id = claims.get("session_id")
+
+    if not _session_still_active(str(user_id or ""), session_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    if not resolved_email and user_id:
+        try:
+            user_resp = admin.auth.admin.get_user_by_id(user_id)
+            user = getattr(user_resp, "user", None) or user_resp
+            resolved_email = getattr(user, "email", None)
+            if not resolved_email and isinstance(user, dict):
+                resolved_email = user.get("email")
+        except Exception as e:
+            logger.warning("Admin get_user_by_id failed during refresh reissue: %s", e)
+
+    if not resolved_email:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth service temporarily unreachable. Please try again.",
+        )
+
+    try:
+        link = admin.auth.admin.generate_link({"type": "magiclink", "email": resolved_email})
+        props = getattr(link, "properties", None)
+        email_otp = getattr(props, "email_otp", None) if props else None
+        hashed = getattr(props, "hashed_token", None) if props else None
+        if not email_otp and not hashed:
+            raise RuntimeError("generate_link returned no otp")
+
+        auth_client = get_supabase_auth()
+        if email_otp:
+            verified = auth_client.auth.verify_otp(
+                {"email": resolved_email, "token": email_otp, "type": "magiclink"}
+            )
+        else:
+            verified = auth_client.auth.verify_otp(
+                {"token_hash": hashed, "type": "magiclink"}
+            )
+
+        session = getattr(verified, "session", None)
+        if not session:
+            raise RuntimeError("verify_otp returned no session")
+
+        logger.warning(
+            "Supabase refresh broken (oauth_client_id); re-issued session via verified JWT for %s",
+            resolved_email,
+        )
+        return RefreshResponse(
+            access_token=session.access_token,
+            refresh_token=session.refresh_token,
+            expires_in=session.expires_in or 3600,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Refresh reissue failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Auth service temporarily unreachable. Please try again.",
+        ) from e
+
+
 @router.post("/refresh", response_model=RefreshResponse)
 @limiter.limit("60/minute")
 async def refresh_token(
@@ -438,11 +540,11 @@ async def refresh_token(
     """
     Rotate the access JWT using a refresh token.
 
-    A 401 here means the refresh token is actually dead — clients may sign
-    the user out. A 503 means Auth is unreachable or GoTrue hit a platform
-    bug (including oauth_client_id). We do not mint a replacement session
-    from any other caller-supplied token (that was the Aug 2026 bypass).
-    Clients must keep their stored refresh token and retry.
+    401 = refresh token is dead. 503 = Auth unreachable (keep stored tokens).
+
+    If GoTrue hits the oauth_client_id platform bug, we may re-issue a session
+    only from a signature-verified access JWT (expired is OK). That is not the
+    Aug 2026 hole, which decoded tokens with verify_signature=False.
     """
     token = (body.refresh_token or "").strip()
     if not token or token in ("undefined", "null"):
@@ -486,9 +588,32 @@ async def refresh_token(
         except Exception as e:
             error_msg = str(e)
             kind, http_status = classify_refresh_failure(error_msg)
+            if should_reissue_on_gotrue_bug(error_msg):
+                claims = claims_for_refresh_bypass(
+                    body.access_token, settings.SUPABASE_JWT_SECRET or ""
+                )
+                if claims:
+                    issued = _reissue_session_for_verified_claims(claims)
+                    _refresh_reuse.put(
+                        token,
+                        {
+                            "access_token": issued.access_token,
+                            "refresh_token": issued.refresh_token,
+                            "expires_in": issued.expires_in,
+                        },
+                    )
+                    return issued
+                logger.error(
+                    "Token refresh unavailable (%s) and no verified access token: %s",
+                    kind,
+                    error_msg,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Auth service temporarily unreachable. Please try again.",
+                )
             if http_status == 503:
-                log = logger.error if "oauth_client_id" in error_msg.lower() else logger.warning
-                log("Token refresh unavailable (%s): %s", kind, error_msg)
+                logger.warning("Token refresh unavailable (%s): %s", kind, error_msg)
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Auth service temporarily unreachable. Please try again.",

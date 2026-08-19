@@ -101,14 +101,19 @@ async function doRefreshAccessToken() {
     const response = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+        ...(accessToken ? { access_token: accessToken } : {}),
+      }),
     });
 
     if (!response.ok) {
       if (shouldClearAuthOnRefreshStatus(response.status)) {
         await clearTokens();
       }
-      throw new ApiError(response.status, null, 'Token refresh failed');
+      let data = null;
+      try { data = await response.json(); } catch { /* ignore */ }
+      throw new ApiError(response.status, data, 'Token refresh failed');
     }
 
     const data = await response.json();
