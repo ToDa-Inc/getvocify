@@ -624,11 +624,15 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 else:
                     extracted_fields_log[k] = v
             record_extraction_duration(time.perf_counter() - t0)
+            call_meta = getattr(self.llm, "last_call_meta", None) or {}
             record_stage(
                 "extract",
                 t0,
                 provider=getattr(settings, "LLM_PROVIDER", None) or "openrouter",
-                model=getattr(settings, "EXTRACTION_MODEL", None),
+                model=call_meta.get("model") or getattr(settings, "EXTRACTION_MODEL", None),
+                prompt_tokens=call_meta.get("prompt_tokens"),
+                completion_tokens=call_meta.get("completion_tokens"),
+                total_tokens=call_meta.get("total_tokens"),
                 prompts=snapshot_prompts(messages),
                 includes=["summary", "crm_fields", "next_steps"],
                 note="One JSON call: CRM note (summary), fields to update, and next steps.",
@@ -653,11 +657,14 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 from app.config import settings
                 from app.services.pipeline_meta import record_stage, snapshot_prompts
 
+                call_meta = getattr(self.llm, "last_call_meta", None) or {}
                 record_stage(
                     "extract",
                     t0,
                     provider=getattr(settings, "LLM_PROVIDER", None) or "openrouter",
-                    model=getattr(settings, "EXTRACTION_MODEL", None),
+                    model=call_meta.get("model") or getattr(settings, "EXTRACTION_MODEL", None),
+                    prompt_tokens=call_meta.get("prompt_tokens"),
+                    completion_tokens=call_meta.get("completion_tokens"),
                     prompts=snapshot_prompts(messages),
                     error=str(e)[:500],
                 )

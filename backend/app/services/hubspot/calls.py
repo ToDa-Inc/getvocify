@@ -4,6 +4,7 @@ HubSpot call engagement helpers: fetch properties, associations, download record
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -59,10 +60,14 @@ def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
         except ValueError:
             ts_ms = None
     title = (props.get("hs_call_title") or "").strip() or "Call"
+    timestamp_iso = None
+    if ts_ms:
+        timestamp_iso = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
     return {
         "call_id": str(data.get("id")),
         "title": title,
         "timestamp_ms": ts_ms,
+        "timestamp": timestamp_iso,
         "duration_ms": call_duration_ms(props),
         "duration_seconds": call_duration_seconds(props),
         "has_recording": bool(rec),

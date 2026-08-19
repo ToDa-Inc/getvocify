@@ -432,7 +432,7 @@ async def llm_sanitize_transcript(
 
         _SANITIZE_LLM.set(
             {
-                "provider": "openrouter",
+                "provider": getattr(settings, "LLM_PROVIDER", None) or "openrouter",
                 "model": model,
                 "prompts": snapshot_prompts(messages),
             }
@@ -444,6 +444,14 @@ async def llm_sanitize_transcript(
             timeout=45.0,
             max_retries=1,
         )
+        call_meta = getattr(llm, "last_call_meta", None) or {}
+        info = dict(_SANITIZE_LLM.get() or {})
+        if call_meta.get("model"):
+            info["model"] = call_meta["model"]
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if call_meta.get(key) is not None:
+                info[key] = call_meta[key]
+        _SANITIZE_LLM.set(info)
         turns = turns_from_llm_payload(payload)
         cleaned = serialize_transcript_turns(turns) if turns else ""
         if accept_llm_sanitize(transcript, cleaned):

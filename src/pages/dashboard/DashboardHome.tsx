@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
+import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { Mic } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
@@ -134,8 +134,8 @@ const DashboardHome = () => {
                     </div>
                     <div className="flex flex-col items-end gap-3">
                       {getStatusBadge(memo.status)}
-                      <span className={THEME_TOKENS.typography.capsLabel}>
-                        {formatDistanceToNow(new Date(memo.createdAt), { addSuffix: true })}
+                      <span className={`${THEME_TOKENS.typography.capsLabel} text-right max-w-[11rem] leading-snug`}>
+                        {formatRecordedAtLabel(memo.createdAt)}
                       </span>
                     </div>
                   </div>

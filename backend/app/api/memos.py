@@ -148,7 +148,7 @@ async def extract_memo_async(
     source_type ('voice_memo' | 'meeting_transcript') adjusts LLM prompt context.
     """
     from datetime import datetime
-    from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
+    from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 
     stages: list = []
     try:
@@ -160,21 +160,26 @@ async def extract_memo_async(
             "status": "extracting",
             "processing_started_at": datetime.utcnow().isoformat(),
         }).eq("id", memo_id).execute()
-        
-        # Fetch user glossary for LLM correction
+
         glossary_service = GlossaryService(supabase)
-        glossary = await glossary_service.get_user_glossary(user_id)
 
         from app.services.extraction_context import load_extraction_llm_context
         from app.services.session_entities import load_stt_profile
         from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
 
-        product_context, existing_values = await load_extraction_llm_context(
-            supabase, user_id, memo_id=memo_id, field_specs=field_specs
-        )
-        profile = load_stt_profile(supabase, user_id)
-
         with pipeline_run() as stages:
+            t_context = time.perf_counter()
+            glossary = await glossary_service.get_user_glossary(user_id)
+            product_context, existing_values = await load_extraction_llm_context(
+                supabase, user_id, memo_id=memo_id, field_specs=field_specs
+            )
+            profile = load_stt_profile(supabase, user_id)
+            record_stage(
+                "context",
+                t_context,
+                glossary_terms=len(glossary or []),
+                has_product_context=bool((product_context or "").strip()),
+            )
             transcript, glossary_text = await prepare_transcript_for_extraction_async(
                 transcript,
                 glossary,
@@ -1567,10 +1572,11 @@ async def re_extract_memo(
 ):
     """
     Re-extract structured data from a memo's transcript.
-    
-    Re-runs the GPT-5-mini extraction on the existing transcript.
-    Useful when the initial extraction was incorrect or incomplete.
-    
+
+    Re-runs EXTRACTION_MODEL (Gemini 3.5 Flash Lite via OpenRouter by default)
+    on the existing transcript. Useful when the initial extraction was
+    incorrect or incomplete.
+
     Requires:
     - Memo must have a transcript
     - Memo must not be approved (to prevent overwriting approved data)
@@ -1613,59 +1619,63 @@ async def re_extract_memo(
         "error_message": None,
     }).eq("id", str(memo_id)).execute()
 
-    source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
-    if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
-        source_type = "voice_memo"
-        from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
-        from app.services.extraction_context import load_extraction_llm_context
-        from app.services.session_entities import load_stt_profile
-        from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
+    from app.services.pipeline_meta import (
+        extraction_source_type,
+        persist_pipeline_meta,
+        pipeline_run,
+    )
+    from app.services.extraction_context import load_extraction_llm_context
+    from app.services.session_entities import load_stt_profile
+    from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
 
-        product_context, existing_values = await load_extraction_llm_context(
-            supabase, user_id, memo_data=memo_data, field_specs=field_specs
+    source_type = extraction_source_type(
+        memo_data.get("source_type") or memo_data.get("source")
+    )
+    product_context, existing_values = await load_extraction_llm_context(
+        supabase, user_id, memo_data=memo_data, field_specs=field_specs
+    )
+    profile = load_stt_profile(supabase, user_id)
+    with pipeline_run() as stages:
+        transcript, glossary_text = await prepare_transcript_for_extraction_async(
+            transcript,
+            glossary,
+            existing_values,
+            extra_names=[profile.get("full_name"), profile.get("company_name")],
         )
-        profile = load_stt_profile(supabase, user_id)
-        with pipeline_run() as stages:
-            transcript, glossary_text = await prepare_transcript_for_extraction_async(
-                transcript,
-                glossary,
-                existing_values,
-                extra_names=[profile.get("full_name"), profile.get("company_name")],
+        try:
+            extraction_service = ExtractionService()
+            extraction = await extraction_service.extract(
+                transcript, field_specs,
+                glossary_text=glossary_text,
+                source_context=source_type,
+                product_context=product_context,
+                existing_values=existing_values,
             )
-            try:
-                extraction_service = ExtractionService()
-                extraction = await extraction_service.extract(
-                    transcript, field_specs,
-                    glossary_text=glossary_text,
-                    source_context=source_type,
-                    product_context=product_context,
-                    existing_values=existing_values,
-                )
-            except Exception as e:
-                err_msg = str(e)
-                logger.exception("Re-extract failed for memo %s: %s", memo_id, e)
-                hint = " Check OPENROUTER_API_KEY in backend .env and restart the server." if "401" in err_msg else ""
-                supabase.table("memos").update({
-                    "status": "failed",
-                    "error_message": f"Extraction failed: {err_msg}",
-                }).eq("id", str(memo_id)).execute()
-                persist_pipeline_meta(supabase, str(memo_id), stages)
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Re-extraction failed: {err_msg}{hint}",
-                ) from e
+        except Exception as e:
+            err_msg = str(e)
+            logger.exception("Re-extract failed for memo %s: %s", memo_id, e)
+            hint = " Check OPENROUTER_API_KEY in backend .env and restart the server." if "401" in err_msg else ""
+            supabase.table("memos").update({
+                "status": "failed",
+                "error_message": f"Extraction failed: {err_msg}",
+            }).eq("id", str(memo_id)).execute()
+            persist_pipeline_meta(supabase, str(memo_id), stages)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Re-extraction failed: {err_msg}{hint}",
+            ) from e
 
-        supabase.table("memos").update({
-            "status": "pending_review",
-            "transcript": transcript,
-            "extraction": extraction.model_dump(),
-            "processed_at": datetime.utcnow().isoformat(),
-            "error_message": None,
-        }).eq("id", str(memo_id)).execute()
-        persist_pipeline_meta(supabase, str(memo_id), stages)
-        
-        updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
-        return _memo_from_row(updated_result.data)
+    supabase.table("memos").update({
+        "status": "pending_review",
+        "transcript": transcript,
+        "extraction": extraction.model_dump(),
+        "processed_at": datetime.utcnow().isoformat(),
+        "error_message": None,
+    }).eq("id", str(memo_id)).execute()
+    persist_pipeline_meta(supabase, str(memo_id), stages)
+
+    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+    return _memo_from_row(updated_result.data)
 
 
 @router.post("/{memo_id}/re-transcribe", response_model=Memo)

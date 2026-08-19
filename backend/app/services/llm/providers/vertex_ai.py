@@ -43,6 +43,7 @@ class VertexAIProvider(BaseLLMProvider):
             location=location,
         )
         self._model_name = model or settings.VERTEX_AI_MODEL
+        self.last_call_meta: dict = {}
 
     @property
     def provider_name(self) -> str:
@@ -105,6 +106,7 @@ class VertexAIProvider(BaseLLMProvider):
                 if content is None or not str(content).strip():
                     raise ValueError("Empty model response")
                 elapsed_ms = (time.perf_counter() - t0) * 1000
+                self.last_call_meta = {"model": model_used}
                 inc_llm_request("success", PROVIDER_NAME, model_used)
                 logger.info(
                     "LLM chat success",

@@ -231,4 +231,8 @@ class SyncResult(BaseModel):
     # from Steps 1-7) synced fine (success=True at the top level is still
     # correct - only the outcome step failed).
     outcome_failed: Optional[str] = None
+    # Task sync summary for the extension success screen (non-blocking).
+    tasks_requested_count: int = 0
+    tasks_created_count: int = 0
+    tasks_warning: Optional[str] = None
 

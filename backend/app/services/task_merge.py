@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.models.memo import MemoExtraction
+from app.services.hubspot.tasks import normalize_task_due_datetime
 from app.services.llm import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class TaskMergeResult:
     add: list[TaskAdd] = field(default_factory=list)
     update: list[TaskUpdate] = field(default_factory=list)
     delete: list[str] = field(default_factory=list)
+    merge_failed: bool = False
 
 
 def _format_task_for_prompt(t: dict) -> str:
@@ -59,7 +61,7 @@ def _parse_date_from_llm(value: Optional[str]) -> Optional[datetime]:
     if len(s) < 10:
         return None
     try:
-        return datetime.strptime(s, "%Y-%m-%d")
+        return normalize_task_due_datetime(datetime.strptime(s, "%Y-%m-%d"))
     except ValueError:
         return None
 
@@ -98,7 +100,17 @@ class TaskMergeService:
             return TaskMergeResult()
 
         existing_str = "\n".join(_format_task_for_prompt(t) for t in existing_tasks)
-        next_steps_str = "\n".join(f"- {s}" for s in (extraction.nextSteps or []))
+        schedule_hints = []
+        raw = extraction.raw_extraction or {}
+        hints = raw.get("nextStepSchedules") or raw.get("next_step_schedules") or []
+        if isinstance(hints, list):
+            schedule_hints = [str(h).strip()[:10] if h else "" for h in hints]
+        next_steps = extraction.nextSteps or []
+        next_steps_lines = []
+        for i, step in enumerate(next_steps):
+            due = schedule_hints[i] if i < len(schedule_hints) and schedule_hints[i] else "sin fecha"
+            next_steps_lines.append(f"- {step} (fecha sugerida: {due})")
+        next_steps_str = "\n".join(next_steps_lines)
         transcript_snippet = ""
         if transcript and len(transcript) > 50:
             transcript_snippet = transcript[:2000] + ("..." if len(transcript) > 2000 else "")
@@ -156,8 +168,8 @@ Devuelve ÚNICAMENTE JSON válido, sin texto adicional."""
         try:
             out = await self.llm.chat_json(messages, temperature=0.0)
         except Exception as e:
-            logger.warning("Task merge LLM failed: %s. Falling back to add-only.", e)
-            return TaskMergeResult()
+            logger.warning("Task merge LLM failed: %s. Falling back to create-from-extraction.", e)
+            return TaskMergeResult(merge_failed=True)
 
         add_list = out.get("add") or []
         update_list = out.get("update") or []

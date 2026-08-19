@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { memosApi } from "@/features/memos/api";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
+import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { formatDistanceToNow } from "date-fns";
 
 const getStatusBadge = (status: string) => {
@@ -179,9 +180,12 @@ const MemosPage = () => {
                 
                 <div className="flex flex-col items-end gap-3 flex-shrink-0">
                   {getStatusBadge(memo.status)}
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Calendar className="h-3 w-3" />
-                    {formatDistanceToNow(new Date(memo.createdAt), { addSuffix: true })}
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground text-right max-w-[11rem]">
+                    <Calendar className="h-3 w-3 flex-shrink-0" />
+                    <span className="leading-snug">
+                      {formatRecordedAtLabel(memo.createdAt) ||
+                        formatDistanceToNow(new Date(memo.createdAt), { addSuffix: true })}
+                    </span>
                   </div>
                 </div>
               </div>

@@ -72,6 +72,37 @@ import {
   nextPaintMode,
   uiChromeKey,
 } from '../lib/activity-list.js';
+import {
+  activityTimestampFromMemo,
+  activityTimestampFromRecording,
+  formatActivityTimestamp,
+} from '../lib/activity-date.js';
+
+(function ensureActivityRowStyles() {
+  if (document.getElementById('activity-row-styles')) return;
+  const el = document.createElement('style');
+  el.id = 'activity-row-styles';
+  el.textContent = `
+    .recording-row-title-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+    .recording-row-title-line .recording-row-title {
+      min-width: 0;
+      flex: 1;
+    }
+    .recording-row-date {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+  `;
+  document.head.appendChild(el);
+})();
 
 // ============================================
 // SCREEN ELEMENTS
@@ -549,18 +580,6 @@ function getRecordDisplayName(context) {
   return null;
 }
 
-function formatCallTimestamp(ts) {
-  if (!ts) return 'Unknown date';
-  const d = new Date(ts);
-  if (Number.isNaN(d.getTime())) return 'Unknown date';
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function memoBusyLabel(status) {
   if (status === 'uploading') return 'Uploading';
   if (status === 'extracting') return 'Extracting';
@@ -637,14 +656,17 @@ function appendCallActivityRow(listEl, rec) {
   row.className = 'recording-row';
   const action = getRecordingAction(rec);
   const pill = getMemoStatusPill(rec);
-  const dateStr = formatCallTimestamp(rec.timestamp || rec.timestamp_ms);
+  const dateStr = formatActivityTimestamp(activityTimestampFromRecording(rec));
   const durStr = formatCallDuration(callDurationSeconds(rec));
-  const meta = [dateStr !== 'Unknown date' ? dateStr : null, durStr].filter(Boolean).join(' · ');
+  const meta = durStr || '';
   const title = rec.title || 'Call';
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Call</span>
-      <span class="recording-row-title">${escapeHtml(title)}</span>
+      <div class="recording-row-title-line">
+        <span class="recording-row-title">${escapeHtml(title)}</span>
+        ${dateStr ? `<time class="recording-row-date">${escapeHtml(dateStr)}</time>` : ''}
+      </div>
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
     <div class="recording-row-actions">
@@ -674,7 +696,7 @@ function openMemoFromActivity(memo) {
 function appendMemoActivityRow(listEl, memo) {
   const row = document.createElement('div');
   row.className = 'recording-row';
-  const dateStr = formatCallTimestamp(memo.createdAt || memo.created_at);
+  const dateStr = formatActivityTimestamp(activityTimestampFromMemo(memo));
   const busy = memoBusyLabel(memo.status);
   const canContinue = ['pending_review', 'pending_transcript'].includes(memo.status);
   const canView = memo.status === 'approved';
@@ -691,12 +713,14 @@ function appendMemoActivityRow(listEl, memo) {
   if (memo.status === 'failed') statusClass = 'status-failed';
   const title = memoListTitle(memo);
   const subtitle = memoListSubtitle(memo);
-  const meta = [subtitle, dateStr !== 'Unknown date' ? dateStr : null].filter(Boolean).join(' · ');
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Memo</span>
-      <span class="recording-row-title">${escapeHtml(title)}</span>
-      ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
+      <div class="recording-row-title-line">
+        <span class="recording-row-title">${escapeHtml(title)}</span>
+        ${dateStr ? `<time class="recording-row-date">${escapeHtml(dateStr)}</time>` : ''}
+      </div>
+      ${subtitle ? `<span class="recording-row-meta">${escapeHtml(subtitle)}</span>` : ''}
     </div>
     <div class="recording-row-actions">
       ${busy ? busyStatusHtml(busy) : ''}
@@ -2739,6 +2763,15 @@ function renderSuccess(result) {
     msg.textContent = 'CRM updated successfully.';
   }
 
+  if (result?.tasks_created_count > 0 && !result?.tasks_warning) {
+    const n = result.tasks_created_count;
+    const req = result.tasks_requested_count;
+    const taskLine = req && req !== n
+      ? ` Created ${n} of ${req} tasks.`
+      : ` Created ${n} task${n === 1 ? '' : 's'}.`;
+    msg.textContent += taskLine;
+  }
+
   if (result?.deal_url) {
     btn.href = result.deal_url;
     btn.style.display = 'block';
@@ -2796,6 +2829,17 @@ function renderSuccess(result) {
     } else {
       warningEl.textContent = '';
       warningEl.style.display = 'none';
+    }
+  }
+
+  const tasksWarningEl = document.getElementById('success-tasks-warning');
+  if (tasksWarningEl) {
+    if (result && result.tasks_warning) {
+      tasksWarningEl.textContent = result.tasks_warning;
+      tasksWarningEl.style.display = 'block';
+    } else {
+      tasksWarningEl.textContent = '';
+      tasksWarningEl.style.display = 'none';
     }
   }
 }

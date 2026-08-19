@@ -25,6 +25,22 @@ MAX_RETRIES = 2
 PROVIDER_NAME = "openrouter"
 
 
+def openrouter_call_meta(data: dict, *, requested_model: str) -> dict:
+    """What actually served the call — OpenRouter may echo a routed model id."""
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict):
+        usage = {}
+    model = None
+    if isinstance(data, dict):
+        model = data.get("model")
+    return {
+        "model": model or requested_model,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+    }
+
+
 class OpenRouterProvider(BaseLLMProvider):
     """OpenRouter chat completions API."""
 
@@ -35,6 +51,7 @@ class OpenRouterProvider(BaseLLMProvider):
     ) -> None:
         self.api_key = api_key or settings.OPENROUTER_API_KEY
         self.model = model or settings.EXTRACTION_MODEL
+        self.last_call_meta: dict = {}
 
     @property
     def provider_name(self) -> str:
@@ -128,18 +145,19 @@ class OpenRouterProvider(BaseLLMProvider):
                     if content is None:
                         raise ValueError("Empty model response")
                     elapsed_ms = (time.perf_counter() - t0) * 1000
-                    usage = data.get("usage", {})
-                    inc_llm_request("success", PROVIDER_NAME, model_used)
+                    self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
+                    usage = self.last_call_meta
+                    inc_llm_request("success", PROVIDER_NAME, usage.get("model") or model_used)
                     logger.info(
                         "LLM chat success",
                         extra=log_domain(
                             DOMAIN_LLM,
                             "chat_success",
                             provider=PROVIDER_NAME,
-                            model=model_used,
+                            model=usage.get("model") or model_used,
                             duration_ms=round(elapsed_ms, 2),
                             prompt_tokens=usage.get("prompt_tokens"),
-                            output_tokens=usage.get("total_tokens"),
+                            output_tokens=usage.get("completion_tokens"),
                             content_len=len(content) if content else 0,
                         ),
                     )

@@ -23,6 +23,10 @@ class LLMClient:
         self.router = LLMRouter(api_key=api_key, model=model)
         self._override_model = model
 
+    @property
+    def last_call_meta(self) -> dict:
+        return self.router.last_call_meta
+
     async def chat(
         self,
         messages: list[dict],

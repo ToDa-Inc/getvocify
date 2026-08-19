@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 from .client import HubSpotClient
 from .exceptions import HubSpotError
@@ -20,12 +21,172 @@ from app.models.memo import MemoExtraction
 
 logger = logging.getLogger(__name__)
 
+# Date-only task due dates (extension picker, LLM YYYY-MM-DD) default to 9:00 local.
+# Europe/Madrid covers CET/CEST for the team's timezone.
+TASK_DUE_TZ = ZoneInfo("Europe/Madrid")
+TASK_DEFAULT_DUE_HOUR = 9
+TASK_DEFAULT_DUE_MINUTE = 0
+
+_EXPLICIT_TIME_RE = re.compile(
+    r"(?:a las|at)\s+(\d{1,2})(?::(\d{2}))?\s*(h|hrs?|horas?|am|pm)?",
+    re.IGNORECASE,
+)
+
+
+def _task_tz_now() -> datetime:
+    return datetime.now(TASK_DUE_TZ)
+
+
+def _calendar_date(dt: datetime) -> datetime.date:
+    if dt.tzinfo is None:
+        return dt.date()
+    return dt.astimezone(TASK_DUE_TZ).date()
+
+
+def _at_default_task_hour(dt: datetime) -> datetime:
+    """Set 9:00 Europe/Madrid on the parsed calendar day."""
+    day = _calendar_date(dt)
+    return datetime(
+        day.year,
+        day.month,
+        day.day,
+        TASK_DEFAULT_DUE_HOUR,
+        TASK_DEFAULT_DUE_MINUTE,
+        0,
+        tzinfo=TASK_DUE_TZ,
+    )
+
+
+def _default_task_due_in_days(days: int) -> datetime:
+    target = _task_tz_now().date() + timedelta(days=days)
+    return datetime(
+        target.year,
+        target.month,
+        target.day,
+        TASK_DEFAULT_DUE_HOUR,
+        TASK_DEFAULT_DUE_MINUTE,
+        0,
+        tzinfo=TASK_DUE_TZ,
+    )
+
+
+def _has_explicit_time_in_text(text: str) -> bool:
+    return bool(_EXPLICIT_TIME_RE.search(text or ""))
+
+
+def normalize_task_due_datetime(dt: datetime) -> datetime:
+    """
+    Ensure HubSpot task due datetimes are timezone-aware and not midnight
+    when only a calendar date was provided (extension picker, YYYY-MM-DD).
+    """
+    if dt.tzinfo is None:
+        if dt.hour == 0 and dt.minute == 0 and dt.second == 0 and dt.microsecond == 0:
+            return _at_default_task_hour(dt)
+        return dt.replace(tzinfo=TASK_DUE_TZ)
+    local = dt.astimezone(TASK_DUE_TZ)
+    if local.hour == 0 and local.minute == 0 and local.second == 0 and local.microsecond == 0:
+        return local.replace(
+            hour=TASK_DEFAULT_DUE_HOUR,
+            minute=TASK_DEFAULT_DUE_MINUTE,
+            second=0,
+            microsecond=0,
+        )
+    return local
+
+
 
 @dataclass(frozen=True)
 class FormattedTask:
     subject: str
     due_date: datetime
     task_type: str = "TODO"
+
+
+TaskSkipReason = Literal[
+    "empty",
+    "generic",
+    "duplicate",
+    "hubspot_error",
+    "hubspot_empty_response",
+]
+
+
+@dataclass
+class TaskSkip:
+    reason: TaskSkipReason
+    step: str
+    subject: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class TaskBatchResult:
+    created_ids: list[str] = field(default_factory=list)
+    skipped: list[TaskSkip] = field(default_factory=list)
+
+    @property
+    def created_count(self) -> int:
+        return len(self.created_ids)
+
+
+def summarize_task_batch(
+    requested_count: int,
+    batch: TaskBatchResult,
+    *,
+    merge_mode: bool = False,
+    merge_failed: bool = False,
+    already_synced: bool = False,
+    no_target: bool = False,
+) -> Optional[str]:
+    """Human-readable warning when the rep expected tasks but none (or too few) were created."""
+    if requested_count <= 0:
+        return None
+    created = batch.created_count
+    if created >= requested_count:
+        return None
+
+    if already_synced:
+        return (
+            f"Tasks were not created again ({requested_count} requested) — "
+            "this memo was already synced. Edit and re-approve to retry."
+        )
+    if no_target:
+        return (
+            f"No HubSpot deal or contact to attach {requested_count} task(s) to. "
+            "Pick a contact or deal and sync again."
+        )
+    if merge_failed:
+        if created == 0:
+            return (
+                f"Could not merge tasks with the existing deal ({requested_count} requested). "
+                "Try syncing again or create the task manually in HubSpot."
+            )
+        return (
+            f"Task merge failed partway — created {created} of {requested_count}. "
+            "Check HubSpot for the rest."
+        )
+
+    if created == 0:
+        if merge_mode:
+            return (
+                f"No new tasks were added ({requested_count} requested). "
+                "The deal already has similar tasks, or the merge decided no changes were needed."
+            )
+        by_reason: dict[str, int] = {}
+        for skip in batch.skipped:
+            by_reason[skip.reason] = by_reason.get(skip.reason, 0) + 1
+        parts: list[str] = []
+        if by_reason.get("duplicate"):
+            parts.append(f"{by_reason['duplicate']} duplicate(s)")
+        if by_reason.get("generic"):
+            parts.append(f"{by_reason['generic']} too generic")
+        if by_reason.get("hubspot_error") or by_reason.get("hubspot_empty_response"):
+            n = by_reason.get("hubspot_error", 0) + by_reason.get("hubspot_empty_response", 0)
+            parts.append(f"{n} HubSpot error(s)")
+        detail = f" ({', '.join(parts)})" if parts else ""
+        return f"No tasks were created{detail}. Check backend logs for details."
+
+    return f"Created {created} of {requested_count} tasks — some were skipped as duplicates or too generic."
 
 
 # Patterns that are too generic - don't create tasks for these
@@ -76,13 +237,10 @@ def _strip_scheduling_phrases(text: str) -> str:
 
 
 def _apply_time_from_text(text: str, base: datetime) -> datetime:
-    match = re.search(
-        r"(?:a las|at)\s+(\d{1,2})(?::(\d{2}))?\s*(h|hrs?|horas?|am|pm)?",
-        text,
-        re.IGNORECASE,
-    )
+    match = _EXPLICIT_TIME_RE.search(text or "")
     if not match:
         return base
+    day = _calendar_date(base)
     hour = int(match.group(1))
     minute = int(match.group(2) or 0)
     ampm = (match.group(3) or "").lower()
@@ -90,7 +248,7 @@ def _apply_time_from_text(text: str, base: datetime) -> datetime:
         hour += 12
     elif ampm == "am" and hour == 12:
         hour = 0
-    return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return datetime(day.year, day.month, day.day, hour, minute, 0, tzinfo=TASK_DUE_TZ)
 
 
 def _infer_task_title(cleaned: str, original: str, contact_name: Optional[str]) -> str:
@@ -150,8 +308,16 @@ def format_next_step_task(
     """
     step = (step or "").strip()
     schedule_text = (schedule_hint or step).strip()
-    due_date = _parse_date_from_text(schedule_text) or datetime.utcnow() + timedelta(days=3)
-    due_date = _apply_time_from_text(schedule_text, due_date)
+    time_source = " ".join(filter(None, [schedule_hint, step])).strip() or schedule_text
+    parsed = _parse_date_from_text(schedule_text)
+    if parsed:
+        due_date = parsed
+    else:
+        due_date = _default_task_due_in_days(3)
+    if _has_explicit_time_in_text(time_source):
+        due_date = _apply_time_from_text(time_source, due_date)
+    else:
+        due_date = _at_default_task_hour(due_date)
 
     cleaned = _strip_scheduling_phrases(step)
     subject = _infer_task_title(cleaned, step, contact_name)[:255]
@@ -194,12 +360,13 @@ def _parse_date_from_text(text: str) -> Optional[datetime]:
     if not text:
         return None
     lower = text.strip().lower()
-    now = datetime.utcnow()
+    now = _task_tz_now()
 
     iso_match = _ISO_DATE_RE.search(text)
     if iso_match:
         try:
-            return datetime(int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3)))
+            y, m, d = int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3))
+            return datetime(y, m, d)
         except ValueError:
             pass  # Malformed date (e.g. day 32) - fall through to phrase parsing
 
@@ -258,7 +425,8 @@ class HubSpotTasksService:
 
     def _to_timestamp_ms(self, dt: datetime) -> str:
         """Convert datetime to HubSpot timestamp (milliseconds)."""
-        return str(int(dt.timestamp() * 1000))
+        normalized = normalize_task_due_datetime(dt)
+        return str(int(normalized.timestamp() * 1000))
 
     async def create_task(
         self,
@@ -329,15 +497,49 @@ class HubSpotTasksService:
         if associations:
             payload["associations"] = associations
 
+        target_type = "deal" if deal_id else ("contact" if contact_id else "none")
+        target_id = deal_id or contact_id
         try:
             response = await self.client.post(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}",
                 data=payload,
             )
             if response and "id" in response:
-                return str(response["id"])
+                task_id = str(response["id"])
+                logger.info(
+                    "HubSpot task created",
+                    extra={
+                        "task_id": task_id,
+                        "subject": properties["hs_task_subject"][:80],
+                        "target_type": target_type,
+                        "target_id": target_id,
+                        "due_date": due_date.isoformat(),
+                    },
+                )
+                return task_id
+            logger.warning(
+                "HubSpot task create returned no id",
+                extra={
+                    "subject": properties["hs_task_subject"][:80],
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "response_keys": list(response.keys()) if isinstance(response, dict) else None,
+                },
+            )
             return None
-        except HubSpotError:
+        except HubSpotError as e:
+            logger.warning(
+                "HubSpot task create failed: %s",
+                e.message,
+                extra={
+                    "subject": properties["hs_task_subject"][:80],
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "due_date": due_date.isoformat(),
+                    "status_code": e.status_code,
+                    "hubspot_error": e.response_data,
+                },
+            )
             return None
 
     async def create_tasks_from_extraction(
@@ -347,25 +549,31 @@ class HubSpotTasksService:
         contact_id: Optional[str] = None,
         hubspot_owner_id: Optional[str] = None,
         existing_subjects: Optional[set[str]] = None,
-    ) -> list[str]:
+    ) -> TaskBatchResult:
         """
         Create HubSpot tasks from extraction nextSteps.
         Skips generic items like "Cerrar el trato" and subjects already on the deal.
         Associates to deal_id when present, else to contact_id (contact-first flow).
 
         Returns:
-            List of created task IDs
+            TaskBatchResult with created ids and per-step skip reasons
         """
-        created: list[str] = []
+        result = TaskBatchResult()
         next_steps = extraction.nextSteps or []
         schedule_hints = _next_step_schedule_hints(extraction)
         seen = set(existing_subjects or set())
 
         for i, step in enumerate(next_steps):
             if not step or not isinstance(step, str):
+                result.skipped.append(TaskSkip(reason="empty", step=str(step or "")))
                 continue
             step = step.strip()
             if _should_skip_next_step(step):
+                logger.info(
+                    "Skipping generic next step for task",
+                    extra={"step": step[:120], "reason": "generic"},
+                )
+                result.skipped.append(TaskSkip(reason="generic", step=step))
                 continue
             hint = schedule_hints[i] if i < len(schedule_hints) else None
             formatted = format_next_step_task(
@@ -375,6 +583,13 @@ class HubSpotTasksService:
             )
             norm = _normalize_task_subject(formatted.subject)
             if norm in seen:
+                logger.info(
+                    "Skipping duplicate task subject",
+                    extra={"step": step[:120], "subject": formatted.subject[:80], "reason": "duplicate"},
+                )
+                result.skipped.append(
+                    TaskSkip(reason="duplicate", step=step, subject=formatted.subject)
+                )
                 continue
 
             task_id = await self.create_task(
@@ -387,10 +602,41 @@ class HubSpotTasksService:
                 task_type=formatted.task_type,
             )
             if task_id:
-                created.append(task_id)
+                result.created_ids.append(task_id)
                 seen.add(norm)
+            else:
+                result.skipped.append(
+                    TaskSkip(
+                        reason="hubspot_error",
+                        step=step,
+                        subject=formatted.subject,
+                        error="HubSpot API returned no task id",
+                    )
+                )
 
-        return created
+        if next_steps and not result.created_ids:
+            logger.warning(
+                "No HubSpot tasks created from nextSteps",
+                extra={
+                    "requested_count": len(next_steps),
+                    "skipped_count": len(result.skipped),
+                    "skip_reasons": [s.reason for s in result.skipped],
+                    "deal_id": deal_id,
+                    "contact_id": contact_id,
+                },
+            )
+        elif result.skipped:
+            logger.info(
+                "HubSpot tasks partially created from nextSteps",
+                extra={
+                    "requested_count": len(next_steps),
+                    "created_count": result.created_count,
+                    "skipped_count": len(result.skipped),
+                    "skip_reasons": [s.reason for s in result.skipped],
+                },
+            )
+
+        return result
 
     async def list_tasks_for_deal(
         self,

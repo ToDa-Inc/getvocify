@@ -38,10 +38,12 @@ FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL = frozenset({"dealname"})
 from .associations import HubSpotAssociationService
 from .tasks import (
     HubSpotTasksService,
+    TaskBatchResult,
     _parse_date_from_text,
     _normalize_task_subject,
     format_next_step_task,
     _next_step_schedule_hints,
+    summarize_task_batch,
 )
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
@@ -948,7 +950,43 @@ class HubSpotSyncService:
             tasks_already_synced = CRMUpdatesService.is_action_already_done(
                 previous_updates, ("create_tasks", "merge_tasks")
             )
-            if tasks_target_id and extraction.nextSteps and not tasks_already_synced:
+            tasks_requested_count = len(extraction.nextSteps or [])
+            task_batch = TaskBatchResult()
+            tasks_merge_mode = False
+            tasks_merge_failed = False
+
+            if not tasks_target_id and tasks_requested_count:
+                logger.warning(
+                    "Cannot create tasks — no deal or contact target",
+                    extra=log_domain(
+                        DOMAIN_HUBSPOT, "tasks_no_target",
+                        memo_id=str(memo_id), requested_count=tasks_requested_count,
+                    ),
+                )
+                result.tasks_requested_count = tasks_requested_count
+                result.tasks_created_count = 0
+                result.tasks_warning = summarize_task_batch(
+                    tasks_requested_count,
+                    task_batch,
+                    no_target=True,
+                )
+            elif tasks_target_id and extraction.nextSteps and tasks_already_synced:
+                logger.info(
+                    "Skipping duplicate task sync for memo retry",
+                    extra=log_domain(
+                        DOMAIN_HUBSPOT, "tasks_skipped_duplicate",
+                        deal_id=deal_id, contact_id=contact_id, memo_id=str(memo_id),
+                        requested_count=tasks_requested_count,
+                    ),
+                )
+                result.tasks_requested_count = tasks_requested_count
+                result.tasks_created_count = 0
+                result.tasks_warning = summarize_task_batch(
+                    tasks_requested_count,
+                    task_batch,
+                    already_synced=True,
+                )
+            elif tasks_target_id and extraction.nextSteps and not tasks_already_synced:
                 try:
                     used_merge = False
                     if deal_id and not is_new_deal:
@@ -985,94 +1023,144 @@ class HubSpotSyncService:
                     # only" into "merge can delete a contact's tasks".
                     if deal_id and not is_new_deal and existing_tasks:
                         # UPDATE MODE: Fetch existing tasks, merge with new extraction
+                        tasks_merge_mode = True
                         merge_svc = TaskMergeService()
                         merge_result = await merge_svc.merge_tasks(
                             existing_tasks=existing_tasks,
                             extraction=extraction,
                             transcript=transcript,
                         )
-                        created_ids = []
-                        # Execute add
-                        for add_op in merge_result.add:
-                            schedule_hints = _next_step_schedule_hints(extraction)
-                            hint = schedule_hints[len(created_ids)] if len(created_ids) < len(schedule_hints) else None
-                            formatted = format_next_step_task(
-                                add_op.subject,
-                                contact_name=extraction.contactName,
-                                schedule_hint=hint or add_op.subject,
+                        if merge_result.merge_failed:
+                            tasks_merge_failed = True
+                            logger.warning(
+                                "Task merge failed — falling back to create-from-extraction",
+                                extra=log_domain(
+                                    DOMAIN_HUBSPOT, "tasks_merge_failed",
+                                    memo_id=str(memo_id), deal_id=deal_id,
+                                    requested_count=tasks_requested_count,
+                                    existing_task_count=len(existing_tasks),
+                                ),
                             )
-                            norm = _normalize_task_subject(formatted.subject)
-                            if norm in existing_subjects:
-                                continue
-                            due = add_op.due_date or formatted.due_date
-                            tid = await self.tasks.create_task(
-                                subject=formatted.subject,
-                                due_date=due,
-                                deal_id=deal_id,
-                                body=extraction.summary or "",
-                                hubspot_owner_id=hubspot_owner_id,
-                                task_type=formatted.task_type,
-                            )
-                            if tid:
-                                created_ids.append(tid)
-                                existing_subjects.add(norm)
-                        # Execute update
-                        for upd_op in merge_result.update:
-                            await self.tasks.update_task(
-                                task_id=upd_op.id,
-                                subject=upd_op.subject,
-                                due_date=upd_op.due_date,
-                                hubspot_owner_id=hubspot_owner_id,
-                            )
-                        # Execute delete
-                        for del_id in merge_result.delete:
-                            await self.tasks.delete_task(del_id)
-                        if created_ids or merge_result.update or merge_result.delete:
-                            # DEBT, on purpose: NOT migrated to track(). track()'s
-                            # reserve->execute->confirm models ONE HubSpot write; this
-                            # step is a batch of independent sub-operations (N creates,
-                            # M updates, K deletes) executed in three separate loops
-                            # above, any subset of which can succeed while others fail.
-                            # A single crm_updates row can't represent partial success
-                            # at that granularity without inventing a new data shape.
-                            # Kept on the pre-track() write-after-success pattern, with
-                            # the ERROR-level audit_e logging below as the mitigation
-                            # until this gets real per-operation tracking.
-                            try:
-                                await self.crm_updates.create_update(
-                                    memo_id=str(memo_id),
-                                    user_id=user_id,
-                                    crm_connection_id=str(connection_id),
-                                    action_type="merge_tasks",
-                                    resource_type="task",
-                                    data={
-                                        "task_ids": created_ids,
-                                        "updated": [u.id for u in merge_result.update],
-                                        "deleted": merge_result.delete,
-                                    },
+                        else:
+                            created_ids = []
+                            merge_skipped_duplicates = 0
+                            # Execute add
+                            for add_op in merge_result.add:
+                                schedule_hints = _next_step_schedule_hints(extraction)
+                                hint = schedule_hints[len(created_ids)] if len(created_ids) < len(schedule_hints) else None
+                                formatted = format_next_step_task(
+                                    add_op.subject,
+                                    contact_name=extraction.contactName,
+                                    schedule_hint=hint or add_op.subject,
                                 )
-                            except Exception as audit_e:
-                                # HubSpot already applied the merge - only the audit
-                                # write failed. Distinct from the generic "tasks_failed"
-                                # below (that means HubSpot itself failed): this means
-                                # crm_updates has no record of it, so a retry of this
-                                # memo won't see tasks_already_synced and may re-merge
-                                # the same tasks. Logged at ERROR (not swallowed as a
-                                # warning) so it's monitorable until the write-order fix
-                                # (pending row before the HubSpot call) lands.
-                                inc_pipeline_error(DOMAIN_HUBSPOT, "tasks_audit_write_failed")
-                                logger.error(
-                                    "🚨 Tasks merged in HubSpot but crm_updates write failed - retry may re-merge",
+                                norm = _normalize_task_subject(formatted.subject)
+                                if norm in existing_subjects:
+                                    merge_skipped_duplicates += 1
+                                    logger.info(
+                                        "Merge add skipped as duplicate subject",
+                                        extra=log_domain(
+                                            DOMAIN_HUBSPOT, "tasks_merge_add_skipped_duplicate",
+                                            subject=formatted.subject[:80], deal_id=deal_id,
+                                        ),
+                                    )
+                                    continue
+                                due = add_op.due_date or formatted.due_date
+                                tid = await self.tasks.create_task(
+                                    subject=formatted.subject,
+                                    due_date=due,
+                                    deal_id=deal_id,
+                                    body=extraction.summary or "",
+                                    hubspot_owner_id=hubspot_owner_id,
+                                    task_type=formatted.task_type,
+                                )
+                                if tid:
+                                    created_ids.append(tid)
+                                    existing_subjects.add(norm)
+                            # Execute update
+                            for upd_op in merge_result.update:
+                                await self.tasks.update_task(
+                                    task_id=upd_op.id,
+                                    subject=upd_op.subject,
+                                    due_date=upd_op.due_date,
+                                    hubspot_owner_id=hubspot_owner_id,
+                                )
+                            # Execute delete
+                            for del_id in merge_result.delete:
+                                await self.tasks.delete_task(del_id)
+                            task_batch.created_ids.extend(created_ids)
+                            logger.info(
+                                "Task merge completed",
+                                extra=log_domain(
+                                    DOMAIN_HUBSPOT, "tasks_merge_complete",
+                                    memo_id=str(memo_id), deal_id=deal_id,
+                                    add_requested=len(merge_result.add),
+                                    created_count=len(created_ids),
+                                    updated_count=len(merge_result.update),
+                                    deleted_count=len(merge_result.delete),
+                                    duplicate_skips=merge_skipped_duplicates,
+                                ),
+                            )
+                            if (
+                                not created_ids
+                                and not merge_result.update
+                                and not merge_result.delete
+                                and tasks_requested_count
+                            ):
+                                logger.info(
+                                    "Task merge decided no changes",
                                     extra=log_domain(
-                                        DOMAIN_HUBSPOT, "tasks_created_but_audit_write_failed",
-                                        memo_id=str(memo_id), deal_id=deal_id, contact_id=contact_id,
-                                        created_ids=created_ids,
-                                        updated=[u.id for u in merge_result.update],
-                                        deleted=merge_result.delete,
-                                        error=str(audit_e),
+                                        DOMAIN_HUBSPOT, "tasks_merge_no_changes",
+                                        memo_id=str(memo_id), deal_id=deal_id,
+                                        requested_count=tasks_requested_count,
+                                        existing_task_count=len(existing_tasks),
                                     ),
                                 )
-                        used_merge = True
+                            if created_ids or merge_result.update or merge_result.delete:
+                                # DEBT, on purpose: NOT migrated to track(). track()'s
+                                # reserve->execute->confirm models ONE HubSpot write; this
+                                # step is a batch of independent sub-operations (N creates,
+                                # M updates, K deletes) executed in three separate loops
+                                # above, any subset of which can succeed while others fail.
+                                # A single crm_updates row can't represent partial success
+                                # at that granularity without inventing a new data shape.
+                                # Kept on the pre-track() write-after-success pattern, with
+                                # the ERROR-level audit_e logging below as the mitigation
+                                # until this gets real per-operation tracking.
+                                try:
+                                    await self.crm_updates.create_update(
+                                        memo_id=str(memo_id),
+                                        user_id=user_id,
+                                        crm_connection_id=str(connection_id),
+                                        action_type="merge_tasks",
+                                        resource_type="task",
+                                        data={
+                                            "task_ids": created_ids,
+                                            "updated": [u.id for u in merge_result.update],
+                                            "deleted": merge_result.delete,
+                                        },
+                                    )
+                                except Exception as audit_e:
+                                    # HubSpot already applied the merge - only the audit
+                                    # write failed. Distinct from the generic "tasks_failed"
+                                    # below (that means HubSpot itself failed): this means
+                                    # crm_updates has no record of it, so a retry of this
+                                    # memo won't see tasks_already_synced and may re-merge
+                                    # the same tasks. Logged at ERROR (not swallowed as a
+                                    # warning) so it's monitorable until the write-order fix
+                                    # (pending row before the HubSpot call) lands.
+                                    inc_pipeline_error(DOMAIN_HUBSPOT, "tasks_audit_write_failed")
+                                    logger.error(
+                                        "🚨 Tasks merged in HubSpot but crm_updates write failed - retry may re-merge",
+                                        extra=log_domain(
+                                            DOMAIN_HUBSPOT, "tasks_created_but_audit_write_failed",
+                                            memo_id=str(memo_id), deal_id=deal_id, contact_id=contact_id,
+                                            created_ids=created_ids,
+                                            updated=[u.id for u in merge_result.update],
+                                            deleted=merge_result.delete,
+                                            error=str(audit_e),
+                                        ),
+                                    )
+                            used_merge = True
                     if not used_merge:
                         # CREATE MODE, no existing tasks, or no deal at all: create from
                         # extraction. Associates to the deal when present, else to the
@@ -1084,21 +1172,45 @@ class HubSpotSyncService:
                             action_type="create_tasks",
                             resource_type="task",
                         ) as tracked:
-                            task_ids = await self.tasks.create_tasks_from_extraction(
+                            batch = await self.tasks.create_tasks_from_extraction(
                                 extraction,
                                 deal_id=deal_id,
                                 contact_id=None if deal_id else contact_id,
                                 hubspot_owner_id=hubspot_owner_id,
                                 existing_subjects=existing_subjects,
                             )
-                            if task_ids:
-                                tracked.data = {"task_ids": task_ids, "count": len(task_ids)}
+                            task_batch = batch
+                            if batch.created_ids:
+                                tracked.data = {
+                                    "task_ids": batch.created_ids,
+                                    "count": batch.created_count,
+                                    "skipped": len(batch.skipped),
+                                }
                                 logger.info(
                                     "✅ Tasks created",
                                     extra=log_domain(
                                         DOMAIN_HUBSPOT, "tasks_created",
                                         target_type=tasks_target_type, deal_id=deal_id, contact_id=contact_id,
-                                        count=len(task_ids), task_ids=task_ids,
+                                        count=batch.created_count,
+                                        task_ids=batch.created_ids,
+                                        skipped_count=len(batch.skipped),
+                                    ),
+                                )
+                            elif tasks_requested_count:
+                                tracked.data = {
+                                    "task_ids": [],
+                                    "count": 0,
+                                    "skipped": len(batch.skipped),
+                                    "skip_reasons": [s.reason for s in batch.skipped],
+                                }
+                                logger.warning(
+                                    "No tasks created from nextSteps",
+                                    extra=log_domain(
+                                        DOMAIN_HUBSPOT, "tasks_none_created",
+                                        target_type=tasks_target_type, deal_id=deal_id, contact_id=contact_id,
+                                        requested_count=tasks_requested_count,
+                                        skipped_count=len(batch.skipped),
+                                        skip_reasons=[s.reason for s in batch.skipped],
                                     ),
                                 )
                 except Exception as e:
@@ -1106,13 +1218,20 @@ class HubSpotSyncService:
                     logger.warning(
                         "Failed to create tasks for %s %s: %s",
                         "deal" if deal_id else "contact", tasks_target_id, e,
-                        extra=log_domain(DOMAIN_HUBSPOT, "tasks_failed", deal_id=deal_id, contact_id=contact_id, error=str(e)),
+                        extra=log_domain(
+                            DOMAIN_HUBSPOT, "tasks_failed",
+                            deal_id=deal_id, contact_id=contact_id, error=str(e),
+                            requested_count=tasks_requested_count,
+                        ),
                     )
 
-            elif tasks_target_id and extraction.nextSteps and tasks_already_synced:
-                logger.info(
-                    "Skipping duplicate task sync for memo retry",
-                    extra=log_domain(DOMAIN_HUBSPOT, "tasks_skipped_duplicate", deal_id=deal_id, contact_id=contact_id, memo_id=str(memo_id)),
+                result.tasks_requested_count = tasks_requested_count
+                result.tasks_created_count = task_batch.created_count
+                result.tasks_warning = summarize_task_batch(
+                    tasks_requested_count,
+                    task_batch,
+                    merge_mode=tasks_merge_mode and not tasks_merge_failed,
+                    merge_failed=tasks_merge_failed,
                 )
 
             # Step 7: Create one formatted note per memo, associated to every object
@@ -1360,7 +1479,14 @@ class HubSpotSyncService:
             record_sync_duration(elapsed, "success")
             logger.info(
                 "✅ HubSpot sync complete",
-                extra=log_domain(DOMAIN_HUBSPOT, "sync_complete", memo_id=str(memo_id), deal_id=result.deal_id, company_id=result.company_id, contact_id=result.contact_id, duration_ms=round(elapsed * 1000, 2)),
+                extra=log_domain(
+                    DOMAIN_HUBSPOT, "sync_complete",
+                    memo_id=str(memo_id), deal_id=result.deal_id, company_id=result.company_id,
+                    contact_id=result.contact_id, duration_ms=round(elapsed * 1000, 2),
+                    tasks_requested=result.tasks_requested_count,
+                    tasks_created=result.tasks_created_count,
+                    tasks_warning=bool(result.tasks_warning),
+                ),
             )
             
             # Generate deal URL for frontend (deal_name set during create/update)

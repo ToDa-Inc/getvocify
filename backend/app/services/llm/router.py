@@ -67,6 +67,10 @@ class LLMRouter:
         """Compliance profile of the active provider for vendor assessment."""
         return self._provider.compliance_info()
 
+    @property
+    def last_call_meta(self) -> dict:
+        return dict(getattr(self._provider, "last_call_meta", None) or {})
+
     def _active_provider(self, provider: Optional[str]) -> BaseLLMProvider:
         if provider is None:
             return self._provider
