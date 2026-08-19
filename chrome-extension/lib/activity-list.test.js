@@ -10,6 +10,12 @@ import {
   nextVisibleCount,
   shouldFetchVocifyMemos,
   shouldShowActivityKicker,
+  idleScreenKey,
+  shouldSkipIdlePaint,
+  uiChromeKey,
+  liveCopyKey,
+  activityListKey,
+  nextPaintMode,
 } from './activity-list.js';
 
 describe('isRecordPageContext', () => {
@@ -123,5 +129,138 @@ describe('nextVisibleCount', () => {
     assert.equal(nextVisibleCount(10, 20), 15);
     assert.equal(nextVisibleCount(15, 20), 20);
     assert.equal(nextVisibleCount(20, 20), 20);
+  });
+});
+
+describe('idleScreenKey', () => {
+  it('stays the same when only captureTabId or authenticated changes', () => {
+    const base = {
+      status: 'idle',
+      isRecording: false,
+      recordings: [{ call_id: 'c1', has_recording: true, memo_status: null }],
+      context: null,
+    };
+    assert.equal(
+      idleScreenKey(base),
+      idleScreenKey({ ...base, captureTabId: 12, authenticated: true }),
+    );
+  });
+
+  it('does not rebuild idle chrome when a call memo status changes', () => {
+    const rec = { call_id: 'c1', has_recording: true, memo_status: null };
+    const before = idleScreenKey({ status: 'idle', recordings: [rec], context: null });
+    const after = idleScreenKey({
+      status: 'idle',
+      recordings: [{ ...rec, memo_status: 'pending_review', memo_id: 'm1' }],
+      context: null,
+    });
+    assert.equal(before, after);
+  });
+});
+
+describe('shouldSkipIdlePaint', () => {
+  it('skips a full idle repaint when nothing visible changed', () => {
+    assert.equal(shouldSkipIdlePaint('idle|x', 'idle|x'), true);
+    assert.equal(shouldSkipIdlePaint('idle|x', 'idle|y'), false);
+    assert.equal(shouldSkipIdlePaint(null, 'idle|x'), false);
+  });
+});
+
+describe('uiChromeKey', () => {
+  const idle = {
+    status: 'idle',
+    isRecording: false,
+    recordings: [{ call_id: 'c1', has_recording: true, memo_status: null }],
+    context: null,
+  };
+
+  it('is the idle screen key, so existing skip logic still applies', () => {
+    assert.equal(uiChromeKey(idle), idleScreenKey(idle));
+  });
+
+  it('ignores live transcript so Listen/Record chrome is not rebuilt every STT tick', () => {
+    assert.equal(
+      uiChromeKey({ ...idle, isRecording: true, status: 'recording', finalTranscript: 'hi' }),
+      uiChromeKey({ ...idle, isRecording: true, status: 'recording', finalTranscript: 'hi there', interimTranscript: 'now' }),
+    );
+  });
+
+  it('ignores activity loading and rows so Transcribe hover survives list updates', () => {
+    assert.equal(
+      uiChromeKey({ ...idle, recordingsLoading: true }),
+      uiChromeKey({ ...idle, recordingsLoading: false }),
+    );
+    const empty = { status: 'idle', recordings: [], context: null };
+    assert.equal(
+      uiChromeKey({ ...empty, recordingsLoading: true }),
+      uiChromeKey({ ...empty, recordingsLoading: false }),
+    );
+  });
+
+  it('changes when review/processing identity changes', () => {
+    assert.notEqual(
+      uiChromeKey({ status: 'processing', processingSource: 'voice' }),
+      uiChromeKey({ status: 'processing', processingSource: 'hubspot_call' }),
+    );
+    assert.notEqual(
+      uiChromeKey({ status: 'review', currentMemoId: 'm1' }),
+      uiChromeKey({ status: 'review', currentMemoId: 'm2' }),
+    );
+  });
+});
+
+describe('liveCopyKey', () => {
+  it('changes when transcript or copilot coaching copy changes', () => {
+    const base = { finalTranscript: 'a', copilotSuggestion: { say_this: 'Ask budget' } };
+    assert.notEqual(liveCopyKey(base), liveCopyKey({ ...base, interimTranscript: 'b' }));
+    assert.notEqual(
+      liveCopyKey(base),
+      liveCopyKey({ ...base, copilotSuggestion: { say_this: 'Ask timeline' } }),
+    );
+  });
+});
+
+describe('activityListKey', () => {
+  const recs = [{ call_id: 'c1', has_recording: true, memo_status: null }];
+
+  it('ignores watch phase so the list rows are not remounted', () => {
+    assert.equal(
+      activityListKey({ recordings: recs, watchPhase: 'awaiting_recording' }, { visibleCount: 5 }),
+      activityListKey({ recordings: recs, watchPhase: 'recording_found' }, { visibleCount: 5 }),
+    );
+  });
+
+  it('changes when Show more expands or a memo lands', () => {
+    const state = { recordings: recs };
+    assert.notEqual(
+      activityListKey(state, { visibleCount: 5 }),
+      activityListKey(state, { visibleCount: 10 }),
+    );
+    assert.notEqual(
+      activityListKey(state, { memoStamp: '' }),
+      activityListKey(state, { memoStamp: 'm1:pending_review' }),
+    );
+  });
+
+  it('tracks empty-list loading and call memo status without using watch phase', () => {
+    const empty = { recordings: [], recordingsLoading: true };
+    assert.notEqual(
+      activityListKey(empty, { memoStamp: '' }),
+      activityListKey({ recordings: [], recordingsLoading: false }, { memoStamp: '' }),
+    );
+    const rec = { call_id: 'c1', has_recording: true, memo_status: null };
+    assert.notEqual(
+      activityListKey({ recordings: [rec] }),
+      activityListKey({ recordings: [{ ...rec, memo_status: 'pending_review', memo_id: 'm1' }] }),
+    );
+  });
+});
+
+describe('nextPaintMode', () => {
+  it('skips, patches live copy, or fully paints', () => {
+    assert.equal(nextPaintMode(null, 'chrome', null, 'live'), 'full');
+    assert.equal(nextPaintMode('chrome', 'chrome', 'live', 'live'), 'skip');
+    assert.equal(nextPaintMode('chrome', 'chrome', 'live', 'live2'), 'live');
+    assert.equal(nextPaintMode('chrome', 'chrome2', 'live', 'live'), 'full');
   });
 });

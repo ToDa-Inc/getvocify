@@ -134,3 +134,90 @@ export function resolveReviewPresentation({ memo = null, error = null, isAuthFai
       : 'Could not load this review.',
   };
 }
+
+/**
+ * Second full-page spinner after "Getting the transcript" feels stuck.
+ * Review chrome should paint immediately; HubSpot matching fills in after.
+ */
+export function shouldShowReviewOpeningSpinner(_args = {}) {
+  return false;
+}
+
+export function dealCardWhilePreviewLoads({ pageType = null, pageDealName = '' } = {}) {
+  const name = String(pageDealName || '').trim();
+  if (pageType === 'deal' && name) {
+    return { title: name, reason: 'This HubSpot deal', pending: false };
+  }
+  return { ...dealTargetCardCopy({}), pending: true };
+}
+
+export function canPaintInsightsFromMemo(memo) {
+  const ext = memo?.extraction;
+  if (!ext || typeof ext !== 'object') return false;
+  if (String(ext.summary || '').trim()) return true;
+  return Array.isArray(ext.nextSteps) && ext.nextSteps.some((s) => String(s || '').trim());
+}
+
+export function slimReviewMemo(memo) {
+  if (!memo || typeof memo !== 'object') return null;
+  return {
+    id: memo.id ?? memo.memo_id ?? null,
+    status: memo.status || '',
+    extraction: memo.extraction || null,
+    transcript: memo.transcript || '',
+    hubspotContactId: memo.hubspotContactId || memo.hubspot_contact_id || null,
+    hubspotDealId: memo.hubspotDealId || memo.hubspot_deal_id || memo.matchedDealId || memo.matched_deal_id || null,
+    errorMessage: memo.errorMessage || memo.error_message || null,
+  };
+}
+
+export function reviewFieldsSkeletonHtml() {
+  return `<div class="review-skel" aria-hidden="true">
+    <div class="review-skel-line"></div>
+    <div class="review-skel-line"></div>
+    <div class="review-skel-line review-skel-line--short"></div>
+  </div>`;
+}
+
+/**
+ * Footer CTA stays short so the label can center.
+ * The record name already lives on the deal/contact card above.
+ */
+export function approveCtaLabel({
+  skipDeal = false,
+  isNewDeal = false,
+  hasDeal = false,
+  hasContact = false,
+} = {}) {
+  if (isNewDeal) return 'Create deal';
+  if (skipDeal && hasContact && !hasDeal) return 'Update contact';
+  if (hasDeal) return 'Update deal';
+  if (hasContact) return 'Update contact';
+  return 'Update CRM';
+}
+
+/** Full name for hover; not painted in the button. */
+export function approveCtaTitle({ skipDeal = false, contactName = '', dealName = '' } = {}) {
+  if (skipDeal && contactName) return String(contactName);
+  if (dealName) return String(dealName);
+  if (contactName) return String(contactName);
+  return '';
+}
+
+const CONFIRM_TRANSCRIPT_DONE = new Set(['extracting', 'pending_review', 'approved']);
+
+export function confirmTranscriptAlreadyFinished(status) {
+  return CONFIRM_TRANSCRIPT_DONE.has(String(status || ''));
+}
+
+export function confirmTranscriptErrorStatus(error) {
+  const detail = String(error?.data?.detail || error?.message || '');
+  const match = detail.match(/Status:\s*([a-z_]+)/i);
+  return match ? match[1] : null;
+}
+
+/** Live GET wins so a stale pending_transcript cache cannot reopen Extract. */
+export function memoForReviewPresentation({ cached = null, fetched = null } = {}) {
+  if (fetched && typeof fetched === 'object') return fetched;
+  return cached || null;
+}

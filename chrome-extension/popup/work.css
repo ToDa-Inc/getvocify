@@ -5,3 +5,21 @@
   color: var(--muted);
   font-weight: 500;
 }
+
+.review-skel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0 4px;
+}
+.review-skel-line {
+  height: 11px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+.review-skel-line:nth-child(1) { width: 88%; }
+.review-skel-line:nth-child(2) { width: 72%; }
+.review-skel-line--short { width: 44%; }
+#deal-card.is-pending {
+  opacity: 0.7;
+}

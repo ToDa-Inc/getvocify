@@ -799,16 +799,61 @@ export const HubSpotSyncPreview = ({
       <div className="space-y-6">
         {callSummary ? (
           <div className="space-y-3 px-1">
-            <h5 className={THEME_TOKENS.typography.capsLabel}>Call note</h5>
+            <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>
             <CopilotNote markdown={callSummary} />
           </div>
         ) : null}
-        <div className="flex items-center justify-between px-2">
-          <h5 className={THEME_TOKENS.typography.capsLabel}>Proposed Changes</h5>
-          <span className="text-xs font-normal text-beige flex items-center gap-1.5">
-            <Sparkles className="h-3 w-3" />
-            AI Extracted
-          </span>
+        <div className="relative flex items-center justify-between px-2">
+          <h5 className={THEME_TOKENS.typography.sectionRail}>Fields</h5>
+          {availableFields.length > 0 && !loading && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowAddField(!showAddField)}
+              className="h-auto px-0 text-xs font-normal text-beige hover:bg-transparent hover:text-beige-dark"
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add field
+            </Button>
+          )}
+          {showAddField && availableFields.length > 0 && !loading && (() => {
+              const unused = availableFields.filter((f: { name: string; object_type?: string }) => {
+                const ot = f.object_type || "deals";
+                return !updates.some(
+                  (u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot
+                );
+              });
+              const OBJECT_LABELS: Record<string, string> = {
+                deals: "Deal",
+                contacts: "Contact",
+                companies: "Company",
+              };
+              return (
+                <div className="absolute right-2 top-full mt-2 z-10 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-background border border-border/40 shadow-lg">
+                  {unused.map((f: {
+                    name: string;
+                    label: string;
+                    type?: string;
+                    options?: unknown[];
+                    object_type?: string;
+                  }) => (
+                    <button
+                      key={`${f.object_type || "deals"}:${f.name}`}
+                      onClick={() => addField(f)}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-beige/10 transition-colors"
+                    >
+                      <span className="text-xs font-normal text-muted-foreground/50 mr-2">
+                        {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
+                      </span>
+                      {f.label || f.name}
+                    </button>
+                  ))}
+                  {unused.length === 0 && (
+                    <p className="px-4 py-2 text-xs text-muted-foreground">All fields added</p>
+                  )}
+                </div>
+              );
+            })()}
         </div>
 
         {loading ? (
@@ -938,58 +983,6 @@ export const HubSpotSyncPreview = ({
             })}
           </div>
         )}
-
-        {availableFields.length > 0 && !loading && (
-          <div className="relative">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowAddField(!showAddField)}
-              className="rounded-full border-beige/40 hover:bg-beige/10 text-xs font-normal"
-            >
-              <Plus className="h-3 w-3 mr-1.5" />
-              Add field
-            </Button>
-            {showAddField && (() => {
-              const unused = availableFields.filter((f: { name: string; object_type?: string }) => {
-                const ot = f.object_type || "deals";
-                return !updates.some(
-                  (u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot
-                );
-              });
-              const OBJECT_LABELS: Record<string, string> = {
-                deals: "Deal",
-                contacts: "Contact",
-                companies: "Company",
-              };
-              return (
-                <div className="absolute left-0 top-full mt-2 z-10 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-background border border-border/40 shadow-lg">
-                  {unused.map((f: {
-                    name: string;
-                    label: string;
-                    type?: string;
-                    options?: unknown[];
-                    object_type?: string;
-                  }) => (
-                    <button
-                      key={`${f.object_type || "deals"}:${f.name}`}
-                      onClick={() => addField(f)}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-beige/10 transition-colors"
-                    >
-                      <span className="text-xs font-normal text-muted-foreground/50 mr-2">
-                        {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
-                      </span>
-                      {f.label || f.name}
-                    </button>
-                  ))}
-                  {unused.length === 0 && (
-                    <p className="px-4 py-2 text-xs text-muted-foreground">All fields added</p>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        )}
       </div>
 
       {!loading && (
@@ -1006,22 +999,25 @@ export const HubSpotSyncPreview = ({
           variant="hero"
           onClick={handleSync}
           disabled={syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade)}
+          title={
+            skipDeal && selectedContact
+              ? selectedContact.name || selectedContact.email || ""
+              : dealMatch?.deal_name || ""
+          }
           className="flex-1 bg-beige text-cream hover:bg-beige-dark rounded-full text-sm font-normal shadow-none h-12"
         >
           {syncing ? <VocifySpinner size={16} className="mr-2" /> : <Check className="h-4 w-4 mr-2" />}
           {syncing
             ? "Syncing..."
             : needsContactDecision
-              ? "Confirm Contact First"
+              ? "Pick a contact first"
             : needsDealDecision && !dealDecisionMade
-              ? "Confirm Deal Target First"
+              ? "Pick a deal first"
               : skipDeal && selectedContact
-                ? `Update ${selectedContact.name || selectedContact.email}`
+                ? "Update contact"
                 : dealMatch
-                  ? `Update ${dealMatch.deal_name}`
-                  : selectedContact
-                    ? "Create & Sync Deal"
-                    : "Create & Sync Deal"}
+                  ? "Update deal"
+                  : "Create deal"}
         </Button>
       </div>
     </div>

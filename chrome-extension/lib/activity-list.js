@@ -94,3 +94,70 @@ export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = 
 
   return [...calls, ...vocify].sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0));
 }
+
+function recordingStamp(state) {
+  return (state?.recordings || [])
+    .filter((r) => r && r.has_recording)
+    .map((r) => `${r.call_id || ''}:${r.memo_id || ''}:${r.memo_status || ''}`)
+    .join(',');
+}
+
+/**
+ * Buttons, screens, context strip — anything a hover or click can sit on.
+ * Activity rows and live transcript/coaching copy are keyed separately.
+ */
+export function uiChromeKey(state) {
+  const ctx = state?.context || null;
+  return [
+    state?.status || '',
+    state?.isRecording ? '1' : '0',
+    state?.isCopilotListening ? '1' : '0',
+    state?.listenPhase || '',
+    state?.processingSource || '',
+    state?.currentMemoId || '',
+    state?.copilotError || '',
+    ctx?.objectType || '',
+    ctx?.recordId || '',
+    ctx?.dealName || ctx?.contactName || ctx?.companyName || '',
+  ].join('|');
+}
+
+/** @deprecated use uiChromeKey — same fingerprint, idle-era name. */
+export function idleScreenKey(state) {
+  return uiChromeKey(state);
+}
+
+export function liveCopyKey(state) {
+  const suggestion = state?.copilotSuggestion;
+  return [
+    state?.finalTranscript || '',
+    state?.interimTranscript || '',
+    suggestion?.say_this || '',
+    suggestion?.next_question || '',
+    state?.copilotLastTurn || '',
+    state?.copilotIsLoading ? '1' : '0',
+    state?.copilotTabTitle || '',
+  ].join('|');
+}
+
+export function activityListKey(state, { memoStamp = '', visibleCount = 5, memosLoading = false } = {}) {
+  const recs = recordingStamp(state);
+  const emptyList = !recs && !memoStamp;
+  const loading = Boolean(state?.recordingsLoading || memosLoading);
+  return [
+    recs,
+    memoStamp,
+    String(visibleCount || 5),
+    emptyList && loading ? '1' : '0',
+  ].join('|');
+}
+
+export function shouldSkipIdlePaint(prevKey, nextKey) {
+  return Boolean(prevKey) && prevKey === nextKey;
+}
+
+export function nextPaintMode(prevChrome, nextChrome, prevLive, nextLive) {
+  if (!prevChrome || prevChrome !== nextChrome) return 'full';
+  if (prevLive !== nextLive) return 'live';
+  return 'skip';
+}

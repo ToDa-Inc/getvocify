@@ -2,12 +2,21 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { isAuthFailure } from './auth-session.js';
 import {
+  canPaintInsightsFromMemo,
+  dealCardWhilePreviewLoads,
   dealMatchSubtitle,
   dealPickerVisibility,
   dealTargetCardCopy,
   resolveReviewPresentation,
   sameMemoId,
   shouldReloadReviewPreview,
+  shouldShowReviewOpeningSpinner,
+  slimReviewMemo,
+  approveCtaLabel,
+  approveCtaTitle,
+  confirmTranscriptAlreadyFinished,
+  confirmTranscriptErrorStatus,
+  memoForReviewPresentation,
 } from './review-screen.js';
 
 describe('sameMemoId', () => {
@@ -191,5 +200,116 @@ describe('resolveReviewPresentation', () => {
   it('does not leave an unknown/empty memo as a blank confirm screen', () => {
     const out = resolveReviewPresentation({ memo: {} });
     assert.equal(out.mode, 'error');
+  });
+});
+
+describe('shouldShowReviewOpeningSpinner', () => {
+  it('skips the extra Opening review screen once we already waited on processing', () => {
+    assert.equal(shouldShowReviewOpeningSpinner({ fromProcessing: true, memoId: 'm1' }), false);
+  });
+
+  it('skips it when the memo payload is already in hand', () => {
+    assert.equal(shouldShowReviewOpeningSpinner({ hasMemoPayload: true, memoId: 'm1' }), false);
+  });
+
+  it('skips it when the review body is already on screen', () => {
+    assert.equal(shouldShowReviewOpeningSpinner({ reviewBodyVisible: true, memoId: 'm1' }), false);
+  });
+
+  it('never parks on Opening review when we already know which memo to show', () => {
+    assert.equal(shouldShowReviewOpeningSpinner({ memoId: 'm1' }), false);
+    assert.equal(shouldShowReviewOpeningSpinner({ memoId: null }), false);
+  });
+});
+
+describe('dealCardWhilePreviewLoads', () => {
+  it('never uses Loading... — HubSpot page deal name or the empty-deal copy', () => {
+    assert.deepEqual(
+      dealCardWhilePreviewLoads({ pageType: 'deal', pageDealName: 'ACME Renewal' }),
+      { title: 'ACME Renewal', reason: 'This HubSpot deal', pending: false },
+    );
+    const fallback = dealCardWhilePreviewLoads({ pageType: 'contact' });
+    assert.equal(fallback.title, 'No deal selected');
+    assert.equal(fallback.pending, true);
+    assert.doesNotMatch(fallback.title, /loading/i);
+  });
+});
+
+describe('canPaintInsightsFromMemo', () => {
+  it('is true when extraction already has the note or next steps', () => {
+    assert.equal(canPaintInsightsFromMemo({ extraction: { summary: 'Budget confirmed' } }), true);
+    assert.equal(canPaintInsightsFromMemo({ extraction: { nextSteps: ['Send proposal'] } }), true);
+    assert.equal(canPaintInsightsFromMemo({ extraction: {} }), false);
+    assert.equal(canPaintInsightsFromMemo(null), false);
+  });
+});
+
+describe('slimReviewMemo', () => {
+  it('keeps review-paint fields without requiring another getMemo', () => {
+    const slim = slimReviewMemo({
+      id: 'm1',
+      status: 'pending_review',
+      extraction: { summary: 'Hi' },
+      transcript: 'S1: hello',
+      hubspot_contact_id: 'C1',
+      extra: 'drop me',
+    });
+    assert.equal(slim.id, 'm1');
+    assert.equal(slim.status, 'pending_review');
+    assert.equal(slim.extraction.summary, 'Hi');
+    assert.equal(slim.hubspotContactId, 'C1');
+    assert.equal(slim.extra, undefined);
+  });
+});
+
+describe('approveCtaLabel', () => {
+  it('names the object, not the record, so the button can stay centered', () => {
+    assert.equal(approveCtaLabel({ hasDeal: true, hasContact: true }), 'Update deal');
+    assert.equal(approveCtaLabel({ skipDeal: true, hasContact: true }), 'Update contact');
+    assert.equal(approveCtaLabel({ isNewDeal: true, hasContact: true }), 'Create deal');
+    assert.equal(approveCtaLabel({}), 'Update CRM');
+  });
+});
+
+describe('approveCtaTitle', () => {
+  it('keeps the record name on hover', () => {
+    assert.equal(approveCtaTitle({ dealName: 'Turco Española' }), 'Turco Española');
+    assert.equal(
+      approveCtaTitle({ skipDeal: true, contactName: 'Rafael Vilaplana Dura' }),
+      'Rafael Vilaplana Dura',
+    );
+  });
+});
+
+describe('confirmTranscriptAlreadyFinished', () => {
+  it('treats a second Extract as done when the memo already left transcript review', () => {
+    assert.equal(confirmTranscriptAlreadyFinished('pending_review'), true);
+    assert.equal(confirmTranscriptAlreadyFinished('extracting'), true);
+    assert.equal(confirmTranscriptAlreadyFinished('pending_transcript'), false);
+    assert.equal(confirmTranscriptAlreadyFinished('failed'), false);
+  });
+});
+
+describe('confirmTranscriptErrorStatus', () => {
+  it('reads the live status from the 400 when Extract is clicked twice', () => {
+    assert.equal(
+      confirmTranscriptErrorStatus({
+        status: 400,
+        data: { detail: 'Memo is not awaiting transcript review. Status: pending_review' },
+      }),
+      'pending_review',
+    );
+  });
+});
+
+describe('memoForReviewPresentation', () => {
+  it('does not keep showing transcript review from a stale cache after extract', () => {
+    const cached = { id: 'm1', status: 'pending_transcript', extraction: {} };
+    const fetched = { id: 'm1', status: 'pending_review', extraction: { summary: 'Done' } };
+    assert.equal(memoForReviewPresentation({ cached, fetched }).status, 'pending_review');
+    assert.equal(
+      resolveReviewPresentation({ memo: memoForReviewPresentation({ cached, fetched }) }).mode,
+      'pending_review',
+    );
   });
 });

@@ -30,6 +30,17 @@ import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js'
 import { mergeSessionVocab } from './lib/session-vocab.js';
 import { apiBaseToWsOrigin } from './lib/api-base.js';
 import { actionsForCommand } from './lib/hotkey.js';
+import { slimReviewMemo } from './lib/review-screen.js';
+import { reviewIdsFromMemo } from './lib/memo-identity.js';
+import {
+  clearInflightPreview,
+  clearPreviewCache,
+  getCachedPreview,
+  getInflightPreview,
+  previewCacheKey,
+  setCachedPreview,
+  setInflightPreview,
+} from './lib/preview-cache.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -62,6 +73,7 @@ let state = {
   copilotTabTitle: null,
   captureTabId: null,
   listenPhase: 'idle',
+  reviewMemo: null,
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
@@ -133,10 +145,88 @@ let memoPollTimerId = null;
 /** Memos the user dismissed. Never auto-open these. */
 const ignoredCallMemoIds = new Set();
 
+function pageTargetsForPreview() {
+  const ctx = state.context;
+  if (ctx?.objectType === 'contact' && ctx.recordId) {
+    return { contactId: ctx.recordId, dealId: null };
+  }
+  if (ctx?.objectType === 'deal' && ctx.recordId) {
+    return { contactId: ctx.contactId || null, dealId: ctx.recordId };
+  }
+  return { contactId: ctx?.contactId || null, dealId: null };
+}
+
+function requestMemoPreview({
+  memoId,
+  dealId = null,
+  contactId = null,
+  createNewDeal = false,
+  extraction = null,
+} = {}) {
+  const key = previewCacheKey({ memoId, dealId, contactId, createNewDeal });
+  if (!extraction) {
+    const cached = getCachedPreview(key);
+    if (cached) return Promise.resolve(cached);
+    const inflight = getInflightPreview(key);
+    if (inflight) return inflight;
+  }
+  const req = extraction
+    ? api.post(`/memos/${memoId}/preview`, {
+        deal_id: dealId || null,
+        contact_id: contactId || null,
+        create_new_deal: !!createNewDeal,
+        extraction,
+      })
+    : (() => {
+        const params = new URLSearchParams();
+        if (dealId) params.set('deal_id', dealId);
+        if (contactId) params.set('contact_id', contactId);
+        if (createNewDeal) params.set('create_new_deal', 'true');
+        const qs = params.toString();
+        return api.get(`/memos/${memoId}/preview${qs ? `?${qs}` : ''}`);
+      })();
+  const pending = req
+    .then((preview) => {
+      if (preview && !preview.error) setCachedPreview(key, preview);
+      return preview;
+    })
+    .finally(() => clearInflightPreview(key));
+  if (!extraction) setInflightPreview(key, pending);
+  return pending;
+}
+
+function prefetchReviewPreview(memoId, memo) {
+  if (!memoId || !memo) return;
+  const status = String(memo.status || '');
+  if (status !== 'pending_review' && status !== 'approved') return;
+  const ids = reviewIdsFromMemo(memo, pageTargetsForPreview());
+  requestMemoPreview({
+    memoId,
+    dealId: ids.dealId,
+    contactId: ids.contactId,
+    createNewDeal: false,
+  }).catch(() => {});
+}
+
+function openReviewFromMemo(memoId, memo) {
+  const slim = slimReviewMemo(memo);
+  prefetchReviewPreview(memoId, slim);
+  updateState({
+    status: 'review',
+    currentMemoId: memoId,
+    reviewMemo: slim,
+  });
+}
+
 // ============================================
 // STATE MANAGEMENT
 // ============================================
 function updateState(newState) {
+  if (newState.status === 'idle' || newState.status === 'success') {
+    if (newState.reviewMemo === undefined) newState.reviewMemo = null;
+    clearPreviewCache();
+  }
+
   state = { ...state, ...newState, captureTabId: lastActiveTabId };
 
   if (state.listenPhase === 'live' || state.isCopilotListening) {
@@ -704,7 +794,7 @@ async function processAudioData(audioData) {
 
     // If transcript was sent, backend returns pending_transcript immediately - go straight to review
     if (result.status === 'pending_transcript' || result.status === 'pending_review') {
-      updateState({ currentMemoId: result.id, status: 'review' });
+      openReviewFromMemo(result.id, result);
       showNotification('Ready for Review', 'Review and confirm your transcript.');
       return;
     }
@@ -732,7 +822,7 @@ function startPolling(memoId) {
       if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
         clearMemoPoll();
         showNotification('Ready for Review', 'Review and confirm your transcript.');
-        updateState({ status: 'review', currentMemoId: memoId });
+        openReviewFromMemo(memoId, memo);
       } else if (memo.status === 'approved') {
         clearMemoPoll();
         updateState({ status: 'success', syncResult: memo });
@@ -927,26 +1017,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep channel open for async response
 
     case 'GET_PREVIEW':
-      if (message.extraction) {
-        api.post(`/memos/${message.memoId}/preview`, { 
-          deal_id: message.dealId || null,
-          contact_id: message.contactId || null,
-          create_new_deal: !!message.createNewDeal,
-          extraction: message.extraction 
-        })
-          .then(sendResponse)
-          .catch(e => sendResponse({ error: e.message }));
-      } else {
-        const params = new URLSearchParams();
-        if (message.dealId) params.set('deal_id', message.dealId);
-        if (message.contactId) params.set('contact_id', message.contactId);
-        if (message.createNewDeal) params.set('create_new_deal', 'true');
-        const qs = params.toString();
-        const previewUrl = `/memos/${message.memoId}/preview${qs ? `?${qs}` : ''}`;
-        api.get(previewUrl)
-          .then(sendResponse)
-          .catch(e => sendResponse({ error: e.message }));
-      }
+      requestMemoPreview({
+        memoId: message.memoId,
+        dealId: message.dealId || null,
+        contactId: message.contactId || null,
+        createNewDeal: !!message.createNewDeal,
+        extraction: message.extraction || null,
+      })
+        .then(sendResponse)
+        .catch((e) => sendResponse({ error: e.message }));
       return true;
 
     case 'APPROVE_SYNC':
@@ -1042,7 +1121,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
             startPolling(memoId);
           } else if (memoId && (st === 'pending_transcript' || st === 'pending_review')) {
-            updateState({ status: 'review', currentMemoId: memoId, watchingForRecording: false });
+            api.getMemo(memoId)
+              .then((memo) => {
+                openReviewFromMemo(memoId, memo);
+                updateState({ watchingForRecording: false, processingSource: 'hubspot_call' });
+              })
+              .catch(() => {
+                updateState({ status: 'review', currentMemoId: memoId, watchingForRecording: false });
+              });
           } else if (memoId && st === 'failed') {
             updateState({ status: 'idle', currentMemoId: null, processingSource: null });
           }

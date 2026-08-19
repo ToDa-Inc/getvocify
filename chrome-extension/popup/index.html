@@ -111,7 +111,6 @@
         </div>
         <h2 class="title-large" id="processing-title">Getting the transcript</h2>
         <p class="body-muted processing-message-live" id="processing-message">Writing the call down…</p>
-        <p class="process-elapsed" id="processing-elapsed"></p>
         <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="margin-top: 20px;">Back</button>
       </div>
     </div>
@@ -196,7 +195,7 @@
           </div>
           <div id="deal-card" class="card-glass">
             <div class="card-content">
-              <h3 id="target-deal-name" class="deal-title">Loading...</h3>
+              <h3 id="target-deal-name" class="deal-title">No deal selected</h3>
               <p id="target-deal-reason" class="deal-subtitle"></p>
             </div>
           </div>
@@ -206,14 +205,24 @@
           <div class="copilot-note">
             <div id="copilot-note-view" class="copilot-note-view is-empty" contenteditable="true" role="textbox" aria-multiline="true"></div>
             <textarea id="review-summary" class="review-summary-input" rows="6" hidden placeholder="What mattered on this call…"></textarea>
-            <p class="caps-label" id="next-steps-heading">Próximos pasos</p>
+            <div class="section-rail">
+              <p class="section-rail-label" id="next-steps-heading">Próximos pasos</p>
+              <button type="button" id="btn-add-action-item" class="btn-add">
+                <span class="btn-add-plus" aria-hidden="true">+</span>
+                Add task
+              </button>
+            </div>
             <div id="action-items-list" class="action-items-list"></div>
-            <button type="button" id="btn-add-action-item" class="btn-quiet-action">Add task</button>
 
             <div id="crm-fields-section">
-              <p class="caps-label" id="crm-fields-heading">Fields</p>
+              <div class="section-rail">
+                <p class="section-rail-label" id="crm-fields-heading">Fields</p>
+                <button id="btn-add-field" class="btn-add" type="button" style="display: none;">
+                  <span class="btn-add-plus" aria-hidden="true">+</span>
+                  Add field
+                </button>
+              </div>
               <div id="proposed-updates-list" class="updates-list"></div>
-              <button id="btn-add-field" class="btn-quiet-action" type="button" style="display: none;">Add field</button>
               <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
             </div>
           </div>

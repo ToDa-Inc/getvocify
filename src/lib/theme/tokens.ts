@@ -9,6 +9,7 @@ export const THEME_TOKENS = {
     accentTitle: "text-beige font-normal",
     editorialHeader: "font-serif italic font-normal",
     capsLabel: "text-[13px] font-normal text-muted-foreground",
+    sectionRail: "text-[15px] font-normal tracking-tight text-foreground",
     body: "text-[15px] leading-relaxed text-muted-foreground",
   },
 

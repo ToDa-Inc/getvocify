@@ -7,12 +7,21 @@
 import { api } from '../lib/api.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
 import {
+  canPaintInsightsFromMemo,
+  dealCardWhilePreviewLoads,
   dealMatchSubtitle,
   dealPickerVisibility,
   dealTargetCardCopy,
   resolveReviewPresentation,
+  reviewFieldsSkeletonHtml,
   sameMemoId,
-  shouldReloadReviewPreview,
+  shouldShowReviewOpeningSpinner,
+  slimReviewMemo,
+  approveCtaLabel,
+  approveCtaTitle,
+  confirmTranscriptAlreadyFinished,
+  confirmTranscriptErrorStatus,
+  memoForReviewPresentation,
 } from '../lib/review-screen.js';
 import { buildHubSpotUrl } from '../lib/hubspot-parser.js';
 import {
@@ -58,6 +67,10 @@ import {
   nextVisibleCount,
   shouldFetchVocifyMemos,
   shouldShowActivityKicker,
+  activityListKey,
+  liveCopyKey,
+  nextPaintMode,
+  uiChromeKey,
 } from '../lib/activity-list.js';
 
 // ============================================
@@ -149,6 +162,9 @@ let recentMemosScopeKey = null;
 let idleContextPollId = null;
 /** unknown until init() finishes; signed_out must never paint record/idle */
 let authStatus = 'unknown';
+let lastChromePaintKey = null;
+let lastLiveCopyKey = null;
+let lastActivityListKey = null;
 let recordingsVisibleCount = RECORDINGS_PAGE_SIZE;
 let lastRecordingsScopeKey = null;
 
@@ -188,6 +204,9 @@ function enterLoggedOut() {
   stopIdleContextPoll();
   stopSessionHeartbeat();
   lastRenderedStatus = null;
+  lastChromePaintKey = null;
+  lastLiveCopyKey = null;
+  lastActivityListKey = null;
   showScreen('login');
 }
 
@@ -339,21 +358,13 @@ function hideExtractionError() {
   if (banner) banner.style.display = 'none';
 }
 
-let _processingElapsedTimer = null;
-let _processingStartedAt = 0;
-
-function formatElapsed(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
+let _processingCopyTimer = null;
+let _processingCopyFade = null;
+let _processingCopyIdx = 0;
+let _processingUiKind = null;
 
 function stopProcessingElapsed() {
-  if (_processingElapsedTimer) {
-    clearInterval(_processingElapsedTimer);
-    _processingElapsedTimer = null;
-  }
+  _processingUiKind = null;
   if (_processingCopyTimer) {
     clearInterval(_processingCopyTimer);
     _processingCopyTimer = null;
@@ -376,10 +387,6 @@ const PROCESSING_COPY = {
     'Almost ready to review…',
   ],
 };
-
-let _processingCopyTimer = null;
-let _processingCopyFade = null;
-let _processingCopyIdx = 0;
 
 function startProcessingCopy(mode) {
   const lines = PROCESSING_COPY[mode] || PROCESSING_COPY.transcribing;
@@ -406,18 +413,6 @@ function startProcessingCopy(mode) {
   }
   if (_processingCopyTimer) clearInterval(_processingCopyTimer);
   _processingCopyTimer = setInterval(tick, 2600);
-}
-
-function startProcessingElapsed(mode = 'transcribing') {
-  stopProcessingElapsed();
-  startProcessingCopy(mode);
-  _processingStartedAt = Date.now();
-  const el = document.getElementById('processing-elapsed');
-  const tick = () => {
-    if (el) el.textContent = formatElapsed(Date.now() - _processingStartedAt);
-  };
-  tick();
-  _processingElapsedTimer = setInterval(tick, 1000);
 }
 
 function memoReadyInLabel(memo) {
@@ -747,6 +742,7 @@ function renderRecordingsSection(state) {
   if (scopeKey !== lastRecordingsScopeKey) {
     lastRecordingsScopeKey = scopeKey;
     recordingsVisibleCount = RECORDINGS_PAGE_SIZE;
+    lastActivityListKey = null;
   }
 
   section.style.display = idle && (watching || items.length > 0 || loading) ? 'block' : 'none';
@@ -778,6 +774,21 @@ function renderRecordingsSection(state) {
     return;
   }
 
+  const memoStamp = recentMemosCache.map((m) => `${m?.id || ''}:${m?.status || ''}`).join(',');
+  const listKey = activityListKey(state, {
+    memoStamp,
+    visibleCount: recordingsVisibleCount,
+    memosLoading,
+  });
+  if (showMoreBtn) {
+    showMoreBtn.style.display = items.length > recordingsVisibleCount ? '' : 'none';
+  }
+  if (listKey === lastActivityListKey) {
+    syncActivityEmptyState(state);
+    return;
+  }
+  lastActivityListKey = listKey;
+
   if (!items.length) {
     listEl.innerHTML = loading
       ? '<div class="live-loader live-loader--inline" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
@@ -797,9 +808,6 @@ function renderRecordingsSection(state) {
   listEl.querySelectorAll('[data-call-id]').forEach((btn) => {
     btn.addEventListener('click', handleRecordingAction);
   });
-  if (showMoreBtn) {
-    showMoreBtn.style.display = items.length > recordingsVisibleCount ? '' : 'none';
-  }
   syncActivityEmptyState(state);
 }
 
@@ -813,6 +821,10 @@ async function handleRecordingAction(e) {
   btn.disabled = true;
   try {
     if (action === 'transcribe' && callId) {
+      stopIdleContextPoll();
+      lastBgState = { ...(lastBgState || {}), status: 'processing', processingSource: 'hubspot_call' };
+      lastChromePaintKey = null;
+      lastLiveCopyKey = null;
       chrome.runtime.sendMessage({
         type: 'SET_STATE',
         state: { status: 'processing', processingSource: 'hubspot_call' },
@@ -842,7 +854,10 @@ function setProcessingScreenMode(mode) {
   const sub = document.getElementById('processing-subtitle');
   const title = document.getElementById('processing-title');
   const kind = mode === 'extracting' ? 'extracting' : 'transcribing';
-  startProcessingElapsed(kind);
+  if (_processingUiKind !== kind) {
+    _processingUiKind = kind;
+    startProcessingCopy(kind);
+  }
 
   if (kind === 'extracting') {
     if (sub) sub.textContent = 'Working';
@@ -924,6 +939,36 @@ function renderCopilotCard(state) {
   }
 }
 
+function paintLiveTranscript(state) {
+  if (!liveTranscriptText || !liveTranscriptContainer) return;
+  if (state.isRecording) {
+    liveTranscriptText.innerHTML = state.finalTranscript
+      ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
+      : `<span style="opacity:0.5">${state.interimTranscript || 'Listening...'}</span>`;
+    liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
+    return;
+  }
+  if (state.isCopilotListening || state.status === 'copilot' || state.listenPhase === 'starting') {
+    const model = listenUiModel({
+      listenPhase: resolveListenPhase(state),
+      isCopilotListening: state.isCopilotListening,
+      copilotError: state.copilotError,
+      tabTitle: state.copilotTabTitle,
+      heardAnything: Boolean(state.finalTranscript || state.interimTranscript),
+    });
+    liveTranscriptText.innerHTML = state.finalTranscript
+      ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
+      : `<span style="opacity:0.5">${model.line || 'Capturing this tab’s audio…'}</span>`;
+    liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
+    const transcriptLabel = liveTranscriptContainer.querySelector('.transcript-label');
+    if (transcriptLabel) {
+      transcriptLabel.textContent = model.live ? 'Hearing this tab' : 'Starting listen';
+    }
+    renderListenStatus(state, model);
+    renderCopilotCard(state);
+  }
+}
+
 // ============================================
 // RENDER STATE (Core Logic)
 // ============================================
@@ -935,13 +980,21 @@ function renderState(state) {
     return;
   }
   lastBgState = state && typeof state === 'object' ? state : lastBgState;
-  console.log('[Popup] Rendering state:', state.status, 'isRecording:', state.isRecording);
-  
-  // Build full transcript for display
-  const fullTranscript = [
-    state.finalTranscript || '',
-    state.interimTranscript || ''
-  ].filter(Boolean).join(' ').trim();
+  const chromeKey = uiChromeKey(state);
+  const liveKey = liveCopyKey(state);
+  const paintMode = nextPaintMode(lastChromePaintKey, chromeKey, lastLiveCopyKey, liveKey);
+  if (paintMode === 'skip') {
+    if (state.status === 'idle' && !state.isRecording && !state.isCopilotListening) {
+      renderRecordingsSection(state);
+    }
+    return;
+  }
+  lastLiveCopyKey = liveKey;
+  if (paintMode === 'live') {
+    paintLiveTranscript(state);
+    return;
+  }
+  lastChromePaintKey = chromeKey;
 
   const pasteSection = document.getElementById('paste-transcript-section');
   const pasteToggle = document.getElementById('paste-transcript-toggle');
@@ -970,13 +1023,8 @@ function renderState(state) {
     const dealContextBadge = document.getElementById('deal-context-badge');
     if (dealContextBadge) dealContextBadge.style.display = 'none';
     renderRecordContextStrip(state);
-
-    // Show transcript with interim text styled differently
-    liveTranscriptText.innerHTML = state.finalTranscript
-      ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${state.interimTranscript || 'Listening...'}</span>`;
-    
-    liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
+    paintLiveTranscript(state);
+    lastRenderedStatus = state.status;
     return;
   }
 
@@ -995,10 +1043,6 @@ function renderState(state) {
     document.getElementById('record-status-label').textContent =
       model.phase === 'starting' ? 'Starting' : 'Listening';
     liveTranscriptContainer.style.display = 'block';
-    const transcriptLabel = liveTranscriptContainer.querySelector('.transcript-label');
-    if (transcriptLabel) {
-      transcriptLabel.textContent = model.live ? 'Hearing this tab' : 'Starting listen';
-    }
     if (idleTools) {
       idleTools.style.display = 'grid';
       idleTools.style.gridTemplateColumns = '1fr';
@@ -1011,12 +1055,8 @@ function renderState(state) {
     if (dealContextBadge) dealContextBadge.style.display = 'none';
     renderRecordContextStrip(state);
     renderListenButton(state);
-    renderCopilotCard(state);
-
-    liveTranscriptText.innerHTML = state.finalTranscript
-      ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${model.line || 'Capturing this tab’s audio…'}</span>`;
-    liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
+    paintLiveTranscript(state);
+    lastRenderedStatus = state.status;
     return;
   }
 
@@ -1110,7 +1150,13 @@ function renderState(state) {
         userSelectedContactId = null;
         createNewDealRequested = false;
         dealPickerOpen = false;
-        applyReviewLayout('loading');
+        applyReviewLayout('pending_review');
+        paintDealCardPending(state.context);
+        showReviewFieldsPending();
+        markApproveMatching();
+        if (canPaintInsightsFromMemo(state.reviewMemo)) {
+          paintInsightsFromMemo(state.reviewMemo);
+        }
       }
       if (!reviewSessionLocked && state.context?.recordId) {
         lockReviewSession(state.context);
@@ -1127,7 +1173,6 @@ function renderState(state) {
           break;
         }
         if (state.currentMemoId) {
-          if (!isReviewBodyVisible()) applyReviewLayout('loading');
           handleReviewState(state.currentMemoId, frozen);
         } else {
           applyReviewLayout('error', 'Nothing to review yet.');
@@ -1255,14 +1300,83 @@ async function enrichPageAssociations(context) {
   return context;
 }
 
+function paintDealCardPending(context) {
+  const copy = dealCardWhilePreviewLoads({
+    pageType: context?.objectType,
+    pageDealName: context?.dealName,
+  });
+  const nameEl = document.getElementById('target-deal-name');
+  const reasonEl = document.getElementById('target-deal-reason');
+  const card = document.getElementById('deal-card');
+  if (nameEl) nameEl.textContent = copy.title;
+  if (reasonEl) reasonEl.textContent = copy.reason;
+  if (card) card.classList.toggle('is-pending', copy.pending);
+}
+
+function showReviewFieldsPending() {
+  const section = document.getElementById('crm-fields-section');
+  if (section) section.style.display = '';
+  if (proposedUpdatesList) proposedUpdatesList.innerHTML = reviewFieldsSkeletonHtml();
+}
+
+function paintInsightsFromMemo(memo) {
+  if (!memo) return;
+  const summaryEl = document.getElementById('review-summary');
+  if (summaryEl && !String(summaryEl.value || '').trim() && memo.extraction?.summary) {
+    summaryEl.value = memo.extraction.summary;
+  }
+  initCallInsights(lastPreviewData || {}, memo.extraction);
+}
+
+function markApproveMatching() {
+  if (!approveSyncButton || lastPreviewData) return;
+  approveSyncButton.disabled = true;
+  approveSyncButton.textContent = 'Matching CRM…';
+  approveSyncButton.title = '';
+}
+
+function cachedReviewMemo(memoId) {
+  const fromState = lastBgState?.reviewMemo;
+  if (fromState && sameMemoId(fromState.id || fromState.memo_id, memoId)) return fromState;
+  if (lastReviewMemo && sameMemoId(lastReviewMemo.id, memoId)) return lastReviewMemo;
+  return null;
+}
+
 async function handleReviewState(memoId, context) {
   startSessionHeartbeat();
   const gen = ++reviewFetchGen;
-  if (!isReviewBodyVisible()) applyReviewLayout('loading');
+  const cached = cachedReviewMemo(memoId);
+  const fromProcessing = lastRenderedStatus === 'processing' || lastBgState?.status === 'processing';
+  if (cached?.status === 'pending_transcript' || cached?.status === 'failed') {
+    applyReviewLayout('pending_transcript');
+  } else if (
+    shouldShowReviewOpeningSpinner({
+      memoId,
+      fromProcessing,
+      hasMemoPayload: Boolean(cached),
+      reviewBodyVisible: isReviewBodyVisible(),
+    })
+  ) {
+    applyReviewLayout('loading');
+  } else {
+    applyReviewLayout('pending_review');
+    paintDealCardPending(context);
+    showReviewFieldsPending();
+    markApproveMatching();
+    if (canPaintInsightsFromMemo(cached)) paintInsightsFromMemo(cached);
+  }
   try {
-    const memo = await api.getMemo(memoId);
+    const fetched = await api.getMemo(memoId);
     if (gen !== reviewFetchGen) return;
     if (!isCurrentReviewMemo(memoId)) return;
+    const memo = memoForReviewPresentation({ cached, fetched });
+    lastReviewMemo = memo;
+    if (fetched?.status && fetched.status !== cached?.status) {
+      chrome.runtime.sendMessage({
+        type: 'SET_STATE',
+        state: { reviewMemo: slimReviewMemo(fetched) },
+      }).catch(() => {});
+    }
     await applyReviewPresentation(
       resolveReviewPresentation({ memo, isAuthFailure }),
       { memoId, context, memo, gen },
@@ -1323,6 +1437,22 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
     if (context?.recordId) lockReviewSession(context);
   }
   renderReviewRecordName(context);
+  paintDealCardPending(context);
+  showReviewFieldsPending();
+  markApproveMatching();
+  paintInsightsFromMemo(memo);
+
+  const startIds = reviewIdsFromMemo(memo, currentReviewTargets(context));
+  currentMemoId = memoId;
+  const needsContactPick = needsAssociatedContactPick(context, startIds.contactId);
+  const previewPromise = needsContactPick
+    ? Promise.resolve(null)
+    : loadPreview(memoId, startIds.dealId, null, startIds.contactId, {
+        skipDeal: startIds.skipDeal,
+        memo,
+        keepVisibleInsights: true,
+      });
+
   context = await enrichPageAssociations(context);
   if (gen !== reviewFetchGen) return;
   if (!isCurrentReviewMemo(memoId)) return;
@@ -1336,49 +1466,41 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
   const targets = currentReviewTargets(context);
   const ids = reviewIdsFromMemo(memo, targets);
   const pageKey = pageRecordKey(context);
-  if (
-    shouldReloadReviewPreview({
-      memoId,
-      loadedMemoId: loadedPreviewMemoId || currentMemoId,
-      pageKey,
-      loadedPageKey: loadedPreviewPageKey,
-      sessionLocked: reviewSessionLocked && !!loadedPreviewMemoId,
-    }) ||
-    !previewLoaded ||
-    !sameMemoId(currentMemoId, memoId)
-  ) {
-    currentMemoId = memoId;
-    previewLoaded = true;
+  const idsChanged = ids.dealId !== startIds.dealId || ids.contactId !== startIds.contactId;
+
+  if (needsAssociatedContactPick(context, ids.contactId)) {
+    currentDealId = ids.dealId;
+    currentCompanyId = targets.companyId;
+    lastPreviewData = { ...(lastPreviewData || {}), selected_contact: null };
+    if (context.objectType === 'deal') {
+      const dealNameEl = document.getElementById('target-deal-name');
+      const dealReasonEl = document.getElementById('target-deal-reason');
+      if (dealNameEl) dealNameEl.textContent = context.dealName || 'Deal on this page';
+      if (dealReasonEl) dealReasonEl.textContent = 'This HubSpot deal';
+    }
+    renderContactTarget({ selected_contact: null, contact_candidates: [] });
+    renderReviewRecordName(context, lastPreviewData);
+    updateApproveButtonState(lastPreviewData);
+  } else {
     loadedPreviewMemoId = memoId;
     loadedPreviewPageKey = pageKey;
-    if (needsAssociatedContactPick(context, ids.contactId)) {
-      currentDealId = ids.dealId;
-      currentCompanyId = targets.companyId;
-      lastPreviewData = { ...(lastPreviewData || {}), selected_contact: null };
-      if (context.objectType === 'deal') {
-        const dealNameEl = document.getElementById('target-deal-name');
-        const dealReasonEl = document.getElementById('target-deal-reason');
-        if (dealNameEl) dealNameEl.textContent = context.dealName || 'Deal on this page';
-        if (dealReasonEl) dealReasonEl.textContent = 'This HubSpot deal';
-      }
-      renderContactTarget({ selected_contact: null, contact_candidates: [] });
-      renderReviewRecordName(context, lastPreviewData);
-      updateApproveButtonState(lastPreviewData);
-    } else {
-      let extractionOverride = null;
-      if (onCompanyPage && !ids.contactId && context.companyName) {
-        try {
-          const memoFull = await api.getMemo(memoId);
-          const base = memoFull?.extraction && typeof memoFull.extraction === 'object'
-            ? { ...memoFull.extraction }
-            : {};
-          base.companyName = context.companyName;
-          extractionOverride = base;
-        } catch (_) { /* optional */ }
-      }
+    previewLoaded = true;
+    let extractionOverride = null;
+    if (onCompanyPage && !ids.contactId && context.companyName) {
+      const base = memo?.extraction && typeof memo.extraction === 'object'
+        ? { ...memo.extraction }
+        : {};
+      base.companyName = context.companyName;
+      extractionOverride = base;
+    }
+    if (idsChanged || extractionOverride) {
       await loadPreview(memoId, ids.dealId, extractionOverride, ids.contactId, {
         skipDeal: ids.skipDeal,
+        memo,
+        keepVisibleInsights: true,
       });
+    } else {
+      await previewPromise;
     }
   }
   if (gen !== reviewFetchGen) return;
@@ -1606,13 +1728,14 @@ function visibleProposedUpdates(updates) {
 
 async function loadPreview(memoId, dealId = null, extraction = null, contactId = null, opts = null) {
   const resetEdits = !!opts?.resetEdits;
+  const keepVisibleInsights = !!opts?.keepVisibleInsights;
   const gen = ++previewFetchGen;
   const pageCtx = reviewTargetContext();
   const pageKey = pageRecordKey(pageCtx);
-  if (resetEdits || !lastPreviewData) {
-    document.getElementById('target-deal-name').textContent = 'Loading...';
-    document.getElementById('target-deal-reason').textContent = '';
-    proposedUpdatesList.innerHTML = '<div class="spinner" style="margin: 20px auto;"></div>';
+  if (!keepVisibleInsights && (resetEdits || !lastPreviewData)) {
+    paintDealCardPending(pageCtx);
+    showReviewFieldsPending();
+    markApproveMatching();
   }
 
   const createNewDeal = !!(opts && opts.createNewDeal) || createNewDealRequested;
@@ -1680,6 +1803,7 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
       });
       document.getElementById('target-deal-name').textContent = cardCopy.title;
       document.getElementById('target-deal-reason').textContent = cardCopy.reason;
+      document.getElementById('deal-card')?.classList.remove('is-pending');
 
       const dealLabel = document.getElementById('deal-target-label');
       if (dealLabel) {
@@ -1693,19 +1817,23 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         actionItemsInitialized = false;
         reviewActionItems = [];
       }
-      if (insightsMemoId !== currentMemoId) {
-        const summaryEl = document.getElementById('review-summary');
-        if (summaryEl) summaryEl.value = '';
+      const memo = opts?.memo || lastReviewMemo;
+      const summaryEl = document.getElementById('review-summary');
+      if (summaryEl && !summaryEl.value.trim() && memo?.extraction?.summary) {
+        summaryEl.value = memo.extraction.summary;
       }
-      try {
-        const memo = await api.getMemo(memoId);
-        const summaryEl = document.getElementById('review-summary');
-        if (summaryEl && !summaryEl.value.trim() && memo?.extraction?.summary) {
-          summaryEl.value = memo.extraction.summary;
+      if (insightsMemoId !== currentMemoId && !memo?.extraction?.summary) {
+        try {
+          const fetched = await api.getMemo(memoId);
+          if (summaryEl && !summaryEl.value.trim() && fetched?.extraction?.summary) {
+            summaryEl.value = fetched.extraction.summary;
+          }
+          initCallInsights(lastPreviewData, fetched?.extraction);
+        } catch (_) {
+          initCallInsights(lastPreviewData);
         }
+      } else {
         initCallInsights(lastPreviewData, memo?.extraction);
-      } catch (_) {
-        initCallInsights(lastPreviewData);
       }
       renderCopilotNoteView();
 
@@ -1718,16 +1846,19 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
       showUsePageRecordOption(lastBgState?.context);
     } else {
       if (gen !== previewFetchGen) return;
-      document.getElementById('target-deal-name').textContent = 'Error';
+      document.getElementById('target-deal-name').textContent = 'Couldn’t match CRM';
+      document.getElementById('deal-card')?.classList.remove('is-pending');
       proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Failed to load preview.</p>';
     }
   } catch (e) {
     if (gen !== previewFetchGen) return;
     console.error('[Popup] Failed to load preview:', e);
-    document.getElementById('target-deal-name').textContent = 'Error';
+    document.getElementById('target-deal-name').textContent = 'Couldn’t match CRM';
+    document.getElementById('deal-card')?.classList.remove('is-pending');
     proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Error loading preview.</p>';
   }
 }
+
 
 /**
  * Mirror dashboard HubSpotSyncPreview init:
@@ -1798,17 +1929,16 @@ function updateApproveButtonState(preview) {
 
   approveSyncButton.disabled = false;
   const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
-  const contactName = preview?.selected_contact?.name || preview?.selected_contact?.email;
-  const dealName = preview?.selected_deal?.deal_name;
-  if (skipDeal && contactName) {
-    approveSyncButton.textContent = `Update ${contactName}`;
-  } else if (dealName && contactName) {
-    approveSyncButton.textContent = `Update ${dealName}`;
-  } else if (dealName) {
-    approveSyncButton.textContent = `Update ${dealName}`;
-  } else {
-    approveSyncButton.textContent = 'Confirm & Update CRM';
-  }
+  const contactName = preview?.selected_contact?.name || preview?.selected_contact?.email || '';
+  const dealName = preview?.selected_deal?.deal_name || '';
+  const cta = {
+    skipDeal,
+    isNewDeal: !!preview?.is_new_deal,
+    hasDeal: !!preview?.selected_deal,
+    hasContact: !!contactName,
+  };
+  approveSyncButton.textContent = approveCtaLabel(cta);
+  approveSyncButton.title = approveCtaTitle({ skipDeal, contactName, dealName });
 }
 
 function updateChangeDealButton(preview = lastPreviewData) {
@@ -1989,13 +2119,6 @@ function renderContactTarget(preview) {
 function initCallInsights(preview, memoExtraction = null) {
   const memoChanged = insightsMemoId !== currentMemoId;
   insightsMemoId = currentMemoId;
-  if (actionItemsInitialized && !memoChanged) {
-    renderActionItems();
-    renderCopilotNoteView();
-    initCallOutcome(preview);
-    return;
-  }
-
   const ext = memoExtraction && typeof memoExtraction === 'object' ? memoExtraction : {};
   const raw = ext.raw_extraction || {};
   const rows = taskRowsFromPreview({
@@ -2003,6 +2126,17 @@ function initCallInsights(preview, memoExtraction = null) {
     nextSteps: ext.nextSteps,
     nextStepSchedules: raw.nextStepSchedules,
   });
+  if (actionItemsInitialized && !memoChanged) {
+    reviewActionItems = reviewActionItems.map((item, i) => ({
+      ...item,
+      dueDate: item.dueDate || rows[i]?.dueDate || null,
+    }));
+    if (!reviewActionItems.length && rows.length) reviewActionItems = rows;
+    renderActionItems();
+    renderCopilotNoteView();
+    initCallOutcome(preview);
+    return;
+  }
   const seen = new Set();
   reviewActionItems = rows.filter((s) => {
     const key = s.text.toLowerCase();
@@ -2420,7 +2554,7 @@ function renderProposedUpdates(updates, availableFields) {
   const addBtn = document.getElementById('btn-add-field');
   const dropdown = document.getElementById('add-field-dropdown');
   if (remaining.length > 0 && addBtn) {
-    addBtn.style.display = 'block';
+    addBtn.style.display = '';
     addBtn.onclick = () => {
       const expanded = dropdown.style.display === 'block';
       dropdown.style.display = expanded ? 'none' : 'block';
@@ -2962,7 +3096,27 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
   this.textContent = 'Extracting...';
   hideExtractionError();
   try {
-    await api.post(`/memos/${currentMemoId}/confirm-transcript`, { transcript });
+    const result = await api.post(`/memos/${currentMemoId}/confirm-transcript`, { transcript });
+    if (confirmTranscriptAlreadyFinished(result?.status) && result.status !== 'extracting') {
+      hideExtractionError();
+      chrome.runtime.sendMessage({
+        type: 'SET_STATE',
+        state: {
+          status: 'review',
+          currentMemoId,
+          reviewMemo: { ...(lastReviewMemo || { id: currentMemoId }), status: result.status },
+        },
+      });
+      return;
+    }
+    chrome.runtime.sendMessage({
+      type: 'SET_STATE',
+      state: {
+        status: 'processing',
+        currentMemoId,
+        reviewMemo: { ...(lastReviewMemo || { id: currentMemoId }), status: 'extracting' },
+      },
+    }).catch(() => {});
     setProcessingScreenMode('extracting');
     showScreen('processing');
     let pollCount = 0;
@@ -2973,7 +3127,7 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
         hideExtractionError();
         chrome.runtime.sendMessage({
           type: 'SET_STATE',
-          state: { status: 'review', currentMemoId },
+          state: { status: 'review', currentMemoId, reviewMemo: slimReviewMemo(memo) },
         });
         return;
       }
@@ -2989,6 +3143,23 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
     showScreen('review');
     handleReviewState(currentMemoId, reviewTargetContext() || {});
   } catch (err) {
+    const already = confirmTranscriptErrorStatus(err);
+    if (confirmTranscriptAlreadyFinished(already)) {
+      hideExtractionError();
+      chrome.runtime.sendMessage({
+        type: 'SET_STATE',
+        state: {
+          status: already === 'extracting' ? 'processing' : 'review',
+          currentMemoId,
+          reviewMemo: { ...(lastReviewMemo || { id: currentMemoId }), status: already },
+        },
+      });
+      if (already === 'extracting') {
+        setProcessingScreenMode('extracting');
+        showScreen('processing');
+      }
+      return;
+    }
     showExtractionError(err?.message || 'Something went wrong. Click Retry to try again.');
     showScreen('review');
     handleReviewState(currentMemoId, reviewTargetContext() || {});

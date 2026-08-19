@@ -1506,6 +1506,9 @@ async def confirm_transcript(
             if memo_data.get("status") == "extracting":
                 return {"status": "extracting", "message": "AI extraction started"}
 
+            if memo_data.get("status") == "pending_review":
+                return {"status": "pending_review", "message": "Transcript already confirmed"}
+
             if memo_data.get("status") != "pending_transcript":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
