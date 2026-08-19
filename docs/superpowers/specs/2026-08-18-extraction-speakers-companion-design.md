@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-18  
 **Status:** Approved for implementation (cloud agent: user asked to plan and build)  
-**Surfaces:** Settings field mapping, memo dashboard transcript, HubSpot review, `desktop/` companion
+**Surfaces:** Settings field mapping, memo dashboard transcript, HubSpot review, [getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop) companion
 
 ## Problem
 
@@ -93,7 +93,7 @@ Desktop companion
 - Python `transcript_turns.py` gains the same named-speaker parse path.
 - `MemoDetail` (and live companion UI) render conversation bubbles, not raw speaker lines.
 
-### Desktop companion (`desktop/`)
+### Desktop companion ([getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop))
 
 - Super-simple Vocify-themed window: login (existing `/auth/login`), Listen, live You/Them transcript, Stop & send to Vocify.
 - Main process: tray + always-on-top overlay; `setDisplayMediaRequestHandler` with `audio: 'loopback'` on macOS/Windows. On Linux, native speaker capture modeled on [Anarlog](https://github.com/fastrepl/anarlog): PipeWire `stream.capture.sink`, else PulseAudio `<default-sink>.monitor` (`pw-record` / `parec` / `ffmpeg`), then Chromium share-picker.
@@ -123,5 +123,5 @@ Desktop companion
 | `transcript_turns` (py/ts) | Parse/normalize diarized text; display labels | `parseTranscriptTurns`, `speakerDisplayLabel` | None |
 | `extraction_policy` | Classify + annotate fill policy | `classify_fill_policy`, `annotate_schema_fill_policies` | Schema property dicts |
 | `extraction-omit` (ts) | Apply/omit proposed CRM fields | `buildApproveExtraction` | Extraction JSON shape |
-| `desktop/lib` | PCM, channels, listen policy, Anarlog-style loopback plan | `floatTo16BitPcm`, `encodeChannelAudio`, `canStartListen`, `buildNativeLoopbackPlan` | None |
+| `getvocify-desktop` companion | PCM, channels, listen policy, loopback plan | `floatTo16BitPcm`, `encodeChannelAudio`, `canStartListen`, `buildNativeLoopbackPlan` | None |
 | `TranscriptConversation` | Render You/Them bubbles | `transcript`, `contactName` | transcript-turns |

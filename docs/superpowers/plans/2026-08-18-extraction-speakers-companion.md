@@ -73,16 +73,13 @@
 
 ### Task 5: Desktop companion
 
+**Repo:** [ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop) (not `desktop/` in this repo)
+
 **Files:**
-- Create: `desktop/package.json`
-- Create: `desktop/electron-main.mjs`
-- Create: `desktop/preload.cjs`
-- Create: `desktop/renderer/index.html`
-- Create: `desktop/renderer/app.js`
-- Create: `desktop/renderer/styles.css`
-- Create: `desktop/lib/pcm.js`, `channels.js`, `listen-policy.js` + tests
-- Create: `desktop/README.md`
-- Modify: `src/pages/dashboard/RecordPage.tsx` (short companion pointer)
-- Modify: `Makefile` test-js target
+- Create: companion app in `getvocify-desktop` (`package.json`, `electron-main.mjs`, renderer, `lib/*`, tests)
+- Modify: `src/pages/dashboard/RecordPage.tsx` (link to getvocify-desktop)
+- Modify: `Makefile` test-js target (if needed for dashboard-only tests)
+
+**This repo:** `desktop/README.md` is a pointer only.
 
 ### Task 6: Verify, commit, PR

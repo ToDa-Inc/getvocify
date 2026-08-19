@@ -1,11 +1,12 @@
 # Desktop companion moved
 
-The Vocify Companion source now lives in **[ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop)**.
+The Vocify Companion lives in **[ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop)**.
 
-On this machine it is already cloned at `../getvocify-desktop`.
+This repo keeps no Electron source here — only this pointer.
 
 ```bash
-cd ../getvocify-desktop
+git clone https://github.com/ToDa-Inc/getvocify-desktop.git
+cd getvocify-desktop
 npm install
 npm start
 ```
