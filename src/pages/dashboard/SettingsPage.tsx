@@ -46,7 +46,7 @@ const SettingsPage = () => {
         <h1 className={THEME_TOKENS.typography.pageTitle}>
           Account <span className={THEME_TOKENS.typography.accentTitle}>Settings</span>
         </h1>
-        <p className={THEME_TOKENS.typography.body}>Manage integrations, call languages, offer context, and glossary.</p>
+        <p className={THEME_TOKENS.typography.body}>Manage field mapping, call languages, offer context, and glossary.</p>
       </div>
 
       {isHubSpotConnected ? (
@@ -57,7 +57,7 @@ const SettingsPage = () => {
             </div>
             <div>
               <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot Configuration</h2>
-              <p className="text-xs text-muted-foreground mt-1">Manage your pipeline and field mapping preferences.</p>
+              <p className="text-xs text-muted-foreground mt-1">Choose which HubSpot fields AI may fill from a call, and how each one is treated.</p>
             </div>
           </div>
 

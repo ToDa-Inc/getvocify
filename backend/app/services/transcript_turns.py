@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Any, Optional
 
 _SPEAKER_LINE = re.compile(
     r"^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*:?\s*$",
@@ -11,6 +11,14 @@ _SPEAKER_LINE = re.compile(
 )
 _SPEAKER_INLINE = re.compile(
     r"^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*[:.-]\s*(.+)$",
+    re.IGNORECASE,
+)
+_NAMED_SPEAKER_LINE = re.compile(
+    r"^SPEAKER:\s*(?!S\d+\b)(.+?)\s*$",
+    re.IGNORECASE,
+)
+_NAMED_SPEAKER_INLINE = re.compile(
+    r"^SPEAKER:\s*(?!S\d+\b)([^:]+?)\s*[:.-]\s*(.+)$",
     re.IGNORECASE,
 )
 
@@ -22,8 +30,34 @@ def normalize_speaker(raw: Optional[str]) -> Optional[str]:
     return f"S{m.group(1)}" if m else str(raw).strip().upper()
 
 
+def speaker_side(raw: Optional[str]) -> str:
+    s = normalize_speaker(raw)
+    if s == "S1":
+        return "s1"
+    if s == "S2":
+        return "s2"
+    if s and not re.match(r"^S\d+$", s):
+        return "s2"
+    return "other"
+
+
+def speaker_display_label(raw: Optional[str], labels: Optional[dict] = None) -> str:
+    labels = labels or {}
+    side = speaker_side(raw)
+    if side == "s1":
+        return labels.get("s1") or "You"
+    if side == "s2":
+        return labels.get("s2") or "Them"
+    return labels.get("s2") or raw or "Speaker"
+
+
+def first_name(full: Optional[str]) -> str:
+    part = str(full or "").strip().split()
+    return part[0] if part else ""
+
+
 def parse_transcript_turns(transcript: str) -> list[dict]:
-    """Parse Speechmatics-style SPEAKER: S1 / Speaker 1 blocks into turns."""
+    """Parse Speechmatics-style SPEAKER: S1 / Speaker 1 / SPEAKER: JUAN blocks into turns."""
     raw = (transcript or "").strip()
     if not raw:
         return []
@@ -40,13 +74,25 @@ def parse_transcript_turns(transcript: str) -> list[dict]:
         if inline:
             if current and (current.get("text") or "").strip():
                 turns.append(current)
-            current = {"speaker": inline.group(1), "text": inline.group(2).strip()}
+            current = {"speaker": inline.group(1).replace(" ", ""), "text": inline.group(2).strip()}
             continue
         only = _SPEAKER_LINE.match(trimmed)
         if only:
             if current and (current.get("text") or "").strip():
                 turns.append(current)
-            current = {"speaker": only.group(1), "text": ""}
+            current = {"speaker": only.group(1).replace(" ", ""), "text": ""}
+            continue
+        named_inline = _NAMED_SPEAKER_INLINE.match(trimmed)
+        if named_inline:
+            if current and (current.get("text") or "").strip():
+                turns.append(current)
+            current = {"speaker": named_inline.group(1).strip(), "text": named_inline.group(2).strip()}
+            continue
+        named_only = _NAMED_SPEAKER_LINE.match(trimmed)
+        if named_only:
+            if current and (current.get("text") or "").strip():
+                turns.append(current)
+            current = {"speaker": named_only.group(1).strip(), "text": ""}
             continue
         if not current:
             current = {"speaker": None, "text": trimmed}
@@ -124,3 +170,28 @@ def normalize_diarized_transcript(transcript: str) -> str:
     if not turns:
         return (transcript or "").strip()
     return serialize_transcript_turns(turns)
+
+
+def prospect_name_from_existing(existing_values: Optional[dict[str, Any]]) -> Optional[str]:
+    contacts = (existing_values or {}).get("contacts") or {}
+    if not isinstance(contacts, dict):
+        return None
+    fn = str(contacts.get("firstname") or contacts.get("first_name") or "").strip()
+    ln = str(contacts.get("lastname") or contacts.get("last_name") or "").strip()
+    name = f"{fn} {ln}".strip()
+    return name or None
+
+
+def speaker_prompt_legend(transcript: str, prospect_name: Optional[str] = None) -> str:
+    """Extraction-prompt block so the LLM treats S1 as the rep and S2 as the prospect."""
+    turns = parse_transcript_turns(transcript)
+    if not any(t.get("speaker") for t in turns):
+        return ""
+    prospect = (prospect_name or "").strip() or "the prospect / customer"
+    return (
+        "### SPEAKER LABELS\n"
+        "- **S1** = the sales rep (You).\n"
+        f"- **S2** and any named speaker that is not S1 = {prospect}.\n"
+        "Extract contactName from the prospect side, never from the rep. "
+        "Do not treat the rep's company as companyName.\n"
+    )

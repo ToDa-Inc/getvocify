@@ -3,7 +3,7 @@
 #   Unipile:  https://<ngrok>/webhooks/unipile
 #   HubSpot:  https://<ngrok>/webhooks/hubspot  (GET returns JSON with curl examples)
 
-.PHONY: backend ngrok ngrok-static ngrok-url test
+.PHONY: backend ngrok ngrok-static ngrok-url test test-js
 
 # Backend on port 8000
 backend:
@@ -16,6 +16,12 @@ backend:
 #   pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 test:
 	cd backend && python -m pytest
+
+# JS/TS unit tests (extension + dashboard helpers + desktop companion libs)
+test-js:
+	cd chrome-extension && node --test lib/*.test.js
+	node --experimental-strip-types --test src/lib/*.test.ts
+	cd desktop && node --test lib/*.test.js
 
 # Expose localhost:8000 via ngrok. Run `make backend` first in another terminal.
 ngrok:

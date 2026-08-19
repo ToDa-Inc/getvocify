@@ -8,7 +8,14 @@ export interface Pipeline {
 
 export interface CRMSchema {
   object_type: string;
-  properties: { name: string; label: string; type: string; options?: { label: string; value: string }[] }[];
+  properties: {
+    name: string;
+    label: string;
+    type: string;
+    description?: string;
+    fill_policy?: "identity" | "strategy" | "research" | "call_note" | "explicit";
+    options?: { label: string; value: string }[];
+  }[];
   pipelines?: Pipeline[];
 }
 

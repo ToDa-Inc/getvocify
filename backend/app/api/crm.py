@@ -877,8 +877,10 @@ async def get_hubspot_schema(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to fetch HubSpot {object_type} schema: {e}",
         ) from e
-    
-    return schema
+
+    from app.services.extraction_policy import annotate_schema_fill_policies
+
+    return annotate_schema_fill_policies(schema)
 
 
 @router.get("/hubspot/pipelines", response_model=list[PipelineOption])

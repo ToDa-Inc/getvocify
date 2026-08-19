@@ -17,6 +17,10 @@ from app.services.extraction_policy import (
     fill_policy_instruction,
     format_existing_values_block,
 )
+from app.services.transcript_turns import (
+    prospect_name_from_existing,
+    speaker_prompt_legend,
+)
 
 logger = logging.getLogger(__name__)
 from app.services.llm import LLMClient
@@ -432,9 +436,14 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
 {product_text}
 """
         existing_block = format_existing_values_block(existing_values)
+        speaker_block = speaker_prompt_legend(
+            transcript,
+            prospect_name_from_existing(existing_values),
+        )
 
         return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
 {source_hint}
+{speaker_block}
 {product_section}
 {existing_block}
 {glossary_section}

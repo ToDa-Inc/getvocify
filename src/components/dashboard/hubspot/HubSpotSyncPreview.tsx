@@ -7,12 +7,19 @@ import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
 import { Loader2, Check, AlertCircle, Sparkles, ChevronDown, Search, X, RefreshCw, Pencil, Trash2, Plus } from "lucide-react";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
-import { formatCrmDateForDisplay, isCrmDateField, parseFlexibleDateToIso } from "@/lib/crm-date";
+import { formatCrmDateForDisplay, isCrmDateField } from "@/lib/crm-date";
+import {
+  buildApproveExtraction,
+  canEditOrRemoveProposedField,
+  omittedKeysFrom,
+  proposedFieldKey,
+} from "@/lib/extraction-omit";
 
 interface HubSpotSyncPreviewProps {
   memoId: string;
   initialDealId?: string | null;
   onSuccess: (data: any) => void;
+  onContactName?: (name: string | null) => void;
 }
 
 /**
@@ -22,6 +29,43 @@ interface HubSpotSyncPreviewProps {
  * to silently - the user must explicitly confirm a deal or create a new one.
  */
 const CONFIDENT_MATCH_THRESHOLD = 0.7;
+
+function summaryForApprove(
+  base: Record<string, unknown>,
+  updates: Array<{ field_name?: string; new_value?: unknown }>,
+  editedUpdates: unknown[] | null,
+): string {
+  const desc = updates.find((u) => u.field_name === "description" || u.field_name === "Description");
+  const baseSummary = String(
+    (base.summary as string) ||
+      ((base.raw_extraction as Record<string, unknown> | undefined)?.description as string) ||
+      "",
+  ).trim();
+  const userEditedDescription =
+    Array.isArray(editedUpdates) &&
+    editedUpdates.some((u: { field_name?: string }) => u?.field_name === "description" || u?.field_name === "Description");
+  if (userEditedDescription) return String(desc?.new_value ?? "").trim();
+  return baseSummary || String(desc?.new_value ?? "").trim();
+}
+
+function nextStepsForApprove(
+  base: Record<string, unknown>,
+  updates: Array<{ field_name?: string; new_value?: unknown }>,
+): string[] {
+  const tasks = updates
+    .filter((u) => String(u.field_name || "").startsWith("next_step_task_"))
+    .sort(
+      (a, b) =>
+        parseInt(String(a.field_name).replace("next_step_task_", ""), 10) -
+        parseInt(String(b.field_name).replace("next_step_task_", ""), 10),
+    )
+    .map((u) => String(u.new_value ?? "").trim())
+    .filter(Boolean);
+  if (tasks.length) return tasks;
+  const hs = updates.find((u) => u.field_name === "hs_next_step");
+  if (hs?.new_value) return [String(hs.new_value).trim()].filter(Boolean);
+  return Array.isArray(base.nextSteps) ? (base.nextSteps as string[]) : [];
+}
 
 /** For enum/select fields (e.g. Deal Stage), show the human label instead of the raw API value */
 function optionLabelFor(value: unknown, options?: Array<{ value: string; label?: string }>): string {
@@ -33,131 +77,7 @@ function optionLabelFor(value: unknown, options?: Array<{ value: string; label?:
   return String(raw);
 }
 
-/** Build extraction object from base memo extraction + proposed updates for approve API */
-function buildExtractionFromUpdates(
-  base: Record<string, unknown>,
-  updates: Array<{
-    field_name: string;
-    field_label?: string;
-    field_type?: string;
-    object_type?: string;
-    new_value?: string | number;
-    options?: Array<{ value: string; label?: string }>;
-  }>,
-  editedFieldNames?: Set<string> | null
-): Record<string, unknown> {
-  const result = { ...base };
-  const raw = { ...((result.raw_extraction as Record<string, unknown>) || {}) };
-  const contactProps = {
-    ...((raw.contact_properties as Record<string, unknown>) || {}),
-  };
-  const companyProps = {
-    ...((raw.company_properties as Record<string, unknown>) || {}),
-  };
-
-  for (const u of updates) {
-    const val = u.new_value != null && u.new_value !== "" ? String(u.new_value).trim() : null;
-    if (!val && u.field_name !== "description") continue;
-    const objectType = u.object_type || "deals";
-
-    if (objectType === "contacts" && !["contact_name"].includes(u.field_name)) {
-      if (u.field_type === "number") contactProps[u.field_name] = parseFloat(val!) || null;
-      else contactProps[u.field_name] = val;
-      continue;
-    }
-    if (objectType === "companies" && !["company_name"].includes(u.field_name)) {
-      if (u.field_type === "number") companyProps[u.field_name] = parseFloat(val!) || null;
-      else companyProps[u.field_name] = val;
-      continue;
-    }
-    if (objectType === "line_items" || u.field_name.startsWith("line_item_")) {
-      continue; // line items stay as extracted raw.line_items
-    }
-
-    switch (u.field_name) {
-      case "contact_name":
-        result.contactName = val;
-        break;
-      case "company_name":
-        result.companyName = val;
-        raw.dealname = val;
-        break;
-      case "dealname":
-      case "Name":
-        result.companyName = val;
-        raw.dealname = val;
-        raw.Name = val;
-        break;
-      case "amount":
-      case "Amount": {
-        const amt = parseFloat(val!);
-        result.dealAmount = Number.isFinite(amt) ? amt : null;
-        raw.amount = result.dealAmount;
-        raw.Amount = result.dealAmount;
-        break;
-      }
-      case "closedate":
-      case "CloseDate": {
-        const iso = parseFlexibleDateToIso(val!) || val;
-        result.closeDate = iso;
-        raw.closedate = iso;
-        raw.CloseDate = iso;
-        break;
-      }
-      case "dealstage":
-      case "StageName":
-        result.dealStage = val;
-        raw.dealstage = val;
-        raw.StageName = val;
-        break;
-      case "description":
-      case "Description": {
-        // Preview may show merged HubSpot text; sync merges from extraction summary only
-        const userEditedDescription =
-          editedFieldNames?.has("description") || editedFieldNames?.has("Description");
-        const baseSummary = String(
-          (base.summary as string) ||
-            (raw.description as string) ||
-            (raw.Description as string) ||
-            ""
-        ).trim();
-        result.summary = userEditedDescription ? (val || "") : (baseSummary || val || "");
-        raw.description = result.summary;
-        raw.Description = result.summary;
-        break;
-      }
-      case "hs_next_step":
-        raw.hs_next_step = val;
-        result.nextSteps = val ? [val] : [];
-        break;
-      default:
-        if (u.field_name.startsWith("next_step_task_")) {
-          const steps = [...((result.nextSteps as string[]) || [])];
-          const i = parseInt(u.field_name.replace("next_step_task_", ""), 10);
-          if (val && !Number.isNaN(i)) {
-            steps[i] = val;
-            result.nextSteps = steps.filter(Boolean);
-            if ((result.nextSteps as string[])?.[0]) raw.hs_next_step = (result.nextSteps as string[])[0];
-          }
-        } else if (val) {
-          if (u.field_type === "number") {
-            raw[u.field_name] = parseFloat(val) || null;
-          } else if (u.field_type === "date" || u.field_type === "datetime") {
-            raw[u.field_name] = parseFlexibleDateToIso(val) || val;
-          } else {
-            raw[u.field_name] = val;
-          }
-        }
-    }
-  }
-
-  if (Object.keys(contactProps).length) raw.contact_properties = contactProps;
-  if (Object.keys(companyProps).length) raw.company_properties = companyProps;
-
-  return { ...result, raw_extraction: raw };
-}
-
-export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpotSyncPreviewProps) => {
+export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContactName }: HubSpotSyncPreviewProps) => {
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -180,6 +100,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   const [weakMatches, setWeakMatches] = useState<any[]>([]);
   const [confirmingNewDeal, setConfirmingNewDeal] = useState(false);
   const [manualDealName, setManualDealName] = useState("");
+  const [omittedKeys, setOmittedKeys] = useState<string[]>([]);
   const searchQueryRef = useRef("");
   const memoIdRef = useRef(memoId);
   memoIdRef.current = memoId;
@@ -193,6 +114,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
         if (memoIdRef.current !== requestedMemoId) return undefined;
         setPreview(previewData);
         setEditedUpdates(null);
+        setOmittedKeys([]);
         return previewData;
       } catch {
         if (memoIdRef.current !== requestedMemoId) return undefined;
@@ -210,6 +132,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     const init = async () => {
       setPreview(null);
       setEditedUpdates(null);
+      setOmittedKeys([]);
       setMatching(true);
       setLoading(true);
       setNeedsDealDecision(false);
@@ -343,6 +266,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   const currentDealId = preview?.selected_deal?.deal_id ?? null;
   const isNewDeal = preview?.is_new_deal ?? false;
   const selectedContact = preview?.selected_contact ?? null;
+  useEffect(() => {
+    onContactName?.(selectedContact?.name || null);
+  }, [selectedContact?.name, onContactName]);
   const contactCandidates = Array.isArray(preview?.contact_candidates)
     ? preview.contact_candidates
     : [];
@@ -389,8 +315,8 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   const confirmManualDealName = () => {
     const name = manualDealName.trim();
     if (!name) return;
-    // Use the "dealname" field so it both names the deal and sets companyName (see
-    // buildExtractionFromUpdates) - and drop any stale company_name/dealname entries
+    // Use the "dealname" field so it both names the deal and sets companyName —
+    // drop any stale company_name/dealname entries
     // (e.g. the generic "New Deal" placeholder) so they don't get processed afterwards
     // and silently overwrite this value.
     const list = (editedUpdates ?? updates.map((u: any) => ({ ...u }))).filter(
@@ -415,12 +341,20 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   const buildExtractionForSync = async (): Promise<Record<string, unknown> | undefined> => {
     const memo = await memosApi.get(memoId);
     const base = memo?.extraction && typeof memo.extraction === "object" ? { ...memo.extraction } : {};
-    const effectiveUpdates = editedUpdates ?? preview?.proposed_updates ?? [];
-    if (effectiveUpdates.length === 0) return undefined;
-    const editedFieldNames = editedUpdates
-      ? new Set(editedUpdates.map((u) => u.field_name))
-      : null;
-    return buildExtractionFromUpdates(base as Record<string, unknown>, effectiveUpdates, editedFieldNames);
+    const originalUpdates = preview?.proposed_updates ?? [];
+    const effectiveUpdates = editedUpdates ?? originalUpdates;
+    if (effectiveUpdates.length === 0 && omittedKeys.length === 0) return undefined;
+    const omitted = [
+      ...omittedKeys,
+      ...omittedKeysFrom(originalUpdates, effectiveUpdates),
+    ];
+    return buildApproveExtraction({
+      memoExtraction: base as Record<string, unknown>,
+      updates: effectiveUpdates,
+      omittedKeys: omitted,
+      summary: summaryForApprove(base as Record<string, unknown>, effectiveUpdates, editedUpdates),
+      nextSteps: nextStepsForApprove(base as Record<string, unknown>, effectiveUpdates),
+    });
   };
 
   const handleSync = async () => {
@@ -461,7 +395,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
   };
 
   const removeField = (idx: number) => {
-    const list = editedUpdates ?? updates.map((u) => ({ ...u }));
+    const list = editedUpdates ?? updates.map((u: any) => ({ ...u }));
+    const key = proposedFieldKey(list[idx]);
+    if (key) setOmittedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
     const next = list.slice();
     next[idx] = null;
     setEditedUpdates(next.filter(Boolean));
@@ -475,6 +411,8 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
     object_type?: string;
   }) => {
     const objectType = field.object_type || "deals";
+    const key = proposedFieldKey({ field_name: field.name, object_type: objectType });
+    if (key) setOmittedKeys((prev) => prev.filter((k) => k !== key));
     const newUpdate = {
       field_name: field.name,
       field_label: field.label,
@@ -830,11 +768,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                 String(update.current_value).trim() !== "" &&
                 String(update.current_value).trim() !== "(empty)";
               const isOverride = !!hadExisting;
-              const isDealField =
-                (update.object_type || "deals") === "deals" &&
-                !["contact_name", "company_name"].includes(update.field_name) &&
-                !String(update.field_name).startsWith("line_item_") &&
-                !String(update.field_name).startsWith("next_step_task_");
+              const canEditRow = canEditOrRemoveProposedField(update);
               const isEditing = editingIdx === idx;
               const entryPos = sortedUpdateEntries.findIndex((e) => e.idx === idx);
               const prevObject =
@@ -921,7 +855,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId }: HubSpot
                       </p>
                     )}
                   </div>
-                  {isDealField && !isEditing && (
+                  {canEditRow && !isEditing && (
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
                         variant="ghost"

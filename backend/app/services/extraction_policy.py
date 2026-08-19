@@ -243,6 +243,40 @@ def format_existing_values_block(existing_values: Optional[dict]) -> str:
     )
 
 
+FILL_POLICY_LABELS: dict[FillPolicy, str] = {
+    "identity": "Keep existing",
+    "strategy": "Never from calls",
+    "research": "Only if empty",
+    "call_note": "Call note",
+    "explicit": "From transcript",
+}
+
+
+def annotate_schema_fill_policies(schema: Any) -> Any:
+    """Attach fill_policy to each CRM schema property using name/label/description."""
+    props = list(getattr(schema, "properties", None) or [])
+    object_type = getattr(schema, "object_type", None) or "deals"
+    annotated = []
+    for prop in props:
+        if hasattr(prop, "model_copy"):
+            policy = classify_fill_policy(
+                {
+                    "name": getattr(prop, "name", None),
+                    "label": getattr(prop, "label", "") or "",
+                    "description": getattr(prop, "description", "") or "",
+                    "object_type": object_type,
+                }
+            )
+            annotated.append(prop.model_copy(update={"fill_policy": policy}))
+        elif isinstance(prop, dict):
+            annotated.append({**prop, "fill_policy": classify_fill_policy({**prop, "object_type": object_type})})
+        else:
+            annotated.append(prop)
+    if hasattr(schema, "model_copy"):
+        return schema.model_copy(update={"properties": annotated})
+    return schema
+
+
 def fill_policy_instruction(policy: FillPolicy) -> str:
     return {
         "identity": (
