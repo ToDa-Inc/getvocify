@@ -87,13 +87,8 @@ export const authApi = {
   /**
    * Refresh the access token.
    *
-   * If Supabase's refresh_session hits the known "oauth_client_id" platform
-   * bug (see backend/app/api/auth.py's refresh_token docstring), this now
-   * fails cleanly (401) instead of falling back to an admin magiclink
-   * re-issue - the backend can no longer verify who that fallback should be
-   * for without an unforgeable link back to this exact refresh_token, which
-   * Supabase doesn't expose. Callers should treat a failure here as "log in
-   * again", not retry.
+   * 401 = refresh token is dead (sign in again). 503 = Auth is down or the
+   * GoTrue oauth_client_id bug fired — keep the stored session and retry.
    */
   refresh: async (refreshToken: string): Promise<RefreshResponse> => {
     const raw = await api.post<Record<string, unknown>>('/auth/refresh', {

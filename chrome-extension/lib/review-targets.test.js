@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {
   associatedContactsFromContext,
   bindPreviewIds,
+  bindPreviewToPage,
   formatSyncTargetLabel,
   needsAssociatedContactPick,
   pickContextTab,
+  proposedUpdatesForPage,
   resolveReviewTargets,
 } from './review-targets.js';
 
@@ -112,6 +114,47 @@ describe('resolveReviewTargets', () => {
     });
     assert.equal(targets.contactId, 'C-only');
     assert.equal(targets.companyId, 'CO-now');
+  });
+});
+
+describe('bindPreviewToPage', () => {
+  it('drops a previously matched deal when the page is a contact', () => {
+    const out = bindPreviewToPage({
+      preview: {
+        selected_deal: { deal_id: 'D-old', deal_name: 'Old deal' },
+        proposed_updates: [
+          { object_type: 'deals', field_name: 'amount', new_value: '10' },
+          { object_type: 'contacts', field_name: 'phone', new_value: '1' },
+        ],
+      },
+      requestedContactId: 'C-now',
+      pageType: 'contact',
+    });
+    assert.equal(out.selected_deal, null);
+    assert.equal(out.skip_deal, true);
+    assert.deepEqual(
+      proposedUpdatesForPage(out).map((u) => u.field_name),
+      ['phone'],
+    );
+  });
+
+  it('drops the matcher deal when the record was closed (inbox)', () => {
+    const out = bindPreviewToPage({
+      preview: { selected_deal: { deal_id: 'D-old', deal_name: 'Old deal' } },
+      pageType: null,
+    });
+    assert.equal(out.selected_deal, null);
+    assert.equal(out.skip_deal, true);
+  });
+
+  it('keeps the deal only when this page requested that deal id', () => {
+    const out = bindPreviewToPage({
+      preview: { selected_deal: { deal_id: 'D-now', deal_name: 'Now' } },
+      requestedDealId: 'D-now',
+      pageType: 'deal',
+    });
+    assert.equal(out.selected_deal.deal_id, 'D-now');
+    assert.equal(out.skip_deal, false);
   });
 });
 

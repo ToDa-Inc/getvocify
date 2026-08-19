@@ -170,6 +170,12 @@ def _next_step_schedule_hints(extraction: MemoExtraction) -> list[str]:
     return [str(h).strip() for h in hints if h is not None] if isinstance(hints, list) else []
 
 
+def detected_task_due_iso(step: str, schedule_hint: Optional[str] = None) -> Optional[str]:
+    """ISO date only when the transcript actually timed the task — never the +3 day default."""
+    parsed = _parse_date_from_text((schedule_hint or step or "").strip())
+    return parsed.date().isoformat() if parsed else None
+
+
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 
 
@@ -227,8 +233,7 @@ def _parse_date_from_text(text: str) -> Optional[datetime]:
     if "próxima semana" in lower or "proxima semana" in lower or "next week" in lower:
         return now + timedelta(days=7)
 
-    # Default: 3 days from now
-    return now + timedelta(days=3)
+    return None
 
 
 def _normalize_task_subject(subject: str) -> str:

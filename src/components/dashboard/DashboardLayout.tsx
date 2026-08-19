@@ -39,7 +39,7 @@ const DashboardLayout = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex w-full">
+    <div className="dashboard-shell min-h-screen bg-background flex w-full">
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-foreground/20 z-40 lg:hidden"
@@ -79,7 +79,7 @@ const DashboardLayout = () => {
                 to={item.path}
                 onClick={() => setSidebarOpen(false)}
                 className={`
-                  flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium
+                  flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-normal
                   transition-colors duration-150
                   ${isActive(item.path)
                     ? "bg-beige/10 text-foreground"
@@ -97,7 +97,7 @@ const DashboardLayout = () => {
 
           <div className="p-4">
             <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
-              <p className="text-sm font-medium text-foreground mb-1">Scale with us</p>
+              <p className="text-sm font-normal text-foreground mb-1">Scale with us</p>
               <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
                 Unlimited memos and multi-CRM sync.
               </p>
@@ -130,7 +130,7 @@ const DashboardLayout = () => {
 
           <div className="flex items-center gap-3">
             <div className="hidden md:block text-right">
-              <p className="text-sm font-medium text-foreground leading-none">
+              <p className="text-sm font-normal text-foreground leading-none">
                 {user ? getUserDisplayName(user) : "User"}
               </p>
               <p className="text-xs text-muted-foreground mt-1">

@@ -101,11 +101,43 @@
   align-items: center;
   gap: 0;
   font-family: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
   text-transform: none;
-  color: hsl(var(--beige-light));
+  color: hsl(var(--muted-foreground));
+}
+
+/*
+  Product UI type: hierarchy via color and size, not weight.
+  Granola-like — Melange sits around 400; 500 is the ceiling.
+*/
+.dashboard-shell {
+  font-weight: 400;
+  letter-spacing: 0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.dashboard-shell .font-black,
+.dashboard-shell .font-extrabold,
+.dashboard-shell .font-bold,
+.dashboard-shell .font-semibold {
+  font-weight: 500;
+}
+
+.dashboard-shell .font-medium {
+  font-weight: 400;
+}
+
+.dashboard-shell h1 {
+  font-weight: 400;
+  letter-spacing: -0.022em;
+}
+
+.dashboard-shell button,
+.dashboard-shell [role="button"] {
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
 .section-label::before {

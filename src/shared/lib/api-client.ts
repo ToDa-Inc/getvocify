@@ -8,8 +8,15 @@
  * - File upload support
  */
 
+import {
+  createRefreshGate,
+  isAccessTokenFresh,
+  shouldClearAuthOnRefreshStatus,
+} from '@/lib/auth-session';
+
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
 const REFRESH_KEY = 'vocify_refresh';
+const REFRESH_LOCK = 'vocify-auth-refresh';
 
 function crmReconnectDetail(data: unknown): string {
   if (!data || typeof data !== 'object') return '';
@@ -84,6 +91,11 @@ type OnAuthClearedCallback = () => void;
 
 class ApiClient {
   private onAuthCleared: OnAuthClearedCallback | null = null;
+  private readonly refreshGate = createRefreshGate({
+    getAccessToken: () => this.getAuthToken(),
+    isFresh: (token) => isAccessTokenFresh(token),
+    refresh: () => this.doRefresh(),
+  });
 
   /**
    * Register callback when auth is cleared (e.g. after failed refresh).
@@ -144,40 +156,58 @@ class ApiClient {
   }
 
   /**
-   * Try to refresh the access token. Returns new token or null on failure.
+   * Refresh the access JWT. 401 from /auth/refresh clears the stored session.
+   * 503/429/network keep the refresh token so the user is not kicked out.
    */
-  private async tryRefreshToken(): Promise<string | null> {
-    const refreshToken = localStorage.getItem(REFRESH_KEY);
-    if (!refreshToken || refreshToken === 'undefined' || refreshToken === 'null') {
-      return null;
-    }
-    try {
-      const url = `${API_BASE}/auth/refresh`;
-      // The backend no longer accepts an access_token here: it can't verify
-      // that it belongs to the same session as this refresh_token, so it
-      // stopped trusting it to decide whose session to re-issue (see
-      // backend/app/api/auth.py's refresh_token docstring). If GoTrue's own
-      // "oauth_client_id" platform bug hits, this call now fails cleanly
-      // (401) and the user has to log in again.
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-      if (!res.ok) return null;
-      const data = (await res.json()) as { access_token?: string; refresh_token?: string };
-      const accessToken = data.access_token;
-      if (accessToken) {
-        this.setToken(accessToken);
-        if (data.refresh_token) {
-          localStorage.setItem(REFRESH_KEY, data.refresh_token);
-        }
-        return accessToken;
+  private async doRefresh(): Promise<string | null> {
+    const run = async (): Promise<string | null> => {
+      const current = this.getAuthToken();
+      if (current && isAccessTokenFresh(current)) return current;
+
+      const refreshToken = localStorage.getItem(REFRESH_KEY);
+      if (!refreshToken || refreshToken === 'undefined' || refreshToken === 'null') {
+        return null;
       }
-      return null;
-    } catch {
-      return null;
+      try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+        if (!res.ok) {
+          if (shouldClearAuthOnRefreshStatus(res.status)) {
+            this.clearAllAuth();
+          }
+          return null;
+        }
+        const data = (await res.json()) as { access_token?: string; refresh_token?: string };
+        const accessToken = data.access_token;
+        if (accessToken) {
+          this.setToken(accessToken);
+          if (data.refresh_token) {
+            localStorage.setItem(REFRESH_KEY, data.refresh_token);
+          }
+          return accessToken;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+      return navigator.locks.request(REFRESH_LOCK, run);
     }
+    return run();
+  }
+
+  private tryRefreshToken(): Promise<string | null> {
+    return this.refreshGate();
+  }
+
+  /** Shared by 401 retries and the proactive timer so they cannot rotate twice. */
+  refreshSession(): Promise<string | null> {
+    return this.tryRefreshToken();
   }
 
   /**
@@ -213,7 +243,6 @@ class ApiClient {
             },
           }, true);
         }
-        this.clearAllAuth();
       }
     }
 
@@ -316,7 +345,6 @@ class ApiClient {
         if (newToken) {
           return this.upload<T>(endpoint, file, fieldName, true);
         }
-        this.clearAllAuth();
       }
     }
 
@@ -412,7 +440,6 @@ class ApiClient {
             true
           );
         }
-        this.clearAllAuth();
       }
       throw err;
     }

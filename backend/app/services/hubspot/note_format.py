@@ -10,8 +10,103 @@ import html
 import re
 from typing import Optional
 
-
 from app.services.transcript_turns import parse_transcript_turns
+
+
+_HEADING_RE = re.compile(r"^(#{1,3})\s+(\S.*)$")
+_NEXT_STEPS_HEADING_RE = re.compile(r"^(próximos\s+pasos|next\s+steps)$", re.I)
+_LIST_ITEM_RE = re.compile(r"^\s*[-*+]\s+")
+_NESTED_LIST_ITEM_RE = re.compile(r"^\s{2,}[-*+]\s+")
+_STRIP_LIST_MARKER_RE = re.compile(r"^\s*[-*+]\s+")
+
+
+def summary_looks_markdown(summary: str) -> bool:
+    return bool(re.search(r"(?m)^#{1,3}\s+\S", summary or ""))
+
+
+def first_bullet_plaintext(summary: str) -> Optional[str]:
+    """First markdown bullet, for deal description (no heading hashes)."""
+    for line in (summary or "").splitlines():
+        s = line.strip()
+        if _LIST_ITEM_RE.match(s):
+            return _STRIP_LIST_MARKER_RE.sub("", s).replace("**", "").strip() or None
+    return None
+
+
+def _inline_html(text: str) -> str:
+    escaped = html.escape(text)
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+
+
+def format_summary_html(summary: str) -> str:
+    """
+    Granola-style markdown (# heading, - bullets, nested bullets, **bold**)
+    to HubSpot-safe HTML. Prose summaries stay as paragraphs.
+    Drops a Próximos pasos / Next steps heading so tasks are not duplicated
+    in the note body.
+    """
+    text = (summary or "").strip()
+    if not text:
+        return ""
+    if not summary_looks_markdown(text):
+        parts = []
+        for para in re.split(r"\n{2,}", text):
+            para = para.strip()
+            if para:
+                parts.append(f"<p>{_inline_html(para)}</p>")
+        return "\n".join(parts)
+
+    sections: list[tuple[str, list[tuple[str, list[str]]]]] = []
+    current_title = ""
+    items: list[tuple[str, list[str]]] = []
+    last_children: list[str] | None = None
+
+    def flush():
+        if current_title or items:
+            sections.append((current_title, list(items)))
+
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        hm = _HEADING_RE.match(line)
+        if hm:
+            title = hm.group(2).strip()
+            if _NEXT_STEPS_HEADING_RE.match(title):
+                flush()
+                break
+            flush()
+            current_title = title
+            items = []
+            last_children = None
+            continue
+        nested = bool(_NESTED_LIST_ITEM_RE.match(line))
+        bullet = bool(_LIST_ITEM_RE.match(line))
+        if not bullet:
+            items.append((line.strip(), []))
+            last_children = items[-1][1]
+            continue
+        body = _STRIP_LIST_MARKER_RE.sub("", line).strip()
+        if nested and last_children is not None:
+            last_children.append(body)
+        else:
+            items.append((body, []))
+            last_children = items[-1][1]
+    flush()
+
+    html_parts: list[str] = []
+    for title, sect_items in sections:
+        if title:
+            html_parts.append(f"<h3>{_inline_html(title)}</h3>")
+        if sect_items:
+            lis = []
+            for text_item, children in sect_items:
+                nested_html = ""
+                if children:
+                    nested_html = "<ul>" + "".join(f"<li>{_inline_html(c)}</li>" for c in children) + "</ul>"
+                lis.append(f"<li>{_inline_html(text_item)}{nested_html}</li>")
+            html_parts.append("<ul>" + "".join(lis) + "</ul>")
+    return "\n".join(html_parts)
 
 
 def looks_spanish(text: str) -> bool:
@@ -107,14 +202,18 @@ def format_hubspot_note_body(
         title = "Nota Vocify" if spanish else "Vocify note"
     parts.append(f"<p><strong>{html.escape(title)}</strong></p>")
 
-    # Summary section (required structure even if short)
-    summary_label = "Resumen" if spanish else "Summary"
-    parts.append(f"<p><strong>{html.escape(summary_label)}</strong></p>")
+    # Summary: Granola-style markdown when present; otherwise a labeled paragraph.
     if summary:
-        for para in re.split(r"\n{2,}", summary):
-            para = para.strip()
-            if para:
-                parts.append(f"<p>{html.escape(para)}</p>")
+        if summary_looks_markdown(summary):
+            html_summary = format_summary_html(summary)
+            if html_summary:
+                parts.append(html_summary)
+        else:
+            summary_label = "Resumen" if spanish else "Summary"
+            parts.append(f"<p><strong>{html.escape(summary_label)}</strong></p>")
+            html_summary = format_summary_html(summary)
+            if html_summary:
+                parts.append(html_summary)
     else:
         missing = (
             "Sin resumen disponible — revisar la transcripción."

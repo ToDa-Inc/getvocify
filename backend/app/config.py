@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
     TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
+    # After file STT, pick one of the user's selected languages. Lite is enough.
+    STT_LANGUAGE_DETECT_MODEL: str = "google/gemini-3.5-flash-lite"
 
     # Vertex AI (enterprise path: ISO 27001 + SOC 2, Madrid region)
     GOOGLE_CLOUD_PROJECT: str = "pro-sylph-501508-g5"
@@ -111,12 +113,9 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     # Anon/publishable key for Auth (login/refresh). Falls back to service role if unset.
     SUPABASE_ANON_KEY: Optional[str] = None
-    # Project Settings > API > JWT Secret. REQUIRED, not optional despite the
-    # type hint below: app.api.auth.validate_startup_config refuses to start
-    # the app without it. /auth/refresh needs it to verify (signature +
-    # expiry) any token it uses to identify who a session should be re-issued
-    # for when GoTrue's own refresh call fails. Without it, that check has no
-    # basis to trust the caller's claimed identity.
+    # Project Settings > API > JWT Secret. REQUIRED: app.api.auth.validate_startup_config
+    # refuses to start without it. deps.get_user_id verifies access JWTs locally
+    # with this secret (signature + expiry) so a GoTrue blip is not a logout.
     SUPABASE_JWT_SECRET: Optional[str] = None
     
     # Application

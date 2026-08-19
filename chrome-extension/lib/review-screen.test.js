@@ -1,7 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { isAuthFailure } from './auth-session.js';
-import { resolveReviewPresentation, sameMemoId } from './review-screen.js';
+import {
+  dealMatchSubtitle,
+  dealPickerVisibility,
+  dealTargetCardCopy,
+  resolveReviewPresentation,
+  sameMemoId,
+  shouldReloadReviewPreview,
+} from './review-screen.js';
 
 describe('sameMemoId', () => {
   it('treats uuid string and the same value as equal', () => {
@@ -14,6 +21,120 @@ describe('sameMemoId', () => {
     assert.equal(sameMemoId('memo-1', null), false);
     assert.equal(sameMemoId(null, 'memo-1'), false);
     assert.equal(sameMemoId('', 'memo-1'), false);
+  });
+});
+
+describe('shouldReloadReviewPreview', () => {
+  it('reloads when the HubSpot record changes even if the memo is the same', () => {
+    assert.equal(
+      shouldReloadReviewPreview({
+        memoId: 'm1',
+        loadedMemoId: 'm1',
+        pageKey: 'deal:B',
+        loadedPageKey: 'deal:A',
+      }),
+      true,
+    );
+  });
+
+  it('reloads when the deal is closed and the page is no longer a record', () => {
+    assert.equal(
+      shouldReloadReviewPreview({
+        memoId: 'm1',
+        loadedMemoId: 'm1',
+        pageKey: null,
+        loadedPageKey: 'deal:A',
+      }),
+      true,
+    );
+  });
+
+  it('keeps the preview only for the same memo on the same record', () => {
+    assert.equal(
+      shouldReloadReviewPreview({
+        memoId: 'm1',
+        loadedMemoId: 'm1',
+        pageKey: 'deal:A',
+        loadedPageKey: 'deal:A',
+      }),
+      false,
+    );
+  });
+
+  it('does not follow a tab change once Review & sync is locked', () => {
+    assert.equal(
+      shouldReloadReviewPreview({
+        memoId: 'm1',
+        loadedMemoId: 'm1',
+        pageKey: 'deal:B',
+        loadedPageKey: 'contact:C',
+        sessionLocked: true,
+      }),
+      false,
+    );
+  });
+
+  it('still reloads when a new memo starts even if a session was locked', () => {
+    assert.equal(
+      shouldReloadReviewPreview({
+        memoId: 'm2',
+        loadedMemoId: 'm1',
+        pageKey: 'deal:B',
+        loadedPageKey: 'contact:C',
+        sessionLocked: true,
+      }),
+      true,
+    );
+  });
+});
+
+describe('deal picker', () => {
+  it('stays collapsed so linked deals are not listed next to contact-only', () => {
+    const ui = dealPickerVisibility({
+      pickerOpen: false,
+      needsConfirm: false,
+      hasMatches: true,
+      hasSelectedContact: true,
+    });
+    assert.equal(ui.showPicker, false);
+    assert.equal(ui.showCard, true);
+    assert.equal(ui.showContactOnlyRow, false);
+  });
+
+  it('opens a compact picker with contact-only plus linked deals', () => {
+    const ui = dealPickerVisibility({
+      pickerOpen: true,
+      needsConfirm: false,
+      hasMatches: true,
+      hasSelectedContact: true,
+    });
+    assert.equal(ui.showPicker, true);
+    assert.equal(ui.showCard, false);
+    assert.equal(ui.showContactOnlyRow, true);
+    assert.equal(ui.showSearch, false);
+  });
+
+  it('forces the picker open when a deal must be confirmed', () => {
+    const ui = dealPickerVisibility({
+      pickerOpen: false,
+      needsConfirm: true,
+      hasMatches: false,
+      hasSelectedContact: false,
+    });
+    assert.equal(ui.showPicker, true);
+    assert.equal(ui.showSearch, true);
+    assert.equal(ui.showContactOnlyRow, false);
+  });
+
+  it('labels contact-only as the selected target, not a competing card', () => {
+    const copy = dealTargetCardCopy({ skipDeal: true });
+    assert.equal(copy.title, 'Contact only');
+    assert.equal(copy.reason, 'No deal will be updated');
+  });
+
+  it('hides matcher jargon on linked deals', () => {
+    assert.equal(dealMatchSubtitle('Linked to matched contact'), '');
+    assert.equal(dealMatchSubtitle('Company association: Holcim'), 'Company association: Holcim');
   });
 });
 

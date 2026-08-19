@@ -23,7 +23,7 @@
 @layer base {
   :root {
     --background: 40 33% 96%;
-    --foreground: 0 0% 4%;
+    --foreground: 30 10% 14%;
 
     --card: 0 0% 100%;
     --card-foreground: 0 0% 4%;
@@ -38,7 +38,7 @@
     --secondary-foreground: 0 0% 4%;
 
     --muted: 38 20% 90%;
-    --muted-foreground: 0 0% 40%;
+    --muted-foreground: 30 6% 46%;
 
     --accent: 35 30% 45%;
     --accent-foreground: 40 33% 96%;
@@ -132,8 +132,9 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground font-sans antialiased font-normal;
     font-feature-settings: "rlig" 1, "calt" 1;
+    letter-spacing: 0.006em;
   }
 
   html {

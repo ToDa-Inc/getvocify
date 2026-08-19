@@ -138,6 +138,10 @@ class Memo(MemoBase):
     processedAt: Optional[datetime] = None
     approvedAt: Optional[datetime] = None
     pipelineMeta: Optional[dict] = None
+    source: Optional[str] = None
+    hubspotEngagementId: Optional[str] = None
+    hubspotContactId: Optional[str] = None
+    hubspotDealId: Optional[str] = None
     
     class Config:
         from_attributes = True

@@ -9,10 +9,12 @@ import {
   useContext, 
   useCallback, 
   useEffect,
+  useState,
   type ReactNode 
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/shared/lib/api-client';
+import { getTokenExpiryMs } from '@/lib/auth-session';
+import { api, ApiError } from '@/shared/lib/api-client';
 import { authApi, authKeys } from './api';
 import type { 
   User, 
@@ -33,18 +35,6 @@ const REFRESH_BEFORE_EXPIRY_MS = 10 * 60 * 1000;
  */
 function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
-}
-
-/**
- * Decode JWT exp (expiry) in seconds. Returns null if invalid.
- */
-function getTokenExpiryMs(token: string): number | null {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload?.exp ? payload.exp * 1000 : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -77,17 +67,17 @@ interface AuthProviderProps {
  */
 export function AuthProvider({ children }: AuthProviderProps) {
   const queryClient = useQueryClient();
+  const [hasStoredSession, setHasStoredSession] = useState(() => !!getStoredToken());
 
-  // Initialize token from storage and wire auth-cleared callback
   useEffect(() => {
     const token = getStoredToken();
     if (token) {
       api.setToken(token);
     }
     api.setOnAuthCleared(() => {
+      setHasStoredSession(false);
       queryClient.setQueryData<User | null>(authKeys.me(), null);
       queryClient.clear();
-      // Redirect to login when session is invalid (401, refresh failed)
       if (window.location.pathname.startsWith('/dashboard')) {
         window.location.replace('/login');
       }
@@ -95,68 +85,52 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => api.setOnAuthCleared(null);
   }, [queryClient]);
 
-  // Query current user
-  const { data: user, isLoading } = useQuery({
+  const { data: user, isLoading, refetch } = useQuery({
     queryKey: authKeys.me(),
     queryFn: authApi.me,
-    retry: false,
+    retry: (failureCount, error) => {
+      if (error instanceof ApiError && error.status === 401) return false;
+      return failureCount < 2;
+    },
     staleTime: Infinity,
-    enabled: !!getStoredToken(),
+    enabled: hasStoredSession,
   });
 
-  /**
-   * Log in with credentials
-   */
   const login = useCallback(async (credentials: LoginCredentials): Promise<void> => {
     const response = await authApi.login(credentials);
     storeTokens(response.accessToken, response.refreshToken);
+    setHasStoredSession(true);
     queryClient.setQueryData<User>(authKeys.me(), response.user);
   }, [queryClient]);
 
-  /**
-   * Sign up new user
-   */
   const signup = useCallback(async (data: SignupData): Promise<void> => {
     const response = await authApi.signup(data);
     storeTokens(response.accessToken, response.refreshToken);
+    setHasStoredSession(true);
     queryClient.setQueryData<User>(authKeys.me(), response.user);
   }, [queryClient]);
 
-  /**
-   * Log out current user
-   */
   const logout = useCallback(async (): Promise<void> => {
     try {
       await authApi.logout();
     } catch {
       // Ignore logout errors
     }
+    setHasStoredSession(false);
     api.clearAllAuth();
     queryClient.setQueryData<User | null>(authKeys.me(), null);
     queryClient.clear();
   }, [queryClient]);
 
-  /**
-   * Refresh the session
-   */
   const refresh = useCallback(async (): Promise<void> => {
-    const refreshToken = localStorage.getItem(REFRESH_KEY);
-    if (!refreshToken) {
-      throw new Error('No refresh token');
-    }
-
-    const response = await authApi.refresh(refreshToken);
-    localStorage.setItem(TOKEN_KEY, response.accessToken);
-    api.setToken(response.accessToken);
-    if (response.refreshToken) {
-      localStorage.setItem(REFRESH_KEY, response.refreshToken);
+    const token = await api.refreshSession();
+    if (!token) {
+      throw new Error('Session refresh failed');
     }
   }, []);
 
-  // Proactive refresh: renew token ~5 min before expiry to avoid 401s
   useEffect(() => {
-    const token = getStoredToken();
-    if (!token) return;
+    if (!hasStoredSession) return;
 
     const checkAndRefresh = async () => {
       const t = getStoredToken();
@@ -166,19 +140,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         await refresh();
       } catch {
-        // Refresh failed; 401 retry or next request will trigger clearAllAuth
+        // 503/network: keep the stored session. Real 401 already cleared it.
       }
     };
 
     const id = setInterval(checkAndRefresh, 30_000);
-    checkAndRefresh(); // run once on mount
+    checkAndRefresh();
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [refresh, hasStoredSession]);
 
   const value: AuthContextValue = {
     user: user ?? null,
-    isLoading,
-    isAuthenticated: !!user,
+    isLoading: hasStoredSession && isLoading && !user,
+    isAuthenticated: hasStoredSession && !!user,
+    hasStoredSession,
+    restoreSession: refetch,
     login,
     signup,
     logout,

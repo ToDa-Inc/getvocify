@@ -4,11 +4,11 @@
  */
 export const THEME_TOKENS = {
   typography: {
-    pageTitle: "text-[1.75rem] md:text-[2rem] font-semibold tracking-tight text-foreground leading-tight",
-    sectionTitle: "text-lg font-semibold tracking-tight text-foreground",
-    accentTitle: "text-beige font-semibold",
+    pageTitle: "text-[1.75rem] md:text-[2.125rem] font-normal tracking-tight text-foreground leading-[1.15]",
+    sectionTitle: "text-[17px] font-normal tracking-tight text-foreground",
+    accentTitle: "text-beige font-normal",
     editorialHeader: "font-serif italic font-normal",
-    capsLabel: "text-xs font-medium text-muted-foreground",
+    capsLabel: "text-[13px] font-normal text-muted-foreground",
     body: "text-[15px] leading-relaxed text-muted-foreground",
   },
 
@@ -19,7 +19,7 @@ export const THEME_TOKENS = {
   },
 
   cards: {
-    base: "bg-card border border-border",
+    base: "bg-card border border-border/70",
     premium: "glass-panel",
     hover: "hover:border-beige/25 transition-colors duration-150",
   },

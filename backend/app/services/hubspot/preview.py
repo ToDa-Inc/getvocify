@@ -12,7 +12,7 @@ from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, Avai
 from .client import HubSpotClient
 from app.services.deal_merge import merge_description
 from .deals import HubSpotDealService, _sanitize_enum_properties
-from .tasks import format_next_step_task, _next_step_schedule_hints
+from .tasks import format_next_step_task, _next_step_schedule_hints, detected_task_due_iso
 from .schema import HubSpotSchemaService
 from .associations import HubSpotAssociationService
 from .contacts import HubSpotContactService
@@ -188,29 +188,30 @@ class HubSpotPreviewService:
         except Exception:
             pass
 
-        # Next steps (HubSpot tasks) require a deal — skip in contact-only mode
-        if not skip_deal:
-            next_steps = extraction.nextSteps or []
-            if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
-                hs_next = extraction.raw_extraction["hs_next_step"]
-                next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
-            for i, step in enumerate(next_steps):
-                if step and str(step).strip():
-                    schedule_hints = _next_step_schedule_hints(extraction)
-                    hint = schedule_hints[i] if i < len(schedule_hints) else None
-                    formatted = format_next_step_task(
-                        str(step).strip(),
-                        contact_name=extraction.contactName,
-                        schedule_hint=hint or None,
-                    )
-                    proposed_updates.append(ProposedUpdate(
-                        field_name=f"next_step_task_{i}",
-                        field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
-                        current_value=None,
-                        new_value=formatted.subject,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
-                        object_type="task",
-                    ))
+        # Next steps → HubSpot tasks on the deal, or the contact when contact-only
+        next_steps = extraction.nextSteps or []
+        if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
+            hs_next = extraction.raw_extraction["hs_next_step"]
+            next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
+        for i, step in enumerate(next_steps):
+            if step and str(step).strip():
+                schedule_hints = _next_step_schedule_hints(extraction)
+                hint = schedule_hints[i] if i < len(schedule_hints) else None
+                formatted = format_next_step_task(
+                    str(step).strip(),
+                    contact_name=extraction.contactName,
+                    schedule_hint=hint or None,
+                )
+                due_iso = detected_task_due_iso(str(step).strip(), hint)
+                proposed_updates.append(ProposedUpdate(
+                    field_name=f"next_step_task_{i}",
+                    field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
+                    current_value=None,
+                    new_value=formatted.subject,
+                    extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                    object_type="task",
+                    due_date=due_iso,
+                ))
 
         # For display: use human-readable extraction values when available.
         # Note: enum/select fields intentionally keep their raw API value here (not

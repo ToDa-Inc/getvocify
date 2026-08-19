@@ -19,6 +19,9 @@ from app.metrics import record_transcription_duration
 logger = logging.getLogger(__name__)
 
 BATCH_BASE_URL = "https://eu1.asr.api.speechmatics.com/v2"
+# Bake-off on a ~207s Spanish sales call: Standard + pinned language + vocab
+# ~8s and same entity recall as Enhanced (~10s). Enhanced + language=auto was ~114s.
+BATCH_OPERATING_POINT = "standard"
 
 
 def _filename_for_content_type(content_type: Optional[str]) -> tuple[str, str]:
@@ -38,10 +41,10 @@ def batch_transcription_config(
     diarization: bool,
     vocab: Optional[list] = None,
 ) -> dict:
-    """Batch v2 job transcription_config. Do not pass realtime-only keys."""
+    """Batch v2 job: Standard + pinned language + glossary. Not Enhanced, not bare auto."""
     transcription_config: dict = {
         "language": language,
-        "operating_point": "enhanced",
+        "operating_point": BATCH_OPERATING_POINT,
     }
     if diarization:
         transcription_config["diarization"] = "speaker"
@@ -97,6 +100,7 @@ class SpeechmaticsBatchService:
         diarization: bool = False,
         notification_url: Optional[str] = None,
         extra_vocab: Optional[list] = None,
+        language_identification_config: Optional[dict] = None,
     ) -> str:
         """
         Create a Speechmatics transcription job and return the job_id.
@@ -126,6 +130,8 @@ class SpeechmaticsBatchService:
         )
 
         config: dict = {"type": "transcription", "transcription_config": transcription_config}
+        if language_identification_config:
+            config["language_identification_config"] = language_identification_config
         if notification_url:
             config["notification_config"] = [{"url": notification_url, "contents": ["transcript"]}]
         if audio_url:
@@ -152,6 +158,7 @@ class SpeechmaticsBatchService:
                 content_type=content_type,
                 language=language,
                 diarization=diarization,
+                operating_point=transcription_config.get("operating_point"),
                 notification=bool(notification_url),
                 audio_len_bytes=len(audio_bytes) if audio_bytes else None,
             ),
@@ -221,6 +228,7 @@ class SpeechmaticsBatchService:
         diarization: bool = False,
         notification_url: Optional[str] = None,
         extra_vocab: Optional[list] = None,
+        language_identification_config: Optional[dict] = None,
     ) -> dict:
         """Build kwargs for create_job from the common transcribe/submit params."""
         if audio_bytes is not None:
@@ -234,6 +242,7 @@ class SpeechmaticsBatchService:
                 diarization=diarization,
                 notification_url=notification_url,
                 extra_vocab=extra_vocab,
+                language_identification_config=language_identification_config,
             )
         elif audio_url:
             return dict(
@@ -243,6 +252,7 @@ class SpeechmaticsBatchService:
                 diarization=diarization,
                 notification_url=notification_url,
                 extra_vocab=extra_vocab,
+                language_identification_config=language_identification_config,
             )
         raise ValueError("Either audio_bytes or audio_url required")
 
@@ -256,6 +266,7 @@ class SpeechmaticsBatchService:
         diarization: bool = False,
         notification_url: Optional[str] = None,
         extra_vocab: Optional[list] = None,
+        language_identification_config: Optional[dict] = None,
     ) -> str:
         """
         Create a job and return the job_id immediately.
@@ -263,7 +274,15 @@ class SpeechmaticsBatchService:
         If not set, use get_transcript(job_id) after polling get_job_status().
         """
         kwargs = self._job_kwargs(
-            audio_bytes, audio_url, content_type, language, user_id, diarization, notification_url, extra_vocab
+            audio_bytes,
+            audio_url,
+            content_type,
+            language,
+            user_id,
+            diarization,
+            notification_url,
+            extra_vocab,
+            language_identification_config,
         )
         return await self.create_job(**kwargs)
 
@@ -276,6 +295,7 @@ class SpeechmaticsBatchService:
         user_id: Optional[str] = None,
         diarization: bool = False,
         extra_vocab: Optional[list] = None,
+        language_identification_config: Optional[dict] = None,
     ) -> str:
         """
         Create job, poll until done, return transcript text.
@@ -283,7 +303,14 @@ class SpeechmaticsBatchService:
         For HubSpot calls, prefer submit() + notification_url for push-based completion.
         """
         kwargs = self._job_kwargs(
-            audio_bytes, audio_url, content_type, language, user_id, diarization, extra_vocab=extra_vocab
+            audio_bytes,
+            audio_url,
+            content_type,
+            language,
+            user_id,
+            diarization,
+            extra_vocab=extra_vocab,
+            language_identification_config=language_identification_config,
         )
         job_id = await self.create_job(**kwargs)
 

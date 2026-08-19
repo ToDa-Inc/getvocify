@@ -5,8 +5,15 @@
  */
 
 import { api } from '../lib/api.js';
-import { isAuthFailure, screenForInitFailure, shouldPaintMainUi } from '../lib/auth-session.js';
-import { resolveReviewPresentation, sameMemoId } from '../lib/review-screen.js';
+import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
+import {
+  dealMatchSubtitle,
+  dealPickerVisibility,
+  dealTargetCardCopy,
+  resolveReviewPresentation,
+  sameMemoId,
+  shouldReloadReviewPreview,
+} from '../lib/review-screen.js';
 import { buildHubSpotUrl } from '../lib/hubspot-parser.js';
 import {
   buildApproveExtraction,
@@ -14,7 +21,22 @@ import {
   isInsightsField,
   proposedFieldKey,
 } from '../lib/extraction-omit.js';
-import { bindPreviewIds, formatSyncTargetLabel, needsAssociatedContactPick, associatedContactsFromContext, resolveReviewTargets } from '../lib/review-targets.js';
+import {
+  addFieldOptionLabel,
+  crmFieldDisplayLabel,
+  crmFieldGroups,
+  crmFieldInputKind,
+  crmFieldTone,
+  crmFieldValueLabel,
+  crmFieldWasLabel,
+  formatTaskDueLabel,
+  shouldCreateHubSpotNote,
+  shouldShowCrmFieldsSection,
+  taskRowsFromPreview,
+  visibleCrmUpdates,
+} from '../lib/review-insights.js';
+import { crmFieldsHeadingLabel, htmlToCopilotMarkdown, nextStepsHeadingLabel, renderCopilotNoteHtml, stripNextStepsSection } from '../lib/copilot-note.js';
+import { bindPreviewIds, bindPreviewToPage, formatSyncTargetLabel, needsAssociatedContactPick, associatedContactsFromContext, proposedUpdatesForPage, resolveReviewTargets } from '../lib/review-targets.js';
 import { listenClickRuntimeMessage, listenUiModel, requestTabCaptureStreamId, resolveListenPhase } from '../lib/tab-capture.js';
 import {
   firstName,
@@ -24,14 +46,18 @@ import {
   speakerSide,
 } from '../lib/transcript-turns.js';
 import { callDurationSeconds, formatCallDuration } from '../lib/call-duration.js';
+import { memoContactName, memoListSubtitle, memoListTitle, reviewIdsFromMemo } from '../lib/memo-identity.js';
+import { calendarFromIso, calendarMonth, shiftCalendarMonth } from '../lib/date-chip.js';
 import { recordingsScopeKey } from '../lib/page-scope.js';
 import {
   RECORDINGS_PAGE_SIZE,
   activityEmptyMessage,
+  activityKickerLabel,
   isRecordPageContext,
+  mergeActivityItems,
   nextVisibleCount,
   shouldFetchVocifyMemos,
-  shouldShowInboxKicker,
+  shouldShowActivityKicker,
 } from '../lib/activity-list.js';
 
 // ============================================
@@ -79,6 +105,11 @@ let needsDealDecision = false;
 let dealDecisionMade = true;
 /** Force create-new-deal on next/current preview */
 let createNewDealRequested = false;
+/** Compact deal picker is open (Choose deal). Default: collapsed to the current target. */
+let dealPickerOpen = false;
+/** Freeze HubSpot page + fields until discard / sync / explicit retarget. */
+let reviewSessionLocked = false;
+let reviewSessionContext = null;
 let searchTimeout = null;
 let previewLoaded = false;
 let sessionHeartbeatId = null;
@@ -100,12 +131,18 @@ let selectedLostReason = '';
 let actionItemsInitialized = false;
 /** Memo whose call note is currently in the textarea */
 let insightsMemoId = null;
+/** Last memo loaded for this review (contact name even off that HubSpot page) */
+let lastReviewMemo = null;
 /** Click-outside handler for Add field dropdown */
 let addFieldCloseHandler = null;
 /** Avoid re-fetching recent memos on every STATE_UPDATED while watching */
 let recentMemosLoaded = false;
 let recentMemosFetchGen = 0;
+let recentMemosCache = [];
 let reviewFetchGen = 0;
+let previewFetchGen = 0;
+let loadedPreviewMemoId = null;
+let loadedPreviewPageKey = null;
 let lastRenderedStatus = null;
 /** Cache key: deal:<id> | contact:<id> | global */
 let recentMemosScopeKey = null;
@@ -169,23 +206,62 @@ function pageRecordKey(context) {
   return `${context.objectType}:${context.recordId}`;
 }
 
-function syncPageRecordScope(context) {
-  const key = pageRecordKey(context);
-  if (key === lastPageRecordKey) return;
-  lastPageRecordKey = key;
+function clearReviewPreviewUi() {
   lastPreviewData = null;
+  lastReviewMemo = null;
   previewLoaded = false;
+  loadedPreviewMemoId = null;
+  loadedPreviewPageKey = null;
+  editedProposedUpdates = null;
+  omittedProposedKeys = new Set();
+  actionItemsInitialized = false;
+  previewFetchGen += 1;
+  if (proposedUpdatesList) {
+    proposedUpdatesList.innerHTML = '';
+  }
+  const nameEl = document.getElementById('target-deal-name');
+  const reasonEl = document.getElementById('target-deal-reason');
+  if (nameEl) nameEl.textContent = '';
+  if (reasonEl) reasonEl.textContent = '';
+}
+
+function lockReviewSession(context) {
+  if (!context) return;
+  reviewSessionLocked = true;
+  reviewSessionContext = { ...context };
+}
+
+function unlockReviewSession() {
+  reviewSessionLocked = false;
+  reviewSessionContext = null;
+  dealPickerOpen = false;
+}
+
+function reviewTargetContext(override, extra = {}) {
+  if (extra.followLivePage) return override || lastBgState?.context;
+  if (override && !reviewSessionLocked) return override;
+  if (reviewSessionLocked && reviewSessionContext) return reviewSessionContext;
+  return override || lastBgState?.context;
+}
+
+function syncPageRecordScope(context) {
+  if (reviewSessionLocked) return false;
+  const key = pageRecordKey(context);
+  if (key === lastPageRecordKey) return false;
+  lastPageRecordKey = key;
+  clearReviewPreviewUi();
   userSelectedDealId = null;
   userSelectedContactId = null;
   createNewDealRequested = false;
   currentDealId = null;
   currentContactId = null;
   currentCompanyId = context?.objectType === 'company' ? context.recordId : (context?.companyId || null);
+  return true;
 }
 
 function currentReviewTargets(context, extra = {}) {
   return resolveReviewTargets({
-    pageContext: context || lastBgState?.context,
+    pageContext: reviewTargetContext(context, extra),
     userDealId: extra.userDealId !== undefined ? extra.userDealId : userSelectedDealId,
     userContactId: extra.userContactId !== undefined ? extra.userContactId : userSelectedContactId,
     createNewDeal: extra.createNewDeal !== undefined ? extra.createNewDeal : createNewDealRequested,
@@ -408,37 +484,21 @@ function renderRecordHeader(state) {
 function setIdleListsHidden() {
   const wrap = document.getElementById('record-activity');
   const recordings = document.getElementById('recordings-section');
-  const memos = document.getElementById('recent-memos-section');
   const empty = document.getElementById('activity-empty');
   const kicker = document.getElementById('recordings-inbox-kicker');
   const showMore = document.getElementById('recordings-show-more');
   if (wrap) wrap.style.display = 'none';
   if (recordings) recordings.style.display = 'none';
-  if (memos) memos.style.display = 'none';
   if (empty) empty.style.display = 'none';
   if (kicker) kicker.style.display = 'none';
   if (showMore) showMore.style.display = 'none';
 }
 
-function hubspotCallMemoIds(state) {
-  return new Set(
-    (state?.recordings || []).map((r) => r.memo_id).filter(Boolean).map(String)
-  );
-}
-
-function isVocifyMemo(memo, callIds) {
-  const id = memo?.id != null ? String(memo.id) : '';
-  if (id && callIds.has(id)) return false;
-  const src = memo?.source || memo?.source_type;
-  if (src === 'hubspot_call') return false;
-  if (memo?.hubspot_engagement_id) return false;
-  return true;
-}
-
-function visibleMemoCount() {
-  const list = document.getElementById('recent-memos-list');
-  if (!list) return 0;
-  return list.querySelectorAll('.memo-item').length;
+function vocifyMemoCount(state) {
+  return mergeActivityItems({
+    recordings: state?.recordings || [],
+    memos: recentMemosCache,
+  }).filter((item) => item.kind === 'memo').length;
 }
 
 function syncActivityEmptyState(state) {
@@ -463,7 +523,7 @@ function syncActivityEmptyState(state) {
   const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
   const msg = activityEmptyMessage(state.context, {
     recordingsCount: recordings.length,
-    memosCount: visibleMemoCount(),
+    memosCount: vocifyMemoCount(state),
     loading: Boolean(state.recordingsLoading || memosLoading),
   });
   if (msg) {
@@ -479,26 +539,11 @@ function syncActivityEmptyState(state) {
 function syncRecordActivityVisibility() {
   const wrap = document.getElementById('record-activity');
   const rec = document.getElementById('recordings-section');
-  const memos = document.getElementById('recent-memos-section');
   const empty = document.getElementById('activity-empty');
   if (!wrap) return;
   const recOn = rec && rec.style.display !== 'none';
-  const memosOn = memos && memos.style.display !== 'none';
   const emptyOn = empty && empty.style.display !== 'none';
-  wrap.style.display = recOn || memosOn || emptyOn ? 'block' : 'none';
-}
-
-function pruneCallMemosFromList(state) {
-  const callIds = hubspotCallMemoIds(state || lastBgState);
-  const list = document.getElementById('recent-memos-list');
-  const section = document.getElementById('recent-memos-section');
-  if (!list) return;
-  list.querySelectorAll('.memo-item').forEach((el) => {
-    const id = el.dataset.memoId;
-    if (id && callIds.has(id)) el.remove();
-  });
-  if (section && !list.querySelector('.memo-item')) section.style.display = 'none';
-  syncActivityEmptyState(state || lastBgState);
+  wrap.style.display = recOn || emptyOn ? 'block' : 'none';
 }
 
 function getRecordDisplayName(context) {
@@ -567,6 +612,7 @@ function renderReviewRecordName(context, preview = lastPreviewData) {
   const targets = currentReviewTargets(context);
   const needsPick = needsAssociatedContactPick(context, targets.contactId);
   const contactName =
+    memoContactName(lastReviewMemo, preview) ||
     preview?.selected_contact?.name ||
     preview?.selected_contact?.email ||
     context?.contactName ||
@@ -591,6 +637,94 @@ function renderReviewRecordName(context, preview = lastPreviewData) {
   }
 }
 
+function appendCallActivityRow(listEl, rec) {
+  const row = document.createElement('div');
+  row.className = 'recording-row';
+  const action = getRecordingAction(rec);
+  const pill = getMemoStatusPill(rec);
+  const dateStr = formatCallTimestamp(rec.timestamp || rec.timestamp_ms);
+  const durStr = formatCallDuration(callDurationSeconds(rec));
+  const meta = [dateStr !== 'Unknown date' ? dateStr : null, durStr].filter(Boolean).join(' · ');
+  const title = rec.title || 'Call';
+  row.innerHTML = `
+    <div class="recording-row-main">
+      <span class="activity-kind">Call</span>
+      <span class="recording-row-title">${escapeHtml(title)}</span>
+      ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
+    </div>
+    <div class="recording-row-actions">
+      ${pill?.busy ? busyStatusHtml(pill.text) : ''}
+      ${action
+        ? `<button type="button" class="btn-recording-action" data-call-id="${escapeHtml(rec.call_id)}" data-action="${action.action}"${action.memoId ? ` data-memo-id="${escapeHtml(action.memoId)}"` : ''}>${escapeHtml(action.label)}</button>`
+        : ''}
+    </div>
+  `;
+  listEl.appendChild(row);
+}
+
+function openMemoFromActivity(memo) {
+  if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
+    chrome.runtime.sendMessage({
+      type: 'SET_STATE',
+      state: { status: 'review', currentMemoId: memo.id },
+    });
+  } else if (memo.status === 'approved') {
+    chrome.runtime.sendMessage({
+      type: 'SET_STATE',
+      state: { status: 'success', currentMemoId: memo.id, syncResult: memo },
+    });
+  }
+}
+
+function appendMemoActivityRow(listEl, memo) {
+  const row = document.createElement('div');
+  row.className = 'recording-row';
+  const dateStr = formatCallTimestamp(memo.createdAt || memo.created_at);
+  const busy = memoBusyLabel(memo.status);
+  const canContinue = ['pending_review', 'pending_transcript'].includes(memo.status);
+  const canView = memo.status === 'approved';
+  let statusClass = 'status-processing';
+  let statusText = (memo.status || '').replace(/_/g, ' ');
+  if (canContinue) {
+    statusClass = 'status-pending';
+    statusText = 'Review';
+  }
+  if (memo.status === 'approved') {
+    statusClass = 'status-approved';
+    statusText = 'Synced';
+  }
+  if (memo.status === 'failed') statusClass = 'status-failed';
+  const title = memoListTitle(memo);
+  const subtitle = memoListSubtitle(memo);
+  const meta = [subtitle, dateStr !== 'Unknown date' ? dateStr : null].filter(Boolean).join(' · ');
+  row.innerHTML = `
+    <div class="recording-row-main">
+      <span class="activity-kind">Memo</span>
+      <span class="recording-row-title">${escapeHtml(title)}</span>
+      ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
+    </div>
+    <div class="recording-row-actions">
+      ${busy ? busyStatusHtml(busy) : ''}
+      ${canContinue ? '<button type="button" class="btn-recording-action" data-memo-action="continue">Continue</button>' : ''}
+      ${!busy && !canContinue ? `<span class="status-pill ${statusClass}">${escapeHtml(statusText)}</span>` : ''}
+    </div>
+  `;
+  const isActionable = canContinue || canView;
+  if (!isActionable) {
+    row.classList.add('not-actionable');
+    row.style.opacity = '0.6';
+  }
+  if (isActionable) {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => openMemoFromActivity(memo));
+  }
+  row.querySelector('.btn-recording-action')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openMemoFromActivity(memo);
+  });
+  listEl.appendChild(row);
+}
+
 function renderRecordingsSection(state) {
   const section = document.getElementById('recordings-section');
   const listEl = document.getElementById('recordings-list');
@@ -601,26 +735,31 @@ function renderRecordingsSection(state) {
   const showMoreBtn = document.getElementById('recordings-show-more');
   if (!section) return;
 
-  const recordings = (state.recordings || []).filter((r) => r.has_recording);
+  const items = mergeActivityItems({
+    recordings: state.recordings || [],
+    memos: recentMemosCache,
+  });
   const watching = Boolean(state.watchingForRecording);
   const idle = state.status === 'idle';
+  const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
+  const loading = Boolean(state.recordingsLoading || memosLoading);
   const scopeKey = recordingsScopeKey(state.context);
   if (scopeKey !== lastRecordingsScopeKey) {
     lastRecordingsScopeKey = scopeKey;
     recordingsVisibleCount = RECORDINGS_PAGE_SIZE;
   }
 
-  section.style.display = idle && (watching || recordings.length > 0 || state.recordingsLoading) ? 'block' : 'none';
+  section.style.display = idle && (watching || items.length > 0 || loading) ? 'block' : 'none';
   if (watchRow) watchRow.style.display = watching ? 'flex' : 'none';
   if (kicker) {
-    kicker.style.display = idle && shouldShowInboxKicker(state.context, {
-      hasRecordings: recordings.length > 0,
-      loading: Boolean(state.recordingsLoading),
+    kicker.textContent = activityKickerLabel();
+    kicker.style.display = idle && shouldShowActivityKicker(state.context, {
+      itemCount: items.length,
+      loading,
     }) ? 'block' : 'none';
   }
   if (!idle) {
     if (showMoreBtn) showMoreBtn.style.display = 'none';
-    pruneCallMemosFromList(state);
     return;
   }
 
@@ -635,54 +774,33 @@ function renderRecordingsSection(state) {
 
   if (!listEl) {
     if (showMoreBtn) showMoreBtn.style.display = 'none';
-    pruneCallMemosFromList(state);
+    syncActivityEmptyState(state);
     return;
   }
 
-  if (!recordings.length) {
-    listEl.innerHTML = state.recordingsLoading
+  if (!items.length) {
+    listEl.innerHTML = loading
       ? '<div class="live-loader live-loader--inline" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
       : '';
     if (showMoreBtn) showMoreBtn.style.display = 'none';
-    pruneCallMemosFromList(state);
+    syncActivityEmptyState(state);
     return;
   }
 
-  const visible = recordings.slice(0, recordingsVisibleCount);
+  const visible = items.slice(0, recordingsVisibleCount);
   listEl.innerHTML = '';
-  visible.forEach((rec) => {
-    const row = document.createElement('div');
-    row.className = 'recording-row';
-    const action = getRecordingAction(rec);
-    const pill = getMemoStatusPill(rec);
-    const dateStr = formatCallTimestamp(rec.timestamp || rec.timestamp_ms);
-    const durStr = formatCallDuration(callDurationSeconds(rec));
-    const meta = [dateStr !== 'Unknown date' ? dateStr : null, durStr].filter(Boolean).join(' · ');
-    const title = rec.title || 'Call';
-
-    row.innerHTML = `
-      <div class="recording-row-main">
-        <span class="activity-kind">Call</span>
-        <span class="recording-row-title">${escapeHtml(title)}</span>
-        ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
-      </div>
-      <div class="recording-row-actions">
-        ${pill?.busy ? busyStatusHtml(pill.text) : ''}
-        ${action
-          ? `<button type="button" class="btn-recording-action" data-call-id="${escapeHtml(rec.call_id)}" data-action="${action.action}"${action.memoId ? ` data-memo-id="${escapeHtml(action.memoId)}"` : ''}>${escapeHtml(action.label)}</button>`
-          : ''}
-      </div>
-    `;
-    listEl.appendChild(row);
+  visible.forEach((item) => {
+    if (item.kind === 'call') appendCallActivityRow(listEl, item.recording);
+    else appendMemoActivityRow(listEl, item.memo);
   });
 
-  listEl.querySelectorAll('.btn-recording-action').forEach((btn) => {
+  listEl.querySelectorAll('[data-call-id]').forEach((btn) => {
     btn.addEventListener('click', handleRecordingAction);
   });
   if (showMoreBtn) {
-    showMoreBtn.style.display = recordings.length > recordingsVisibleCount ? '' : 'none';
+    showMoreBtn.style.display = items.length > recordingsVisibleCount ? '' : 'none';
   }
-  pruneCallMemosFromList(state);
+  syncActivityEmptyState(state);
 }
 
 async function handleRecordingAction(e) {
@@ -938,9 +1056,12 @@ function renderState(state) {
       reviewActionItems = [];
       editedProposedUpdates = null;
       omittedProposedKeys = new Set();
+      lastPreviewData = null;
+      loadedPreviewMemoId = null;
+      loadedPreviewPageKey = null;
+      unlockReviewSession();
       renderRecordContextStrip(state);
       syncPageRecordScope(state.context);
-      renderRecordingsSection(state);
       renderListenButton(state);
       renderCopilotCard(state);
       const scope = getRecentMemosScope(state.context);
@@ -948,21 +1069,16 @@ function renderState(state) {
       if (scopeChanged) {
         recentMemosScopeKey = scope.key;
         recentMemosLoaded = false;
+        recentMemosCache = [];
         recentMemosFetchGen += 1;
-        const memosList = document.getElementById('recent-memos-list');
-        if (memosList) memosList.innerHTML = '';
       }
       if (scope.skip || !shouldFetchVocifyMemos(state.context)) {
         recentMemosLoaded = true;
-        const memosList = document.getElementById('recent-memos-list');
-        const memosSection = document.getElementById('recent-memos-section');
-        if (memosList) memosList.innerHTML = '';
-        if (memosSection) memosSection.style.display = 'none';
-        syncActivityEmptyState(state);
-      } else if (lastRenderedStatus !== 'idle' || !recentMemosLoaded || scopeChanged) {
+        recentMemosCache = [];
+      }
+      renderRecordingsSection(state);
+      if (!scope.skip && shouldFetchVocifyMemos(state.context) && (lastRenderedStatus !== 'idle' || !recentMemosLoaded || scopeChanged)) {
         loadRecentMemos(scope);
-      } else {
-        pruneCallMemosFromList(state);
       }
       startIdleContextPoll();
       break;
@@ -976,11 +1092,15 @@ function renderState(state) {
     case 'review':
       stopIdleContextPoll();
       showScreen('review');
-      renderReviewRecordName(state.context);
       if (state.currentMemoId && !sameMemoId(currentMemoId, state.currentMemoId)) {
+        unlockReviewSession();
         currentMemoId = state.currentMemoId;
         previewLoaded = false;
         lastPreviewData = null;
+        loadedPreviewMemoId = null;
+        loadedPreviewPageKey = null;
+        previewFetchGen += 1;
+        reviewFetchGen += 1;
         editedProposedUpdates = null;
         omittedProposedKeys = new Set();
         reviewActionItems = [];
@@ -989,19 +1109,36 @@ function renderState(state) {
         userSelectedDealId = null;
         userSelectedContactId = null;
         createNewDealRequested = false;
+        dealPickerOpen = false;
         applyReviewLayout('loading');
       }
-      if (state.currentMemoId) {
-        if (!isReviewBodyVisible()) applyReviewLayout('loading');
-        handleReviewState(state.currentMemoId, state.context);
-      } else {
-        applyReviewLayout('error', 'Nothing to review yet.');
+      if (!reviewSessionLocked && state.context?.recordId) {
+        lockReviewSession(state.context);
+      }
+      {
+        const frozen = reviewTargetContext(state.context);
+        renderReviewRecordName(frozen, lastPreviewData);
+        if (
+          reviewSessionLocked &&
+          sameMemoId(currentMemoId, state.currentMemoId) &&
+          previewLoaded
+        ) {
+          showUsePageRecordOption(state.context);
+          break;
+        }
+        if (state.currentMemoId) {
+          if (!isReviewBodyVisible()) applyReviewLayout('loading');
+          handleReviewState(state.currentMemoId, frozen);
+        } else {
+          applyReviewLayout('error', 'Nothing to review yet.');
+        }
       }
       break;
       
     case 'success':
       stopIdleContextPoll();
       stopSessionHeartbeat();
+      unlockReviewSession();
       showScreen('success');
       renderSuccess(state.syncResult);
       break;
@@ -1071,7 +1208,7 @@ function applyReviewLayout(mode, message = '') {
 
   if (mode === 'pending_review') {
     const collapsible = document.getElementById('transcript-collapsible');
-    if (collapsible) collapsible.open = true;
+    if (collapsible) collapsible.open = false;
   }
 }
 
@@ -1143,7 +1280,12 @@ async function handleReviewState(memoId, context) {
 async function applyReviewPresentation(presentation, { memoId, context, memo = null, gen }) {
   if (authStatus !== 'signed_in') return;
   if (presentation.mode === 'login') {
-    enterLoggedOut();
+    const { accessToken } = await api.getTokens().catch(() => ({ accessToken: null }));
+    if (shouldEnterLoggedOut({ hasToken: Boolean(accessToken) })) {
+      enterLoggedOut();
+      return;
+    }
+    applyReviewLayout('error', 'Could not reach your account. Try again in a moment.');
     return;
   }
   if (presentation.mode === 'processing') {
@@ -1173,19 +1315,44 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
   }
 
   applyReviewLayout('pending_review');
+  lastReviewMemo = memo || lastReviewMemo;
+  if (reviewSessionLocked && reviewSessionContext) {
+    context = reviewSessionContext;
+  } else {
+    syncPageRecordScope(context);
+    if (context?.recordId) lockReviewSession(context);
+  }
   renderReviewRecordName(context);
-  syncPageRecordScope(context);
   context = await enrichPageAssociations(context);
   if (gen !== reviewFetchGen) return;
   if (!isCurrentReviewMemo(memoId)) return;
-  if (context) lastBgState = { ...(lastBgState || {}), context };
+  if (context && reviewSessionLocked) {
+    reviewSessionContext = { ...context };
+  } else if (context) {
+    lastBgState = { ...(lastBgState || {}), context };
+    lockReviewSession(context);
+  }
   const onCompanyPage = context?.objectType === 'company' && context?.recordId;
   const targets = currentReviewTargets(context);
-  if (!previewLoaded || !sameMemoId(currentMemoId, memoId)) {
+  const ids = reviewIdsFromMemo(memo, targets);
+  const pageKey = pageRecordKey(context);
+  if (
+    shouldReloadReviewPreview({
+      memoId,
+      loadedMemoId: loadedPreviewMemoId || currentMemoId,
+      pageKey,
+      loadedPageKey: loadedPreviewPageKey,
+      sessionLocked: reviewSessionLocked && !!loadedPreviewMemoId,
+    }) ||
+    !previewLoaded ||
+    !sameMemoId(currentMemoId, memoId)
+  ) {
     currentMemoId = memoId;
     previewLoaded = true;
-    if (needsAssociatedContactPick(context, targets.contactId)) {
-      currentDealId = targets.dealId;
+    loadedPreviewMemoId = memoId;
+    loadedPreviewPageKey = pageKey;
+    if (needsAssociatedContactPick(context, ids.contactId)) {
+      currentDealId = ids.dealId;
       currentCompanyId = targets.companyId;
       lastPreviewData = { ...(lastPreviewData || {}), selected_contact: null };
       if (context.objectType === 'deal') {
@@ -1199,7 +1366,7 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
       updateApproveButtonState(lastPreviewData);
     } else {
       let extractionOverride = null;
-      if (onCompanyPage && !targets.contactId && context.companyName) {
+      if (onCompanyPage && !ids.contactId && context.companyName) {
         try {
           const memoFull = await api.getMemo(memoId);
           const base = memoFull?.extraction && typeof memoFull.extraction === 'object'
@@ -1209,25 +1376,19 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
           extractionOverride = base;
         } catch (_) { /* optional */ }
       }
-      await loadPreview(memoId, targets.dealId, extractionOverride, targets.contactId);
+      await loadPreview(memoId, ids.dealId, extractionOverride, ids.contactId, {
+        skipDeal: ids.skipDeal,
+      });
     }
   }
   if (gen !== reviewFetchGen) return;
-  showUsePageRecordOption(context);
+  showUsePageRecordOption(lastBgState?.context);
   const preview = lastPreviewData;
   const tx = preview?.transcript || memo?.transcript || '';
   renderTranscriptConversation(tx, {
     container: document.getElementById('review-transcript-conversation'),
     labels: reviewSpeakerLabels(context),
   });
-  const noteCb = document.getElementById('create-note-checkbox');
-  const noteRow = document.getElementById('create-note-row');
-  if (noteCb) {
-    noteCb.checked = !!tx.trim();
-    noteCb.disabled = !tx.trim();
-  }
-  if (noteRow) noteRow.classList.toggle('is-disabled', !tx.trim());
-  syncNoteToggleCopy(preview);
 }
 
 function syncTranscriptModalDeal(context) {
@@ -1243,10 +1404,10 @@ function syncTranscriptModalDeal(context) {
   }
 }
 
-function reviewSpeakerLabels(context = lastBgState?.context, preview = lastPreviewData) {
+function reviewSpeakerLabels(context = null, preview = lastPreviewData) {
   const them = firstName(
     preview?.selected_contact?.name ||
-    context?.contactName ||
+    (context || reviewTargetContext())?.contactName ||
     ''
   );
   return { s1: 'You', s2: them || 'Them' };
@@ -1261,7 +1422,7 @@ function renderTranscriptConversation(text, { container = null, labels = null } 
   if (!convo) return;
 
   const turns = parseTranscriptTurns(normalized);
-  const roleLabels = labels || reviewSpeakerLabels(lastBgState?.context);
+  const roleLabels = labels || reviewSpeakerLabels();
 
   if (!turns.length) {
     convo.innerHTML = '<p class="transcript-empty">No transcript available.</p>';
@@ -1293,36 +1454,65 @@ function renderTranscriptConversation(text, { container = null, labels = null } 
   });
 }
 
-function syncNoteToggleCopy(preview) {
-  const desc = document.querySelector('.note-toggle-desc');
-  if (!desc) return;
-  const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
-  desc.textContent = skipDeal
-    ? 'Posts this note + transcript on the contact timeline'
-    : 'Posts this note + transcript on the deal timeline';
+function isCopilotNoteEditing() {
+  const view = document.getElementById('copilot-note-view');
+  return !!(view && (document.activeElement === view || view.contains(document.activeElement)));
 }
 
-/** Show "Use X on this page" for deal / contact / company HubSpot pages */
-function showUsePageRecordOption(context) {
+function syncCopilotNoteFromView() {
+  const view = document.getElementById('copilot-note-view');
+  const textarea = document.getElementById('review-summary');
+  if (!view || !textarea) return;
+  textarea.value = htmlToCopilotMarkdown(view.innerHTML);
+  view.classList.toggle('is-empty', !String(view.textContent || '').trim());
+}
+
+function renderCopilotNoteView({ force = false } = {}) {
+  const view = document.getElementById('copilot-note-view');
+  const textarea = document.getElementById('review-summary');
+  const heading = document.getElementById('next-steps-heading');
+  if (!view || !textarea) return;
+  if (!force && isCopilotNoteEditing()) return;
+  const raw = textarea.value || '';
+  view.innerHTML = renderCopilotNoteHtml(stripNextStepsSection(raw));
+  view.hidden = false;
+  view.setAttribute('contenteditable', 'true');
+  view.setAttribute('role', 'textbox');
+  view.setAttribute('aria-multiline', 'true');
+  view.classList.toggle('is-empty', !String(view.textContent || '').trim());
+  textarea.hidden = true;
+  if (heading) heading.textContent = nextStepsHeadingLabel(raw);
+  const fieldsHeading = document.getElementById('crm-fields-heading');
+  if (fieldsHeading) fieldsHeading.textContent = crmFieldsHeadingLabel(raw);
+}
+
+function syncCrmFieldsSection({ updates, availableCount }) {
+  const section = document.getElementById('crm-fields-section');
+  if (section) {
+    section.style.display = shouldShowCrmFieldsSection({ updates, availableCount }) ? '' : 'none';
+  }
+}
+
+/** Show a quiet retarget when the live HubSpot tab is no longer this review. */
+function showUsePageRecordOption(liveContext) {
   const opt = document.getElementById('use-page-record-option');
   const btn = document.getElementById('btn-use-page-record');
   if (!opt || !btn) return;
-  const type = context?.objectType;
-  const ok = !!context?.recordId && ['deal', 'contact', 'company'].includes(type);
+  const type = liveContext?.objectType;
+  const ok = !!liveContext?.recordId && ['deal', 'contact', 'company'].includes(type);
   if (!ok) {
     opt.style.display = 'none';
     return;
   }
-  const targets = currentReviewTargets(context);
-  const alreadyOnPage =
-    (type === 'deal' && targets.dealId === context.recordId) ||
-    (type === 'contact' && targets.contactId === context.recordId) ||
-    (type === 'company' && targets.companyId === context.recordId);
+  const liveKey = pageRecordKey(liveContext);
+  const lockedKey = pageRecordKey(reviewTargetContext());
+  const alreadyOnPage = liveKey && liveKey === lockedKey;
   opt.style.display = alreadyOnPage ? 'none' : 'block';
+  const name = getRecordDisplayName(liveContext);
   const labels = {
-    deal: 'Back to this HubSpot deal',
-    contact: 'Back to this HubSpot contact',
-    company: 'Back to this HubSpot company',
+    deal: name ? `Use ${name} instead` : 'Use this HubSpot deal instead',
+    contact: name ? `Use ${name} instead` : 'Use this HubSpot contact instead',
+    company: name ? `Use ${name} instead` : 'Use this HubSpot company instead',
   };
   btn.textContent = labels[type] || 'Use record on this page';
 }
@@ -1339,7 +1529,7 @@ async function loadTranscriptForReview(memoId) {
     const memo = await api.getMemo(memoId);
     if (!isCurrentReviewMemo(memoId)) return;
     renderTranscriptConversation(memo?.transcript || '', {
-      labels: reviewSpeakerLabels(lastBgState?.context),
+      labels: reviewSpeakerLabels(),
     });
     const timing = document.getElementById('transcript-timing');
     const ready = memoReadyInLabel(memo);
@@ -1373,18 +1563,13 @@ async function loadTranscriptForReview(memoId) {
 // PREVIEW & DEAL LOGIC
 // ============================================
 async function loadRecentMemos(scope) {
-  const listElement = document.getElementById('recent-memos-list');
-  if (!listElement) return;
-
   const resolved = scope || getRecentMemosScope(null);
   const gen = ++recentMemosFetchGen;
-  const section = document.getElementById('recent-memos-section');
 
   if (resolved.skip || !shouldFetchVocifyMemos(lastBgState?.context)) {
     recentMemosLoaded = true;
-    listElement.innerHTML = '';
-    if (section) section.style.display = 'none';
-    syncActivityEmptyState(lastBgState);
+    recentMemosCache = [];
+    if (lastBgState) renderRecordingsSection(lastBgState);
     return;
   }
 
@@ -1397,84 +1582,15 @@ async function loadRecentMemos(scope) {
     if (gen !== recentMemosFetchGen) return;
     if (resolved.key !== recentMemosScopeKey) return;
 
-    if (memos && !memos.error && Array.isArray(memos)) {
-      recentMemosLoaded = true;
-      const vocifyMemos = memos.filter((memo) => isVocifyMemo(memo, hubspotCallMemoIds(lastBgState)));
-      if (vocifyMemos.length === 0) {
-        listElement.innerHTML = '';
-        if (section) section.style.display = 'none';
-        syncActivityEmptyState(lastBgState);
-        return;
-      }
-
-      if (section) section.style.display = 'block';
-      listElement.innerHTML = '';
-      vocifyMemos.forEach((memo) => {
-        const item = document.createElement('div');
-        item.className = 'memo-item';
-        item.dataset.memoId = String(memo.id);
-
-        const date = new Date(memo.createdAt || memo.created_at).toLocaleDateString(undefined, {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-
-        const busy = memoBusyLabel(memo.status);
-        const canContinue = ['pending_review', 'pending_transcript'].includes(memo.status);
-        let statusClass = 'status-processing';
-        let statusText = (memo.status || '').replace(/_/g, ' ');
-        if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
-          statusClass = 'status-pending';
-          statusText = 'Review';
-        }
-        if (memo.status === 'approved') {
-          statusClass = 'status-approved';
-          statusText = 'Synced';
-        }
-        if (memo.status === 'failed') statusClass = 'status-failed';
-
-        const snippet = memo.transcript
-          ? memo.transcript.replace(/\s+/g, ' ').trim().slice(0, 48)
-          : '';
-
-        item.innerHTML = `
-          <div class="memo-info">
-            <span class="activity-kind">Memo</span>
-            <span class="memo-status">${snippet ? `${escapeHtml(snippet)}${snippet.length >= 48 ? '…' : ''}` : 'No transcript yet'}</span>
-            <span class="memo-date">${escapeHtml(date)}</span>
-          </div>
-          ${busy ? busyStatusHtml(busy) : ''}
-          ${canContinue ? '<button type="button" class="btn-recording-action">Continue</button>' : ''}
-          ${!busy && !canContinue ? `<span class="status-pill ${statusClass}">${statusText}</span>` : ''}
-        `;
-
-        const isActionable = ['pending_review', 'pending_transcript', 'approved'].includes(memo.status);
-        if (!isActionable) item.classList.add('not-actionable');
-
-        item.onclick = () => {
-          if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
-            chrome.runtime.sendMessage({
-              type: 'SET_STATE',
-              state: { status: 'review', currentMemoId: memo.id },
-            });
-          } else if (memo.status === 'approved') {
-            chrome.runtime.sendMessage({
-              type: 'SET_STATE',
-              state: { status: 'success', currentMemoId: memo.id, syncResult: memo },
-            });
-          }
-        };
-        listElement.appendChild(item);
-      });
-      syncActivityEmptyState(lastBgState);
-    }
+    recentMemosLoaded = true;
+    recentMemosCache = memos && !memos.error && Array.isArray(memos) ? memos : [];
+    if (lastBgState) renderRecordingsSection(lastBgState);
   } catch (e) {
     if (gen !== recentMemosFetchGen) return;
+    recentMemosLoaded = true;
+    recentMemosCache = [];
     console.error('[Popup] Failed to load recent memos:', e);
-    if (section) section.style.display = 'none';
-    syncActivityEmptyState(lastBgState);
+    if (lastBgState) renderRecordingsSection(lastBgState);
   }
 }
 
@@ -1490,6 +1606,9 @@ function visibleProposedUpdates(updates) {
 
 async function loadPreview(memoId, dealId = null, extraction = null, contactId = null, opts = null) {
   const resetEdits = !!opts?.resetEdits;
+  const gen = ++previewFetchGen;
+  const pageCtx = reviewTargetContext();
+  const pageKey = pageRecordKey(pageCtx);
   if (resetEdits || !lastPreviewData) {
     document.getElementById('target-deal-name').textContent = 'Loading...';
     document.getElementById('target-deal-reason').textContent = '';
@@ -1512,6 +1631,8 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
       extraction: extraction || undefined
     });
 
+    if (gen !== previewFetchGen) return;
+    if (pageRecordKey(reviewTargetContext()) !== pageKey) return;
     if (!isCurrentReviewMemo(memoId)) return;
     if (preview && !preview.error) {
       const bound = bindPreviewIds({
@@ -1519,27 +1640,28 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         requestedContactId,
         preview,
         adoptPreviewContact:
-          !!requestedContactId || !['deal', 'company'].includes(lastBgState?.context?.objectType),
+          !!requestedContactId || !['deal', 'company'].includes(pageCtx?.objectType),
       });
-      if (requestedDealId) {
-        lastPreviewData = { ...preview };
-      } else if (createNewDeal) {
-        lastPreviewData = { ...preview, selected_deal: null, is_new_deal: true, skip_deal: false };
-      } else if (requestedContactId || preview.selected_contact) {
-        lastPreviewData = { ...preview, selected_deal: null, skip_deal: true, is_new_deal: false };
-      } else {
-        lastPreviewData = { ...preview };
-      }
-      if (!requestedContactId && ['deal', 'company'].includes(lastBgState?.context?.objectType)) {
+      lastPreviewData = bindPreviewToPage({
+        preview,
+        requestedDealId,
+        requestedContactId,
+        createNewDeal,
+        pageType: pageCtx?.objectType || null,
+      });
+      lastPreviewData.proposed_updates = proposedUpdatesForPage(lastPreviewData);
+      if (!requestedContactId && ['deal', 'company'].includes(pageCtx?.objectType)) {
         lastPreviewData = { ...lastPreviewData, selected_contact: null };
       }
       previewLoaded = true;
+      loadedPreviewMemoId = memoId;
+      loadedPreviewPageKey = pageKey;
       currentDealId = bound.dealId;
       currentContactId = bound.contactId;
       currentCompanyId =
         bound.companyId ||
-        lastBgState?.context?.companyId ||
-        (lastBgState?.context?.objectType === 'company' ? lastBgState.context.recordId : null) ||
+        pageCtx?.companyId ||
+        (pageCtx?.objectType === 'company' ? pageCtx.recordId : null) ||
         null;
 
       renderContactTarget(lastPreviewData);
@@ -1547,31 +1669,23 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
       const match = lastPreviewData.selected_deal;
       const skipDeal = !!lastPreviewData.skip_deal && !match;
       const pageDeal =
-        lastBgState?.context?.objectType === 'deal' &&
-        lastBgState.context.recordId &&
-        match?.deal_id === lastBgState.context.recordId;
-      document.getElementById('target-deal-name').textContent = match
-        ? match.deal_name
-        : skipDeal
-          ? 'Contact only — no deal'
-          : (createNewDeal || lastPreviewData.is_new_deal ? 'New Deal' : 'No deal selected');
-      const reasonText = match
-        ? (pageDeal ? 'This HubSpot deal' : (match.match_reason === 'Manual Selection' ? 'From current page' : `Matched via ${(match.match_reason || 'AI').toLowerCase()}`))
-        : skipDeal
-          ? 'Only the contact on this page will be updated'
-          : (createNewDeal || lastPreviewData.is_new_deal
-            ? 'A new record will be created'
-            : 'Choose a deal or create a new one');
-      document.getElementById('target-deal-reason').textContent = reasonText;
+        pageCtx?.objectType === 'deal' &&
+        pageCtx.recordId &&
+        match?.deal_id === pageCtx.recordId;
+      const cardCopy = dealTargetCardCopy({
+        selectedDeal: match,
+        skipDeal,
+        createNewDeal: createNewDeal || lastPreviewData.is_new_deal,
+        pageDeal,
+      });
+      document.getElementById('target-deal-name').textContent = cardCopy.title;
+      document.getElementById('target-deal-reason').textContent = cardCopy.reason;
 
       const dealLabel = document.getElementById('deal-target-label');
-      const changeBtn = document.getElementById('btn-change-deal');
       if (dealLabel) {
         dealLabel.textContent = lastPreviewData.selected_contact ? 'Deal (optional)' : 'Deal';
       }
-      if (changeBtn) {
-        changeBtn.textContent = lastPreviewData.selected_contact ? 'Choose deal' : 'Change deal';
-      }
+      updateChangeDealButton(lastPreviewData);
 
       if (opts?.resetEdits) {
         editedProposedUpdates = null;
@@ -1579,42 +1693,36 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         actionItemsInitialized = false;
         reviewActionItems = [];
       }
-      initCallInsights(lastPreviewData);
+      if (insightsMemoId !== currentMemoId) {
+        const summaryEl = document.getElementById('review-summary');
+        if (summaryEl) summaryEl.value = '';
+      }
       try {
         const memo = await api.getMemo(memoId);
         const summaryEl = document.getElementById('review-summary');
         if (summaryEl && !summaryEl.value.trim() && memo?.extraction?.summary) {
           summaryEl.value = memo.extraction.summary;
         }
-        if (!actionItemsInitialized && Array.isArray(memo?.extraction?.nextSteps)) {
-          reviewActionItems = memo.extraction.nextSteps
-            .filter((s) => s && String(s).trim())
-            .map((text) => ({ id: ++actionItemIdSeq, text: String(text).trim(), checked: true }));
-          actionItemsInitialized = true;
-          renderActionItems();
-        }
-      } catch (_) { /* optional enrichment */ }
-
-      const decision = evaluateDealDecision(lastPreviewData, { createNewDeal });
-      const pageHasRecord = !!lastBgState?.context?.recordId &&
-        ['deal', 'contact', 'company'].includes(lastBgState.context.objectType);
-      if (decision.autoSelectDealId && !createNewDeal && !pageHasRecord) {
-        userSelectedDealId = decision.autoSelectDealId;
-        createNewDealRequested = false;
-        await loadPreview(memoId, decision.autoSelectDealId, null, requestedContactId);
-        return;
+        initCallInsights(lastPreviewData, memo?.extraction);
+      } catch (_) {
+        initCallInsights(lastPreviewData);
       }
+      renderCopilotNoteView();
+
+      evaluateDealDecision(lastPreviewData, { createNewDeal });
+      if (needsDealDecision && !dealDecisionMade) dealPickerOpen = true;
       renderDealDecisionUI(lastPreviewData);
       updateApproveButtonState(lastPreviewData);
       renderProposedUpdates(visibleProposedUpdates(lastPreviewData.proposed_updates || []), lastPreviewData.available_fields || []);
-      renderReviewRecordName(lastBgState?.context, lastPreviewData);
+      renderReviewRecordName(reviewTargetContext(), lastPreviewData);
       showUsePageRecordOption(lastBgState?.context);
-      syncNoteToggleCopy(lastPreviewData);
     } else {
+      if (gen !== previewFetchGen) return;
       document.getElementById('target-deal-name').textContent = 'Error';
       proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Failed to load preview.</p>';
     }
   } catch (e) {
+    if (gen !== previewFetchGen) return;
     console.error('[Popup] Failed to load preview:', e);
     document.getElementById('target-deal-name').textContent = 'Error';
     proposedUpdatesList.innerHTML = '<p class="body-muted" style="padding: 12px; color: #ef4444;">Error loading preview.</p>';
@@ -1643,6 +1751,11 @@ function evaluateDealDecision(preview, { createNewDeal = false } = {}) {
     dealDecisionMade = true;
     return {};
   }
+  if (preview?.skip_deal) {
+    needsDealDecision = false;
+    dealDecisionMade = true;
+    return {};
+  }
   if (selectedDeal || createNewDeal) {
     needsDealDecision = false;
     dealDecisionMade = true;
@@ -1663,7 +1776,7 @@ function updateApproveButtonState(preview) {
   const targets = currentReviewTargets();
   const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
   const needsContactPick =
-    needsAssociatedContactPick(lastBgState?.context, targets.contactId) ||
+    needsAssociatedContactPick(reviewTargetContext(), targets.contactId) ||
     (!preview?.selected_contact && candidates.length > 0);
   if (needsContactPick) {
     approveSyncButton.disabled = true;
@@ -1698,11 +1811,23 @@ function updateApproveButtonState(preview) {
   }
 }
 
+function updateChangeDealButton(preview = lastPreviewData) {
+  const changeBtn = document.getElementById('btn-change-deal');
+  if (!changeBtn) return;
+  if (dealPickerOpen || (needsDealDecision && !dealDecisionMade)) {
+    changeBtn.textContent = 'Done';
+    return;
+  }
+  changeBtn.textContent = preview?.selected_contact ? 'Choose deal' : 'Change deal';
+}
+
 function renderDealDecisionUI(preview) {
   const box = document.getElementById('deal-decision-box');
   const list = document.getElementById('matched-deals-list');
   const card = document.getElementById('deal-card');
   const hint = document.getElementById('deal-decision-hint');
+  const searchBox = document.getElementById('deal-search-box');
+  const searchOther = document.getElementById('btn-search-other-deals');
   if (!box || !list) return;
 
   const selectedContact = preview?.selected_contact;
@@ -1710,44 +1835,79 @@ function renderDealDecisionUI(preview) {
   const selectedDealId = preview?.selected_deal?.deal_id || null;
   const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
   const showWeakConfirm = needsDealDecision && !dealDecisionMade;
-  const showLinkedDeals = !!selectedContact && skipDeal && matches.length > 0 && !createNewDealRequested;
+  const ui = dealPickerVisibility({
+    pickerOpen: dealPickerOpen,
+    needsConfirm: showWeakConfirm,
+    hasMatches: matches.length > 0,
+    hasSelectedContact: !!selectedContact,
+  });
 
-  if (!showWeakConfirm && !showLinkedDeals) {
+  if (!ui.showPicker) {
     box.style.display = 'none';
     list.innerHTML = '';
-    if (card) card.style.display = 'block';
+    if (card) {
+      card.style.display = skipDeal ? 'none' : 'block';
+      card.classList.add('is-current-target');
+    }
+    if (searchBox) searchBox.style.display = 'none';
+    updateChangeDealButton(preview);
     return;
   }
 
   box.style.display = 'block';
-  if (card) card.style.display = showWeakConfirm ? 'none' : 'block';
-
-  if (hint) {
-    hint.textContent = showWeakConfirm
-      ? "We couldn't match this to a deal. Pick one, or create a new deal."
-      : 'Linked deals on this contact';
-  }
+  if (card) card.style.display = 'none';
+  if (hint) hint.textContent = ui.hint;
+  if (searchBox) searchBox.style.display = ui.showSearch ? 'block' : (searchBox.style.display === 'block' ? 'block' : 'none');
+  if (searchOther) searchOther.style.display = matches.length ? 'block' : 'none';
+  const searchCreate = document.getElementById('btn-create-new-deal-search');
+  if (searchCreate) searchCreate.style.display = 'none';
 
   list.innerHTML = '';
+  if (ui.showContactOnlyRow) {
+    const skipBtn = document.createElement('button');
+    skipBtn.type = 'button';
+    skipBtn.className = 'matched-deal-item';
+    if (skipDeal) skipBtn.classList.add('is-selected');
+    skipBtn.innerHTML = `<span class="matched-deal-copy"><strong class="deal-title">Contact only</strong><span class="deal-subtitle">No deal will be updated</span></span>`;
+    skipBtn.addEventListener('click', () => skipDealTarget());
+    list.appendChild(skipBtn);
+  }
   matches.slice(0, 5).forEach((m) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'matched-deal-item';
     if (selectedDealId && m.deal_id === selectedDealId) btn.classList.add('is-selected');
-    btn.innerHTML = `<strong class="deal-title">${escapeHtml(m.deal_name || 'Deal')}</strong><br><span class="deal-subtitle">${escapeHtml(m.match_reason || '')}</span>`;
+    const sub = dealMatchSubtitle(m.match_reason);
+    btn.innerHTML = `<span class="matched-deal-copy"><strong class="deal-title">${escapeHtml(m.deal_name || 'Deal')}</strong>${sub ? `<span class="deal-subtitle">${escapeHtml(sub)}</span>` : ''}</span>`;
     btn.addEventListener('click', () => selectDealTarget(m.deal_id));
     list.appendChild(btn);
   });
+  updateChangeDealButton(preview);
+}
+
+function skipDealTarget() {
+  createNewDealRequested = false;
+  needsDealDecision = false;
+  dealDecisionMade = true;
+  dealPickerOpen = false;
+  previewLoaded = false;
+  userSelectedDealId = null;
+  currentDealId = null;
+  const searchBox = document.getElementById('deal-search-box');
+  if (searchBox) searchBox.style.display = 'none';
+  const targets = currentReviewTargets(reviewTargetContext(), { userDealId: null });
+  loadPreview(currentMemoId, null, null, targets.contactId, { resetEdits: true });
 }
 
 function selectDealTarget(dealId) {
   createNewDealRequested = false;
   needsDealDecision = false;
   dealDecisionMade = true;
+  dealPickerOpen = false;
   previewLoaded = false;
   userSelectedDealId = dealId;
   currentDealId = dealId;
-  const targets = currentReviewTargets(lastBgState?.context, { userDealId: dealId });
+  const targets = currentReviewTargets(reviewTargetContext(), { userDealId: dealId });
   loadPreview(currentMemoId, targets.dealId, null, targets.contactId, { resetEdits: true });
 }
 
@@ -1755,12 +1915,13 @@ function createNewDealTarget() {
   createNewDealRequested = true;
   needsDealDecision = false;
   dealDecisionMade = true;
+  dealPickerOpen = false;
   previewLoaded = false;
   userSelectedDealId = null;
   currentDealId = null;
   const searchBox = document.getElementById('deal-search-box');
   if (searchBox) searchBox.style.display = 'none';
-  const targets = currentReviewTargets(lastBgState?.context, { userDealId: null, createNewDeal: true });
+  const targets = currentReviewTargets(reviewTargetContext(), { userDealId: null, createNewDeal: true });
   loadPreview(currentMemoId, null, null, targets.contactId, { createNewDeal: true, resetEdits: true });
 }
 
@@ -1774,7 +1935,7 @@ function renderContactTarget(preview) {
 
   const selected = preview?.selected_contact;
   const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
-  const associated = associatedContactsFromContext(lastBgState?.context);
+  const associated = associatedContactsFromContext(reviewTargetContext());
   const associatedPickList =
     !selected && !candidates.length && associated.length > 1 ? associated : [];
 
@@ -1785,18 +1946,8 @@ function renderContactTarget(preview) {
   section.style.display = 'block';
 
   if (selected) {
-    if (card) card.style.display = 'block';
-    if (nameEl) nameEl.textContent = selected.name || selected.email || 'Contact';
-    const onThisContact =
-      lastBgState?.context?.objectType === 'contact' &&
-      lastBgState.context.recordId === selected.contact_id;
-    const bits = [
-      onThisContact ? 'This HubSpot contact' : selected.match_reason,
-      selected.email,
-      selected.phone,
-      selected.company_name,
-    ].filter(Boolean);
-    if (metaEl) metaEl.textContent = bits.join(' · ');
+    section.style.display = 'none';
+    if (card) card.style.display = 'none';
     if (candidatesEl) {
       candidatesEl.style.display = 'none';
       candidatesEl.innerHTML = '';
@@ -1806,7 +1957,7 @@ function renderContactTarget(preview) {
 
   if (card) card.style.display = 'none';
   const pick = candidates.length ? candidates : associatedPickList;
-  const pageType = lastBgState?.context?.objectType;
+  const pageType = reviewTargetContext()?.objectType;
   if (candidatesEl) {
     candidatesEl.style.display = 'block';
     candidatesEl.innerHTML = '';
@@ -1827,7 +1978,7 @@ function renderContactTarget(preview) {
       btn.addEventListener('click', () => {
         userSelectedContactId = c.contact_id;
         currentContactId = c.contact_id;
-        const targets = currentReviewTargets(lastBgState?.context, { userContactId: c.contact_id });
+        const targets = currentReviewTargets(reviewTargetContext(), { userContactId: c.contact_id });
         loadPreview(currentMemoId, targets.dealId, null, targets.contactId, { resetEdits: true });
       });
       candidatesEl.appendChild(btn);
@@ -1835,35 +1986,36 @@ function renderContactTarget(preview) {
   }
 }
 
-function initCallInsights(preview) {
-  const updates = preview?.proposed_updates || [];
-  const summaryEl = document.getElementById('review-summary');
+function initCallInsights(preview, memoExtraction = null) {
   const memoChanged = insightsMemoId !== currentMemoId;
   insightsMemoId = currentMemoId;
-  if (memoChanged && summaryEl) summaryEl.value = '';
   if (actionItemsInitialized && !memoChanged) {
     renderActionItems();
+    renderCopilotNoteView();
+    initCallOutcome(preview);
     return;
   }
 
-  const steps = [];
-  updates.forEach((u) => {
-    if (!u) return;
-    if (u.field_name?.startsWith('next_step_task_') || u.field_name === 'hs_next_step') {
-      const text = String(u.new_value || '').trim();
-      if (text) steps.push({ id: ++actionItemIdSeq, text, checked: true });
-    }
+  const ext = memoExtraction && typeof memoExtraction === 'object' ? memoExtraction : {};
+  const raw = ext.raw_extraction || {};
+  const rows = taskRowsFromPreview({
+    proposedUpdates: preview?.proposed_updates || [],
+    nextSteps: ext.nextSteps,
+    nextStepSchedules: raw.nextStepSchedules,
   });
-  // Dedupe identical strings
   const seen = new Set();
-  reviewActionItems = steps.filter((s) => {
+  reviewActionItems = rows.filter((s) => {
     const key = s.text.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+  reviewActionItems.forEach((row) => {
+    if (row.id > actionItemIdSeq) actionItemIdSeq = row.id;
+  });
   actionItemsInitialized = true;
   renderActionItems();
+  renderCopilotNoteView();
   initCallOutcome(preview);
 }
 
@@ -1888,8 +2040,10 @@ function initCallOutcome(preview) {
   const showOnHold = !!availability.on_hold;
   const showLost = !!availability.lost;
 
+  const details = document.getElementById('call-outcome-details');
+  if (details) details.style.display = (showConverted || showOnHold || showLost) ? '' : 'none';
   const section = document.getElementById('call-outcome-section');
-  if (section) section.style.display = (showConverted || showOnHold || showLost) ? '' : 'none';
+  if (section) section.style.display = '';
 
   const convertedBtn = document.getElementById('outcome-btn-converted');
   if (convertedBtn) convertedBtn.style.display = showConverted ? '' : 'none';
@@ -1970,32 +2124,103 @@ document.getElementById('lost-reason-other-input')?.addEventListener('input', ()
   renderCallOutcome();
 });
 
+let datePopoverEl = null;
+let datePopoverDocHandler = null;
+
+function closeDatePopover() {
+  if (datePopoverDocHandler) {
+    document.removeEventListener('mousedown', datePopoverDocHandler);
+    datePopoverDocHandler = null;
+  }
+  datePopoverEl?.remove();
+  datePopoverEl = null;
+}
+
+function openDatePopover(anchor, { value, onPick }) {
+  closeDatePopover();
+  const today = new Date().toISOString().slice(0, 10);
+  let view = calendarFromIso(value, { today });
+  const pop = document.createElement('div');
+  pop.className = 'date-popover';
+  const draw = () => {
+    const cal = calendarMonth({
+      year: view.year,
+      month: view.month,
+      selected: value,
+      today,
+    });
+    view = cal;
+    pop.innerHTML = `
+      <div class="date-popover-nav">
+        <button type="button" class="date-popover-nav-btn" data-shift="-1" aria-label="Previous month">‹</button>
+        <span class="date-popover-label">${escapeHtml(cal.label)}</span>
+        <button type="button" class="date-popover-nav-btn" data-shift="1" aria-label="Next month">›</button>
+      </div>
+      <div class="date-popover-weekdays">${cal.weekdays.map((w) => `<span>${w}</span>`).join('')}</div>
+      <div class="date-popover-grid">
+        ${cal.weeks.flat().map((d) => `<button type="button" class="date-popover-day${d.inMonth ? '' : ' is-out'}${d.selected ? ' is-selected' : ''}${d.today ? ' is-today' : ''}" data-iso="${d.iso}">${d.day}</button>`).join('')}
+      </div>
+    `;
+    pop.querySelectorAll('[data-shift]').forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const next = shiftCalendarMonth(view.year, view.month, Number(btn.dataset.shift));
+        view = { ...view, ...next };
+        draw();
+      };
+    });
+    pop.querySelectorAll('.date-popover-day').forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        onPick(btn.dataset.iso);
+        closeDatePopover();
+      };
+    });
+  };
+  draw();
+  document.body.appendChild(pop);
+  datePopoverEl = pop;
+  const rect = anchor.getBoundingClientRect();
+  const width = pop.offsetWidth || 240;
+  const height = pop.offsetHeight || 260;
+  let left = rect.right - width;
+  if (left < 8) left = 8;
+  if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+  let top = rect.bottom + 6;
+  if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 6);
+  pop.style.top = `${top}px`;
+  pop.style.left = `${left}px`;
+  datePopoverDocHandler = (e) => {
+    if (pop.contains(e.target) || anchor.contains(e.target)) return;
+    closeDatePopover();
+  };
+  setTimeout(() => document.addEventListener('mousedown', datePopoverDocHandler), 0);
+}
+
 function renderActionItems() {
   const list = document.getElementById('action-items-list');
-  const empty = document.getElementById('action-items-empty');
   if (!list) return;
   list.innerHTML = '';
-
-  if (!reviewActionItems.length) {
-    if (empty) empty.style.display = 'block';
-    return;
-  }
-  if (empty) empty.style.display = 'none';
+  const today = new Date().toISOString().slice(0, 10);
 
   reviewActionItems.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'action-item' + (item.checked ? '' : ' is-unchecked');
     row.dataset.id = String(item.id);
+    const dueLabel = formatTaskDueLabel(item.dueDate, { today }) || 'Date';
+    const dueAttr = item.dueDate ? ` datetime="${escapeHtml(item.dueDate)}"` : '';
     row.innerHTML = `
       <label class="action-item-check">
         <input type="checkbox" ${item.checked ? 'checked' : ''} data-action="toggle">
         <span class="action-item-box" aria-hidden="true"></span>
       </label>
       <input type="text" class="action-item-text" value="${escapeHtml(item.text)}" data-action="edit">
+      <time class="action-item-due${item.dueDate ? '' : ' is-empty'}"${dueAttr}>${escapeHtml(dueLabel)}</time>
       <button type="button" class="action-item-remove" data-action="remove" title="Remove">×</button>
     `;
     const checkbox = row.querySelector('input[type="checkbox"]');
     const textInput = row.querySelector('.action-item-text');
+    const dueChip = row.querySelector('.action-item-due');
     const removeBtn = row.querySelector('[data-action="remove"]');
 
     checkbox?.addEventListener('change', () => {
@@ -2004,6 +2229,16 @@ function renderActionItems() {
     });
     textInput?.addEventListener('input', () => {
       item.text = textInput.value;
+    });
+    dueChip?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDatePopover(dueChip, {
+        value: item.dueDate || '',
+        onPick: (iso) => {
+          item.dueDate = iso;
+          renderActionItems();
+        },
+      });
     });
     removeBtn?.addEventListener('click', () => {
       actionItemsInitialized = true;
@@ -2016,7 +2251,7 @@ function renderActionItems() {
 
 function addActionItem(text = '') {
   actionItemsInitialized = true;
-  reviewActionItems.push({ id: ++actionItemIdSeq, text: text || '', checked: true });
+  reviewActionItems.push({ id: ++actionItemIdSeq, text: text || '', checked: true, dueDate: null });
   renderActionItems();
   const list = document.getElementById('action-items-list');
   const last = list?.querySelector('.action-item:last-child .action-item-text');
@@ -2024,192 +2259,166 @@ function addActionItem(text = '') {
 }
 
 function renderProposedUpdates(updates, availableFields) {
+  if (!proposedUpdatesList) return;
   proposedUpdatesList.innerHTML = '';
   const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
-  // Insights (summary / tasks) live in dedicated sections — keep out of deal field list
-  const filteredList = list.filter(
-    (u) =>
-      u &&
-      !['contact_name', 'company_name', 'dealname'].includes(u.field_name) &&
-      !isInsightsField(u.field_name)
-  );
-
-  if (!filteredList.length) {
-    proposedUpdatesList.innerHTML =
-      '<p class="body-muted" style="padding: 8px 4px;">No field updates proposed for this call.</p>';
-  }
-
-  filteredList.forEach((update, idx) => {
-      if (!update) return; // removed
-      // Map back to original index in editedProposedUpdates / updates for edit/remove
-      const sourceList = editedProposedUpdates !== null ? editedProposedUpdates : updates;
-      const realIdx = sourceList.findIndex((u) => u === update || (u && update && u.field_name === update.field_name && u.new_value === update.new_value));
-      const idxForEdit = realIdx >= 0 ? realIdx : idx;
-
-      const hadExisting =
-        update.current_value != null &&
-        String(update.current_value).trim() !== '' &&
-        String(update.current_value).trim() !== '(empty)';
-      const isOverride = !!hadExisting;
-      const canEdit = canEditOrRemoveProposedField(update);
-      const objectLabel = ({
-        deals: 'Deal',
-        contacts: 'Contact',
-        companies: 'Company',
-        line_items: 'Line item',
-        task: 'Task',
-      })[update.object_type || 'deals'] || 'Deal';
-
-      const editIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>`;
-      const removeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
-
-      const div = document.createElement('div');
-      div.className = 'update-item' + (isOverride ? ' override' : ' new');
-      div.dataset.idx = String(idxForEdit);
-      div.innerHTML = `
-        <div class="update-content">
-          <div class="update-header-row">
-            <div>
-              <p class="update-object-type">${objectLabel}</p>
-              <p class="update-label">${update.field_label || update.field_name}</p>
-            </div>
-            ${canEdit ? `
-              <div class="update-actions">
-                <button class="update-action-btn edit" title="Edit">${editIcon}</button>
-                <button class="update-action-btn remove" title="Skip this field this time">${removeIcon}</button>
-              </div>
-            ` : ''}
-          </div>
-          <p class="update-value">${escapeHtml(isCrmDateField(update) ? (formatCrmDateDisplay(update.new_value) || update.new_value || '—') : (update.new_value || '—'))}</p>
-          ${hadExisting ? `<p class="update-current">Was: ${escapeHtml(update.current_value)}</p>` : ''}
-          ${update.options && update.options.length ? `
-            <div class="custom-select-wrapper" style="display:none;">
-              <div class="custom-select" role="listbox">
-                <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox">—</button>
-                <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
-                  <div class="custom-select-opt" data-value="">—</div>
-                  ${update.options.map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
-                </div>
-              </div>
-            </div>
-          ` : `<input type="${update.field_type === 'number' ? 'number' : isCrmDateField(update) ? 'date' : 'text'}" class="update-edit-input" value="${escapeHtml(parseFlexibleDateToIso(update.new_value) || '')}" style="display:none;" />`}
-        </div>
-      `;
-
-    const valueEl = div.querySelector('.update-value');
-    const editInput = div.querySelector('input.update-edit-input, .custom-select-trigger');
-    const customSelectWrapper = div.querySelector('.custom-select-wrapper');
-    const customSelect = div.querySelector('.custom-select');
-    const customTrigger = div.querySelector('.custom-select-trigger');
-    const customDropdown = div.querySelector('.custom-select-dropdown');
-    const customOpts = div.querySelectorAll('.custom-select-opt');
-    const editBtn = div.querySelector('.update-action-btn.edit');
-    const removeBtn = div.querySelector('.update-action-btn.remove');
-
-    const closeCustomSelect = () => {
-      if (customDropdown) customDropdown.classList.remove('open');
-      document.removeEventListener('click', closeCustomSelectOutside);
-    };
-    const closeCustomSelectOutside = (e) => {
-      if (!customSelect?.contains(e.target)) closeCustomSelect();
-    };
-
-    if (editBtn && editInput) {
-      editBtn.onclick = () => {
-        div.classList.add('editing');
-        valueEl.style.display = 'none';
-        if (customSelectWrapper) {
-          customSelectWrapper.style.display = 'block';
-          const opt = customOpts && Array.from(customOpts).find((o) => o.dataset.value === (update.new_value || ''));
-          if (customTrigger) customTrigger.textContent = opt ? (opt.dataset.label || opt.dataset.value || '—') : '—';
-        } else if (editInput.tagName === 'INPUT') {
-          editInput.style.display = 'block';
-          editInput.value = isCrmDateField(update)
-            ? (parseFlexibleDateToIso(update.new_value) || '')
-            : (update.new_value || '');
-          editInput.focus();
-        }
-      };
-    }
-    if (customTrigger && customDropdown && customOpts?.length) {
-      customTrigger.onclick = (e) => {
-        e.stopPropagation();
-        customDropdown.classList.toggle('open');
-        if (customDropdown.classList.contains('open')) setTimeout(() => document.addEventListener('click', closeCustomSelectOutside), 0);
-        else document.removeEventListener('click', closeCustomSelectOutside);
-      };
-      customOpts.forEach((opt) => {
-        opt.onclick = (e) => {
-          e.stopPropagation();
-          const v = opt.dataset.value ?? '';
-          const label = opt.dataset.label || v || '—';
-          if (customTrigger) customTrigger.textContent = label;
-          update.new_value = v;
-          if (editedProposedUpdates === null) {
-            editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
-          }
-          const i = Number(div.dataset.idx);
-          if (editedProposedUpdates[i]) editedProposedUpdates[i] = { ...editedProposedUpdates[i], new_value: v };
-          closeCustomSelect();
-          valueEl.style.display = '';
-          valueEl.textContent = label || '—';
-          if (customSelectWrapper) customSelectWrapper.style.display = 'none';
-          div.classList.remove('editing');
-        };
-      });
-    }
-    if (editInput && editInput.tagName === 'INPUT') {
-      editInput.onblur = () => {
-        const v = editInput.value;
-        update.new_value = v;
-        if (editedProposedUpdates === null) {
-          editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
-        }
-        const i = Number(div.dataset.idx);
-        if (editedProposedUpdates[i]) editedProposedUpdates[i] = { ...editedProposedUpdates[i], new_value: v };
-        valueEl.style.display = '';
-        valueEl.textContent = isCrmDateField(update)
-          ? (formatCrmDateDisplay(v) || v || '—')
-          : (v || '—');
-        editInput.style.display = 'none';
-        div.classList.remove('editing');
-      };
-      editInput.onkeydown = (e) => {
-        if (e.key === 'Enter') editInput.blur();
-      };
-    }
-    if (removeBtn) {
-      removeBtn.onclick = () => {
-        if (editedProposedUpdates === null) {
-          editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
-        }
-        const i = Number(div.dataset.idx);
-        const removed = editedProposedUpdates[i];
-        const key = proposedFieldKey(removed || update);
-        if (key) omittedProposedKeys.add(key);
-        editedProposedUpdates[i] = null;
-        renderProposedUpdates(editedProposedUpdates.filter(Boolean), availableFields);
-      };
-    }
-
-    proposedUpdatesList.appendChild(div);
-  });
-
-  // Keep Add field working — available fields still exclude insights handled above
-  const addBtn = document.getElementById('btn-add-field');
-  const dropdown = document.getElementById('add-field-dropdown');
-  const sourceForAdd = editedProposedUpdates !== null ? editedProposedUpdates : updates;
+  const filteredList = visibleCrmUpdates(list);
+  const sourceList = editedProposedUpdates !== null ? editedProposedUpdates : updates;
   const remaining = (availableFields || []).filter(
     (f) =>
       f?.name &&
       !isInsightsField(f.name) &&
-      !sourceForAdd.some(
+      !sourceList.some(
         (u) =>
           u &&
           u.field_name === f.name &&
           (u.object_type || 'deals') === (f.object_type || 'deals')
       )
   );
+  const mixedObjects = new Set([
+    ...filteredList.map((u) => u.object_type || 'deals'),
+    ...remaining.map((f) => f.object_type || 'deals'),
+  ]).size > 1;
+
+  syncCrmFieldsSection({ updates: filteredList, availableCount: remaining.length });
+
+  const commitValue = (idx, update, value) => {
+    update.new_value = value;
+    if (editedProposedUpdates === null) {
+      editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
+    }
+    if (editedProposedUpdates[idx]) {
+      editedProposedUpdates[idx] = { ...editedProposedUpdates[idx], new_value: value };
+    }
+  };
+
+  crmFieldGroups(filteredList).forEach((group) => {
+    if (group.label) {
+      const kicker = document.createElement('p');
+      kicker.className = 'crm-field-kicker';
+      kicker.textContent = group.label;
+      proposedUpdatesList.appendChild(kicker);
+    }
+    group.updates.forEach((update) => {
+      if (!update) return;
+      const realIdx = sourceList.findIndex(
+        (u) =>
+          u &&
+          u.field_name === update.field_name &&
+          (u.object_type || 'deals') === (update.object_type || 'deals')
+      );
+      const idxForEdit = realIdx >= 0 ? realIdx : 0;
+      const canEdit = canEditOrRemoveProposedField(update);
+      const kind = crmFieldInputKind(update);
+      const was = crmFieldWasLabel(update);
+      const valueLabel = crmFieldValueLabel(update);
+      const inputValue = kind === 'date'
+        ? (parseFlexibleDateToIso(update.new_value) || '')
+        : (update.new_value || '');
+
+      const editorHtml = kind === 'select'
+        ? `<div class="custom-select-wrapper crm-field-select">
+            <div class="custom-select" role="listbox">
+              <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox"${canEdit ? '' : ' disabled'}>${escapeHtml(valueLabel)}</button>
+              <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
+                <div class="custom-select-opt" data-value="" data-label="—">—</div>
+                ${(update.options || []).map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
+              </div>
+            </div>
+          </div>`
+        : kind === 'date'
+          ? `<button type="button" class="crm-field-input crm-field-date update-edit-input"${canEdit ? '' : ' disabled'}>${escapeHtml(formatCrmDateDisplay(update.new_value) || 'Date')}</button>`
+        : `<input type="${kind === 'number' ? 'number' : 'text'}" class="crm-field-input update-edit-input" value="${escapeHtml(inputValue)}"${canEdit ? '' : ' readonly'}>`;
+
+      const tone = crmFieldTone(update);
+      const div = document.createElement('div');
+      div.className = `crm-field-row update-item is-${tone}`;
+      div.dataset.idx = String(idxForEdit);
+      div.innerHTML = `
+        <span class="crm-field-label">${escapeHtml(crmFieldDisplayLabel(update))}</span>
+        <div class="crm-field-change">
+          ${was ? `<span class="crm-field-was">${escapeHtml(was)}</span><span class="crm-field-arrow" aria-hidden="true">→</span>` : ''}
+          ${editorHtml}
+        </div>
+        ${canEdit ? '<button type="button" class="action-item-remove update-action-btn remove" title="Skip this field">×</button>' : ''}
+      `;
+
+      const customSelect = div.querySelector('.custom-select');
+      const customTrigger = div.querySelector('.custom-select-trigger');
+      const customDropdown = div.querySelector('.custom-select-dropdown');
+      const customOpts = div.querySelectorAll('.custom-select-opt');
+      const editInput = div.querySelector('input.update-edit-input');
+      const removeBtn = div.querySelector('.update-action-btn.remove');
+
+      const closeCustomSelect = () => {
+        if (customDropdown) customDropdown.classList.remove('open');
+        document.removeEventListener('click', closeCustomSelectOutside);
+      };
+      const closeCustomSelectOutside = (e) => {
+        if (!customSelect?.contains(e.target)) closeCustomSelect();
+      };
+
+      if (customTrigger && customDropdown && customOpts?.length && canEdit) {
+        customTrigger.onclick = (e) => {
+          e.stopPropagation();
+          customDropdown.classList.toggle('open');
+          div.classList.toggle('editing', customDropdown.classList.contains('open'));
+          if (customDropdown.classList.contains('open')) setTimeout(() => document.addEventListener('click', closeCustomSelectOutside), 0);
+          else document.removeEventListener('click', closeCustomSelectOutside);
+        };
+        customOpts.forEach((opt) => {
+          opt.onclick = (e) => {
+            e.stopPropagation();
+            const v = opt.dataset.value ?? '';
+            const label = opt.dataset.label || v || '—';
+            if (customTrigger) customTrigger.textContent = label;
+            commitValue(idxForEdit, update, v);
+            closeCustomSelect();
+            div.classList.remove('editing');
+          };
+        });
+      }
+      if (editInput && canEdit) {
+        const saveInput = () => commitValue(idxForEdit, update, editInput.value);
+        editInput.oninput = saveInput;
+        editInput.onchange = saveInput;
+        editInput.onkeydown = (e) => {
+          if (e.key === 'Enter') editInput.blur();
+        };
+      }
+      const dateBtn = div.querySelector('.crm-field-date');
+      if (dateBtn && canEdit) {
+        dateBtn.onclick = (e) => {
+          e.stopPropagation();
+          openDatePopover(dateBtn, {
+            value: parseFlexibleDateToIso(update.new_value) || '',
+            onPick: (iso) => {
+              commitValue(idxForEdit, update, iso);
+              dateBtn.textContent = formatCrmDateDisplay(iso) || 'Date';
+            },
+          });
+        };
+      }
+      if (removeBtn) {
+        removeBtn.onclick = () => {
+          if (editedProposedUpdates === null) {
+            editedProposedUpdates = (lastPreviewData?.proposed_updates || []).map((u) => (u ? { ...u } : null));
+          }
+          const i = Number(div.dataset.idx);
+          const removed = editedProposedUpdates[i];
+          const key = proposedFieldKey(removed || update);
+          if (key) omittedProposedKeys.add(key);
+          editedProposedUpdates[i] = null;
+          renderProposedUpdates(editedProposedUpdates.filter(Boolean), availableFields);
+        };
+      }
+
+      proposedUpdatesList.appendChild(div);
+    });
+  });
+
+  const addBtn = document.getElementById('btn-add-field');
+  const dropdown = document.getElementById('add-field-dropdown');
   if (remaining.length > 0 && addBtn) {
     addBtn.style.display = 'block';
     addBtn.onclick = () => {
@@ -2224,7 +2433,7 @@ function renderProposedUpdates(updates, availableFields) {
         dropdown.innerHTML = remaining
           .map(
             (f) =>
-              `<div class="add-field-opt" data-name="${escapeHtml(f.name)}" data-label="${escapeHtml(f.label)}" data-type="${escapeHtml(f.type)}" data-object-type="${escapeHtml(f.object_type || 'deals')}">${escapeHtml(({ deals: 'Deal', contacts: 'Contact', companies: 'Company' })[f.object_type || 'deals'] || 'Deal')} · ${escapeHtml(f.label)}</div>`
+              `<div class="add-field-opt" data-name="${escapeHtml(f.name)}" data-label="${escapeHtml(f.label)}" data-type="${escapeHtml(f.type)}" data-object-type="${escapeHtml(f.object_type || 'deals')}">${escapeHtml(addFieldOptionLabel(f, { mixedObjects }))}</div>`
           )
           .join('');
         dropdown.querySelectorAll('.add-field-opt').forEach((opt) => {
@@ -2237,6 +2446,7 @@ function renderProposedUpdates(updates, availableFields) {
               object_type: objectType,
               current_value: null,
               new_value: '',
+              userAdded: true,
               options: availableFields.find(
                 (af) => af.name === opt.dataset.name && (af.object_type || 'deals') === objectType
               )?.options
@@ -2253,6 +2463,8 @@ function renderProposedUpdates(updates, availableFields) {
             }
             dropdown.style.display = 'none';
             renderProposedUpdates(editedProposedUpdates, availableFields);
+            const lastInput = proposedUpdatesList.querySelector('.crm-field-row:last-child .update-edit-input');
+            lastInput?.focus?.();
           };
         });
         if (addFieldCloseHandler) document.removeEventListener('click', addFieldCloseHandler);
@@ -2302,6 +2514,9 @@ async function buildExtractionForApprove() {
     omittedKeys: [...omittedProposedKeys],
     summary: summaryEl?.value || '',
     nextSteps: selectedSteps,
+    nextStepSchedules: reviewActionItems
+      .filter((i) => i.checked && (i.text || '').trim())
+      .map((i) => i.dueDate || ''),
   });
 }
 
@@ -2614,13 +2829,26 @@ document.getElementById('listen-tab-button')?.addEventListener('click', () => {
     });
 });
 
-// Change deal button
+// Change deal: open/close the compact picker (linked deals + contact only).
 document.getElementById('btn-change-deal')?.addEventListener('click', () => {
+  dealPickerOpen = !dealPickerOpen;
   const box = document.getElementById('deal-search-box');
-  box.style.display = box.style.display === 'none' ? 'block' : 'none';
-  if (box.style.display === 'block') {
-    dealSearchInput.focus();
+  const matches = Array.isArray(lastPreviewData?.matched_deals) ? lastPreviewData.matched_deals : [];
+  if (!dealPickerOpen) {
+    if (box) box.style.display = 'none';
+  } else if (box && !matches.length) {
+    box.style.display = 'block';
+    dealSearchInput?.focus();
   }
+  renderDealDecisionUI(lastPreviewData);
+});
+
+document.getElementById('btn-search-other-deals')?.addEventListener('click', () => {
+  const box = document.getElementById('deal-search-box');
+  if (!box) return;
+  const open = box.style.display !== 'block';
+  box.style.display = open ? 'block' : 'none';
+  if (open) dealSearchInput?.focus();
 });
 
 document.getElementById('btn-create-new-deal')?.addEventListener('click', () => createNewDealTarget());
@@ -2635,8 +2863,8 @@ dealSearchInput?.addEventListener('input', (e) => {
 // Approve sync
 approveSyncButton?.addEventListener('click', async () => {
   if (needsDealDecision && !dealDecisionMade) return;
-  const targets = currentReviewTargets(lastBgState?.context);
-  if (needsAssociatedContactPick(lastBgState?.context, targets.contactId)) return;
+  const targets = currentReviewTargets();
+  if (needsAssociatedContactPick(reviewTargetContext(), targets.contactId)) return;
   const candidates = Array.isArray(lastPreviewData?.contact_candidates) ? lastPreviewData.contact_candidates : [];
   if (!lastPreviewData?.selected_contact && candidates.length > 0) return;
   if (selectedCallOutcome === 'lost' && !getEffectiveLostReason()) return;
@@ -2647,7 +2875,12 @@ approveSyncButton?.addEventListener('click', async () => {
 
   try {
     const extraction = await buildExtractionForApprove();
-    const createNote = document.getElementById('create-note-checkbox')?.checked !== false;
+    const summaryEl = document.getElementById('review-summary');
+    const txEl = document.getElementById('transcript-content');
+    const createNote = shouldCreateHubSpotNote({
+      summary: summaryEl?.value,
+      transcript: txEl?.value || lastPreviewData?.transcript,
+    });
     const skipDeal = !!targets.skipDeal;
     const response = await chrome.runtime.sendMessage({
       type: 'APPROVE_SYNC',
@@ -2676,6 +2909,11 @@ approveSyncButton?.addEventListener('click', async () => {
 });
 
 document.getElementById('btn-add-action-item')?.addEventListener('click', () => addActionItem(''));
+document.getElementById('copilot-note-view')?.addEventListener('input', () => syncCopilotNoteFromView());
+document.getElementById('copilot-note-view')?.addEventListener('blur', () => {
+  syncCopilotNoteFromView();
+  renderCopilotNoteView({ force: true });
+});
 
 document.getElementById('processing-cancel-button')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({
@@ -2695,7 +2933,10 @@ document.getElementById('recordings-stop-watch')?.addEventListener('click', () =
   chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
 });
 document.getElementById('recordings-show-more')?.addEventListener('click', () => {
-  const total = (lastBgState?.recordings || []).filter((r) => r.has_recording).length;
+  const total = mergeActivityItems({
+    recordings: lastBgState?.recordings || [],
+    memos: recentMemosCache,
+  }).length;
   recordingsVisibleCount = nextVisibleCount(recordingsVisibleCount, total);
   if (lastBgState) renderRecordingsSection(lastBgState);
 });
@@ -2739,18 +2980,18 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
       if (memo.status === 'failed') {
         showExtractionError(memo.errorMessage || 'Extraction failed.');
         showScreen('review');
-        handleReviewState(currentMemoId, lastBgState?.context || {});
+        handleReviewState(currentMemoId, reviewTargetContext() || {});
         return;
       }
       pollCount++;
     }
     showExtractionError('Extraction is taking longer than expected. Click Retry to try again.');
     showScreen('review');
-    handleReviewState(currentMemoId, lastBgState?.context || {});
+    handleReviewState(currentMemoId, reviewTargetContext() || {});
   } catch (err) {
     showExtractionError(err?.message || 'Something went wrong. Click Retry to try again.');
     showScreen('review');
-    handleReviewState(currentMemoId, lastBgState?.context || {});
+    handleReviewState(currentMemoId, reviewTargetContext() || {});
   } finally {
     this.disabled = false;
     this.textContent = 'Extract & Continue';
@@ -2796,8 +3037,10 @@ document.getElementById('btn-use-page-record')?.addEventListener('click', async 
   if (!ctx?.recordId) return;
 
   lastPageRecordKey = null;
+  unlockReviewSession();
   syncPageRecordScope(ctx);
   lastBgState = { ...(lastBgState || state), context: ctx };
+  lockReviewSession(ctx);
   createNewDealRequested = false;
   previewLoaded = false;
 
@@ -2817,6 +3060,7 @@ document.getElementById('btn-use-page-record')?.addEventListener('click', async 
           companyContacts: fetched.contacts || [],
         };
         lastBgState = { ...(lastBgState || state), context: companyCtx };
+        lockReviewSession(companyCtx);
       }
     }
     const targets = currentReviewTargets(companyCtx);
@@ -2861,7 +3105,9 @@ document.getElementById('success-done-button')?.addEventListener('click', () => 
 // ============================================
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'AUTH_REQUIRED' || message.type === 'LOGGED_OUT') {
-    enterLoggedOut();
+    api.getTokens().then(({ accessToken }) => {
+      if (shouldEnterLoggedOut({ hasToken: Boolean(accessToken) })) enterLoggedOut();
+    }).catch(() => {});
     return;
   }
   if (message.type === 'STATE_UPDATED') {
@@ -2873,7 +3119,9 @@ try {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (!Object.prototype.hasOwnProperty.call(changes, 'accessToken')) return;
-    if (!changes.accessToken.newValue) enterLoggedOut();
+    if (shouldEnterLoggedOut({ hasToken: Boolean(changes.accessToken.newValue) })) {
+      enterLoggedOut();
+    }
   });
 } catch { /* ignore */ }
 

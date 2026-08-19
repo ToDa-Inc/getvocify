@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import {
   RECORDINGS_PAGE_SIZE,
   activityEmptyMessage,
+  activityKickerLabel,
   isRecordPageContext,
+  isVocifyMemo,
+  mergeActivityItems,
   nextVisibleCount,
   shouldFetchVocifyMemos,
-  shouldShowInboxKicker,
+  shouldShowActivityKicker,
 } from './activity-list.js';
 
 describe('isRecordPageContext', () => {
@@ -50,10 +53,10 @@ describe('activityEmptyMessage', () => {
     );
   });
 
-  it('uses the inbox copy when there are no recent HubSpot calls', () => {
+  it('uses the inbox copy when there is no activity', () => {
     assert.equal(
       activityEmptyMessage(null, { recordingsCount: 0, memosCount: 0 }),
-      'No recent HubSpot calls.'
+      'No activity yet.'
     );
   });
 
@@ -67,15 +70,49 @@ describe('activityEmptyMessage', () => {
   });
 });
 
-describe('shouldShowInboxKicker', () => {
-  it('is only for inbox with calls or a pending fetch', () => {
-    assert.equal(shouldShowInboxKicker(null, { hasRecordings: true }), true);
-    assert.equal(shouldShowInboxKicker(null, { loading: true }), true);
-    assert.equal(shouldShowInboxKicker(null, {}), false);
+describe('shouldShowActivityKicker', () => {
+  it('is only for inbox when there is activity or a pending fetch', () => {
+    assert.equal(shouldShowActivityKicker(null, { itemCount: 1 }), true);
+    assert.equal(shouldShowActivityKicker(null, { loading: true }), true);
+    assert.equal(shouldShowActivityKicker(null, {}), false);
     assert.equal(
-      shouldShowInboxKicker({ objectType: 'deal', recordId: 'D1' }, { hasRecordings: true }),
+      shouldShowActivityKicker({ objectType: 'deal', recordId: 'D1' }, { itemCount: 3 }),
       false
     );
+  });
+});
+
+describe('activityKickerLabel', () => {
+  it('does not pretend memos are calls', () => {
+    assert.equal(activityKickerLabel(), 'Activity');
+  });
+});
+
+describe('isVocifyMemo', () => {
+  it('drops HubSpot call memos so they are not listed twice', () => {
+    const callIds = new Set(['m1']);
+    assert.equal(isVocifyMemo({ id: 'm1' }, callIds), false);
+    assert.equal(isVocifyMemo({ id: 'm2', source: 'hubspot_call' }, callIds), false);
+    assert.equal(isVocifyMemo({ id: 'm3', hubspot_engagement_id: 'e1' }, callIds), false);
+    assert.equal(isVocifyMemo({ id: 'm4', source: 'voice' }, callIds), true);
+  });
+});
+
+describe('mergeActivityItems', () => {
+  it('mixes calls and memos newest first and skips recordings without audio', () => {
+    const items = mergeActivityItems({
+      recordings: [
+        { call_id: 'c-old', has_recording: true, timestamp: '2026-08-01T10:00:00.000Z', title: 'Old call' },
+        { call_id: 'c-skip', has_recording: false, timestamp: '2026-08-19T10:00:00.000Z' },
+        { call_id: 'c-new', has_recording: true, timestamp_ms: Date.parse('2026-08-18T12:00:00.000Z'), title: 'New call' },
+      ],
+      memos: [
+        { id: 'memo-mid', created_at: '2026-08-10T09:00:00.000Z', source: 'voice' },
+        { id: 'dup', created_at: '2026-08-19T09:00:00.000Z', source: 'hubspot_call' },
+      ],
+    });
+    assert.deepEqual(items.map((i) => i.id), ['c-new', 'memo-mid', 'c-old']);
+    assert.deepEqual(items.map((i) => i.kind), ['call', 'memo', 'call']);
   });
 });
 

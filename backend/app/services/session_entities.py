@@ -10,9 +10,20 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from contextvars import ContextVar
 from typing import Any, Iterable, Optional
 
 logger = logging.getLogger(__name__)
+
+_BATCH_STT_LANGUAGE: ContextVar[Optional[str]] = ContextVar("batch_stt_language", default=None)
+
+
+def set_batch_stt_language(code: Optional[str]) -> None:
+    _BATCH_STT_LANGUAGE.set((code or "").strip().lower() or None)
+
+
+def get_batch_stt_language() -> Optional[str]:
+    return _BATCH_STT_LANGUAGE.get()
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^[\d\s+\-().]{6,}$")
@@ -304,12 +315,66 @@ def normalize_stt_languages(raw: Any) -> list[str]:
     return out or list(DEFAULT_STT_LANGUAGES)
 
 
+# Nova-3 multilingual code-switch set. Catalan is a separate pin (`ca`).
+DEEPGRAM_MULTI_LANGS = frozenset({"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"})
+
+
+def stt_first_pass_covers(first_lang: str, code: str) -> bool:
+    """True when the first STT request could already have produced this language."""
+    first = (first_lang or "").strip().lower()
+    picked = (code or "").strip().lower()
+    if not first or not picked:
+        return False
+    if first == picked:
+        return True
+    if first == "multi" and picked in DEEPGRAM_MULTI_LANGS:
+        return True
+    # Speechmatics language=auto already constrained to the profile list.
+    if first == "auto":
+        return True
+    return False
+
+
 def deepgram_language_code(langs: list[str]) -> str:
-    """One language → pin it. Two or more → Nova-3 multilingual `multi`."""
+    """Pin one language. Use Nova-3 `multi` only when every selected code is in that set."""
     cleaned = normalize_stt_languages(langs)
     if len(cleaned) == 1:
         return cleaned[0]
-    return "multi"
+    if all(code in DEEPGRAM_MULTI_LANGS for code in cleaned):
+        return "multi"
+    return cleaned[0]
+
+
+def resolve_profile_stt_languages(
+    requested: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> list[str]:
+    """Language list for file STT from an explicit code or the user's profile."""
+    raw = (requested or "").strip().lower()
+    if raw and raw not in ("", "auto", "multi"):
+        code = raw if raw in STT_LANGUAGE_CODES else "es"
+        return [code]
+    langs = list(DEFAULT_STT_LANGUAGES)
+    if user_id and user_id != "anonymous":
+        try:
+            from app.services.glossary import GlossaryService
+
+            profile = load_stt_profile(GlossaryService().supabase, user_id)
+            langs = profile.get("stt_languages") or langs
+        except Exception as e:
+            logger.warning("Could not resolve STT languages for %s: %s", user_id, e)
+    return normalize_stt_languages(langs)
+
+
+def speechmatics_batch_language(langs: list[str]) -> tuple[str, Optional[dict[str, Any]]]:
+    """Single language → pin it. Multiple → auto-detect among the profile languages."""
+    cleaned = normalize_stt_languages(langs)
+    if len(cleaned) <= 1:
+        return cleaned[0], None
+    return "auto", {
+        "expected_languages": cleaned,
+        "default_language": cleaned[0],
+    }
 
 
 def resolve_batch_language(
@@ -320,18 +385,9 @@ def resolve_batch_language(
     raw = (requested or "").strip().lower()
     if raw and raw not in ("", "auto", "multi"):
         return raw if raw in STT_LANGUAGE_CODES else "es"
-    langs = list(DEFAULT_STT_LANGUAGES)
-    if user_id and user_id != "anonymous":
-        try:
-            from app.services.glossary import GlossaryService
-
-            profile = load_stt_profile(GlossaryService().supabase, user_id)
-            langs = profile.get("stt_languages") or langs
-        except Exception as e:
-            logger.warning("Could not resolve STT languages for %s: %s", user_id, e)
     if raw == "multi":
         return "multi"
-    return deepgram_language_code(langs)
+    return deepgram_language_code(resolve_profile_stt_languages(requested, user_id))
 
 
 def load_stt_profile(supabase: Any, user_id: Optional[str]) -> dict[str, Any]:

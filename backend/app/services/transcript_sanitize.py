@@ -284,6 +284,7 @@ def build_sanitize_llm_prompt(
     transcript: str,
     terms: Iterable[EntityTerm],
     roles: Optional[dict[str, str]] = None,
+    spoken_language: Optional[str] = None,
 ) -> str:
     entity_block = format_terms_for_llm(terms) or "(none provided)"
     roles = roles or {}
@@ -291,8 +292,19 @@ def build_sanitize_llm_prompt(
     them = roles.get("contact_name") or "the prospect"
     company = roles.get("company_name") or "the prospect company"
     seller = roles.get("seller_company") or "the seller company"
+    lang = (spoken_language or "").strip().lower()
+    language_block = ""
+    if lang == "ca":
+        language_block = """
+Spoken language is Catalan (may mix Spanish). Keep Catalan orthography.
+Do not translate into Spanish. Fix ASR toward Catalan (trucadas→trucades, tienes→tens, vacaciones→vacances, vosotros→vosaltres).
+"""
+    elif lang == "es":
+        language_block = """
+Spoken language is Spanish. Repair toward Spanish; do not rewrite into Catalan.
+"""
     return f"""You repair a sales-call transcript after automatic speech recognition.
-
+{language_block}
 Roles (use these to fix speaker labels, not to invent names):
 - S1 = {rep} (the caller / sales rep from {seller})
 - S2 = {them} at {company} (the prospect)
@@ -383,6 +395,7 @@ async def llm_sanitize_transcript(
     transcript: str,
     terms: Iterable[EntityTerm],
     roles: Optional[dict[str, str]] = None,
+    spoken_language: Optional[str] = None,
 ) -> str:
     """Gemini repair: names, obvious ASR, and speaker turns. Falls back to input."""
     if not transcript or not transcript.strip():
@@ -405,12 +418,14 @@ async def llm_sanitize_transcript(
                 "role": "system",
                 "content": (
                     "You repair ASR transcripts and speaker labels. "
-                    "You never summarize or invent. Return JSON with a turns array."
+                    "You never summarize, translate, or invent. Return JSON with a turns array."
                 ),
             },
             {
                 "role": "user",
-                "content": build_sanitize_llm_prompt(transcript, term_list, roles),
+                "content": build_sanitize_llm_prompt(
+                    transcript, term_list, roles, spoken_language=spoken_language
+                ),
             },
         ]
         from app.services.pipeline_meta import snapshot_prompts
@@ -483,8 +498,11 @@ async def prepare_transcript_for_extraction_async(
         terms = collect_sanitize_terms(glossary, existing_values, extra_names)
         cleaned = sanitize_transcript(transcript, terms)
         roles = role_hints_from_context(existing_values, extra_names)
+        from app.services.session_entities import get_batch_stt_language
+
+        spoken = get_batch_stt_language()
         text = canonicalize_rep_prospect_speakers(cleaned.text, roles)
-        text = await llm_sanitize_transcript(text, terms, roles)
+        text = await llm_sanitize_transcript(text, terms, roles, spoken_language=spoken)
         text = canonicalize_rep_prospect_speakers(text, roles)
         info = _SANITIZE_LLM.get() or {}
         record_stage(

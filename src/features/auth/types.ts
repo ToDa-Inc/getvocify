@@ -172,6 +172,8 @@ export interface AuthState {
   isLoading: boolean;
   /** Whether user is authenticated */
   isAuthenticated: boolean;
+  /** Tokens are still stored — do not bounce to login on a transient /me failure */
+  hasStoredSession: boolean;
 }
 
 /**
@@ -186,6 +188,8 @@ export interface AuthContextValue extends AuthState {
   logout: () => Promise<void>;
   /** Refresh the current session */
   refresh: () => Promise<void>;
+  /** Retry loading /auth/me without signing out */
+  restoreSession: () => unknown;
 }
 
 

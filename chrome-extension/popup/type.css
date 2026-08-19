@@ -1,0 +1,36 @@
+/**
+ * Product type + chrome: quieter weights, pills, hairlines.
+ * Loaded after styles.css so these win on equal specificity.
+ */
+
+.text-btn {
+  font-weight: 400;
+  border-radius: 999px;
+}
+
+.btn-recording-action {
+  border-radius: 999px;
+}
+
+.input-with-icon input {
+  border-radius: 999px;
+}
+
+.btn-quiet-action,
+.btn-use-current-deal,
+.btn-show-more,
+.logout-link {
+  font-weight: 400;
+}
+
+.record-context-type {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.custom-select-trigger,
+.crm-field-input {
+  font-weight: 400;
+}

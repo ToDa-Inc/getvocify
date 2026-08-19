@@ -91,6 +91,19 @@ describe('buildApproveExtraction', () => {
     assert.deepEqual(next.nextSteps, ['Send proposal']);
     assert.equal(next.raw_extraction.hs_next_step, 'Send proposal');
   });
+
+  it('keeps nextStepSchedules aligned with selected tasks', () => {
+    const next = buildApproveExtraction({
+      memoExtraction: { raw_extraction: {} },
+      updates: [],
+      omittedKeys: [],
+      summary: 'Recap',
+      nextSteps: ['Follow up with ops', 'Send one-pager'],
+      nextStepSchedules: ['2026-08-20', ''],
+    });
+    assert.deepEqual(next.nextSteps, ['Follow up with ops', 'Send one-pager']);
+    assert.deepEqual(next.raw_extraction.nextStepSchedules, ['2026-08-20', '']);
+  });
 });
 
 describe('applyProposedUpdates', () => {

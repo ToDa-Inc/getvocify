@@ -1,10 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createRefreshGate,
   isAuthFailure,
   isCrmReconnectError,
   isPublicAuthPath,
   screenForInitFailure,
+  shouldClearAuthOnRefreshStatus,
+  shouldEnterLoggedOut,
   shouldPaintMainUi,
 } from './auth-session.js';
 
@@ -98,5 +101,47 @@ describe('screenForInitFailure', () => {
 
   it('keeps network failures on the loading-error screen', () => {
     assert.equal(screenForInitFailure({ message: 'Failed to fetch' }, { hasToken: true }), 'loading-error');
+  });
+
+  it('keeps a stored session on Auth outage instead of showing login', () => {
+    assert.equal(screenForInitFailure({
+      status: 503,
+      data: { detail: 'Auth service temporarily unreachable. Please try again.' },
+    }, { hasToken: true }), 'loading-error');
+  });
+});
+
+describe('shouldClearAuthOnRefreshStatus', () => {
+  it('clears stored tokens only on a real 401', () => {
+    assert.equal(shouldClearAuthOnRefreshStatus(401), true);
+    assert.equal(shouldClearAuthOnRefreshStatus(503), false);
+    assert.equal(shouldClearAuthOnRefreshStatus(429), false);
+    assert.equal(shouldClearAuthOnRefreshStatus(500), false);
+  });
+});
+
+describe('shouldEnterLoggedOut', () => {
+  it('does not paint login while a token is still stored', () => {
+    assert.equal(shouldEnterLoggedOut({ hasToken: false }), true);
+    assert.equal(shouldEnterLoggedOut({ hasToken: true }), false);
+  });
+});
+
+describe('createRefreshGate', () => {
+  it('shares one refresh across overlapping callers', async () => {
+    let calls = 0;
+    const gate = createRefreshGate({
+      getAccessToken: () => null,
+      isFresh: () => false,
+      refresh: async () => {
+        calls += 1;
+        await new Promise((r) => setTimeout(r, 20));
+        return 'new-token';
+      },
+    });
+    const [a, b] = await Promise.all([gate(), gate()]);
+    assert.equal(a, 'new-token');
+    assert.equal(b, 'new-token');
+    assert.equal(calls, 1);
   });
 });

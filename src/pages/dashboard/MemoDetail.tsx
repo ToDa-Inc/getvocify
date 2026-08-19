@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Check, ExternalLink, Sparkles, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Pause, Check, ExternalLink, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
+import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { clearCachedPreview } from "@/lib/preview-cache";
 import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
 
@@ -101,6 +104,7 @@ const MemoDetail = () => {
   const [duration, setDuration] = useState(0);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [isReExtracting, setIsReExtracting] = useState(false);
+  const [isReTranscribing, setIsReTranscribing] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
   const [reviewContactName, setReviewContactName] = useState<string | null>(null);
 
@@ -201,6 +205,7 @@ const MemoDetail = () => {
     if (!id) return;
     setIsReExtracting(true);
     try {
+      clearCachedPreview(id);
       const updated = await memosApi.reExtract(id);
       setMemo(updated);
       toast.success("Re-extraction started. AI is extracting CRM fields...");
@@ -208,6 +213,21 @@ const MemoDetail = () => {
       toast.error(err?.data?.detail || "Re-extract failed");
     } finally {
       setIsReExtracting(false);
+    }
+  };
+
+  const handleReTranscribe = async () => {
+    if (!id) return;
+    setIsReTranscribing(true);
+    try {
+      clearCachedPreview(id);
+      const updated = await memosApi.reTranscribe(id);
+      setMemo(updated);
+      toast.success("Re-transcribing from the HubSpot recording…");
+    } catch (err: any) {
+      toast.error(err?.data?.detail || "Re-transcribe failed");
+    } finally {
+      setIsReTranscribing(false);
     }
   };
 
@@ -227,9 +247,8 @@ const MemoDetail = () => {
 
   if (isLoading && !memo) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <div className="w-12 h-12 border-4 border-beige border-t-transparent rounded-full animate-spin" />
-        <p className={THEME_TOKENS.typography.capsLabel}>Loading conversation...</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <VocifyLoader size="lg" label="Loading conversation..." />
       </div>
     );
   }
@@ -240,7 +259,7 @@ const MemoDetail = () => {
         <div className="w-20 h-20 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
           <AlertCircle className="h-10 w-10 text-destructive" />
         </div>
-        <h2 className="text-2xl font-black tracking-tight">Something went wrong</h2>
+        <h2 className="text-2xl font-normal tracking-tight">Something went wrong</h2>
         <p className="text-muted-foreground">{error || "Conversation not found."}</p>
         <Button asChild variant="outline" className="rounded-full">
           <Link to="/dashboard/memos">Back to Memos</Link>
@@ -254,6 +273,13 @@ const MemoDetail = () => {
   const extractionFailed = memo.status === "failed";
   const hasExtraction = !isProcessing && !extractionFailed && !!memo.extraction;
   const extraction = memo.extraction || {};
+  const isHubSpotCall =
+    memo.source === "hubspot_call" || Boolean(memo.hubspotEngagementId);
+  const canReTranscribe =
+    isHubSpotCall &&
+    memo.status !== "approved" &&
+    !isProcessing;
+  const previewRefreshKey = `${memo.status}:${memo.processedAt || ""}:${memo.transcript?.length || 0}`;
 
   if (syncResult) {
     const { crmName, viewInCrm } = labelsFromDealUrl(syncResult.deal_url);
@@ -272,11 +298,11 @@ const MemoDetail = () => {
             <div className={`w-20 h-20 mx-auto mb-8 ${THEME_TOKENS.radius.card} bg-success/10 flex items-center justify-center`}>
               <Check className="h-10 w-10 text-success shadow-[0_0_15px_rgba(34,197,94,0.3)]" />
             </div>
-            <h2 className="text-3xl font-black tracking-tighter text-foreground mb-4">Sync Successful</h2>
+            <h2 className="text-3xl font-normal tracking-tight text-foreground mb-4">Sync Successful</h2>
             <p className="text-muted-foreground mb-10 leading-relaxed mx-auto max-w-sm">
               Updated{" "}
               {crmName === "Salesforce" ? "opportunity" : "deal"}{" "}
-              <span className="text-foreground font-bold">{syncResult.deal_name || extraction.companyName || "Unknown"}</span>{" "}
+              <span className="text-foreground">{syncResult.deal_name || extraction.companyName || "Unknown"}</span>{" "}
               in {crmName}
               {crmName === "HubSpot" ? ". All tasks and associations have been processed." : "."}
             </p>
@@ -311,7 +337,12 @@ const MemoDetail = () => {
 
       <div className={V_PATTERNS.dashboardHeader}>
         <h1 className={THEME_TOKENS.typography.pageTitle}>
-          Memo <span className={THEME_TOKENS.typography.accentTitle}>Details</span>
+          {memoListTitle(memo)}
+          {memoListSubtitle(memo) ? (
+            <span className={THEME_TOKENS.typography.accentTitle}> {memoListSubtitle(memo)}</span>
+          ) : (
+            <span className={THEME_TOKENS.typography.accentTitle}> Details</span>
+          )}
         </h1>
         <p className={THEME_TOKENS.typography.body}>
           {isProcessing
@@ -347,7 +378,7 @@ const MemoDetail = () => {
             className="rounded-full border-beige/40 hover:bg-beige/10 shrink-0"
           >
             {isReExtracting ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <VocifySpinner size={16} className="mr-2" />
             ) : (
               <RefreshCw className="h-4 w-4 mr-2" />
             )}
@@ -391,14 +422,34 @@ const MemoDetail = () => {
           )}
 
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between gap-3 mb-8">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
-              {memo.transcriptConfidence && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-medium bg-success/10 text-success">
-                  <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
-                  {Math.round(memo.transcriptConfidence * 100)}% accuracy
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {canReTranscribe ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleReTranscribe}
+                    disabled={isReTranscribing}
+                    aria-label="Re-transcribe from recording"
+                    title="Re-transcribe from recording"
+                    className="rounded-full border-beige/40 hover:bg-beige/10 h-9 w-9 shrink-0"
+                  >
+                    {isReTranscribing ? (
+                      <VocifySpinner size={14} />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                  </Button>
+                ) : null}
+                {memo.transcriptConfidence ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-medium bg-success/10 text-success">
+                    <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+                    {Math.round(memo.transcriptConfidence * 100)}% accuracy
+                  </span>
+                ) : null}
+              </div>
             </div>
             {memo.transcript ? (
                 <TranscriptConversation
@@ -406,9 +457,8 @@ const MemoDetail = () => {
                   contactName={reviewContactName || extraction.contactName}
                 />
             ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-center opacity-40">
-                <Sparkles className="h-8 w-8 mb-4 animate-pulse" />
-                <p className="text-[10px] font-medium">Generating transcript...</p>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <VocifyLoader size="md" label={isProcessing ? "Generating transcript..." : "No transcript yet"} />
               </div>
             )}
             {isPendingTranscript && !isProcessing && memo?.transcript && (
@@ -435,6 +485,8 @@ const MemoDetail = () => {
               <HubSpotSyncPreview
                 memoId={id || ""}
                 initialDealId={dealIdFromUrl}
+                previewRefreshKey={previewRefreshKey}
+                callSummary={extraction.summary}
                 onSuccess={handleSyncSuccess}
                 onContactName={setReviewContactName}
               />
@@ -445,12 +497,8 @@ const MemoDetail = () => {
         {/* Full-width extracting spinner when no extraction yet */}
         {isProcessing && memo?.transcript && !hasExtraction && (
           <div className="col-span-full flex flex-col items-center justify-center py-16 border border-dashed border-border/40 rounded-[2rem] bg-secondary/[0.02]">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-full border-4 border-beige/20 animate-ping" />
-              <Sparkles className="h-12 w-12 text-beige" />
-            </div>
-            <p className="mt-6 text-lg font-bold">AI is analyzing your sales conversation</p>
-            <p className="text-[10px] font-medium text-muted-foreground/40 mt-1">
+            <VocifyLoader size="lg" label="AI is analyzing your sales conversation" />
+            <p className="text-[10px] font-medium text-muted-foreground/40 mt-2">
               Extracting CRM fields...
             </p>
           </div>

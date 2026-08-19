@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vocify</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="type.css">
   <link rel="stylesheet" href="copilot.css">
   <link rel="stylesheet" href="work.css">
 </head>
@@ -30,16 +31,16 @@
 
         <div class="idle-tools">
           <button id="paste-transcript-toggle" type="button" class="tool-btn" data-tip="Import a meeting transcript you already have" data-tip-align="start">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h5"></path></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h5"></path></svg>
             Paste transcript
           </button>
           <button id="listen-tab-button" type="button" class="tool-btn" aria-pressed="false" data-tip="Hear this tab and coach you live" data-tip-align="end">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-4a9 9 0 0 1 18 0v4"></path><path d="M21 16a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"></path><path d="M3 16a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2z"></path></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14v-4a9 9 0 0 1 18 0v4"></path><path d="M21 16a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"></path><path d="M3 16a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2z"></path></svg>
             <span id="listen-tab-label">Listen to tab</span>
           </button>
         </div>
         <p id="listen-status" class="listen-status" role="status" aria-live="polite" style="display: none;"></p>
-        <p id="shortcut-box" class="shortcut-hint" data-tip="Record from anywhere in Chrome"></p>
+        <p id="shortcut-box" class="shortcut-hint" data-tip="Open Vocify from anywhere in Chrome"></p>
       </div>
 
       <div id="deal-context-badge" class="deal-context-badge" style="display: none;"></div>
@@ -76,7 +77,7 @@
       </div>
 
       <div id="record-activity" class="record-activity" style="display: none;">
-        <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;">Recent calls</p>
+        <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;">Activity</p>
         <div id="recordings-section" class="recordings-section" style="display: none;">
           <div class="recordings-header-row" id="recordings-watch-row" style="display: none;">
             <span id="recordings-watch-dot" class="call-watch-dot" aria-hidden="true"></span>
@@ -87,9 +88,6 @@
           <button type="button" id="recordings-show-more" class="btn-show-more" style="display: none;">Show more</button>
         </div>
 
-        <div id="recent-memos-section" class="recent-memos-section" style="display: none;">
-          <div id="recent-memos-list" class="recent-memos-list"></div>
-        </div>
         <p id="activity-empty" class="activity-empty" style="display: none;"></p>
       </div>
       
@@ -176,19 +174,21 @@
           </div>
           <div class="section-header">
             <p class="caps-label" id="deal-target-label">Deal</p>
-            <button id="btn-change-deal" class="text-btn">Change deal</button>
+            <button id="btn-change-deal" class="text-btn">Choose deal</button>
           </div>
           <div id="use-page-record-option" class="use-current-deal-option" style="display: none;">
+            <p class="use-page-record-hint">This review stays on the record you started. Discard or sync to finish, or move it.</p>
             <button type="button" id="btn-use-page-record" class="btn-use-current-deal">Use record on this page</button>
           </div>
           <div id="deal-decision-box" class="deal-decision-box" style="display: none;">
-            <p class="deal-subtitle" id="deal-decision-hint" style="margin: 0 0 8px;">Confirm the deal target before syncing.</p>
+            <p class="deal-subtitle" id="deal-decision-hint" style="margin: 0 0 8px;">Where should this call land?</p>
             <div id="matched-deals-list"></div>
             <button type="button" id="btn-create-new-deal" class="btn-quiet-action">Create a new deal</button>
+            <button type="button" id="btn-search-other-deals" class="btn-quiet-action">Search other deals</button>
           </div>
           <div id="deal-search-box" class="search-box" style="display: none;">
             <div class="input-with-icon">
-              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
               <input type="text" id="deal-search-input" placeholder="Search deals...">
             </div>
             <div id="search-results" class="search-results"></div>
@@ -203,62 +203,43 @@
         </div>
 
         <section id="call-insights-section" class="call-insights">
-          <div class="call-insights-block">
-            <div class="section-header">
-              <p class="caps-label">Call note</p>
-            </div>
-            <textarea id="review-summary" class="review-summary-input" rows="5" placeholder="What mattered on this call…"></textarea>
-          </div>
-
-          <div id="proposed-changes-section">
-            <p class="caps-label" style="margin: 0 0 4px 4px;">Fields for this sync</p>
-            <div id="proposed-updates-list" class="updates-list">
-              <!-- Injected via JS -->
-            </div>
-            <button id="btn-add-field" class="btn-add-field" type="button" style="display: none;">+ Add field</button>
-            <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
-          </div>
-
-          <div class="call-insights-block">
-            <div class="section-header">
-              <p class="caps-label">Action items → HubSpot tasks</p>
-              <button type="button" id="btn-add-action-item" class="text-btn">+ Add</button>
-            </div>
+          <div class="copilot-note">
+            <div id="copilot-note-view" class="copilot-note-view is-empty" contenteditable="true" role="textbox" aria-multiline="true"></div>
+            <textarea id="review-summary" class="review-summary-input" rows="6" hidden placeholder="What mattered on this call…"></textarea>
+            <p class="caps-label" id="next-steps-heading">Próximos pasos</p>
             <div id="action-items-list" class="action-items-list"></div>
-            <p id="action-items-empty" class="action-items-empty" style="display: none;">No action items from this call. Add one if something was agreed.</p>
+            <button type="button" id="btn-add-action-item" class="btn-quiet-action">Add task</button>
+
+            <div id="crm-fields-section">
+              <p class="caps-label" id="crm-fields-heading">Fields</p>
+              <div id="proposed-updates-list" class="updates-list"></div>
+              <button id="btn-add-field" class="btn-quiet-action" type="button" style="display: none;">Add field</button>
+              <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
+            </div>
           </div>
 
-          <label id="create-note-row" class="note-toggle" for="create-note-checkbox">
-            <input type="checkbox" id="create-note-checkbox" checked>
-            <span class="note-toggle-box" aria-hidden="true"></span>
-            <span class="note-toggle-copy">
-              <span class="note-toggle-title">Create HubSpot note</span>
-              <span class="note-toggle-desc">Posts this note + transcript on the deal timeline</span>
-            </span>
-          </label>
-
-          <div class="call-insights-block" id="call-outcome-section">
-            <div class="section-header">
-              <p class="caps-label">Call outcome (optional)</p>
+          <details id="call-outcome-details" class="review-disclosure" style="display: none;">
+            <summary>Call outcome</summary>
+            <div class="call-insights-block" id="call-outcome-section">
+              <div id="call-outcome-buttons" class="call-outcome-buttons">
+                <button type="button" class="outcome-btn" id="outcome-btn-converted" data-outcome="converted">Converted</button>
+                <button type="button" class="outcome-btn" id="outcome-btn-on_hold" data-outcome="on_hold">On Hold</button>
+                <button type="button" class="outcome-btn outcome-btn--lost" id="outcome-btn-lost" data-outcome="lost">Lost</button>
+              </div>
+              <div id="lost-reason-box" class="lost-reason-box" style="display: none;">
+                <select id="lost-reason-select" class="lost-reason-select">
+                  <option value="">Select a reason…</option>
+                  <option value="__other__">Other…</option>
+                </select>
+                <input type="text" id="lost-reason-other-input" class="lost-reason-other-input" placeholder="Type a reason…" style="display: none;">
+                <p id="lost-reason-hint" class="lost-reason-hint">A reason is required to mark this call as Lost.</p>
+              </div>
             </div>
-            <div id="call-outcome-buttons" class="call-outcome-buttons">
-              <button type="button" class="outcome-btn" id="outcome-btn-converted" data-outcome="converted">Converted</button>
-              <button type="button" class="outcome-btn" id="outcome-btn-on_hold" data-outcome="on_hold">On Hold</button>
-              <button type="button" class="outcome-btn outcome-btn--lost" id="outcome-btn-lost" data-outcome="lost">Lost</button>
-            </div>
-            <div id="lost-reason-box" class="lost-reason-box" style="display: none;">
-              <select id="lost-reason-select" class="lost-reason-select">
-                <option value="">Select a reason…</option>
-                <option value="__other__">Other…</option>
-              </select>
-              <input type="text" id="lost-reason-other-input" class="lost-reason-other-input" placeholder="Type a reason…" style="display: none;">
-              <p id="lost-reason-hint" class="lost-reason-hint">A reason is required to mark this call as Lost.</p>
-            </div>
-          </div>
+          </details>
         </section>
 
-        <details id="transcript-collapsible" class="transcript-collapsible" open>
-          <summary>View transcript</summary>
+        <details id="transcript-collapsible" class="transcript-collapsible">
+          <summary>Transcript</summary>
           <div id="review-transcript-conversation" class="transcript-conversation transcript-conversation--compact"></div>
           <div id="transcript-expanded" class="transcript-expanded" style="display: none;"></div>
         </details>

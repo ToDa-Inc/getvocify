@@ -29,6 +29,7 @@ import { AuthProvider, useAuth } from "@/features/auth";
 import { Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { isLandingDomain, isLandingPath, APP_URL } from "@/lib/app-url";
+import { VocifyLoader } from "@/components/ui/vocify-loader";
 
 /** Redirects getvocify.com/login, /dashboard, etc. → app.getvocify.com */
 const LandingDomainRedirect = () => {
@@ -44,7 +45,7 @@ const LandingDomainRedirect = () => {
   if (needsRedirect) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
-        <div className="w-8 h-8 border-4 border-beige border-t-transparent rounded-full animate-spin" />
+        <VocifyLoader size="md" />
       </div>
     );
   }
@@ -52,18 +53,33 @@ const LandingDomainRedirect = () => {
 };
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, hasStoredSession, restoreSession } = useAuth();
   
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
-        <div className="w-8 h-8 border-4 border-beige border-t-transparent rounded-full animate-spin" />
+        <VocifyLoader size="md" />
       </div>
     );
   }
-  
-  if (!isAuthenticated) {
+
+  if (!hasStoredSession) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-cream px-6">
+        <VocifyLoader size="md" label="Restoring your session" />
+        <button
+          type="button"
+          className="text-[10px] font-black uppercase tracking-widest text-beige hover:underline"
+          onClick={() => restoreSession()}
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
   
   return <>{children}</>;

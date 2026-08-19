@@ -58,7 +58,7 @@ export function TranscriptConversation({
             {turn.speaker && (
               <span
                 className={cn(
-                  "px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground",
+                  "px-1 text-[11px] font-normal text-muted-foreground",
                   isThem && "text-beige",
                 )}
               >

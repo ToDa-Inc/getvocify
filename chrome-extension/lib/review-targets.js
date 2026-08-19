@@ -96,6 +96,47 @@ export function resolveReviewTargets({
   };
 }
 
+/**
+ * Never keep a matcher-selected deal from another HubSpot record.
+ * Page deal / explicit pick only. Closing a deal or opening a contact
+ * drops selected_deal so field updates cannot show the previous deal.
+ */
+export function bindPreviewToPage({
+  preview = null,
+  requestedDealId = null,
+  requestedContactId = null,
+  createNewDeal = false,
+  pageType = null,
+} = {}) {
+  const base = preview && typeof preview === 'object' ? { ...preview } : {};
+  if (requestedDealId) {
+    const selectedId = base.selected_deal?.deal_id;
+    if (selectedId && String(selectedId) !== String(requestedDealId)) {
+      base.selected_deal = null;
+    }
+    base.skip_deal = false;
+    base.is_new_deal = false;
+    return base;
+  }
+  if (createNewDeal) {
+    return { ...base, selected_deal: null, is_new_deal: true, skip_deal: false };
+  }
+  const contactScoped =
+    !!requestedContactId || pageType === 'contact' || pageType === 'company' || !pageType;
+  if (contactScoped) {
+    return { ...base, selected_deal: null, skip_deal: true, is_new_deal: false };
+  }
+  return { ...base, selected_deal: null, skip_deal: true, is_new_deal: false };
+}
+
+export function proposedUpdatesForPage(preview) {
+  const updates = Array.isArray(preview?.proposed_updates) ? preview.proposed_updates : [];
+  if (preview?.skip_deal && !preview?.selected_deal) {
+    return updates.filter((u) => (u?.object_type || 'deals') !== 'deals');
+  }
+  return updates;
+}
+
 export function bindPreviewIds({
   requestedDealId = null,
   requestedContactId = null,

@@ -35,6 +35,50 @@ export function isAuthFailure(error) {
   return /session expired|unauthorized|missing authorization|not signed in|please sign in/i.test(text);
 }
 
+/** Only a 401 from /auth/refresh means the refresh token is dead. */
+export function shouldClearAuthOnRefreshStatus(status) {
+  return Number(status) === 401;
+}
+
+/** AUTH_REQUIRED / empty accessToken must not paint login while tokens remain. */
+export function shouldEnterLoggedOut({ hasToken } = {}) {
+  return !hasToken;
+}
+
+export function getTokenExpiryMs(token) {
+  try {
+    const payload = JSON.parse(atob(String(token || '').split('.')[1]));
+    return payload?.exp ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isAccessTokenFresh(token, nowMs = Date.now(), minTtlMs = 60_000) {
+  const exp = getTokenExpiryMs(token);
+  if (!exp) return false;
+  return exp - nowMs > minTtlMs;
+}
+
+/** One in-flight refresh per JS context. Cross-context races also hit the server reuse cache. */
+export function createRefreshGate(options) {
+  let inflight = null;
+  return () => {
+    if (!inflight) {
+      inflight = Promise.resolve()
+        .then(() => {
+          const current = options.getAccessToken();
+          if (current && options.isFresh(current)) return current;
+          return options.refresh();
+        })
+        .finally(() => {
+          inflight = null;
+        });
+    }
+    return inflight;
+  };
+}
+
 /**
  * Popup must not paint record/idle/review while signed out or before init confirms a session.
  */

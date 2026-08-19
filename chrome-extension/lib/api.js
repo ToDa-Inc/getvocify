@@ -7,7 +7,13 @@
  * chrome.storage.local.api_base always wins when set.
  */
 
-import { isCrmReconnectError, isPublicAuthPath } from './auth-session.js';
+import {
+  createRefreshGate,
+  isAccessTokenFresh,
+  isCrmReconnectError,
+  isPublicAuthPath,
+  shouldClearAuthOnRefreshStatus,
+} from './auth-session.js';
 import { parseSseBuffer } from './copilot-sse.js';
 import { PROD_API_BASE, isUnpackedExtension, resolveApiBase } from './api-base.js';
 
@@ -83,28 +89,44 @@ async function clearTokens() {
 }
 
 /**
- * Refresh access token
+ * Refresh access token. 401 clears the session; 503/429 keep stored tokens.
  */
-async function refreshAccessToken() {
-  const { refreshToken, accessToken } = await getTokens();
-  if (!refreshToken) throw new ApiError(401, null, 'No refresh token');
+async function doRefreshAccessToken() {
+  const run = async () => {
+    const { refreshToken, accessToken } = await getTokens();
+    if (accessToken && isAccessTokenFresh(accessToken)) return accessToken;
+    if (!refreshToken) throw new ApiError(401, null, 'No refresh token');
 
-  const API_BASE = await getApiBase();
-  const response = await fetch(`${API_BASE}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      refresh_token: refreshToken,
-      ...(accessToken ? { access_token: accessToken } : {}),
-    }),
-  });
+    const API_BASE = await getApiBase();
+    const response = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
 
-  if (!response.ok) throw new ApiError(response.status, null, 'Token refresh failed');
+    if (!response.ok) {
+      if (shouldClearAuthOnRefreshStatus(response.status)) {
+        await clearTokens();
+      }
+      throw new ApiError(response.status, null, 'Token refresh failed');
+    }
 
-  const data = await response.json();
-  await setTokens(data.access_token, data.refresh_token || refreshToken);
-  return data.access_token;
+    const data = await response.json();
+    await setTokens(data.access_token, data.refresh_token || refreshToken);
+    return data.access_token;
+  };
+
+  if (globalThis.navigator?.locks?.request) {
+    return navigator.locks.request('vocify-auth-refresh', run);
+  }
+  return run();
 }
+
+const refreshAccessToken = createRefreshGate({
+  getAccessToken: () => memoryTokens?.accessToken || null,
+  isFresh: isAccessTokenFresh,
+  refresh: doRefreshAccessToken,
+});
 
 function shouldRefreshVocifySession(status, data) {
   if (status !== 401) return false;
@@ -144,9 +166,12 @@ async function request(endpoint, options = {}) {
         const newToken = await refreshAccessToken();
         headers.Authorization = `Bearer ${newToken}`;
         response = await fetch(url, { ...options, headers });
-      } catch {
-        await clearTokens();
-        throw new ApiError(401, null, 'Session expired');
+      } catch (err) {
+        if (shouldClearAuthOnRefreshStatus(err?.status)) {
+          await clearTokens();
+          throw new ApiError(401, null, 'Session expired');
+        }
+        throw err;
       }
     }
   }
@@ -218,13 +243,21 @@ export const api = {
     if (response.status === 401 && accessToken) {
       const preview = await response.clone().json().catch(() => ({}));
       if (shouldRefreshVocifySession(401, preview)) {
-        const newToken = await refreshAccessToken();
-        headers.Authorization = `Bearer ${newToken}`;
-        response = await fetch(`${API_BASE}/memos/upload`, {
-          method: 'POST',
-          headers,
-          body: formData,
-        });
+        try {
+          const newToken = await refreshAccessToken();
+          headers.Authorization = `Bearer ${newToken}`;
+          response = await fetch(`${API_BASE}/memos/upload`, {
+            method: 'POST',
+            headers,
+            body: formData,
+          });
+        } catch (err) {
+          if (shouldClearAuthOnRefreshStatus(err?.status)) {
+            await clearTokens();
+            throw new ApiError(401, null, 'Session expired');
+          }
+          throw err;
+        }
       }
     }
 
@@ -278,9 +311,13 @@ export const api = {
           const newToken = await refreshAccessToken();
           headers.Authorization = `Bearer ${newToken}`;
           response = await doFetch(headers);
-        } catch {
-          await clearTokens();
-          onEvent({ type: 'error', message: 'Session expired' });
+        } catch (err) {
+          if (shouldClearAuthOnRefreshStatus(err?.status)) {
+            await clearTokens();
+            onEvent({ type: 'error', message: 'Session expired' });
+            return;
+          }
+          onEvent({ type: 'error', message: err?.message || 'Could not refresh session' });
           return;
         }
       }

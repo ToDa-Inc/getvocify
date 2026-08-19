@@ -145,6 +145,10 @@ export default {
           "0%, 100%": { height: "20%" },
           "50%": { height: "80%" },
         },
+        "vocify-bar": {
+          "0%, 100%": { height: "0.5rem", opacity: "0.28" },
+          "50%": { height: "1.75rem", opacity: "1" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -155,6 +159,7 @@ export default {
         "pulse-wave": "pulse-wave 2s ease-in-out infinite",
         "rotate-slow": "rotate-slow 20s linear infinite",
         waveform: "waveform 1s ease-in-out infinite",
+        "vocify-bar": "vocify-bar 0.85s ease-in-out infinite",
       },
     },
   },

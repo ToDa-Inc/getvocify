@@ -185,6 +185,7 @@ export function buildApproveExtraction({
   omittedKeys,
   summary,
   nextSteps,
+  nextStepSchedules,
 } = {}) {
   let next = applyProposedUpdates(memoExtraction || {}, updates || []);
   next = stripOmittedFields(next, omittedKeys || []);
@@ -200,6 +201,11 @@ export function buildApproveExtraction({
   next.nextSteps = selectedSteps;
   if (selectedSteps[0]) next.raw_extraction.hs_next_step = selectedSteps[0];
   else delete next.raw_extraction.hs_next_step;
+
+  const schedules = Array.isArray(nextStepSchedules)
+    ? nextStepSchedules.map((s) => (s ? String(s).slice(0, 10) : ''))
+    : [];
+  next.raw_extraction.nextStepSchedules = selectedSteps.map((_, i) => schedules[i] || '');
 
   return next;
 }

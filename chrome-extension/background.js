@@ -9,6 +9,7 @@ import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
 import { pickContextTab } from './lib/review-targets.js';
 import { planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './lib/page-scope.js';
+import { planRecordingsFetch, planRecordingsResult } from './lib/recordings-fetch.js';
 import {
   applyTranscriptUpdate,
   canStartTabCapture,
@@ -28,6 +29,7 @@ import {
 import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js';
 import { mergeSessionVocab } from './lib/session-vocab.js';
 import { apiBaseToWsOrigin } from './lib/api-base.js';
+import { actionsForCommand } from './lib/hotkey.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -64,8 +66,10 @@ let state = {
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
 let lastActiveTabId = null;
-/** Recordings cache key: deal:/contact:/company: or inbox */
+/** Last recordings scope that finished (success or handled error). Not set at request start. */
 let recordingsKey = null;
+/** Scope of the in-flight recordings request, or null. */
+let recordingsInFlightKey = null;
 let recordingsFetchGen = 0;
 /** Last URL we applied per tab — HubSpot SPA often updates url without changeInfo.url */
 const lastSeenUrlByTab = new Map();
@@ -787,6 +791,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'LOGOUT':
       cachedCopilotUserId = '';
       cachedSessionVocab = [];
+      recordingsKey = null;
+      recordingsInFlightKey = null;
+      recordingsFetchGen += 1;
+      updateState({
+        recordings: [],
+        recordingsLoading: false,
+        recordingsError: null,
+      });
       break;
     
     case 'SET_STATE': {
@@ -1068,6 +1080,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         processingSource: null,
       });
       recordingsKey = null;
+      recordingsInFlightKey = null;
       recordingsFetchGen += 1;
       refreshContextFromActiveTab().catch(() => {});
       break;
@@ -1182,6 +1195,7 @@ function applyContextAsync(ctx) {
 
   if (replaceLists) {
     recordingsKey = null;
+    recordingsInFlightKey = null;
     recordingsFetchGen += 1;
   }
   updateState({
@@ -1211,10 +1225,17 @@ function recordingsEndpoint(ctx) {
 function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
   const endpoint = recordingsEndpoint(ctx);
   const key = recordingsScopeKey(ctx);
-  if (!force && recordingsKey === key) return;
+  const plan = planRecordingsFetch({
+    scopeKey: key,
+    cacheKey: recordingsKey,
+    inFlightKey: recordingsInFlightKey,
+    loading: state.recordingsLoading,
+    force,
+  });
+  if (plan.action !== 'fetch') return;
 
   const keepList = recordingsKey === key;
-  recordingsKey = key;
+  recordingsInFlightKey = key;
   const gen = ++recordingsFetchGen;
   updateState({
     recordingsLoading: true,
@@ -1222,10 +1243,27 @@ function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
     recordingsError: null,
   });
 
+  const settleInFlight = () => {
+    if (recordingsInFlightKey === key && gen === recordingsFetchGen) {
+      recordingsInFlightKey = null;
+    }
+  };
+
   api.get(endpoint)
     .then((items) => {
-      if (gen !== recordingsFetchGen) return;
-      if (recordingsScopeKey(state.context) !== key) return;
+      const action = planRecordingsResult({
+        gen,
+        fetchGen: recordingsFetchGen,
+        resultScopeKey: key,
+        currentScopeKey: recordingsScopeKey(state.context),
+      }).action;
+      if (action === 'ignore') return;
+      settleInFlight();
+      if (action === 'abandon') {
+        updateState({ recordingsLoading: false });
+        return;
+      }
+      recordingsKey = key;
       const list = Array.isArray(items)
         ? items.map((rec) => ({ ...rec, timestamp: rec.timestamp || rec.timestamp_ms || null }))
         : [];
@@ -1233,12 +1271,29 @@ function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
     })
     .catch((e) => {
       console.warn('[BG] Failed to load recordings:', e);
+      const action = planRecordingsResult({
+        gen,
+        fetchGen: recordingsFetchGen,
+        resultScopeKey: key,
+        currentScopeKey: recordingsScopeKey(state.context),
+      }).action;
+      if (action === 'ignore') {
+        if (isAuthFailure(e)) {
+          chrome.runtime.sendMessage({ type: 'AUTH_REQUIRED' }).catch(() => {});
+        }
+        return;
+      }
+      settleInFlight();
       if (isAuthFailure(e)) {
+        updateState({ recordingsLoading: false, recordings: [], recordingsError: null });
         chrome.runtime.sendMessage({ type: 'AUTH_REQUIRED' }).catch(() => {});
         return;
       }
-      if (gen !== recordingsFetchGen) return;
-      if (recordingsScopeKey(state.context) !== key) return;
+      if (action === 'abandon') {
+        updateState({ recordingsLoading: false });
+        return;
+      }
+      recordingsKey = key;
       const reconnect = isCrmReconnectError(e)
         ? 'HubSpot login expired. Reconnect HubSpot in Vocify → Integrations, then try again.'
         : null;
@@ -1330,8 +1385,7 @@ prefetchCopilotWsBits(null);
 // HOTKEY COMMAND
 // ============================================
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'toggle-recording') {
-    openExtensionUI();
-    handleToggleRecording();
-  }
+  const actions = actionsForCommand(command);
+  if (actions.openUi) openExtensionUI();
+  if (actions.toggleRecording) handleToggleRecording();
 });

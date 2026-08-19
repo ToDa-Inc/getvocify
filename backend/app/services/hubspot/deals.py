@@ -26,6 +26,7 @@ from .types import (
 from .search import HubSpotSearchService
 from .schema import HubSpotSchemaService
 from .deal_field_names import normalize_hubspot_deal_property_key
+from .note_format import first_bullet_plaintext, summary_looks_markdown
 from app.models.memo import MemoExtraction
 
 # HubSpot system-managed deal properties (read-only; cannot be set via API)
@@ -387,7 +388,12 @@ class HubSpotDealService:
                 properties["closedate"] = timestamp
 
         if _is_allowed("description") and extraction.summary:
-            properties["description"] = extraction.summary
+            if summary_looks_markdown(extraction.summary):
+                bullet = first_bullet_plaintext(extraction.summary)
+                if bullet:
+                    properties["description"] = bullet
+            else:
+                properties["description"] = extraction.summary
 
         # Dynamic CRM fields: any curated field from the portal's schema that the LLM
         # extracted into raw_extraction, scoped to what the user enabled.

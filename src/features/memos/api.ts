@@ -158,6 +158,14 @@ export const memosApi = {
   },
 
   /**
+   * Re-transcribe a HubSpot call memo from the recording URL.
+   * Uses current call-language settings from the user profile.
+   */
+  reTranscribe: (id: string): Promise<Memo> => {
+    return api.post<Memo>(`/memos/${id}/re-transcribe`);
+  },
+
+  /**
    * Delete a memo
    * 
    * Removes the memo and its audio file permanently.

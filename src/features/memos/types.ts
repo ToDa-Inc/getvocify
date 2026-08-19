@@ -177,6 +177,15 @@ export interface Memo {
   /** When the user approved the memo */
   approvedAt: Nullable<ISODateString>;
 
+  /** Memo source, e.g. hubspot_call or voice_memo */
+  source?: Nullable<string>;
+  /** HubSpot call engagement id when source is hubspot_call */
+  hubspotEngagementId?: Nullable<string>;
+  /** HubSpot contact this memo was captured on */
+  hubspotContactId?: Nullable<string>;
+  /** HubSpot deal this memo was captured or approved against */
+  hubspotDealId?: Nullable<string>;
+
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
 }

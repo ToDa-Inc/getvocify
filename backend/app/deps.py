@@ -2,9 +2,14 @@
 Dependency injection for FastAPI routes
 """
 
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import HTTPException, status, Header
 from supabase import create_client, Client
 from app.config import settings
+from app.services.auth_session import (
+    AccessTokenError,
+    AccessTokenExpired,
+    user_id_from_access_token,
+)
 from typing import Optional
 import threading
 
@@ -103,14 +108,14 @@ def get_supabase_auth() -> Client:
 
 def get_user_id(
     authorization: Optional[str] = Header(None, alias="Authorization"),
-    auth_client: Client = Depends(get_supabase_auth),
 ) -> str:
     """
-    Extract user ID from Authorization header by verifying JWT with Supabase.
-    On expired token, returns 401 - frontend should refresh and retry.
+    Extract user ID from the Bearer access JWT.
 
-    Uses the auth client (not the service-role DB client) so verification never
-    mutates PostgREST credentials used for inserts.
+    Verified locally with SUPABASE_JWT_SECRET (signature + expiry). A GoTrue
+    blip must not look like "this session died" — that used to 401 every API
+    call and make clients wipe stored refresh tokens.
+    Expired JWT → 401 so the client can refresh. Invalid JWT → 401.
     """
     if not authorization:
         raise HTTPException(
@@ -131,23 +136,15 @@ def get_user_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid session token",
         )
-    
+
     try:
-        response = auth_client.auth.get_user(token)
-        
-        if hasattr(response, "user") and response.user:
-            return str(response.user.id)
-        
-        if isinstance(response, dict) and "user" in response:
-            return str(response["user"]["id"])
-            
+        return user_id_from_access_token(token, settings.SUPABASE_JWT_SECRET or "")
+    except AccessTokenExpired:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired session",
         )
-    except HTTPException:
-        raise
-    except Exception:
+    except AccessTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authorization token. Please sign in again.",

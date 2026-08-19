@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ShieldCheck, Loader2 } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
 import { UserGlossary } from "@/components/dashboard/glossary/UserGlossary";
 import { ProductOfferSettings } from "@/components/dashboard/settings/ProductOfferSettings";
@@ -33,9 +34,8 @@ const SettingsPage = () => {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <Loader2 className="h-10 w-10 animate-spin text-beige" />
-        <p className={THEME_TOKENS.typography.capsLabel}>Loading Settings...</p>
+      <div className="flex flex-col items-center justify-center min-h-[400px]">
+        <VocifyLoader size="lg" label="Loading Settings..." />
       </div>
     );
   }

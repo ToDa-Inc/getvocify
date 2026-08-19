@@ -5,7 +5,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi } from "@/lib/api/crm";
 import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
-import { Loader2, Check, AlertCircle, Sparkles, ChevronDown, Search, X, RefreshCw, Pencil, Trash2, Plus } from "lucide-react";
+import { Check, AlertCircle, Sparkles, ChevronDown, Search, X, RefreshCw, Pencil, Trash2, Plus } from "lucide-react";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
 import { formatCrmDateForDisplay, isCrmDateField } from "@/lib/crm-date";
 import {
@@ -14,10 +14,22 @@ import {
   omittedKeysFrom,
   proposedFieldKey,
 } from "@/lib/extraction-omit";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { CopilotNote } from "@/components/dashboard/CopilotNote";
+import {
+  clearCachedPreview,
+  getCachedPreview,
+  previewCacheKey,
+  setCachedPreview,
+} from "@/lib/preview-cache";
 
 interface HubSpotSyncPreviewProps {
   memoId: string;
   initialDealId?: string | null;
+  /** Bust preview cache when memo transcript/extraction changes */
+  previewRefreshKey?: string;
+  /** Structured call note from extraction — shown as the copilot summary */
+  callSummary?: string | null;
   onSuccess: (data: any) => void;
   onContactName?: (name: string | null) => void;
 }
@@ -77,7 +89,14 @@ function optionLabelFor(value: unknown, options?: Array<{ value: string; label?:
   return String(raw);
 }
 
-export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContactName }: HubSpotSyncPreviewProps) => {
+export const HubSpotSyncPreview = ({
+  memoId,
+  onSuccess,
+  initialDealId,
+  previewRefreshKey = "default",
+  callSummary = "",
+  onContactName,
+}: HubSpotSyncPreviewProps) => {
   const [loading, setLoading] = useState(true);
   const [matching, setMatching] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -105,9 +124,38 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
   const memoIdRef = useRef(memoId);
   memoIdRef.current = memoId;
 
+  const applyPreviewDecisions = useCallback((previewData: any) => {
+    const candidates = Array.isArray(previewData.contact_candidates)
+      ? previewData.contact_candidates
+      : [];
+    if (candidates.length > 0 && !previewData.selected_contact) {
+      setNeedsDealDecision(false);
+      setDealDecisionMade(false);
+      setWeakMatches(previewData.matched_deals || []);
+    } else if (previewData.selected_contact || previewData.skip_deal) {
+      setNeedsDealDecision(false);
+      setDealDecisionMade(true);
+      setWeakMatches(previewData.matched_deals || []);
+    } else {
+      const matches = Array.isArray(previewData.matched_deals) ? previewData.matched_deals : [];
+      const topMatch = matches[0];
+      const isConfident = !!topMatch && (topMatch.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
+      if (!isConfident && !previewData.selected_deal) {
+        setWeakMatches(matches);
+        setNeedsDealDecision(true);
+        setDealDecisionMade(false);
+      } else {
+        setNeedsDealDecision(false);
+        setDealDecisionMade(true);
+        setWeakMatches(matches);
+      }
+    }
+  }, []);
+
   const fetchPreview = useCallback(
     async (dealId?: string, opts?: { createNewDeal?: boolean; contactId?: string }) => {
       const requestedMemoId = memoId;
+      const cacheKey = `${previewRefreshKey}:${previewCacheKey(dealId || initialDealId)}`;
       setLoading(true);
       try {
         const previewData = await crmApi.getPreview(memoId, dealId, opts);
@@ -115,6 +163,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
         setPreview(previewData);
         setEditedUpdates(null);
         setOmittedKeys([]);
+        setCachedPreview(memoId, cacheKey, previewData);
         return previewData;
       } catch {
         if (memoIdRef.current !== requestedMemoId) return undefined;
@@ -124,7 +173,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
         if (memoIdRef.current === requestedMemoId) setLoading(false);
       }
     },
-    [memoId]
+    [memoId, initialDealId, previewRefreshKey],
   );
 
   useEffect(() => {
@@ -140,12 +189,23 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
       setWeakMatches([]);
       setConfirmingNewDeal(false);
       setManualDealName("");
+      setExtractionError(false);
+
+      const cacheKey = `${previewRefreshKey}:${previewCacheKey(initialDealId)}`;
+      const cached = getCachedPreview(memoId, cacheKey);
+      if (cached) {
+        setPreview(cached);
+        applyPreviewDecisions(cached);
+        setMatching(false);
+        setLoading(false);
+        return;
+      }
+
       try {
         if (initialDealId) {
           await fetchPreview(initialDealId);
           return;
         }
-        // Contact-first: email / unique phone / unique name auto-lock.
         const previewData = await fetchPreview(undefined);
         if (cancelled || !previewData) return;
 
@@ -153,25 +213,17 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
           ? previewData.contact_candidates
           : [];
         if (candidates.length > 0 && !previewData.selected_contact) {
-          // Ambiguous identity — wait for user to pick a contact before deal decisions.
-          setNeedsDealDecision(false);
-          setDealDecisionMade(false);
-          setWeakMatches(previewData.matched_deals || []);
+          applyPreviewDecisions(previewData);
         } else if (previewData.selected_contact) {
-          // Contact locked. Deal is optional; linked deals are listed to pick.
-          setNeedsDealDecision(false);
-          setDealDecisionMade(true);
-          setWeakMatches(previewData.matched_deals || []);
+          applyPreviewDecisions(previewData);
         } else {
           const matches = Array.isArray(previewData.matched_deals) ? previewData.matched_deals : [];
           const topMatch = matches[0];
           const isConfident = !!topMatch && (topMatch.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
           if (isConfident && topMatch.deal_id && !previewData.selected_deal) {
             await fetchPreview(topMatch.deal_id);
-          } else if (!isConfident && !previewData.selected_deal) {
-            setWeakMatches(matches);
-            setNeedsDealDecision(true);
-            setDealDecisionMade(false);
+          } else {
+            applyPreviewDecisions(previewData);
           }
         }
       } catch (error: any) {
@@ -195,11 +247,12 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
     return () => {
       cancelled = true;
     };
-  }, [memoId, retryKey, initialDealId, fetchPreview]);
+  }, [memoId, retryKey, initialDealId, previewRefreshKey, fetchPreview, applyPreviewDecisions]);
 
   const handleReExtract = async () => {
     setReExtracting(true);
     try {
+      clearCachedPreview(memoId);
       await memosApi.reExtract(memoId);
       toast.success("Re-extraction started. Loading preview...");
       setExtractionError(false);
@@ -258,7 +311,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
   const updates = editedUpdates ?? preview?.proposed_updates ?? [];
   const availableFields = preview?.available_fields ?? [];
   const OBJECT_ORDER = ["deals", "contacts", "companies", "line_items", "task"];
-  const sortedUpdateEntries = [...updates.map((u: any, idx: number) => ({ u, idx }))].sort((a, b) => {
+  const sortedUpdateEntries = [...updates.map((u: any, idx: number) => ({ u, idx }))]
+    .filter(({ u }) => u?.field_name && u.field_name !== "description")
+    .sort((a, b) => {
     const ao = OBJECT_ORDER.indexOf(a.u?.object_type || "deals");
     const bo = OBJECT_ORDER.indexOf(b.u?.object_type || "deals");
     return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
@@ -440,7 +495,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
             Processing may have failed or is still in progress. If you have a transcript, try Re-extract to run the AI extraction again.
           </p>
           <Button onClick={handleReExtract} disabled={reExtracting} variant="outline" className="mt-6 rounded-full border-beige/40 hover:bg-beige/10">
-            {reExtracting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            {reExtracting ? <VocifySpinner size={16} className="mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             {reExtracting ? "Re-extracting..." : "Re-extract"}
           </Button>
         </div>
@@ -451,16 +506,13 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
   if (loading && !preview) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-6">
-        <div className="relative">
-          <Loader2 className="h-12 w-12 animate-spin text-beige" />
-          <Sparkles className="absolute -top-2 -right-2 h-5 w-5 text-beige animate-pulse" />
-        </div>
-        <div className="text-center space-y-2">
-          <p className="text-sm font-medium text-foreground">
-            {matching ? "Analyzing Transcript..." : "Finding Matching Deal..."}
-          </p>
-          <p className="text-xs text-muted-foreground max-w-xs mx-auto">Our AI is extracting key details and searching your HubSpot CRM.</p>
-        </div>
+        <VocifyLoader
+          size="lg"
+          label={matching ? "Analyzing transcript..." : "Finding matching deal..."}
+        />
+        <p className="text-xs text-muted-foreground max-w-xs mx-auto text-center">
+          Our AI is extracting key details and searching your HubSpot CRM.
+        </p>
       </div>
     );
   }
@@ -479,9 +531,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                 key={c.contact_id}
                 type="button"
                 onClick={() => selectContact(c.contact_id)}
-                className="w-full text-left bg-secondary/5 hover:bg-beige/10 rounded-[1.5rem] p-5 border-2 border-beige/15 hover:border-beige/40 transition-colors"
+                className="w-full text-left bg-secondary/5 hover:bg-beige/10 rounded-[1.5rem] p-5 border border-beige/15 hover:border-beige/40 transition-colors"
               >
-                <p className="text-sm font-bold text-foreground">{c.name || "Contact"}</p>
+                <p className="text-sm font-normal text-foreground">{c.name || "Contact"}</p>
                 {c.email ? (
                   <p className="text-xs text-muted-foreground mt-1">{c.email}</p>
                 ) : null}
@@ -489,7 +541,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                   <p className="text-xs text-muted-foreground mt-0.5">{c.phone}</p>
                 ) : null}
                 {c.company_name ? (
-                  <p className="text-[10px] font-medium text-muted-foreground/70 mt-2">
+                  <p className="text-xs font-normal text-muted-foreground/70 mt-2">
                     {c.company_name}
                   </p>
                 ) : null}
@@ -503,8 +555,8 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
       {selectedContact && (
         <div className="space-y-3 px-2">
           <h5 className={THEME_TOKENS.typography.capsLabel}>Contact Target</h5>
-          <div className="bg-secondary/5 rounded-[2rem] p-6 border-2 border-beige/20">
-            <p className="text-sm font-bold text-foreground">
+          <div className="bg-secondary/5 rounded-[2rem] p-6 border border-beige/20">
+            <p className="text-sm font-normal text-foreground">
               {selectedContact.name || "Contact"}
             </p>
             {selectedContact.email ? (
@@ -514,7 +566,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
               <p className="text-xs text-muted-foreground mt-0.5">{selectedContact.phone}</p>
             ) : null}
             {selectedContact.company_name && (
-              <p className="text-[10px] font-medium text-muted-foreground/70 mt-2">
+              <p className="text-xs font-normal text-muted-foreground/70 mt-2">
                 {selectedContact.company_name}
               </p>
             )}
@@ -532,7 +584,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
           {selectedContact ? "Deal Target (optional)" : "Deal Target"}
         </h5>
         {!showSearch && !(needsDealDecision && !dealDecisionMade) && (
-          <Button variant="ghost" size="sm" onClick={() => setShowAllSearch(true)} className="text-[9px] font-medium text-beige hover:bg-beige/10">
+          <Button variant="ghost" size="sm" onClick={() => setShowAllSearch(true)} className="text-xs font-normal text-beige hover:bg-beige/10">
             <Search className="h-3 w-3 mr-1.5" />
             {selectedContact ? "Choose Deal" : "Change Deal"}
           </Button>
@@ -540,7 +592,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
       </div>
 
       {showSearch ? (
-        <div className="bg-secondary/5 rounded-[2rem] p-6 border-2 border-beige/20 space-y-4">
+        <div className="bg-secondary/5 rounded-[2rem] p-6 border border-beige/20 space-y-4">
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
@@ -552,8 +604,8 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                 className="bg-white border-border/40 rounded-full pl-11 pr-6 h-11 font-medium text-sm"
               />
             </div>
-            <Button onClick={handleSearch} disabled={isSearching} className="bg-beige text-cream rounded-full px-6 h-11 text-[9px] font-medium shrink-0">
-              {isSearching ? <Loader2 className="h-3 w-3 animate-spin" /> : "Search"}
+            <Button onClick={handleSearch} disabled={isSearching} className="bg-beige text-cream rounded-full px-6 h-11 text-xs font-normal shrink-0">
+              {isSearching ? <VocifySpinner size={12} /> : "Search"}
             </Button>
             <Button variant="ghost" size="icon" onClick={() => setShowAllSearch(false)} className="rounded-full shrink-0">
               <X className="h-4 w-4" />
@@ -569,9 +621,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                 className="w-full text-left p-4 rounded-2xl bg-white border border-border/20 hover:border-beige/40 transition-all flex items-center justify-between group"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-foreground truncate">{deal.deal_name}</p>
+                  <p className="text-sm font-normal text-foreground truncate">{deal.deal_name}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[10px] text-muted-foreground uppercase font-black tracking-tight">{deal.stage?.replace(/_/g, " ")}</span>
+                    <span className="text-xs text-muted-foreground tracking-tight">{deal.stage?.replace(/_/g, " ")}</span>
                     <span className="w-1 h-1 rounded-full bg-border" />
                     <span className="text-[10px] text-muted-foreground/60">{deal.amount || "No amount"}</span>
                   </div>
@@ -583,7 +635,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
             ))}
             {searchResults.length === 0 && !isSearching && searchQuery.trim().length >= 2 && (
               <div className="text-center py-8">
-                <p className="text-[10px] font-medium text-muted-foreground/40">No matching deals found in HubSpot</p>
+                <p className="text-xs font-normal text-muted-foreground/40">No matching deals found in HubSpot</p>
               </div>
             )}
           </div>
@@ -591,20 +643,20 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
           <div className="pt-4 border-t border-border/10">
             <button
               onClick={handleCreateNewDeal}
-              className="w-full py-3 rounded-xl hover:bg-beige/5 text-[9px] font-medium text-muted-foreground/60 hover:text-beige transition-colors text-center"
+              className="w-full py-3 rounded-xl hover:bg-beige/5 text-xs font-normal text-muted-foreground/60 hover:text-beige transition-colors text-center"
             >
               + Create a brand new deal
             </button>
           </div>
         </div>
       ) : needsDealDecision && !dealDecisionMade ? (
-        <div className="bg-beige/[0.03] rounded-[2rem] p-8 border-2 border-beige/30 space-y-6">
+        <div className="bg-beige/[0.03] rounded-[2rem] p-8 border border-beige/30 space-y-6">
           <div className="flex items-start gap-6">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-beige/10 text-beige shrink-0">
               <AlertCircle className="h-7 w-7" />
             </div>
             <div className="space-y-1">
-              <h4 className="text-xl font-black tracking-tight text-foreground">Confirm the Deal Target</h4>
+              <h4 className="text-xl font-normal tracking-tight text-foreground">Confirm the Deal Target</h4>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 We couldn&apos;t confidently match this memo to an existing deal. Choose one below or create a new
                 deal before syncing.
@@ -614,7 +666,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
 
           {weakMatches.length > 0 && (
             <div className="space-y-2">
-              <p className="text-[10px] font-medium text-muted-foreground/60 px-1">
+              <p className="text-xs font-normal text-muted-foreground/60 px-1">
                 Possible matches
               </p>
               {weakMatches.map((m: any) => (
@@ -624,7 +676,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                   className="w-full text-left p-4 rounded-2xl bg-white border border-border/20 hover:border-beige/40 transition-all flex items-center justify-between group"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-foreground truncate">{m.deal_name}</p>
+                    <p className="text-sm font-normal text-foreground truncate">{m.deal_name}</p>
                     <p className="text-[10px] text-muted-foreground/60 italic">{m.match_reason}</p>
                   </div>
                   <div className="w-8 h-8 rounded-full bg-secondary/5 flex items-center justify-center group-hover:bg-beige/10 group-hover:text-beige transition-colors shrink-0">
@@ -637,7 +689,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
 
           {confirmingNewDeal ? (
             <div className="space-y-3 pt-2 border-t border-border/10">
-              <p className="text-[10px] font-medium text-muted-foreground/60 px-1">
+              <p className="text-xs font-normal text-muted-foreground/60 px-1">
                 No company or contact name was detected - enter one to create the deal
               </p>
               <div className="flex items-center gap-3">
@@ -652,7 +704,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                 <Button
                   onClick={confirmManualDealName}
                   disabled={!manualDealName.trim()}
-                  className="bg-beige text-cream rounded-full px-6 h-11 text-[9px] font-medium shrink-0"
+                  className="bg-beige text-cream rounded-full px-6 h-11 text-xs font-normal shrink-0"
                 >
                   Create Deal
                 </Button>
@@ -663,14 +715,14 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
               <Button
                 variant="outline"
                 onClick={() => setShowAllSearch(true)}
-                className="flex-1 rounded-full border-beige/40 hover:bg-beige/10 text-[9px] font-medium h-11"
+                className="flex-1 rounded-full border-beige/40 hover:bg-beige/10 text-xs font-normal h-11"
               >
                 <Search className="h-3.5 w-3.5 mr-1.5" />
                 Search Manually
               </Button>
               <Button
                 onClick={handleCreateNewDeal}
-                className="flex-1 bg-beige text-cream rounded-full text-[9px] font-medium h-11"
+                className="flex-1 bg-beige text-cream rounded-full text-xs font-normal h-11"
               >
                 + Create New Deal
               </Button>
@@ -679,7 +731,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
         </div>
       ) : (
         <div
-          className={`p-8 rounded-[2rem] border-2 transition-all duration-500 ${
+          className={`p-8 rounded-[2rem] border transition-all duration-500 ${
             dealMatch
               ? "bg-success/[0.02] border-success/20"
               : skipDeal
@@ -696,13 +748,13 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
               {dealMatch ? <Check className="h-7 w-7" /> : skipDeal ? <AlertCircle className="h-7 w-7" /> : <Sparkles className="h-7 w-7" />}
             </div>
             <div className="flex-1 space-y-1">
-              <h4 className="text-xl font-black tracking-tight text-foreground">
+              <h4 className="text-xl font-normal tracking-tight text-foreground">
                 {dealMatch ? "Existing Deal Targeted" : skipDeal ? "Contact Only" : "New Deal Creation"}
               </h4>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {dealMatch ? (
                   <>
-                    Targeting <span className="text-foreground font-bold">&quot;{dealMatch.deal_name}&quot;</span>.
+                    Targeting <span className="text-foreground font-normal">&quot;{dealMatch.deal_name}&quot;</span>.
                     <span className="block mt-1 text-xs opacity-60 italic">Matched via {dealMatch.match_reason?.toLowerCase()}</span>
                   </>
                 ) : skipDeal ? (
@@ -731,7 +783,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                   ))}
                   <button
                     onClick={handleCreateNewDeal}
-                    className="w-full py-2 text-[9px] font-medium text-muted-foreground/60 hover:text-beige"
+                    className="w-full py-2 text-xs font-normal text-muted-foreground/60 hover:text-beige"
                   >
                     + Create a brand new deal
                   </button>
@@ -745,9 +797,15 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
       )}
 
       <div className="space-y-6">
+        {callSummary ? (
+          <div className="space-y-3 px-1">
+            <h5 className={THEME_TOKENS.typography.capsLabel}>Call note</h5>
+            <CopilotNote markdown={callSummary} />
+          </div>
+        ) : null}
         <div className="flex items-center justify-between px-2">
           <h5 className={THEME_TOKENS.typography.capsLabel}>Proposed Changes</h5>
-          <span className="text-[10px] font-bold text-beige flex items-center gap-1.5">
+          <span className="text-xs font-normal text-beige flex items-center gap-1.5">
             <Sparkles className="h-3 w-3" />
             AI Extracted
           </span>
@@ -755,8 +813,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-12 bg-secondary/5 rounded-3xl border border-dashed border-border/40">
-            <Loader2 className="h-6 w-6 animate-spin text-beige mb-3" />
-            <p className="text-[10px] font-medium text-muted-foreground/40">Fetching deal details...</p>
+            <VocifyLoader size="md" label="Fetching deal details..." />
           </div>
         ) : updates.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">No field updates extracted.</p>
@@ -790,7 +847,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                 <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-3">
                   {showSection && (
                     <div className="flex items-center gap-2 px-1 pt-1">
-                      <span className="text-[9px] font-medium text-beige">
+                      <span className="text-xs font-normal text-beige">
                         {sectionLabel}
                       </span>
                       <span className="h-px flex-1 bg-border/30" />
@@ -803,11 +860,11 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between mb-2 gap-2">
-                      <span className="text-[10px] font-medium text-muted-foreground/60">{update.field_label}</span>
+                      <span className="text-xs font-normal text-muted-foreground/60">{update.field_label}</span>
                       {isOverride ? (
-                        <span className="bg-destructive/10 text-destructive text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">Override</span>
+                        <span className="bg-destructive/10 text-destructive text-[11px] font-normal px-2 py-0.5 rounded-full shrink-0">Override</span>
                       ) : (
-                        <span className="bg-success/10 text-success text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">New</span>
+                        <span className="bg-success/10 text-success text-[11px] font-normal px-2 py-0.5 rounded-full shrink-0">New</span>
                       )}
                     </div>
                     {hadExisting && (
@@ -848,7 +905,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                         )}
                       </div>
                     ) : (
-                      <p className={`text-sm font-bold leading-relaxed ${isOverride ? "text-destructive" : "text-success"}`}>
+                      <p className={`text-sm font-normal leading-relaxed ${isOverride ? "text-destructive" : "text-success"}`}>
                         {isCrmDateField(update)
                           ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
                           : optionLabelFor(update.new_value, update.options)}
@@ -888,7 +945,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
               variant="outline"
               size="sm"
               onClick={() => setShowAddField(!showAddField)}
-              className="rounded-full border-beige/40 hover:bg-beige/10 text-[9px] font-medium"
+              className="rounded-full border-beige/40 hover:bg-beige/10 text-xs font-normal"
             >
               <Plus className="h-3 w-3 mr-1.5" />
               Add field
@@ -919,7 +976,7 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
                       onClick={() => addField(f)}
                       className="w-full text-left px-4 py-2 text-sm hover:bg-beige/10 transition-colors"
                     >
-                      <span className="text-[9px] font-medium text-muted-foreground/50 mr-2">
+                      <span className="text-xs font-normal text-muted-foreground/50 mr-2">
                         {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
                       </span>
                       {f.label || f.name}
@@ -949,9 +1006,9 @@ export const HubSpotSyncPreview = ({ memoId, onSuccess, initialDealId, onContact
           variant="hero"
           onClick={handleSync}
           disabled={syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade)}
-          className="flex-1 bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-large h-14"
+          className="flex-1 bg-beige text-cream hover:bg-beige-dark rounded-full text-sm font-normal shadow-none h-12"
         >
-          {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+          {syncing ? <VocifySpinner size={16} className="mr-2" /> : <Check className="h-4 w-4 mr-2" />}
           {syncing
             ? "Syncing..."
             : needsContactDecision

@@ -3,7 +3,7 @@
   "minimum_chrome_version": "116",
   "name": "Vocify - Voice to CRM",
   "version": "1.0.14",
-  "description": "Update your CRM by speaking. Press Alt+Shift+V to record a voice memo.",
+  "description": "Update your CRM by speaking. Press Alt+Shift+V to open Vocify.",
   "permissions": ["storage", "tabs", "activeTab", "tabCapture", "offscreen", "notifications", "sidePanel"],
   "host_permissions": [
     "https://*.hubspot.com/*",
@@ -41,7 +41,7 @@
         "default": "Alt+Shift+V",
         "mac": "Alt+Shift+V"
       },
-      "description": "Start/Stop voice recording"
+      "description": "Open Vocify"
     }
   },
   "offline_enabled": false,

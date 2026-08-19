@@ -125,7 +125,7 @@ const DashboardHome = () => {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-foreground text-base truncate">
+                      <h3 className="font-normal text-foreground text-[15px] truncate">
                         {company}
                       </h3>
                       <p className="text-sm text-muted-foreground truncate mt-1 leading-relaxed">

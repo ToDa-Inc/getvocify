@@ -14,6 +14,87 @@ export function sameMemoId(a, b) {
 }
 
 /**
+ * Once Review & sync is open for a memo, keep that preview until
+ * discard/approve — do not follow HubSpot tab changes.
+ */
+export function shouldReloadReviewPreview({
+  memoId = null,
+  loadedMemoId = null,
+  pageKey = null,
+  loadedPageKey = null,
+  sessionLocked = false,
+} = {}) {
+  if (!sameMemoId(memoId, loadedMemoId)) return true;
+  if (sessionLocked) return false;
+  return String(pageKey || '') !== String(loadedPageKey || '');
+}
+
+const NOISE_MATCH_REASONS = new Set([
+  'linked to matched contact',
+  'manual selection',
+  'explicit contact selection',
+]);
+
+/** Drop matcher jargon; keep reasons that actually help pick a deal. */
+export function dealMatchSubtitle(matchReason) {
+  const raw = String(matchReason || '').trim();
+  if (!raw) return '';
+  return NOISE_MATCH_REASONS.has(raw.toLowerCase()) ? '' : raw;
+}
+
+export function dealTargetCardCopy({
+  selectedDeal = null,
+  skipDeal = false,
+  createNewDeal = false,
+  pageDeal = false,
+} = {}) {
+  if (selectedDeal) {
+    return {
+      title: selectedDeal.deal_name || 'Deal',
+      reason: pageDeal ? 'This HubSpot deal' : 'On this contact',
+    };
+  }
+  if (skipDeal) {
+    return {
+      title: 'Contact only',
+      reason: 'No deal will be updated',
+    };
+  }
+  if (createNewDeal) {
+    return {
+      title: 'New deal',
+      reason: 'Created when you sync',
+    };
+  }
+  return {
+    title: 'No deal selected',
+    reason: 'Optional — pick one if this call belongs on a deal',
+  };
+}
+
+/**
+ * Collapsed: one selected target card.
+ * Open: compact picker (contact only + linked deals + create).
+ */
+export function dealPickerVisibility({
+  pickerOpen = false,
+  needsConfirm = false,
+  hasMatches = false,
+  hasSelectedContact = false,
+} = {}) {
+  const showPicker = pickerOpen || needsConfirm;
+  return {
+    showPicker,
+    showCard: !showPicker,
+    showSearch: showPicker && !hasMatches,
+    showContactOnlyRow: showPicker && !!hasSelectedContact,
+    hint: needsConfirm && !hasSelectedContact
+      ? 'Pick a deal before syncing, or create a new one.'
+      : 'A deal is optional — this can stay on the contact.',
+  };
+}
+
+/**
  * @returns {'processing' | 'pending_transcript' | 'pending_review' | 'login' | 'error'}
  */
 export function resolveReviewPresentation({ memo = null, error = null, isAuthFailure = null } = {}) {

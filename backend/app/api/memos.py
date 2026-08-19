@@ -121,6 +121,10 @@ def _memo_from_row(memo_data: dict) -> Memo:
             processedAt=memo_data.get("processed_at"),
             approvedAt=memo_data.get("approved_at"),
             pipelineMeta=memo_data.get("pipeline_meta") or None,
+            source=memo_data.get("source") or memo_data.get("source_type"),
+            hubspotEngagementId=memo_data.get("hubspot_engagement_id"),
+            hubspotContactId=memo_data.get("hubspot_contact_id"),
+            hubspotDealId=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -1659,4 +1663,103 @@ async def re_extract_memo(
         
         updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
         return _memo_from_row(updated_result.data)
+
+
+@router.post("/{memo_id}/re-transcribe", response_model=Memo)
+async def re_transcribe_memo(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Re-download a HubSpot call recording and run STT again.
+
+    Uses the user's current call-language settings. HubSpot recordings are
+    re-fetched from HubSpot; uploaded voice memos do not keep audio after STT.
+    """
+    memo_result = (
+        supabase.table("memos")
+        .select("*")
+        .eq("id", str(memo_id))
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not memo_result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo not found")
+
+    memo_data = memo_result.data
+    if memo_data.get("status") == "approved":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot re-transcribe an approved memo. Reject it first if you need a new transcript.",
+        )
+
+    call_id = (memo_data.get("hubspot_engagement_id") or "").strip()
+    source = (memo_data.get("source") or memo_data.get("source_type") or "").strip()
+    if not call_id or source != "hubspot_call":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Re-transcribe is only available for HubSpot call recordings.",
+        )
+
+    if memo_data.get("status") in ("transcribing", "uploading", "extracting"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This memo is already being processed.",
+        )
+
+    from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
+    from app.services.hubspot.call_processor import process_hubspot_call_background
+
+    conn_result = (
+        supabase.table("crm_connections")
+        .select("id, access_token, refresh_token, token_expires_at, status")
+        .eq("user_id", user_id)
+        .eq("provider", "hubspot")
+        .limit(1)
+        .execute()
+    )
+    rows = conn_result.data or []
+    if not rows or rows[0].get("status") != "connected":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HubSpot connection not found. Please connect your HubSpot account first.",
+        )
+    try:
+        connection = ensure_fresh_hubspot_connection(supabase, rows[0])
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
+        ) from e
+    access_token = (connection.get("access_token") or "").strip()
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="HubSpot access token is missing",
+        )
+
+    supabase.table("memos").update(
+        {
+            "status": "transcribing",
+            "transcript": None,
+            "transcript_confidence": None,
+            "extraction": None,
+            "error_message": None,
+            "processed_at": None,
+            "processing_started_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", str(memo_id)).execute()
+
+    asyncio.create_task(
+        process_hubspot_call_background(
+            str(memo_id), user_id, access_token, call_id, supabase
+        )
+    )
+
+    updated_result = (
+        supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+    )
+    return _memo_from_row(updated_result.data)
 

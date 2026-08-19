@@ -47,6 +47,10 @@ class ProposedUpdate(BaseModel):
         None,
         description="CRM object this field belongs to: deals | contacts | companies | line_items | task",
     )
+    due_date: Optional[str] = Field(
+        None,
+        description="YYYY-MM-DD due date for HubSpot task rows",
+    )
 
 
 class AvailableField(BaseModel):

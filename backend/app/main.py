@@ -69,6 +69,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             or "/memos/upload" in path
             or "/upload-transcript" in path
             or "/re-extract" in path
+            or "/re-transcribe" in path
             or "/webhooks" in path
             or path == "/metrics"
         ):
@@ -262,9 +263,8 @@ async def startup_event():
     # silently degrades.
     # - CRM_UPDATES_LEGACY_PENDING_CUTOFF: see CRMUpdatesService.
     #   is_action_already_done's "WHERE this fires" note for the reasoning.
-    # - SUPABASE_JWT_SECRET: gates whether /auth/refresh can verify a token
-    #   before using it to decide whose session to touch. See auth.py's
-    #   refresh_token docstring.
+    # - SUPABASE_JWT_SECRET: verifies access JWTs in deps.get_user_id.
+    #   See app.api.auth.validate_startup_config.
     # - JWT_SECRET: signs the HubSpot/Salesforce OAuth "state" param. See
     #   config.py's validate_startup_config docstring.
     from app.services.crm_updates import validate_startup_config

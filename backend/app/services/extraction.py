@@ -142,10 +142,14 @@ EXTRACTION_SYSTEM_PROMPT = (
     "'martes que viene' = null. (2) Numbers EXACT as stated: 'un euro por empleado' = 1, never 2. "
     "(3) competitors = only company names explicitly said—do not infer or guess. "
     "(4) All text in transcript language. "
-    "(5) summary = prospect-centric CRM note (outcome + what they revealed, 3–5 sentences). "
-    "Do NOT recap the pitch or product; never invent. "
-    "(6) nextSteps = only explicit committed tasks; use short titles without dates/times, "
-    "and put timing in parallel nextStepSchedules (empty string when absent). Prefer [] over vague fluff. "
+    "(5) summary = structured markdown call note (2–4 headings the call earned, "
+    "bullets under each). Never a 3–5 sentence paragraph. Do NOT recap the pitch "
+    "or product; never invent. Do NOT include a Próximos pasos / Next steps heading "
+    "(that is nextSteps). "
+    "(6) nextSteps = follow-up tasks whenever the call created a real next action "
+    "(commitment, redirect, send materials, callback). Short titles without dates/times; "
+    "put timing in parallel nextStepSchedules as ISO YYYY-MM-DD when resolvable, else the "
+    "spoken phrase, else empty string. Prefer [] only when nothing actionable was said. "
     "(7) Do not overwrite identity, pre-call, or account-research fields that already have CURRENT VALUES. "
     "(8) Sales-motion / fit fields describe the prospect's company, never how we ran this call."
 )
@@ -221,26 +225,32 @@ class ExtractionService:
             "contactPhone": ("string | null", "Phone if mentioned. Enough on its own to create a contact."),
             "summary": (
                 "string",
-                "Sales CRM note about THIS conversation, 3–5 sentences, same language as the transcript. "
-                "Write for a rep who already knows the product. Cover: (1) outcome / disposition "
-                "(fit, next step, or explicit none), (2) who the prospect actually is and context THEY gave "
-                "(role, company, constraints), (3) why they buy or don't if they said it. "
-                "Do NOT recap the pitch, product, or what we offer. Do NOT start with who called whom "
-                "to present a tool. Ground ONLY in the transcript — never invent.",
+                "Structured call note in the transcript language. Markdown only: "
+                "2–4 headings the call actually earned (`# Contexto`, `# Perfil`, `# Decisión`, …) — "
+                "do not use a fixed template; omit a heading with nothing in it. "
+                "Under each heading: 1–4 bullets (`- `). One nested level (`  - `) allowed. "
+                "Bold proper names (`**Aritzel Expuru**`). "
+                "Prefer CURRENT CRM VALUES / glossary when a spoken name is a phonetic near-match. "
+                "Do NOT include a Próximos pasos / Next steps heading — that is nextSteps. "
+                "Do NOT recap the pitch or product. Do NOT write 3–5 sentences of prose. "
+                "Ground ONLY in the transcript — never invent.",
             ),
             "painPoints": ("string[]", "Pain points discussed."),
             "nextSteps": (
                 "string[]",
-                "Concrete follow-up tasks ONLY when a speaker explicitly commits. "
-                "Use concise HubSpot task titles (3-8 words): verb + what to do. "
+                "Follow-up tasks whenever the call created a real next action: a commitment, "
+                "a redirect to another person, sending materials, or a scheduled callback. "
+                "Fill this when there is an opportunity to follow up — not only when someone "
+                "said 'I promise'. Use concise HubSpot task titles (3-8 words): verb + what to do. "
                 "NO dates, times, weekdays, or scheduling ('martes', '18:00', 'mañana'). "
-                "Good: 'Llamada de seguimiento', 'Enviar propuesta comercial'. "
-                "Bad: 'Hablar el martes a las 18:00'. Empty array if none were committed.",
+                "Good: 'Llamada de seguimiento', 'Contactar a Aritzel Expuru', 'Enviar propuesta comercial'. "
+                "Bad: 'Hablar el martes a las 18:00'. Empty array only if nothing actionable came out of the call.",
             ),
             "nextStepSchedules": (
                 "string[]",
-                "Parallel to nextSteps: when each action happens as stated in the transcript "
-                "(e.g. 'martes 18:00', 'próxima semana'). Empty string if no timing mentioned.",
+                "Parallel to nextSteps: when each action happens. Prefer ISO YYYY-MM-DD when the day "
+                "can be resolved from the transcript (mañana, next Tuesday, el 20 de agosto). "
+                "Otherwise the spoken phrase (e.g. 'martes 18:00'). Empty string if no timing mentioned.",
             ),
             "competitors": ("string[]", "Competing vendors/products being evaluated."),
             "objections": ("string[]", "Objections raised."),
@@ -378,7 +388,7 @@ class ExtractionService:
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
 It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
 Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
-**summary**: prospect-centric CRM note (outcome + what they revealed). Do NOT recap the pitch. **nextSteps**: only explicit commitments → task-ready strings; prefer [] over vague fluff. Never invent.
+**summary**: structured markdown (headings + bullets). Do NOT recap the pitch. Do NOT include next steps in the note. **nextSteps**: fill when the call created a real follow-up; prefer [] only if nothing actionable. Never invent.
 """
         elif source_context == "hubspot_call":
             source_hint = """
@@ -401,12 +411,12 @@ Extraction discipline:
 - **No hallucination**: never infer company names, deal sizes, or dates from context alone.
 - **Transcript + CURRENT CRM VALUES**: do not invent from other calls. If CURRENT VALUE is set, prefer `null` over an inferred replacement.
 - **Short/inconclusive calls**: most fields will be `null` — that is correct and expected.
-- **Summary**: prospect-centric CRM note (outcome + what they revealed). Do NOT recap the pitch. Still no invention.
+- **Summary**: structured markdown call note (2–4 earned headings + bullets). Do NOT recap the pitch. Do NOT include Próximos pasos — that is nextSteps. Still no invention.
 - **Their company vs our motion**: sales-motion / fit / ICP fields describe the PROSPECT's world, never how we ran this outreach.
-- **Next steps → HubSpot tasks**: each item must be a concrete, assignable action someone committed to
-  (send X, schedule call, share doc, confirm Y). Titles contain only what to do; put any owner, date,
-  time, or deadline in the parallel `nextStepSchedules` item. Reject vague fluff: "seguir en contacto", "mantener el follow-up", "hablar pronto",
-  "cerrar el trato", "quedamos pendientes". If nothing concrete was agreed → `nextSteps: []`.
+- **Next steps → HubSpot tasks**: fill whenever the call created a real follow-up opportunity
+  (send X, schedule call, share doc, contact another person, callback). Titles contain only what to do; put any owner, date,
+  time, or deadline in the parallel `nextStepSchedules` item (ISO YYYY-MM-DD when the day is resolvable). Reject vague fluff: "seguir en contacto", "mantener el follow-up", "hablar pronto",
+  "cerrar el trato", "quedamos pendientes". Empty array only if nothing actionable came out of the call.
 - **Sentiment/outcome**: base these on what was actually said, not on tone assumptions.
 """
         
@@ -459,8 +469,8 @@ TRANSCRIPT:
 1. **Conservative**: Extract only what is explicitly mentioned **in this transcript**. If missing or ambiguous, set to `null`. Do not invent data. Do not use prior CRM knowledge or other calls.
 2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
 3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
-4. **summary**: Prospect-centric CRM note — outcome, who they are, context they gave, why they buy/don't. 3–5 sentences. Do NOT recap the pitch or product. No filler.
-5. **nextSteps**: Only explicit commitments → task-ready strings ("[Who] [verb] [object] [when if said]").
+4. **summary**: Structured markdown — 2–4 headings the call earned, bullets under each. Same language as the transcript. Do NOT recap the pitch. Do NOT include Próximos pasos / Next steps (that is nextSteps). Not a paragraph.
+5. **nextSteps**: Fill whenever the call created a real follow-up (commitment, redirect, send materials, callback). Task-ready titles without dates; timing goes in nextStepSchedules.
    Prefer empty array over vague items. Do NOT invent follow-ups the speakers did not agree to.
 5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach.
 5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.

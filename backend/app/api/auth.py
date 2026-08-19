@@ -15,7 +15,10 @@ from typing import Optional, List
 from app.config import settings
 from app.deps import get_supabase, get_supabase_auth, get_user_id
 from app.rate_limit import limiter
+from app.services.auth_session import RefreshTokenReuseCache, classify_refresh_failure
 from supabase import Client
+
+_refresh_reuse = RefreshTokenReuseCache(ttl_seconds=30)
 
 
 logger = logging.getLogger(__name__)
@@ -370,6 +373,41 @@ class RefreshResponse(BaseModel):
     expires_in: int = 3600
 
 
+def _decode_access_token_claims(access_token: Optional[str]) -> Optional[dict]:
+    """Read claims from a Supabase access token. Signature-verified; not used for authorization."""
+    if not access_token or access_token in ("undefined", "null"):
+        return None
+    if not settings.SUPABASE_JWT_SECRET:
+        return None
+    try:
+        import jwt as pyjwt
+
+        return pyjwt.decode(
+            access_token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_exp": False},
+            audience="authenticated",
+        )
+    except Exception as e:
+        logger.warning("Access token decode failed: %s", e)
+        return None
+
+
+def _email_from_access_token(access_token: Optional[str]) -> Optional[str]:
+    claims = _decode_access_token_claims(access_token)
+    if not claims:
+        return None
+    email = claims.get("email")
+    if isinstance(email, str) and "@" in email:
+        return email
+    meta = claims.get("user_metadata") or {}
+    meta_email = meta.get("email") if isinstance(meta, dict) else None
+    if isinstance(meta_email, str) and "@" in meta_email:
+        return meta_email
+    return None
+
+
 def validate_startup_config() -> None:
     """
     Fail the app's boot, not a user's /auth/refresh request, if this module is
@@ -377,11 +415,10 @@ def validate_startup_config() -> None:
     marked ready for traffic - same pattern as
     crm_updates.validate_startup_config for CRM_UPDATES_LEGACY_PENDING_CUTOFF.
 
-    SUPABASE_JWT_SECRET security-gates the GoTrue "oauth_client_id" bug
-    handling below (see refresh_token): without it, that code path used to
-    fall back to trusting an unverified, client-supplied token to decide who
-    gets a new session. It's not "optional but recommended" - treat it the
-    same as any other credential this app can't run safely without.
+    SUPABASE_JWT_SECRET verifies access JWTs on every authenticated request
+    (see deps.get_user_id). Without it, that check has no basis. It's not
+    optional — treat it the same as any other credential this app can't
+    run safely without.
     """
     if not settings.SUPABASE_JWT_SECRET:
         raise RuntimeError(
@@ -392,31 +429,20 @@ def validate_startup_config() -> None:
 
 
 @router.post("/refresh", response_model=RefreshResponse)
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 async def refresh_token(
     request: Request,
     body: RefreshRequest,
     supabase: Client = Depends(get_supabase_auth),
 ):
     """
-    Refresh the access token using a refresh token.
+    Rotate the access JWT using a refresh token.
 
-    Returns new access token and refresh token.
-    Uses the anon-key auth client when available (more reliable than service role).
-
-    If GoTrue itself is broken (the "oauth_client_id" platform bug - see
-    https://github.com/supabase/supabase/issues/39394), this fails the refresh
-    cleanly (401) instead of re-issuing a session. There used to be an admin
-    magiclink bypass here that resolved *who* to re-issue a session for from a
-    client-supplied access_token. It was removed: there is no Admin API or
-    exposed table that lets us independently confirm that access_token
-    belongs to the *same* session as the refresh_token that failed - Supabase
-    only exposes that binding via the refresh_session call itself, which is
-    exactly what's broken. Trusting a second, unrelated token to pick whose
-    session to touch is a forgeable/replayable identity check, not a real
-    one. Forcing a clean re-login is the safe failure mode until Supabase
-    fixes their infrastructure (Project Settings → Infrastructure → Upgrade,
-    or a support ticket).
+    A 401 here means the refresh token is actually dead — clients may sign
+    the user out. A 503 means Auth is unreachable or GoTrue hit a platform
+    bug (including oauth_client_id). We do not mint a replacement session
+    from any other caller-supplied token (that was the Aug 2026 bypass).
+    Clients must keep their stored refresh token and retry.
     """
     token = (body.refresh_token or "").strip()
     if not token or token in ("undefined", "null"):
@@ -425,79 +451,51 @@ async def refresh_token(
             detail="Invalid or expired refresh token",
         )
 
-    try:
-        auth_response = supabase.auth.refresh_session(token)
-
-        if not auth_response.session:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired refresh token",
+    with _refresh_reuse.lock_for(token):
+        cached = _refresh_reuse.get(token)
+        if cached:
+            return RefreshResponse(
+                access_token=cached["access_token"],
+                refresh_token=cached["refresh_token"],
+                expires_in=int(cached.get("expires_in") or 3600),
             )
 
-        access_token = auth_response.session.access_token
-        new_refresh = auth_response.session.refresh_token
-        expires_in = auth_response.session.expires_in or 3600
+        try:
+            auth_response = supabase.auth.refresh_session(token)
 
-        return RefreshResponse(
-            access_token=access_token,
-            refresh_token=new_refresh,
-            expires_in=expires_in,
-        )
+            if not auth_response.session:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired refresh token",
+                )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        error_msg = str(e)
-        lower = error_msg.lower()
-
-        # Transient network to Supabase — do not treat as expired session
-        if any(s in lower for s in ("timed out", "timeout", "connecttimeout", "connection", "network")):
-            logger.warning("Token refresh unreachable: %s", error_msg)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Auth service temporarily unreachable. Please try again.",
+            payload = {
+                "access_token": auth_response.session.access_token,
+                "refresh_token": auth_response.session.refresh_token,
+                "expires_in": auth_response.session.expires_in or 3600,
+            }
+            _refresh_reuse.put(token, payload)
+            return RefreshResponse(
+                access_token=payload["access_token"],
+                refresh_token=payload["refresh_token"],
+                expires_in=int(payload["expires_in"]),
             )
 
-        # Known Supabase Auth platform bug (see docstring above) — no safe way
-        # to identify the caller independently of the broken call, so fail
-        # clean instead of guessing. Logged at ERROR (not just observability -
-        # every occurrence is a forced re-login) so frequency is visible.
-        if "oauth_client_id" in lower or "unexpected_failure" in lower:
-            logger.error(
-                "Supabase Auth refresh broken (oauth_client_id) — no safe bypass "
-                "available, forcing re-login — %s",
-                error_msg,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session expired due to a Supabase Auth platform issue. Please sign in again.",
-            )
-
-        # GoTrue often returns 500 for already-used / invalid refresh tokens
-        auth_failure = any(
-            s in lower
-            for s in (
-                "invalid",
-                "expired",
-                "refresh_token",
-                "refresh token",
-                "not found",
-                "unauthorized",
-                "forbidden",
-            )
-        )
-        if not auth_failure and "500" in lower and "token" in lower:
-            auth_failure = True
-        if auth_failure:
+        except HTTPException:
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            kind, http_status = classify_refresh_failure(error_msg)
+            if http_status == 503:
+                log = logger.error if "oauth_client_id" in error_msg.lower() else logger.warning
+                log("Token refresh unavailable (%s): %s", kind, error_msg)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Auth service temporarily unreachable. Please try again.",
+                )
             logger.warning("Token refresh rejected: %s", error_msg)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired refresh token",
             )
-
-        logger.exception("Token refresh failed")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Token refresh failed: {error_msg}",
-        )
 

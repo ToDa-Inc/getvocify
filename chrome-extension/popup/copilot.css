@@ -21,10 +21,10 @@
 .copilot-say-this {
   margin: 0;
   font-size: 16px;
-  font-weight: 600;
-  line-height: 1.4;
+  font-weight: 400;
+  line-height: 1.45;
   color: var(--foreground);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
 }
 
 .copilot-heard,
@@ -47,7 +47,7 @@
   font-size: 12px;
   line-height: 1.45;
   color: var(--muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .listen-status[data-phase="starting"] {

@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 import { Mic, Search, Calendar, Clock, AlertCircle } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { Input } from "@/components/ui/input";
+import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { memosApi } from "@/features/memos/api";
+import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { formatDistanceToNow } from "date-fns";
 
 const getStatusBadge = (status: string) => {
@@ -74,10 +76,11 @@ const MemosPage = () => {
   const filteredMemos = memos.filter(memo => {
     if (!searchTerm.trim()) return true;
     const q = searchTerm.toLowerCase().trim();
+    const contact = (memo.extraction?.contactName || "").toLowerCase();
     const company = (memo.extraction?.companyName || "").toLowerCase();
     const transcript = (memo.transcript || "").toLowerCase();
     const summary = (memo.extraction?.summary || "").toLowerCase();
-    return company.includes(q) || transcript.includes(q) || summary.includes(q);
+    return contact.includes(q) || company.includes(q) || transcript.includes(q) || summary.includes(q);
   });
 
   const formatDuration = (seconds: number) => {
@@ -110,9 +113,8 @@ const MemosPage = () => {
       </div>
 
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 space-y-4">
-          <div className="w-8 h-8 border-2 border-beige border-t-transparent rounded-full animate-spin" />
-          <p className={THEME_TOKENS.typography.capsLabel}>Syncing conversations...</p>
+        <div className="flex flex-col items-center justify-center py-20">
+          <VocifyLoader size="md" label="Syncing conversations..." />
         </div>
       ) : error ? (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-12 text-center`}>
@@ -127,7 +129,7 @@ const MemosPage = () => {
           <div className="w-14 h-14 mx-auto mb-6 rounded-2xl bg-secondary flex items-center justify-center">
             <Mic className="h-6 w-6 text-muted-foreground/40" />
           </div>
-          <h3 className="text-xl font-semibold text-foreground mb-2">
+          <h3 className="text-xl font-normal text-foreground mb-2">
             {searchTerm ? "No matches found" : "No voice memos yet"}
           </h3>
           <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
@@ -136,7 +138,7 @@ const MemosPage = () => {
           {!searchTerm && (
             <Link 
               to="/dashboard/record"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-beige text-cream rounded-lg font-medium"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-beige text-cream rounded-full font-normal"
             >
               <Mic className="h-4 w-4" />
               Record first memo
@@ -158,8 +160,8 @@ const MemosPage = () => {
                 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-medium text-foreground text-base truncate">
-                      {memo.extraction?.companyName || "Untitled Conversation"}
+                    <h3 className="font-normal text-foreground text-[15px] truncate">
+                      {memoListTitle(memo)}
                     </h3>
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock className="h-3 w-3" />
@@ -167,7 +169,11 @@ const MemosPage = () => {
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground line-clamp-1 leading-relaxed">
-                    {memo.transcript || "Conversation being transcribed..."}
+                    {memoListSubtitle(memo) ||
+                      (memo.extraction?.summary
+                        ? String(memo.extraction.summary).replace(/^#+\s+/gm, " ").replace(/\s+/g, " ").trim()
+                        : memo.transcript) ||
+                      "Conversation being transcribed..."}
                   </p>
                 </div>
                 
