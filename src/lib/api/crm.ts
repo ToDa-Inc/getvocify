@@ -146,8 +146,13 @@ export const crmApi = {
     return api.post("/crm/hubspot/configure", config);
   },
 
-  async getSchema(objectType: "deals" | "contacts" | "companies" | "line_items") {
-    return api.get<CRMSchema>(`/crm/hubspot/schema?object_type=${objectType}`);
+  async getSchema(
+    objectType: "deals" | "contacts" | "companies" | "line_items",
+    opts?: { refresh?: boolean },
+  ) {
+    const params = new URLSearchParams({ object_type: objectType });
+    if (opts?.refresh) params.set("refresh", "true");
+    return api.get<CRMSchema>(`/crm/hubspot/schema?${params}`);
   },
 
   async searchDeals(query: string) {

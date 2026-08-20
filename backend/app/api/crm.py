@@ -815,6 +815,7 @@ async def disconnect_hubspot(
 @router.get("/hubspot/schema", response_model=CRMSchema)
 async def get_hubspot_schema(
     object_type: Literal["deals", "contacts", "companies", "line_items"] = "deals",
+    refresh: bool = False,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -822,7 +823,8 @@ async def get_hubspot_schema(
     Get HubSpot schema (properties and pipelines) for an object type.
     
     Used by frontend to build field allowlists for deals, contacts, companies, line items.
-    Uses database caching to avoid repeated API calls.
+    Uses database caching to avoid repeated API calls unless refresh=true
+    (pull from HubSpot again after new properties are added).
     
     Requires:
     - User must exist in user_profiles table
@@ -871,7 +873,7 @@ async def get_hubspot_schema(
     schema_service = HubSpotSchemaService(client, supabase, connection_id)
     
     try:
-        schema = await schema_service.get_schema(object_type)
+        schema = await schema_service.get_schema(object_type, use_cache=not refresh)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

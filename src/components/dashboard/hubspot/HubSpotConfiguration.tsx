@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, Pipeline, CRMSchema, CRMConfiguration } from "@/lib/api/crm";
 import { toast } from "sonner";
-import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, X, Plus, PhoneOff, AlertTriangle } from "lucide-react";
+import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, X, Plus, PhoneOff, AlertTriangle, RefreshCw } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/shared/lib/api-client";
@@ -39,11 +39,45 @@ const RECOMMENDED_BY_OBJECT: Record<ObjectTab, string[]> = {
 
 const SYSTEM_FIELDS = ["hs_object_id", "createdate", "lastmodifieddate", "hs_lastmodifieddate"];
 
+function lineItemErrorLooksLikeScope(err: unknown): boolean {
+  const detail = String(
+    err instanceof ApiError
+      ? (typeof err.data === "object" &&
+        err.data &&
+        "detail" in (err.data as object)
+          ? (err.data as { detail?: string }).detail
+          : err.message)
+      : err instanceof Error
+        ? err.message
+        : err,
+  ).toLowerCase();
+  return (
+    detail.includes("permission") ||
+    detail.includes("scope") ||
+    detail.includes("deal-line-item")
+  );
+}
+
+async function fetchHubSpotSchemas(refresh = false) {
+  const opts = refresh ? { refresh: true } : undefined;
+  const [dealSchema, contactSchema, companySchema, lineItemResult] = await Promise.all([
+    crmApi.getSchema("deals", opts),
+    crmApi.getSchema("contacts", opts).catch(() => null),
+    crmApi.getSchema("companies", opts).catch(() => null),
+    crmApi.getSchema("line_items", opts).then(
+      (schema) => ({ ok: true as const, schema }),
+      (err: unknown) => ({ ok: false as const, err }),
+    ),
+  ]);
+  return { dealSchema, contactSchema, companySchema, lineItemResult };
+}
+
 export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [schemas, setSchemas] = useState<Partial<Record<ObjectTab, CRMSchema>>>({});
   const [activeTab, setActiveTab] = useState<ObjectTab>("deals");
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
@@ -69,52 +103,49 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
     on_hold_lead_status_value: null,
   });
 
+  const applySchemas = (
+    dealSchema: CRMSchema,
+    contactSchema: CRMSchema | null,
+    companySchema: CRMSchema | null,
+    lineItemResult: { ok: true; schema: CRMSchema } | { ok: false; err: unknown },
+    pipelinesData?: Pipeline[],
+  ) => {
+    const lineItemSchema = lineItemResult.ok ? lineItemResult.schema : null;
+    if (lineItemResult.ok) {
+      setLineItemsScopeMissing(false);
+      setLineItemsSchemaError(false);
+    } else {
+      const looksLikeScope = lineItemErrorLooksLikeScope(lineItemResult.err);
+      setLineItemsScopeMissing(looksLikeScope);
+      setLineItemsSchemaError(!looksLikeScope);
+    }
+    if (pipelinesData) setPipelines(pipelinesData);
+    else if (dealSchema.pipelines?.length) setPipelines(dealSchema.pipelines);
+    setSchemas((prev) => ({
+      ...prev,
+      deals: dealSchema,
+      ...(contactSchema ? { contacts: contactSchema } : {}),
+      ...(companySchema ? { companies: companySchema } : {}),
+      ...(lineItemSchema ? { line_items: lineItemSchema } : {}),
+    }));
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [pipelinesData, dealSchema, contactSchema, companySchema, lineItemResult, currentConfig] =
-          await Promise.all([
-            crmApi.getPipelines(),
-            crmApi.getSchema("deals"),
-            crmApi.getSchema("contacts").catch(() => null),
-            crmApi.getSchema("companies").catch(() => null),
-            crmApi.getSchema("line_items").then(
-              (schema) => ({ ok: true as const, schema }),
-              (err: unknown) => ({ ok: false as const, err }),
-            ),
-            crmApi.getConfiguration(),
-          ]);
+        const [schemaBundle, pipelinesData, currentConfig] = await Promise.all([
+          fetchHubSpotSchemas(false),
+          crmApi.getPipelines(),
+          crmApi.getConfiguration(),
+        ]);
 
-        const lineItemSchema = lineItemResult.ok ? lineItemResult.schema : null;
-        if (lineItemResult.ok) {
-          setLineItemsScopeMissing(false);
-          setLineItemsSchemaError(false);
-        } else {
-          const detail = String(
-            lineItemResult.err instanceof ApiError
-              ? (typeof lineItemResult.err.data === "object" &&
-                lineItemResult.err.data &&
-                "detail" in (lineItemResult.err.data as object)
-                  ? (lineItemResult.err.data as { detail?: string }).detail
-                  : lineItemResult.err.message)
-              : lineItemResult.err instanceof Error
-                ? lineItemResult.err.message
-                : lineItemResult.err,
-          ).toLowerCase();
-          const looksLikeScope =
-            detail.includes("permission") ||
-            detail.includes("scope") ||
-            detail.includes("deal-line-item");
-          setLineItemsScopeMissing(looksLikeScope);
-          setLineItemsSchemaError(!looksLikeScope);
-        }
-        setPipelines(pipelinesData);
-        setSchemas({
-          deals: dealSchema,
-          ...(contactSchema ? { contacts: contactSchema } : {}),
-          ...(companySchema ? { companies: companySchema } : {}),
-          ...(lineItemSchema ? { line_items: lineItemSchema } : {}),
-        });
+        applySchemas(
+          schemaBundle.dealSchema,
+          schemaBundle.contactSchema,
+          schemaBundle.companySchema,
+          schemaBundle.lineItemResult,
+          pipelinesData,
+        );
 
         if (currentConfig) {
           setConfig({
@@ -150,6 +181,20 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
 
     fetchData();
   }, []);
+
+  const handleRefreshFields = async () => {
+    setIsRefreshing(true);
+    try {
+      const { dealSchema, contactSchema, companySchema, lineItemResult } =
+        await fetchHubSpotSchemas(true);
+      applySchemas(dealSchema, contactSchema, companySchema, lineItemResult);
+      toast.success("HubSpot fields updated. Enable new properties below, then Save.");
+    } catch {
+      toast.error("Could not refresh HubSpot fields");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -385,6 +430,22 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
           <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
             Field mapping
           </h4>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshFields}
+            disabled={isRefreshing || isLoading}
+            title="Pull the latest HubSpot properties and pipelines"
+            className="rounded-full h-8 px-3 text-[9px] font-medium border-border/50 text-beige shrink-0"
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            )}
+            Refresh from HubSpot
+          </Button>
         </div>
 
         <div className="flex items-start gap-2 px-2">
