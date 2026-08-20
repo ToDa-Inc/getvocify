@@ -17,6 +17,8 @@ import {
   confirmTranscriptAlreadyFinished,
   confirmTranscriptErrorStatus,
   memoForReviewPresentation,
+  reviewMemoIfCurrent,
+  shouldWriteCallNote,
 } from './review-screen.js';
 
 describe('sameMemoId', () => {
@@ -30,6 +32,65 @@ describe('sameMemoId', () => {
     assert.equal(sameMemoId('memo-1', null), false);
     assert.equal(sameMemoId(null, 'memo-1'), false);
     assert.equal(sameMemoId('', 'memo-1'), false);
+  });
+});
+
+describe('reviewMemoIfCurrent', () => {
+  it('keeps the payload only when it belongs to the open memo', () => {
+    const memo = { id: 'm-esteban', extraction: { summary: 'Golf' } };
+    assert.equal(reviewMemoIfCurrent(memo, 'm-esteban'), memo);
+    assert.equal(reviewMemoIfCurrent(memo, 'm-david'), null);
+    assert.equal(reviewMemoIfCurrent(null, 'm-david'), null);
+  });
+});
+
+describe('shouldWriteCallNote', () => {
+  it('replaces the note when switching to a different call', () => {
+    assert.equal(
+      shouldWriteCallNote({
+        memoId: 'm-david',
+        paintedMemoId: 'm-esteban',
+        existingText: 'Esteban was playing golf',
+        incomingText: 'David asked for a follow-up',
+      }),
+      true,
+    );
+  });
+
+  it('replaces leftover text when the previous call is no longer the painted memo', () => {
+    assert.equal(
+      shouldWriteCallNote({
+        memoId: 'm-david',
+        paintedMemoId: null,
+        existingText: 'Esteban was playing golf',
+        incomingText: 'David asked for a follow-up',
+      }),
+      true,
+    );
+  });
+
+  it('fills an empty box on first paint of this call', () => {
+    assert.equal(
+      shouldWriteCallNote({
+        memoId: 'm-david',
+        paintedMemoId: null,
+        existingText: '',
+        incomingText: 'David asked for a follow-up',
+      }),
+      true,
+    );
+  });
+
+  it('keeps in-progress edits while the HubSpot tab or preview refreshes', () => {
+    assert.equal(
+      shouldWriteCallNote({
+        memoId: 'm-david',
+        paintedMemoId: 'm-david',
+        existingText: 'David — user edited this',
+        incomingText: 'David asked for a follow-up',
+      }),
+      false,
+    );
   });
 });
 

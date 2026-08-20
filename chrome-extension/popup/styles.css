@@ -283,7 +283,7 @@ body {
 
 .idle-tools {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
   width: calc(100% - 40px);
   max-width: 320px;

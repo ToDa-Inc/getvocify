@@ -30,7 +30,7 @@ import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js'
 import { mergeSessionVocab } from './lib/session-vocab.js';
 import { apiBaseToWsOrigin } from './lib/api-base.js';
 import { actionsForCommand } from './lib/hotkey.js';
-import { slimReviewMemo } from './lib/review-screen.js';
+import { reviewMemoIfCurrent, slimReviewMemo } from './lib/review-screen.js';
 import { reviewIdsFromMemo } from './lib/memo-identity.js';
 import {
   clearInflightPreview,
@@ -228,6 +228,7 @@ function updateState(newState) {
   }
 
   state = { ...state, ...newState, captureTabId: lastActiveTabId };
+  state.reviewMemo = reviewMemoIfCurrent(state.reviewMemo, state.currentMemoId);
 
   if (state.listenPhase === 'live' || state.isCopilotListening) {
     chrome.action.setBadgeText({ text: 'LIVE' });

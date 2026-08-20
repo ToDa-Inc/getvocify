@@ -44,6 +44,7 @@ from .tasks import (
     format_next_step_task,
     _next_step_schedule_hints,
     summarize_task_batch,
+    build_task_body,
 )
 from app.models.memo import MemoExtraction
 from app.services.crm_updates import CRMUpdatesService
@@ -1069,7 +1070,11 @@ class HubSpotSyncService:
                                     subject=formatted.subject,
                                     due_date=due,
                                     deal_id=deal_id,
-                                    body=extraction.summary or "",
+                                    body=build_task_body(
+                                        step=add_op.subject,
+                                        summary=extraction.summary,
+                                        formatted_subject=formatted.subject,
+                                    ),
                                     hubspot_owner_id=hubspot_owner_id,
                                     task_type=formatted.task_type,
                                 )

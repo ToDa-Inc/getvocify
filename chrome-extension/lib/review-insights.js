@@ -164,7 +164,7 @@ export function taskRowsFromPreview({
   if (steps.length) {
     return steps.map((text, i) => ({
       id: i + 1,
-      text,
+      text: String(previewTasks[i]?.new_value || text).trim(),
       checked: true,
       dueDate: dueForIndex(i) || null,
     }));

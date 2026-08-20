@@ -13,6 +13,28 @@ export function sameMemoId(a, b) {
   return String(a) === String(b);
 }
 
+/** Cached review payload is only valid for this memo — never paint the previous call. */
+export function reviewMemoIfCurrent(reviewMemo, memoId) {
+  if (!reviewMemo) return null;
+  const id = reviewMemo.id ?? reviewMemo.memo_id;
+  return sameMemoId(id, memoId) ? reviewMemo : null;
+}
+
+/**
+ * Fill the call note from a memo. A different call always replaces.
+ * The same call only fills an empty box so tab/preview refreshes keep edits.
+ */
+export function shouldWriteCallNote({
+  memoId = null,
+  paintedMemoId = null,
+  existingText = '',
+  incomingText = '',
+} = {}) {
+  if (!String(incomingText || '').trim()) return false;
+  if (!sameMemoId(memoId, paintedMemoId)) return true;
+  return !String(existingText || '').trim();
+}
+
 /**
  * Once Review & sync is open for a memo, keep that preview until
  * discard/approve — do not follow HubSpot tab changes.

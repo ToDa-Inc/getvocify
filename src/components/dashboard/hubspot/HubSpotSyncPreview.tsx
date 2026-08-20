@@ -155,7 +155,13 @@ export const HubSpotSyncPreview = ({
   const fetchPreview = useCallback(
     async (dealId?: string, opts?: { createNewDeal?: boolean; contactId?: string }) => {
       const requestedMemoId = memoId;
-      const cacheKey = `${previewRefreshKey}:${previewCacheKey(dealId || initialDealId)}`;
+      const cacheKey = previewCacheKey({
+        memoId,
+        dealId: dealId || initialDealId || null,
+        contactId: opts?.contactId || null,
+        createNewDeal: !!opts?.createNewDeal,
+        refreshKey: previewRefreshKey,
+      });
       setLoading(true);
       try {
         const previewData = await crmApi.getPreview(memoId, dealId, opts);
@@ -163,7 +169,7 @@ export const HubSpotSyncPreview = ({
         setPreview(previewData);
         setEditedUpdates(null);
         setOmittedKeys([]);
-        setCachedPreview(memoId, cacheKey, previewData);
+        setCachedPreview(cacheKey, previewData);
         return previewData;
       } catch {
         if (memoIdRef.current !== requestedMemoId) return undefined;
@@ -190,9 +196,18 @@ export const HubSpotSyncPreview = ({
       setConfirmingNewDeal(false);
       setManualDealName("");
       setExtractionError(false);
+      setShowAllSearch(false);
+      setSearchResults([]);
+      setSearchQuery("");
+      setEditingIdx(null);
+      setShowAddField(false);
 
-      const cacheKey = `${previewRefreshKey}:${previewCacheKey(initialDealId)}`;
-      const cached = getCachedPreview(memoId, cacheKey);
+      const cacheKey = previewCacheKey({
+        memoId,
+        dealId: initialDealId || null,
+        refreshKey: previewRefreshKey,
+      });
+      const cached = getCachedPreview(cacheKey);
       if (cached) {
         setPreview(cached);
         applyPreviewDecisions(cached);

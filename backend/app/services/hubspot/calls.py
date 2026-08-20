@@ -21,6 +21,7 @@ CALL_PROPERTIES = (
     "hs_call_from_number",
     "hs_call_to_number",
     "hs_timestamp",
+    "hs_createdate",
 )
 
 MAX_RECORDINGS_PER_RECORD = 20
@@ -49,16 +50,38 @@ def call_duration_seconds(props: dict) -> float:
     return round(ms / 1000.0, 2)
 
 
+def parse_hubspot_timestamp_ms(raw: Any) -> Optional[int]:
+    """Parse HubSpot hs_timestamp / createdAt values to epoch milliseconds."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        n = int(float(s))
+        if n < 1e11:
+            n *= 1000
+        return n
+    except ValueError:
+        pass
+    try:
+        iso = s.replace("Z", "+00:00") if s.endswith("Z") else s
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except ValueError:
+        return None
+
+
 def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
     props = data.get("properties") or {}
     rec = (props.get("hs_call_recording_url") or "").strip()
-    ts_raw = props.get("hs_timestamp")
-    ts_ms: Optional[int] = None
-    if ts_raw is not None and str(ts_raw).strip():
-        try:
-            ts_ms = int(str(ts_raw).strip())
-        except ValueError:
-            ts_ms = None
+    ts_ms = parse_hubspot_timestamp_ms(props.get("hs_timestamp"))
+    if ts_ms is None:
+        ts_ms = parse_hubspot_timestamp_ms(data.get("createdAt"))
+    if ts_ms is None:
+        ts_ms = parse_hubspot_timestamp_ms(props.get("hs_createdate"))
     title = (props.get("hs_call_title") or "").strip() or "Call"
     timestamp_iso = None
     if ts_ms:

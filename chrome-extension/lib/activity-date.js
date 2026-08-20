@@ -13,25 +13,31 @@ export function parseActivityTimestamp(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** e.g. "Aug 19, 2026 · 3:35 PM" */
+/** e.g. "Aug 19, 3:35 PM" — compact for narrow extension rows */
 export function formatActivityTimestamp(value) {
   const d = parseActivityTimestamp(value);
   if (!d) return '';
   const datePart = d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
   });
   const timePart = d.toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
   });
-  return `${datePart} · ${timePart}`;
+  return `${datePart}, ${timePart}`;
 }
 
 export function activityTimestampFromRecording(rec) {
   if (!rec) return null;
-  return rec.timestamp || rec.timestamp_ms || rec.timestampMs || null;
+  return (
+    rec.timestamp
+    || rec.timestamp_ms
+    || rec.timestampMs
+    || rec.created_at
+    || rec.createdAt
+    || null
+  );
 }
 
 export function activityTimestampFromMemo(memo) {

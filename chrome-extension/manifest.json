@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "116",
   "name": "Vocify - Voice to CRM",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Update your CRM by speaking. Press Alt+Shift+V to open Vocify.",
   "permissions": ["storage", "tabs", "activeTab", "tabCapture", "offscreen", "notifications", "sidePanel"],
   "host_permissions": [

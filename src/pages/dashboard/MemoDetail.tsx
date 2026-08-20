@@ -146,6 +146,7 @@ const MemoDetail = () => {
     let cancelled = false;
     setMemo(null);
     setSyncResult(null);
+    setReviewContactName(null);
     setError(null);
     const load = async () => {
       try {
@@ -483,6 +484,7 @@ const MemoDetail = () => {
           <div className="lg:col-span-3">
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10`}>
               <HubSpotSyncPreview
+                key={id || ""}
                 memoId={id || ""}
                 initialDealId={dealIdFromUrl}
                 previewRefreshKey={previewRefreshKey}

@@ -224,7 +224,27 @@ _SCHEDULE_PATTERNS = [
     r"\bel\s+d[ií]a\s+\d{1,2}\b",
     r"\b(?:en|within)\s+\d+\s+d[ií]as?\b",
     r"\bque\s+viene\b|\bsiguiente\b",
+    r"\b(?:a\s+)?(?:principios?|principis?|comienzos?|inici(?:s)?|beginning|start)\s+(?:de\s+|d[''']?)?"
+    r"(?:enero|gener|febrero|febrer|marzo|mar[cç]|abril|mayo|maig|junio|juny|julio|juliol|agosto|"
+    r"septiembre|setembre|octubre|noviembre|novembre|diciembre|desembre)\b",
+    r"\b(?:al|a|en|per)\s+(?:enero|gener|febrero|febrer|marzo|mar[cç]|abril|mayo|maig|junio|juny|"
+    r"julio|juliol|agosto|septiembre|setembre|octubre|noviembre|novembre|diciembre|desembre)\b",
 ]
+
+_MONTH_NAME_TO_NUM: dict[str, int] = {
+    "enero": 1, "gener": 1,
+    "febrero": 2, "febrer": 2,
+    "marzo": 3, "març": 3, "marc": 3,
+    "abril": 4,
+    "mayo": 5, "maig": 5,
+    "junio": 6, "juny": 6,
+    "julio": 7, "juliol": 7,
+    "agosto": 8,
+    "septiembre": 9, "setembre": 9,
+    "octubre": 10,
+    "noviembre": 11, "novembre": 11,
+    "diciembre": 12, "desembre": 12,
+}
 
 
 def _strip_scheduling_phrases(text: str) -> str:
@@ -255,10 +275,21 @@ def _infer_task_title(cleaned: str, original: str, contact_name: Optional[str]) 
     source = cleaned or original
     lower = source.lower()
 
-    topic_match = re.search(r"(?:por|sobre|about|re:|re\.)\s+(.+)", lower)
+    if re.search(
+        r"\b(hablar|llamar|llamada|call|phone|telefonear|ring|parlar|trucar|contactar|contact)\b",
+        lower,
+    ):
+        if contact_name:
+            first = contact_name.strip().split()[0]
+            return f"Llamada con {first}"
+        return "Llamada de seguimiento"
+
+    topic_match = re.search(r"(?:por|per|sobre|about|re:|re\.)\s+(.+)", lower)
     if topic_match:
         topic = topic_match.group(1).strip(" .")[:60]
-        if topic and re.search(r"\b(llamar|call|hablar|phone|telefonear)\b", lower):
+        if topic and re.search(
+            r"\b(llamar|call|hablar|parlar|phone|telefonear|trucar|contactar)\b", lower
+        ):
             return f"Llamar por {topic[0].upper()}{topic[1:]}" if len(topic) <= 40 else f"Llamada: {topic[:40]}"
 
     action_match = re.search(
@@ -269,12 +300,6 @@ def _infer_task_title(cleaned: str, original: str, contact_name: Optional[str]) 
     if action_match:
         title = action_match.group(0).strip()
         return title[0].upper() + title[1:]
-
-    if re.search(r"\b(hablar|llamar|llamada|call|phone|telefonear|ring)\b", lower):
-        if contact_name:
-            first = contact_name.strip().split()[0]
-            return f"Llamada con {first}"
-        return "Llamada de seguimiento"
 
     if re.search(r"\bdemo\b", lower):
         return "Demo con el cliente" if contact_name else "Demo"
@@ -291,7 +316,10 @@ def _infer_task_type(text: str) -> str:
     lower = (text or "").lower()
     if re.search(r"\b(enviar|email|mail|correo|send)\b", lower):
         return "EMAIL"
-    if re.search(r"\b(hablar|llamar|llamada|call|phone|telefonear|ring)\b", lower):
+    if re.search(
+        r"\b(hablar|llamar|llamada|call|phone|telefonear|ring|parlar|trucar|contactar|contact)\b",
+        lower,
+    ):
         return "CALL"
     return "TODO"
 
@@ -343,6 +371,24 @@ def detected_task_due_iso(step: str, schedule_hint: Optional[str] = None) -> Opt
 
 
 _ISO_DATE_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def _parse_month_from_text(text: str, now: datetime) -> Optional[datetime]:
+    """Resolve Spanish/Catalan month references like 'principios de septiembre' or 'al setembre'."""
+    lower = text.strip().lower()
+    matched_month: Optional[int] = None
+    for name, month_num in _MONTH_NAME_TO_NUM.items():
+        if re.search(rf"\b{re.escape(name)}\b", lower):
+            matched_month = month_num
+            break
+    if matched_month is None:
+        return None
+
+    year = now.year
+    if matched_month < now.month:
+        year += 1
+
+    return datetime(year, matched_month, 1)
 
 
 def _parse_date_from_text(text: str) -> Optional[datetime]:
@@ -400,11 +446,44 @@ def _parse_date_from_text(text: str) -> Optional[datetime]:
     if "próxima semana" in lower or "proxima semana" in lower or "next week" in lower:
         return now + timedelta(days=7)
 
+    month_date = _parse_month_from_text(text, now)
+    if month_date is not None:
+        return month_date
+
     return None
 
 
 def _normalize_task_subject(subject: str) -> str:
     return " ".join((subject or "").lower().split())
+
+
+def build_task_body(
+    *,
+    step: Optional[str] = None,
+    summary: Optional[str] = None,
+    formatted_subject: Optional[str] = None,
+) -> str:
+    """
+    HubSpot task notes: keep the spoken next-step context even when the title is shortened.
+    Falls back to memo summary; includes both when they differ.
+    """
+    step_text = (step or "").strip()
+    summary_text = (summary or "").strip()
+    subject_norm = _normalize_task_subject(formatted_subject or "")
+    step_norm = _normalize_task_subject(step_text)
+
+    context_line = step_text
+    if step_text and subject_norm and step_norm == subject_norm:
+        context_line = ""
+
+    parts: list[str] = []
+    if context_line:
+        parts.append(context_line)
+    if summary_text:
+        if parts:
+            parts.extend(["", "---", ""])
+        parts.append(summary_text)
+    return "\n".join(parts)[:65535]
 
 
 class HubSpotTasksService:
@@ -597,7 +676,11 @@ class HubSpotTasksService:
                 due_date=formatted.due_date,
                 deal_id=deal_id,
                 contact_id=None if deal_id else contact_id,
-                body=extraction.summary or "",
+                body=build_task_body(
+                    step=step,
+                    summary=extraction.summary,
+                    formatted_subject=formatted.subject,
+                ),
                 hubspot_owner_id=hubspot_owner_id,
                 task_type=formatted.task_type,
             )

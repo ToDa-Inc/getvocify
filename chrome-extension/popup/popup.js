@@ -22,6 +22,8 @@ import {
   confirmTranscriptAlreadyFinished,
   confirmTranscriptErrorStatus,
   memoForReviewPresentation,
+  reviewMemoIfCurrent,
+  shouldWriteCallNote,
 } from '../lib/review-screen.js';
 import { buildHubSpotUrl } from '../lib/hubspot-parser.js';
 import {
@@ -658,15 +660,12 @@ function appendCallActivityRow(listEl, rec) {
   const pill = getMemoStatusPill(rec);
   const dateStr = formatActivityTimestamp(activityTimestampFromRecording(rec));
   const durStr = formatCallDuration(callDurationSeconds(rec));
-  const meta = durStr || '';
+  const meta = [dateStr, durStr].filter(Boolean).join(' · ');
   const title = rec.title || 'Call';
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Call</span>
-      <div class="recording-row-title-line">
-        <span class="recording-row-title">${escapeHtml(title)}</span>
-        ${dateStr ? `<time class="recording-row-date">${escapeHtml(dateStr)}</time>` : ''}
-      </div>
+      <span class="recording-row-title">${escapeHtml(title)}</span>
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
     <div class="recording-row-actions">
@@ -713,14 +712,12 @@ function appendMemoActivityRow(listEl, memo) {
   if (memo.status === 'failed') statusClass = 'status-failed';
   const title = memoListTitle(memo);
   const subtitle = memoListSubtitle(memo);
+  const meta = [dateStr, subtitle].filter(Boolean).join(' · ');
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Memo</span>
-      <div class="recording-row-title-line">
-        <span class="recording-row-title">${escapeHtml(title)}</span>
-        ${dateStr ? `<time class="recording-row-date">${escapeHtml(dateStr)}</time>` : ''}
-      </div>
-      ${subtitle ? `<span class="recording-row-meta">${escapeHtml(subtitle)}</span>` : ''}
+      <span class="recording-row-title">${escapeHtml(title)}</span>
+      ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
     <div class="recording-row-actions">
       ${busy ? busyStatusHtml(busy) : ''}
@@ -1174,12 +1171,19 @@ function renderState(state) {
         userSelectedContactId = null;
         createNewDealRequested = false;
         dealPickerOpen = false;
+        needsDealDecision = false;
+        dealDecisionMade = true;
+        selectedCallOutcome = null;
+        selectedLostReason = '';
+        lastReviewMemo = null;
         applyReviewLayout('pending_review');
         paintDealCardPending(state.context);
         showReviewFieldsPending();
         markApproveMatching();
-        if (canPaintInsightsFromMemo(state.reviewMemo)) {
-          paintInsightsFromMemo(state.reviewMemo);
+        resetCallInsightsUi();
+        const reviewMemo = reviewMemoIfCurrent(state.reviewMemo, state.currentMemoId);
+        if (canPaintInsightsFromMemo(reviewMemo)) {
+          paintInsightsFromMemo(reviewMemo);
         }
       }
       if (!reviewSessionLocked && state.context?.recordId) {
@@ -1343,12 +1347,62 @@ function showReviewFieldsPending() {
   if (proposedUpdatesList) proposedUpdatesList.innerHTML = reviewFieldsSkeletonHtml();
 }
 
+function resetCallInsightsUi() {
+  const summaryEl = document.getElementById('review-summary');
+  if (summaryEl) summaryEl.value = '';
+  reviewActionItems = [];
+  actionItemsInitialized = false;
+  renderActionItems();
+  renderCopilotNoteView({ force: true });
+
+  const hiddenTx = document.getElementById('transcript-content');
+  if (hiddenTx) hiddenTx.value = '';
+  for (const id of ['review-transcript-conversation', 'transcript-conversation', 'transcript-expanded']) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  }
+  const timing = document.getElementById('transcript-timing');
+  if (timing) {
+    timing.textContent = '';
+    timing.style.display = 'none';
+  }
+  const modalDeal = document.getElementById('transcript-modal-deal');
+  if (modalDeal) {
+    modalDeal.textContent = '';
+    modalDeal.style.display = 'none';
+  }
+
+  const dealBox = document.getElementById('deal-decision-box');
+  if (dealBox) dealBox.style.display = 'none';
+  const matched = document.getElementById('matched-deals-list');
+  if (matched) matched.innerHTML = '';
+  const searchBox = document.getElementById('deal-search-box');
+  if (searchBox) searchBox.style.display = 'none';
+  const searchResults = document.getElementById('search-results');
+  if (searchResults) searchResults.innerHTML = '';
+  const usePage = document.getElementById('use-page-record-option');
+  if (usePage) usePage.style.display = 'none';
+  renderContactTarget({ selected_contact: null, contact_candidates: [] });
+  initCallOutcome({});
+}
+
+function writeCallNoteFromText(incomingText) {
+  const summaryEl = document.getElementById('review-summary');
+  if (!summaryEl) return false;
+  if (!shouldWriteCallNote({
+    memoId: currentMemoId,
+    paintedMemoId: insightsMemoId,
+    existingText: summaryEl.value,
+    incomingText,
+  })) return false;
+  summaryEl.value = incomingText;
+  return true;
+}
+
 function paintInsightsFromMemo(memo) {
   if (!memo) return;
-  const summaryEl = document.getElementById('review-summary');
-  if (summaryEl && !String(summaryEl.value || '').trim() && memo.extraction?.summary) {
-    summaryEl.value = memo.extraction.summary;
-  }
+  if (currentMemoId && !sameMemoId(memo.id ?? memo.memo_id, currentMemoId)) return;
+  writeCallNoteFromText(memo.extraction?.summary);
   initCallInsights(lastPreviewData || {}, memo.extraction);
 }
 
@@ -1360,10 +1414,8 @@ function markApproveMatching() {
 }
 
 function cachedReviewMemo(memoId) {
-  const fromState = lastBgState?.reviewMemo;
-  if (fromState && sameMemoId(fromState.id || fromState.memo_id, memoId)) return fromState;
-  if (lastReviewMemo && sameMemoId(lastReviewMemo.id, memoId)) return lastReviewMemo;
-  return null;
+  return reviewMemoIfCurrent(lastBgState?.reviewMemo, memoId)
+    || reviewMemoIfCurrent(lastReviewMemo, memoId);
 }
 
 async function handleReviewState(memoId, context) {
@@ -1842,16 +1894,13 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         reviewActionItems = [];
       }
       const memo = opts?.memo || lastReviewMemo;
-      const summaryEl = document.getElementById('review-summary');
-      if (summaryEl && !summaryEl.value.trim() && memo?.extraction?.summary) {
-        summaryEl.value = memo.extraction.summary;
-      }
+      writeCallNoteFromText(memo?.extraction?.summary);
       if (insightsMemoId !== currentMemoId && !memo?.extraction?.summary) {
         try {
           const fetched = await api.getMemo(memoId);
-          if (summaryEl && !summaryEl.value.trim() && fetched?.extraction?.summary) {
-            summaryEl.value = fetched.extraction.summary;
-          }
+          if (gen !== previewFetchGen) return;
+          if (!isCurrentReviewMemo(memoId)) return;
+          writeCallNoteFromText(fetched?.extraction?.summary);
           initCallInsights(lastPreviewData, fetched?.extraction);
         } catch (_) {
           initCallInsights(lastPreviewData);
