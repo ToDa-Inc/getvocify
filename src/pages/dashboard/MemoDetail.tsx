@@ -29,8 +29,8 @@ function PipelineMetaCard({ meta }: { meta: any }) {
   const stages = Array.isArray(meta?.stages) ? meta.stages : [];
   if (!stages.length) return null;
   return (
-    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-      <div className="flex items-center justify-between mb-6">
+    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 shrink-0`}>
+      <div className="flex items-center justify-between mb-4">
         <h3 className={THEME_TOKENS.typography.capsLabel}>Pipeline</h3>
         {typeof meta.total_ms === "number" && (
           <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
@@ -38,20 +38,20 @@ function PipelineMetaCard({ meta }: { meta: any }) {
           </span>
         )}
       </div>
-      <div className="space-y-4">
+      <div className="space-y-3">
         {stages.map((stage: any, i: number) => (
           <details key={`${stage.name}-${stage.at || i}`} className="group">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm">
               <span className="font-medium text-foreground">
                 {STAGE_LABELS[stage.name] || stage.name}
               </span>
-              <span className="text-muted-foreground tabular-nums">
+              <span className="text-muted-foreground tabular-nums text-xs">
                 {formatStageMs(Number(stage.ms))}
                 {stage.model ? ` · ${stage.model}` : ""}
                 {stage.error ? " · failed" : ""}
               </span>
             </summary>
-            <div className="mt-3 space-y-3 text-xs text-muted-foreground">
+            <div className="mt-2 space-y-2 text-xs text-muted-foreground">
               {stage.note && <p>{stage.note}</p>}
               {stage.language && <p>Language: {stage.language}</p>}
               {stage.error && <p className="text-destructive">{stage.error}</p>}
@@ -388,28 +388,34 @@ const MemoDetail = () => {
         </div>
       )}
 
-      <div className={`grid gap-8 ${hasExtraction ? "lg:grid-cols-5" : ""}`}>
+      <div className={`grid gap-8 ${hasExtraction ? "lg:grid-cols-5 items-start" : ""}`}>
         {/* Left: Transcript (full width when pending/extracting, col-span-2 when has extraction) */}
-        <div className={`space-y-6 ${hasExtraction ? "lg:col-span-2" : ""}`}>
+        <div
+          className={
+            hasExtraction
+              ? "lg:col-span-2 sticky top-20 max-h-[calc(100vh-6rem)] flex flex-col gap-4 self-start overflow-y-auto pr-1 scrollbar-thin"
+              : "space-y-6"
+          }
+        >
           {memo.audioUrl && (
-            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-6`}>
-              <div className="flex items-center gap-5">
+            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-5 shrink-0`}>
+              <div className="flex items-center gap-4">
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={togglePlay}
-                  className="rounded-full w-12 h-12 bg-beige text-cream border-none hover:opacity-90 transition-opacity"
+                  className="rounded-full w-10 h-10 bg-beige text-cream border-none hover:opacity-90 transition-opacity shrink-0"
                 >
-                  {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-1" />}
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
                 </Button>
-                <div className="flex-1 space-y-2">
+                <div className="flex-1 space-y-1.5 min-w-0">
                   <div className="h-1.5 bg-foreground/5 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-beige rounded-full shadow-[0_0_10px_rgba(245,215,176,0.3)] transition-all duration-100"
                       style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
                     />
                   </div>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center text-[10px]">
                     <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
                       {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, "0")}
                     </span>
@@ -422,8 +428,8 @@ const MemoDetail = () => {
             </div>
           )}
 
-          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-            <div className="flex items-center justify-between gap-3 mb-8">
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${hasExtraction ? "flex-1 min-h-0" : ""}`}>
+            <div className="flex items-center justify-between gap-3 mb-6 shrink-0">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
               <div className="flex items-center gap-2">
                 {canReTranscribe ? (
@@ -435,12 +441,12 @@ const MemoDetail = () => {
                     disabled={isReTranscribing}
                     aria-label="Re-transcribe from recording"
                     title="Re-transcribe from recording"
-                    className="rounded-full border-beige/40 hover:bg-beige/10 h-9 w-9 shrink-0"
+                    className="rounded-full border-beige/40 hover:bg-beige/10 h-8 w-8 shrink-0"
                   >
                     {isReTranscribing ? (
                       <VocifySpinner size={14} />
                     ) : (
-                      <RefreshCw className="h-4 w-4" />
+                      <RefreshCw className="h-3.5 w-3.5" />
                     )}
                   </Button>
                 ) : null}
@@ -453,10 +459,17 @@ const MemoDetail = () => {
               </div>
             </div>
             {memo.transcript ? (
-                <TranscriptConversation
-                  transcript={memo.transcript}
-                  contactName={reviewContactName || extraction.contactName}
-                />
+              <TranscriptConversation
+                transcript={memo.transcript}
+                contactName={reviewContactName || extraction.contactName}
+                className={
+                  hasExtraction
+                    ? (memo.audioUrl
+                        ? "max-h-[calc(100vh-22rem)] overflow-y-auto pr-2 scrollbar-thin"
+                        : "max-h-[calc(100vh-16rem)] overflow-y-auto pr-2 scrollbar-thin")
+                    : "max-h-[500px] overflow-y-auto pr-2 scrollbar-thin"
+                }
+              />
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <VocifyLoader size="md" label={isProcessing ? "Generating transcript..." : "No transcript yet"} />
@@ -467,7 +480,7 @@ const MemoDetail = () => {
                 variant="hero"
                 onClick={handleConfirmTranscript}
                 disabled={isConfirmingTranscript}
-                className="mt-6 w-full rounded-full text-[10px] font-medium bg-beige text-cream"
+                className="mt-6 w-full rounded-full text-[10px] font-medium bg-beige text-cream shrink-0"
               >
                 {isConfirmingTranscript ? "Extracting..." : "Extract & Continue"}
               </Button>
@@ -481,8 +494,8 @@ const MemoDetail = () => {
 
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
         {hasExtraction && (
-          <div className="lg:col-span-3">
-            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-10`}>
+          <div className="lg:col-span-3 min-w-0">
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
                 key={id || ""}
                 memoId={id || ""}
