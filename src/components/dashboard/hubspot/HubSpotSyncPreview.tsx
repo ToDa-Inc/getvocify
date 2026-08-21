@@ -5,7 +5,21 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi } from "@/lib/api/crm";
 import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
-import { Check, AlertCircle, Sparkles, ChevronDown, Search, X, RefreshCw, Pencil, Trash2, Plus } from "lucide-react";
+import {
+  Check,
+  AlertCircle,
+  Sparkles,
+  ChevronDown,
+  Search,
+  X,
+  RefreshCw,
+  Pencil,
+  Trash2,
+  Plus,
+  UserCheck,
+  Building,
+  User,
+} from "lucide-react";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
 import { formatCrmDateForDisplay, isCrmDateField } from "@/lib/crm-date";
 import {
@@ -35,10 +49,7 @@ interface HubSpotSyncPreviewProps {
 }
 
 /**
- * Minimum match_confidence (0-1, see backend HubSpotMatchingService) required to
- * auto-target a deal without asking the user. Below this, the signal is too weak
- * (e.g. contact-name-only matches, or fuzzy deal-name contains) to safely commit
- * to silently - the user must explicitly confirm a deal or create a new one.
+ * Minimum match_confidence (0-1) required to auto-target a deal without prompting.
  */
 const CONFIDENT_MATCH_THRESHOLD = 0.7;
 
@@ -79,7 +90,7 @@ function nextStepsForApprove(
   return Array.isArray(base.nextSteps) ? (base.nextSteps as string[]) : [];
 }
 
-/** For enum/select fields (e.g. Deal Stage), show the human label instead of the raw API value */
+/** For enum/select fields (e.g. Deal Stage), show the human label instead of raw value */
 function optionLabelFor(value: unknown, options?: Array<{ value: string; label?: string }>): string {
   const raw = value ?? "—";
   if (options && options.length > 0) {
@@ -98,28 +109,41 @@ export const HubSpotSyncPreview = ({
   onContactName,
 }: HubSpotSyncPreviewProps) => {
   const [loading, setLoading] = useState(true);
-  const [matching, setMatching] = useState(false);
+  const [isSwitchingTarget, setIsSwitchingTarget] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [preview, setPreview] = useState<any>(null);
   const [extractionError, setExtractionError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [reExtracting, setReExtracting] = useState(false);
+
+  // Active target selection tracking
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [selectedDealId, setSelectedDealId] = useState<string | null>(initialDealId || null);
+  const [isNewDealRequested, setIsNewDealRequested] = useState(false);
+  const [isSkipDealRequested, setIsSkipDealRequested] = useState(false);
+
+  // UI pickers open state
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
+  const [dealPickerOpen, setDealPickerOpen] = useState(false);
+
+  // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [showSearch, setShowAllSearch] = useState(false);
+
+  // Field edits
   const [editedUpdates, setEditedUpdates] = useState<any[] | null>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [showAddField, setShowAddField] = useState(false);
-  // Whether the user must make an explicit choice before syncing is allowed: no
-  // confident deal match was found, so we can't safely default to either "this
-  // existing deal" or "create new" without risking a wrong match or a junk record.
+  const [omittedKeys, setOmittedKeys] = useState<string[]>([]);
+
+  // Weak matches and manual deal naming
   const [needsDealDecision, setNeedsDealDecision] = useState(false);
   const [dealDecisionMade, setDealDecisionMade] = useState(true);
   const [weakMatches, setWeakMatches] = useState<any[]>([]);
   const [confirmingNewDeal, setConfirmingNewDeal] = useState(false);
   const [manualDealName, setManualDealName] = useState("");
-  const [omittedKeys, setOmittedKeys] = useState<string[]>([]);
+
   const searchQueryRef = useRef("");
   const memoIdRef = useRef(memoId);
   memoIdRef.current = memoId;
@@ -128,58 +152,120 @@ export const HubSpotSyncPreview = ({
     const candidates = Array.isArray(previewData.contact_candidates)
       ? previewData.contact_candidates
       : [];
+    const matches = Array.isArray(previewData.matched_deals) ? previewData.matched_deals : [];
+    const topMatch = matches[0];
+    const isConfident = !!topMatch && (topMatch.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
+
+    setWeakMatches(matches);
+
     if (candidates.length > 0 && !previewData.selected_contact) {
       setNeedsDealDecision(false);
       setDealDecisionMade(false);
-      setWeakMatches(previewData.matched_deals || []);
     } else if (previewData.selected_contact || previewData.skip_deal) {
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
-      setWeakMatches(previewData.matched_deals || []);
     } else {
-      const matches = Array.isArray(previewData.matched_deals) ? previewData.matched_deals : [];
-      const topMatch = matches[0];
-      const isConfident = !!topMatch && (topMatch.match_confidence ?? 0) >= CONFIDENT_MATCH_THRESHOLD;
-      if (!isConfident && !previewData.selected_deal) {
-        setWeakMatches(matches);
+      if (!isConfident && !previewData.selected_deal && !previewData.is_new_deal) {
         setNeedsDealDecision(true);
         setDealDecisionMade(false);
       } else {
         setNeedsDealDecision(false);
         setDealDecisionMade(true);
-        setWeakMatches(matches);
       }
     }
   }, []);
 
   const fetchPreview = useCallback(
-    async (dealId?: string, opts?: { createNewDeal?: boolean; contactId?: string }) => {
+    async (
+      dealIdArg?: string | null,
+      opts?: { createNewDeal?: boolean; contactId?: string | null; skipDeal?: boolean },
+    ) => {
       const requestedMemoId = memoId;
+      const targetContactId =
+        opts?.contactId !== undefined
+          ? opts.contactId
+          : selectedContactId || preview?.selected_contact?.contact_id || null;
+
+      const isCreatingNew = opts?.createNewDeal ?? (isNewDealRequested && !dealIdArg);
+      const isSkippingDeal = opts?.skipDeal ?? (isSkipDealRequested && !dealIdArg && !isCreatingNew);
+
+      const targetDealId =
+        dealIdArg !== undefined
+          ? dealIdArg
+          : isCreatingNew || isSkippingDeal
+            ? null
+            : selectedDealId || preview?.selected_deal?.deal_id || initialDealId || null;
+
       const cacheKey = previewCacheKey({
         memoId,
-        dealId: dealId || initialDealId || null,
-        contactId: opts?.contactId || null,
-        createNewDeal: !!opts?.createNewDeal,
+        dealId: targetDealId,
+        contactId: targetContactId,
+        createNewDeal: isCreatingNew,
         refreshKey: previewRefreshKey,
       });
-      setLoading(true);
+
+      if (!preview) {
+        setLoading(true);
+      } else {
+        setIsSwitchingTarget(true);
+      }
+
       try {
-        const previewData = await crmApi.getPreview(memoId, dealId, opts);
+        const previewData = await crmApi.getPreview(memoId, targetDealId || undefined, {
+          createNewDeal: isCreatingNew,
+          contactId: targetContactId || undefined,
+        });
+
         if (memoIdRef.current !== requestedMemoId) return undefined;
+
         setPreview(previewData);
-        setEditedUpdates(null);
-        setOmittedKeys([]);
         setCachedPreview(cacheKey, previewData);
+
+        // Update target tracking
+        if (previewData.selected_contact?.contact_id) {
+          setSelectedContactId(previewData.selected_contact.contact_id);
+        } else if (opts?.contactId === null) {
+          setSelectedContactId(null);
+        }
+
+        if (previewData.selected_deal?.deal_id) {
+          setSelectedDealId(previewData.selected_deal.deal_id);
+          setIsNewDealRequested(false);
+          setIsSkipDealRequested(false);
+        } else if (isCreatingNew) {
+          setSelectedDealId(null);
+          setIsNewDealRequested(true);
+          setIsSkipDealRequested(false);
+        } else if (isSkippingDeal) {
+          setSelectedDealId(null);
+          setIsNewDealRequested(false);
+          setIsSkipDealRequested(true);
+        }
+
+        applyPreviewDecisions(previewData);
         return previewData;
-      } catch {
+      } catch (err: any) {
         if (memoIdRef.current !== requestedMemoId) return undefined;
         toast.error("Failed to load update preview");
         return undefined;
       } finally {
-        if (memoIdRef.current === requestedMemoId) setLoading(false);
+        if (memoIdRef.current === requestedMemoId) {
+          setLoading(false);
+          setIsSwitchingTarget(false);
+        }
       }
     },
-    [memoId, initialDealId, previewRefreshKey],
+    [
+      memoId,
+      initialDealId,
+      previewRefreshKey,
+      selectedContactId,
+      selectedDealId,
+      isNewDealRequested,
+      isSkipDealRequested,
+      preview,
+      applyPreviewDecisions,
+    ],
   );
 
   useEffect(() => {
@@ -188,7 +274,6 @@ export const HubSpotSyncPreview = ({
       setPreview(null);
       setEditedUpdates(null);
       setOmittedKeys([]);
-      setMatching(true);
       setLoading(true);
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
@@ -196,7 +281,8 @@ export const HubSpotSyncPreview = ({
       setConfirmingNewDeal(false);
       setManualDealName("");
       setExtractionError(false);
-      setShowAllSearch(false);
+      setDealPickerOpen(false);
+      setContactPickerOpen(false);
       setSearchResults([]);
       setSearchQuery("");
       setEditingIdx(null);
@@ -210,8 +296,13 @@ export const HubSpotSyncPreview = ({
       const cached = getCachedPreview(cacheKey);
       if (cached) {
         setPreview(cached);
+        if (cached.selected_contact?.contact_id) {
+          setSelectedContactId(cached.selected_contact.contact_id);
+        }
+        if (cached.selected_deal?.deal_id) {
+          setSelectedDealId(cached.selected_deal.deal_id);
+        }
         applyPreviewDecisions(cached);
-        setMatching(false);
         setLoading(false);
         return;
       }
@@ -253,7 +344,6 @@ export const HubSpotSyncPreview = ({
         setPreview(null);
       } finally {
         if (!cancelled) {
-          setMatching(false);
           setLoading(false);
         }
       }
@@ -302,7 +392,7 @@ export const HubSpotSyncPreview = ({
   };
 
   useEffect(() => {
-    if (!showSearch) return;
+    if (!dealPickerOpen) return;
     const q = searchQuery.trim();
     if (q.length < 2) {
       setSearchResults([]);
@@ -310,67 +400,55 @@ export const HubSpotSyncPreview = ({
     }
     const timer = setTimeout(() => runSearch(q), 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, showSearch, runSearch]);
+  }, [searchQuery, dealPickerOpen, runSearch]);
 
-  const selectDeal = (dealId: string) => {
-    fetchPreview(dealId || undefined);
-    setShowAllSearch(false);
+  const selectDeal = async (dealId: string) => {
+    setSelectedDealId(dealId);
+    setIsNewDealRequested(false);
+    setIsSkipDealRequested(false);
+    setDealPickerOpen(false);
     setSearchResults([]);
     setSearchQuery("");
-    // Picking a specific existing deal is always an unambiguous, explicit decision.
     setNeedsDealDecision(false);
     setDealDecisionMade(true);
     setConfirmingNewDeal(false);
+    await fetchPreview(dealId, {
+      contactId: selectedContactId,
+      createNewDeal: false,
+      skipDeal: false,
+    });
   };
 
-  const updates = editedUpdates ?? preview?.proposed_updates ?? [];
-  const availableFields = preview?.available_fields ?? [];
-  const OBJECT_ORDER = ["deals", "contacts", "companies", "line_items", "task"];
-  const sortedUpdateEntries = [...updates.map((u: any, idx: number) => ({ u, idx }))]
-    .filter(({ u }) => u?.field_name && u.field_name !== "description")
-    .sort((a, b) => {
-    const ao = OBJECT_ORDER.indexOf(a.u?.object_type || "deals");
-    const bo = OBJECT_ORDER.indexOf(b.u?.object_type || "deals");
-    return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
-  });
-  const currentDealId = preview?.selected_deal?.deal_id ?? null;
-  const isNewDeal = preview?.is_new_deal ?? false;
-  const selectedContact = preview?.selected_contact ?? null;
-  useEffect(() => {
-    onContactName?.(selectedContact?.name || null);
-  }, [selectedContact?.name, onContactName]);
-  const contactCandidates = Array.isArray(preview?.contact_candidates)
-    ? preview.contact_candidates
-    : [];
-  const needsContactDecision = !selectedContact && contactCandidates.length > 0;
-  const skipDeal = !!preview?.skip_deal;
-  const dealMatch = preview?.selected_deal;
-
   const selectContact = async (contactId: string) => {
-    const data = await fetchPreview(currentDealId ?? undefined, { contactId });
+    setSelectedContactId(contactId);
+    setContactPickerOpen(false);
+    const data = await fetchPreview(selectedDealId, { contactId });
     if (data?.selected_contact) {
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
-      setWeakMatches(data.matched_deals || []);
     }
   };
 
-  /**
-   * Explicit "create a new deal" decision. If there's no company/contact name to
-   * work with (nothing for the AI to build a sensible deal name from), require the
-   * user to type one manually rather than silently creating a generic "New Deal".
-   */
   const handleCreateNewDeal = async () => {
-    setShowAllSearch(false);
+    setDealPickerOpen(false);
     setSearchResults([]);
     setSearchQuery("");
-    const data = await fetchPreview(undefined, { createNewDeal: true });
+    setIsNewDealRequested(true);
+    setIsSkipDealRequested(false);
+    setSelectedDealId(null);
+
+    const data = await fetchPreview(null, {
+      createNewDeal: true,
+      contactId: selectedContactId,
+    });
+
     const candidateUpdates = data?.proposed_updates ?? [];
     const hasNameSignal =
       !!data?.new_company ||
       !!data?.new_contact ||
       !!data?.selected_contact ||
       candidateUpdates.some((u: any) => u.field_name === "company_name" || u.field_name === "contact_name");
+
     if (hasNameSignal) {
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
@@ -382,15 +460,29 @@ export const HubSpotSyncPreview = ({
     }
   };
 
+  const handleSkipDeal = async () => {
+    setDealPickerOpen(false);
+    setSearchResults([]);
+    setSearchQuery("");
+    setIsSkipDealRequested(true);
+    setIsNewDealRequested(false);
+    setSelectedDealId(null);
+    setNeedsDealDecision(false);
+    setDealDecisionMade(true);
+    setConfirmingNewDeal(false);
+
+    await fetchPreview(null, {
+      skipDeal: true,
+      createNewDeal: false,
+      contactId: selectedContactId,
+    });
+  };
+
   const confirmManualDealName = () => {
     const name = manualDealName.trim();
     if (!name) return;
-    // Use the "dealname" field so it both names the deal and sets companyName —
-    // drop any stale company_name/dealname entries
-    // (e.g. the generic "New Deal" placeholder) so they don't get processed afterwards
-    // and silently overwrite this value.
     const list = (editedUpdates ?? updates.map((u: any) => ({ ...u }))).filter(
-      (u: any) => u.field_name !== "company_name" && u.field_name !== "dealname"
+      (u: any) => u.field_name !== "company_name" && u.field_name !== "dealname",
     );
     setEditedUpdates([
       {
@@ -408,16 +500,36 @@ export const HubSpotSyncPreview = ({
     setConfirmingNewDeal(false);
   };
 
+  const selectedContact = preview?.selected_contact ?? null;
+  useEffect(() => {
+    onContactName?.(selectedContact?.name || null);
+  }, [selectedContact?.name, onContactName]);
+
+  const contactCandidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
+  const needsContactDecision = !selectedContact && contactCandidates.length > 0;
+  const skipDeal = !!preview?.skip_deal || isSkipDealRequested;
+  const dealMatch = preview?.selected_deal;
+  const isNewDeal = (preview?.is_new_deal ?? false) || isNewDealRequested;
+  const currentDealId = preview?.selected_deal?.deal_id ?? selectedDealId;
+
+  const updates = editedUpdates ?? preview?.proposed_updates ?? [];
+  const availableFields = preview?.available_fields ?? [];
+  const OBJECT_ORDER = ["deals", "contacts", "companies", "line_items", "task"];
+  const sortedUpdateEntries = [...updates.map((u: any, idx: number) => ({ u, idx }))]
+    .filter(({ u }) => u?.field_name && u.field_name !== "description")
+    .sort((a, b) => {
+      const ao = OBJECT_ORDER.indexOf(a.u?.object_type || "deals");
+      const bo = OBJECT_ORDER.indexOf(b.u?.object_type || "deals");
+      return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
+    });
+
   const buildExtractionForSync = async (): Promise<Record<string, unknown> | undefined> => {
     const memo = await memosApi.get(memoId);
     const base = memo?.extraction && typeof memo.extraction === "object" ? { ...memo.extraction } : {};
     const originalUpdates = preview?.proposed_updates ?? [];
     const effectiveUpdates = editedUpdates ?? originalUpdates;
     if (effectiveUpdates.length === 0 && omittedKeys.length === 0) return undefined;
-    const omitted = [
-      ...omittedKeys,
-      ...omittedKeysFrom(originalUpdates, effectiveUpdates),
-    ];
+    const omitted = [...omittedKeys, ...omittedKeysFrom(originalUpdates, effectiveUpdates)];
     return buildApproveExtraction({
       memoExtraction: base as Record<string, unknown>,
       updates: effectiveUpdates,
@@ -431,24 +543,24 @@ export const HubSpotSyncPreview = ({
     setSyncing(true);
     try {
       const extraction = await buildExtractionForSync();
-      const contactId = preview?.selected_contact?.contact_id;
-      const companyId = preview?.selected_contact?.company_id;
-      const skipDeal = !!preview?.skip_deal && !isNewDeal && !currentDealId;
+      const contactId = selectedContact?.contact_id || preview?.selected_contact?.contact_id;
+      const companyId = selectedContact?.company_id || preview?.selected_contact?.company_id;
+      const effectiveSkipDeal = skipDeal && !isNewDeal && !currentDealId;
       const result = await crmApi.approveSync(
         memoId,
         currentDealId ?? undefined,
-        isNewDeal && !skipDeal,
+        isNewDeal && !effectiveSkipDeal,
         extraction,
         {
           contactId,
           companyId,
-          skipDeal,
-        }
+          skipDeal: effectiveSkipDeal,
+        },
       );
-      toast.success(skipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
+      toast.success(effectiveSkipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
       onSuccess(result);
     } catch (err: any) {
-      toast.error(err?.data?.detail || err?.message || "Failed to sync with HubSpot");
+      toast.error(err?.data?.detail || err?.message || "Failed to sync with CRM");
     } finally {
       setSyncing(false);
     }
@@ -507,9 +619,15 @@ export const HubSpotSyncPreview = ({
         <div className="text-center space-y-2 max-w-sm">
           <p className="text-sm font-medium text-foreground">Extraction Not Available</p>
           <p className="text-xs text-muted-foreground">
-            Processing may have failed or is still in progress. If you have a transcript, try Re-extract to run the AI extraction again.
+            Processing may have failed or is still in progress. If you have a transcript, try Re-extract to run the AI
+            extraction again.
           </p>
-          <Button onClick={handleReExtract} disabled={reExtracting} variant="outline" className="mt-6 rounded-full border-beige/40 hover:bg-beige/10">
+          <Button
+            onClick={handleReExtract}
+            disabled={reExtracting}
+            variant="outline"
+            className="mt-6 rounded-full border-beige/40 hover:bg-beige/10"
+          >
             {reExtracting ? <VocifySpinner size={16} className="mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             {reExtracting ? "Re-extracting..." : "Re-extract"}
           </Button>
@@ -521,364 +639,428 @@ export const HubSpotSyncPreview = ({
   if (loading && !preview) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-6">
-        <VocifyLoader
-          size="lg"
-          label={matching ? "Analyzing transcript..." : "Finding matching deal..."}
-        />
+        <VocifyLoader size="lg" label="Analyzing conversation and CRM..." />
         <p className="text-xs text-muted-foreground max-w-xs mx-auto text-center">
-          Our AI is extracting key details and searching your HubSpot CRM.
+          Matching contact, deal, and extracting key CRM properties.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {needsContactDecision && (
-        <div className="space-y-3 px-2">
-          <h5 className={THEME_TOKENS.typography.capsLabel}>Confirm Contact</h5>
-          <p className="text-xs text-muted-foreground px-1">
-            Multiple contacts matched — pick the right one to continue.
-          </p>
-          <div className="space-y-2">
-            {contactCandidates.map((c: any) => (
-              <button
-                key={c.contact_id}
-                type="button"
-                onClick={() => selectContact(c.contact_id)}
-                className="w-full text-left bg-secondary/5 hover:bg-beige/10 rounded-[1.5rem] p-5 border border-beige/15 hover:border-beige/40 transition-colors"
-              >
-                <p className="text-sm font-normal text-foreground">{c.name || "Contact"}</p>
-                {c.email ? (
-                  <p className="text-xs text-muted-foreground mt-1">{c.email}</p>
-                ) : null}
-                {c.phone ? (
-                  <p className="text-xs text-muted-foreground mt-0.5">{c.phone}</p>
-                ) : null}
-                {c.company_name ? (
-                  <p className="text-xs font-normal text-muted-foreground/70 mt-2">
-                    {c.company_name}
-                  </p>
-                ) : null}
-                <p className="text-[10px] text-muted-foreground/50 mt-2">{c.match_reason}</p>
-              </button>
-            ))}
+    <div className="space-y-8 animate-in fade-in duration-300">
+      {/* 1. CONTACT TARGET SECTION */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-beige" />
+            <h5 className={THEME_TOKENS.typography.capsLabel}>Contact</h5>
           </div>
+          {selectedContact && contactCandidates.length > 1 && !contactPickerOpen && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setContactPickerOpen(true)}
+              className="text-xs font-normal text-beige hover:bg-beige/10 h-7 px-2.5 rounded-full"
+            >
+              Change Contact
+            </Button>
+          )}
         </div>
-      )}
 
-      {selectedContact && (
-        <div className="space-y-3 px-2">
-          <h5 className={THEME_TOKENS.typography.capsLabel}>Contact Target</h5>
-          <div className="bg-secondary/5 rounded-[2rem] p-6 border border-beige/20">
-            <p className="text-sm font-normal text-foreground">
-              {selectedContact.name || "Contact"}
-            </p>
-            {selectedContact.email ? (
-              <p className="text-xs text-muted-foreground mt-1">{selectedContact.email}</p>
-            ) : null}
-            {selectedContact.phone ? (
-              <p className="text-xs text-muted-foreground mt-0.5">{selectedContact.phone}</p>
-            ) : null}
-            {selectedContact.company_name && (
-              <p className="text-xs font-normal text-muted-foreground/70 mt-2">
-                {selectedContact.company_name}
+        {/* Contact Candidates Picker */}
+        {(needsContactDecision || contactPickerOpen) && (
+          <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/25 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-foreground">
+                {contactCandidates.length > 1
+                  ? "Several contacts matched — select who to update:"
+                  : "Matched contact candidate:"}
               </p>
-            )}
-            <p className="text-[10px] text-muted-foreground/50 mt-3">
-              {selectedContact.match_reason || "Matched contact"} — contact fields update this record
-            </p>
-          </div>
-        </div>
-      )}
+              {selectedContact && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 rounded-full"
+                  onClick={() => setContactPickerOpen(false)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
 
-      {!needsContactDecision && (
-      <>
-      <div className="flex items-center justify-between px-2">
-        <h5 className={THEME_TOKENS.typography.capsLabel}>
-          {selectedContact ? "Deal Target (optional)" : "Deal Target"}
-        </h5>
-        {!showSearch && !(needsDealDecision && !dealDecisionMade) && (
-          <Button variant="ghost" size="sm" onClick={() => setShowAllSearch(true)} className="text-xs font-normal text-beige hover:bg-beige/10">
-            <Search className="h-3 w-3 mr-1.5" />
-            {selectedContact ? "Choose Deal" : "Change Deal"}
-          </Button>
+            <div className="grid gap-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
+              {contactCandidates.map((c: any) => {
+                const isSelected = selectedContact?.contact_id === c.contact_id;
+                return (
+                  <button
+                    key={c.contact_id}
+                    type="button"
+                    onClick={() => selectContact(c.contact_id)}
+                    className={`w-full text-left p-4 rounded-xl border transition-all ${
+                      isSelected
+                        ? "bg-beige/15 border-beige text-foreground shadow-sm"
+                        : "bg-card hover:bg-beige/10 border-border/50 hover:border-beige/40"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{c.name || "Contact"}</p>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground mt-0.5">
+                          {c.email && <span>{c.email}</span>}
+                          {c.phone && <span>· {c.phone}</span>}
+                          {c.company_name && (
+                            <span className="inline-flex items-center gap-1 font-medium text-foreground/70">
+                              <Building className="h-3 w-3" />
+                              {c.company_name}
+                            </span>
+                          )}
+                        </div>
+                        {c.match_reason && (
+                          <p className="text-[10px] text-muted-foreground/60 italic mt-1.5">{c.match_reason}</p>
+                        )}
+                      </div>
+                      {isSelected ? (
+                        <span className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-beige text-cream">
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Selected Contact Card */}
+        {selectedContact && !contactPickerOpen && (
+          <div className="bg-secondary/5 rounded-2xl p-5 border border-border/40 hover:border-beige/30 transition-colors">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="h-4 w-4 text-success shrink-0" />
+                  <p className="text-sm font-medium text-foreground truncate">{selectedContact.name || "Contact"}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground pt-0.5">
+                  {selectedContact.email && <span>{selectedContact.email}</span>}
+                  {selectedContact.phone && <span>{selectedContact.phone}</span>}
+                  {selectedContact.company_name && (
+                    <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
+                      <Building className="h-3 w-3" />
+                      {selectedContact.company_name}
+                    </span>
+                  )}
+                </div>
+                {selectedContact.match_reason && (
+                  <p className="text-[10px] text-muted-foreground/50 pt-1">
+                    {selectedContact.match_reason} — contact and company updates will link here
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
-      {showSearch ? (
-        <div className="bg-secondary/5 rounded-[2rem] p-6 border border-beige/20 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
-              <Input
-                placeholder="Search deals by name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="bg-white border-border/40 rounded-full pl-11 pr-6 h-11 font-medium text-sm"
-              />
-            </div>
-            <Button onClick={handleSearch} disabled={isSearching} className="bg-beige text-cream rounded-full px-6 h-11 text-xs font-normal shrink-0">
-              {isSearching ? <VocifySpinner size={12} /> : "Search"}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={() => setShowAllSearch(false)} className="rounded-full shrink-0">
-              <X className="h-4 w-4" />
-            </Button>
+      {/* 2. DEAL TARGET SECTION */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-beige" />
+            <h5 className={THEME_TOKENS.typography.capsLabel}>
+              {selectedContact ? "Deal Target (optional)" : "Deal Target"}
+            </h5>
           </div>
-          <p className="text-[10px] text-muted-foreground/60 -mt-1">Type a full word to search</p>
+          {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setDealPickerOpen(true)}
+              className="text-xs font-normal text-beige hover:bg-beige/10 h-7 px-2.5 rounded-full"
+            >
+              <Search className="h-3 w-3 mr-1.5" />
+              {dealMatch ? "Change Deal" : "Choose Deal"}
+            </Button>
+          )}
+        </div>
 
-          <div className="max-h-[200px] overflow-y-auto space-y-2 pr-2 scrollbar-thin">
-            {searchResults.map((deal) => (
-              <button
-                key={deal.deal_id}
-                onClick={() => selectDeal(deal.deal_id)}
-                className="w-full text-left p-4 rounded-2xl bg-white border border-border/20 hover:border-beige/40 transition-all flex items-center justify-between group"
+        {/* Deal Picker Drawer (Search + Matched Deals + Create New + Contact Only) */}
+        {(dealPickerOpen || (needsDealDecision && !dealDecisionMade)) && (
+          <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/30 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium text-foreground">
+                {needsDealDecision && !dealDecisionMade
+                  ? "Confirm where this call should land:"
+                  : "Select or search deal target:"}
+              </p>
+              {dealDecisionMade && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 rounded-full shrink-0"
+                  onClick={() => setDealPickerOpen(false)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+
+            {/* Deal Search Box */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
+                <Input
+                  placeholder="Search deals by name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  className="bg-card border-border/50 rounded-xl pl-10 pr-4 h-9 text-sm"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={handleSearch}
+                disabled={isSearching}
+                className="bg-beige text-cream hover:bg-beige-dark rounded-xl px-4 h-9 text-xs font-normal shrink-0"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-normal text-foreground truncate">{deal.deal_name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-muted-foreground tracking-tight">{deal.stage?.replace(/_/g, " ")}</span>
-                    <span className="w-1 h-1 rounded-full bg-border" />
-                    <span className="text-[10px] text-muted-foreground/60">{deal.amount || "No amount"}</span>
-                  </div>
-                </div>
-                <div className="w-8 h-8 rounded-full bg-secondary/5 flex items-center justify-center group-hover:bg-beige/10 group-hover:text-beige transition-colors">
-                  <ChevronDown className="h-4 w-4 -rotate-90" />
-                </div>
-              </button>
-            ))}
-            {searchResults.length === 0 && !isSearching && searchQuery.trim().length >= 2 && (
-              <div className="text-center py-8">
-                <p className="text-xs font-normal text-muted-foreground/40">No matching deals found in HubSpot</p>
+                {isSearching ? <VocifySpinner size={12} /> : "Search"}
+              </Button>
+            </div>
+
+            {/* Search Results */}
+            {searchResults.length > 0 && (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                <p className="text-[11px] font-medium text-muted-foreground px-1">Search results</p>
+                {searchResults.map((d: any) => (
+                  <button
+                    key={d.deal_id}
+                    type="button"
+                    onClick={() => selectDeal(d.deal_id)}
+                    className="w-full text-left p-3 rounded-xl bg-card border border-border/40 hover:border-beige hover:bg-beige/5 transition-all flex items-center justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{d.deal_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {d.stage?.replace(/_/g, " ")} {d.amount ? `· ${d.amount}` : ""}
+                      </p>
+                    </div>
+                    <ChevronDown className="h-4 w-4 -rotate-90 text-muted-foreground/50 shrink-0" />
+                  </button>
+                ))}
               </div>
             )}
-          </div>
 
-          <div className="pt-4 border-t border-border/10">
-            <button
-              onClick={handleCreateNewDeal}
-              className="w-full py-3 rounded-xl hover:bg-beige/5 text-xs font-normal text-muted-foreground/60 hover:text-beige transition-colors text-center"
-            >
-              + Create a brand new deal
-            </button>
-          </div>
-        </div>
-      ) : needsDealDecision && !dealDecisionMade ? (
-        <div className="bg-beige/[0.03] rounded-[2rem] p-8 border border-beige/30 space-y-6">
-          <div className="flex items-start gap-6">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-beige/10 text-beige shrink-0">
-              <AlertCircle className="h-7 w-7" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-xl font-normal tracking-tight text-foreground">Confirm the Deal Target</h4>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                We couldn&apos;t confidently match this memo to an existing deal. Choose one below or create a new
-                deal before syncing.
-              </p>
-            </div>
-          </div>
-
-          {weakMatches.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-normal text-muted-foreground/60 px-1">
-                Possible matches
-              </p>
-              {weakMatches.map((m: any) => (
-                <button
-                  key={m.deal_id}
-                  onClick={() => selectDeal(m.deal_id)}
-                  className="w-full text-left p-4 rounded-2xl bg-white border border-border/20 hover:border-beige/40 transition-all flex items-center justify-between group"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-normal text-foreground truncate">{m.deal_name}</p>
-                    <p className="text-[10px] text-muted-foreground/60 italic">{m.match_reason}</p>
-                  </div>
-                  <div className="w-8 h-8 rounded-full bg-secondary/5 flex items-center justify-center group-hover:bg-beige/10 group-hover:text-beige transition-colors shrink-0">
-                    <ChevronDown className="h-4 w-4 -rotate-90" />
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {confirmingNewDeal ? (
-            <div className="space-y-3 pt-2 border-t border-border/10">
-              <p className="text-xs font-normal text-muted-foreground/60 px-1">
-                No company or contact name was detected - enter one to create the deal
-              </p>
-              <div className="flex items-center gap-3">
-                <Input
-                  autoFocus
-                  placeholder="Company or deal name..."
-                  value={manualDealName}
-                  onChange={(e) => setManualDealName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && confirmManualDealName()}
-                  className="bg-white border-border/40 rounded-full px-5 h-11 font-medium text-sm flex-1"
-                />
-                <Button
-                  onClick={confirmManualDealName}
-                  disabled={!manualDealName.trim()}
-                  className="bg-beige text-cream rounded-full px-6 h-11 text-xs font-normal shrink-0"
-                >
-                  Create Deal
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 pt-2 border-t border-border/10">
-              <Button
-                variant="outline"
-                onClick={() => setShowAllSearch(true)}
-                className="flex-1 rounded-full border-beige/40 hover:bg-beige/10 text-xs font-normal h-11"
-              >
-                <Search className="h-3.5 w-3.5 mr-1.5" />
-                Search Manually
-              </Button>
-              <Button
-                onClick={handleCreateNewDeal}
-                className="flex-1 bg-beige text-cream rounded-full text-xs font-normal h-11"
-              >
-                + Create New Deal
-              </Button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div
-          className={`p-8 rounded-[2rem] border transition-all duration-500 ${
-            dealMatch
-              ? "bg-success/[0.02] border-success/20"
-              : skipDeal
-                ? "bg-secondary/5 border-border/20"
-                : "bg-beige/[0.02] border-beige/20"
-          }`}
-        >
-          <div className="flex items-start gap-6">
-            <div
-              className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors duration-500 ${
-                dealMatch ? "bg-success/10 text-success" : skipDeal ? "bg-secondary/10 text-muted-foreground" : "bg-beige/10 text-beige"
-              }`}
-            >
-              {dealMatch ? <Check className="h-7 w-7" /> : skipDeal ? <AlertCircle className="h-7 w-7" /> : <Sparkles className="h-7 w-7" />}
-            </div>
-            <div className="flex-1 space-y-1">
-              <h4 className="text-xl font-normal tracking-tight text-foreground">
-                {dealMatch ? "Existing Deal Targeted" : skipDeal ? "Contact Only" : "New Deal Creation"}
-              </h4>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {dealMatch ? (
-                  <>
-                    Targeting <span className="text-foreground font-normal">&quot;{dealMatch.deal_name}&quot;</span>.
-                    <span className="block mt-1 text-xs opacity-60 italic">Matched via {dealMatch.match_reason?.toLowerCase()}</span>
-                  </>
-                ) : skipDeal ? (
-                  <>
-                    No deal selected. Sync will update the matched contact
-                    {selectedContact?.company_name ? " and company" : ""} only.
-                    {(preview?.matched_deals?.length ?? 0) > 0 && (
-                      <span className="block mt-2 text-xs">Linked deals are available via Choose Deal.</span>
-                    )}
-                  </>
-                ) : (
-                  "No existing deal selected. A new record will be created in your primary pipeline."
-                )}
-              </p>
-              {skipDeal && (preview?.matched_deals?.length ?? 0) > 0 && (
-                <div className="pt-4 space-y-2">
-                  {(preview.matched_deals as any[]).slice(0, 3).map((m: any) => (
+            {/* Matched Deals List */}
+            {weakMatches.length > 0 && searchResults.length === 0 && (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                <p className="text-[11px] font-medium text-muted-foreground px-1">Suggested deals</p>
+                {weakMatches.map((m: any) => {
+                  const isSelected = selectedDealId === m.deal_id;
+                  return (
                     <button
                       key={m.deal_id}
+                      type="button"
                       onClick={() => selectDeal(m.deal_id)}
-                      className="w-full text-left p-3 rounded-xl bg-white border border-border/20 hover:border-beige/40 text-sm font-medium"
+                      className={`w-full text-left p-3 rounded-xl border transition-all flex items-center justify-between ${
+                        isSelected
+                          ? "bg-beige/15 border-beige text-foreground shadow-sm"
+                          : "bg-card hover:bg-beige/10 border-border/40 hover:border-beige/40"
+                      }`}
                     >
-                      {m.deal_name}
-                      <span className="block text-[10px] text-muted-foreground/60">{m.match_reason}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{m.deal_name}</p>
+                        <p className="text-[11px] text-muted-foreground/60 italic">{m.match_reason}</p>
+                      </div>
+                      <ChevronDown className="h-4 w-4 -rotate-90 text-muted-foreground/50 shrink-0" />
                     </button>
-                  ))}
-                  <button
-                    onClick={handleCreateNewDeal}
-                    className="w-full py-2 text-xs font-normal text-muted-foreground/60 hover:text-beige"
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Manual Deal Name input when required */}
+            {confirmingNewDeal && (
+              <div className="space-y-2 pt-2 border-t border-border/20">
+                <p className="text-xs text-muted-foreground">Enter a name for the new deal:</p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    autoFocus
+                    placeholder="e.g. Acme Corp - Software Contract"
+                    value={manualDealName}
+                    onChange={(e) => setManualDealName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmManualDealName()}
+                    className="bg-card border-border/50 rounded-xl px-3 h-9 text-sm flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={confirmManualDealName}
+                    disabled={!manualDealName.trim()}
+                    className="bg-beige text-cream hover:bg-beige-dark rounded-xl px-4 h-9 text-xs font-normal shrink-0"
                   >
-                    + Create a brand new deal
-                  </button>
+                    Confirm Name
+                  </Button>
                 </div>
+              </div>
+            )}
+
+            {/* Quick Actions in Picker */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/20">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCreateNewDeal}
+                className="rounded-xl text-xs font-normal border-beige/40 hover:bg-beige/10"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Create a new deal
+              </Button>
+              {selectedContact && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSkipDeal}
+                  className="rounded-xl text-xs font-normal text-muted-foreground hover:text-foreground"
+                >
+                  Contact only (skip deal)
+                </Button>
               )}
             </div>
           </div>
-        </div>
-      )}
-      </>
-      )}
+        )}
 
-      <div className="space-y-6">
-        {callSummary ? (
-          <div className="space-y-3 px-1">
-            <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>
+        {/* Selected Deal Card */}
+        {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
+          <div
+            className={`rounded-2xl p-5 border transition-all ${
+              dealMatch
+                ? "bg-success/[0.03] border-success/30"
+                : skipDeal
+                  ? "bg-secondary/5 border-border/40"
+                  : isNewDeal
+                    ? "bg-beige/[0.04] border-beige/30"
+                    : "bg-secondary/5 border-border/40"
+            }`}
+          >
+            <div className="flex items-start gap-3.5">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  dealMatch
+                    ? "bg-success/15 text-success"
+                    : skipDeal
+                      ? "bg-secondary/20 text-muted-foreground"
+                      : "bg-beige/20 text-beige"
+                }`}
+              >
+                {dealMatch ? (
+                  <Check className="h-4 w-4" />
+                ) : skipDeal ? (
+                  <UserCheck className="h-4 w-4" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+              </div>
+              <div className="flex-1 space-y-0.5 min-w-0">
+                <h4 className="text-sm font-medium text-foreground truncate">
+                  {dealMatch
+                    ? dealMatch.deal_name || "Existing Deal"
+                    : skipDeal
+                      ? "Contact Only"
+                      : "New Deal Creation"}
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {dealMatch ? (
+                    <span>
+                      Targeting deal in CRM
+                      {dealMatch.match_reason ? ` (${dealMatch.match_reason.toLowerCase()})` : ""}
+                    </span>
+                  ) : skipDeal ? (
+                    <span>
+                      Updating {selectedContact?.name || "contact"} record only — no deal will be created or updated.
+                    </span>
+                  ) : (
+                    <span>A new deal will be created in your primary CRM pipeline.</span>
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. CALL NOTE / COPILOT SUMMARY */}
+      {callSummary ? (
+        <div className="space-y-3 pt-2">
+          <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>
+          <div className="p-5 rounded-2xl bg-secondary/5 border border-border/30">
             <CopilotNote markdown={callSummary} />
           </div>
-        ) : null}
-        <div className="relative flex items-center justify-between px-2">
-          <h5 className={THEME_TOKENS.typography.sectionRail}>Fields</h5>
+        </div>
+      ) : null}
+
+      {/* 4. CRM FIELDS SECTION */}
+      <div className="space-y-4 pt-2">
+        <div className="relative flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <h5 className={THEME_TOKENS.typography.sectionRail}>Fields</h5>
+            {isSwitchingTarget && <VocifySpinner size={13} className="text-beige" />}
+          </div>
           {availableFields.length > 0 && !loading && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setShowAddField(!showAddField)}
-              className="h-auto px-0 text-xs font-normal text-beige hover:bg-transparent hover:text-beige-dark"
+              className="h-auto px-2 py-1 text-xs font-normal text-beige hover:bg-beige/10 rounded-full"
             >
               <Plus className="h-3 w-3 mr-1" />
               Add field
             </Button>
           )}
-          {showAddField && availableFields.length > 0 && !loading && (() => {
-              const unused = availableFields.filter((f: { name: string; object_type?: string }) => {
-                const ot = f.object_type || "deals";
-                return !updates.some(
-                  (u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot
-                );
-              });
-              const OBJECT_LABELS: Record<string, string> = {
-                deals: "Deal",
-                contacts: "Contact",
-                companies: "Company",
-              };
-              return (
-                <div className="absolute right-2 top-full mt-2 z-10 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-background border border-border/40 shadow-lg">
-                  {unused.map((f: {
-                    name: string;
-                    label: string;
-                    type?: string;
-                    options?: unknown[];
-                    object_type?: string;
-                  }) => (
+
+          {/* Add Field Dropdown */}
+          {showAddField && availableFields.length > 0 && (
+            <div className="absolute right-1 top-full mt-2 z-20 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-popover border border-border/60 shadow-xl">
+              {(() => {
+                const unused = availableFields.filter((f: { name: string; object_type?: string }) => {
+                  const ot = f.object_type || "deals";
+                  return !updates.some((u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot);
+                });
+                const OBJECT_LABELS: Record<string, string> = {
+                  deals: "Deal",
+                  contacts: "Contact",
+                  companies: "Company",
+                };
+                if (unused.length === 0) {
+                  return <p className="px-4 py-2 text-xs text-muted-foreground">All available fields added</p>;
+                }
+                return unused.map(
+                  (f: { name: string; label: string; type?: string; options?: unknown[]; object_type?: string }) => (
                     <button
                       key={`${f.object_type || "deals"}:${f.name}`}
                       onClick={() => addField(f)}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-beige/10 transition-colors"
+                      className="w-full text-left px-4 py-2 text-xs hover:bg-beige/10 transition-colors flex items-center justify-between"
                     >
-                      <span className="text-xs font-normal text-muted-foreground/50 mr-2">
+                      <span className="font-medium text-foreground truncate">{f.label || f.name}</span>
+                      <span className="text-[10px] text-muted-foreground/60 ml-2 shrink-0">
                         {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
                       </span>
-                      {f.label || f.name}
                     </button>
-                  ))}
-                  {unused.length === 0 && (
-                    <p className="px-4 py-2 text-xs text-muted-foreground">All fields added</p>
-                  )}
-                </div>
-              );
-            })()}
+                  ),
+                );
+              })()}
+            </div>
+          )}
         </div>
 
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 bg-secondary/5 rounded-3xl border border-dashed border-border/40">
-            <VocifyLoader size="md" label="Fetching deal details..." />
+        {/* Fields List */}
+        {updates.length === 0 ? (
+          <div className="p-6 text-center rounded-2xl bg-secondary/5 border border-dashed border-border/40">
+            <p className="text-xs text-muted-foreground">No field updates extracted for this record.</p>
           </div>
-        ) : updates.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">No field updates extracted.</p>
         ) : (
-          <div className="grid gap-4">
+          <div className="grid gap-3">
             {sortedUpdateEntries.map(({ u: update, idx }) => {
               const hadExisting =
                 update.current_value != null &&
@@ -888,111 +1070,123 @@ export const HubSpotSyncPreview = ({
               const canEditRow = canEditOrRemoveProposedField(update);
               const isEditing = editingIdx === idx;
               const entryPos = sortedUpdateEntries.findIndex((e) => e.idx === idx);
-              const prevObject =
-                entryPos > 0
-                  ? sortedUpdateEntries[entryPos - 1].u?.object_type || "deals"
-                  : null;
+              const prevObject = entryPos > 0 ? sortedUpdateEntries[entryPos - 1].u?.object_type || "deals" : null;
               const currentObject = update.object_type || "deals";
               const showSection = entryPos === 0 || prevObject !== currentObject;
               const sectionLabel =
                 {
-                  deals: "Deal",
-                  contacts: "Contact",
-                  companies: "Company",
-                  line_items: "Line items",
+                  deals: "Deal Properties",
+                  contacts: "Contact Properties",
+                  companies: "Company Properties",
+                  line_items: "Line Items",
                   task: "Tasks",
                 }[String(currentObject)] || currentObject;
 
               return (
-                <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-3">
+                <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-2">
                   {showSection && (
-                    <div className="flex items-center gap-2 px-1 pt-1">
-                      <span className="text-xs font-normal text-beige">
+                    <div className="flex items-center gap-2 px-1 pt-2">
+                      <span className="text-[11px] font-medium tracking-wider uppercase text-beige">
                         {sectionLabel}
                       </span>
-                      <span className="h-px flex-1 bg-border/30" />
+                      <span className="h-px flex-1 bg-border/40" />
                     </div>
                   )}
-                <div
-                  className={`group relative rounded-3xl p-6 transition-all flex items-start justify-between gap-4 ${
-                    isOverride ? "bg-destructive/5 border border-destructive/30 hover:border-destructive/40" : "bg-success/5 border border-success/20 hover:border-success/30"
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-2 gap-2">
-                      <span className="text-xs font-normal text-muted-foreground/60">{update.field_label}</span>
-                      {isOverride ? (
-                        <span className="bg-destructive/10 text-destructive text-[11px] font-normal px-2 py-0.5 rounded-full shrink-0">Override</span>
-                      ) : (
-                        <span className="bg-success/10 text-success text-[11px] font-normal px-2 py-0.5 rounded-full shrink-0">New</span>
-                      )}
-                    </div>
-                    {hadExisting && (
-                      <p className="text-[10px] text-muted-foreground line-through opacity-50 mb-1">Was: {optionLabelFor(update.current_value, update.options) || "—"}</p>
-                    )}
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        {update.options && update.options.length > 0 && !isCrmDateField(update) ? (
-                          <select
-                            autoFocus
-                            value={String(update.new_value ?? "")}
-                            onChange={(e) => updateField(idx, e.target.value)}
-                            className="w-full h-10 rounded-xl border border-border/40 bg-background px-3 text-sm font-medium"
-                          >
-                            <option value="">—</option>
-                            {update.options.map((o: { value: string; label?: string }) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label ?? o.value}
-                              </option>
-                            ))}
-                          </select>
-                        ) : isCrmDateField(update) ? (
-                          <ExtractionDatePicker
-                            value={String(update.new_value ?? "")}
-                            onChange={(iso) => updateField(idx, iso, false)}
-                            onClose={() => setEditingIdx(null)}
-                          />
+                  <div
+                    className={`group relative rounded-2xl p-4 transition-all flex items-start justify-between gap-4 border ${
+                      isOverride
+                        ? "bg-destructive/[0.03] border-destructive/25 hover:border-destructive/40"
+                        : "bg-card border-border/50 hover:border-beige/40 shadow-xs"
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">{update.field_label}</span>
+                        {isOverride ? (
+                          <span className="bg-destructive/10 text-destructive text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                            Override
+                          </span>
                         ) : (
-                          <Input
-                            autoFocus
-                            type={update.field_type === "number" ? "number" : "text"}
-                            value={String(update.new_value ?? "")}
-                            onChange={(e) => updateField(idx, e.target.value, false)}
-                            onBlur={() => setEditingIdx(null)}
-                            onKeyDown={(e) => e.key === "Enter" && setEditingIdx(null)}
-                            className="h-10 rounded-xl"
-                          />
+                          <span className="bg-success/10 text-success text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                            New
+                          </span>
                         )}
                       </div>
-                    ) : (
-                      <p className={`text-sm font-normal leading-relaxed ${isOverride ? "text-destructive" : "text-success"}`}>
-                        {isCrmDateField(update)
-                          ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
-                          : optionLabelFor(update.new_value, update.options)}
-                      </p>
+
+                      {hadExisting && (
+                        <p className="text-[10px] text-muted-foreground line-through opacity-60">
+                          Was: {optionLabelFor(update.current_value, update.options) || "—"}
+                        </p>
+                      )}
+
+                      {isEditing ? (
+                        <div className="pt-1">
+                          {update.options && update.options.length > 0 && !isCrmDateField(update) ? (
+                            <select
+                              autoFocus
+                              value={String(update.new_value ?? "")}
+                              onChange={(e) => updateField(idx, e.target.value)}
+                              className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-beige"
+                            >
+                              <option value="">—</option>
+                              {update.options.map((o: { value: string; label?: string }) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label ?? o.value}
+                                </option>
+                              ))}
+                            </select>
+                          ) : isCrmDateField(update) ? (
+                            <ExtractionDatePicker
+                              value={String(update.new_value ?? "")}
+                              onChange={(iso) => updateField(idx, iso, false)}
+                              onClose={() => setEditingIdx(null)}
+                            />
+                          ) : (
+                            <Input
+                              autoFocus
+                              type={update.field_type === "number" ? "number" : "text"}
+                              value={String(update.new_value ?? "")}
+                              onChange={(e) => updateField(idx, e.target.value, false)}
+                              onBlur={() => setEditingIdx(null)}
+                              onKeyDown={(e) => e.key === "Enter" && setEditingIdx(null)}
+                              className="h-9 rounded-xl text-xs"
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <p
+                          className={`text-sm font-normal leading-relaxed ${
+                            isOverride ? "text-destructive" : "text-foreground"
+                          }`}
+                        >
+                          {isCrmDateField(update)
+                            ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
+                            : optionLabelFor(update.new_value, update.options)}
+                        </p>
+                      )}
+                    </div>
+
+                    {canEditRow && !isEditing && (
+                      <div className="flex items-center gap-1 shrink-0 pt-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-beige"
+                          onClick={() => setEditingIdx(idx)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                          onClick={() => removeField(idx)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     )}
                   </div>
-                  {canEditRow && !isEditing && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-beige"
-                        onClick={() => setEditingIdx(idx)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 rounded-full text-muted-foreground hover:text-destructive"
-                        onClick={() => removeField(idx)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  )}
-                </div>
                 </div>
               );
             })}
@@ -1000,39 +1194,26 @@ export const HubSpotSyncPreview = ({
         )}
       </div>
 
-      {!loading && (
-        <div className="p-5 rounded-2xl bg-secondary/5 border border-border/20 flex items-start gap-4">
-          <AlertCircle className="h-5 w-5 text-muted-foreground/40 shrink-0 mt-0.5" />
-          <p className="text-[10px] text-muted-foreground leading-relaxed">
-            AI-suggested values for stages and select fields are automatically mapped to your HubSpot options.
-          </p>
-        </div>
-      )}
-
-      <div className="flex items-center gap-4 pt-6 border-t border-border/40">
+      {/* 5. SYNC ACTION BUTTON */}
+      <div className="pt-4 border-t border-border/40">
         <Button
           variant="hero"
           onClick={handleSync}
           disabled={syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade)}
-          title={
-            skipDeal && selectedContact
-              ? selectedContact.name || selectedContact.email || ""
-              : dealMatch?.deal_name || ""
-          }
-          className="flex-1 bg-beige text-cream hover:bg-beige-dark rounded-full text-sm font-normal shadow-none h-12"
+          className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-sm font-medium h-12 shadow-md transition-all"
         >
           {syncing ? <VocifySpinner size={16} className="mr-2" /> : <Check className="h-4 w-4 mr-2" />}
           {syncing
-            ? "Syncing..."
+            ? "Syncing to CRM..."
             : needsContactDecision
-              ? "Pick a contact first"
-            : needsDealDecision && !dealDecisionMade
-              ? "Pick a deal first"
-              : skipDeal && selectedContact
-                ? "Update contact"
-                : dealMatch
-                  ? "Update deal"
-                  : "Create deal"}
+              ? "Select a contact first"
+              : needsDealDecision && !dealDecisionMade
+                ? "Select a deal first"
+                : skipDeal && selectedContact
+                  ? "Confirm & Update Contact"
+                  : dealMatch
+                    ? "Confirm & Update Deal"
+                    : "Confirm & Create Deal"}
         </Button>
       </div>
     </div>
