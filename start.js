@@ -73,7 +73,7 @@ backend.stderr.on('data', (data) => {
 });
 
 // Start frontend
-log('green', '🎨 Starting frontend server (port 5173)...');
+log('green', '🎨 Starting frontend server (port 8080)...');
 const frontend = spawn('npm', ['run', 'dev'], {
   cwd: __dirname,
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -102,7 +102,7 @@ process.on('SIGTERM', cleanup);
 setTimeout(() => {
   log('green', '\n✅ Both servers are starting!');
   log('blue', '📊 Backend:  http://localhost:8888');
-  log('blue', '📊 Frontend: http://localhost:5173');
+  log('blue', '📊 Frontend: http://localhost:8080');
   log('blue', '🔌 Unpacked Chrome extension talks to this backend');
   log('yellow', '\nPress Ctrl+C to stop both servers\n');
 }, 2000);

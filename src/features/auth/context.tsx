@@ -127,7 +127,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!token) {
       throw new Error('Session refresh failed');
     }
-  }, []);
+    await queryClient.invalidateQueries({ queryKey: authKeys.me() });
+  }, [queryClient]);
+
+  const restoreSession = useCallback(async () => {
+    try {
+      await api.refreshSession();
+    } catch {
+      // ignore
+    }
+    return refetch();
+  }, [refetch]);
 
   useEffect(() => {
     if (!hasStoredSession) return;
@@ -154,7 +164,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isLoading: hasStoredSession && isLoading && !user,
     isAuthenticated: hasStoredSession && !!user,
     hasStoredSession,
-    restoreSession: refetch,
+    restoreSession,
     login,
     signup,
     logout,

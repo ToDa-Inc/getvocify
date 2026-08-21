@@ -18,6 +18,15 @@ const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
 const REFRESH_KEY = 'vocify_refresh';
 const REFRESH_LOCK = 'vocify-auth-refresh';
 
+function shouldAttemptRefreshForEndpoint(endpoint: string): boolean {
+  // Never attempt refresh for endpoints that handle auth flow itself (would loop)
+  return (
+    endpoint !== '/auth/refresh' &&
+    endpoint !== '/auth/login' &&
+    endpoint !== '/auth/signup'
+  );
+}
+
 function crmReconnectDetail(data: unknown): string {
   if (!data || typeof data !== 'object') return '';
   const detail = (data as { detail?: unknown }).detail;
@@ -232,7 +241,11 @@ class ApiClient {
 
     const response = await fetch(url, { ...options, headers });
 
-    if (response.status === 401 && !isRetry && !endpoint.startsWith('/auth/')) {
+    if (
+      response.status === 401 &&
+      !isRetry &&
+      shouldAttemptRefreshForEndpoint(endpoint)
+    ) {
       const preview = await response.clone().json().catch(() => ({}));
       if (!isCrmReconnectResponse(401, preview)) {
         const newToken = await this.tryRefreshToken();
@@ -341,7 +354,11 @@ class ApiClient {
       body: formData,
     });
 
-    if (response.status === 401 && !isRetry && !endpoint.startsWith('/auth/')) {
+    if (
+      response.status === 401 &&
+      !isRetry &&
+      shouldAttemptRefreshForEndpoint(endpoint)
+    ) {
       const preview = await response.clone().json().catch(() => ({}));
       if (!isCrmReconnectResponse(401, preview)) {
         const newToken = await this.tryRefreshToken();
@@ -429,7 +446,7 @@ class ApiClient {
         err instanceof ApiError &&
         err.status === 401 &&
         !isRetry &&
-        !endpoint.startsWith('/auth/') &&
+        shouldAttemptRefreshForEndpoint(endpoint) &&
         !isCrmReconnectResponse(err.status, err.data)
       ) {
         const newToken = await this.tryRefreshToken();

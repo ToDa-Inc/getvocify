@@ -33,9 +33,9 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Start backend
-echo -e "${GREEN}🔧 Starting backend server (port 8000)...${NC}"
+echo -e "${GREEN}🔧 Starting backend server (port 8888)...${NC}"
 cd backend
-python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > ../logs/backend.log 2>&1 &
+python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8888 > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 
@@ -43,7 +43,7 @@ cd ..
 sleep 2
 
 # Start frontend
-echo -e "${GREEN}🎨 Starting frontend server (port 5173)...${NC}"
+echo -e "${GREEN}🎨 Starting frontend server (port 8080)...${NC}"
 npm run dev > logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 
@@ -51,8 +51,8 @@ FRONTEND_PID=$!
 sleep 2
 
 echo -e "\n${GREEN}✅ Both servers are starting!${NC}"
-echo -e "${BLUE}📊 Backend:  http://localhost:8000${NC}"
-echo -e "${BLUE}📊 Frontend: http://localhost:5173${NC}"
+echo -e "${BLUE}📊 Backend:  http://localhost:8888${NC}"
+echo -e "${BLUE}📊 Frontend: http://localhost:8080${NC}"
 echo -e "${BLUE}📋 Logs:     logs/backend.log and logs/frontend.log${NC}"
 echo -e "\n${YELLOW}Press Ctrl+C to stop both servers${NC}\n"
 
