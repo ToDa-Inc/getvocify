@@ -88,7 +88,6 @@ export const VoiceRecorderWidget = ({
     finalTranscript,
     interimTranscript,
     fullTranscript,
-    providerTranscripts,
     start: startTranscription,
     stop: stopTranscription,
     reset: resetTranscription,
@@ -407,7 +406,6 @@ export const VoiceRecorderWidget = ({
           <LiveTranscript
             finalTranscript={finalTranscript}
             interimTranscript={interimTranscript}
-            providerTranscripts={providerTranscripts}
             isActive={isTranscribing && isConnected}
           />
         </div>

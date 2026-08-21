@@ -32,11 +32,14 @@ export function useRealtimeTranscription(
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [transcriptState, setTranscriptState] = useState<ProviderTranscript>({
+    interim: '',
+    final: '',
+    full: '',
+  });
   const [providerTranscripts, setProviderTranscripts] = useState<
     Record<string, ProviderTranscript>
-  >({
-    speechmatics: { interim: '', final: '', full: '' },
-  });
+  >({});
   const [finalWords, setFinalWords] = useState<TranscriptWord[]>([]);
   const [pendingSpeakerIdentifiers, setPendingSpeakerIdentifiers] = useState<
     string[] | null
@@ -171,8 +174,7 @@ export function useRealtimeTranscription(
             }
 
             if (data.type === 'Results') {
-              const provider = data.provider || 'speechmatics';
-              if (provider === 'deepgram') return;
+              const provider = data.provider || 'default';
               const transcript = data.channel?.alternatives?.[0]?.transcript || '';
               const isFinal = data.is_final || data.speech_final;
               const words: TranscriptWord[] = Array.isArray(data.words)
@@ -195,24 +197,47 @@ export function useRealtimeTranscription(
                 setFinalWords((prev) => [...prev, ...words.filter((w) => w.text)]);
               }
 
+              const piece =
+                transcript ||
+                words
+                  .filter((w) => !w.is_punct)
+                  .map((w) => w.text)
+                  .join(' ');
+
+              setTranscriptState((prev) => {
+                let nextFinal = prev.final;
+                let nextInterim = prev.interim;
+
+                if (isFinal) {
+                  if (piece) {
+                    nextFinal = nextFinal ? `${nextFinal} ${piece}` : piece;
+                  }
+                  nextInterim = '';
+                } else {
+                  nextInterim = piece || transcript;
+                }
+
+                const nextFull = `${nextFinal}${nextInterim ? ` ${nextInterim}` : ''}`.trim();
+
+                return {
+                  final: nextFinal,
+                  interim: nextInterim,
+                  full: nextFull,
+                };
+              });
+
               setProviderTranscripts((prev) => {
                 const current = prev[provider] || { interim: '', final: '', full: '' };
                 let nextFinal = current.final;
                 let nextInterim = current.interim;
 
                 if (isFinal) {
-                  const piece =
-                    transcript ||
-                    words
-                      .filter((w) => !w.is_punct)
-                      .map((w) => w.text)
-                      .join(' ');
                   if (piece) {
                     nextFinal = nextFinal ? `${nextFinal} ${piece}` : piece;
                   }
                   nextInterim = '';
                 } else {
-                  nextInterim = transcript;
+                  nextInterim = piece || transcript;
                 }
 
                 const nextFull = `${nextFinal}${nextInterim ? ` ${nextInterim}` : ''}`.trim();
@@ -347,9 +372,8 @@ export function useRealtimeTranscription(
 
   const reset = useCallback(() => {
     cleanup();
-    setProviderTranscripts({
-      speechmatics: { interim: '', final: '', full: '' },
-    });
+    setTranscriptState({ interim: '', final: '', full: '' });
+    setProviderTranscripts({});
     setFinalWords([]);
     setPendingSpeakerIdentifiers(null);
     setEndOfUtteranceSeq(0);
@@ -360,9 +384,9 @@ export function useRealtimeTranscription(
     isConnected,
     isTranscribing,
     error,
-    interimTranscript: providerTranscripts.speechmatics.interim,
-    finalTranscript: providerTranscripts.speechmatics.final,
-    fullTranscript: providerTranscripts.speechmatics.full,
+    interimTranscript: transcriptState.interim,
+    finalTranscript: transcriptState.final,
+    fullTranscript: transcriptState.full,
     providerTranscripts,
     finalWords,
     pendingSpeakerIdentifiers,

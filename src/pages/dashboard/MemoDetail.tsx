@@ -13,65 +13,6 @@ import { api } from "@/shared/lib/api-client";
 import { memosApi } from "@/features/memos/api";
 
 /** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
-function formatStageMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  stt: "Speech-to-text",
-  sanitize: "Transcript repair",
-  extract: "CRM note + fields",
-};
-
-function PipelineMetaCard({ meta }: { meta: any }) {
-  const stages = Array.isArray(meta?.stages) ? meta.stages : [];
-  if (!stages.length) return null;
-  return (
-    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 shrink-0`}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className={THEME_TOKENS.typography.capsLabel}>Pipeline</h3>
-        {typeof meta.total_ms === "number" && (
-          <span className={`${THEME_TOKENS.typography.capsLabel} !text-foreground/40`}>
-            {formatStageMs(meta.total_ms)} total
-          </span>
-        )}
-      </div>
-      <div className="space-y-3">
-        {stages.map((stage: any, i: number) => (
-          <details key={`${stage.name}-${stage.at || i}`} className="group">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-foreground">
-                {STAGE_LABELS[stage.name] || stage.name}
-              </span>
-              <span className="text-muted-foreground tabular-nums text-xs">
-                {formatStageMs(Number(stage.ms))}
-                {stage.model ? ` · ${stage.model}` : ""}
-                {stage.error ? " · failed" : ""}
-              </span>
-            </summary>
-            <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-              {stage.note && <p>{stage.note}</p>}
-              {stage.language && <p>Language: {stage.language}</p>}
-              {stage.error && <p className="text-destructive">{stage.error}</p>}
-              {(stage.prompts || []).map((prompt: any, pi: number) => (
-                <pre
-                  key={pi}
-                  className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-secondary/40 p-3 font-mono text-[11px] leading-relaxed text-foreground/80"
-                >
-                  {prompt.role?.toUpperCase()}: {prompt.content || ""}
-                </pre>
-              ))}
-            </div>
-          </details>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
 function labelsFromDealUrl(dealUrl: string | undefined | null): {
   crmName: string;
   viewInCrm: string;
@@ -486,10 +427,6 @@ const MemoDetail = () => {
               </Button>
             )}
           </div>
-
-          {memo.pipelineMeta?.stages?.length ? (
-            <PipelineMetaCard meta={memo.pipelineMeta} />
-          ) : null}
         </div>
 
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
