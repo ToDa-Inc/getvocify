@@ -6,6 +6,7 @@ import {
   activityKickerLabel,
   isRecordPageContext,
   isVocifyMemo,
+  memoListFromResponse,
   mergeActivityItems,
   nextVisibleCount,
   shouldFetchVocifyMemos,
@@ -95,12 +96,19 @@ describe('activityKickerLabel', () => {
 });
 
 describe('isVocifyMemo', () => {
-  it('drops HubSpot call memos so they are not listed twice', () => {
+  it('drops a memo only when that call is already in the activity list', () => {
     const callIds = new Set(['m1']);
     assert.equal(isVocifyMemo({ id: 'm1' }, callIds), false);
-    assert.equal(isVocifyMemo({ id: 'm2', source: 'hubspot_call' }, callIds), false);
-    assert.equal(isVocifyMemo({ id: 'm3', hubspot_engagement_id: 'e1' }, callIds), false);
+    assert.equal(isVocifyMemo({ id: 'm2', source: 'hubspot_call' }, callIds), true);
     assert.equal(isVocifyMemo({ id: 'm4', source: 'voice' }, callIds), true);
+  });
+});
+
+describe('memoListFromResponse', () => {
+  it('keeps a JSON array from GET /memos', () => {
+    assert.equal(memoListFromResponse([{ id: 'm1' }]).length, 1);
+    assert.deepEqual(memoListFromResponse({ items: [{ id: 'm1' }] }), [{ id: 'm1' }]);
+    assert.deepEqual(memoListFromResponse({ error: 'nope' }), []);
   });
 });
 
@@ -110,7 +118,7 @@ describe('mergeActivityItems', () => {
       recordings: [
         { call_id: 'c-old', has_recording: true, timestamp: '2026-08-01T10:00:00.000Z', title: 'Old call' },
         { call_id: 'c-skip', has_recording: false, timestamp: '2026-08-19T10:00:00.000Z' },
-        { call_id: 'c-new', has_recording: true, timestamp_ms: Date.parse('2026-08-18T12:00:00.000Z'), title: 'New call' },
+        { call_id: 'c-new', memo_id: 'dup', has_recording: true, timestamp_ms: Date.parse('2026-08-18T12:00:00.000Z'), title: 'New call' },
       ],
       memos: [
         { id: 'memo-mid', created_at: '2026-08-10T09:00:00.000Z', source: 'voice' },
@@ -119,6 +127,19 @@ describe('mergeActivityItems', () => {
     });
     assert.deepEqual(items.map((i) => i.id), ['c-new', 'memo-mid', 'c-old']);
     assert.deepEqual(items.map((i) => i.kind), ['call', 'memo', 'call']);
+  });
+
+  it('still lists a HubSpot call memo when there is no playable recording', () => {
+    const items = mergeActivityItems({
+      recordings: [
+        { call_id: 'c1', memo_id: 'm-hs', has_recording: false, timestamp: '2026-08-19T10:00:00.000Z' },
+      ],
+      memos: [
+        { id: 'm-hs', created_at: '2026-08-19T10:00:00.000Z', source: 'hubspot_call' },
+      ],
+    });
+    assert.deepEqual(items.map((i) => i.id), ['m-hs']);
+    assert.equal(items[0].kind, 'memo');
   });
 });
 

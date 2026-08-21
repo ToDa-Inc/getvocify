@@ -54,10 +54,17 @@ export function nextVisibleCount(current, total, pageSize = RECORDINGS_PAGE_SIZE
 export function isVocifyMemo(memo, callIds) {
   const id = memo?.id != null ? String(memo.id) : '';
   if (id && callIds instanceof Set && callIds.has(id)) return false;
-  const src = memo?.source || memo?.source_type;
-  if (src === 'hubspot_call') return false;
-  if (memo?.hubspot_engagement_id) return false;
   return true;
+}
+
+/** GET /memos is a JSON array; never treat a 200 object as “no memos”. */
+export function memoListFromResponse(results) {
+  if (Array.isArray(results)) return results;
+  if (!results || typeof results !== 'object' || results.error) return [];
+  if (Array.isArray(results.items)) return results.items;
+  if (Array.isArray(results.data)) return results.data;
+  if (Array.isArray(results.memos)) return results.memos;
+  return [];
 }
 
 function toSortMs(value) {
@@ -70,18 +77,17 @@ function toSortMs(value) {
 }
 
 export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = null } = {}) {
+  const listed = (recordings || []).filter((r) => r && r.has_recording);
   const ids = callMemoIds instanceof Set
     ? callMemoIds
-    : new Set((recordings || []).map((r) => r?.memo_id).filter(Boolean).map(String));
+    : new Set(listed.map((r) => r?.memo_id).filter(Boolean).map(String));
 
-  const calls = (recordings || [])
-    .filter((r) => r && r.has_recording)
-    .map((r) => ({
-      kind: 'call',
-      id: r.call_id,
-      sortMs: toSortMs(r.timestamp || r.timestamp_ms),
-      recording: r,
-    }));
+  const calls = listed.map((r) => ({
+    kind: 'call',
+    id: r.call_id,
+    sortMs: toSortMs(r.timestamp || r.timestamp_ms),
+    recording: r,
+  }));
 
   const vocify = (memos || [])
     .filter((m) => isVocifyMemo(m, ids))

@@ -10,6 +10,7 @@ import { parseHubSpotUrl } from './lib/hubspot-parser.js';
 import { pickContextTab } from './lib/review-targets.js';
 import { planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './lib/page-scope.js';
 import { planRecordingsFetch, planRecordingsResult } from './lib/recordings-fetch.js';
+import { memoListFromResponse } from './lib/activity-list.js';
 import {
   applyTranscriptUpdate,
   canStartTabCapture,
@@ -1087,7 +1088,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       else if (message.contactId) params.set('hubspot_contact_id', String(message.contactId));
       params.set('limit', '5');
       api.get(`/memos?${params.toString()}`)
-        .then((results) => sendResponse(Array.isArray(results) ? results : []))
+        .then((results) => sendResponse(memoListFromResponse(results)))
         .catch((e) => {
           if (isAuthFailure(e)) {
             chrome.runtime.sendMessage({ type: 'AUTH_REQUIRED' }).catch(() => {});

@@ -65,6 +65,7 @@ import {
   activityEmptyMessage,
   activityKickerLabel,
   isRecordPageContext,
+  memoListFromResponse,
   mergeActivityItems,
   nextVisibleCount,
   shouldFetchVocifyMemos,
@@ -1781,7 +1782,7 @@ async function loadRecentMemos(scope) {
     if (resolved.key !== recentMemosScopeKey) return;
 
     recentMemosLoaded = true;
-    recentMemosCache = memos && !memos.error && Array.isArray(memos) ? memos : [];
+    recentMemosCache = memoListFromResponse(memos);
     if (lastBgState) renderRecordingsSection(lastBgState);
   } catch (e) {
     if (gen !== recentMemosFetchGen) return;
