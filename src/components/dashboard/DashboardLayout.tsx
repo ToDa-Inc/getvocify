@@ -48,75 +48,71 @@ const DashboardLayout = () => {
       )}
 
       <aside
-        className={`
-          fixed lg:static inset-y-0 left-0 z-50 w-60 bg-background border-r border-border
-          transform transition-transform duration-150 lg:transform-none
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
-        `}
+        className={`fixed inset-y-0 left-0 z-40 w-60 bg-background border-r border-border flex flex-col h-screen overflow-y-auto transform transition-transform duration-150 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        }`}
       >
-        <div className="flex flex-col h-full">
-          <div className="px-5 py-6 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <Logo size="sm" />
-              <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
-                Beta
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden"
-              onClick={() => setSidebarOpen(false)}
-            >
-              <X className="h-5 w-5" />
-            </Button>
+        <div className="px-5 py-6 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Logo size="sm" />
+            <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
+              Beta
+            </span>
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
 
-          <nav className="flex-1 px-3 space-y-0.5">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-normal
-                  transition-colors duration-150
-                  ${isActive(item.path)
-                    ? "bg-beige/10 text-foreground"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"}
-                `}
-              >
-                <item.icon className={`h-4 w-4 ${isActive(item.path) ? "text-beige" : "opacity-70"}`} />
-                <span className="flex-1">{item.label}</span>
-                {"beta" in item && item.beta && (
-                  <span className="text-[10px] font-medium text-beige">Beta</span>
-                )}
-              </Link>
-            ))}
-          </nav>
+        <nav className="px-3 space-y-0.5">
+          {navItems.map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              onClick={() => setSidebarOpen(false)}
+              className={`
+                flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-normal
+                transition-colors duration-150
+                ${isActive(item.path)
+                  ? "bg-beige/10 text-foreground"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"}
+              `}
+            >
+              <item.icon className={`h-4 w-4 ${isActive(item.path) ? "text-beige" : "opacity-70"}`} />
+              <span className="flex-1">{item.label}</span>
+              {"beta" in item && item.beta && (
+                <span className="text-[10px] font-medium text-beige">Beta</span>
+              )}
+            </Link>
+          ))}
+        </nav>
 
-          <div className="p-4">
-            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
-              <p className="text-sm font-normal text-foreground mb-1">Scale with us</p>
-              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                Unlimited memos and multi-CRM sync.
-              </p>
-              <Button
-                asChild
-                size="sm"
-                className="w-full bg-beige text-cream hover:bg-beige-dark"
-              >
-                <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
-                  Book a demo
-                </a>
-              </Button>
-            </div>
+        <div className="p-4">
+          <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
+            <p className="text-sm font-normal text-foreground mb-1">Scale with us</p>
+            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+              Unlimited memos and multi-CRM sync.
+            </p>
+            <Button
+              asChild
+              size="sm"
+              className="w-full bg-beige text-cream hover:bg-beige-dark"
+            >
+              <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
+                Book a demo
+              </a>
+            </Button>
           </div>
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 sticky top-0 z-30 px-6 flex items-center justify-between glass-panel border-b border-white/40">
+      <div className="lg:pl-60 min-h-screen flex flex-col min-w-0 w-full">
+        <header className="h-14 sticky top-0 z-30 px-6 flex items-center justify-between glass-panel border-b border-white/40 backdrop-blur-md">
           <Button
             variant="ghost"
             size="icon"
