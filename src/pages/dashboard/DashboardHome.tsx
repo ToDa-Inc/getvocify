@@ -1,12 +1,14 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { Mic } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
-import { Button } from "@/components/ui/button";
 import { memosApi, memoKeys } from "@/features/memos/api";
-import type { Memo, MemoStatus } from "@/features/memos/types";
+import type { MemoStatus } from "@/features/memos/types";
+import { memoListTitle, memoListSubtitle } from "@/lib/copilot-note";
+import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
+import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
 const getStatusBadge = (status: MemoStatus) => {
   switch (status) {
@@ -20,6 +22,12 @@ const getStatusBadge = (status: MemoStatus) => {
       return (
         <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-warning">
           Pending review
+        </span>
+      );
+    case "pending_transcript":
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-beige/10 text-beige">
+          Review transcript
         </span>
       );
     case "uploading":
@@ -47,11 +55,8 @@ const getStatusBadge = (status: MemoStatus) => {
   }
 };
 
-import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
-
-const PREVIEW_MAX_LEN = 80;
-
 const DashboardHome = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const displayName = user ? getUserDisplayName(user) : "User";
 
@@ -70,22 +75,10 @@ const DashboardHome = () => {
         <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
       </div>
 
-      {/* Record Card */}
-      <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} ${V_PATTERNS.focusBox}`}>
-        <div className="w-14 h-14 mx-auto mb-6 rounded-2xl bg-beige text-cream flex items-center justify-center">
-          <Mic className="h-6 w-6" />
-        </div>
-        <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-4`}>Record your meeting notes</h2>
-        <Button variant="hero" size="xl" asChild className="px-8">
-          <Link to="/dashboard/record">
-            <Mic className="h-4 w-4 mr-2" />
-            Start Recording
-          </Link>
-        </Button>
-        <p className={`text-sm ${THEME_TOKENS.colors.muted} mt-4`}>
-          Speak for 30-120 seconds about your meeting
-        </p>
-      </div>
+      {/* Embedded Live Recorder & Quick Ingest Widget */}
+      <VoiceRecorderWidget
+        onComplete={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
+      />
 
       {/* Recent Memos */}
       <div className="space-y-6">
@@ -110,29 +103,36 @@ const DashboardHome = () => {
             </div>
           ) : (
             recentMemos.map((memo) => {
-              const company = memo.extraction?.companyName?.trim() || "Untitled memo";
+              const title = memoListTitle(memo);
+              const subtitle = memoListSubtitle(memo);
               const preview =
-                memo.extraction?.summary?.trim() ||
-                memo.transcript?.trim() ||
+                subtitle ||
+                (memo.extraction?.summary
+                  ? String(memo.extraction.summary).replace(/^#+\s+/gm, " ").replace(/\s+/g, " ").trim()
+                  : memo.transcript) ||
                 "No preview yet.";
-              const previewShort =
-                preview.length > PREVIEW_MAX_LEN ? preview.slice(0, PREVIEW_MAX_LEN) + "…" : preview;
+
               return (
                 <Link
                   key={memo.id}
                   to={`/dashboard/memos/${memo.id}`}
                   className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${THEME_TOKENS.cards.hover} ${V_PATTERNS.listItem} group`}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-6">
+                    <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0">
+                      <Mic className="h-5 w-5 text-beige" />
+                    </div>
+
                     <div className="flex-1 min-w-0">
                       <h3 className="font-normal text-foreground text-[15px] truncate">
-                        {company}
+                        {title}
                       </h3>
-                      <p className="text-sm text-muted-foreground truncate mt-1 leading-relaxed">
-                        {previewShort}
+                      <p className="text-sm text-muted-foreground line-clamp-1 truncate mt-1 leading-relaxed">
+                        {preview}
                       </p>
                     </div>
-                    <div className="flex flex-col items-end gap-3">
+
+                    <div className="flex flex-col items-end gap-3 flex-shrink-0">
                       {getStatusBadge(memo.status)}
                       <span className={`${THEME_TOKENS.typography.capsLabel} text-right max-w-[11rem] leading-snug`}>
                         {formatRecordedAtLabel(memo.createdAt)}
