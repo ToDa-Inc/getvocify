@@ -48,11 +48,11 @@ const DashboardLayout = () => {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-60 bg-background border-r border-border flex flex-col h-screen overflow-y-auto transform transition-transform duration-150 ${
+        className={`fixed inset-y-0 left-0 z-40 w-60 bg-background border-r border-border flex flex-col h-screen transform transition-transform duration-150 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-        <div className="px-5 py-6 flex items-center justify-between">
+        <div className="px-5 py-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <Logo size="sm" />
             <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
@@ -69,7 +69,7 @@ const DashboardLayout = () => {
           </Button>
         </div>
 
-        <nav className="px-3 space-y-0.5">
+        <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => (
             <Link
               key={item.path}
@@ -92,7 +92,7 @@ const DashboardLayout = () => {
           ))}
         </nav>
 
-        <div className="p-4">
+        <div className="p-4 mt-auto shrink-0">
           <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
             <p className="text-sm font-normal text-foreground mb-1">Scale with us</p>
             <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
