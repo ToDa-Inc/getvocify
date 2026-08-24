@@ -23,6 +23,9 @@ import SettingsPage from "./pages/dashboard/SettingsPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
+import AdminLayout from "./components/admin/AdminLayout";
+import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
+import AdminAccountDetailPage from "./pages/admin/AdminAccountDetailPage";
 
 import { LanguageProvider } from "@/lib/i18n";
 import { AuthProvider, useAuth } from "@/features/auth";
@@ -107,6 +110,10 @@ const App = () => (
             <Route path="/support" element={<SupportPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<AdminAccountsPage />} />
+              <Route path="accounts/:userId" element={<AdminAccountDetailPage />} />
+            </Route>
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <DashboardLayout />

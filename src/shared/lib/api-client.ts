@@ -19,7 +19,7 @@ const REFRESH_KEY = 'vocify_refresh';
 const REFRESH_LOCK = 'vocify-auth-refresh';
 
 function shouldAttemptRefreshForEndpoint(endpoint: string): boolean {
-  // Never attempt refresh for endpoints that handle auth flow itself (would loop)
+  if (endpoint.startsWith("/admin")) return false;
   return (
     endpoint !== '/auth/refresh' &&
     endpoint !== '/auth/login' &&
@@ -284,17 +284,18 @@ class ApiClient {
   /**
    * GET request
    */
-  get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  get<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET', ...options });
   }
 
   /**
    * POST request with JSON body
    */
-  post<T>(endpoint: string, data?: unknown): Promise<T> {
+  post<T>(endpoint: string, data?: unknown, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
+      ...options,
     });
   }
 

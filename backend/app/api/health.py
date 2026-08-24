@@ -3,7 +3,7 @@ Health check endpoint
 """
 
 from fastapi import APIRouter, Depends
-from app.deps import get_supabase
+from app.deps import get_supabase, require_master_key
 from app.config import settings
 from app.services.recovery import RecoveryService
 from supabase import Client
@@ -36,6 +36,7 @@ async def health_check():
 @router.post("/health/recover-stuck-memos")
 async def recover_stuck_memos(
     supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
 ):
     """
     Recover stuck memo processing tasks.

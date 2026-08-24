@@ -14,6 +14,7 @@ from app.api import (
     webhooks,
     copilot,
     voice_enrollment,
+    admin,
 )
 
 api_router = APIRouter()
@@ -29,5 +30,6 @@ api_router.include_router(glossary.router)
 api_router.include_router(webhooks.router, prefix="/webhooks")
 api_router.include_router(copilot.router)
 api_router.include_router(voice_enrollment.router)
+api_router.include_router(admin.router)
 
 

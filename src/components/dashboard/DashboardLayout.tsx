@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
+import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
+import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
@@ -30,6 +32,7 @@ const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
+  const impersonating = !!getImpersonation();
 
   const isActive = (path: string) => {
     if (path === "/dashboard") {
@@ -112,6 +115,7 @@ const DashboardLayout = () => {
       </aside>
 
       <div className="lg:pl-60 min-h-screen flex flex-col min-w-0 w-full">
+        <ImpersonationBanner />
         <header className="h-14 sticky top-0 z-30 px-6 flex items-center justify-between glass-panel border-b border-white/40 backdrop-blur-md">
           <Button
             variant="ghost"
@@ -135,7 +139,13 @@ const DashboardLayout = () => {
             </div>
 
             <Link
-              to="/dashboard/profile"
+              to={impersonating ? "#" : "/dashboard/profile"}
+              onClick={(e) => {
+                if (impersonating) {
+                  e.preventDefault();
+                  returnToAdmin();
+                }
+              }}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-xs font-medium text-beige hover:border-beige/40 transition-colors"
             >
               {user ? getUserInitials(user) : "U"}

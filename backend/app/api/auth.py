@@ -490,35 +490,17 @@ def _reissue_session_for_verified_claims(claims: dict) -> RefreshResponse:
         )
 
     try:
-        link = admin.auth.admin.generate_link({"type": "magiclink", "email": resolved_email})
-        props = getattr(link, "properties", None)
-        email_otp = getattr(props, "email_otp", None) if props else None
-        hashed = getattr(props, "hashed_token", None) if props else None
-        if not email_otp and not hashed:
-            raise RuntimeError("generate_link returned no otp")
+        from app.services.admin_session import mint_session_for_email
 
-        auth_client = get_supabase_auth()
-        if email_otp:
-            verified = auth_client.auth.verify_otp(
-                {"email": resolved_email, "token": email_otp, "type": "magiclink"}
-            )
-        else:
-            verified = auth_client.auth.verify_otp(
-                {"token_hash": hashed, "type": "magiclink"}
-            )
-
-        session = getattr(verified, "session", None)
-        if not session:
-            raise RuntimeError("verify_otp returned no session")
-
+        minted = mint_session_for_email(resolved_email)
         logger.warning(
             "Supabase refresh broken (oauth_client_id); re-issued session via verified JWT for %s",
             resolved_email,
         )
         return RefreshResponse(
-            access_token=session.access_token,
-            refresh_token=session.refresh_token,
-            expires_in=session.expires_in or 3600,
+            access_token=minted.access_token,
+            refresh_token=minted.refresh_token,
+            expires_in=minted.expires_in,
         )
     except HTTPException:
         raise
