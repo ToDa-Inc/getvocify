@@ -25,11 +25,6 @@ const AdminAccountsPage = () => {
     return () => clearTimeout(id);
   }, [search]);
 
-  const { data: runtime } = useQuery({
-    queryKey: adminKeys.runtime(),
-    queryFn: () => adminApi.runtime(),
-  });
-
   const { data, isLoading, isError } = useQuery({
     queryKey: adminKeys.accounts(skip, debouncedSearch),
     queryFn: () => adminApi.listAccounts({ skip, limit: PAGE_SIZE, search: debouncedSearch || undefined }),
@@ -76,16 +71,6 @@ const AdminAccountsPage = () => {
         </h1>
         <p className={THEME_TOKENS.typography.body}>Cross-tenant account preview and Login as.</p>
       </div>
-
-      {runtime && (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4 text-sm text-muted-foreground flex flex-wrap gap-x-6 gap-y-1`}>
-          <span>STT: {runtime.sttProvider}</span>
-          <span>LLM: {runtime.llmProvider}</span>
-          <span>Extract: {runtime.extractionModel}</span>
-          <span>Copilot: {runtime.copilotModel}</span>
-          <span>Env: {runtime.environment}</span>
-        </div>
-      )}
 
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4 flex flex-wrap items-center justify-between gap-3`}>
         <p className="text-sm">
