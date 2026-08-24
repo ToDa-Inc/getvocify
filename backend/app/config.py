@@ -46,8 +46,8 @@ class Settings(BaseSettings):
     SPEECHMATICS_API_KEY: Optional[str] = None
     # File STT (HubSpot recordings, uploads, WhatsApp). Live copilot stays Speechmatics WS.
     STT_PROVIDER: str = "deepgram"
-    # Realtime language when the client sends `multi`. Default `auto` matches live STT.
-    # Set to `es` only if eu2 rejects `/v2/auto`.
+    # Realtime language when the client sends `multi`. Must be an ISO code (`es`, `en`, …).
+    # `auto` is batch-only — eu2 rejects wss://…/v2/auto with HTTP 404.
     SPEECHMATICS_RT_LANGUAGE: Optional[str] = None
 
     # LLM provider routing: openrouter | vertex_ai
@@ -174,6 +174,9 @@ class Settings(BaseSettings):
     # Get a DSN free at sentry.io (new project > Python > FastAPI).
     SENTRY_DSN: Optional[str] = None
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1
+
+    # Internal admin console. Unset = admin routes return 503; app still boots.
+    MASTER_KEY: Optional[str] = None
     
     @field_validator('SUPABASE_URL')
     @classmethod

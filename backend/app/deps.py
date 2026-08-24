@@ -11,6 +11,7 @@ from app.services.auth_session import (
     user_id_from_access_token,
 )
 from typing import Optional
+import secrets
 import threading
 
 
@@ -149,5 +150,26 @@ def get_user_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authorization token. Please sign in again.",
         )
+
+
+def verify_master_key(provided: Optional[str]) -> str:
+    expected = (getattr(settings, "MASTER_KEY", None) or "").strip()
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin is not configured",
+        )
+    if not provided or not secrets.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid master key",
+        )
+    return provided
+
+
+def require_master_key(
+    x_master_key: Optional[str] = Header(None, alias="X-Master-Key"),
+) -> str:
+    return verify_master_key(x_master_key)
 
 
