@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from supabase import Client
 
 from app.api.auth import AuthResponse, _user_response
@@ -50,22 +49,66 @@ def _write_audit(
         logger.warning("admin audit insert failed (%s): %s", action, exc)
 
 
+def _unwrap_auth_user(response: Any) -> Any:
+    user = getattr(response, "user", None)
+    return user if user is not None else response
+
+
+def _auth_user_row(user: Any) -> dict:
+    user = _unwrap_auth_user(user)
+    last_sign_in = getattr(user, "last_sign_in_at", None)
+    if last_sign_in is not None and hasattr(last_sign_in, "isoformat"):
+        last_sign_in = last_sign_in.isoformat()
+    return {
+        "id": str(getattr(user, "id", "") or ""),
+        "email": getattr(user, "email", None) or "",
+        "last_sign_in_at": last_sign_in,
+    }
+
+
 def _auth_users_by_ids(supabase: Client, ids: List[str]) -> List[dict]:
     if not ids:
         return []
-    result = (
-        supabase.postgrest.schema("auth")
-        .from_("users")
-        .select("id,email,last_sign_in_at")
-        .in_("id", ids)
-        .execute()
-    )
-    return result.data or []
+    rows: List[dict] = []
+    for uid in ids:
+        try:
+            user = supabase.auth.admin.get_user_by_id(uid)
+            if user:
+                rows.append(_auth_user_row(user))
+        except Exception as exc:
+            logger.warning("admin get_user_by_id failed for %s: %s", uid, exc)
+    return rows
 
 
 def _auth_user_by_id(supabase: Client, user_id: str) -> Optional[dict]:
     rows = _auth_users_by_ids(supabase, [user_id])
     return rows[0] if rows else None
+
+
+def _auth_user_ids_matching_email(supabase: Client, query: str) -> set[str]:
+    needle = query.strip().lower()
+    if not needle:
+        return set()
+    matched: set[str] = set()
+    page = 1
+    per_page = 200
+    while True:
+        try:
+            users = supabase.auth.admin.list_users(page=page, per_page=per_page)
+        except Exception as exc:
+            logger.warning("admin list_users failed on page %s: %s", page, exc)
+            break
+        if not users:
+            break
+        for user in users:
+            row = _auth_user_row(user)
+            email = (row.get("email") or "").lower()
+            if needle in email:
+                matched.add(row["id"])
+        if len(users) < per_page:
+            break
+        page += 1
+    return matched
 
 
 def _profile_ids_for_search(supabase: Client, search: str) -> Optional[List[str]]:
@@ -75,15 +118,7 @@ def _profile_ids_for_search(supabase: Client, search: str) -> Optional[List[str]
 
     ids: set[str] = set()
     if "@" in q:
-        auth_result = (
-            supabase.postgrest.schema("auth")
-            .from_("users")
-            .select("id")
-            .ilike("email", f"%{q}%")
-            .limit(200)
-            .execute()
-        )
-        ids.update(str(r["id"]) for r in (auth_result.data or []) if r.get("id"))
+        ids.update(_auth_user_ids_matching_email(supabase, q))
 
     profile_query = supabase.table("user_profiles").select("id")
     if _UUID_RE.match(q):
