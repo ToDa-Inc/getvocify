@@ -1,8 +1,9 @@
 /**
  * Sync targets for extension review/approve.
  *
- * The HubSpot page record is the write target. Stale IDs from a previous
- * record and auto-attached linked deals/contacts are not used.
+ * Write the current process (memo + explicit picks). The HubSpot table is a
+ * view of that process. A later focused contact/deal does not become the
+ * write target unless the user clicks “Use this record”.
  */
 
 export function associatedContactsFromContext(ctx) {
@@ -47,13 +48,15 @@ export function resolveReviewTargets({
   userDealId = null,
   userContactId = null,
   createNewDeal = false,
+  processDealId = null,
+  processContactId = null,
 } = {}) {
   const ctx = pageContext || {};
   const type = ctx.objectType;
   const recordId = ctx.recordId || null;
 
   if (type === 'contact' && recordId) {
-    const dealId = createNewDeal ? null : (userDealId || null);
+    const dealId = createNewDeal ? null : (userDealId || processDealId || null);
     return {
       dealId,
       contactId: recordId,
@@ -65,8 +68,8 @@ export function resolveReviewTargets({
   if (type === 'deal' && recordId) {
     const dealId = createNewDeal ? null : (userDealId || recordId);
     const contactId = dealId === recordId
-      ? contactIdForAssociatedRecord(ctx, userContactId)
-      : (userContactId || null);
+      ? contactIdForAssociatedRecord(ctx, userContactId || processContactId)
+      : (userContactId || processContactId || null);
     return {
       dealId,
       contactId,
@@ -76,8 +79,8 @@ export function resolveReviewTargets({
   }
 
   if (type === 'company' && recordId) {
-    const contactId = contactIdForAssociatedRecord(ctx, userContactId);
-    const dealId = createNewDeal ? null : (userDealId || null);
+    const contactId = contactIdForAssociatedRecord(ctx, userContactId || processContactId);
+    const dealId = createNewDeal ? null : (userDealId || processDealId || null);
     return {
       dealId,
       contactId,
@@ -86,8 +89,8 @@ export function resolveReviewTargets({
     };
   }
 
-  const dealId = createNewDeal ? null : (userDealId || null);
-  const contactId = userContactId || null;
+  const dealId = createNewDeal ? null : (userDealId || processDealId || null);
+  const contactId = userContactId || processContactId || null;
   return {
     dealId,
     contactId,

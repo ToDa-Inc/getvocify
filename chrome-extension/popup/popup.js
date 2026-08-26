@@ -23,7 +23,9 @@ import {
   confirmTranscriptErrorStatus,
   memoForReviewPresentation,
   reviewMemoIfCurrent,
+  planReviewSessionLock,
   shouldWriteCallNote,
+  shouldPollMemo,
 } from '../lib/review-screen.js';
 import { buildHubSpotUrl } from '../lib/hubspot-parser.js';
 import {
@@ -59,7 +61,7 @@ import {
 import { callDurationSeconds, formatCallDuration } from '../lib/call-duration.js';
 import { memoContactName, memoListSubtitle, memoListTitle, reviewIdsFromMemo } from '../lib/memo-identity.js';
 import { calendarFromIso, calendarMonth, shiftCalendarMonth } from '../lib/date-chip.js';
-import { recordingsScopeKey } from '../lib/page-scope.js';
+import { keepReviewSessionContext, recordingsScopeKey } from '../lib/page-scope.js';
 import {
   RECORDINGS_PAGE_SIZE,
   activityEmptyMessage,
@@ -194,6 +196,7 @@ let lastRenderedStatus = null;
 /** Cache key: deal:<id> | contact:<id> | global */
 let recentMemosScopeKey = null;
 let idleContextPollId = null;
+let transcriptPolishPollId = null;
 /** unknown until init() finishes; signed_out must never paint record/idle */
 let authStatus = 'unknown';
 let lastChromePaintKey = null;
@@ -236,6 +239,7 @@ function startIdleContextPoll() {
 function enterLoggedOut() {
   authStatus = 'signed_out';
   stopIdleContextPoll();
+  stopTranscriptPolishPoll();
   stopSessionHeartbeat();
   lastRenderedStatus = null;
   lastChromePaintKey = null;
@@ -252,6 +256,37 @@ function stopIdleContextPoll() {
   if (!idleContextPollId) return;
   clearInterval(idleContextPollId);
   idleContextPollId = null;
+}
+
+function stopTranscriptPolishPoll() {
+  if (!transcriptPolishPollId) return;
+  clearInterval(transcriptPolishPollId);
+  transcriptPolishPollId = null;
+}
+
+function startTranscriptPolishPoll(memoId, seedMemo) {
+  stopTranscriptPolishPoll();
+  if (!memoId || !shouldPollMemo(seedMemo)) return;
+  let ticks = 0;
+  const tick = async () => {
+    ticks += 1;
+    try {
+      const memo = await api.getMemo(memoId);
+      if (!isCurrentReviewMemo(memoId)) {
+        stopTranscriptPolishPoll();
+        return;
+      }
+      lastReviewMemo = memo;
+      renderTranscriptConversation(memo?.transcript || '', {
+        container: document.getElementById('review-transcript-conversation'),
+        labels: reviewSpeakerLabels(),
+      });
+      if (!shouldPollMemo(memo) || ticks > 12) stopTranscriptPolishPoll();
+    } catch (_) {
+      if (ticks > 12) stopTranscriptPolishPoll();
+    }
+  };
+  transcriptPolishPollId = setInterval(tick, 2000);
 }
 
 function pageRecordKey(context) {
@@ -279,9 +314,8 @@ function clearReviewPreviewUi() {
 }
 
 function lockReviewSession(context) {
-  if (!context) return;
   reviewSessionLocked = true;
-  reviewSessionContext = { ...context };
+  reviewSessionContext = context ? { ...context } : {};
 }
 
 function unlockReviewSession() {
@@ -318,6 +352,8 @@ function currentReviewTargets(context, extra = {}) {
     userDealId: extra.userDealId !== undefined ? extra.userDealId : userSelectedDealId,
     userContactId: extra.userContactId !== undefined ? extra.userContactId : userSelectedContactId,
     createNewDeal: extra.createNewDeal !== undefined ? extra.createNewDeal : createNewDealRequested,
+    processDealId: extra.processDealId !== undefined ? extra.processDealId : currentDealId,
+    processContactId: extra.processContactId !== undefined ? extra.processContactId : currentContactId,
   });
 }
 
@@ -410,11 +446,6 @@ function stopProcessingElapsed() {
 }
 
 const PROCESSING_COPY = {
-  transcribing: [
-    'Writing the call down…',
-    'Sorting who said what…',
-    'Cleaning up the audio…',
-  ],
   extracting: [
     'Filling in the fields…',
     'Matching this to HubSpot…',
@@ -423,7 +454,7 @@ const PROCESSING_COPY = {
 };
 
 function startProcessingCopy(mode) {
-  const lines = PROCESSING_COPY[mode] || PROCESSING_COPY.transcribing;
+  const lines = PROCESSING_COPY[mode] || PROCESSING_COPY.extracting;
   const msg = document.getElementById('processing-message');
   if (_processingCopyFade) {
     clearTimeout(_processingCopyFade);
@@ -871,23 +902,16 @@ async function handleRecordingAction(e) {
   }
 }
 
-/** Set processing screen text: 'transcribing' | 'extracting' | 'hubspot_call' */
-function setProcessingScreenMode(mode) {
+/** Set processing screen text — single unified “Extracting fields” step. */
+function setProcessingScreenMode(_mode) {
   const sub = document.getElementById('processing-subtitle');
   const title = document.getElementById('processing-title');
-  const kind = mode === 'extracting' ? 'extracting' : 'transcribing';
-  if (_processingUiKind !== kind) {
-    _processingUiKind = kind;
-    startProcessingCopy(kind);
+  if (_processingUiKind !== 'extracting') {
+    _processingUiKind = 'extracting';
+    startProcessingCopy('extracting');
   }
-
-  if (kind === 'extracting') {
-    if (sub) sub.textContent = 'Working';
-    if (title) title.textContent = 'Updating fields';
-  } else {
-    if (sub) sub.textContent = 'Working';
-    if (title) title.textContent = 'Getting the transcript';
-  }
+  if (sub) sub.textContent = 'Working';
+  if (title) title.textContent = 'Extracting fields';
 }
 
 function renderListenButton(state) {
@@ -1092,13 +1116,14 @@ function renderState(state) {
   switch (state.status) {
     case 'idle':
       stopSessionHeartbeat();
+      stopTranscriptPolishPoll();
       showScreen('record');
       liveTranscriptContainer.style.display = 'none';
       {
         const pt = document.getElementById('processing-title');
         const pm = document.getElementById('processing-message');
-        if (pt) pt.textContent = 'Getting the transcript';
-        if (pm) pm.textContent = 'Writing the call down…';
+        if (pt) pt.textContent = 'Extracting fields';
+        if (pm) pm.textContent = 'Filling in the fields…';
       }
       
       fillShortcutHint();
@@ -1147,7 +1172,8 @@ function renderState(state) {
       
     case 'processing':
       stopIdleContextPoll();
-      setProcessingScreenMode(state.processingSource === 'hubspot_call' ? 'hubspot_call' : 'transcribing');
+      stopTranscriptPolishPoll();
+      setProcessingScreenMode('extracting');
       showScreen('processing');
       break;
       
@@ -1170,6 +1196,8 @@ function renderState(state) {
         insightsMemoId = null;
         userSelectedDealId = null;
         userSelectedContactId = null;
+        currentDealId = null;
+        currentContactId = null;
         createNewDealRequested = false;
         dealPickerOpen = false;
         needsDealDecision = false;
@@ -1187,10 +1215,12 @@ function renderState(state) {
           paintInsightsFromMemo(reviewMemo);
         }
       }
-      if (!reviewSessionLocked && state.context?.recordId) {
-        lockReviewSession(state.context);
-      }
       {
+        const lockPlan = planReviewSessionLock({
+          alreadyLocked: reviewSessionLocked,
+          liveContext: state.context,
+        });
+        if (lockPlan.shouldLock) lockReviewSession(lockPlan.context);
         const frozen = reviewTargetContext(state.context);
         renderReviewRecordName(frozen, lastPreviewData);
         if (
@@ -1424,8 +1454,9 @@ async function handleReviewState(memoId, context) {
   const gen = ++reviewFetchGen;
   const cached = cachedReviewMemo(memoId);
   const fromProcessing = lastRenderedStatus === 'processing' || lastBgState?.status === 'processing';
-  if (cached?.status === 'pending_transcript' || cached?.status === 'failed') {
-    applyReviewLayout('pending_transcript');
+  if (cached?.status === 'failed') {
+    applyReviewLayout('pending_review');
+    showExtractionError(cached?.errorMessage || cached?.error_message || 'Extraction failed. Click Retry to try again.');
   } else if (
     shouldShowReviewOpeningSpinner({
       memoId,
@@ -1494,24 +1525,25 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
     applyReviewLayout('error', presentation.message);
     return;
   }
-  if (presentation.mode === 'pending_transcript') {
-    applyReviewLayout('pending_transcript');
+  if (presentation.mode === 'failed') {
+    applyReviewLayout('pending_review');
     renderReviewRecordName(context);
-    syncTranscriptModalDeal(context);
-    if (presentation.failed) {
-      showExtractionError(presentation.message);
-    }
-    loadTranscriptForReview(memoId);
+    showExtractionError(presentation.message);
+    paintDealCardPending(context);
+    showReviewFieldsPending();
+    markApproveMatching();
     return;
   }
 
   applyReviewLayout('pending_review');
   lastReviewMemo = memo || lastReviewMemo;
-  if (reviewSessionLocked && reviewSessionContext) {
-    context = reviewSessionContext;
+  startTranscriptPolishPoll(memoId, lastReviewMemo);
+  if (reviewSessionLocked) {
+    context = keepReviewSessionContext(reviewSessionContext, context);
+    reviewSessionContext = { ...context };
   } else {
     syncPageRecordScope(context);
-    if (context?.recordId) lockReviewSession(context);
+    lockReviewSession(context || {});
   }
   renderReviewRecordName(context);
   paintDealCardPending(context);
@@ -1533,10 +1565,10 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
   context = await enrichPageAssociations(context);
   if (gen !== reviewFetchGen) return;
   if (!isCurrentReviewMemo(memoId)) return;
-  if (context && reviewSessionLocked) {
+  if (reviewSessionLocked) {
+    context = keepReviewSessionContext(reviewSessionContext, context);
     reviewSessionContext = { ...context };
   } else if (context) {
-    lastBgState = { ...(lastBgState || {}), context };
     lockReviewSession(context);
   }
   const onCompanyPage = context?.objectType === 'company' && context?.recordId;
@@ -2937,7 +2969,7 @@ document.getElementById('paste-transcript-import-btn')?.addEventListener('click'
   const btn = document.getElementById('paste-transcript-import-btn');
   btn.disabled = true;
   btn.textContent = 'Importing...';
-  setProcessingScreenMode('transcribing');
+  setProcessingScreenMode('extracting');
   showScreen('processing');
 
   try {
@@ -2945,7 +2977,7 @@ document.getElementById('paste-transcript-import-btn')?.addEventListener('click'
     currentMemoId = result.id;
     chrome.runtime.sendMessage({
       type: 'SET_STATE',
-      state: { currentMemoId: result.id, status: 'review' },
+      state: { currentMemoId: result.id, status: 'processing' },
     });
   } catch (err) {
     console.error('[Popup] Upload transcript failed:', err);

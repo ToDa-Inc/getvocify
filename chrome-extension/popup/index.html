@@ -104,8 +104,8 @@
         <div class="live-loader" aria-hidden="true">
           <span></span><span></span><span></span><span></span><span></span>
         </div>
-        <h2 class="title-large" id="processing-title">Getting the transcript</h2>
-        <p class="body-muted processing-message-live" id="processing-message">Writing the call down…</p>
+        <h2 class="title-large" id="processing-title">Extracting fields</h2>
+        <p class="body-muted processing-message-live" id="processing-message">Filling in the fields…</p>
         <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="margin-top: 20px;">Back</button>
       </div>
     </div>
@@ -138,9 +138,8 @@
             <p id="transcript-modal-deal" class="transcript-modal-deal" style="display: none;"></p>
           </div>
 
-          <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
-            <p id="extraction-error-text" class="extraction-error-text"></p>
-            <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
+          <div id="extraction-error-banner-legacy" class="extraction-error-banner" style="display: none;" hidden>
+            <p class="extraction-error-text"></p>
           </div>
 
           <div id="transcript-conversation" class="transcript-conversation" role="log" aria-label="Call transcript"></div>
@@ -155,6 +154,10 @@
 
       <!-- Main: Deal + Proposed Changes (when pending_review or after extract) -->
       <div id="proposed-changes-main" class="review-scroll-area" style="display: none;">
+        <div id="extraction-error-banner" class="extraction-error-banner" style="display: none;">
+          <p id="extraction-error-text" class="extraction-error-text"></p>
+          <button id="retry-extraction-btn" class="btn btn-primary" type="button">Retry extraction</button>
+        </div>
         <div id="deal-target-section">
           <div id="contact-target-section" style="display: none;">
             <p class="caps-label" style="margin: 0 0 10px 4px;">Contact</p>

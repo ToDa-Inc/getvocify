@@ -66,7 +66,7 @@ export const memosApi = {
 
   /**
    * Upload transcript only (no audio storage).
-   * Use when real-time transcription already produced the transcript, or when pasting a meeting transcript.
+   * Creates memo and starts CRM field extraction immediately.
    */
   uploadTranscript: (
     transcript: string,
@@ -80,7 +80,7 @@ export const memosApi = {
 
   /**
    * Upload transcript and start AI extraction in one call.
-   * Use when user has already reviewed transcript (e.g. RecordPage "Accept & Continue").
+   * Use when recording stops with live STT text.
    * Returns memo ID with status "extracting".
    */
   uploadTranscriptAndExtract: (transcript: string): Promise<UploadMemoResponse> => {
@@ -101,7 +101,7 @@ export const memosApi = {
    * 
    * @param audioBlob - Audio file (ignored when transcript provided)
    * @param onProgress - Progress callback (0-100)
-   * @param transcript - Optional pre-transcribed text (from real-time) - uses transcript-only when set
+   * @param transcript - Optional pre-transcribed text (from real-time) - starts extraction when set
    */
   uploadWithProgress: (
     audioBlob: Blob,
@@ -110,7 +110,7 @@ export const memosApi = {
   ): Promise<UploadMemoResponse> => {
     if (transcript?.trim()) {
       onProgress(100);
-      return api.post<UploadMemoResponse>('/memos/upload-transcript', { transcript });
+      return api.post<UploadMemoResponse>('/memos/upload-and-extract', { transcript: transcript.trim() });
     }
     return api.uploadWithProgress<UploadMemoResponse>(
       '/memos/upload',

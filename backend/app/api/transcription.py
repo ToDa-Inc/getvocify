@@ -57,6 +57,7 @@ from app.services.session_entities import (
     load_stt_profile,
     parse_session_vocab,
     resolve_speechmatics_rt_language,
+    speechmatics_rt_ws_language,
 )
 from app.services.voice_enrollment import REP_LABEL, VoiceEnrollmentService
 
@@ -132,8 +133,11 @@ class SpeechmaticsProxy:
         mode: str = "default",
         enrolled_speaker: Optional[dict[str, Any]] = None,
         channel_labels: Optional[List[str]] = None,
+        profile_languages: Optional[List[str]] = None,
     ):
-        self.language = resolve_speechmatics_rt_language(language)
+        self.language = resolve_speechmatics_rt_language(
+            language, profile_languages=profile_languages
+        )
         self.glossary = glossary or []
         self.mode = mode if mode in VALID_MODES else "default"
         self.enrolled_speaker = enrolled_speaker
@@ -213,7 +217,7 @@ class SpeechmaticsProxy:
             )
             return
 
-        target_lang = resolve_speechmatics_rt_language(self.language)
+        target_lang = speechmatics_rt_ws_language(self.language)
         connection_url = f"{self.base_url}/{target_lang}"
         logger.info(
             "Speechmatics connecting to %s (mode=%s enrolled=%s)",
@@ -383,6 +387,7 @@ class SpeechmaticsOnlyProxy:
         mode: str = "default",
         enrolled_speaker: Optional[dict[str, Any]] = None,
         channel_labels: Optional[List[str]] = None,
+        profile_languages: Optional[List[str]] = None,
     ):
         self.language = language
         self.glossary = glossary or []
@@ -394,6 +399,7 @@ class SpeechmaticsOnlyProxy:
             mode=mode,
             enrolled_speaker=enrolled_speaker,
             channel_labels=channel_labels,
+            profile_languages=profile_languages,
         )
 
     async def proxy_session(self, client_ws: WebSocket):
@@ -460,6 +466,7 @@ async def live_transcription(websocket: WebSocket):
         mode = "default"
 
     glossary: list = []
+    profile_languages: Optional[List[str]] = None
     if user_id:
         try:
             glossary_service = GlossaryService()
@@ -469,6 +476,7 @@ async def live_transcription(websocket: WebSocket):
             logger.error("Failed to load glossary: %s", e)
         try:
             profile = load_stt_profile(get_supabase(), user_id)
+            profile_languages = profile.get("stt_languages")
             for name in (profile.get("full_name"), profile.get("company_name")):
                 if name:
                     glossary.append({"target_word": name, "phonetic_hints": []})
@@ -532,5 +540,6 @@ async def live_transcription(websocket: WebSocket):
         mode=mode,
         enrolled_speaker=enrolled_speaker,
         channel_labels=channel_labels,
+        profile_languages=profile_languages,
     )
     await proxy.proxy_session(websocket)

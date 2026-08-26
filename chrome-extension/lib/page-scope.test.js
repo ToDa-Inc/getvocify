@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergePageContext, planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './page-scope.js';
+import { keepReviewSessionContext, mergePageContext, planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './page-scope.js';
 
 describe('recordScopeKey', () => {
   it('keys by object type and id', () => {
@@ -88,5 +88,23 @@ describe('planPageContextUpdate', () => {
   it('does not keep rebroadcasting the inbox', () => {
     assert.equal(planPageContextUpdate(null, null).skipBroadcast, true);
     assert.equal(planPageContextUpdate({ objectType: 'deal' }, { hubId: '1' }).skipBroadcast, true);
+  });
+});
+
+describe('keepReviewSessionContext', () => {
+  it('keeps an inbox review on the process when a later HubSpot deal is focused', () => {
+    const locked = {};
+    const focused = { objectType: 'deal', recordId: 'D-table', dealName: 'Focused row' };
+    const kept = keepReviewSessionContext(locked, focused);
+    assert.equal(kept.recordId, undefined);
+    assert.equal(kept.objectType, undefined);
+  });
+
+  it('still merges names when the same locked record is re-enriched', () => {
+    const locked = { objectType: 'contact', recordId: 'C1' };
+    const enriched = { objectType: 'contact', recordId: 'C1', contactName: 'Franck' };
+    const kept = keepReviewSessionContext(locked, enriched);
+    assert.equal(kept.contactName, 'Franck');
+    assert.equal(kept.recordId, 'C1');
   });
 });

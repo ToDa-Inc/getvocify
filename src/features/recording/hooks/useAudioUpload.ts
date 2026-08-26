@@ -19,8 +19,8 @@ export function useAudioUpload(): UseAudioUploadReturn {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Upload transcript only (no audio). Use when real-time transcription or meeting transcript paste.
-   * Returns the created memo ID. Memo stays in pending_transcript until user confirms.
+   * Upload transcript only (no audio). Starts CRM field extraction immediately.
+   * Returns the created memo ID with status extracting.
    */
   const uploadTranscriptOnly = useCallback(
     async (
@@ -52,8 +52,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
 
   /**
    * Upload transcript and start AI extraction in one call.
-   * Use when user has already reviewed transcript (e.g. RecordPage "Accept & Continue").
-   * Returns memo ID; backend starts extraction immediately.
+   * Use when recording stops with live STT text.
    */
   const uploadTranscriptAndExtract = useCallback(async (transcript: string): Promise<string> => {
     setIsUploading(true);
@@ -83,7 +82,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
     transcript?: string
   ): Promise<string> => {
     if (transcript?.trim()) {
-      return uploadTranscriptOnly(transcript);
+      return uploadTranscriptAndExtract(transcript);
     }
 
     setIsUploading(true);
@@ -118,7 +117,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
     } finally {
       setIsUploading(false);
     }
-  }, [uploadTranscriptOnly]);
+  }, [uploadTranscriptAndExtract]);
 
   /**
    * Reset upload state

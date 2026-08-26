@@ -19,6 +19,7 @@ from typing import Any, Iterator, Optional
 logger = logging.getLogger(__name__)
 
 _STAGES: ContextVar[Optional[list]] = ContextVar("pipeline_stages", default=None)
+_RUN_ID: ContextVar[Optional[str]] = ContextVar("pipeline_run_id", default=None)
 
 PROMPT_CHAR_CAP = 80_000
 _EXTRACTION_SOURCE_TYPES = frozenset(
@@ -100,6 +101,9 @@ def record_stage(name: str, started: float, **info: Any) -> dict[str, Any]:
         "ms": max(0, int(round((time.perf_counter() - started) * 1000))),
         "at": datetime.now(timezone.utc).isoformat(),
     }
+    run_id = info.pop("run_id", None) or _RUN_ID.get()
+    if run_id:
+        rec["run_id"] = run_id
     for key, value in info.items():
         if value is not None:
             rec[key] = value
@@ -107,6 +111,13 @@ def record_stage(name: str, started: float, **info: Any) -> dict[str, Any]:
     if buf is not None:
         buf.append(rec)
     return rec
+
+
+def _upsert_run(runs: list, run: dict) -> list:
+    rid = run.get("run_id")
+    out = [r for r in runs if isinstance(r, dict) and r.get("run_id") != rid]
+    out.append(run)
+    return out
 
 
 def merge_pipeline_meta(
@@ -118,9 +129,28 @@ def merge_pipeline_meta(
     merged = list(meta.get("stages") or [])
     merged.extend(stages or [])
     meta["stages"] = merged
-    meta["total_ms"] = sum(
-        int(s.get("ms") or 0) for s in merged if isinstance(s, dict)
-    )
+    run = fields.pop("run", None)
+    if isinstance(run, dict) and run.get("run_id"):
+        meta["runs"] = _upsert_run(list(meta.get("runs") or []), run)
+        meta["latest_run_id"] = run["run_id"]
+        wall = run.get("wall_ms")
+        if wall is not None:
+            meta["total_ms"] = int(wall)
+        else:
+            rid = run["run_id"]
+            meta["total_ms"] = sum(
+                int(s.get("ms") or 0)
+                for s in merged
+                if isinstance(s, dict) and s.get("run_id") == rid
+            )
+    elif meta.get("runs"):
+        latest = meta["runs"][-1] if isinstance(meta["runs"], list) else None
+        if isinstance(latest, dict) and latest.get("wall_ms") is not None:
+            meta["total_ms"] = int(latest["wall_ms"])
+        else:
+            meta["total_ms"] = sum(int(s.get("ms") or 0) for s in merged if isinstance(s, dict))
+    else:
+        meta["total_ms"] = sum(int(s.get("ms") or 0) for s in merged if isinstance(s, dict))
     for key, value in fields.items():
         if value is not None:
             meta[key] = value
@@ -128,13 +158,15 @@ def merge_pipeline_meta(
 
 
 @contextmanager
-def pipeline_run() -> Iterator[list]:
+def pipeline_run(run_id: Optional[str] = None, trigger: Optional[str] = None) -> Iterator[list]:
     buf: list = []
     token = _STAGES.set(buf)
+    run_token = _RUN_ID.set(run_id)
     try:
         yield buf
     finally:
         _STAGES.reset(token)
+        _RUN_ID.reset(run_token)
 
 
 def _timings_only(stages: list[dict]) -> list[dict[str, Any]]:
@@ -153,6 +185,7 @@ def persist_pipeline_meta(
     supabase: Any,
     memo_id: str,
     stages: Optional[list] = None,
+    run: Optional[dict[str, Any]] = None,
 ) -> None:
     buf = stages if stages is not None else (_STAGES.get() or [])
     if not memo_id:
@@ -170,6 +203,8 @@ def persist_pipeline_meta(
         extra: dict[str, Any] = {
             "persisted_at": datetime.now(timezone.utc).isoformat(),
         }
+        if run:
+            extra["run"] = run
         meta = merge_pipeline_meta(existing, slimed, **extra)
         if meta.get("stages"):
             meta.pop("empty_run", None)

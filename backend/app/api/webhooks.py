@@ -461,7 +461,7 @@ async def speechmatics_webhook(request: Request):
 
 
 async def _finalize_speechmatics_transcript(memo_id: str, transcript: str, job_id) -> None:
-    """Glossary repair + speaker canonicalize, then pending_transcript."""
+    """Glossary repair + speaker canonicalize, then start CRM field extraction."""
     supabase = get_supabase()
     cleaned = transcript
     sanitize_s = 0.0
@@ -502,16 +502,38 @@ async def _finalize_speechmatics_transcript(memo_id: str, transcript: str, job_i
         cleaned = transcript
 
     now = datetime.now(timezone.utc).isoformat()
-    supabase.table("memos").update(
-        {
-            "status": "pending_transcript",
-            "transcript": cleaned,
-            "transcript_confidence": 0.95,
+    if not user_id:
+        supabase.table("memos").update(
+            {
+                "status": "failed",
+                "transcript": cleaned,
+                "transcript_confidence": 0.95,
+                "processed_at": now,
+                "error_message": "User missing for extraction",
+            }
+        ).eq("id", memo_id).execute()
+        return
+
+    from app.api.memos import start_extraction_from_transcript
+    from app.services.transcript_sanitize import raw_speaker_count
+
+    await start_extraction_from_transcript(
+        memo_id,
+        user_id,
+        cleaned,
+        supabase,
+        source_type="voice_memo",
+        extra_update={
             "processed_at": now,
-        }
-    ).eq("id", memo_id).execute()
+            "transcript_raw": transcript,
+            "transcript_stt_meta": {
+                "provider": "speechmatics",
+                "raw_speaker_count": raw_speaker_count(transcript),
+            },
+        },
+    )
     logger.info(
-        "✅ Speechmatics webhook: memo updated to pending_transcript",
+        "✅ Speechmatics webhook: memo updated to extracting",
         extra=log_domain(
             DOMAIN_WEBHOOK,
             "speechmatics_complete",

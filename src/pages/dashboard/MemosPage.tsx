@@ -24,11 +24,6 @@ const getStatusBadge = (status: string) => {
         </span>
       );
     case "pending_transcript":
-      return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-beige/10 text-beige">
-          Review transcript
-        </span>
-      );
     case "uploading":
     case "transcribing":
     case "extracting":
@@ -174,7 +169,7 @@ const MemosPage = () => {
                       (memo.extraction?.summary
                         ? String(memo.extraction.summary).replace(/^#+\s+/gm, " ").replace(/\s+/g, " ").trim()
                         : memo.transcript) ||
-                      "Conversation being transcribed..."}
+                      "Extracting CRM fields..."}
                   </p>
                 </div>
                 

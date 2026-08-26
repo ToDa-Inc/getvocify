@@ -1604,12 +1604,16 @@ async def _extract_and_create_memo(
 
         from app.services.extraction_context import load_product_context
         from app.services.session_entities import load_stt_profile
-        from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
+        from app.services.transcript_sanitize import (
+            prepare_transcript_for_extraction,
+            schedule_transcript_polish,
+        )
 
         product_context = load_product_context(supabase, user_id)
         profile = load_stt_profile(supabase, user_id)
-        transcript, glossary_text = await prepare_transcript_for_extraction_async(
-            transcript,
+        transcript_raw = transcript
+        transcript, glossary_text = prepare_transcript_for_extraction(
+            transcript_raw,
             glossary,
             extra_names=[profile.get("full_name"), profile.get("company_name")],
         )
@@ -1660,6 +1664,10 @@ async def _extract_and_create_memo(
         if not r.data:
             return None, None
         memo_id = r.data[0]["id"]
+        from app.services.pipeline_lease import update_memo_row
+
+        update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
+        schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
         logger.info(
             "✅ Memo created",
             extra=log_domain(DOMAIN_WHATSAPP, "memo_created", memo_id=memo_id, whatsapp_message_id=whatsapp_message_id),

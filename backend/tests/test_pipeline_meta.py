@@ -29,6 +29,21 @@ class PipelineMetaTests(unittest.TestCase):
         self.assertEqual(merged["total_ms"], 3500)
         self.assertEqual(merged["provider"], "openrouter")
 
+    def test_latest_run_wall_is_total_ms(self):
+        first = merge_pipeline_meta(
+            {},
+            [{"name": "extract", "ms": 4000, "run_id": "a"}],
+            run={"run_id": "a", "wall_ms": 4200, "trigger": "extract"},
+        )
+        second = merge_pipeline_meta(
+            first,
+            [{"name": "extract", "ms": 3000, "run_id": "b"}],
+            run={"run_id": "b", "wall_ms": 800, "trigger": "re_extract"},
+        )
+        self.assertEqual(second["total_ms"], 800)
+        self.assertEqual(second["latest_run_id"], "b")
+        self.assertEqual(len(second["runs"]), 2)
+
     def test_slim_drops_prompt_bodies_keeps_char_counts(self):
         stage = {
             "name": "extract",

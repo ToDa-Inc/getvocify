@@ -6,7 +6,7 @@
  * Route by memo status so that body is never left blank.
  */
 
-const PROCESSING_STATUSES = new Set(['transcribing', 'uploading', 'extracting']);
+const PROCESSING_STATUSES = new Set(['transcribing', 'uploading', 'extracting', 'pending_transcript']);
 
 export function sameMemoId(a, b) {
   if (a == null || b == null || a === '' || b === '') return false;
@@ -49,6 +49,15 @@ export function shouldReloadReviewPreview({
   if (!sameMemoId(memoId, loadedMemoId)) return true;
   if (sessionLocked) return false;
   return String(pageKey || '') !== String(loadedPageKey || '');
+}
+
+/**
+ * Review binds to the process at open — including the inbox, which has no
+ * HubSpot recordId. A later focused contact/deal table must not steal it.
+ */
+export function planReviewSessionLock({ alreadyLocked = false, liveContext = null } = {}) {
+  if (alreadyLocked) return { shouldLock: false };
+  return { shouldLock: true, context: liveContext || {} };
 }
 
 const NOISE_MATCH_REASONS = new Set([
@@ -136,16 +145,12 @@ export function resolveReviewPresentation({ memo = null, error = null, isAuthFai
   if (PROCESSING_STATUSES.has(status)) {
     return { mode: 'processing' };
   }
-  if (status === 'pending_transcript') {
-    return { mode: 'pending_transcript' };
-  }
   if (status === 'pending_review' || status === 'approved') {
     return { mode: 'pending_review' };
   }
   if (status === 'failed') {
     return {
-      mode: 'pending_transcript',
-      failed: true,
+      mode: 'failed',
       message: memo.errorMessage || memo.error_message || 'Extraction failed. Click Retry to try again.',
     };
   }
@@ -242,4 +247,37 @@ export function confirmTranscriptErrorStatus(error) {
 export function memoForReviewPresentation({ cached = null, fetched = null } = {}) {
   if (fetched && typeof fetched === 'object') return fetched;
   return cached || null;
+}
+
+export const TRANSCRIPT_POLISH_WINDOW_MS = 25000;
+
+function latestStageAt(stages, name) {
+  let best = 0;
+  for (const stage of stages || []) {
+    if (stage?.name !== name) continue;
+    const t = Date.parse(stage.at || '') || 0;
+    if (t > best) best = t;
+  }
+  return best;
+}
+
+export function transcriptPolishSettled(memo) {
+  const meta = memo?.pipelineMeta || memo?.pipeline_meta || {};
+  const stages = meta.stages || [];
+  const extractAt = latestStageAt(stages, 'extract');
+  const sanitizeAt = latestStageAt(stages, 'sanitize');
+  return extractAt > 0 && sanitizeAt >= extractAt;
+}
+
+/** Poll through processing, then a short window so background polish can replace cheap STT. */
+export function shouldPollMemo(memo, now = Date.now(), polishWindowMs = TRANSCRIPT_POLISH_WINDOW_MS) {
+  const status = memo?.status || '';
+  if (['uploading', 'transcribing', 'extracting', 'pending_transcript'].includes(status)) {
+    return true;
+  }
+  if (status !== 'pending_review') return false;
+  if (transcriptPolishSettled(memo)) return false;
+  const processed = Date.parse(memo?.processedAt || memo?.processed_at || '') || 0;
+  if (!processed) return true;
+  return now - processed < polishWindowMs;
 }

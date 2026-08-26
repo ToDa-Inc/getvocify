@@ -103,6 +103,27 @@ describe('resolveReviewTargets', () => {
     assert.equal(targets.skipDeal, true);
   });
 
+  it('on the inbox writes the process deal, not a later focused table deal', () => {
+    const targets = resolveReviewTargets({
+      pageContext: {},
+      processDealId: 'D-process',
+      processContactId: 'C-process',
+    });
+    assert.equal(targets.dealId, 'D-process');
+    assert.equal(targets.contactId, 'C-process');
+    assert.equal(targets.skipDeal, false);
+  });
+
+  it('on a contact page keeps this process’s deal when the table is only a view', () => {
+    const targets = resolveReviewTargets({
+      pageContext: { objectType: 'contact', recordId: 'C-now' },
+      processDealId: 'D-process',
+    });
+    assert.equal(targets.contactId, 'C-now');
+    assert.equal(targets.dealId, 'D-process');
+    assert.equal(targets.skipDeal, false);
+  });
+
   it('on a company page with one associated contact uses that contact', () => {
     const targets = resolveReviewTargets({
       pageContext: {

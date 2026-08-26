@@ -9,6 +9,7 @@ describe("classifyFillPolicy", () => {
     assert.equal(classifyFillPolicy({ name: "sales_motion", label: "Sales motion", description: "ICP fit" }), "research");
     assert.equal(classifyFillPolicy({ name: "description" }), "call_note");
     assert.equal(classifyFillPolicy({ name: "amount", label: "Amount" }), "explicit");
+    assert.equal(classifyFillPolicy({ name: "vocify_context_status", label: "Vocify Context Status" }), "strategy");
   });
 
   it("prefers server-provided fill_policy", () => {

@@ -16,6 +16,8 @@ interface LiveTranscriptProps {
   finalTranscript: string;
   /** Whether transcription is active */
   isActive: boolean;
+  /** Live STT error, if the socket or provider failed */
+  error?: string | null;
   /** Optional className for styling */
   className?: string;
 }
@@ -24,6 +26,7 @@ export function LiveTranscript({
   finalTranscript,
   interimTranscript,
   isActive,
+  error,
   className,
 }: LiveTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -53,9 +56,11 @@ export function LiveTranscript({
         <div className="flex h-full min-h-[100px] flex-col items-center justify-center gap-2.5 animate-in fade-in duration-500 text-center">
           <div className="h-2 w-2 rounded-full bg-primary/40 animate-pulse" />
           <p className="text-xs font-medium text-muted-foreground/70">
-            {isActive
-              ? 'Listening... Start speaking to see live transcription'
-              : 'Your transcript will appear here'}
+            {error
+              ? error
+              : isActive
+                ? 'Listening... Start speaking to see live transcription'
+                : 'Your transcript will appear here'}
           </p>
         </div>
       ) : (

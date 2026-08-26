@@ -12,7 +12,9 @@ from app.services.session_entities import (
     deepgram_language_code,
     normalize_stt_languages,
     resolve_batch_language,
+    resolve_speechmatics_rt_language,
     speechmatics_batch_language,
+    speechmatics_rt_ws_language,
 )
 from app.services.stt_batch import (
     _should_fallback_to_speechmatics,
@@ -84,6 +86,37 @@ class NormalizeSttLanguagesTest(unittest.TestCase):
         single_lang, single_id = speechmatics_batch_language(["ca"])
         self.assertEqual(single_lang, "ca")
         self.assertIsNone(single_id)
+
+
+class SpeechmaticsRealtimeLanguageTest(unittest.TestCase):
+    def test_live_multi_never_uses_auto_path(self):
+        """eu2 rejects wss://…/v2/auto with HTTP 404; auto is batch-only."""
+        self.assertEqual(resolve_speechmatics_rt_language("multi"), "es")
+        self.assertEqual(resolve_speechmatics_rt_language("auto"), "es")
+        self.assertEqual(resolve_speechmatics_rt_language(""), "es")
+        self.assertNotEqual(speechmatics_rt_ws_language("multi"), "auto")
+
+    def test_live_uses_profile_primary_when_client_sends_multi(self):
+        self.assertEqual(
+            resolve_speechmatics_rt_language("multi", profile_languages=["ca", "es"]),
+            "ca",
+        )
+        self.assertEqual(
+            speechmatics_rt_ws_language("multi", profile_languages=["en"]),
+            "en",
+        )
+
+    def test_live_keeps_explicit_iso_code(self):
+        self.assertEqual(resolve_speechmatics_rt_language("en"), "en")
+        self.assertEqual(resolve_speechmatics_rt_language("ca"), "ca")
+
+    def test_env_override_wins(self):
+        self.assertEqual(
+            resolve_speechmatics_rt_language(
+                "multi", override="es", profile_languages=["en"]
+            ),
+            "es",
+        )
 
 
 class SpeechmaticsFallbackTest(unittest.TestCase):

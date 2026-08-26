@@ -53,6 +53,18 @@ export function mergePageContext(prev, next) {
  * the deal) must drop names/lists immediately — do not reuse inbox/deal cache
  * as an excuse to skip the broadcast.
  */
+/**
+ * Review session: never replace the process's page with a later focused record.
+ * Same record may pick up names/associations. Inbox stays inbox.
+ */
+export function keepReviewSessionContext(locked, next) {
+  if (!locked) return next || {};
+  const lockedKey = recordScopeKey(locked);
+  const nextKey = recordScopeKey(next);
+  if (lockedKey !== nextKey) return locked;
+  return { ...locked, ...(next || {}) };
+}
+
 export function planPageContextUpdate(prev, next) {
   const { context, sameRecord } = mergePageContext(prev, next);
   const prevScope = recordingsScopeKey(prev);

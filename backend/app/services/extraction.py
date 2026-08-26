@@ -106,15 +106,21 @@ def _normalize_raw_extraction(
             parsed = _parse_amount(value)
             return parsed if parsed is not None else value
         if options and isinstance(value, str):
-            values = [
-                o.get("value", o.get("label", "")) if isinstance(o, dict) else o
-                for o in options
-            ]
-            if value not in values:
-                v_lower = value.strip().lower()
-                for v in values:
-                    if str(v).lower() == v_lower:
-                        return v
+            raw = value.strip()
+            raw_l = raw.lower()
+            for o in options:
+                if isinstance(o, dict):
+                    val = o.get("value")
+                    lab = o.get("label")
+                    if val is not None and raw == val:
+                        return val
+                    if val is not None and str(val).lower() == raw_l:
+                        return val
+                    if lab is not None and str(lab).lower() == raw_l:
+                        return val
+                elif str(o).lower() == raw_l:
+                    return o
+            return value
         return value
 
     for key, value in list(out.items()):
@@ -136,6 +142,227 @@ def _normalize_raw_extraction(
     return out
 
 
+_SPOKEN_NUMBER_WORDS = {
+    1: ("uno", "una", "un", "one"),
+    2: ("dos", "two"),
+    3: ("tres", "three"),
+    4: ("cuatro", "four"),
+    5: ("cinco", "five"),
+    6: ("seis", "six"),
+    7: ("siete", "seven"),
+    8: ("ocho", "eight"),
+    9: ("nueve", "nine"),
+    10: ("diez", "ten"),
+    11: ("once", "eleven"),
+    12: ("doce", "twelve"),
+    15: ("quince", "fifteen"),
+    20: ("veinte", "twenty"),
+    30: ("treinta", "thirty"),
+    40: ("cuarenta", "forty"),
+    50: ("cincuenta", "fifty"),
+}
+
+
+def number_was_spoken(value: Any, transcript: str) -> bool:
+    """True when the extracted number (digits or small word) appears in the transcript."""
+    if value is None or not transcript:
+        return False
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return False
+    if n != n:  # NaN
+        return False
+    as_int = int(n) if n == int(n) else None
+    if as_int is not None:
+        if re.search(rf"(?<!\d){as_int}(?!\d)", transcript):
+            return True
+        blob = transcript.lower()
+        for word in _SPOKEN_NUMBER_WORDS.get(as_int, ()):
+            if re.search(rf"\b{re.escape(word)}\b", blob):
+                return True
+        return False
+    rendered = str(value).rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+    return bool(re.search(rf"(?<!\d){re.escape(rendered)}(?!\d)", transcript))
+
+
+def drop_unspoken_numbers(
+    extracted: dict,
+    transcript: str,
+    field_specs: Optional[list[dict]] = None,
+) -> dict:
+    """Clear numeric CRM fields whose value was not actually said."""
+    if not extracted or not transcript:
+        return extracted
+    number_keys: set[tuple[str, str]] = set()
+    for spec in field_specs or []:
+        name = spec.get("name")
+        if not name or spec.get("type") != "number":
+            continue
+        obj = spec.get("object_type") or "deals"
+        number_keys.add((obj, name))
+
+    out = dict(extracted)
+    if isinstance(out.get("contact_properties"), dict):
+        out["contact_properties"] = dict(out["contact_properties"])
+    if isinstance(out.get("company_properties"), dict):
+        out["company_properties"] = dict(out["company_properties"])
+
+    def _maybe_clear(bag: dict, key: str) -> None:
+        if key not in bag or bag[key] is None:
+            return
+        if not number_was_spoken(bag[key], transcript):
+            bag[key] = None
+
+    for obj, key in number_keys:
+        if obj == "contacts":
+            bag = out.get("contact_properties")
+            if isinstance(bag, dict):
+                _maybe_clear(bag, key)
+        elif obj == "companies":
+            bag = out.get("company_properties")
+            if isinstance(bag, dict):
+                _maybe_clear(bag, key)
+        else:
+            _maybe_clear(out, key)
+    return out
+
+
+def _value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    if isinstance(value, (list, dict)) and not value:
+        return False
+    return True
+
+
+def _bag_for_object(extracted: dict, object_type: str) -> dict:
+    if object_type == "contacts":
+        bag = extracted.get("contact_properties")
+        if not isinstance(bag, dict):
+            bag = {}
+            extracted["contact_properties"] = bag
+        return bag
+    if object_type == "companies":
+        bag = extracted.get("company_properties")
+        if not isinstance(bag, dict):
+            bag = {}
+            extracted["company_properties"] = bag
+        return bag
+    return extracted
+
+
+def pending_enumeration_specs(
+    extracted: dict,
+    field_specs: Optional[list[dict]] = None,
+    existing_values: Optional[dict] = None,
+) -> list[dict]:
+    """Enabled enumerations still empty after the main pass (and empty on the record)."""
+    existing_values = existing_values or {}
+    pending: list[dict] = []
+    for spec in field_specs or []:
+        if spec.get("type") != "enumeration" or not spec.get("name"):
+            continue
+        policy = classify_fill_policy(spec)
+        if policy in {"strategy", "identity"}:
+            continue
+        obj = spec.get("object_type") or "deals"
+        existing_bag = existing_values.get(obj) if isinstance(existing_values.get(obj), dict) else {}
+        if _value_present((existing_bag or {}).get(spec["name"])):
+            continue
+        bag = _bag_for_object(extracted, obj)
+        if _value_present(bag.get(spec["name"])):
+            continue
+        pending.append(spec)
+    return pending
+
+
+def apply_enumeration_patch(extracted: dict, patch: dict, specs: list[dict]) -> dict:
+    """Merge a second-pass enum JSON object into deal / contact / company bags."""
+    if not isinstance(patch, dict) or not specs:
+        return extracted
+    out = dict(extracted)
+    if isinstance(out.get("contact_properties"), dict):
+        out["contact_properties"] = dict(out["contact_properties"])
+    if isinstance(out.get("company_properties"), dict):
+        out["company_properties"] = dict(out["company_properties"])
+    allowed = {(s.get("object_type") or "deals", s["name"]) for s in specs if s.get("name")}
+    nested_contacts = patch.get("contact_properties") if isinstance(patch.get("contact_properties"), dict) else {}
+    nested_companies = patch.get("company_properties") if isinstance(patch.get("company_properties"), dict) else {}
+    nested_deals = patch.get("deals") if isinstance(patch.get("deals"), dict) else {}
+    nested_contacts_obj = patch.get("contacts") if isinstance(patch.get("contacts"), dict) else {}
+    nested_companies_obj = patch.get("companies") if isinstance(patch.get("companies"), dict) else {}
+
+    def _lookup(obj: str, name: str):
+        candidates = []
+        if obj == "contacts":
+            candidates.extend([nested_contacts.get(name), nested_contacts_obj.get(name)])
+        elif obj == "companies":
+            candidates.extend([nested_companies.get(name), nested_companies_obj.get(name)])
+        else:
+            candidates.append(nested_deals.get(name))
+        candidates.extend([
+            patch.get(name),
+            patch.get(f"{obj}.{name}"),
+        ])
+        for value in candidates:
+            if _value_present(value):
+                return value
+        return None
+
+    for obj, name in allowed:
+        value = _lookup(obj, name)
+        if not _value_present(value):
+            continue
+        if isinstance(value, str) and value.strip().lower() == "unknown":
+            continue
+        bag = _bag_for_object(out, obj)
+        bag[name] = value
+    return out
+
+
+def _enumeration_followup_prompt(transcript: str, specs: list[dict]) -> str:
+    lines = []
+    for spec in specs:
+        obj = spec.get("object_type") or "deals"
+        name = spec["name"]
+        label = spec.get("label") or name
+        options = spec.get("options") or []
+        opt_txt = ", ".join(
+            f'"{(o.get("value") if isinstance(o, dict) else o)}"={(o.get("label") if isinstance(o, dict) else o)}'
+            for o in options
+        )
+        lines.append(f'- {obj}.{name} ({label}). Options: {opt_txt or "(none)"}')
+    fields = "\n".join(lines)
+    return f"""The first CRM pass left these enabled enumerations empty.
+Fill each from the transcript. Map described reality to the closest option — the speaker will not say the internal value.
+Null only if that topic never came up. Never write "unknown" unless they said they do not know (prefer null).
+Do not invent numbers. Do not fill pre-call / talk-track fields.
+
+HOW TO MAP (use these even when they never say the option label):
+- Sell through a distributor / channel / partners; store reps are not their employees → vocify_sales_motion = partner_channel
+- Distributor's people do store visits: still partner_channel, not field_sales (field_sales is the prospect's own sales team)
+- They set commercial policy but contracts, tools, or budget go through someone else; they can intro that person → vocify_is_decision_maker = influencer AND vocify_talking_to_decision_maker = influencer_with_path
+- Mild interest in the product without a hard no or a signed next-step purchase → vocify_fit = moderate
+- They log visits in "their program" but never named HubSpot/Salesforce/etc → crm_utilizado = null
+- They did not answer hunting vs farming → vocify_team_new_business = null
+- They did not answer whether deals close after a first visit → vocify_decisions_after_contact = null
+
+FIELDS:
+{fields}
+
+TRANSCRIPT:
+\"\"\"
+{transcript}
+\"\"\"
+
+Return JSON only, using the HubSpot option values (not labels). You may nest contact fields:
+{{"vocify_talking_to_decision_maker": "influencer_with_path", "contact_properties": {{"vocify_sales_motion": "partner_channel", "vocify_is_decision_maker": "influencer"}}}}
+"""
+
+
 EXTRACTION_SYSTEM_PROMPT = (
     "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
     "(1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / "
@@ -151,7 +378,10 @@ EXTRACTION_SYSTEM_PROMPT = (
     "put timing in parallel nextStepSchedules as ISO YYYY-MM-DD when resolvable, else the "
     "spoken phrase, else empty string. Prefer [] only when nothing actionable was said. "
     "(7) Do not overwrite identity, pre-call, or account-research fields that already have CURRENT VALUES. "
-    "(8) Sales-motion / fit fields describe the prospect's company, never how we ran this call."
+    "(8) Sales-motion / fit fields describe the prospect's company, never how we ran this call. "
+    "(9) Enabled CRM enumerations and discovery fields with no CURRENT VALUE must be filled when the "
+    "transcript answers them. Map the described reality to the closest allowed option — the speaker "
+    "does not need to say the option label. Numbers, amounts, and dates stay exact or null."
 )
 
 
@@ -162,6 +392,7 @@ def build_extraction_prompt(
     source_context: str = "voice_memo",
     product_context: str = "",
     existing_values: Optional[dict] = None,
+    call_date: Optional[str] = None,
 ) -> str:
     """Build the extraction user prompt without constructing an LLM client."""
     return ExtractionService._build_prompt(
@@ -172,6 +403,7 @@ def build_extraction_prompt(
         source_context,
         product_context,
         existing_values,
+        call_date,
     )
 
 
@@ -189,6 +421,7 @@ class ExtractionService:
         source_context: str = "voice_memo",
         product_context: str = "",
         existing_values: Optional[dict] = None,
+        call_date: Optional[str] = None,
     ) -> str:
         """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
@@ -331,7 +564,7 @@ class ExtractionService:
 
         if specs_by_object.get("contacts"):
             schema_description.append(
-                "### CONTACT FIELDS (nested under contact_properties – only if explicitly stated)"
+                "### CONTACT FIELDS (nested under contact_properties — fill when the call answers them)"
             )
             contact_inner = []
             for spec in specs_by_object["contacts"]:
@@ -344,7 +577,7 @@ class ExtractionService:
 
         if specs_by_object.get("companies"):
             schema_description.append(
-                "### COMPANY FIELDS (nested under company_properties – only if explicitly stated)"
+                "### COMPANY FIELDS (nested under company_properties — fill when the call answers them)"
             )
             company_inner = []
             for spec in specs_by_object["companies"]:
@@ -407,10 +640,11 @@ Key characteristics:
 - Apply glossary corrections where applicable. Treat transcription artifacts as noise.
 
 Extraction discipline:
-- **Conservative**: extract only what is explicitly stated. Implied or inferred values → `null`.
-- **No hallucination**: never infer company names, deal sizes, or dates from context alone.
+- **Numbers / money / dates**: only if stated. Do not invent a headcount, amount, or close date.
+- **Enabled CRM fields**: fill every enabled field the prospect answered. For enumerations, pick the closest allowed option from what they described — they will not say the internal value. Null only when that topic never came up. Examples: one distributor / channel partners / they do not employ the store reps → partner_channel (even if the distributor's people visit stores — that is still partner_channel, not field_sales); they set commercial policy but send contracts or tool-buying to someone else → influencer / influencer_with_path (whichever the field allows); spelled company domain → domain. Do not guess a named CRM vendor from "nuestro programa".
+- **No hallucination**: never invent company names, deal sizes, or dates. Mapping a described motion onto an enum is required, not optional. ICP cutoffs in HubSpot descriptions are not a reason to leave the field empty.
 - **Transcript + CURRENT CRM VALUES**: do not invent from other calls. If CURRENT VALUE is set, prefer `null` over an inferred replacement.
-- **Short/inconclusive calls**: most fields will be `null` — that is correct and expected.
+- **Short calls**: unused fields stay null. Do not leave answered discovery questions empty.
 - **Summary**: structured markdown call note (2–4 earned headings + bullets). Do NOT recap the pitch. Do NOT include Próximos pasos — that is nextSteps. Still no invention.
 - **Their company vs our motion**: sales-motion / fit / ICP fields describe the PROSPECT's world, never how we ran this outreach.
 - **Next steps → HubSpot tasks**: fill whenever the call created a real follow-up opportunity
@@ -450,9 +684,13 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
             transcript,
             prospect_name_from_existing(existing_values),
         )
+        from app.services.relative_dates import call_date_header, parse_iso_date
+
+        date_block = call_date_header(parse_iso_date(call_date) if call_date else None)
 
         return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
 {source_hint}
+{date_block}
 {speaker_block}
 {product_section}
 {existing_block}
@@ -466,14 +704,15 @@ TRANSCRIPT:
 {schema_text}
 
 ### EXTRACTION RULES:
-1. **Conservative**: Extract only what is explicitly mentioned **in this transcript**. If missing or ambiguous, set to `null`. Do not invent data. Do not use prior CRM knowledge or other calls.
+1. **Do not invent**: names, emails, amounts, headcount, and dates must be spoken (or spelled). Do not use prior CRM knowledge or other calls.
 2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
 3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
 4. **summary**: Structured markdown — 2–4 headings the call earned, bullets under each. Same language as the transcript. Do NOT recap the pitch. Do NOT include Próximos pasos / Next steps (that is nextSteps). Not a paragraph.
 5. **nextSteps**: Fill whenever the call created a real follow-up (commitment, redirect, send materials, callback). Task-ready titles without dates; timing goes in nextStepSchedules.
    Prefer empty array over vague items. Do NOT invent follow-ups the speakers did not agree to.
-5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach.
+5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach. When CURRENT VALUE is empty and the call answered the field, you MUST set it — including mapping a description onto the closest enumeration option. ICP thresholds in a field description (e.g. "3+ reps") are scoring hints only — still store the real answer.
 5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.
+5d. **Enumerations**: prefer the best-matching option over null. Use an `unknown` option only if they said they do not know. If the topic never came up, null.
 6. **Format**: Return JSON in this structure:
 
 {json_structure}
@@ -490,6 +729,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         source_context: str = "voice_memo",
         product_context: str = "",
         existing_values: Optional[dict] = None,
+        call_date: Optional[str] = None,
     ) -> MemoExtraction:
         """
         Extract structured CRM data from transcript.
@@ -512,6 +752,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             source_context=source_context,
             product_context=product_context,
             existing_values=existing_values,
+            call_date=call_date,
         )
         schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
         logger.info(
@@ -550,6 +791,49 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
             extracted = apply_fill_policies(extracted, field_specs, existing_values)
+            extracted = drop_unspoken_numbers(extracted, transcript, field_specs)
+            pending_enums = pending_enumeration_specs(
+                extracted, field_specs, existing_values
+            )
+            if pending_enums:
+                try:
+                    enum_payload = await self.llm.chat_json(
+                        [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You fill leftover CRM enumerations from a sales transcript. "
+                                    "JSON only. Closest allowed option, or null."
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                "content": _enumeration_followup_prompt(transcript, pending_enums),
+                            },
+                        ],
+                        temperature=0.0,
+                    )
+                    extracted = apply_enumeration_patch(
+                        extracted, enum_payload or {}, pending_enums
+                    )
+                    logger.info(
+                        "Enumeration follow-up applied",
+                        extra=log_domain(
+                            DOMAIN_EXTRACTION,
+                            "enum_followup",
+                            pending=[s.get("name") for s in pending_enums],
+                            payload_keys=list((enum_payload or {}).keys())[:30],
+                        ),
+                    )
+                    extracted = _normalize_raw_extraction(extracted, field_specs)
+                    extracted = apply_fill_policies(
+                        extracted, field_specs, existing_values
+                    )
+                except Exception:
+                    logger.warning(
+                        "Enumeration follow-up skipped",
+                        extra=log_domain(DOMAIN_EXTRACTION, "enum_followup_skipped"),
+                    )
 
             # Post-process: clear closeDate if transcript only has relative dates (no explicit calendar date)
             transcript_lower = transcript.lower()
@@ -568,6 +852,12 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             ))
             if extracted.get("closedate") and has_relative and not has_explicit_date:
                 extracted["closedate"] = None
+            from app.services.relative_dates import parse_iso_date, resolve_schedules
+
+            extracted["nextStepSchedules"] = resolve_schedules(
+                extracted.get("nextStepSchedules") or [],
+                parse_iso_date(call_date) if call_date else None,
+            )
             
             # companyName: explicit only; fallback from dealname only when it looks like "X Deal"
             company = _clean_extracted_name(extracted.get("companyName"))

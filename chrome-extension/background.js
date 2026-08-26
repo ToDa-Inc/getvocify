@@ -146,17 +146,6 @@ let memoPollTimerId = null;
 /** Memos the user dismissed. Never auto-open these. */
 const ignoredCallMemoIds = new Set();
 
-function pageTargetsForPreview() {
-  const ctx = state.context;
-  if (ctx?.objectType === 'contact' && ctx.recordId) {
-    return { contactId: ctx.recordId, dealId: null };
-  }
-  if (ctx?.objectType === 'deal' && ctx.recordId) {
-    return { contactId: ctx.contactId || null, dealId: ctx.recordId };
-  }
-  return { contactId: ctx?.contactId || null, dealId: null };
-}
-
 function requestMemoPreview({
   memoId,
   dealId = null,
@@ -200,7 +189,7 @@ function prefetchReviewPreview(memoId, memo) {
   if (!memoId || !memo) return;
   const status = String(memo.status || '');
   if (status !== 'pending_review' && status !== 'approved') return;
-  const ids = reviewIdsFromMemo(memo, pageTargetsForPreview());
+  const ids = reviewIdsFromMemo(memo, {});
   requestMemoPreview({
     memoId,
     dealId: ids.dealId,
@@ -794,19 +783,28 @@ async function processAudioData(audioData) {
     const result = await api.uploadMemo(blob, transcript);
     console.log('[BG] Upload result:', result);
 
-    // If transcript was sent, backend returns pending_transcript immediately - go straight to review
-    if (result.status === 'pending_transcript' || result.status === 'pending_review') {
+    if (result.status === 'pending_review') {
       openReviewFromMemo(result.id, result);
-      showNotification('Ready for Review', 'Review and confirm your transcript.');
+      showNotification('Ready for Review', 'Review and sync CRM fields.');
       return;
     }
     updateState({ currentMemoId: result.id, status: 'processing' });
-    showNotification('Transcribing', 'Converting speech to text...');
+    showNotification('Processing', 'Extracting CRM fields…');
     startPolling(result.id);
   } catch (error) {
     console.error('[BG] Upload error:', error);
     updateState({ status: 'idle', currentMemoId: null });
     showNotification('Upload Failed', error.message);
+  }
+}
+
+async function autoConfirmLegacyTranscript(memoId) {
+  try {
+    await api.post(`/memos/${memoId}/confirm-transcript`, {});
+  } catch (err) {
+    const detail = String(err?.data?.detail || err?.message || '');
+    if (/Status:\s*(extracting|pending_review)/i.test(detail)) return;
+    console.warn('[BG] Legacy confirm-transcript failed:', err);
   }
 }
 
@@ -821,9 +819,13 @@ function startPolling(memoId) {
       const memo = await api.getMemo(memoId);
       console.log('[BG] Poll #', pollCount, 'status:', memo.status);
 
-      if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
+      if (memo.status === 'pending_transcript') {
+        await autoConfirmLegacyTranscript(memoId);
+        return;
+      }
+      if (memo.status === 'pending_review') {
         clearMemoPoll();
-        showNotification('Ready for Review', 'Review and confirm your transcript.');
+        showNotification('Ready for Review', 'Review and sync CRM fields.');
         openReviewFromMemo(memoId, memo);
       } else if (memo.status === 'approved') {
         clearMemoPoll();
@@ -1122,7 +1124,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               processingSource: 'hubspot_call',
             });
             startPolling(memoId);
-          } else if (memoId && (st === 'pending_transcript' || st === 'pending_review')) {
+          } else if (memoId && st === 'pending_review') {
             api.getMemo(memoId)
               .then((memo) => {
                 openReviewFromMemo(memoId, memo);
@@ -1131,6 +1133,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               .catch(() => {
                 updateState({ status: 'review', currentMemoId: memoId, watchingForRecording: false });
               });
+          } else if (memoId && st === 'pending_transcript') {
+            updateState({
+              status: 'processing',
+              currentMemoId: memoId,
+              watchingForRecording: false,
+              processingSource: 'hubspot_call',
+            });
+            startPolling(memoId);
           } else if (memoId && st === 'failed') {
             updateState({ status: 'idle', currentMemoId: null, processingSource: null });
           }

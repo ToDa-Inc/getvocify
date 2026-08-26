@@ -12,6 +12,14 @@ import type {
   RealtimeTranscriptionOptions,
   TranscriptWord,
 } from '../types';
+import {
+  applyLiveResults,
+  cloneAudioStream,
+  EMPTY_TRANSCRIPT,
+  LIVE_STT_SAMPLE_RATE,
+  PCM_WORKLET_SOURCE,
+  stopMediaStream,
+} from '../live-stt';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888/api/v1';
 const WS_BASE = API_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '');
@@ -32,11 +40,7 @@ export function useRealtimeTranscription(
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [transcriptState, setTranscriptState] = useState<ProviderTranscript>({
-    interim: '',
-    final: '',
-    full: '',
-  });
+  const [transcriptState, setTranscriptState] = useState<ProviderTranscript>(EMPTY_TRANSCRIPT);
   const [providerTranscripts, setProviderTranscripts] = useState<
     Record<string, ProviderTranscript>
   >({});
@@ -50,9 +54,26 @@ export function useRealtimeTranscription(
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const ownsStreamRef = useRef(false);
+  const sessionActiveRef = useRef(false);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const keepAliveIntervalRef = useRef<number | null>(null);
   const isStoppingRef = useRef(false);
+
+  const teardownGraph = useCallback(() => {
+    if (processorRef.current) {
+      try {
+        processorRef.current.disconnect();
+      } catch {
+        /* ignore */
+      }
+      processorRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+  }, []);
 
   const cleanup = useCallback((isManualStop = false) => {
     if (isManualStop && websocketRef.current?.readyState === WebSocket.OPEN) {
@@ -81,50 +102,83 @@ export function useRealtimeTranscription(
       websocketRef.current = null;
     }
 
-    if (processorRef.current) {
-      try {
-        processorRef.current.disconnect();
-      } catch {
-        /* ignore */
-      }
-      processorRef.current = null;
-    }
+    teardownGraph();
 
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
+    if (ownsStreamRef.current) {
+      stopMediaStream(streamRef.current);
     }
-
     streamRef.current = null;
+    ownsStreamRef.current = false;
+    sessionActiveRef.current = false;
     setIsConnected(false);
     setIsTranscribing(false);
     isStoppingRef.current = false;
-  }, []);
+  }, [teardownGraph]);
 
   useEffect(() => {
     return () => cleanup(false);
   }, [cleanup]);
 
+  const attachPcmWorklet = useCallback(async (stream: MediaStream) => {
+    const audioContext = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
+    audioContextRef.current = audioContext;
+    if (audioContext.state === 'suspended') await audioContext.resume();
+
+    const blob = new Blob([PCM_WORKLET_SOURCE], { type: 'application/javascript' });
+    const moduleUrl = URL.createObjectURL(blob);
+    await audioContext.audioWorklet.addModule(moduleUrl);
+    URL.revokeObjectURL(moduleUrl);
+
+    const source = audioContext.createMediaStreamSource(stream);
+    const workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+    processorRef.current = workletNode;
+
+    workletNode.port.onmessage = (evt) => {
+      const currentWs = websocketRef.current;
+      if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+        currentWs.send(evt.data);
+      }
+    };
+
+    // Keep the graph alive without playing mic into speakers (critical for phone-on-speaker).
+    const mute = audioContext.createGain();
+    mute.gain.value = 0;
+    source.connect(workletNode);
+    workletNode.connect(mute);
+    mute.connect(audioContext.destination);
+  }, []);
+
   const start = useCallback(
     async (existingStream?: MediaStream) => {
-      if (isTranscribing) return;
+      if (sessionActiveRef.current) return;
 
       try {
         setError(null);
         setIsTranscribing(true);
+        sessionActiveRef.current = true;
         isStoppingRef.current = false;
         setPendingSpeakerIdentifiers(null);
 
-        let stream = existingStream;
-        if (!stream) {
+        let stream: MediaStream;
+        if (existingStream) {
+          const alreadyOwned =
+            ownsStreamRef.current && streamRef.current === existingStream;
+          if (alreadyOwned) {
+            stream = existingStream;
+          } else {
+            stream = cloneAudioStream(existingStream);
+            ownsStreamRef.current = true;
+          }
+        } else {
           stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true,
-              sampleRate: 16000,
+              sampleRate: LIVE_STT_SAMPLE_RATE,
             },
           });
+          ownsStreamRef.current = true;
         }
         streamRef.current = stream;
 
@@ -147,6 +201,10 @@ export function useRealtimeTranscription(
               ws.send(JSON.stringify({ type: 'KeepAlive' }));
             }
           }, 5000);
+          attachPcmWorklet(stream).catch((err) => {
+            console.error('Failed to attach PCM worklet:', err);
+            setError('Failed to start live transcription');
+          });
         };
 
         ws.onmessage = (event) => {
@@ -175,8 +233,6 @@ export function useRealtimeTranscription(
 
             if (data.type === 'Results') {
               const provider = data.provider || 'default';
-              const transcript = data.channel?.alternatives?.[0]?.transcript || '';
-              const isFinal = data.is_final || data.speech_final;
               const words: TranscriptWord[] = Array.isArray(data.words)
                 ? data.words.map(
                     (w: {
@@ -191,71 +247,25 @@ export function useRealtimeTranscription(
                   )
                 : [];
 
-              if (!transcript && words.length === 0) return;
+              const next = applyLiveResults(EMPTY_TRANSCRIPT, data);
+              if (!next) return;
 
-              if (isFinal && words.length > 0) {
+              if ((data.is_final || data.speech_final) && words.length > 0) {
                 setFinalWords((prev) => [...prev, ...words.filter((w) => w.text)]);
               }
 
-              const piece =
-                transcript ||
-                words
-                  .filter((w) => !w.is_punct)
-                  .map((w) => w.text)
-                  .join(' ');
-
-              setTranscriptState((prev) => {
-                let nextFinal = prev.final;
-                let nextInterim = prev.interim;
-
-                if (isFinal) {
-                  if (piece) {
-                    nextFinal = nextFinal ? `${nextFinal} ${piece}` : piece;
-                  }
-                  nextInterim = '';
-                } else {
-                  nextInterim = piece || transcript;
-                }
-
-                const nextFull = `${nextFinal}${nextInterim ? ` ${nextInterim}` : ''}`.trim();
-
-                return {
-                  final: nextFinal,
-                  interim: nextInterim,
-                  full: nextFull,
-                };
-              });
+              setTranscriptState((prev) => applyLiveResults(prev, data) || prev);
 
               setProviderTranscripts((prev) => {
-                const current = prev[provider] || { interim: '', final: '', full: '' };
-                let nextFinal = current.final;
-                let nextInterim = current.interim;
-
-                if (isFinal) {
-                  if (piece) {
-                    nextFinal = nextFinal ? `${nextFinal} ${piece}` : piece;
-                  }
-                  nextInterim = '';
-                } else {
-                  nextInterim = piece || transcript;
-                }
-
-                const nextFull = `${nextFinal}${nextInterim ? ` ${nextInterim}` : ''}`.trim();
-
-                return {
-                  ...prev,
-                  [provider]: {
-                    final: nextFinal,
-                    interim: nextInterim,
-                    full: nextFull,
-                  },
-                };
+                const current = prev[provider] || EMPTY_TRANSCRIPT;
+                const updated = applyLiveResults(current, data);
+                if (!updated) return prev;
+                return { ...prev, [provider]: updated };
               });
             }
 
             if (data.type === 'error' || data.type === 'Error') {
               setError(data.message || data.error || 'Transcription error');
-              setIsTranscribing(false);
             }
           } catch (e) {
             console.error('Error parsing WebSocket message:', e);
@@ -264,7 +274,6 @@ export function useRealtimeTranscription(
 
         ws.onerror = () => {
           setError('Connection error');
-          setIsTranscribing(false);
           setIsConnected(false);
         };
 
@@ -277,67 +286,18 @@ export function useRealtimeTranscription(
 
           if (isStoppingRef.current || event.code === 1000) {
             setIsTranscribing(false);
+            sessionActiveRef.current = false;
             isStoppingRef.current = false;
-            if (processorRef.current) {
-              processorRef.current.disconnect();
-              processorRef.current = null;
-            }
-            if (audioContextRef.current) {
-              audioContextRef.current.close().catch(() => {});
-              audioContextRef.current = null;
-            }
-          } else if (isTranscribing) {
+            teardownGraph();
+          } else if (sessionActiveRef.current) {
+            const replay = streamRef.current;
+            sessionActiveRef.current = false;
+            teardownGraph();
             reconnectTimeoutRef.current = window.setTimeout(() => {
-              start(streamRef.current || undefined);
+              start(replay || undefined);
             }, 2000);
           }
         };
-
-        const audioContext = new AudioContext({ sampleRate: 16000 });
-        audioContextRef.current = audioContext;
-        if (audioContext.state === 'suspended') await audioContext.resume();
-
-        const processorCode = `
-        class PcmProcessor extends AudioWorkletProcessor {
-          process(inputs) {
-            const input = inputs[0];
-            if (input && input.length > 0) {
-              const channelData = input[0];
-              const int16Array = new Int16Array(channelData.length);
-              for (let i = 0; i < channelData.length; i++) {
-                const s = Math.max(-1, Math.min(1, channelData[i]));
-                int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-              }
-              this.port.postMessage(int16Array.buffer, [int16Array.buffer]);
-            }
-            return true;
-          }
-        }
-        registerProcessor('pcm-processor', PcmProcessor);
-      `;
-
-        const blob = new Blob([processorCode], { type: 'application/javascript' });
-        const moduleUrl = URL.createObjectURL(blob);
-        await audioContext.audioWorklet.addModule(moduleUrl);
-        URL.revokeObjectURL(moduleUrl);
-
-        const source = audioContext.createMediaStreamSource(stream);
-        const workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
-        processorRef.current = workletNode;
-
-        workletNode.port.onmessage = (evt) => {
-          const currentWs = websocketRef.current;
-          if (currentWs && currentWs.readyState === WebSocket.OPEN) {
-            currentWs.send(evt.data);
-          }
-        };
-
-        // Keep the graph alive without playing mic into speakers (critical for phone-on-speaker).
-        const mute = audioContext.createGain();
-        mute.gain.value = 0;
-        source.connect(workletNode);
-        workletNode.connect(mute);
-        mute.connect(audioContext.destination);
       } catch (err) {
         console.error('Failed to start transcription:', err);
         setError('Failed to start transcription');
@@ -345,23 +305,20 @@ export function useRealtimeTranscription(
         cleanup();
       }
     },
-    [userId, language, mode, isTranscribing, cleanup]
+    [userId, language, mode, attachPcmWorklet, cleanup, teardownGraph]
   );
 
   const stop = useCallback(() => {
-    if (!isTranscribing) return;
+    if (!sessionActiveRef.current && !isTranscribing) return;
     if (websocketRef.current && websocketRef.current.readyState === WebSocket.OPEN) {
       isStoppingRef.current = true;
       websocketRef.current.send(JSON.stringify({ type: 'Finalize' }));
       websocketRef.current.send(JSON.stringify({ type: 'CloseStream' }));
-      if (processorRef.current) {
-        processorRef.current.disconnect();
-        processorRef.current = null;
-      }
+      teardownGraph();
     } else {
       cleanup(false);
     }
-  }, [isTranscribing, cleanup]);
+  }, [isTranscribing, cleanup, teardownGraph]);
 
   const forceEndOfUtterance = useCallback(() => {
     const ws = websocketRef.current;
@@ -372,7 +329,7 @@ export function useRealtimeTranscription(
 
   const reset = useCallback(() => {
     cleanup();
-    setTranscriptState({ interim: '', final: '', full: '' });
+    setTranscriptState(EMPTY_TRANSCRIPT);
     setProviderTranscripts({});
     setFinalWords([]);
     setPendingSpeakerIdentifiers(null);

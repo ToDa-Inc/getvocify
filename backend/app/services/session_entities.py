@@ -276,8 +276,17 @@ def vocab_for_hubspot_context(
     )
 
 
-def resolve_speechmatics_rt_language(requested: str, override: Optional[str] = None) -> str:
-    """Map client `multi` to Speechmatics `auto` (same as batch). Override via env."""
+def resolve_speechmatics_rt_language(
+    requested: str,
+    override: Optional[str] = None,
+    profile_languages: Optional[list[str]] = None,
+) -> str:
+    """
+    Realtime language for Speechmatics WebSocket.
+
+    Client `multi`/`auto` is batch language-id. eu2 rejects `/v2/auto` with HTTP 404,
+    so live STT pins a real ISO code (profile primary, else Spanish).
+    """
     if override is None:
         try:
             from app.config import settings
@@ -285,12 +294,27 @@ def resolve_speechmatics_rt_language(requested: str, override: Optional[str] = N
             override = (getattr(settings, "SPEECHMATICS_RT_LANGUAGE", None) or "").strip()
         except Exception:
             override = ""
-    raw = (requested or "multi").strip().lower()
-    if override:
-        return override.strip()
-    if raw in ("multi", "auto", ""):
-        return "auto"
-    return raw
+    raw_override = (override or "").strip().lower()
+    if raw_override and raw_override not in ("auto", "multi"):
+        return raw_override
+    raw = (requested or "").strip().lower()
+    if raw and raw not in ("", "auto", "multi"):
+        return raw
+    return normalize_stt_languages(profile_languages)[0]
+
+
+def speechmatics_rt_ws_language(
+    requested: str,
+    override: Optional[str] = None,
+    profile_languages: Optional[list[str]] = None,
+) -> str:
+    """Path segment for wss://…/v2/{lang}. Never `auto` or `multi`."""
+    lang = resolve_speechmatics_rt_language(
+        requested, override=override, profile_languages=profile_languages
+    )
+    if lang in ("auto", "multi", ""):
+        return normalize_stt_languages(None)[0]
+    return lang
 
 
 STT_LANGUAGE_CODES = ("es", "en", "fr", "de", "it", "pt", "ca")

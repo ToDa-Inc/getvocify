@@ -7,6 +7,7 @@ import { getUserDisplayName } from "@/features/auth/types";
 import { memosApi, memoKeys } from "@/features/memos/api";
 import type { MemoStatus } from "@/features/memos/types";
 import { memoListTitle, memoListSubtitle } from "@/lib/copilot-note";
+import { RecordingsPanel } from "@/components/dashboard/RecordingsPanel";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
@@ -25,11 +26,6 @@ const getStatusBadge = (status: MemoStatus) => {
         </span>
       );
     case "pending_transcript":
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-beige/10 text-beige">
-          Review transcript
-        </span>
-      );
     case "uploading":
     case "transcribing":
     case "extracting":
@@ -79,6 +75,8 @@ const DashboardHome = () => {
       <VoiceRecorderWidget
         onComplete={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
       />
+
+      <RecordingsPanel />
 
       {/* Recent Memos */}
       <div className="space-y-6">

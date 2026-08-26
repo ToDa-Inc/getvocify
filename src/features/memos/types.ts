@@ -29,7 +29,7 @@ export type MemoStatus =
  * Check if memo is in a processing state (not actionable by user)
  */
 export function isProcessing(status: MemoStatus): boolean {
-  return ['uploading', 'transcribing', 'extracting'].includes(status);
+  return ['uploading', 'transcribing', 'extracting', 'pending_transcript'].includes(status);
 }
 
 /**

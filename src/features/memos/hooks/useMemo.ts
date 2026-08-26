@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { memosApi, memoKeys } from '../api';
 import type { Memo, ApproveMemoPayload } from '../types';
+import { shouldPollMemo } from '@/lib/memo-poll';
 
 /**
  * Hook to fetch a single memo
@@ -20,12 +21,7 @@ export function useMemo(id: string) {
     refetchInterval: (query) => {
       const memo = query.state.data;
       if (!memo) return false;
-      
-      // Poll every 2 seconds while processing
-      const processingStates = ['uploading', 'transcribing', 'extracting'];
-      if (processingStates.includes(memo.status)) {
-        return 2000;
-      }
+      if (shouldPollMemo(memo)) return 2000;
       return false;
     },
   });

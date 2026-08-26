@@ -35,8 +35,9 @@ export const integrationsApi = {
   /**
    * List all CRM connections for the current user
    */
-  listConnections: (): Promise<CRMConnection[]> => {
-    return api.get<CRMConnection[]>('/crm/connections');
+  listConnections: async (): Promise<CRMConnection[]> => {
+    const data = await api.get<{ connections?: CRMConnection[] }>('/crm/connections');
+    return Array.isArray(data?.connections) ? data.connections : [];
   },
 
   /**

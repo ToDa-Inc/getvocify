@@ -56,6 +56,7 @@ export function classifyFillPolicy(spec: {
   const nameL = name.toLowerCase();
   if (CALL_NOTE_NAMES.has(nameL)) return "call_note";
   if (IDENTITY_NAMES.has(nameL) || IDENTITY_NAME_WRITE_KEYS.has(name)) return "identity";
+  if (/context_status|enriched_at/i.test(nameL)) return "strategy";
   const text = blob(spec);
   const nameKey = name.replace(/-/g, "_");
   if (STRATEGY_RE.test(text) || STRATEGY_NAME_RE.test(nameKey)) return "strategy";

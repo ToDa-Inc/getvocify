@@ -88,8 +88,9 @@ class RecoveryService:
                 }).eq("id", memo_id).execute()
                 return False
             
-            # Re-queue extraction with the same multi-object field specs as live extract
-            from app.api.memos import _curated_field_specs_for_primary_crm, extract_memo_async
+            # Re-queue extraction with the same multi-object field specs as live extract.
+            # extract_memo_async acquires the lease; a live run is skipped, not stacked.
+            from app.api.memos import _call_date_from_memo, _curated_field_specs_for_primary_crm, extract_memo_async
             from app.services.extraction import ExtractionService
             import asyncio
             
@@ -101,6 +102,9 @@ class RecoveryService:
                 field_specs = None
             
             extraction_service = ExtractionService()
+            source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
+            if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
+                source_type = "voice_memo"
             
             asyncio.create_task(
                 extract_memo_async(
@@ -109,11 +113,44 @@ class RecoveryService:
                     transcript,
                     self.supabase,
                     extraction_service,
-                    field_specs
+                    field_specs,
+                    source_type=source_type,
+                    trigger="recovery",
+                    call_date=_call_date_from_memo(memo_data),
                 )
             )
             logger.info(
                 "🔄 Recover memo: re-queued extraction",
+                extra=log_domain(DOMAIN_RECOVERY, "recover_memo", memo_id=memo_id, from_status=status, to_status="extracting"),
+            )
+            return True
+
+        elif status == "pending_transcript":
+            # Legacy rows: transcript ready but never confirmed — auto-extract
+            if not transcript:
+                self.supabase.table("memos").update({
+                    "status": "failed",
+                    "error_message": "Transcript missing for legacy pending_transcript recovery",
+                    "processing_started_at": None,
+                }).eq("id", memo_id).execute()
+                return False
+
+            from app.api.memos import start_extraction_from_transcript
+
+            user_id = memo_data.get("user_id")
+            source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
+            if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
+                source_type = "voice_memo"
+
+            await start_extraction_from_transcript(
+                memo_id,
+                user_id,
+                transcript,
+                self.supabase,
+                source_type=source_type,
+            )
+            logger.info(
+                "🔄 Recover memo: auto-extracted legacy pending_transcript",
                 extra=log_domain(DOMAIN_RECOVERY, "recover_memo", memo_id=memo_id, from_status=status, to_status="extracting"),
             )
             return True
@@ -127,6 +164,9 @@ class RecoveryService:
         Returns:
             Dictionary with recovery statistics
         """
+        from app.services.pipeline_lease import reap_expired_leases
+
+        reap_expired_leases()
         stuck_memos = await self.find_stuck_memos()
         
         recovered = 0

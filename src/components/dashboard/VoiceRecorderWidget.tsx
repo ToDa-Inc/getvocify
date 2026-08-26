@@ -8,7 +8,6 @@ import {
   RotateCcw, 
   ChevronDown, 
   ChevronUp, 
-  Sparkles, 
   X 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -57,7 +56,6 @@ export const VoiceRecorderWidget = ({
   // Local UI state
   const [isPasteOpen, setIsPasteOpen] = useState(false);
   const [pastedTranscript, setPastedTranscript] = useState("");
-  const [editedTranscript, setEditedTranscript] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
   const {
@@ -74,7 +72,6 @@ export const VoiceRecorderWidget = ({
 
   const {
     upload,
-    uploadTranscriptOnly,
     uploadTranscriptAndExtract,
     progress,
     isUploading,
@@ -85,6 +82,7 @@ export const VoiceRecorderWidget = ({
   const {
     isTranscribing,
     isConnected,
+    error: transcriptionError,
     finalTranscript,
     interimTranscript,
     fullTranscript,
@@ -96,12 +94,31 @@ export const VoiceRecorderWidget = ({
     "multi"
   );
 
-  // Synchronize fullTranscript to editable buffer when streaming or stopped
-  useEffect(() => {
-    if (fullTranscript) {
-      setEditedTranscript(fullTranscript);
+  const submitTranscriptForExtraction = async (transcript: string) => {
+    if (isSubmitLocked.current) return;
+    const textToSubmit = transcript.trim();
+    if (!textToSubmit) return;
+
+    isSubmitLocked.current = true;
+    try {
+      const memoId = await uploadTranscriptAndExtract(textToSubmit);
+      resetTranscription();
+      queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
+      toast.success("AI is extracting CRM fields...");
+      onComplete(memoId);
+    } catch {
+      isSubmitLocked.current = false;
+      toast.error(uploadError || "Failed to process recording");
     }
-  }, [fullTranscript]);
+  };
+
+  // After stop, go straight to field extraction when live STT produced text.
+  useEffect(() => {
+    if (state !== "stopped" || isUploading) return;
+    const text = fullTranscript?.trim();
+    if (!text) return;
+    void submitTranscriptForExtraction(text);
+  }, [state, fullTranscript, isUploading]);
 
   // Handle start/stop recording button
   const handleRecordToggle = async () => {
@@ -125,7 +142,6 @@ export const VoiceRecorderWidget = ({
     cancelRecording();
     resetUpload();
     resetTranscription();
-    setEditedTranscript("");
     isSubmitLocked.current = false;
   };
 
@@ -152,35 +168,13 @@ export const VoiceRecorderWidget = ({
     isSubmitLocked.current = false;
   };
 
-  // Submit reviewed transcript (Step 1 -> extraction)
-  const handleAcceptTranscript = async () => {
-    if (isSubmitLocked.current) return;
-    const textToSubmit = editedTranscript.trim() || fullTranscript.trim();
-    if (!textToSubmit) {
-      toast.error("Transcript cannot be empty");
-      return;
-    }
-
-    isSubmitLocked.current = true;
-    try {
-      const memoId = await uploadTranscriptAndExtract(textToSubmit);
-      resetTranscription();
-      queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-      toast.success("Memo created! AI is extracting CRM fields...");
-      onComplete(memoId);
-    } catch {
-      isSubmitLocked.current = false;
-      toast.error(uploadError || "Failed to create memo from transcript");
-    }
-  };
-
   // Fallback upload when no live transcript exists but audio blob was recorded
   const handleUploadAudio = async () => {
     if (!audio) return;
     try {
       const memoId = await upload(audio);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-      toast.success("Recording uploaded! AI is transcribing and extracting fields...");
+      toast.success("Recording uploaded! AI is extracting CRM fields...");
       onComplete(memoId);
     } catch {
       toast.error(uploadError || "Failed to upload audio recording");
@@ -199,11 +193,9 @@ export const VoiceRecorderWidget = ({
     isSubmitLocked.current = true;
 
     try {
-      const memoId = await uploadTranscriptOnly(trimmed, {
-        sourceType: "meeting_transcript",
-      });
+      const memoId = await uploadTranscriptAndExtract(trimmed);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-      toast.success("Transcript imported! Reviewing details...");
+      toast.success("AI is extracting CRM fields...");
       setPastedTranscript("");
       setIsPasteOpen(false);
       onComplete(memoId);
@@ -236,7 +228,7 @@ export const VoiceRecorderWidget = ({
         size: file.size,
       });
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-      toast.success("Audio uploaded! Processing your memo...");
+      toast.success("Audio uploaded! Extracting CRM fields...");
       onComplete(memoId);
     } catch {
       URL.revokeObjectURL(audioUrl);
@@ -267,9 +259,8 @@ export const VoiceRecorderWidget = ({
     setIsDragging(false);
   };
 
-  // Determine sub-views
-  const hasTranscript = Boolean(fullTranscript?.trim() || editedTranscript.trim());
-  const showReviewStep = state === "stopped" && (hasTranscript || audio);
+  const hasTranscript = Boolean(fullTranscript?.trim());
+  const showAudioFallback = state === "stopped" && !hasTranscript && Boolean(audio);
 
   // 1. Error state
   if (state === "error" && recorderError) {
@@ -292,10 +283,10 @@ export const VoiceRecorderWidget = ({
           <div className="w-10 h-10 border-2 border-beige border-t-transparent rounded-full animate-spin" />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">
-          Processing your memo...
+          Extracting CRM fields...
         </h3>
         <p className="text-xs text-muted-foreground mb-6">
-          Uploading audio & initiating AI CRM extraction
+          Turning your recording into HubSpot-ready fields
         </p>
         <div className="max-w-md mx-auto">
           <UploadProgress progress={progress} className="mb-3" />
@@ -304,77 +295,40 @@ export const VoiceRecorderWidget = ({
     );
   }
 
-  // 3. Transcript Ready / Review Step (Step 1)
-  if (showReviewStep) {
+  // 3. Stopped with transcript — auto-submit effect handles upload; show spinner
+  if (state === "stopped" && hasTranscript) {
     return (
-      <div className={cn(`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-6 md:p-8 text-left`, className)}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-beige" />
-            <h3 className="text-base font-semibold text-foreground">Review Transcript</h3>
-          </div>
-          {hasTranscript && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-success/10 text-success border border-success/20">
-              Live STT
-            </span>
-          )}
+      <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 text-center`, className)}>
+        <div className="relative w-28 h-28 mx-auto mb-6 rounded-full bg-secondary/30 flex items-center justify-center">
+          <div className="w-10 h-10 border-2 border-beige border-t-transparent rounded-full animate-spin" />
         </div>
-
-        <p className="text-xs text-muted-foreground mb-4">
-          {hasTranscript
-            ? "Review and edit your spoken notes before confirming extraction."
-            : "No real-time text was generated. You can upload the audio for full server-side transcription."}
+        <h3 className="text-lg font-semibold text-foreground mb-1">
+          Extracting CRM fields...
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Your recording is being processed
         </p>
-
-        {hasTranscript ? (
-          <div className="space-y-4">
-            <textarea
-              value={editedTranscript}
-              onChange={(e) => setEditedTranscript(e.target.value)}
-              placeholder="Edit your transcript..."
-              className="w-full min-h-[220px] rounded-xl bg-secondary/30 p-4 border border-border/80 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/60 resize-y focus:outline-none focus:ring-2 focus:ring-beige/40 focus:border-beige/50"
-            />
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleReRecord}
-                disabled={isUploading}
-                className="flex-1 rounded-full gap-2"
-              >
-                <RotateCcw className="h-4 w-4" />
-                Re-record
-              </Button>
-              <Button
-                type="button"
-                variant="hero"
-                disabled={isUploading || !editedTranscript.trim()}
-                onClick={handleAcceptTranscript}
-                className="flex-1 rounded-full bg-beige text-cream hover:bg-beige/90 font-medium"
-              >
-                {isUploading ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-cream border-t-transparent rounded-full animate-spin mr-2" />
-                    Extracting...
-                  </>
-                ) : (
-                  "Accept & Continue"
-                )}
-              </Button>
-            </div>
-          </div>
-        ) : audio ? (
-          <AudioPreview
-            audio={audio}
-            onReRecord={handleReRecord}
-            onUpload={handleUploadAudio}
-          />
-        ) : null}
       </div>
     );
   }
 
-  // 4. Recording Active State
+  // 4. Stopped without live transcript — offer audio upload fallback
+  if (showAudioFallback) {
+    return (
+      <div className={cn(`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-6 md:p-8 text-left`, className)}>
+        <p className="text-xs text-muted-foreground mb-4">
+          No real-time text was generated. Upload the audio for server-side transcription and extraction.
+        </p>
+        <AudioPreview
+          audio={audio}
+          onReRecord={handleReRecord}
+          onUpload={handleUploadAudio}
+        />
+      </div>
+    );
+  }
+
+  // 5. Recording Active State
   if (state === "recording") {
     return (
       <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-center`, className)}>
@@ -407,6 +361,7 @@ export const VoiceRecorderWidget = ({
             finalTranscript={finalTranscript}
             interimTranscript={interimTranscript}
             isActive={isTranscribing && isConnected}
+            error={transcriptionError}
           />
         </div>
 
@@ -425,7 +380,7 @@ export const VoiceRecorderWidget = ({
     );
   }
 
-  // 5. Idle / Default State
+  // 6. Idle / Default State
   return (
     <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-center`, className)}>
       {/* Circular Record Core */}
@@ -522,7 +477,7 @@ export const VoiceRecorderWidget = ({
               onClick={handleImportPastedTranscript}
               className="text-xs rounded-full h-8 px-4 bg-beige text-cream hover:bg-beige/90"
             >
-              {isUploading ? "Importing..." : "Import & Continue"}
+              {isUploading ? "Importing..." : "Import & Extract"}
             </Button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
+import { shouldPollMemo } from "@/lib/memo-poll";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { clearCachedPreview } from "@/lib/preview-cache";
 import { api } from "@/shared/lib/api-client";
@@ -107,8 +108,7 @@ const MemoDetail = () => {
 
   useEffect(() => {
     if (!id || !memo) return;
-    const TRANSIENT = ["uploading", "transcribing", "extracting"];
-    if (!TRANSIENT.includes(memo.status)) return;
+    if (!shouldPollMemo(memo)) return;
 
     let cancelled = false;
     const poll = async () => {
@@ -118,12 +118,12 @@ const MemoDetail = () => {
         setMemo(data);
       } catch { /* silent — next tick retries */ }
     };
-    const interval = window.setInterval(poll, 3000);
+    const interval = window.setInterval(poll, 2000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [id, memo?.status]);
+  }, [id, memo?.status, memo?.processedAt, memo?.pipelineMeta, memo?.transcript]);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -187,6 +187,12 @@ const MemoDetail = () => {
     }
   };
 
+  useEffect(() => {
+    if (!id || !memo || memo.status !== "pending_transcript" || isConfirmingTranscript) return;
+    if (!memo.transcript?.trim()) return;
+    void handleConfirmTranscript();
+  }, [id, memo?.status, memo?.transcript, isConfirmingTranscript]);
+
   if (isLoading && !memo) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -210,8 +216,7 @@ const MemoDetail = () => {
     );
   }
 
-  const isPendingTranscript = memo.status === "pending_transcript";
-  const isProcessing = ["uploading", "transcribing", "extracting"].includes(memo.status);
+  const isProcessing = ["uploading", "transcribing", "extracting", "pending_transcript"].includes(memo.status);
   const extractionFailed = memo.status === "failed";
   const hasExtraction = !isProcessing && !extractionFailed && !!memo.extraction;
   const extraction = memo.extraction || {};
@@ -413,18 +418,8 @@ const MemoDetail = () => {
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <VocifyLoader size="md" label={isProcessing ? "Generating transcript..." : "No transcript yet"} />
+                <VocifyLoader size="md" label={isProcessing ? "Extracting CRM fields..." : "No transcript yet"} />
               </div>
-            )}
-            {isPendingTranscript && !isProcessing && memo?.transcript && (
-              <Button
-                variant="hero"
-                onClick={handleConfirmTranscript}
-                disabled={isConfirmingTranscript}
-                className="mt-6 w-full rounded-full text-[10px] font-medium bg-beige text-cream shrink-0"
-              >
-                {isConfirmingTranscript ? "Extracting..." : "Extract & Continue"}
-              </Button>
             )}
           </div>
         </div>

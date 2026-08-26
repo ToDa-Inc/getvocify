@@ -227,10 +227,14 @@ CREATE TABLE memos (
   audio_duration REAL,
   
   transcript TEXT,
+  transcript_raw TEXT,
   transcript_confidence REAL CHECK (transcript_confidence IS NULL OR transcript_confidence BETWEEN 0 AND 1),
+  transcript_stt_meta JSONB DEFAULT '{}'::jsonb,
   
   extraction JSONB,
   pipeline_meta JSONB DEFAULT '{}'::jsonb,
+  pipeline_run_id UUID,
+  pipeline_run_started_at TIMESTAMPTZ,
   
   -- Deal matching fields
   matched_deal_id TEXT,

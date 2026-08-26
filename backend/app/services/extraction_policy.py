@@ -75,6 +75,8 @@ def classify_fill_policy(spec: dict) -> FillPolicy:
         return "call_note"
     if name_l in _IDENTITY_NAMES or name in _IDENTITY_NAME_WRITE_KEYS:
         return "identity"
+    if re.search(r"context_status|enriched_at", name_l):
+        return "strategy"
     blob = _blob(spec)
     name_key = name.replace("-", "_")
     if _STRATEGY_RE.search(blob) or _STRATEGY_NAME_RE.search(name_key):
@@ -153,6 +155,12 @@ def apply_fill_policies(
         existing_bag = existing_values.get(obj) or {}
         current = existing_bag.get(name) if isinstance(existing_bag, dict) else None
 
+        bag = _object_bag(out, obj)
+        proposed = bag.get(name)
+
+        if isinstance(proposed, str) and proposed.strip().lower() == "unknown":
+            _clear_field(out, spec)
+            continue
         if policy == "strategy":
             _clear_field(out, spec)
             continue
@@ -163,7 +171,18 @@ def apply_fill_policies(
             # Existing record already has this identity field — keep it as the default.
             _clear_field(out, spec)
             continue
+        if _has_value(current) and _same_crm_value(proposed, current):
+            _clear_field(out, spec)
+            continue
     return out
+
+
+def _same_crm_value(proposed: Any, current: Any) -> bool:
+    if proposed is None or current is None:
+        return False
+    if isinstance(proposed, (int, float)) and isinstance(current, (int, float)):
+        return float(proposed) == float(current)
+    return str(proposed).strip() == str(current).strip()
 
 
 def is_identity_name_field(name: str) -> bool:
@@ -288,14 +307,17 @@ def fill_policy_instruction(policy: FillPolicy) -> str:
             "or sequence copy from a live call."
         ),
         "research": (
-            "Fill policy: account research — describes how the PROSPECT's company sells or whether "
-            "they fit the ICP, not how we reached them. Return null if CURRENT VALUE is set. "
-            "Only fill when empty AND the prospect explicitly described their own motion/team."
+            "Fill policy: account research — how the PROSPECT's company sells or whether they fit "
+            "the ICP, not how we ran this call. Return null if CURRENT VALUE is set. If empty, fill "
+            "from this call: map what they described to the closest allowed option (they will not "
+            "say the option label). Numbers only when spoken for this metric. ICP cutoffs in the "
+            "field description are scoring hints — still write the actual answer even if they miss the bar."
         ),
         "call_note": (
             "Fill policy: call note — write from this conversation (prospect-centric; no pitch recap)."
         ),
         "explicit": (
-            "Fill policy: explicit only — set only if the transcript states it; otherwise null."
+            "Fill policy: from this transcript — fill when the call answers the field. "
+            "Enumerations: closest allowed option. Numbers/dates: only if stated. Otherwise null."
         ),
     }[policy]

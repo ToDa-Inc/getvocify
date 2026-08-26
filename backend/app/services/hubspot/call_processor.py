@@ -1,10 +1,11 @@
 """
-Process HubSpot call recordings into memos (Deepgram Nova-3 batch, pending_transcript).
+Process HubSpot call recordings into memos (Deepgram Nova-3 batch, auto-extract).
 
 Flow:
   1. initiate_hubspot_call_memo  — idempotent DB row, status=transcribing
   2. process_hubspot_call_background — download audio, transcribe (sync listen),
-     sanitize, then pending_transcript. No Speechmatics webhook.
+     cheap name/speaker repair, start CRM extraction. LLM transcript polish runs
+     in the background and does not block review.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from app.services.hubspot.calls import (
     download_recording,
     get_call_associations,
     get_call_engagement,
+    parse_hubspot_timestamp_ms,
 )
 from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
@@ -125,9 +127,27 @@ async def process_hubspot_call_background(
     call_id: str,
     supabase: Client,
 ) -> None:
-    """Download recording, transcribe with Deepgram, sanitize, pending_transcript."""
+    """Download recording, transcribe with Deepgram, sanitize, start extraction."""
+    from app.services.pipeline_lease import (
+        acquire_pipeline_run,
+        release_pipeline_run,
+        run_record,
+        update_memo_row,
+    )
+    from app.services.pipeline_meta import record_stage
+    from app.services.transcript_sanitize import raw_speaker_count
+
     t0 = time.perf_counter()
+    started_at = datetime.now(timezone.utc).isoformat()
     stages: list = []
+    run_id = acquire_pipeline_run(supabase, memo_id, "hubspot_process")
+    if not run_id:
+        logger.info(
+            "HubSpot call skipped — lease held",
+            extra=log_domain(DOMAIN_MEMO, "hubspot_call_lease_held", memo_id=memo_id, call_id=call_id),
+        )
+        return
+    outcome = "ok"
     try:
         client = HubSpotClient(access_token)
         data = await get_call_engagement(client, str(call_id))
@@ -138,10 +158,15 @@ async def process_hubspot_call_background(
         if not url:
             raise RuntimeError("No recording URL on call")
 
+        t_dl = time.perf_counter()
         audio_bytes, content_type = await download_recording(url, access_token)
         dur = call_duration_seconds(props)
         if dur <= 0:
             dur = max(1.0, len(audio_bytes) / (32 * 1024))
+        ts_ms = parse_hubspot_timestamp_ms(props.get("hs_timestamp") or props.get("hs_createdate"))
+        call_date = None
+        if ts_ms:
+            call_date = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).date().isoformat()
 
         extra_terms = []
         try:
@@ -150,7 +175,8 @@ async def process_hubspot_call_background(
         except Exception as e:
             logger.warning("HubSpot call vocab: associations failed: %s", e)
 
-        with pipeline_run() as stages:
+        with pipeline_run(run_id=run_id, trigger="hubspot_process") as stages:
+            record_stage("download", t_dl, bytes=len(audio_bytes))
             transcript = await transcribe_bytes(
                 audio_bytes,
                 content_type=content_type or "audio/mpeg",
@@ -160,31 +186,56 @@ async def process_hubspot_call_background(
             )
             memo_row = (
                 supabase.table("memos")
-                .select("id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
+                .select("id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,source,source_type")
                 .eq("id", memo_id)
                 .limit(1)
                 .execute()
             )
-            memo_data = (memo_row.data or [None])[0] or {"id": memo_id, "user_id": user_id}
+            memo_data = (memo_row.data or [None])[0] or {
+                "id": memo_id,
+                "user_id": user_id,
+                "source": "hubspot_call",
+            }
+            memo_data.setdefault("source", "hubspot_call")
             cleaned = await sanitize_user_transcript(
                 transcript, user_id, supabase, memo_data=memo_data
             )
         record_transcription_duration(time.perf_counter() - t0, "hubspot_call")
-
-        supabase.table("memos").update(
-            {
-                "audio_duration": dur,
-                "status": "pending_transcript",
-                "transcript": cleaned,
-                "transcript_confidence": 0.95,
-                "processing_started_at": None,
-                "error_message": None,
-            }
-        ).eq("id", memo_id).execute()
         persist_pipeline_meta(supabase, memo_id, stages)
 
+        from app.api.memos import start_extraction_from_transcript
+
+        await start_extraction_from_transcript(
+            memo_id,
+            user_id,
+            cleaned,
+            supabase,
+            source_type="hubspot_call",
+            run_id=run_id,
+            call_date=call_date,
+            trigger="hubspot_process",
+            extra_update={
+                "audio_duration": dur,
+                "error_message": None,
+                "transcript_raw": transcript,
+                "transcript_stt_meta": {
+                    "provider": "deepgram",
+                    "model": "nova-3",
+                    "raw_speaker_count": raw_speaker_count(transcript),
+                    "call_date": call_date,
+                    "diarized": True,
+                },
+            },
+        )
+
+        persist_pipeline_meta(
+            supabase,
+            memo_id,
+            [],
+            run=run_record(run_id, "hubspot_process", started_at, t0, "ok"),
+        )
         logger.info(
-            "HubSpot call transcribed",
+            "HubSpot call transcribed (extraction started)",
             extra=log_domain(
                 DOMAIN_MEMO,
                 "hubspot_call_transcribed",
@@ -194,15 +245,25 @@ async def process_hubspot_call_background(
             ),
         )
     except Exception as e:
+        outcome = "failed"
         logger.exception(
             "HubSpot call processing failed",
             extra=log_domain(DOMAIN_MEMO, "hubspot_call_failed", memo_id=memo_id, error=str(e)),
         )
-        supabase.table("memos").update(
+        update_memo_row(
+            supabase,
+            memo_id,
             {
                 "status": "failed",
                 "error_message": str(e)[:2000],
                 "processing_started_at": None,
-            }
-        ).eq("id", memo_id).execute()
-        persist_pipeline_meta(supabase, memo_id, stages)
+            },
+        )
+        persist_pipeline_meta(
+            supabase,
+            memo_id,
+            stages,
+            run=run_record(run_id, "hubspot_process", started_at, t0, outcome),
+        )
+    finally:
+        release_pipeline_run(supabase, memo_id, run_id)

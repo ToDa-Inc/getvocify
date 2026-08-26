@@ -250,3 +250,11 @@ Every schema change must ship as a new numbered file in `backend/migrations/`
 that only exists in the Supabase dashboard does not exist as far as this
 codebase is concerned, and will silently rot into another entry in the table
 above.
+
+## 024 — memo pipeline run columns (2026-08-26)
+
+`backend/migrations/024_memos_pipeline_runs.sql` adds:
+
+- `memos.transcript_raw` — provider STT text; sanitize/polish write `transcript` only
+- `memos.transcript_stt_meta` — provider/model/language, raw speaker count, call date
+- `memos.pipeline_run_id` / `memos.pipeline_run_started_at` — single-flight lease

@@ -10,6 +10,7 @@ import {
   resolveReviewPresentation,
   sameMemoId,
   shouldReloadReviewPreview,
+  planReviewSessionLock,
   shouldShowReviewOpeningSpinner,
   slimReviewMemo,
   approveCtaLabel,
@@ -19,6 +20,8 @@ import {
   memoForReviewPresentation,
   reviewMemoIfCurrent,
   shouldWriteCallNote,
+  shouldPollMemo,
+  transcriptPolishSettled,
 } from './review-screen.js';
 
 describe('sameMemoId', () => {
@@ -158,6 +161,22 @@ describe('shouldReloadReviewPreview', () => {
   });
 });
 
+describe('planReviewSessionLock', () => {
+  it('locks immediately on the inbox so a later focused HubSpot row cannot steal the process', () => {
+    const plan = planReviewSessionLock({ alreadyLocked: false, liveContext: null });
+    assert.equal(plan.shouldLock, true);
+    assert.deepEqual(plan.context, {});
+  });
+
+  it('does not adopt a later contact or deal once the process is locked', () => {
+    const plan = planReviewSessionLock({
+      alreadyLocked: true,
+      liveContext: { objectType: 'deal', recordId: 'D-focused' },
+    });
+    assert.equal(plan.shouldLock, false);
+  });
+});
+
 describe('deal picker', () => {
   it('stays collapsed so linked deals are not listed next to contact-only', () => {
     const ui = dealPickerVisibility({
@@ -209,16 +228,13 @@ describe('deal picker', () => {
 });
 
 describe('resolveReviewPresentation', () => {
-  it('keeps transcribing/extracting on the processing screen instead of a blank review', () => {
+  it('keeps transcribing/extracting/pending_transcript on the processing screen', () => {
     assert.equal(resolveReviewPresentation({ memo: { status: 'transcribing' } }).mode, 'processing');
     assert.equal(resolveReviewPresentation({ memo: { status: 'extracting' } }).mode, 'processing');
     assert.equal(resolveReviewPresentation({ memo: { status: 'uploading' } }).mode, 'processing');
-  });
-
-  it('shows transcript review while pending_transcript', () => {
     assert.equal(
       resolveReviewPresentation({ memo: { status: 'pending_transcript' } }).mode,
-      'pending_transcript',
+      'processing',
     );
   });
 
@@ -249,12 +265,11 @@ describe('resolveReviewPresentation', () => {
     assert.match(out.message, /Server error/);
   });
 
-  it('shows transcript review with an error banner when extraction failed', () => {
+  it('shows a failed extraction banner instead of transcript review', () => {
     const out = resolveReviewPresentation({
       memo: { status: 'failed', errorMessage: 'Speechmatics timed out' },
     });
-    assert.equal(out.mode, 'pending_transcript');
-    assert.equal(out.failed, true);
+    assert.equal(out.mode, 'failed');
     assert.match(out.message, /timed out/);
   });
 
@@ -372,5 +387,29 @@ describe('memoForReviewPresentation', () => {
       resolveReviewPresentation({ memo: memoForReviewPresentation({ cached, fetched }) }).mode,
       'pending_review',
     );
+  });
+});
+
+describe('shouldPollMemo', () => {
+  it('keeps polling pending_review until polish lands after extract', () => {
+    const extracting = { status: 'extracting' };
+    assert.equal(shouldPollMemo(extracting), true);
+    const pending = {
+      status: 'pending_review',
+      processedAt: '2026-08-21T13:10:57.000Z',
+      pipelineMeta: { stages: [{ name: 'extract', at: '2026-08-21T13:10:57.000Z' }] },
+    };
+    assert.equal(shouldPollMemo(pending, Date.parse('2026-08-21T13:11:05.000Z')), true);
+    const polished = {
+      ...pending,
+      pipelineMeta: {
+        stages: [
+          { name: 'extract', at: '2026-08-21T13:10:57.000Z' },
+          { name: 'sanitize', at: '2026-08-21T13:11:03.000Z' },
+        ],
+      },
+    };
+    assert.equal(transcriptPolishSettled(polished), true);
+    assert.equal(shouldPollMemo(polished, Date.parse('2026-08-21T13:11:05.000Z')), false);
   });
 });
