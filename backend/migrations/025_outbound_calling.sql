@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS user_caller_ids (
     CHECK (status IN ('pending', 'verified', 'failed')),
   label TEXT,
   is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Twilio validation-call CallSid; correlates status callbacks to one attempt.
   twilio_validation_sid TEXT,
   verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -37,6 +38,10 @@ CREATE INDEX IF NOT EXISTS idx_user_caller_ids_user
 -- Twilio identity + requested caller ID), so this lookup must be indexed.
 CREATE INDEX IF NOT EXISTS idx_user_caller_ids_number
   ON user_caller_ids (phone_number);
+
+CREATE INDEX IF NOT EXISTS idx_user_caller_ids_validation_sid
+  ON user_caller_ids (twilio_validation_sid)
+  WHERE twilio_validation_sid IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS outbound_calls (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
