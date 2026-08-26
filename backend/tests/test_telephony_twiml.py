@@ -21,6 +21,18 @@ class TestNormalizeE164:
     def test_converts_double_zero_prefix(self):
         assert normalize_e164("0034600111222") == "+34600111222"
 
+    def test_strips_national_trunk_prefix(self):
+        assert normalize_e164("0600111222") == "+34600111222"
+
+    def test_rejects_country_code_without_plus_or_double_zero(self):
+        with pytest.raises(InvalidPhoneNumber):
+            normalize_e164("34600111222")
+
+    def test_accepts_nine_digit_national_starting_with_country_code_digits(self):
+        # 9-digit national numbers whose first two digits happen to be "34"
+        # have only 7 digits after a hypothetical country-code split — not rejected.
+        assert normalize_e164("341234567") == "+34341234567"
+
     def test_rejects_too_short(self):
         with pytest.raises(InvalidPhoneNumber):
             normalize_e164("600")

@@ -24,11 +24,14 @@ from twilio.twiml.voice_response import Dial, VoiceResponse
 
 E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 _SEPARATORS_RE = re.compile(r"[\s().\-/]")
+# National subscriber length when the default country code is already present
+# without ``+`` or ``00``. Only countries listed here get fail-closed rejection.
+_NATIONAL_LENGTH_BY_COUNTRY: dict[str, int] = {"34": 9}
 
 DEFAULT_RECORDING_ANNOUNCEMENT_ES = (
     "Le informamos de que esta llamada se graba y se transcribe para "
-    "registrarla en nuestro sistema de gestion comercial. "
-    "Si no desea que se grabe, indiquelo y la detendremos."
+    "registrarla en nuestro sistema de gestión comercial. "
+    "Si no desea que se grabe, indíquelo y la detendremos."
 )
 
 
@@ -45,8 +48,20 @@ def normalize_e164(raw: str, default_country_code: str = "34") -> str:
     if value.startswith("00"):
         value = "+" + value[2:]
     elif not value.startswith("+"):
+        national = value.lstrip("0")
+        expected_national_len = _NATIONAL_LENGTH_BY_COUNTRY.get(default_country_code)
+        if (
+            expected_national_len is not None
+            and national.startswith(default_country_code)
+            and national.isdigit()
+            and len(national) == len(default_country_code) + expected_national_len
+        ):
+            raise InvalidPhoneNumber(
+                f"ambiguous number {raw!r}: starts with country code "
+                f"{default_country_code} without + or 00 prefix"
+            )
         # A leading 0 is a national trunk prefix in most of the EU.
-        value = f"+{default_country_code}{value.lstrip('0')}"
+        value = f"+{default_country_code}{national}"
 
     if not E164_RE.match(value):
         raise InvalidPhoneNumber(f"cannot normalize {raw!r} to E.164 (got {value!r})")
