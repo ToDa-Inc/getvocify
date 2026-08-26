@@ -8,6 +8,10 @@ from supabase import Client
 from app.config import settings
 from typing import BinaryIO, Optional
 
+# Private, unlike BUCKET_NAME ('voice-memos'). Call audio is personal data:
+# HubSpot playback goes through short-lived signed URLs, never a public URL.
+CALL_RECORDINGS_BUCKET = "call-recordings"
+
 
 class StorageService:
     """Service for managing audio files in Supabase Storage"""
@@ -81,5 +85,34 @@ class StorageService:
         except Exception as e:
             # Log error but don't fail
             print(f"Failed to delete audio: {e}")
+
+    async def upload_call_recording(
+        self,
+        audio_bytes: bytes,
+        user_id: str,
+        call_sid: str,
+    ) -> str:
+        """Store a call recording and return its storage path (not a URL)."""
+        path = f"{user_id}/{call_sid}.wav"
+        self.supabase.storage.from_(CALL_RECORDINGS_BUCKET).upload(
+            path=path,
+            file=audio_bytes,
+            file_options={"content-type": "audio/wav", "upsert": "true"},
+        )
+        return path
+
+    def signed_call_recording_url(self, path: str, expires_in: int = 3600) -> str:
+        """Time-limited URL. Supabase Storage honours Range and returns 206,
+        which HubSpot's player requires for seeking."""
+        res = self.supabase.storage.from_(CALL_RECORDINGS_BUCKET).create_signed_url(
+            path, expires_in
+        )
+        # supabase-py has used both spellings across versions.
+        url = None
+        if isinstance(res, dict):
+            url = res.get("signedURL") or res.get("signedUrl") or res.get("signed_url")
+        if not url:
+            raise RuntimeError(f"could not sign recording URL for {path}")
+        return str(url)
 
 

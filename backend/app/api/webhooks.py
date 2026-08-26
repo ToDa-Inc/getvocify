@@ -41,6 +41,12 @@ from app.services.telephony.twiml import (
     build_whisper_twiml,
     normalize_e164,
 )
+from app.services.storage import StorageService
+from app.services.telephony.call_processor import (
+    download_twilio_recording,
+    initiate_vocify_call_memo,
+    process_vocify_call_background,
+)
 from app.services.telephony.webhook_signature import (
     identity_from_client_from,
     verify_twilio_signature,
@@ -719,5 +725,67 @@ async def twilio_caller_id_status(request: Request):
         mark_caller_id_verified(supabase, validation_sid)
     else:
         mark_caller_id_failed(supabase, validation_sid)
+    return Response(status_code=204)
+
+
+@router.post("/twilio/recording")
+async def twilio_recording(request: Request):
+    """Recording is ready: persist the WAV, then transcribe and extract.
+
+    `CallSid` here is the parent (browser) leg — the same SID the voice webhook
+    stored — so it correlates the audio back to its CRM context.
+    """
+    supabase = get_supabase()
+    params = await _twilio_form(request)
+    if not _twilio_authentic(request, params):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    call_sid = (params.get("CallSid") or "").strip()
+    recording_url = (params.get("RecordingUrl") or "").strip()
+    if not call_sid or not recording_url:
+        return Response(status_code=204)
+
+    found = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .eq("twilio_call_sid", call_sid)
+        .limit(1)
+        .execute()
+    )
+    call_row = (found.data or [None])[0]
+    if not call_row:
+        logger.warning("Twilio recording for unknown call_sid=%s", call_sid)
+        return Response(status_code=204)
+    if call_row.get("memo_id"):
+        return Response(status_code=204)  # redelivery
+
+    duration = float(params.get("RecordingDuration") or 0) or 1.0
+    audio_bytes = await download_twilio_recording(recording_url)
+    path = await StorageService(supabase).upload_call_recording(
+        audio_bytes, call_row["user_id"], call_sid
+    )
+
+    supabase.table("outbound_calls").update(
+        {
+            "recording_sid": params.get("RecordingSid"),
+            "recording_path": path,
+            "recording_duration": int(duration),
+            "status": "recorded",
+        }
+    ).eq("twilio_call_sid", call_sid).execute()
+    call_row["recording_duration"] = int(duration)
+
+    memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
+    if memo_id and created:
+        asyncio.create_task(
+            process_vocify_call_background(
+                memo_id,
+                call_row["user_id"],
+                call_sid,
+                audio_bytes,
+                duration,
+                supabase,
+            )
+        )
     return Response(status_code=204)
 

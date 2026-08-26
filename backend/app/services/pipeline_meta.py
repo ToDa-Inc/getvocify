@@ -23,7 +23,7 @@ _RUN_ID: ContextVar[Optional[str]] = ContextVar("pipeline_run_id", default=None)
 
 PROMPT_CHAR_CAP = 80_000
 _EXTRACTION_SOURCE_TYPES = frozenset(
-    {"voice_memo", "meeting_transcript", "hubspot_call"}
+    {"voice_memo", "meeting_transcript", "hubspot_call", "vocify_call"}
 )
 
 
