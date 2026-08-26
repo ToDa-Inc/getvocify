@@ -578,10 +578,16 @@ async def _twilio_form(request: Request) -> dict[str, str]:
 def _twilio_authentic(request: Request, params: dict[str, str]) -> bool:
     import os
 
-    skip = os.environ.get("TWILIO_SKIP_SIG_CHECK", "").lower() in ("1", "true", "yes")
-    if skip:
-        logger.warning("Twilio webhook signature check skipped (dev only)")
-        return True
+    skip_requested = os.environ.get("TWILIO_SKIP_SIG_CHECK", "").lower() in ("1", "true", "yes")
+    if skip_requested:
+        if settings.ENVIRONMENT == "production":
+            logger.warning(
+                "TWILIO_SKIP_SIG_CHECK set but refused in production; "
+                "enforcing Twilio signature check"
+            )
+        else:
+            logger.warning("Twilio webhook signature check skipped (dev only)")
+            return True
     return verify_twilio_signature(
         _twilio_public_url(request),
         params,
@@ -617,6 +623,16 @@ async def twilio_voice(request: Request):
     if not user_id:
         return _reject_twiml("Llamada no autorizada.")
 
+    # A genuine Twilio Voice Request always carries a CallSid. Its absence
+    # means the request isn't what it claims to be — and an empty string
+    # would violate outbound_calls.twilio_call_sid's NOT NULL UNIQUE
+    # constraint on the first request, then get silently swallowed as a
+    # "duplicate key" on every one after.
+    call_sid = params.get("CallSid") or ""
+    if not call_sid:
+        logger.warning("Twilio voice webhook missing CallSid; rejecting")
+        return _reject_twiml("Llamada no autorizada.")
+
     try:
         to_number = normalize_e164(
             params.get("To", ""),
@@ -625,9 +641,8 @@ async def twilio_voice(request: Request):
         caller_id = resolve_caller_id(supabase, user_id, params.get("CallerId") or None)
     except (InvalidPhoneNumber, CallerIdNotVerified) as e:
         logger.warning("Twilio voice webhook rejected: %s", e)
-        return _reject_twiml("Numero no valido o identificador no verificado.")
+        return _reject_twiml("Número no válido o identificador no verificado.")
 
-    call_sid = params.get("CallSid", "")
     base = (settings.BACKEND_PUBLIC_URL or "").rstrip("/")
 
     # Persisted now because the recording callback arrives minutes later with
@@ -639,7 +654,10 @@ async def twilio_voice(request: Request):
                 "twilio_call_sid": call_sid,
                 "from_number": caller_id,
                 "to_number": to_number,
-                "hubspot_hub_id": params.get("HubId") or None,
+                # Never taken from the request: a client-supplied hub id would
+                # taint the recording webhook's externalAccountId comparison.
+                # Task 6 populates this from the user's own crm_connections row.
+                "hubspot_hub_id": None,
                 "hubspot_contact_id": params.get("ContactId") or None,
                 "hubspot_deal_id": params.get("DealId") or None,
                 "status": "dialing",
