@@ -30,8 +30,16 @@ class TestNormalizeE164:
 
     def test_accepts_nine_digit_national_starting_with_country_code_digits(self):
         # 9-digit national numbers whose first two digits happen to be "34"
-        # have only 7 digits after a hypothetical country-code split — not rejected.
+        # leave only 7 digits after a hypothetical country-code split — accepted.
         assert normalize_e164("341234567") == "+34341234567"
+
+    def test_rejects_portugal_country_code_without_plus_or_double_zero(self):
+        with pytest.raises(InvalidPhoneNumber):
+            normalize_e164("351600111222", "351")
+
+    def test_accepts_portuguese_national_starting_with_country_code_digits(self):
+        # 9-digit national starting with "351" leaves 6 digits after split — accepted.
+        assert normalize_e164("351234567", "351") == "+351351234567"
 
     def test_rejects_too_short(self):
         with pytest.raises(InvalidPhoneNumber):
