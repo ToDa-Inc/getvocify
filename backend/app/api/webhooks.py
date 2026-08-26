@@ -12,7 +12,8 @@ from uuid import uuid4
 import asyncio
 
 from fastapi import APIRouter, Request, Query
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, Response
+from twilio.twiml.voice_response import VoiceResponse
 
 from app.deps import get_supabase
 from app.config import settings
@@ -27,6 +28,23 @@ from app.services.whatsapp.processor import process_whatsapp_message
 from app.services.unipile import UnipileClient, parse_unipile_webhook
 from app.services.unipile.webhook_parser import normalize_unipile_payload
 from app.services.unipile.webhook_signature import verify_unipile_webhook_signature
+from app.services.telephony.caller_id import (
+    CallerIdNotVerified,
+    mark_caller_id_failed,
+    mark_caller_id_verified,
+    resolve_caller_id,
+)
+from app.services.telephony.twiml import (
+    DEFAULT_RECORDING_ANNOUNCEMENT_ES,
+    InvalidPhoneNumber,
+    build_outbound_twiml,
+    build_whisper_twiml,
+    normalize_e164,
+)
+from app.services.telephony.webhook_signature import (
+    identity_from_client_from,
+    verify_twilio_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -544,4 +562,144 @@ async def _finalize_speechmatics_transcript(memo_id: str, transcript: str, job_i
             total_s=round(total_s, 1) if total_s is not None else None,
         ),
     )
+
+
+def _twilio_public_url(request: Request) -> str:
+    """The URL Twilio signed, rebuilt from config (proxies rewrite the host)."""
+    base = (settings.BACKEND_PUBLIC_URL or "").rstrip("/")
+    return f"{base}{request.url.path}"
+
+
+async def _twilio_form(request: Request) -> dict[str, str]:
+    form = await request.form()
+    return {k: str(v) for k, v in form.items()}
+
+
+def _twilio_authentic(request: Request, params: dict[str, str]) -> bool:
+    import os
+
+    skip = os.environ.get("TWILIO_SKIP_SIG_CHECK", "").lower() in ("1", "true", "yes")
+    if skip:
+        logger.warning("Twilio webhook signature check skipped (dev only)")
+        return True
+    return verify_twilio_signature(
+        _twilio_public_url(request),
+        params,
+        request.headers.get("X-Twilio-Signature", ""),
+        settings.TWILIO_AUTH_TOKEN or "",
+    )
+
+
+def _twiml(xml: str) -> Response:
+    return Response(content=xml, media_type="application/xml")
+
+
+def _reject_twiml(message: str) -> Response:
+    response = VoiceResponse()
+    response.say(message, language=settings.TWILIO_ANNOUNCEMENT_LANGUAGE)
+    response.hangup()
+    return _twiml(str(response))
+
+
+@router.post("/twilio/voice")
+async def twilio_voice(request: Request):
+    """TwiML App Voice URL. Authorizes the caller ID and dials the prospect.
+
+    `CallerId` arrives from the browser as a *preference*; the authoritative
+    check is against `user_caller_ids` for the signed Twilio identity.
+    """
+    supabase = get_supabase()
+    params = await _twilio_form(request)
+    if not _twilio_authentic(request, params):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    user_id = identity_from_client_from(params.get("From", ""))
+    if not user_id:
+        return _reject_twiml("Llamada no autorizada.")
+
+    try:
+        to_number = normalize_e164(
+            params.get("To", ""),
+            default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE,
+        )
+        caller_id = resolve_caller_id(supabase, user_id, params.get("CallerId") or None)
+    except (InvalidPhoneNumber, CallerIdNotVerified) as e:
+        logger.warning("Twilio voice webhook rejected: %s", e)
+        return _reject_twiml("Numero no valido o identificador no verificado.")
+
+    call_sid = params.get("CallSid", "")
+    base = (settings.BACKEND_PUBLIC_URL or "").rstrip("/")
+
+    # Persisted now because the recording callback arrives minutes later with
+    # nothing but this same parent-leg CallSid to correlate on.
+    try:
+        supabase.table("outbound_calls").insert(
+            {
+                "user_id": user_id,
+                "twilio_call_sid": call_sid,
+                "from_number": caller_id,
+                "to_number": to_number,
+                "hubspot_hub_id": params.get("HubId") or None,
+                "hubspot_contact_id": params.get("ContactId") or None,
+                "hubspot_deal_id": params.get("DealId") or None,
+                "status": "dialing",
+            }
+        ).execute()
+    except Exception as e:
+        if "duplicate key" not in str(e).lower() and "23505" not in str(e):
+            raise
+
+    return _twiml(
+        build_outbound_twiml(
+            to=to_number,
+            caller_id=caller_id,
+            recording_callback_url=f"{base}/webhooks/twilio/recording",
+            whisper_url=f"{base}/webhooks/twilio/whisper",
+        )
+    )
+
+
+@router.post("/twilio/whisper")
+async def twilio_whisper(request: Request):
+    """Recording disclosure, played to the prospect only (AEPD 1/2023)."""
+    params = await _twilio_form(request)
+    if not _twilio_authentic(request, params):
+        return PlainTextResponse("Forbidden", status_code=403)
+    return _twiml(
+        build_whisper_twiml(
+            announcement=(
+                settings.TWILIO_RECORDING_ANNOUNCEMENT
+                or DEFAULT_RECORDING_ANNOUNCEMENT_ES
+            ),
+            language=settings.TWILIO_ANNOUNCEMENT_LANGUAGE,
+        )
+    )
+
+
+@router.post("/twilio/caller-id-status")
+async def twilio_caller_id_status(request: Request):
+    """Outcome of a caller ID verification call.
+
+    Twilio's outgoing-caller-ID verification status callback carries
+    `VerificationStatus` plus the standard TwiML Voice Request parameters,
+    which include `CallSid` — the same value `validation_requests.create(...)`
+    returned as `call_sid`, which is what's persisted into
+    `user_caller_ids.twilio_validation_sid`. Matching on `To` (a bare phone
+    number) instead of the SID would flip every row that shares that number
+    across every user who ever registered it — a cross-tenant leak. So this
+    matches by CallSid only; `mark_caller_id_verified`/`mark_caller_id_failed`
+    already no-op (and log) when the SID is absent.
+    """
+    supabase = get_supabase()
+    params = await _twilio_form(request)
+    if not _twilio_authentic(request, params):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    validation_sid = params.get("CallSid") or None
+    verified = (params.get("VerificationStatus") or "").lower() == "success"
+    if verified:
+        mark_caller_id_verified(supabase, validation_sid)
+    else:
+        mark_caller_id_failed(supabase, validation_sid)
+    return Response(status_code=204)
 
