@@ -158,6 +158,22 @@ class Settings(BaseSettings):
     # processed (fake CRM syncs, wasted LLM credits, spoofed sender numbers).
     WHATSAPP_APP_SECRET: Optional[str] = None
 
+    # Twilio outbound calling. Caller ID is always the user's own verified
+    # number, so no Twilio number is rented and no regulatory bundle applies.
+    TWILIO_ACCOUNT_SID: Optional[str] = None
+    TWILIO_AUTH_TOKEN: Optional[str] = None
+    TWILIO_API_KEY_SID: Optional[str] = None
+    TWILIO_API_KEY_SECRET: Optional[str] = None
+    TWILIO_TWIML_APP_SID: Optional[str] = None
+    # AEPD Circular 1/2023: the prospect must be told at the start of the call
+    # that it is being recorded, and why. Played to the called party only.
+    TWILIO_RECORDING_ANNOUNCEMENT: Optional[str] = None
+    TWILIO_ANNOUNCEMENT_LANGUAGE: str = "es-ES"
+    # Default country code for national numbers coming from CRM contact fields.
+    CALLING_DEFAULT_COUNTRY_CODE: str = "34"
+    # Lifetime of the signed recording URL handed to HubSpot.
+    CALL_RECORDING_URL_TTL_SECONDS: int = 3600
+
     # Unipile (optional - for WhatsApp via Unipile instead of Meta)
     UNIPILE_API_KEY: Optional[str] = None
     UNIPILE_BASE_URL: str = "https://api23.unipile.com:15349"
