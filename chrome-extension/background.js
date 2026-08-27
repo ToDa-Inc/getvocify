@@ -5,6 +5,7 @@
  */
 
 import { api } from './lib/api.js';
+import { CALL_STATES, canStartCall, normalizeDialTarget } from './lib/dialer.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
 import { pickContextTab } from './lib/review-targets.js';
@@ -75,6 +76,7 @@ let state = {
   captureTabId: null,
   listenPhase: 'idle',
   reviewMemo: null,
+  call: { state: CALL_STATES.IDLE, to: null, callerId: null, error: null },
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
@@ -853,6 +855,59 @@ function startPolling(memoId) {
 }
 
 // ============================================
+// OUTBOUND CALLING
+// ============================================
+function isTabCapturing() {
+  return (
+    state.isCopilotListening ||
+    state.listenPhase === 'starting' ||
+    state.listenPhase === 'live'
+  );
+}
+
+async function startCallFlow({ to, callerId }) {
+  const gate = canStartCall({
+    isRecording: state.isRecording,
+    isTabCapturing: isTabCapturing(),
+    callState: state.call.state,
+  });
+  if (!gate.ok) return { ok: false, error: gate.reason };
+
+  const target = normalizeDialTarget(to);
+  if (!target) return { ok: false, error: 'Número de teléfono no válido.' };
+
+  let token;
+  try {
+    ({ token } = await api.createVoiceToken());
+  } catch (e) {
+    return { ok: false, error: 'No se pudo obtener el token de llamada.' };
+  }
+
+  await getOffscreenDocument();
+  const context = state.context || {};
+  chrome.runtime.sendMessage({
+    target: 'offscreen',
+    type: 'START_CALL',
+    token,
+    to: target,
+    callerId,
+    contactId: context.contactId || null,
+    dealId: context.objectType === 'deal' ? context.recordId : null,
+  });
+
+  updateState({
+    call: { state: CALL_STATES.CONNECTING, to: target, callerId, error: null },
+  });
+  return { ok: true, to: target };
+}
+
+function hangupCallFlow() {
+  chrome.runtime.sendMessage({ target: 'offscreen', type: 'HANGUP_CALL' });
+  updateState({ call: { ...state.call, state: CALL_STATES.ENDING } });
+  return { ok: true };
+}
+
+// ============================================
 // MESSAGE HANDLERS
 // ============================================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1005,6 +1060,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         copilotDetector.onEndOfUtterance();
       }
       break;
+
+    case 'CALL_STATE':
+      updateState({
+        call: {
+          ...state.call,
+          state: message.state,
+          error: message.error || null,
+          to: message.state === CALL_STATES.IDLE ? null : state.call.to,
+        },
+      });
+      break;
+
+    case 'START_CALL':
+      startCallFlow(message).then(sendResponse);
+      return true;
+
+    case 'HANGUP_CALL':
+      sendResponse(hangupCallFlow());
+      return true;
+
+    case 'GET_CALLING_CONFIG':
+      api.getCallingConfig().then(sendResponse).catch(() =>
+        sendResponse({ enabled: false, callerIds: [] })
+      );
+      return true;
+
+    case 'VERIFY_CALLER_ID':
+      api
+        .verifyCallerId(message.phoneNumber, message.label)
+        .then((r) => sendResponse({ ok: true, ...r }))
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true;
 
     // API Proxies (for popup)
     case 'SEARCH_DEALS':

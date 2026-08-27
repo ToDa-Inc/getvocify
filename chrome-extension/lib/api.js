@@ -281,6 +281,21 @@ export const api = {
     });
   },
 
+  async getCallingConfig() {
+    return request('/calls/config');
+  },
+
+  async createVoiceToken() {
+    return request('/calls/token', { method: 'POST', body: JSON.stringify({}) });
+  },
+
+  async verifyCallerId(phoneNumber, label) {
+    return request('/calls/caller-ids', {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber, label: label || null }),
+    });
+  },
+
   async reExtract(memoId) {
     return request(`/memos/${memoId}/re-extract`, { method: 'POST', body: '{}' });
   },

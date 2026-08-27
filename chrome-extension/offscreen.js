@@ -7,6 +7,7 @@
  * https://developer.chrome.com/docs/extensions/how-to/web-platform/screen-capture
  */
 
+import { CALL_STATES } from './lib/dialer.js';
 import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMediaConstraints } from './lib/tab-capture.js';
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
 import { api } from './lib/api.js';
@@ -23,6 +24,8 @@ async function defaultWsUrl() {
 
 let mediaRecorder = null;
 let audioChunks = [];
+let twilioDevice = null;
+let activeCall = null;
 let stream = null;
 let audioContext = null;
 let playbackContext = null;
@@ -296,6 +299,74 @@ async function startTabCapture(streamId, wsUrl, epoch) {
   }
 }
 
+function reportCallState(state, error) {
+  chrome.runtime.sendMessage({ type: 'CALL_STATE', state, error: error || null });
+}
+
+async function startCall({ token, to, callerId, contactId, dealId }) {
+  try {
+    if (!globalThis.Twilio?.Device) {
+      throw new Error('Twilio Voice SDK no cargado');
+    }
+    // Recreated per call: the AccessToken is short-lived and outbound-only,
+    // so there is nothing to keep registered between calls.
+    if (twilioDevice) {
+      twilioDevice.destroy();
+      twilioDevice = null;
+    }
+    twilioDevice = new globalThis.Twilio.Device(token, {
+      codecPreferences: ['opus', 'pcmu'],
+      logLevel: 'warn',
+    });
+
+    reportCallState(CALL_STATES.CONNECTING);
+
+    // `To` and `CallerId` reach the TwiML App's Voice URL as POST params.
+    // CallerId is only a preference — the backend authorizes it.
+    activeCall = await twilioDevice.connect({
+      params: {
+        To: to,
+        CallerId: callerId,
+        ContactId: contactId || '',
+        DealId: dealId || '',
+      },
+    });
+
+    activeCall.on('ringing', () => reportCallState(CALL_STATES.RINGING));
+    activeCall.on('accept', () => reportCallState(CALL_STATES.ACTIVE));
+    activeCall.on('disconnect', () => {
+      activeCall = null;
+      reportCallState(CALL_STATES.IDLE);
+    });
+    activeCall.on('cancel', () => {
+      activeCall = null;
+      reportCallState(CALL_STATES.IDLE);
+    });
+    activeCall.on('error', (err) => {
+      activeCall = null;
+      reportCallState(CALL_STATES.IDLE, err?.message || 'Error de llamada');
+    });
+  } catch (error) {
+    activeCall = null;
+    reportCallState(CALL_STATES.IDLE, error.message || 'No se pudo iniciar la llamada');
+  }
+}
+
+function hangupCall() {
+  reportCallState(CALL_STATES.ENDING);
+  try {
+    if (activeCall) activeCall.disconnect();
+  } catch (_) {
+    /* already gone */
+  }
+  activeCall = null;
+  if (twilioDevice) {
+    twilioDevice.destroy();
+    twilioDevice = null;
+  }
+  reportCallState(CALL_STATES.IDLE);
+}
+
 function stopRecording(minEpoch) {
   console.log('[Offscreen] Stopping recording...');
   if (minEpoch != null && Number.isFinite(Number(minEpoch))) {
@@ -333,6 +404,12 @@ chrome.runtime.onMessage.addListener((message) => {
     case 'STOP_RECORDING':
     case 'STOP_TAB_CAPTURE':
       stopRecording(message.minEpoch);
+      break;
+    case 'START_CALL':
+      startCall(message);
+      break;
+    case 'HANGUP_CALL':
+      hangupCall();
       break;
   }
 });
