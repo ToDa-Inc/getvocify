@@ -3,7 +3,7 @@
 #   Unipile:  https://<ngrok>/webhooks/unipile
 #   HubSpot:  https://<ngrok>/webhooks/hubspot  (GET returns JSON with curl examples)
 
-.PHONY: backend ngrok ngrok-static ngrok-url test test-js
+.PHONY: backend ngrok ngrok-static ngrok-url test test-js vendor-twilio
 
 # Backend on port 8000
 backend:
@@ -22,6 +22,9 @@ test-js:
 	cd chrome-extension && node --test lib/*.test.js
 	node --experimental-strip-types --test src/lib/*.test.ts
 	cd desktop && node --test lib/*.test.js
+
+vendor-twilio:
+	./scripts/vendor-twilio-sdk.sh 2.18.3
 
 # Expose localhost:8000 via ngrok. Run `make backend` first in another terminal.
 ngrok:
