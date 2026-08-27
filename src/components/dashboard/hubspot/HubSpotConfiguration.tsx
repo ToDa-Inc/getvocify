@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, Pipeline, CRMSchema, CRMConfiguration } from "@/lib/api/crm";
 import { toast } from "sonner";
-import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, X, Plus, PhoneOff, AlertTriangle, RefreshCw } from "lucide-react";
+import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, RefreshCw } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { ApiError } from "@/shared/lib/api-client";
@@ -84,7 +84,6 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
   const [fieldView, setFieldView] = useState<"mapped" | "recommended" | "all">("mapped");
   const [lineItemsScopeMissing, setLineItemsScopeMissing] = useState(false);
   const [lineItemsSchemaError, setLineItemsSchemaError] = useState(false);
-  const [newLostReason, setNewLostReason] = useState("");
 
   const [config, setConfig] = useState<CRMConfiguration>({
     default_pipeline_id: "",
@@ -254,64 +253,6 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
     });
   };
 
-  const addLostReason = () => {
-    const reason = newLostReason.trim();
-    if (!reason) return;
-    setConfig((prev) => {
-      const current = prev.lost_reasons || [];
-      if (current.some((r) => r.toLowerCase() === reason.toLowerCase())) return prev;
-      return { ...prev, lost_reasons: [...current, reason] };
-    });
-    setNewLostReason("");
-  };
-
-  const removeLostReason = (reason: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      lost_reasons: (prev.lost_reasons || []).filter((r) => r !== reason),
-    }));
-  };
-
-  // Candidate deal properties for the "closed lost reason" mapping: anything
-  // whose name/label mentions lost+reason (EN/ES) - same keyword pairs the
-  // backend uses for auto-detection (call_outcome.py), shown first so the
-  // dropdown isn't just the raw alphabetical property list.
-  const lostReasonPropertyCandidates = useMemo(() => {
-    const dealProps = schemas.deals?.properties || [];
-    const keywordPairs: [string, string][] = [
-      ["lost", "reason"], ["perdid", "motivo"], ["perdid", "razon"], ["perdid", "razón"],
-    ];
-    const isCandidate = (label: string, name: string) => {
-      const l = label.toLowerCase();
-      const n = name.toLowerCase();
-      return keywordPairs.some(([a, b]) => (l.includes(a) && l.includes(b)) || (n.includes(a) && n.includes(b)));
-    };
-    const candidates = dealProps.filter((p) => isCandidate(p.label, p.name));
-    const rest = dealProps.filter((p) => !isCandidate(p.label, p.name));
-    return [...candidates, ...rest];
-  }, [schemas.deals]);
-
-  // This account's own live Lead Status options - the ONLY source of
-  // values the On Hold / Lost dropdowns below can pick from. Vocify never
-  // creates HubSpot properties or options (see call_outcome.py module
-  // docstring) - the admin maps an EXISTING value here, or creates one in
-  // HubSpot themselves first if nothing fits.
-  const hsLeadStatusOptions = useMemo(
-    () => schemas.contacts?.properties.find((p) => p.name === "hs_lead_status")?.options || [],
-    [schemas.contacts],
-  );
-  const hsLeadStatusValues = useMemo(
-    () => new Set(hsLeadStatusOptions.map((o) => o.value)),
-    [hsLeadStatusOptions],
-  );
-  const lostConfigured = !!config.lost_lead_status_value;
-  const lostStale = lostConfigured && !hsLeadStatusValues.has(config.lost_lead_status_value as string);
-  const lostReady = lostConfigured && !lostStale;
-  const onHoldConfigured = !!config.on_hold_lead_status_value;
-  const onHoldStale = onHoldConfigured && !hsLeadStatusValues.has(config.on_hold_lead_status_value as string);
-  const onHoldReady = onHoldConfigured && !onHoldStale;
-  const outcomeMappingComplete = lostReady && onHoldReady;
-
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center p-12 space-y-4">
@@ -454,14 +395,7 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
             Select the HubSpot properties AI may fill from a call. Only selected fields
             are extracted and shown in review. Badges show how each field is treated:
             identity stays on the existing record, pre-call fields are never written from
-            a live call, research/ICP only fills when empty. One exception: when a rep marks a call as{" "}
-            <strong>Converted / On Hold / Lost</strong> in the extension, Vocify always
-            writes the contact's lead status (and, if the call was marked Lost, the
-            deal's stage + lost reason) — even if <code className="text-[9px]">hs_lead_status</code>{" "}
-            or <code className="text-[9px]">dealstage</code> aren't selected below. That's a deliberate
-            rep action, not an AI extraction, so it's never filtered by these lists. See
-            "Call Outcome" further down to map which of your own Lead Status values each outcome
-            writes, and to configure the Lost reasons themselves.
+            a live call, research/ICP only fills when empty.
           </p>
         </div>
 
@@ -590,233 +524,6 @@ export const HubSpotConfiguration = ({ onSaved }: HubSpotConfigurationProps) => 
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-6">
-        <div className="flex items-center gap-3 text-beige">
-          <PhoneOff className="h-4 w-4" />
-          <h4 className="text-[10px] font-black uppercase tracking-widest border-b border-beige/10 pb-1 flex-1">
-            Call Outcome
-          </h4>
-        </div>
-
-        <div className="flex items-start gap-2 px-2">
-          <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
-          <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-            Vocify never creates or changes properties in your HubSpot - the mapping below points
-            the extension's On Hold / Lost buttons at Lead Status values that already exist in your
-            account (or ones you create yourself in HubSpot first). Converted needs no setup - it
-            reuses HubSpot's own "Open Deal" status.
-          </p>
-        </div>
-
-        {/*
-          Prominent, can't-miss gate: the On Hold / Lost buttons literally
-          don't exist in the extension for this account until both rows
-          below resolve to a value that's still valid in the live
-          hs_lead_status schema (see compute_call_outcome_availability in
-          backend/app/services/hubspot/call_outcome.py) - revalidated here
-          with the same schema the extension itself checks, so this card
-          never claims "ready" when the extension would actually hide the
-          button.
-        */}
-        <div
-          className={`rounded-3xl border p-5 space-y-5 ${
-            outcomeMappingComplete
-              ? "border-emerald-500/20 bg-emerald-500/5"
-              : "border-amber-500/30 bg-amber-500/5"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            {outcomeMappingComplete ? (
-              <Check className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-            ) : (
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            )}
-            <div>
-              <p className={`text-xs font-black ${outcomeMappingComplete ? "text-emerald-700" : "text-amber-700"}`}>
-                {outcomeMappingComplete
-                  ? "On Hold and Lost are mapped and ready"
-                  : "On Hold / Lost aren't mapped yet"}
-              </p>
-              <p className="text-[10px] text-muted-foreground font-medium leading-relaxed mt-1">
-                {outcomeMappingComplete
-                  ? "Reps see both buttons in the extension. Converted always shows - it needs no mapping."
-                  : "Until each row below points at a value, that button won't appear in the extension at all - reps won't know it's missing, they'll just never see it. Map what you can now; anything left unmapped simply stays hidden."}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className={THEME_TOKENS.typography.capsLabel}>"Lost" means</label>
-                {lostReady && <Check className="h-3 w-3 text-emerald-600" />}
-              </div>
-              <div className="relative">
-                <select
-                  value={config.lost_lead_status_value || ""}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, lost_lead_status_value: e.target.value || null }))
-                  }
-                  className="w-full h-11 px-5 rounded-full border border-border/40 bg-background text-foreground appearance-none cursor-pointer font-bold text-xs focus:outline-none"
-                >
-                  <option value="">Not mapped - button hidden</option>
-                  {hsLeadStatusOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                  {lostStale && config.lost_lead_status_value && (
-                    <option value={config.lost_lead_status_value}>
-                      {config.lost_lead_status_value} (no longer exists)
-                    </option>
-                  )}
-                </select>
-                <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
-              </div>
-              {lostStale && (
-                <p className="text-[9px] text-amber-700 font-bold leading-relaxed px-1">
-                  This value was deleted or renamed in HubSpot - pick another one.
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className={THEME_TOKENS.typography.capsLabel}>"On Hold" means</label>
-                {onHoldReady && <Check className="h-3 w-3 text-emerald-600" />}
-              </div>
-              <div className="relative">
-                <select
-                  value={config.on_hold_lead_status_value || ""}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, on_hold_lead_status_value: e.target.value || null }))
-                  }
-                  className="w-full h-11 px-5 rounded-full border border-border/40 bg-background text-foreground appearance-none cursor-pointer font-bold text-xs focus:outline-none"
-                >
-                  <option value="">Not mapped - button hidden</option>
-                  {hsLeadStatusOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                  {onHoldStale && config.on_hold_lead_status_value && (
-                    <option value={config.on_hold_lead_status_value}>
-                      {config.on_hold_lead_status_value} (no longer exists)
-                    </option>
-                  )}
-                </select>
-                <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
-              </div>
-              {onHoldStale && (
-                <p className="text-[9px] text-amber-700 font-bold leading-relaxed px-1">
-                  This value was deleted or renamed in HubSpot - pick another one.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {!onHoldConfigured && (
-            <div className="flex items-start gap-2 px-4 py-3 rounded-2xl bg-background/60 border border-border/30">
-              <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
-              <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-                Don't see anything that fits "on hold"? Most accounts don't - it's rarely a default
-                Lead Status. Create one yourself in HubSpot first:{" "}
-                <strong>Settings → Properties → Contact properties → Lead Status → Edit → Add option</strong>,
-                then come back here and select it.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-start gap-2 px-2">
-          <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
-          <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-            Reasons shown in the extension when a rep marks a call as <strong>Lost</strong> — a
-            reason is always required for Lost. Reps can also type their own via "Other". The
-            reason itself is always recorded as a HubSpot note regardless of the mapping above.
-          </p>
-        </div>
-
-        <div className="space-y-3">
-          <label className={THEME_TOKENS.typography.capsLabel}>Lost Reasons</label>
-          <div className="flex flex-wrap gap-2">
-            {(config.lost_reasons || []).map((reason) => (
-              <span
-                key={reason}
-                className="flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-bold bg-beige/10 border border-beige/30 text-beige"
-              >
-                {reason}
-                <button
-                  type="button"
-                  onClick={() => removeLostReason(reason)}
-                  className="opacity-50 hover:opacity-100 transition-opacity"
-                  aria-label={`Remove ${reason}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Add a Lost reason..."
-              value={newLostReason}
-              onChange={(e) => setNewLostReason(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addLostReason();
-                }
-              }}
-              className="bg-secondary/5 border-border/40 rounded-full px-6 h-11 font-medium flex-1"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addLostReason}
-              disabled={!newLostReason.trim()}
-              className="rounded-full h-11 px-5 border-border/50"
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className={THEME_TOKENS.typography.capsLabel}>
-            Deal "Lost Reason" Property
-          </label>
-          <div className="relative">
-            <select
-              value={config.lost_reason_deal_property || ""}
-              onChange={(e) =>
-                setConfig((prev) => ({
-                  ...prev,
-                  lost_reason_deal_property: e.target.value || null,
-                }))
-              }
-              className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-            >
-              <option value="">Auto-detect (recommended)</option>
-              {lostReasonPropertyCandidates.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.label} ({p.name})
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-          </div>
-          <div className="flex items-start gap-2 px-2 pt-1">
-            <Info className="h-3 w-3 text-muted-foreground/40 mt-0.5 shrink-0" />
-            <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-              Auto-detect looks for a property named <code className="text-[9px]">closed_lost_reason</code>{" "}
-              or labeled like a lost reason on every sync, so this works even if you never
-              touch this dropdown. Pick a specific property here only to override that.
-            </p>
           </div>
         </div>
       </div>

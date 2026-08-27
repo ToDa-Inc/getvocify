@@ -180,7 +180,10 @@
         </div>
         <div id="deal-target-section">
           <div id="contact-target-section" style="display: none;">
-            <p class="caps-label" style="margin: 0 0 10px 4px;">Contact</p>
+            <div class="section-header">
+              <p class="caps-label">Contact</p>
+              <button id="btn-change-contact" class="text-btn" type="button">Change contact</button>
+            </div>
             <div id="contact-card" class="card-glass" style="margin-bottom: 14px;">
               <div class="card-content">
                 <h3 id="target-contact-name" class="deal-title">—</h3>
@@ -188,6 +191,13 @@
               </div>
             </div>
             <div id="contact-candidates" class="search-results" style="display: none; margin-bottom: 14px;"></div>
+            <div id="contact-search-box" class="search-box" style="display: none; margin-bottom: 14px;">
+              <div class="input-with-icon">
+                <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+                <input type="text" id="contact-search-input" placeholder="Search contacts...">
+              </div>
+              <div id="contact-search-results" class="search-results"></div>
+            </div>
           </div>
           <div class="section-header">
             <p class="caps-label" id="deal-target-label">Deal</p>
@@ -245,24 +255,6 @@
             </div>
           </div>
 
-          <details id="call-outcome-details" class="review-disclosure" style="display: none;">
-            <summary>Call outcome</summary>
-            <div class="call-insights-block" id="call-outcome-section">
-              <div id="call-outcome-buttons" class="call-outcome-buttons">
-                <button type="button" class="outcome-btn" id="outcome-btn-converted" data-outcome="converted">Converted</button>
-                <button type="button" class="outcome-btn" id="outcome-btn-on_hold" data-outcome="on_hold">On Hold</button>
-                <button type="button" class="outcome-btn outcome-btn--lost" id="outcome-btn-lost" data-outcome="lost">Lost</button>
-              </div>
-              <div id="lost-reason-box" class="lost-reason-box" style="display: none;">
-                <select id="lost-reason-select" class="lost-reason-select">
-                  <option value="">Select a reason…</option>
-                  <option value="__other__">Other…</option>
-                </select>
-                <input type="text" id="lost-reason-other-input" class="lost-reason-other-input" placeholder="Type a reason…" style="display: none;">
-                <p id="lost-reason-hint" class="lost-reason-hint">A reason is required to mark this call as Lost.</p>
-              </div>
-            </div>
-          </details>
         </section>
 
         <details id="transcript-collapsible" class="transcript-collapsible">

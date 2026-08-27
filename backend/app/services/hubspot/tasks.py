@@ -495,9 +495,9 @@ class HubSpotTasksService:
     # Task-to-deal association type (HubSpot default: 216 = Task to deal)
     TASK_TO_DEAL_ASSOCIATION_TYPE = "216"
     # Task-to-contact association type (HubSpot default: 204 = Task to contact).
-    # Used when a memo has no associated deal (contact-first flow) so next-step
-    # tasks still land somewhere instead of being silently dropped.
     TASK_TO_CONTACT_ASSOCIATION_TYPE = "204"
+    # Task-to-company (HubSpot default: 192). Same table as note→company 190.
+    TASK_TO_COMPANY_ASSOCIATION_TYPE = "192"
 
     def __init__(self, client: HubSpotClient):
         self.client = client
@@ -513,6 +513,7 @@ class HubSpotTasksService:
         due_date: datetime,
         deal_id: Optional[str] = None,
         contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
         body: Optional[str] = None,
         priority: str = "MEDIUM",
         task_type: str = "TODO",
@@ -526,8 +527,8 @@ class HubSpotTasksService:
             due_date: Due date for hs_timestamp
             deal_id: Optional deal ID to associate (kept optional - existing callers
                 that only pass deal_id keep working unchanged)
-            contact_id: Optional contact ID to associate. Used for the contact-first
-                flow when there's no deal to hang the task off of.
+            contact_id: Optional contact ID to associate alongside the deal.
+            company_id: Optional company ID to associate alongside deal/contact.
             body: Optional task notes (hs_task_body)
             priority: LOW, MEDIUM, HIGH
             task_type: EMAIL, CALL, TODO
@@ -573,11 +574,23 @@ class HubSpotTasksService:
                     ],
                 }
             )
+        if company_id:
+            associations.append(
+                {
+                    "to": {"id": company_id},
+                    "types": [
+                        {
+                            "associationCategory": "HUBSPOT_DEFINED",
+                            "associationTypeId": int(self.TASK_TO_COMPANY_ASSOCIATION_TYPE),
+                        }
+                    ],
+                }
+            )
         if associations:
             payload["associations"] = associations
 
-        target_type = "deal" if deal_id else ("contact" if contact_id else "none")
-        target_id = deal_id or contact_id
+        target_type = "deal" if deal_id else ("contact" if contact_id else ("company" if company_id else "none"))
+        target_id = deal_id or contact_id or company_id
         try:
             response = await self.client.post(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}",
@@ -626,13 +639,14 @@ class HubSpotTasksService:
         extraction: MemoExtraction,
         deal_id: Optional[str] = None,
         contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
         hubspot_owner_id: Optional[str] = None,
         existing_subjects: Optional[set[str]] = None,
     ) -> TaskBatchResult:
         """
         Create HubSpot tasks from extraction nextSteps.
         Skips generic items like "Cerrar el trato" and subjects already on the deal.
-        Associates to deal_id when present, else to contact_id (contact-first flow).
+        Associates to every object passed (deal, contact, company).
 
         Returns:
             TaskBatchResult with created ids and per-step skip reasons
@@ -675,7 +689,8 @@ class HubSpotTasksService:
                 subject=formatted.subject,
                 due_date=formatted.due_date,
                 deal_id=deal_id,
-                contact_id=None if deal_id else contact_id,
+                contact_id=contact_id,
+                company_id=company_id,
                 body=build_task_body(
                     step=step,
                     summary=extraction.summary,

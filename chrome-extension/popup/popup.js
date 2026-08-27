@@ -131,6 +131,8 @@ const liveTranscriptContainer = document.getElementById('live-transcript-contain
 const shortcutBox = document.getElementById('shortcut-box');
 const dealSearchInput = document.getElementById('deal-search-input');
 const searchResultsBox = document.getElementById('search-results');
+const contactSearchInput = document.getElementById('contact-search-input');
+const contactSearchResultsBox = document.getElementById('contact-search-results');
 const proposedUpdatesList = document.getElementById('proposed-updates-list');
 const approveSyncButton = document.getElementById('approve-sync-button');
 
@@ -157,10 +159,13 @@ let dealDecisionMade = true;
 let createNewDealRequested = false;
 /** Compact deal picker is open (Choose deal). Default: collapsed to the current target. */
 let dealPickerOpen = false;
+/** Contact picker is open so the rep can change or search a contact. */
+let contactPickerOpen = false;
 /** Freeze HubSpot page + fields until discard / sync / explicit retarget. */
 let reviewSessionLocked = false;
 let reviewSessionContext = null;
 let searchTimeout = null;
+let contactSearchTimeout = null;
 let previewLoaded = false;
 let sessionHeartbeatId = null;
 /** Cached preview data for extraction merge */
@@ -172,11 +177,6 @@ let omittedProposedKeys = new Set();
 /** Action items for HubSpot tasks: { id, text, checked } */
 let reviewActionItems = [];
 let actionItemIdSeq = 0;
-/** Call outcome (optional): 'converted' | 'on_hold' | 'lost' | null */
-let selectedCallOutcome = null;
-/** Lost reason text actually sent to the backend - resolved from the select
- * (or the "Other" free-text input when '__other__' is chosen) */
-let selectedLostReason = '';
 /** True after tasks were seeded or the user edited them this review */
 let actionItemsInitialized = false;
 /** Memo whose call note is currently in the textarea */
@@ -1201,10 +1201,9 @@ function renderState(state) {
         currentContactId = null;
         createNewDealRequested = false;
         dealPickerOpen = false;
+        contactPickerOpen = false;
         needsDealDecision = false;
         dealDecisionMade = true;
-        selectedCallOutcome = null;
-        selectedLostReason = '';
         lastReviewMemo = null;
         applyReviewLayout('pending_review');
         paintDealCardPending(state.context);
@@ -1415,7 +1414,6 @@ function resetCallInsightsUi() {
   const usePage = document.getElementById('use-page-record-option');
   if (usePage) usePage.style.display = 'none';
   renderContactTarget({ selected_contact: null, contact_candidates: [] });
-  initCallOutcome({});
 }
 
 function writeCallNoteFromText(incomingText) {
@@ -2026,14 +2024,6 @@ function updateApproveButtonState(preview) {
     approveSyncButton.textContent = 'Pick a deal first';
     return;
   }
-  // Mirrors the backend's own validation (ApproveMemoRequest._lost_requires_reason,
-  // a 422 if violated) - this is UX only, the server is the real enforcement.
-  if (selectedCallOutcome === 'lost' && !getEffectiveLostReason()) {
-    approveSyncButton.disabled = true;
-    approveSyncButton.textContent = 'Add a Lost Reason';
-    return;
-  }
-
   approveSyncButton.disabled = false;
   const skipDeal = !!preview?.skip_deal && !preview?.selected_deal;
   const contactName = preview?.selected_contact?.name || preview?.selected_contact?.email || '';
@@ -2162,65 +2152,85 @@ function createNewDealTarget() {
   loadPreview(currentMemoId, null, null, targets.contactId, { createNewDeal: true, resetEdits: true });
 }
 
+function pickContact(contactId) {
+  userSelectedContactId = contactId;
+  currentContactId = contactId;
+  contactPickerOpen = false;
+  if (contactSearchInput) contactSearchInput.value = '';
+  clearContactSearchResults();
+  const searchBox = document.getElementById('contact-search-box');
+  if (searchBox) searchBox.style.display = 'none';
+  const targets = currentReviewTargets(reviewTargetContext(), { userContactId: contactId });
+  loadPreview(currentMemoId, targets.dealId, null, targets.contactId, { resetEdits: true });
+}
+
+function renderContactRow(c) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'matched-deal-item';
+  btn.innerHTML = `<strong>${escapeHtml(c.name || 'Contact')}</strong><br><span class="deal-subtitle">${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>`;
+  btn.addEventListener('click', () => pickContact(c.contact_id));
+  return btn;
+}
+
 function renderContactTarget(preview) {
   const section = document.getElementById('contact-target-section');
   const candidatesEl = document.getElementById('contact-candidates');
   const nameEl = document.getElementById('target-contact-name');
   const metaEl = document.getElementById('target-contact-meta');
   const card = document.getElementById('contact-card');
+  const changeBtn = document.getElementById('btn-change-contact');
+  const searchBox = document.getElementById('contact-search-box');
   if (!section) return;
 
   const selected = preview?.selected_contact;
   const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
   const associated = associatedContactsFromContext(reviewTargetContext());
-  const associatedPickList =
-    !selected && !candidates.length && associated.length > 1 ? associated : [];
-
-  if (!selected && !candidates.length && !associatedPickList.length) {
-    section.style.display = 'none';
-    return;
+  const seen = new Set();
+  const pick = [];
+  for (const c of [...associated, ...candidates]) {
+    const id = c?.contact_id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    pick.push(c);
   }
+
   section.style.display = 'block';
 
   if (selected) {
-    section.style.display = 'none';
-    if (card) card.style.display = 'none';
-    if (candidatesEl) {
-      candidatesEl.style.display = 'none';
-      candidatesEl.innerHTML = '';
+    if (nameEl) nameEl.textContent = selected.name || selected.email || 'Contact';
+    if (metaEl) {
+      metaEl.textContent = [selected.email, selected.phone, selected.company_name]
+        .filter(Boolean)
+        .join(' · ');
     }
+  }
+
+  const showPicker = contactPickerOpen || !selected;
+  if (card) card.style.display = selected && !showPicker ? 'block' : 'none';
+  if (changeBtn) {
+    changeBtn.style.display = selected ? '' : 'none';
+    changeBtn.textContent = showPicker ? 'Done' : 'Change contact';
+  }
+  if (searchBox) searchBox.style.display = showPicker ? 'block' : 'none';
+
+  if (!candidatesEl) return;
+  if (!showPicker) {
+    candidatesEl.style.display = 'none';
+    candidatesEl.innerHTML = '';
     return;
   }
 
-  if (card) card.style.display = 'none';
-  const pick = candidates.length ? candidates : associatedPickList;
-  const pageType = reviewTargetContext()?.objectType;
-  if (candidatesEl) {
-    candidatesEl.style.display = 'block';
-    candidatesEl.innerHTML = '';
-    const hint = document.createElement('p');
-    hint.className = 'deal-subtitle';
-    hint.style.margin = '0 0 8px';
-    hint.textContent = candidates.length
-      ? 'Several contacts matched this call. Pick who to update:'
-      : pageType === 'deal'
-        ? 'This deal has several contacts. Pick who to update:'
-        : 'This company has several contacts. Pick who to update:';
-    candidatesEl.appendChild(hint);
-    pick.forEach((c) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'matched-deal-item';
-      btn.innerHTML = `<strong>${escapeHtml(c.name || 'Contact')}</strong><br><span class="deal-subtitle">${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>`;
-      btn.addEventListener('click', () => {
-        userSelectedContactId = c.contact_id;
-        currentContactId = c.contact_id;
-        const targets = currentReviewTargets(reviewTargetContext(), { userContactId: c.contact_id });
-        loadPreview(currentMemoId, targets.dealId, null, targets.contactId, { resetEdits: true });
-      });
-      candidatesEl.appendChild(btn);
-    });
-  }
+  candidatesEl.style.display = 'block';
+  candidatesEl.innerHTML = '';
+  const hint = document.createElement('p');
+  hint.className = 'deal-subtitle';
+  hint.style.margin = '0 0 8px';
+  hint.textContent = pick.length
+    ? 'Pick who to update, or search another contact:'
+    : 'Search for the contact to update:';
+  candidatesEl.appendChild(hint);
+  pick.forEach((c) => candidatesEl.appendChild(renderContactRow(c)));
 }
 
 function initCallInsights(preview, memoExtraction = null) {
@@ -2241,7 +2251,6 @@ function initCallInsights(preview, memoExtraction = null) {
     if (!reviewActionItems.length && rows.length) reviewActionItems = rows;
     renderActionItems();
     renderCopilotNoteView();
-    initCallOutcome(preview);
     return;
   }
   const seen = new Set();
@@ -2257,113 +2266,7 @@ function initCallInsights(preview, memoExtraction = null) {
   actionItemsInitialized = true;
   renderActionItems();
   renderCopilotNoteView();
-  initCallOutcome(preview);
 }
-
-// ============================================
-// CALL OUTCOME (Converted / On Hold / Lost)
-// ============================================
-
-/** Reset to the neutral "no outcome picked" state for a freshly loaded preview. */
-function initCallOutcome(preview) {
-  selectedCallOutcome = null;
-  selectedLostReason = '';
-
-  // Per-outcome gate (backend/app/services/hubspot/call_outcome.py -
-  // compute_call_outcome_availability): Converted needs no per-account
-  // setup, but On Hold / Lost each only appear once the admin has mapped
-  // one of their OWN hs_lead_status values to that outcome (HubSpot
-  // Configuration screen) - never show a button that would fail (or
-  // no-op) after the rep clicks it, hide it instead of disabling it, so
-  // there's nothing confusing to explain in the extension itself.
-  const availability = preview?.call_outcome_availability || {};
-  const showConverted = !!availability.converted;
-  const showOnHold = !!availability.on_hold;
-  const showLost = !!availability.lost;
-
-  const details = document.getElementById('call-outcome-details');
-  if (details) details.style.display = (showConverted || showOnHold || showLost) ? '' : 'none';
-  const section = document.getElementById('call-outcome-section');
-  if (section) section.style.display = '';
-
-  const convertedBtn = document.getElementById('outcome-btn-converted');
-  if (convertedBtn) convertedBtn.style.display = showConverted ? '' : 'none';
-  const onHoldBtn = document.getElementById('outcome-btn-on_hold');
-  if (onHoldBtn) onHoldBtn.style.display = showOnHold ? '' : 'none';
-  const lostBtn = document.getElementById('outcome-btn-lost');
-  if (lostBtn) lostBtn.style.display = showLost ? '' : 'none';
-
-  if (showLost) {
-    const select = document.getElementById('lost-reason-select');
-    const otherInput = document.getElementById('lost-reason-other-input');
-    if (select) {
-      const reasons = Array.isArray(preview?.lost_reasons) ? preview.lost_reasons : [];
-      select.innerHTML = '<option value="">Select a reason…</option>' +
-        reasons.map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('') +
-        '<option value="__other__">Other…</option>';
-      select.value = '';
-    }
-    if (otherInput) {
-      otherInput.value = '';
-      otherInput.style.display = 'none';
-    }
-  }
-  renderCallOutcome();
-}
-
-function getEffectiveLostReason() {
-  const select = document.getElementById('lost-reason-select');
-  const otherInput = document.getElementById('lost-reason-other-input');
-  if (!select) return '';
-  if (select.value === '__other__') return (otherInput?.value || '').trim();
-  return select.value || '';
-}
-
-function renderCallOutcome() {
-  ['converted', 'on_hold', 'lost'].forEach((outcome) => {
-    const btn = document.getElementById(`outcome-btn-${outcome}`);
-    if (btn) btn.classList.toggle('is-active', selectedCallOutcome === outcome);
-  });
-  const lostBox = document.getElementById('lost-reason-box');
-  if (lostBox) lostBox.style.display = selectedCallOutcome === 'lost' ? 'flex' : 'none';
-
-  const hint = document.getElementById('lost-reason-hint');
-  if (hint) {
-    const satisfied = selectedCallOutcome !== 'lost' || !!getEffectiveLostReason();
-    hint.classList.toggle('is-satisfied', satisfied);
-    hint.textContent = satisfied
-      ? 'Reason saved.'
-      : 'A reason is required to mark this call as Lost.';
-  }
-  updateApproveButtonState(lastPreviewData);
-}
-
-document.getElementById('call-outcome-buttons')?.addEventListener('click', (e) => {
-  const btn = e.target.closest('.outcome-btn');
-  if (!btn) return;
-  const outcome = btn.dataset.outcome;
-  // Clicking the already-active outcome deselects it - outcome is optional,
-  // a rep should be able to change their mind without a page reload.
-  selectedCallOutcome = selectedCallOutcome === outcome ? null : outcome;
-  if (selectedCallOutcome !== 'lost') selectedLostReason = '';
-  renderCallOutcome();
-});
-
-document.getElementById('lost-reason-select')?.addEventListener('change', (e) => {
-  const otherInput = document.getElementById('lost-reason-other-input');
-  const isOther = e.target.value === '__other__';
-  if (otherInput) {
-    otherInput.style.display = isOther ? 'block' : 'none';
-    if (isOther) otherInput.focus();
-  }
-  selectedLostReason = getEffectiveLostReason();
-  renderCallOutcome();
-});
-
-document.getElementById('lost-reason-other-input')?.addEventListener('input', () => {
-  selectedLostReason = getEffectiveLostReason();
-  renderCallOutcome();
-});
 
 let datePopoverEl = null;
 let datePopoverDocHandler = null;
@@ -2820,6 +2723,54 @@ async function searchDeals(query) {
   }
 }
 
+function clearContactSearchResults() {
+  if (!contactSearchResultsBox) return;
+  contactSearchResultsBox.innerHTML = '';
+  contactSearchResultsBox.style.display = 'none';
+}
+
+async function searchContacts(query) {
+  if (!contactSearchResultsBox) return;
+  if (!query || query.length < 2) {
+    clearContactSearchResults();
+    return;
+  }
+
+  try {
+    const results = await chrome.runtime.sendMessage({ type: 'SEARCH_CONTACTS', query });
+    contactSearchResultsBox.innerHTML = '';
+
+    if (results && !results.error && Array.isArray(results) && results.length > 0) {
+      contactSearchResultsBox.style.display = 'block';
+      results.forEach((c) => {
+        const item = document.createElement('div');
+        item.className = 'search-item';
+        item.innerHTML = `
+          <p>${escapeHtml(c.name || c.email || 'Contact')}</p>
+          <span>${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>
+        `;
+        item.onclick = () => {
+          if (contactSearchInput) contactSearchInput.value = '';
+          clearContactSearchResults();
+          pickContact(c.contact_id);
+        };
+        contactSearchResultsBox.appendChild(item);
+      });
+    } else if (results && !results.error && Array.isArray(results) && results.length === 0) {
+      contactSearchResultsBox.style.display = 'block';
+      contactSearchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center;">No contacts found</p>';
+    } else if (results?.error) {
+      contactSearchResultsBox.style.display = 'block';
+      contactSearchResultsBox.innerHTML = `<p class="body-muted" style="padding: 12px; text-align: center; color: var(--destructive);">Search failed: ${escapeHtml(results.error)}</p>`;
+    } else {
+      clearContactSearchResults();
+    }
+  } catch (e) {
+    console.error('[Popup] Contact search error:', e);
+    clearContactSearchResults();
+  }
+}
+
 // ============================================
 // SUCCESS SCREEN
 // ============================================
@@ -3199,6 +3150,21 @@ document.getElementById('listen-tab-button')?.addEventListener('click', () => {
 });
 
 // Change deal: open/close the compact picker (linked deals + contact only).
+document.getElementById('btn-change-contact')?.addEventListener('click', () => {
+  contactPickerOpen = !contactPickerOpen;
+  if (!contactPickerOpen) {
+    if (contactSearchInput) contactSearchInput.value = '';
+    clearContactSearchResults();
+  }
+  renderContactTarget(lastPreviewData);
+  if (contactPickerOpen) contactSearchInput?.focus();
+});
+
+contactSearchInput?.addEventListener('input', (e) => {
+  clearTimeout(contactSearchTimeout);
+  contactSearchTimeout = setTimeout(() => searchContacts(e.target.value), 300);
+});
+
 document.getElementById('btn-change-deal')?.addEventListener('click', () => {
   dealPickerOpen = !dealPickerOpen;
   const box = document.getElementById('deal-search-box');
@@ -3236,7 +3202,6 @@ approveSyncButton?.addEventListener('click', async () => {
   if (needsAssociatedContactPick(reviewTargetContext(), targets.contactId)) return;
   const candidates = Array.isArray(lastPreviewData?.contact_candidates) ? lastPreviewData.contact_candidates : [];
   if (!lastPreviewData?.selected_contact && candidates.length > 0) return;
-  if (selectedCallOutcome === 'lost' && !getEffectiveLostReason()) return;
 
   approveSyncButton.disabled = true;
   approveSyncButton.textContent = 'Syncing...';
@@ -3261,8 +3226,6 @@ approveSyncButton?.addEventListener('click', async () => {
       contactId: targets.contactId || undefined,
       companyId: targets.companyId || undefined,
       skipDeal,
-      callOutcome: selectedCallOutcome || undefined,
-      lostReason: selectedCallOutcome === 'lost' ? getEffectiveLostReason() : undefined,
     });
     // Background never rejects this message (it always calls sendResponse), so
     // a failed sync surfaces as response.error here, not as a thrown exception.

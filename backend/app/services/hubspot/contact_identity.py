@@ -5,9 +5,8 @@ Cascade (first decisive win):
 1. preferred_contact_id (extension page / UI candidate confirm)
 2. Real email → auto-lock
 3. Phone → auto-lock if exactly one match
-4. First+last (+ optional company filter) → auto-lock if exactly one
-5. Single-token name → auto-lock only if exactly one match
-6. Company-only → company context without silent contact lock
+4. First+last / single-token name → candidates only (never auto-lock)
+5. Company-only → company context without silent contact lock
 
 Ambiguous sets return candidates for UI confirmation.
 """
@@ -502,21 +501,7 @@ async def resolve_identity(
                 company_hits = await _filter_by_company(
                     hits, company_name, search=search, associations=associations
                 )
-                if len(company_hits) == 1:
-                    result.selected = await _anchor_from_contact(
-                        company_hits[0],
-                        search=search,
-                        associations=associations,
-                        contacts=contacts,
-                        match_reason="Name + company match",
-                        match_confidence=0.9,
-                        limit_deals=limit_deals,
-                        pipeline_id=pipeline_id,
-                    )
-                    result.company_id = result.selected.company_id
-                    result.company_name = result.selected.company_name
-                    return result
-                if len(company_hits) > 1:
+                if company_hits:
                     result.candidates = await _candidates_from_contacts(
                         company_hits,
                         search=search,
@@ -526,23 +511,7 @@ async def resolve_identity(
                     )
                     return result
 
-            if len(hits) == 1:
-                reason = "Contact name match" if last else "Contact name token match"
-                conf = 0.88 if last else 0.78
-                result.selected = await _anchor_from_contact(
-                    hits[0],
-                    search=search,
-                    associations=associations,
-                    contacts=contacts,
-                    match_reason=reason,
-                    match_confidence=conf,
-                    limit_deals=limit_deals,
-                    pipeline_id=pipeline_id,
-                )
-                result.company_id = result.selected.company_id
-                result.company_name = result.selected.company_name
-                return result
-            if len(hits) > 1:
+            if hits:
                 reason = "Contact name match" if last else "Contact name token match"
                 result.candidates = await _candidates_from_contacts(
                     hits,

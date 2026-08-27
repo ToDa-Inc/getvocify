@@ -209,6 +209,31 @@ class HubSpotSyncService:
             k: v for k, v in properties.items()
             if k in allowed_fields and k not in HUBSPOT_READ_ONLY_DEAL_PROPERTIES
         }
+
+    async def _resolve_company_id(
+        self,
+        company_id: Optional[str],
+        contact_id: Optional[str],
+        deal_id: Optional[str],
+    ) -> Optional[str]:
+        """Prefer the payload id, then contact→company, then deal→company."""
+        if company_id:
+            return str(company_id)
+        if contact_id:
+            try:
+                cids = await self.associations.get_associations("contacts", contact_id, "companies")
+                if cids:
+                    return str(cids[0])
+            except Exception:
+                pass
+        if deal_id:
+            try:
+                cids = await self.associations.get_associations("deals", deal_id, "companies")
+                if cids:
+                    return str(cids[0])
+            except Exception:
+                pass
+        return None
     
     async def sync_memo(
         self,
@@ -934,19 +959,20 @@ class HubSpotSyncService:
                         )
 
             # Step 6: Tasks - merge with existing when updating a deal, else create new.
-            # Target is the deal when one exists; otherwise (contact-first / skip_deal)
-            # tasks land on the contact instead of being silently dropped. Runs whether
-            # or not skip_deal is set - next steps must not require a deal to survive.
-            tasks_target_id = deal_id or contact_id
+            # Associate to every object we have (deal + contact + company), same as notes.
+            company_id = await self._resolve_company_id(company_id, contact_id, deal_id)
+            if company_id:
+                result.company_id = company_id
+            tasks_target_id = deal_id or contact_id or company_id
             tasks_target_type = "deal" if deal_id else ("contact" if contact_id else None)
             if tasks_target_id:
                 logger.info(
                     "🎯 Task association target resolved",
-                    extra=log_domain(
-                        DOMAIN_HUBSPOT, "task_target_resolved",
-                        memo_id=str(memo_id), target_type=tasks_target_type,
-                        deal_id=deal_id, contact_id=contact_id,
-                    ),
+                        extra=log_domain(
+                            DOMAIN_HUBSPOT, "task_target_resolved",
+                            memo_id=str(memo_id), target_type=tasks_target_type,
+                            deal_id=deal_id, contact_id=contact_id, company_id=company_id,
+                        ),
                 )
             tasks_already_synced = CRMUpdatesService.is_action_already_done(
                 previous_updates, ("create_tasks", "merge_tasks")
@@ -1070,6 +1096,8 @@ class HubSpotSyncService:
                                     subject=formatted.subject,
                                     due_date=due,
                                     deal_id=deal_id,
+                                    contact_id=contact_id,
+                                    company_id=company_id,
                                     body=build_task_body(
                                         step=add_op.subject,
                                         summary=extraction.summary,
@@ -1168,8 +1196,7 @@ class HubSpotSyncService:
                             used_merge = True
                     if not used_merge:
                         # CREATE MODE, no existing tasks, or no deal at all: create from
-                        # extraction. Associates to the deal when present, else to the
-                        # contact (contact-first flow).
+                        # extraction. Associates to deal, contact, and company when present.
                         async with self.crm_updates.track(
                             memo_id=str(memo_id),
                             user_id=user_id,
@@ -1180,7 +1207,8 @@ class HubSpotSyncService:
                             batch = await self.tasks.create_tasks_from_extraction(
                                 extraction,
                                 deal_id=deal_id,
-                                contact_id=None if deal_id else contact_id,
+                                contact_id=contact_id,
+                                company_id=company_id,
                                 hubspot_owner_id=hubspot_owner_id,
                                 existing_subjects=existing_subjects,
                             )

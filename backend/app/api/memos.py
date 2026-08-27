@@ -1153,8 +1153,8 @@ async def get_approval_preview(
     """
     Get approval preview showing what will be updated in CRM.
 
-    Contact-first: email / unique phone / unique name auto-lock the contact.
-    Ambiguous name/phone matches return contact_candidates for confirmation.
+    Contact-first: email / unique phone / preferred page id auto-lock the contact.
+    Name matches return contact_candidates for confirmation (never auto-lock).
     With a locked contact and zero linked deals (and create_new_deal=false),
     preview is contact/company-only (skip_deal).
     """
@@ -1163,7 +1163,7 @@ async def get_approval_preview(
         deal_id = None
     if contact_id == "":
         contact_id = None
-        
+
     # Get memo
     memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
     
@@ -1176,6 +1176,8 @@ async def get_approval_preview(
     memo_data = memo_result.data
     if not deal_id and not create_new_deal:
         deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
+    if not contact_id:
+        contact_id = (memo_data.get("hubspot_contact_id") or "").strip() or None
     extraction_data = memo_data.get("extraction")
     transcript = memo_data.get("transcript", "")
     
@@ -1355,6 +1357,8 @@ async def post_approval_preview(
     memo_data = memo_result.data
     if not deal_id and not create_new_deal:
         deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
+    if not contact_id:
+        contact_id = (memo_data.get("hubspot_contact_id") or "").strip() or None
     extraction_data = payload.extraction if (payload and payload.extraction) else memo_data.get("extraction")
     transcript = memo_data.get("transcript", "")
 

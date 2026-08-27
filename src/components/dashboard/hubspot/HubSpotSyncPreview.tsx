@@ -40,6 +40,7 @@ import {
 interface HubSpotSyncPreviewProps {
   memoId: string;
   initialDealId?: string | null;
+  initialContactId?: string | null;
   /** Bust preview cache when memo transcript/extraction changes */
   previewRefreshKey?: string;
   /** Structured call note from extraction — shown as the copilot summary */
@@ -104,6 +105,7 @@ export const HubSpotSyncPreview = ({
   memoId,
   onSuccess,
   initialDealId,
+  initialContactId,
   previewRefreshKey = "default",
   callSummary = "",
   onContactName,
@@ -117,7 +119,7 @@ export const HubSpotSyncPreview = ({
   const [reExtracting, setReExtracting] = useState(false);
 
   // Active target selection tracking
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(initialContactId || null);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(initialDealId || null);
   const [isNewDealRequested, setIsNewDealRequested] = useState(false);
   const [isSkipDealRequested, setIsSkipDealRequested] = useState(false);
@@ -130,6 +132,9 @@ export const HubSpotSyncPreview = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [contactSearchQuery, setContactSearchQuery] = useState("");
+  const [contactSearchResults, setContactSearchResults] = useState<any[]>([]);
+  const [isSearchingContacts, setIsSearchingContacts] = useState(false);
 
   // Field edits
   const [editedUpdates, setEditedUpdates] = useState<any[] | null>(null);
@@ -145,6 +150,7 @@ export const HubSpotSyncPreview = ({
   const [manualDealName, setManualDealName] = useState("");
 
   const searchQueryRef = useRef("");
+  const contactSearchQueryRef = useRef("");
   const memoIdRef = useRef(memoId);
   memoIdRef.current = memoId;
 
@@ -258,6 +264,7 @@ export const HubSpotSyncPreview = ({
     [
       memoId,
       initialDealId,
+      initialContactId,
       previewRefreshKey,
       selectedContactId,
       selectedDealId,
@@ -285,12 +292,15 @@ export const HubSpotSyncPreview = ({
       setContactPickerOpen(false);
       setSearchResults([]);
       setSearchQuery("");
+      setContactSearchResults([]);
+      setContactSearchQuery("");
       setEditingIdx(null);
       setShowAddField(false);
 
       const cacheKey = previewCacheKey({
         memoId,
         dealId: initialDealId || null,
+        contactId: initialContactId || null,
         refreshKey: previewRefreshKey,
       });
       const cached = getCachedPreview(cacheKey);
@@ -309,10 +319,10 @@ export const HubSpotSyncPreview = ({
 
       try {
         if (initialDealId) {
-          await fetchPreview(initialDealId);
+          await fetchPreview(initialDealId, { contactId: initialContactId || undefined });
           return;
         }
-        const previewData = await fetchPreview(undefined);
+        const previewData = await fetchPreview(undefined, { contactId: initialContactId || undefined });
         if (cancelled || !previewData) return;
 
         const candidates = Array.isArray(previewData.contact_candidates)
@@ -352,7 +362,7 @@ export const HubSpotSyncPreview = ({
     return () => {
       cancelled = true;
     };
-  }, [memoId, retryKey, initialDealId, previewRefreshKey, fetchPreview, applyPreviewDecisions]);
+  }, [memoId, retryKey, initialDealId, initialContactId, previewRefreshKey, fetchPreview, applyPreviewDecisions]);
 
   const handleReExtract = async () => {
     setReExtracting(true);
@@ -370,6 +380,7 @@ export const HubSpotSyncPreview = ({
   };
 
   searchQueryRef.current = searchQuery;
+  contactSearchQueryRef.current = contactSearchQuery;
 
   const runSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
@@ -383,6 +394,21 @@ export const HubSpotSyncPreview = ({
       }
     } finally {
       if (searchQueryRef.current === query) setIsSearching(false);
+    }
+  }, []);
+
+  const runContactSearch = useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    setIsSearchingContacts(true);
+    try {
+      const results = await crmApi.searchContacts(query);
+      if (contactSearchQueryRef.current === query) setContactSearchResults(results);
+    } catch (e: any) {
+      if (contactSearchQueryRef.current === query) {
+        toast.error(e?.message || e?.data?.detail || "Contact search failed");
+      }
+    } finally {
+      if (contactSearchQueryRef.current === query) setIsSearchingContacts(false);
     }
   }, []);
 
@@ -401,6 +427,18 @@ export const HubSpotSyncPreview = ({
     const timer = setTimeout(() => runSearch(q), 300);
     return () => clearTimeout(timer);
   }, [searchQuery, dealPickerOpen, runSearch]);
+
+  useEffect(() => {
+    const pickerVisible = contactPickerOpen || !preview?.selected_contact;
+    if (!pickerVisible) return;
+    const q = contactSearchQuery.trim();
+    if (q.length < 2) {
+      setContactSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(() => runContactSearch(q), 300);
+    return () => clearTimeout(timer);
+  }, [contactSearchQuery, contactPickerOpen, preview?.selected_contact, runContactSearch]);
 
   const selectDeal = async (dealId: string) => {
     setSelectedDealId(dealId);
@@ -422,6 +460,8 @@ export const HubSpotSyncPreview = ({
   const selectContact = async (contactId: string) => {
     setSelectedContactId(contactId);
     setContactPickerOpen(false);
+    setContactSearchQuery("");
+    setContactSearchResults([]);
     const data = await fetchPreview(selectedDealId, { contactId });
     if (data?.selected_contact) {
       setNeedsDealDecision(false);
@@ -656,7 +696,7 @@ export const HubSpotSyncPreview = ({
             <User className="h-4 w-4 text-beige" />
             <h5 className={THEME_TOKENS.typography.capsLabel}>Contact</h5>
           </div>
-          {selectedContact && contactCandidates.length > 1 && !contactPickerOpen && (
+          {selectedContact && !contactPickerOpen && (
             <Button
               variant="ghost"
               size="sm"
@@ -669,28 +709,64 @@ export const HubSpotSyncPreview = ({
         </div>
 
         {/* Contact Candidates Picker */}
-        {(needsContactDecision || contactPickerOpen) && (
+        {(needsContactDecision || contactPickerOpen || !selectedContact) && (
           <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/25 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-foreground">
                 {contactCandidates.length > 1
-                  ? "Several contacts matched — select who to update:"
-                  : "Matched contact candidate:"}
+                  ? "Several contacts matched — select who to update, or search:"
+                  : "Pick who to update, or search another contact:"}
               </p>
               {selectedContact && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6 rounded-full"
-                  onClick={() => setContactPickerOpen(false)}
+                  onClick={() => {
+                    setContactPickerOpen(false);
+                    setContactSearchQuery("");
+                    setContactSearchResults([]);
+                  }}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
               )}
             </div>
 
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
+                <Input
+                  placeholder="Search contacts by name, email, or phone..."
+                  value={contactSearchQuery}
+                  onChange={(e) => setContactSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && contactSearchQuery.trim().length >= 2) {
+                      runContactSearch(contactSearchQuery.trim());
+                    }
+                  }}
+                  className="bg-card border-border/50 rounded-xl pl-10 pr-4 h-9 text-sm"
+                />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (contactSearchQuery.trim().length >= 2) runContactSearch(contactSearchQuery.trim());
+                }}
+                disabled={isSearchingContacts}
+                className="bg-beige text-cream hover:bg-beige-dark rounded-xl px-4 h-9 text-xs font-normal shrink-0"
+              >
+                {isSearchingContacts ? <VocifySpinner size={12} /> : "Search"}
+              </Button>
+            </div>
+
             <div className="grid gap-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
-              {contactCandidates.map((c: any) => {
+              {[...contactSearchResults, ...contactCandidates]
+                .filter((c: any, idx: number, all: any[]) => {
+                  const id = c?.contact_id;
+                  return id && all.findIndex((other) => other?.contact_id === id) === idx;
+                })
+                .map((c: any) => {
                 const isSelected = selectedContact?.contact_id === c.contact_id;
                 return (
                   <button
@@ -729,6 +805,15 @@ export const HubSpotSyncPreview = ({
                   </button>
                 );
               })}
+              {contactCandidates.length === 0 && contactSearchResults.length === 0 && (
+                <p className="text-xs text-muted-foreground px-1 py-2">
+                  {contactSearchQuery.trim().length >= 2
+                    ? isSearchingContacts
+                      ? "Searching…"
+                      : "No contacts found."
+                    : "Search by name, email, or phone to pick a contact."}
+                </p>
+              )}
             </div>
           </div>
         )}

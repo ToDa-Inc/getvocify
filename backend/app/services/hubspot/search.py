@@ -416,3 +416,22 @@ class HubSpotSearchService:
             limit=limit,
         )
 
+    async def search_contacts_by_query(
+        self,
+        query: str,
+        limit: int = 10,
+    ) -> list[HubSpotContact]:
+        """Manual contact picker: email, phone digits, then name."""
+        q = (query or "").strip()
+        if not q:
+            return []
+        if "@" in q:
+            found = await self.find_contact_by_email(q)
+            return [found] if found else []
+        digits = normalize_phone_digits(q)
+        if len(digits) >= 7:
+            phone_hits = await self.find_contacts_by_phone(q, limit=limit)
+            if phone_hits:
+                return phone_hits
+        return await self.find_contacts_by_name(q, limit=limit)
+

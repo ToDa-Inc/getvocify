@@ -159,6 +159,10 @@ export const crmApi = {
     return api.get<any[]>(`/crm/hubspot/search/deals?q=${encodeURIComponent(query)}`);
   },
 
+  async searchContacts(query: string) {
+    return api.get<any[]>(`/crm/hubspot/search/contacts?q=${encodeURIComponent(query)}`);
+  },
+
   /** Get deal context for pre-filling extraction when user is on a deal page */
   async getDealContext(dealId: string) {
     return api.get<{

@@ -432,6 +432,7 @@ const MemoDetail = () => {
                 key={id || ""}
                 memoId={id || ""}
                 initialDealId={dealIdFromUrl}
+                initialContactId={memo?.hubspotContactId || memo?.hubspot_contact_id}
                 previewRefreshKey={previewRefreshKey}
                 callSummary={extraction.summary}
                 onSuccess={handleSyncSuccess}

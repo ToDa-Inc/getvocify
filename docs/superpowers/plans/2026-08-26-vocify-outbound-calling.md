@@ -1,5 +1,15 @@
 # Vocify Outbound Calling Implementation Plan
 
+> ⚠️ **Global Constraint #14 is now known to be false.** "Caller ID is always the user's own
+> verified number [...] no number is rented, so no regulatory bundle" is prohibited in Spain
+> under Orden TDF/149/2025 Arts. 4.4 and 9.1. See
+> [`2026-08-27-spain-cli-remediation.md`](2026-08-27-spain-cli-remediation.md) for the
+> remediation and [`../../telephony/DECISION.md`](../../telephony/DECISION.md) for the full
+> list of assumptions in this plan that did not survive investigation. Everything else here —
+> dialer, WebRTC leg, dual-channel recording, transcription, extraction, HubSpot logging —
+> remains accurate and shipped. The body is deliberately left unedited as a record of what was
+> built and why.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** An SDR on a HubSpot contact page clicks "Llamar" in the Vocify side panel, the call goes out with their own verified phone number as caller ID, the conversation is recorded dual-channel, and it lands in HubSpot as a call engagement with a playable recording plus a Vocify memo in the existing review/approve pipeline.
