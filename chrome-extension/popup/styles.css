@@ -1696,6 +1696,99 @@ body {
   white-space: nowrap;
 }
 
+/* Outbound calling */
+#call-section {
+  margin: 0 20px 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: #fff;
+  border: 1px solid var(--hairline);
+}
+
+.call-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#call-number,
+#caller-id-number {
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: white;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--foreground);
+}
+
+#call-number:focus,
+#caller-id-number:focus {
+  outline: none;
+  border-color: var(--beige);
+  box-shadow: 0 0 0 3px rgba(107, 93, 79, 0.1);
+}
+
+#call-caller-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 140px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: white;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--foreground);
+}
+
+#call-button,
+#caller-id-verify {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--beige-dark);
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#call-button:hover:not(:disabled),
+#caller-id-verify:hover {
+  background: var(--beige);
+}
+
+#call-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.call-status {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.call-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.call-code {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+
 /* One activity list on this record — calls and Vocify memos share a row language */
 .recordings-section {
   margin: 0;

@@ -348,6 +348,7 @@ async function loadPageSessionContext(tab, user) {
       companyId: dealCtx?.companyId || null,
       contactName: dealCtx?.contactName || null,
       contactEmail: dealCtx?.contactEmail || null,
+      contactPhone: dealCtx?.contactPhone || null,
       contactId: dealCtx?.contactId || null,
       dealContacts: Array.isArray(dealCtx?.contacts) ? dealCtx.contacts : [],
     };
@@ -358,6 +359,7 @@ async function loadPageSessionContext(tab, user) {
       ...context,
       contactName: contactCtx?.contactName || null,
       contactEmail: contactCtx?.contactEmail || null,
+      contactPhone: contactCtx?.contactPhone || null,
       contactId: context.recordId,
       companyName: contactCtx?.companyName || null,
       companyId: contactCtx?.companyId || null,
@@ -372,6 +374,7 @@ async function loadPageSessionContext(tab, user) {
       contactId: companyCtx?.contactId || null,
       contactName: companyCtx?.contactName || null,
       contactEmail: companyCtx?.contactEmail || null,
+      contactPhone: companyCtx?.contactPhone || null,
       companyContacts: Array.isArray(companyCtx?.contacts) ? companyCtx.contacts : [],
     };
   }
@@ -1310,6 +1313,7 @@ async function enrichPageContext(ctx) {
         ...ctx,
         contactName: contactCtx?.contactName || ctx.contactName || null,
         contactEmail: contactCtx?.contactEmail || null,
+        contactPhone: contactCtx?.contactPhone || null,
         contactId: ctx.recordId,
         companyName: contactCtx?.companyName || null,
         companyId: contactCtx?.companyId || null,
@@ -1326,6 +1330,7 @@ async function enrichPageContext(ctx) {
         contactId: dealCtx?.contactId || null,
         contactName: dealCtx?.contactName || null,
         contactEmail: dealCtx?.contactEmail || null,
+        contactPhone: dealCtx?.contactPhone || null,
         dealContacts: Array.isArray(dealCtx?.contacts) ? dealCtx.contacts : [],
         _enrichedKey: key,
       };
@@ -1339,6 +1344,7 @@ async function enrichPageContext(ctx) {
         contactId: companyCtx?.contactId || null,
         contactName: companyCtx?.contactName || null,
         contactEmail: companyCtx?.contactEmail || null,
+        contactPhone: companyCtx?.contactPhone || null,
         companyContacts: Array.isArray(companyCtx?.contacts) ? companyCtx.contacts : [],
         _enrichedKey: key,
       };

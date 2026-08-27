@@ -28,12 +28,14 @@ describe('mergePageContext', () => {
       objectType: 'deal',
       recordId: 'D1',
       dealName: 'Drive Solutions Deal',
+      contactPhone: '+34600111222',
       _enrichedKey: 'deal:D1',
     };
     const next = { objectType: 'deal', recordId: 'D1', region: 'eu1' };
     const { sameRecord, context } = mergePageContext(prev, next);
     assert.equal(sameRecord, true);
     assert.equal(context.dealName, 'Drive Solutions Deal');
+    assert.equal(context.contactPhone, '+34600111222');
     assert.equal(context.region, 'eu1');
     assert.equal(context._enrichedKey, 'deal:D1');
   });

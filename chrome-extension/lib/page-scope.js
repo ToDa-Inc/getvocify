@@ -19,6 +19,7 @@ const KEEP_IF_MISSING = [
   'contactName',
   'companyName',
   'contactEmail',
+  'contactPhone',
   'contactId',
   'companyId',
   'dealContacts',

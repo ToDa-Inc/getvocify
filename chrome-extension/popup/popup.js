@@ -82,6 +82,7 @@ import {
   activityTimestampFromRecording,
   formatActivityTimestamp,
 } from '../lib/activity-date.js';
+import { CALL_STATES, callButtonLabel, normalizeDialTarget } from '../lib/dialer.js';
 
 (function ensureActivityRowStyles() {
   if (document.getElementById('activity-row-styles')) return;
@@ -2927,10 +2928,110 @@ function renderSuccess(result) {
 }
 
 // ============================================
+// OUTBOUND CALLING
+// ============================================
+let callingConfig = { enabled: false, callerIds: [] };
+
+async function loadCallingConfig() {
+  callingConfig = await chrome.runtime.sendMessage({ type: 'GET_CALLING_CONFIG' });
+  renderCallSection();
+}
+
+function verifiedCallerIds() {
+  return (callingConfig.callerIds || []).filter((c) => c.status === 'verified');
+}
+
+function renderCallSection() {
+  const section = document.getElementById('call-section');
+  if (!callingConfig.enabled) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+
+  const verified = verifiedCallerIds();
+  document.getElementById('caller-id-setup').hidden = verified.length > 0;
+
+  const select = document.getElementById('call-caller-id');
+  select.hidden = verified.length === 0;
+  select.innerHTML = verified
+    .map(
+      (c) =>
+        `<option value="${escapeHtml(c.phoneNumber)}"${c.isDefault ? ' selected' : ''}>` +
+        `${escapeHtml(c.label || c.phoneNumber)}</option>`
+    )
+    .join('');
+
+  const call = lastBgState?.call || { state: CALL_STATES.IDLE };
+  const button = document.getElementById('call-button');
+  button.textContent = callButtonLabel(call.state);
+  button.disabled = verified.length === 0;
+
+  const input = document.getElementById('call-number');
+  if (!input.value && lastBgState?.context?.contactPhone) {
+    input.value = lastBgState.context.contactPhone;
+  }
+
+  const status = document.getElementById('call-status');
+  status.hidden = !call.error;
+  status.textContent = call.error || '';
+}
+
+async function handleCallButton() {
+  const call = lastBgState?.call || { state: CALL_STATES.IDLE };
+  if (call.state !== CALL_STATES.IDLE) {
+    await chrome.runtime.sendMessage({ type: 'HANGUP_CALL' });
+    return;
+  }
+
+  const raw = document.getElementById('call-number').value;
+  const target = normalizeDialTarget(raw);
+  const status = document.getElementById('call-status');
+  if (!target) {
+    status.hidden = false;
+    status.textContent = 'Número no válido.';
+    return;
+  }
+
+  const result = await chrome.runtime.sendMessage({
+    type: 'START_CALL',
+    to: target,
+    callerId: document.getElementById('call-caller-id').value,
+  });
+  if (!result?.ok) {
+    status.hidden = false;
+    status.textContent = result?.error || 'No se pudo iniciar la llamada.';
+  }
+}
+
+async function handleVerifyCallerId() {
+  const phoneNumber = document.getElementById('caller-id-number').value;
+  const codeEl = document.getElementById('caller-id-code');
+  const result = await chrome.runtime.sendMessage({
+    type: 'VERIFY_CALLER_ID',
+    phoneNumber,
+    label: null,
+  });
+  codeEl.hidden = false;
+  if (result?.alreadyVerified) {
+    codeEl.textContent = 'Este número ya está verificado.';
+    loadCallingConfig();
+  } else if (result?.ok && result.verificationCode) {
+    codeEl.textContent = `Te llamamos ahora. Teclea este código: ${result.verificationCode}`;
+    setTimeout(loadCallingConfig, 20000);
+  } else {
+    codeEl.textContent = result?.error || 'No se pudo iniciar la verificación.';
+  }
+}
+
+// ============================================
 // EVENT LISTENERS
 // ============================================
 
 // Paste transcript toggle
+document.getElementById('call-button')?.addEventListener('click', handleCallButton);
+document.getElementById('caller-id-verify')?.addEventListener('click', handleVerifyCallerId);
+
 document.getElementById('paste-transcript-toggle')?.addEventListener('click', () => {
   const section = document.getElementById('paste-transcript-section');
   const mainActions = document.querySelector('.main-actions');
@@ -3409,6 +3510,7 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   if (message.type === 'STATE_UPDATED') {
     renderState(message.state);
+    renderCallSection();
   }
 });
 
@@ -3478,6 +3580,7 @@ async function init() {
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
     const base = state && typeof state === 'object' ? state : { status: 'idle', isRecording: false };
     renderState({ ...base, authenticated: true });
+    loadCallingConfig();
   } catch (e) {
     console.error('[Popup] Init error:', e);
     const { accessToken: stillHasToken } = await api.getTokens();

@@ -44,6 +44,26 @@
         <span id="record-context-name" class="record-context-name"></span>
       </div>
 
+      <section id="call-section" hidden>
+        <div class="call-row">
+          <input id="call-number" type="tel" inputmode="tel" placeholder="+34 600 111 222" />
+          <select id="call-caller-id" aria-label="Número desde el que llamas"></select>
+          <button id="call-button" type="button">Llamar</button>
+        </div>
+        <p id="call-status" class="call-status" hidden></p>
+        <div id="caller-id-setup" hidden>
+          <p class="call-hint">
+            Verifica tu número para que sea el que vean tus prospectos.
+            Twilio te llamará en inglés desde un número de Estados Unidos.
+          </p>
+          <div class="call-row">
+            <input id="caller-id-number" type="tel" placeholder="+34 910 000 000" />
+            <button id="caller-id-verify" type="button">Verificar</button>
+          </div>
+          <p id="caller-id-code" class="call-code" hidden></p>
+        </div>
+      </section>
+
       <div id="call-watch-indicator" class="call-watch-indicator" style="display: none;" role="status">
         <span class="call-watch-dot" aria-hidden="true"></span>
         <span class="call-watch-text">Watching for call recording...</span>
