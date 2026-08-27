@@ -16,6 +16,7 @@ from app.api import (
     voice_enrollment,
     admin,
     calls,
+    hubspot_recordings,
 )
 
 api_router = APIRouter()
@@ -26,6 +27,7 @@ api_router.include_router(auth.router)
 api_router.include_router(memos.router)
 api_router.include_router(crm.router)
 api_router.include_router(calls.router)
+api_router.include_router(hubspot_recordings.router)
 api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")
 api_router.include_router(transcription.router)
 api_router.include_router(glossary.router)

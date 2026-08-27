@@ -127,6 +127,7 @@ async def process_vocify_call_background(
             source_type="vocify_call",
             extra_update={"audio_duration": duration, "error_message": None},
         )
+        await log_call_engagement(supabase, call_sid, duration)
         logger.info(
             "Vocify call transcribed (extraction started)",
             extra=log_domain(
@@ -155,3 +156,84 @@ async def process_vocify_call_background(
             {"status": "failed", "error_message": str(e)[:2000]}
         ).eq("twilio_call_sid", call_sid).execute()
         persist_pipeline_meta(supabase, memo_id, stages)
+
+
+async def log_call_engagement(
+    supabase: Client,
+    call_sid: str,
+    duration: float,
+) -> None:
+    """Create the HubSpot engagement and tell HubSpot the recording is ready.
+
+    Best-effort: a HubSpot failure must not fail the memo, which is already
+    reviewable in Vocify.
+    """
+    from app.api.crm import get_hubspot_client_from_connection
+    from app.services.hubspot.call_log import (
+        build_call_properties,
+        log_call_to_hubspot,
+        mark_recording_ready,
+    )
+
+    found = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .eq("twilio_call_sid", call_sid)
+        .limit(1)
+        .execute()
+    )
+    row = (found.data or [None])[0]
+    if not row or not row.get("hubspot_contact_id"):
+        return
+
+    conn = (
+        supabase.table("crm_connections")
+        .select("metadata")
+        .eq("user_id", row["user_id"])
+        .eq("provider", "hubspot")
+        .limit(1)
+        .execute()
+    )
+    conn_row = (conn.data or [None])[0]
+    metadata = (conn_row or {}).get("metadata") or {}
+    portal_id = metadata.get("portal_id")
+    if not portal_id:
+        logger.warning(
+            "HubSpot call logging skipped for %s: no portal_id in connection metadata",
+            call_sid,
+        )
+        return
+
+    hubspot_hub_id = str(portal_id)
+    supabase.table("outbound_calls").update(
+        {"hubspot_hub_id": hubspot_hub_id}
+    ).eq("twilio_call_sid", call_sid).execute()
+
+    try:
+        client = get_hubspot_client_from_connection(row["user_id"], supabase)
+        properties = build_call_properties(
+            occurred_at=datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            to_number=row["to_number"],
+            from_number=row["from_number"],
+            duration_ms=int(duration * 1000),
+            external_id=call_sid,
+            external_account_id=hubspot_hub_id,
+            app_id=str(settings.HUBSPOT_APP_ID or ""),
+            owner_id=None,
+            title="Llamada Vocify",
+            body="Transcripcion y extraccion disponibles en Vocify.",
+        )
+        engagement_id = await log_call_to_hubspot(
+            client,
+            properties=properties,
+            contact_id=row.get("hubspot_contact_id"),
+            deal_id=row.get("hubspot_deal_id"),
+        )
+        await mark_recording_ready(client, engagement_id)
+        supabase.table("outbound_calls").update(
+            {"hubspot_engagement_id": engagement_id, "status": "logged"}
+        ).eq("twilio_call_sid", call_sid).execute()
+    except Exception as e:
+        logger.warning("HubSpot call logging failed for %s: %s", call_sid, e)

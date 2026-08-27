@@ -133,6 +133,7 @@ class Settings(BaseSettings):
     HUBSPOT_CLIENT_ID: Optional[str] = None
     HUBSPOT_CLIENT_SECRET: Optional[str] = None
     HUBSPOT_REDIRECT_URI: Optional[str] = None
+    HUBSPOT_APP_ID: Optional[str] = None
 
     # Salesforce Connected App (OAuth Web Server flow)
     SALESFORCE_CLIENT_ID: Optional[str] = None
