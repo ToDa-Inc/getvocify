@@ -53,9 +53,18 @@ Signature validation rebuilds the signed URL from `BACKEND_PUBLIC_URL` + request
 
 ### Recording endpoint registration (outstanding)
 
-Task 6 Step 7 was **not** run — no `HUBSPOT_DEV_TOKEN` was available at implementation time. Register the recording provider before HubSpot can play call recordings:
+Task 6 Step 7 was **not** run at implementation time. Register the recording provider before HubSpot can play call recordings.
+
+**`HUBSPOT_APP_ID`** is a real app setting (in `.env` / Settings). Set it to the numeric app ID from HubSpot developer account → your app → Overview.
+
+**`HUBSPOT_DEV_TOKEN`** is a one-off shell export for this registration command only — a developer-scoped HubSpot private-app or test-account token with permission to write calling-extension recording settings. It is **not** a runtime secret, **not** in `.env.example`, and **not** loaded by Settings. Export it in the shell, run the command once, then discard it.
+
+Where to get it: HubSpot developer account → your app's test account, or create a private app token that can `POST /crm/extensions/calling/2026-03/{appId}/settings/recording`.
 
 ```bash
+export HUBSPOT_DEV_TOKEN='pat-...'   # one-off; not in .env.example
+# HUBSPOT_APP_ID must already be set in .env or exported here
+
 cd backend && .venv/bin/python -c "
 import asyncio, os
 from app.services.hubspot.client import HubSpotClient
@@ -80,7 +89,7 @@ The printed URL must end in `/public/hubspot/recordings/%s`. Confirm after regis
 GET /crm/extensions/calling/2026-03/{appId}/settings/recording
 ```
 
-Set `HUBSPOT_APP_ID` in the environment. Without it, `build_call_properties` raises on an empty `app_id` and HubSpot call logging is skipped (caught as a warning).
+Without `HUBSPOT_APP_ID`, `build_call_properties` raises on an empty `app_id` and HubSpot call logging is skipped (caught as a warning).
 
 ### Hub ID and recording access
 
