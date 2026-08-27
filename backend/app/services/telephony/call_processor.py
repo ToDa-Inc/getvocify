@@ -175,41 +175,41 @@ async def log_call_engagement(
         mark_recording_ready,
     )
 
-    found = (
-        supabase.table("outbound_calls")
-        .select("*")
-        .eq("twilio_call_sid", call_sid)
-        .limit(1)
-        .execute()
-    )
-    row = (found.data or [None])[0]
-    if not row or not row.get("hubspot_contact_id"):
-        return
-
-    conn = (
-        supabase.table("crm_connections")
-        .select("metadata")
-        .eq("user_id", row["user_id"])
-        .eq("provider", "hubspot")
-        .limit(1)
-        .execute()
-    )
-    conn_row = (conn.data or [None])[0]
-    metadata = (conn_row or {}).get("metadata") or {}
-    portal_id = metadata.get("portal_id")
-    if not portal_id:
-        logger.warning(
-            "HubSpot call logging skipped for %s: no portal_id in connection metadata",
-            call_sid,
-        )
-        return
-
-    hubspot_hub_id = str(portal_id)
-    supabase.table("outbound_calls").update(
-        {"hubspot_hub_id": hubspot_hub_id}
-    ).eq("twilio_call_sid", call_sid).execute()
-
     try:
+        found = (
+            supabase.table("outbound_calls")
+            .select("*")
+            .eq("twilio_call_sid", call_sid)
+            .limit(1)
+            .execute()
+        )
+        row = (found.data or [None])[0]
+        if not row or not row.get("hubspot_contact_id"):
+            return
+
+        conn = (
+            supabase.table("crm_connections")
+            .select("metadata")
+            .eq("user_id", row["user_id"])
+            .eq("provider", "hubspot")
+            .limit(1)
+            .execute()
+        )
+        conn_row = (conn.data or [None])[0]
+        metadata = (conn_row or {}).get("metadata") or {}
+        portal_id = metadata.get("portal_id")
+        if not portal_id:
+            logger.warning(
+                "HubSpot call logging skipped for %s: no portal_id in connection metadata",
+                call_sid,
+            )
+            return
+
+        hubspot_hub_id = str(portal_id)
+        supabase.table("outbound_calls").update(
+            {"hubspot_hub_id": hubspot_hub_id}
+        ).eq("twilio_call_sid", call_sid).execute()
+
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)

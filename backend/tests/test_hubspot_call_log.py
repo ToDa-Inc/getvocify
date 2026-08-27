@@ -243,6 +243,32 @@ class TestLogCallEngagement:
         log_mock.assert_not_called()
         assert "hubspot_hub_id" not in stores["outbound_calls"][0]
 
+    def test_db_failure_does_not_propagate_to_fail_memo(self):
+        """HubSpot logging is best-effort: DB errors must not bubble up."""
+        from app.services.telephony.call_processor import log_call_engagement
+
+        call_sid = "CA0000000000000000000000000000001"
+        supabase, stores = _fake_supabase(
+            {
+                "memos": [{"id": "memo-1", "status": "extracting"}],
+            }
+        )
+
+        class RaisingOutboundCallsQuery(FakeQuery):
+            def execute(self):
+                raise RuntimeError("outbound_calls select failed")
+
+        def make_table(name: str):
+            if name == "outbound_calls":
+                return RaisingOutboundCallsQuery([])
+            return FakeQuery(stores.setdefault(name, []))
+
+        supabase.table.side_effect = make_table
+
+        asyncio.run(log_call_engagement(supabase, call_sid, 10.0))
+
+        assert stores["memos"][0]["status"] == "extracting"
+
 
 def _recordings_client(supabase) -> TestClient:
     app = FastAPI()
