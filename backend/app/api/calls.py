@@ -70,9 +70,14 @@ async def get_calling_config(
     user_id: str = Depends(get_user_id),
 ):
     """Whether calling is available here, plus this user's caller IDs."""
+    hubspot_logging = bool(settings.HUBSPOT_APP_ID)
     if not telephony_configured():
-        return {"enabled": False, "callerIds": []}
-    return {"enabled": True, "callerIds": list_caller_ids(supabase, user_id)}
+        return {"enabled": False, "callerIds": [], "hubspotLogging": hubspot_logging}
+    return {
+        "enabled": True,
+        "callerIds": list_caller_ids(supabase, user_id),
+        "hubspotLogging": hubspot_logging,
+    }
 
 
 @router.post("/token")

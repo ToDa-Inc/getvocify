@@ -35,6 +35,18 @@ describe('canStartTabCapture', () => {
     );
   });
 
+  it('blocks listen during an active call', () => {
+    const decision = canStartTabCapture({
+      isRecording: false,
+      isCopilotListening: false,
+      hasToken: true,
+      tabId: 42,
+      callState: 'active',
+    });
+    assert.equal(decision.ok, false);
+    assert.equal(decision.reason, 'call_in_progress');
+  });
+
   it('blocks listen during a mic memo recording', () => {
     const decision = canStartTabCapture({
       isRecording: true,
@@ -96,6 +108,10 @@ describe('canStartTabCapture', () => {
 describe('startDeniedMessage', () => {
   it('explains a missing stream id without sending the user to the offscreen picker', () => {
     assert.match(startDeniedMessage('no_stream_id'), /Focus the call tab/i);
+  });
+
+  it('asks the user to hang up before listening during a call', () => {
+    assert.match(startDeniedMessage('call_in_progress'), /Hang up the call/i);
   });
 
   it('names Zoom/Meet/Teams as unsupported instead of failing silently', () => {

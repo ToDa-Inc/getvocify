@@ -101,7 +101,7 @@ Without `HUBSPOT_APP_ID`, `build_call_properties` raises on an empty `app_id` an
 
 ## Extension UI
 
-The side-panel calling UI appears only when `GET /api/v1/calls/config` returns `enabled: true`. That requires `telephony_configured()` — all of `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, and `TWILIO_TWIML_APP_SID` must be set. It is not gated by an org feature flag.
+The side-panel calling UI appears only when `GET /api/v1/calls/config` returns `enabled: true`. That requires `telephony_configured()` — all of `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, and `TWILIO_TWIML_APP_SID` must be set. It is not gated by an org feature flag. The same endpoint also includes `hubspotLogging` (true when `HUBSPOT_APP_ID` is set). Calls still place when it is false; HubSpot engagements will not be created.
 
 ### Caller ID verification
 

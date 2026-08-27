@@ -2933,7 +2933,15 @@ function renderSuccess(result) {
 let callingConfig = { enabled: false, callerIds: [] };
 
 async function loadCallingConfig() {
-  callingConfig = await chrome.runtime.sendMessage({ type: 'GET_CALLING_CONFIG' });
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_CALLING_CONFIG' });
+    callingConfig =
+      result && typeof result === 'object'
+        ? result
+        : { enabled: false, callerIds: [] };
+  } catch {
+    callingConfig = { enabled: false, callerIds: [] };
+  }
   renderCallSection();
 }
 

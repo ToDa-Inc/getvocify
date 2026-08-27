@@ -16,7 +16,7 @@ from app.services.hubspot.client import HubSpotClient
 logger = logging.getLogger(__name__)
 
 # The calling-extensions recordings pipeline is documented against this version.
-CALLS_OBJECT_PATH = "/crm/objects/2026-03/calls"
+CALLS_OBJECT_PATH = "/crm/v3/objects/calls"
 CALLING_EXTENSIONS_BASE = "/crm/extensions/calling/2026-03"
 
 

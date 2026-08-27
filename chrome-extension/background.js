@@ -383,6 +383,10 @@ async function loadPageSessionContext(tab, user) {
 
 async function startRecording() {
   if (state.isRecording) return;
+  if (state.call?.state && state.call.state !== CALL_STATES.IDLE) {
+    showNotification('Vocify Copilot', 'Hang up the call before recording a memo.');
+    return;
+  }
   if (state.isCopilotListening) {
     showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
     return;
@@ -675,6 +679,7 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
     hasToken: true,
     tabId: tabId ?? null,
     hasStreamId: Boolean(streamIdFromUi),
+    callState: state.call?.state,
   });
   if (!early.ok) {
     if (early.reason === 'already_listening') return { ok: true, alreadyLive: true };
@@ -700,6 +705,7 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
     hasToken: Boolean(accessToken),
     tabId: tabId ?? null,
     hasStreamId: true,
+    callState: state.call?.state,
   });
   if (!decision.ok) {
     if (decision.reason === 'already_listening') return { ok: true, alreadyLive: true };

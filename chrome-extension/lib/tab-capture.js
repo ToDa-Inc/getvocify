@@ -12,7 +12,11 @@ export function canStartTabCapture({
   hasToken = false,
   tabId = null,
   hasStreamId = false,
+  callState,
 } = {}) {
+  if (callState != null && callState !== 'idle') {
+    return { ok: false, reason: 'call_in_progress' };
+  }
   if (isCopilotListening) return { ok: false, reason: 'already_listening' };
   if (isRecording) return { ok: false, reason: 'mic_recording' };
   if (!hasToken) return { ok: false, reason: 'login_required' };
@@ -22,6 +26,8 @@ export function canStartTabCapture({
 
 export function startDeniedMessage(reason) {
   switch (reason) {
+    case 'call_in_progress':
+      return 'Hang up the call before listening to this tab.';
     case 'mic_recording':
       return 'Stop the voice memo before listening to this tab.';
     case 'already_listening':
