@@ -6,6 +6,8 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 @font-face {
   font-family: "Geist";
   src: url("../fonts/Geist-Variable.woff2") format("woff2-variations"),
@@ -1696,103 +1698,59 @@ body {
   white-space: nowrap;
 }
 
-/* Outbound calling */
+/* Outbound calling — contact CTA lives in .idle-tools; this section is live / post-call only */
 #call-section {
-  margin: 0 20px 12px;
-  padding: 12px 14px;
+  margin: 0 20px 10px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+#call-section.is-live {
+  padding: 8px 10px;
   border-radius: var(--radius);
   background: #fff;
   border: 1px solid var(--hairline);
 }
 
-.dialer-to,
-.dialer-from,
 .dialer-live {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.dialer-from,
-.dialer-live {
-  margin-top: 8px;
-}
-
-.dialer-from label {
-  font-size: 11px;
-  color: var(--muted);
+.dialer-icon-btn {
   flex-shrink: 0;
-}
-
-#call-number {
-  flex: 1;
-  min-width: 120px;
-  padding: 8px 12px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   border: 1px solid var(--hairline);
-  background: white;
-  font-size: 13px;
-  font-family: inherit;
+  background: #fff;
   color: var(--foreground);
-}
-
-#call-number:focus {
-  outline: none;
-  border-color: var(--beige);
-  box-shadow: 0 0 0 3px rgba(107, 93, 79, 0.1);
-}
-
-#call-caller-id {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--hairline);
-  background: white;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--foreground);
-}
-
-#call-button,
-#call-contact-search-toggle,
-#call-mute,
-#call-keypad-toggle {
-  flex-shrink: 0;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: none;
-  background: var(--beige-dark);
-  color: #fff;
-  font-size: 13px;
-  font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s;
 }
 
-#call-contact-search-toggle,
-#call-mute,
-#call-keypad-toggle {
+.dialer-icon-btn:hover:not(:disabled) {
   background: var(--secondary, #f3f1ee);
-  color: var(--foreground);
-  border: 1px solid var(--hairline);
 }
 
-#call-button:hover:not(:disabled) {
-  background: var(--beige);
-}
-
-#call-button:disabled,
-#call-mute:disabled,
-#call-keypad-toggle:disabled {
-  opacity: 0.5;
+.dialer-icon-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
-.dialer-action {
-  width: 100%;
-  margin-top: 10px;
+.dialer-hangup {
+  background: #b42318;
+  border-color: #b42318;
+  color: #fff;
+}
+
+.dialer-hangup:hover:not(:disabled) {
+  background: #9f1d15;
 }
 
 .dialer-timer {
@@ -1812,7 +1770,7 @@ body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .dialer-keypad button {
@@ -1825,15 +1783,8 @@ body {
   cursor: pointer;
 }
 
-.dialer-results {
-  margin-top: 8px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
 .dialer-postcall {
-  margin-top: 10px;
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 8px;

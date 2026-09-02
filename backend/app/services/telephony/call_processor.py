@@ -91,6 +91,48 @@ async def initiate_vocify_call_memo(
     return memo_id, True
 
 
+async def attach_hubspot_contact_by_phone(
+    supabase: Client,
+    call_row: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill hubspot_contact_id from a unique CRM phone match. Best-effort."""
+    if call_row.get("hubspot_contact_id"):
+        return call_row
+    phone = (call_row.get("to_number") or "").strip()
+    user_id = call_row.get("user_id")
+    if not phone or not user_id:
+        return call_row
+    try:
+        from app.api.crm import get_hubspot_client_from_connection
+        from app.services.hubspot.search import (
+            HubSpotSearchService,
+            choose_dialed_contact,
+        )
+
+        client = get_hubspot_client_from_connection(user_id, supabase)
+        hits = await HubSpotSearchService(client).find_contacts_by_phone(
+            phone,
+            limit=5,
+            default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE,
+        )
+        chosen = choose_dialed_contact(hits, phone)
+    except Exception as e:
+        logger.warning(
+            "HubSpot phone lookup skipped for %s: %s",
+            call_row.get("twilio_call_sid"),
+            e,
+        )
+        return call_row
+    if not chosen:
+        return call_row
+    contact_id = str(chosen.id)
+    supabase.table("outbound_calls").update(
+        {"hubspot_contact_id": contact_id}
+    ).eq("twilio_call_sid", call_row["twilio_call_sid"]).execute()
+    call_row["hubspot_contact_id"] = contact_id
+    return call_row
+
+
 async def process_vocify_call_background(
     memo_id: str,
     user_id: str,
@@ -194,7 +236,10 @@ async def log_call_engagement(
             .execute()
         )
         row = (found.data or [None])[0]
-        if not row or not row.get("hubspot_contact_id"):
+        if not row:
+            return
+        row = await attach_hubspot_contact_by_phone(supabase, row)
+        if not row.get("hubspot_contact_id"):
             return
 
         conn = (

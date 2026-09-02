@@ -6,6 +6,7 @@ export type CallerId = {
   label: string | null;
   isDefault: boolean;
   verifiedAt: string | null;
+  source?: 'user' | 'twilio';
 };
 
 export type CallingConfig = {

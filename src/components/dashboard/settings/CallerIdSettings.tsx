@@ -7,6 +7,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useAuth } from "@/features/auth";
 import { callsApi } from "@/features/calls/api";
 import type { CallerId, CallingConfig } from "@/features/calls/types";
+import { ApiError } from "@/shared/lib/api-client";
 
 const POLL_MS = 3000;
 const POLL_MAX_MS = 120_000;
@@ -57,7 +58,7 @@ export const CallerIdSettings = () => {
     return () => stopPoll();
   }, []);
 
-  const ids = config?.callerIds || [];
+  const ids = (config?.callerIds || []).filter((c) => c.source !== "twilio");
   const hasPending = ids.some((c) => c.status === "pending");
 
   useEffect(() => {
@@ -107,8 +108,16 @@ export const CallerIdSettings = () => {
       }
       setNumber("");
       await load();
-    } catch {
-      toast.error("No se pudo iniciar la verificación");
+    } catch (error) {
+      const detail =
+        error instanceof ApiError &&
+        error.data &&
+        typeof error.data === "object" &&
+        "detail" in error.data &&
+        typeof (error.data as { detail: unknown }).detail === "string"
+          ? (error.data as { detail: string }).detail
+          : null;
+      toast.error(detail || "No se pudo iniciar la verificación");
     } finally {
       setIsSaving(false);
     }
@@ -152,7 +161,8 @@ export const CallerIdSettings = () => {
         <div>
           <h3 className="font-bold text-foreground">Caller ID</h3>
           <p className="text-xs text-muted-foreground">
-            El número que verán tus prospectos cuando llames desde Vocify.
+            El número que verán tus prospectos. Twilio te llamará, en
+            inglés, y teclearás un código.
           </p>
         </div>
       </div>
@@ -191,11 +201,9 @@ export const CallerIdSettings = () => {
               <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {row.status}
               </span>
-              {row.isDefault ? (
-                <span className="rounded-full bg-beige/15 px-3 py-1 text-[10px] font-medium text-beige">
-                  Predeterminado
-                </span>
-              ) : row.status === "verified" ? (
+              {row.status === "verified" &&
+              !row.isDefault &&
+              ids.filter((c) => c.status === "verified").length > 1 ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -205,14 +213,16 @@ export const CallerIdSettings = () => {
                   Hacer predeterminado
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 rounded-full px-3 text-[10px]"
-                onClick={() => handleDelete(row)}
-              >
-                Eliminar
-              </Button>
+              {row.source !== "twilio" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 rounded-full px-3 text-[10px]"
+                  onClick={() => handleDelete(row)}
+                >
+                  Eliminar
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>

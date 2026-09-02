@@ -43,6 +43,7 @@ from app.services.telephony.twiml import (
 )
 from app.services.storage import StorageService
 from app.services.telephony.call_processor import (
+    attach_hubspot_contact_by_phone,
     download_twilio_recording,
     initiate_vocify_call_memo,
     process_vocify_call_background,
@@ -781,6 +782,9 @@ async def twilio_recording(request: Request):
         }
     ).eq("twilio_call_sid", call_sid).execute()
     call_row["recording_duration"] = int(duration)
+    call_row["recording_path"] = path
+
+    call_row = await attach_hubspot_contact_by_phone(supabase, call_row)
 
     memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
     if memo_id and created:

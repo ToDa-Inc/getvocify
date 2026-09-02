@@ -11,6 +11,7 @@ import {
   Menu,
   X,
   Headphones,
+  Phone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
@@ -21,6 +22,7 @@ import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
+  { icon: Phone, label: "Calling", path: "/dashboard/calling" },
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
   { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
   { icon: Link2, label: "Integrations", path: "/dashboard/integrations" },

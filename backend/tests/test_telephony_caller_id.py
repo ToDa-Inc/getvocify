@@ -5,6 +5,7 @@ import pytest
 
 from app.services.telephony.caller_id import (
     CallerIdNotVerified,
+    CallerIdVerificationUnsupported,
     delete_caller_id,
     get_caller_id,
     mark_caller_id_verified,
@@ -289,6 +290,42 @@ class TestStartCallerIdVerification:
         start_caller_id_verification(supabase, "user-1", "+34600111222", label=None)
 
         assert store[0]["label"] == "Oficina"
+
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_twilio_owned_number_still_requires_verification(self, rest):
+        rest.return_value.validation_requests.create.return_value = SimpleNamespace(
+            validation_code="123456",
+            friendly_name=None,
+            call_sid="CA-verify",
+        )
+        supabase, store = fake_supabase([])
+
+        result = start_caller_id_verification(
+            supabase, "user-1", "+17853678869", label=None
+        )
+
+        rest.return_value.validation_requests.create.assert_called_once()
+        assert result["status"] == "pending"
+        assert result["alreadyVerified"] is False
+        assert store[0]["status"] == "pending"
+
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_ireland_rejects_personal_verified_caller_id(self, rest):
+        from twilio.base.exceptions import TwilioRestException
+
+        rest.return_value.validation_requests.create.side_effect = TwilioRestException(
+            405,
+            "/OutgoingCallerIds.json",
+            "The requested resource does not support the attempted HTTP method",
+            method="POST",
+        )
+        supabase, _ = fake_supabase([])
+
+        with pytest.raises(CallerIdVerificationUnsupported) as exc:
+            start_caller_id_verification(
+                supabase, "user-1", "+34669701069", label=None
+            )
+        assert "IE1" in str(exc.value) or "Irlanda" in str(exc.value)
 
 
 class TestMarkCallerIdVerified:

@@ -1,11 +1,13 @@
 """Verified caller IDs: the SDR's own number, presented on outbound calls.
 
-Twilio's Transit Caller ID was sunset on 2026-06-22, so a Verified Caller ID
-(or a Twilio-owned number) is the only supported way to present a number.
+Twilio's Transit Caller ID was sunset on 2026-06-22. Outbound CLI is only a
+number the user has verified with Twilio; rented Twilio DIDs are not offered
+as a From identity.
+
 Twilio performs the ownership proof; `user_caller_ids` records the outcome so
 the voice webhook can authorize a caller ID without a round trip.
 
-The verification call/SMS is placed by Twilio and is English-only, so the UI
+The verification call is placed by Twilio and is English-only, so the UI
 must surface `verificationCode` to the user.
 """
 
@@ -18,6 +20,8 @@ from typing import Any, Optional
 from supabase import Client
 
 from app.config import settings
+from twilio.base.exceptions import TwilioRestException
+
 from app.services.telephony.twilio_client import twilio_rest
 from app.services.telephony.twiml import normalize_e164
 
@@ -26,6 +30,16 @@ logger = logging.getLogger(__name__)
 
 class CallerIdNotVerified(PermissionError):
     """The requested caller ID is not a verified number for this user."""
+
+
+class CallerIdVerificationUnsupported(RuntimeError):
+    """Twilio region cannot verify personal caller IDs (IE1)."""
+
+
+IE1_VERIFIED_CALLER_ID_MESSAGE = (
+    "Twilio en Irlanda (IE1) no permite Verified Caller IDs. "
+    "Usa una cuenta Twilio en US1 para verificar tu móvil personal."
+)
 
 
 def _status_callback_url() -> str:
@@ -62,11 +76,18 @@ def start_caller_id_verification(
             "alreadyVerified": True,
         }
 
-    validation = twilio_rest().validation_requests.create(
-        phone_number=phone_number,
-        friendly_name=(label or f"Vocify {phone_number}")[:64],
-        status_callback=_status_callback_url(),
-    )
+    try:
+        validation = twilio_rest().validation_requests.create(
+            phone_number=phone_number,
+            friendly_name=(label or f"Vocify {phone_number}")[:64],
+            status_callback=_status_callback_url(),
+        )
+    except TwilioRestException as exc:
+        if getattr(exc, "status", None) == 405:
+            raise CallerIdVerificationUnsupported(
+                IE1_VERIFIED_CALLER_ID_MESSAGE
+            ) from exc
+        raise
 
     upsert_row: dict[str, Any] = {
         "user_id": user_id,
@@ -132,6 +153,7 @@ def _serialize_caller_id(row: dict[str, Any]) -> dict[str, Any]:
         "label": row.get("label"),
         "isDefault": bool(row.get("is_default")),
         "verifiedAt": row.get("verified_at"),
+        "source": "user",
     }
 
 
@@ -248,8 +270,8 @@ def resolve_caller_id(
 
     rows = (query.limit(1).execute().data) or []
     verified = [r for r in rows if (r.get("status") == "verified")]
-    if not verified:
-        raise CallerIdNotVerified(
-            f"no verified caller ID for user {user_id} (requested={requested!r})"
-        )
-    return str(verified[0]["phone_number"])
+    if verified:
+        return str(verified[0]["phone_number"])
+    raise CallerIdNotVerified(
+        f"no verified caller ID for user {user_id} (requested={requested!r})"
+    )

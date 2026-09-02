@@ -125,4 +125,4 @@ async def test_config_includes_settings_url_when_disabled():
     with patch("app.api.calls.telephony_configured", return_value=False):
         result = await get_calling_config(supabase=MagicMock(), user_id="user-1")
     assert result["enabled"] is False
-    assert result["settingsUrl"].endswith("/dashboard/settings")
+    assert result["settingsUrl"].endswith("/dashboard/calling")

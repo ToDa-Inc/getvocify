@@ -2,9 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { CALL_STATES } from './dialer.js';
 import {
+  contactCallCta,
   describeCallState,
+  dialerPanelMode,
   formatCallDuration,
-  shouldPrefillNumber,
 } from './call-format.js';
 
 describe('formatCallDuration', () => {
@@ -61,52 +62,112 @@ describe('describeCallState', () => {
   });
 });
 
-describe('shouldPrefillNumber', () => {
-  it('fills when the box is empty and a contact phone is known', () => {
-    assert.equal(
-      shouldPrefillNumber({
-        currentValue: '',
-        prefilledFrom: null,
-        contactId: 'C1',
-        contactPhone: '+34600111222',
-      }),
-      '+34600111222'
+describe('contactCallCta', () => {
+  it('is hidden when there is no contact phone', () => {
+    assert.deepEqual(
+      contactCallCta({ contactPhone: null, contactName: 'Toni Mora' }),
+      { visible: false, phone: null, label: '', caption: '' }
     );
   });
 
-  it('returns the new phone when the contact changes', () => {
+  it('is hidden while a call is already in progress', () => {
     assert.equal(
-      shouldPrefillNumber({
-        currentValue: '+34600111222',
-        prefilledFrom: 'C1',
-        contactId: 'C2',
-        contactPhone: '+34600999999',
-      }),
-      '+34600999999'
+      contactCallCta({
+        contactPhone: '+34648739267',
+        contactName: 'Toni Mora',
+        callState: CALL_STATES.ACTIVE,
+      }).visible,
+      false
     );
   });
 
-  it('does not clobber a user-typed number on the same contact', () => {
-    assert.equal(
-      shouldPrefillNumber({
-        currentValue: '600111000',
-        prefilledFrom: 'C1',
-        contactId: 'C1',
-        contactPhone: '+34600111222',
+  it('labels with the given name when the record has a phone', () => {
+    assert.deepEqual(
+      contactCallCta({
+        contactPhone: '+34648739267',
+        contactName: 'Toni Mora',
+        callState: CALL_STATES.IDLE,
       }),
-      null
+      {
+        visible: true,
+        phone: '+34648739267',
+        label: 'Llamar a Toni',
+        caption: '+34 648 73 92 67',
+      }
     );
   });
 
-  it('returns null when the contact is unchanged', () => {
+  it('falls back to a generic label without a name', () => {
     assert.equal(
-      shouldPrefillNumber({
-        currentValue: '+34600111222',
-        prefilledFrom: 'C1',
-        contactId: 'C1',
-        contactPhone: '+34600111222',
+      contactCallCta({ contactPhone: '+34600111222', contactName: '' }).label,
+      'Llamar a este contacto'
+    );
+  });
+
+  it('is hidden when there is no verified caller ID', () => {
+    assert.equal(
+      contactCallCta({
+        contactPhone: '+34648739267',
+        contactName: 'Toni Mora',
+        canPlaceCall: false,
+      }).visible,
+      false
+    );
+  });
+
+  it('leaves non-Spanish numbers unformatted in the caption', () => {
+    assert.equal(
+      contactCallCta({ contactPhone: '+14155552671' }).caption,
+      '+14155552671'
+    );
+  });
+});
+
+describe('dialerPanelMode', () => {
+  it('hides the panel when idle and not on a contact', () => {
+    assert.equal(
+      dialerPanelMode({ contactPhone: null, callState: CALL_STATES.IDLE }),
+      'hidden'
+    );
+  });
+
+  it('shows a contact CTA when the record has a phone', () => {
+    assert.equal(
+      dialerPanelMode({
+        contactPhone: '+34648739267',
+        canPlaceCall: true,
+        callState: CALL_STATES.IDLE,
       }),
-      null
+      'contact'
+    );
+  });
+
+  it('keeps live controls on screen during a call even off a contact', () => {
+    assert.equal(
+      dialerPanelMode({ contactPhone: null, callState: CALL_STATES.RINGING }),
+      'live'
+    );
+  });
+
+  it('shows post-call after hanging up', () => {
+    assert.equal(
+      dialerPanelMode({
+        contactPhone: '+34648739267',
+        lastCall: { to: '+34648739267' },
+        callState: CALL_STATES.IDLE,
+      }),
+      'postcall'
+    );
+  });
+
+  it('asks to verify when the contact has a phone but no caller ID', () => {
+    assert.equal(
+      dialerPanelMode({
+        contactPhone: '+34648739267',
+        canPlaceCall: false,
+        callState: CALL_STATES.IDLE,
+      }),
+      'needs-cli'
     );
   });
 });

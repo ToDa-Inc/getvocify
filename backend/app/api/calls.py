@@ -25,6 +25,7 @@ from app.services.telephony.caller_id import (
     set_default_caller_id,
     start_caller_id_verification,
     update_caller_id_label,
+    CallerIdVerificationUnsupported,
 )
 from app.services.telephony.twilio_client import telephony_configured
 from app.services.telephony.twiml import InvalidPhoneNumber
@@ -47,7 +48,7 @@ class CallerIdPatchRequest(BaseModel):
 
 
 def _settings_url() -> str:
-    return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/settings"
+    return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/calling"
 
 
 def mint_voice_access_token(user_id: str, ttl: int = TOKEN_TTL_SECONDS) -> str:
@@ -137,6 +138,10 @@ async def create_caller_id(
     except InvalidPhoneNumber as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except CallerIdVerificationUnsupported as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
     return {**result, "verificationCode": result.get("verificationCode")}
 

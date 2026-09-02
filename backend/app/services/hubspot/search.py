@@ -25,6 +25,107 @@ def normalize_phone_digits(phone: Optional[str]) -> str:
     return re.sub(r"\D+", "", phone or "")
 
 
+def phone_digits_match(a: Optional[str], b: Optional[str]) -> bool:
+    """True when two CRM/Twilio numbers are the same phone in different formats."""
+    da = normalize_phone_digits(a)
+    db = normalize_phone_digits(b)
+    if len(da) < 6 or len(db) < 6:
+        return False
+    n = 9 if min(len(da), len(db)) >= 9 else min(len(da), len(db))
+    return da[-n:] == db[-n:]
+
+
+def phone_search_variants(
+    phone: Optional[str],
+    default_country_code: str = "34",
+) -> list[str]:
+    """Formats HubSpot actually stores: E.164, national, 00, trunk-0, spaced."""
+    digits = normalize_phone_digits(phone)
+    if len(digits) < 7:
+        return []
+    cc = (default_country_code or "34").lstrip("+")
+    if digits.startswith(cc) and len(digits) - len(cc) >= 7:
+        national = digits[len(cc) :].lstrip("0")
+        full = digits
+    else:
+        national = digits.lstrip("0")
+        full = f"{cc}{national}"
+    variants = [
+        f"+{full}",
+        full,
+        f"00{full}",
+        national,
+        f"0{national}",
+        f"+{cc} {national}",
+        f"{cc} {national}",
+    ]
+    if len(national) == 9:
+        a, b, c, d = national[:3], national[3:5], national[5:7], national[7:]
+        variants.extend(
+            [
+                f"+{cc} {a} {b} {c} {d}",
+                f"{a} {b} {c} {d}",
+                f"+{cc} {national[:3]} {national[3:6]} {national[6:]}",
+                f"{national[:3]} {national[3:6]} {national[6:]}",
+                f"{national[:3]}-{national[3:6]}-{national[6:]}",
+            ]
+        )
+    if len(national) == 10:
+        variants.extend(
+            [
+                f"({national[:3]}) {national[3:6]}-{national[6:]}",
+                f"{national[:3]}-{national[3:6]}-{national[6:]}",
+                f"+{cc} {national[:3]} {national[3:6]} {national[6:]}",
+            ]
+        )
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in variants:
+        if value and value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
+
+
+def choose_dialed_contact(hits: list[HubSpotContact], phone: str) -> Optional[HubSpotContact]:
+    """Pick the HubSpot contact for a number we just dialed.
+
+    Unique exact match wins. Several contacts sharing the number: prefer a
+    real person (named, mobilephone) over a placeholder. Tied ranks stay unset.
+    """
+    exact: list[HubSpotContact] = []
+    for hit in hits:
+        props = getattr(hit, "properties", None) or {}
+        if not isinstance(props, dict):
+            continue
+        if phone_digits_match(phone, props.get("phone")) or phone_digits_match(
+            phone, props.get("mobilephone")
+        ):
+            exact.append(hit)
+    if not exact:
+        return hits[0] if len(hits) == 1 else None
+    if len(exact) == 1:
+        return exact[0]
+
+    def score(hit: HubSpotContact) -> int:
+        props = hit.properties or {}
+        first = (props.get("firstname") or "").strip().lower()
+        last = (props.get("lastname") or "").strip()
+        points = 0
+        if first and first != "contact":
+            points += 3
+        if last:
+            points += 1
+        if phone_digits_match(phone, props.get("mobilephone")):
+            points += 2
+        return points
+
+    ranked = sorted(exact, key=score, reverse=True)
+    if score(ranked[0]) > score(ranked[1]):
+        return ranked[0]
+    return None
+
+
 def split_person_name(name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """Return (firstname, lastname). Single token → (token, None)."""
     if not name or not str(name).strip():
@@ -207,22 +308,54 @@ class HubSpotSearchService:
         self,
         phone: Optional[str],
         limit: int = 5,
+        default_country_code: str = "34",
     ) -> list[HubSpotContact]:
-        """
-        Find contacts by phone / mobilephone using digit-normalized needle.
-        """
+        """Find contacts by phone / mobilephone across common stored formats."""
         digits = normalize_phone_digits(phone)
         if len(digits) < 7:
             return []
         needle = digits[-9:] if len(digits) >= 9 else digits
-        props = ["email", "firstname", "lastname", "phone", "mobilephone", "jobtitle"]
+        variants = phone_search_variants(phone, default_country_code)
+        e164 = next((v for v in variants if v.startswith("+") and " " not in v), None)
+        cc = (default_country_code or "34").lstrip("+")
+        if digits.startswith(cc) and len(digits) - len(cc) >= 7:
+            national = digits[len(cc) :].lstrip("0")
+        else:
+            national = digits.lstrip("0")
+        eq_values = [v for v in (e164, national) if v]
+        props = [
+            "email",
+            "firstname",
+            "lastname",
+            "phone",
+            "mobilephone",
+            "jobtitle",
+            "hs_searchable_calculated_phone_number",
+            "hs_searchable_calculated_mobile_number",
+        ]
+        searches: list[list[Filter]] = []
+        for prop in ("phone", "mobilephone"):
+            searches.append(
+                [Filter(propertyName=prop, operator="CONTAINS_TOKEN", value=needle)]
+            )
+            for value in eq_values:
+                searches.append(
+                    [Filter(propertyName=prop, operator="EQ", value=value)]
+                )
+        last6 = needle[-6:] if len(needle) >= 6 else needle
+        for prop in (
+            "hs_searchable_calculated_phone_number",
+            "hs_searchable_calculated_mobile_number",
+        ):
+            searches.append([Filter(propertyName=prop, operator="EQ", value=last6)])
+
         seen: set[str] = set()
         out: list[HubSpotContact] = []
-        for prop in ("phone", "mobilephone"):
+        for filters in searches:
             try:
                 rows = await self.search(
                     self.CONTACTS,
-                    [Filter(propertyName=prop, operator="CONTAINS_TOKEN", value=needle)],
+                    filters,
                     properties=props,
                     limit=limit,
                 )
@@ -232,13 +365,14 @@ class HubSpotSearchService:
                 rid = str(row.get("id") or "")
                 if not rid or rid in seen:
                     continue
-                # Prefer digit overlap to reduce false positives
-                row_digits = normalize_phone_digits(
-                    (row.get("properties") or {}).get(prop)
-                    or (row.get("properties") or {}).get("phone")
-                    or (row.get("properties") or {}).get("mobilephone")
+                row_props = row.get("properties") or {}
+                stored_values = (
+                    row_props.get("phone"),
+                    row_props.get("mobilephone"),
+                    row_props.get("hs_searchable_calculated_phone_number"),
+                    row_props.get("hs_searchable_calculated_mobile_number"),
                 )
-                if row_digits and needle not in row_digits and row_digits[-7:] not in digits:
+                if not any(phone_digits_match(phone, stored) for stored in stored_values):
                     continue
                 seen.add(rid)
                 try:

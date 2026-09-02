@@ -1,5 +1,5 @@
 /**
- * Pure formatting and prefill decisions for the dialer UI.
+ * Pure formatting and visibility decisions for the dialer UI.
  * No chrome.* and no Twilio — keep it unit-testable.
  */
 
@@ -37,17 +37,47 @@ export function describeCallState({ state, to, answeredAt, now, muted } = {}) {
   }
 }
 
-export function shouldPrefillNumber({
-  currentValue,
-  prefilledFrom,
-  contactId,
+function formatPhoneCaption(e164) {
+  const value = String(e164 || '');
+  const digits = value.replace(/\D/g, '');
+  if (value.startsWith('+34') && digits.length === 11) {
+    const national = digits.slice(2);
+    return `+34 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
+  }
+  return value;
+}
+
+export function contactCallCta({
   contactPhone,
+  contactName,
+  callState,
+  canPlaceCall = true,
 } = {}) {
-  if (!contactPhone) return null;
-  const typed = String(currentValue || '').trim();
-  const contactChanged = Boolean(contactId) && Boolean(prefilledFrom) && contactId !== prefilledFrom;
-  if (contactChanged) return contactPhone;
-  if (prefilledFrom && contactId && prefilledFrom === contactId) return null;
-  if (typed) return null;
-  return contactPhone;
+  const phone = String(contactPhone || '').trim();
+  const inCall = Boolean(callState && callState !== CALL_STATES.IDLE);
+  if (!phone || inCall || canPlaceCall === false) {
+    return { visible: false, phone: null, label: '', caption: '' };
+  }
+  const first = String(contactName || '').trim().split(/\s+/)[0];
+  return {
+    visible: true,
+    phone,
+    label: first ? `Llamar a ${first}` : 'Llamar a este contacto',
+    caption: formatPhoneCaption(phone),
+  };
+}
+
+export function dialerPanelMode({
+  contactPhone,
+  callState,
+  lastCall,
+  canPlaceCall = true,
+} = {}) {
+  const inCall = Boolean(callState && callState !== CALL_STATES.IDLE);
+  if (inCall) return 'live';
+  if (lastCall) return 'postcall';
+  const phone = String(contactPhone || '').trim();
+  if (phone && canPlaceCall === false) return 'needs-cli';
+  if (phone) return 'contact';
+  return 'hidden';
 }
