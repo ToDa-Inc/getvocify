@@ -678,7 +678,11 @@ async def twilio_voice(request: Request):
             to=to_number,
             caller_id=caller_id,
             recording_callback_url=f"{base}/webhooks/twilio/recording",
-            whisper_url=f"{base}/webhooks/twilio/whisper",
+            whisper_url=(
+                f"{base}/webhooks/twilio/whisper"
+                if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED
+                else None
+            ),
         )
     )
 
@@ -770,6 +774,9 @@ async def twilio_recording(request: Request):
             "recording_sid": params.get("RecordingSid"),
             "recording_path": path,
             "recording_duration": int(duration),
+            "answered_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=int(duration))
+            ).isoformat(),
             "status": "recorded",
         }
     ).eq("twilio_call_sid", call_sid).execute()

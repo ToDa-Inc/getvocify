@@ -12,6 +12,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional, Tuple
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from supabase import Client
@@ -32,11 +33,20 @@ def twilio_wav_url(recording_url: str) -> str:
     """Twilio serves WAV when the media extension is explicit.
 
     HubSpot only transcribes .WAV/.FLAC/.MP4, so MP3 is not an option.
+    IE1 accounts reject media fetched from api.twilio.com (US1), so rewrite
+    the default host when TWILIO_EDGE + TWILIO_REGION are set.
     """
     base = (recording_url or "").split("?", 1)[0].rstrip("/")
-    if base.endswith(".wav"):
-        return base
-    return f"{base}.wav"
+    if not base.endswith(".wav"):
+        base = f"{base}.wav"
+    edge = settings.TWILIO_EDGE
+    region = settings.TWILIO_REGION
+    if edge and region:
+        parsed = urlparse(base)
+        if parsed.netloc in ("api.twilio.com", "api.us1.twilio.com"):
+            parsed = parsed._replace(netloc=f"api.{edge}.{region}.twilio.com")
+            base = urlunparse(parsed)
+    return base
 
 
 async def download_twilio_recording(recording_url: str) -> bytes:

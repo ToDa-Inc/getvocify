@@ -76,7 +76,7 @@ function toSortMs(value) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = null } = {}) {
+export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = null, outboundCalls = [] } = {}) {
   const listed = (recordings || []).filter((r) => r && r.has_recording);
   const ids = callMemoIds instanceof Set
     ? callMemoIds
@@ -98,7 +98,20 @@ export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = 
       memo: m,
     }));
 
-  return [...calls, ...vocify].sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0));
+  const outboundSkip = new Set([
+    ...ids,
+    ...(memos || []).map((m) => m?.id).filter(Boolean).map(String),
+  ]);
+  const outbound = (outboundCalls || [])
+    .filter((c) => c && c.callSid && !(c.memoId && outboundSkip.has(String(c.memoId))))
+    .map((c) => ({
+      kind: 'outbound',
+      id: c.callSid,
+      sortMs: toSortMs(c.startedAt || c.answeredAt),
+      outbound: c,
+    }));
+
+  return [...calls, ...vocify, ...outbound].sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0));
 }
 
 function recordingStamp(state) {
@@ -146,13 +159,14 @@ export function liveCopyKey(state) {
   ].join('|');
 }
 
-export function activityListKey(state, { memoStamp = '', visibleCount = 5, memosLoading = false } = {}) {
+export function activityListKey(state, { memoStamp = '', visibleCount = 5, memosLoading = false, outboundStamp = '' } = {}) {
   const recs = recordingStamp(state);
-  const emptyList = !recs && !memoStamp;
+  const emptyList = !recs && !memoStamp && !outboundStamp;
   const loading = Boolean(state?.recordingsLoading || memosLoading);
   return [
     recs,
     memoStamp,
+    outboundStamp,
     String(visibleCount || 5),
     emptyList && loading ? '1' : '0',
   ].join('|');

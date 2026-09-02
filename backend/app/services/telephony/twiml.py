@@ -77,7 +77,7 @@ def build_outbound_twiml(
     to: str,
     caller_id: str,
     recording_callback_url: str,
-    whisper_url: str,
+    whisper_url: str | None = None,
     timeout: int = 30,
 ) -> str:
     """Dial `to` from `caller_id`, recording both legs on separate channels."""
@@ -94,7 +94,10 @@ def build_outbound_twiml(
         answer_on_bridge=True,
         timeout=timeout,
     )
-    dial.number(to, url=whisper_url)
+    if whisper_url:
+        dial.number(to, url=whisper_url)
+    else:
+        dial.number(to)
     response.append(dial)
     return str(response)
 

@@ -14,6 +14,7 @@ class TestMintVoiceAccessToken:
         settings.TWILIO_API_KEY_SID = "SK" + "0" * 32
         settings.TWILIO_API_KEY_SECRET = "api-secret"
         settings.TWILIO_TWIML_APP_SID = "AP" + "0" * 32
+        settings.TWILIO_REGION = None
 
     def test_identity_is_the_vocify_user_id(self):
         with patch("app.api.calls.settings") as settings:
@@ -40,6 +41,14 @@ class TestMintVoiceAccessToken:
 
         claims = jwt.decode(token, options={"verify_signature": False})
         assert "incoming" not in claims["grants"]["voice"]
+
+    def test_ireland_region_is_in_the_jwt_header(self):
+        with patch("app.api.calls.settings") as settings:
+            self._settings(settings)
+            settings.TWILIO_REGION = "ie1"
+            token = mint_voice_access_token("user-1")
+
+        assert jwt.get_unverified_header(token)["twr"] == "ie1"
 
     def test_raises_503_when_twilio_is_not_configured(self):
         with patch("app.api.calls.settings") as settings:

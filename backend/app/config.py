@@ -166,12 +166,19 @@ class Settings(BaseSettings):
     TWILIO_API_KEY_SID: Optional[str] = None
     TWILIO_API_KEY_SECRET: Optional[str] = None
     TWILIO_TWIML_APP_SID: Optional[str] = None
+    # Ireland (IE1) accounts must hit api.{edge}.{region}.twilio.com.
+    # US1 is the SDK default when both are unset.
+    TWILIO_EDGE: Optional[str] = None
+    TWILIO_REGION: Optional[str] = None
     # AEPD Circular 1/2023: the prospect must be told at the start of the call
     # that it is being recorded, and why. Played to the called party only.
     TWILIO_RECORDING_ANNOUNCEMENT: Optional[str] = None
     TWILIO_ANNOUNCEMENT_LANGUAGE: str = "es-ES"
     # Default country code for national numbers coming from CRM contact fields.
     CALLING_DEFAULT_COUNTRY_CODE: str = "34"
+    # Play the AEPD recording disclosure to the called party before bridging.
+    # Off by default; flip on per environment. The whisper route stays mounted.
+    CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
 

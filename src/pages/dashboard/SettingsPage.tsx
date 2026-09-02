@@ -7,6 +7,7 @@ import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConf
 import { UserGlossary } from "@/components/dashboard/glossary/UserGlossary";
 import { ProductOfferSettings } from "@/components/dashboard/settings/ProductOfferSettings";
 import { TranscriptionLanguageSettings } from "@/components/dashboard/settings/TranscriptionLanguageSettings";
+import { CallerIdSettings } from "@/components/dashboard/settings/CallerIdSettings";
 import { crmApi } from "@/lib/api/crm";
 
 const SettingsPage = () => {
@@ -46,7 +47,7 @@ const SettingsPage = () => {
         <h1 className={THEME_TOKENS.typography.pageTitle}>
           Account <span className={THEME_TOKENS.typography.accentTitle}>Settings</span>
         </h1>
-        <p className={THEME_TOKENS.typography.body}>Manage field mapping, call languages, offer context, and glossary.</p>
+        <p className={THEME_TOKENS.typography.body}>Manage field mapping, call languages, caller ID, offer context, and glossary.</p>
       </div>
 
       {isHubSpotConnected ? (
@@ -80,6 +81,10 @@ const SettingsPage = () => {
 
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
         <TranscriptionLanguageSettings />
+      </div>
+
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+        <CallerIdSettings />
       </div>
 
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>

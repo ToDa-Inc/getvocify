@@ -5,9 +5,13 @@ import pytest
 
 from app.services.telephony.caller_id import (
     CallerIdNotVerified,
+    delete_caller_id,
+    get_caller_id,
     mark_caller_id_verified,
     resolve_caller_id,
+    set_default_caller_id,
     start_caller_id_verification,
+    update_caller_id_label,
 )
 
 
@@ -17,6 +21,7 @@ class FakeQuery:
     def __init__(self, store: list[dict]):
         self.store = store
         self._filters: list[tuple[str, object]] = []
+        self._in_filters: list[tuple[str, list]] = []
         self._order: tuple[str, bool] | None = None
         self._limit: int | None = None
         self._mutation: dict | None = None
@@ -57,10 +62,21 @@ class FakeQuery:
         self.updated = row
         return self
 
+    def delete(self):
+        self._mutation_type = "delete"
+        return self
+
+    def in_(self, column, values):
+        self._in_filters.append((column, list(values)))
+        return self
+
     def _filtered_rows(self) -> list[dict]:
         rows = list(self.store)
         for column, value in self._filters:
             rows = [r for r in rows if r.get(column) == value]
+        for column, values in getattr(self, "_in_filters", []):
+            allowed = set(values)
+            rows = [r for r in rows if r.get(column) in allowed]
         if self._order is not None:
             column, desc = self._order
             rows = sorted(
@@ -73,6 +89,11 @@ class FakeQuery:
         return rows
 
     def execute(self):
+        if self._mutation_type == "delete":
+            matched = self._filtered_rows()
+            for row in matched:
+                self.store.remove(row)
+            return SimpleNamespace(data=list(matched))
         if self._mutation_type == "update":
             matched = self._filtered_rows()
             for row in matched:
@@ -308,3 +329,160 @@ class TestMarkCallerIdVerified:
         assert mark_caller_id_verified(supabase, None) is False
         assert mark_caller_id_verified(supabase, "") is False
         assert store[0]["status"] == "pending"
+
+
+class TestSetDefaultCallerId:
+    def test_clears_other_defaults_for_the_same_user_only(self):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                    "is_default": True,
+                },
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000001",
+                    "status": "verified",
+                    "is_default": False,
+                },
+                {
+                    "user_id": "user-2",
+                    "phone_number": "+34910000002",
+                    "status": "verified",
+                    "is_default": True,
+                },
+            ]
+        )
+
+        assert set_default_caller_id(supabase, "user-1", "+34910000001") is True
+        by_number = {r["phone_number"]: r for r in store}
+        assert by_number["+34910000000"]["is_default"] is False
+        assert by_number["+34910000001"]["is_default"] is True
+        assert by_number["+34910000002"]["is_default"] is True
+
+    def test_rejects_pending_number(self):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "pending",
+                    "is_default": False,
+                }
+            ]
+        )
+
+        assert set_default_caller_id(supabase, "user-1", "+34910000000") is False
+        assert store[0]["is_default"] is False
+
+    def test_normalizes_the_path_number(self):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34600111222",
+                    "status": "verified",
+                    "is_default": False,
+                }
+            ]
+        )
+
+        assert set_default_caller_id(supabase, "user-1", "+34 600 111 222") is True
+        assert store[0]["is_default"] is True
+
+
+class TestDeleteCallerId:
+    def test_deletes_only_the_matching_user_row(self):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                    "is_default": True,
+                },
+                {
+                    "user_id": "user-2",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                    "is_default": True,
+                },
+            ]
+        )
+
+        assert delete_caller_id(supabase, "user-1", "+34910000000") is True
+        assert [r["user_id"] for r in store] == ["user-2"]
+
+    def test_returns_false_when_the_user_does_not_own_the_number(self):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-2",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                }
+            ]
+        )
+
+        assert delete_caller_id(supabase, "user-1", "+34910000000") is False
+        assert len(store) == 1
+
+    def test_resolve_still_works_after_deleting_the_default(self):
+        supabase, _ = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                    "is_default": True,
+                },
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000001",
+                    "status": "verified",
+                    "is_default": False,
+                },
+            ]
+        )
+
+        assert delete_caller_id(supabase, "user-1", "+34910000000") is True
+        assert resolve_caller_id(supabase, "user-1", None) == "+34910000001"
+
+
+class TestGetAndLabel:
+    def test_get_caller_id_is_scoped_to_the_user(self):
+        supabase, _ = fake_supabase(
+            [
+                {
+                    "user_id": "user-2",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                    "label": "Other",
+                    "is_default": True,
+                    "verified_at": "2026-01-01T00:00:00Z",
+                }
+            ]
+        )
+
+        assert get_caller_id(supabase, "user-1", "+34910000000") is None
+
+    def test_label_update_does_not_reset_status(self):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                    "label": "Old",
+                    "is_default": True,
+                    "verified_at": "2026-01-01T00:00:00Z",
+                }
+            ]
+        )
+
+        assert update_caller_id_label(supabase, "user-1", "+34910000000", "Oficina") is True
+        assert store[0]["status"] == "verified"
+        assert store[0]["verified_at"] == "2026-01-01T00:00:00Z"
+        assert store[0]["label"] == "Oficina"

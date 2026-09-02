@@ -262,6 +262,7 @@ class TestVoiceRouteSignature:
             webhooks.settings,
             TWILIO_AUTH_TOKEN=AUTH_TOKEN,
             BACKEND_PUBLIC_URL="https://api.getvocify.com",
+            CALLING_RECORDING_ANNOUNCEMENT_ENABLED=False,
         )
 
     def test_valid_signature_dials_using_the_caller_id_resolved_from_the_db(self):
@@ -460,6 +461,44 @@ class TestVoiceRouteSignature:
         assert row["hubspot_hub_id"] is None
         assert row["hubspot_contact_id"] == "123"
         assert row["hubspot_deal_id"] == "456"
+        assert 'url="https://api.getvocify.com/webhooks/twilio/whisper"' not in resp.text
+
+    def test_whisper_url_is_present_when_announcement_is_enabled(self):
+        user_id = "77777777-7777-7777-7777-777777777777"
+        params = {
+            "From": f"client:{user_id}",
+            "To": "+34600111222",
+            "CallSid": "CA00000000000000000000000000000005",
+        }
+        signature = _sign(self.URL, params, AUTH_TOKEN)
+        supabase, _ = _fake_supabase(
+            {
+                "user_caller_ids": [
+                    {
+                        "user_id": user_id,
+                        "phone_number": "+34910000000",
+                        "status": "verified",
+                        "is_default": True,
+                    }
+                ]
+            }
+        )
+        with (
+            patch("app.api.webhooks.get_supabase", return_value=supabase),
+            patch.multiple(
+                webhooks.settings,
+                TWILIO_AUTH_TOKEN=AUTH_TOKEN,
+                BACKEND_PUBLIC_URL="https://api.getvocify.com",
+                CALLING_RECORDING_ANNOUNCEMENT_ENABLED=True,
+            ),
+        ):
+            resp = _test_client().post(
+                "/webhooks/twilio/voice",
+                data=params,
+                headers={"X-Twilio-Signature": signature},
+            )
+        assert resp.status_code == 200
+        assert 'url="https://api.getvocify.com/webhooks/twilio/whisper"' in resp.text
 
     def test_whisper_route_rejects_an_invalid_signature(self):
         with self._patched_settings():

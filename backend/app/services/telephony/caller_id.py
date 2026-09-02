@@ -125,6 +125,16 @@ def mark_caller_id_failed(
     return _set_status(supabase, twilio_validation_sid, "failed")
 
 
+def _serialize_caller_id(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "phoneNumber": row.get("phone_number"),
+        "status": row.get("status"),
+        "label": row.get("label"),
+        "isDefault": bool(row.get("is_default")),
+        "verifiedAt": row.get("verified_at"),
+    }
+
+
 def list_caller_ids(supabase: Client, user_id: str) -> list[dict[str, Any]]:
     res = (
         supabase.table("user_caller_ids")
@@ -133,16 +143,86 @@ def list_caller_ids(supabase: Client, user_id: str) -> list[dict[str, Any]]:
         .order("created_at")
         .execute()
     )
-    return [
-        {
-            "phoneNumber": row.get("phone_number"),
-            "status": row.get("status"),
-            "label": row.get("label"),
-            "isDefault": bool(row.get("is_default")),
-            "verifiedAt": row.get("verified_at"),
-        }
-        for row in (res.data or [])
-    ]
+    return [_serialize_caller_id(row) for row in (res.data or [])]
+
+
+def get_caller_id(
+    supabase: Client, user_id: str, raw_number: str
+) -> Optional[dict[str, Any]]:
+    phone_number = normalize_e164(
+        raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
+    )
+    rows = (
+        supabase.table("user_caller_ids")
+        .select("phone_number,status,label,is_default,verified_at")
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return _serialize_caller_id(rows[0]) if rows else None
+
+
+def set_default_caller_id(supabase: Client, user_id: str, raw_number: str) -> bool:
+    """Promote a verified number. Clears any other default for this user."""
+    phone_number = normalize_e164(
+        raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
+    )
+    existing = (
+        supabase.table("user_caller_ids")
+        .select("phone_number,status")
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .eq("status", "verified")
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    if not existing:
+        return False
+    supabase.table("user_caller_ids").update({"is_default": False}).eq(
+        "user_id", user_id
+    ).eq("is_default", True).execute()
+    res = (
+        supabase.table("user_caller_ids")
+        .update({"is_default": True})
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .eq("status", "verified")
+        .execute()
+    )
+    return bool(res.data)
+
+
+def update_caller_id_label(
+    supabase: Client, user_id: str, raw_number: str, label: str
+) -> bool:
+    phone_number = normalize_e164(
+        raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
+    )
+    res = (
+        supabase.table("user_caller_ids")
+        .update({"label": label})
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .execute()
+    )
+    return bool(res.data)
+
+
+def delete_caller_id(supabase: Client, user_id: str, raw_number: str) -> bool:
+    phone_number = normalize_e164(
+        raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
+    )
+    res = (
+        supabase.table("user_caller_ids")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .execute()
+    )
+    return bool(res.data)
 
 
 def resolve_caller_id(

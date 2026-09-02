@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   CALL_STATES,
   callButtonLabel,
+  canMute,
+  canSendDigits,
   canStartCall,
   normalizeDialTarget,
 } from './dialer.js';
@@ -92,5 +94,22 @@ describe('callButtonLabel', () => {
 
   it('falls back to Llamar for an unknown state', () => {
     assert.equal(callButtonLabel('bogus'), 'Llamar');
+  });
+});
+
+describe('canSendDigits / canMute', () => {
+  it('are true only while the call is active', () => {
+    assert.equal(canSendDigits(CALL_STATES.ACTIVE), true);
+    assert.equal(canMute(CALL_STATES.ACTIVE), true);
+    for (const state of [
+      CALL_STATES.IDLE,
+      CALL_STATES.CONNECTING,
+      CALL_STATES.RINGING,
+      CALL_STATES.ENDING,
+      undefined,
+    ]) {
+      assert.equal(canSendDigits(state), false, state);
+      assert.equal(canMute(state), false, state);
+    }
   });
 });

@@ -87,7 +87,24 @@ class TestBuildOutboundTwiml:
     def test_answer_on_bridge_so_sdr_hears_ringing_during_whisper(self):
         assert 'answerOnBridge="true"' in self._xml()
 
-    def test_rejects_non_e164_target(self):
+    def test_omits_whisper_url_when_none(self):
+        xml = build_outbound_twiml(
+            to="+34600111222",
+            caller_id="+34910000000",
+            recording_callback_url="https://api.getvocify.com/webhooks/twilio/recording",
+            whisper_url=None,
+        )
+        with_whisper = self._xml()
+        assert 'url="https://api.getvocify.com/webhooks/twilio/whisper"' not in xml
+        assert "<Number>+34600111222</Number>" in xml
+        assert 'record="record-from-answer-dual"' in xml
+        assert 'callerId="+34910000000"' in xml
+        assert 'answerOnBridge="true"' in xml
+        assert "webhooks/twilio/recording" in xml
+        assert 'recordingStatusCallbackEvent="completed"' in xml
+        assert with_whisper.replace(
+            ' url="https://api.getvocify.com/webhooks/twilio/whisper"', ""
+        ) == xml
         with pytest.raises(InvalidPhoneNumber):
             build_outbound_twiml(
                 to="600111222x",

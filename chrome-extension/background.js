@@ -61,7 +61,6 @@ let state = {
   status: 'idle', // idle, recording, copilot, processing, review, success
   context: null,
   syncResult: null,
-  watchingForRecording: false,
   processingSource: null, // 'hubspot_call' | null
   recordings: [],
   recordingsLoading: false,
@@ -76,7 +75,18 @@ let state = {
   captureTabId: null,
   listenPhase: 'idle',
   reviewMemo: null,
-  call: { state: CALL_STATES.IDLE, to: null, callerId: null, error: null },
+  call: {
+    state: CALL_STATES.IDLE,
+    to: null,
+    callerId: null,
+    error: null,
+    callSid: null,
+    answeredAt: null,
+    muted: false,
+    contactId: null,
+    dealId: null,
+  },
+  lastCall: null,
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
@@ -265,9 +275,6 @@ function clearCallWatch() {
   }
   callWatchingRecordId = null;
   callWatchingRecordType = null;
-  if (state.watchingForRecording) {
-    updateState({ watchingForRecording: false });
-  }
 }
 
 function clearMemoPoll() {
@@ -866,6 +873,85 @@ function startPolling(memoId) {
 // ============================================
 // OUTBOUND CALLING
 // ============================================
+function idleCall(error = null) {
+  return {
+    state: CALL_STATES.IDLE,
+    to: null,
+    callerId: null,
+    error: error || null,
+    callSid: null,
+    answeredAt: null,
+    muted: false,
+    contactId: null,
+    dealId: null,
+  };
+}
+
+let callStatusPollId = null;
+const CALL_STATUS_POLL_MS = 3000;
+const CALL_STATUS_POLL_MAX_MS = 4 * 60 * 1000;
+
+function clearCallStatusPoll() {
+  if (callStatusPollId != null) {
+    clearInterval(callStatusPollId);
+    callStatusPollId = null;
+  }
+}
+
+function startCallStatusPoll(callSid) {
+  clearCallStatusPoll();
+  if (!callSid) return;
+  const startedAt = Date.now();
+  const tick = async () => {
+    if (Date.now() - startedAt > CALL_STATUS_POLL_MAX_MS) {
+      clearCallStatusPoll();
+      if (state.lastCall) {
+        updateState({ lastCall: { ...state.lastCall, processing: false } });
+      }
+      return;
+    }
+    try {
+      const call = await api.getCall(callSid);
+      const terminal = call.status === 'logged' || call.status === 'failed';
+      updateState({
+        lastCall: {
+          ...state.lastCall,
+          memoId: call.memoId || null,
+          memoStatus: call.memoStatus || null,
+          processing: !terminal,
+          errorMessage: call.errorMessage || null,
+          durationSeconds: call.durationSeconds ?? state.lastCall?.durationSeconds,
+        },
+      });
+      if (terminal) clearCallStatusPoll();
+    } catch (_) { /* 404 until the webhook inserts; keep polling */ }
+  };
+  tick();
+  callStatusPollId = setInterval(tick, CALL_STATUS_POLL_MS);
+}
+
+function snapshotLastCall(prev) {
+  const answered = Boolean(prev.answeredAt);
+  const endedAt = Date.now();
+  const lastCall = {
+    callSid: prev.callSid || null,
+    to: prev.to,
+    callerId: prev.callerId,
+    contactId: prev.contactId,
+    dealId: prev.dealId,
+    answeredAt: prev.answeredAt || null,
+    endedAt,
+    durationMs: answered ? endedAt - prev.answeredAt : 0,
+    memoId: null,
+    memoStatus: null,
+    processing: answered,
+    outcome: answered ? 'answered' : 'no_answer',
+    errorMessage: prev.error || null,
+  };
+  updateState({ call: idleCall(prev.error), lastCall });
+  if (answered && lastCall.callSid) startCallStatusPoll(lastCall.callSid);
+}
+
 function isTabCapturing() {
   return (
     state.isCopilotListening ||
@@ -894,18 +980,32 @@ async function startCallFlow({ to, callerId }) {
 
   await getOffscreenDocument();
   const context = state.context || {};
+  const contactId = context.contactId || null;
+  const dealId = context.objectType === 'deal' ? context.recordId : null;
+  clearCallStatusPoll();
   chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'START_CALL',
     token,
     to: target,
     callerId,
-    contactId: context.contactId || null,
-    dealId: context.objectType === 'deal' ? context.recordId : null,
+    contactId,
+    dealId,
   });
 
   updateState({
-    call: { state: CALL_STATES.CONNECTING, to: target, callerId, error: null },
+    lastCall: null,
+    call: {
+      state: CALL_STATES.CONNECTING,
+      to: target,
+      callerId,
+      error: null,
+      callSid: null,
+      answeredAt: null,
+      muted: false,
+      contactId,
+      dealId,
+    },
   });
   return { ok: true, to: target };
 }
@@ -1070,16 +1170,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       break;
 
-    case 'CALL_STATE':
+    case 'CALL_STATE': {
+      const prev = state.call || idleCall();
+      const nextState = message.state;
+      if (nextState === CALL_STATES.IDLE && prev.state !== CALL_STATES.IDLE) {
+        snapshotLastCall({
+          ...prev,
+          error: message.error || prev.error,
+          callSid: message.callSid || prev.callSid,
+        });
+        break;
+      }
       updateState({
         call: {
-          ...state.call,
-          state: message.state,
+          ...prev,
+          state: nextState,
           error: message.error || null,
-          to: message.state === CALL_STATES.IDLE ? null : state.call.to,
+          to: nextState === CALL_STATES.IDLE ? null : prev.to,
+          callSid: message.callSid || prev.callSid,
+          answeredAt: message.answeredAt || prev.answeredAt,
+          muted: message.muted != null ? Boolean(message.muted) : prev.muted,
         },
       });
       break;
+    }
 
     case 'START_CALL':
       startCallFlow(message).then(sendResponse);
@@ -1088,6 +1202,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'HANGUP_CALL':
       sendResponse(hangupCallFlow());
       return true;
+
+    case 'MUTE_CALL':
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'MUTE_CALL',
+        muted: Boolean(message.muted),
+      });
+      sendResponse({ ok: true });
+      break;
+
+    case 'SEND_DIGITS':
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'SEND_DIGITS',
+        digits: message.digits,
+      });
+      sendResponse({ ok: true });
+      break;
+
+    case 'CALL_TOKEN_REFRESH_REQUEST':
+      api.createVoiceToken()
+        .then(({ token }) => {
+          chrome.runtime.sendMessage({ target: 'offscreen', type: 'UPDATE_TOKEN', token });
+        })
+        .catch(() => {});
+      break;
+
+    case 'DISMISS_LAST_CALL':
+      clearCallStatusPoll();
+      updateState({ lastCall: null });
+      sendResponse({ ok: true });
+      break;
+
+    case 'OPEN_CALL_MEMO': {
+      const memoId = message.memoId;
+      if (!memoId) {
+        sendResponse({ ok: false });
+        break;
+      }
+      api.getMemo(memoId)
+        .then((memo) => {
+          openReviewFromMemo(memoId, memo);
+          sendResponse({ ok: true });
+        })
+        .catch((e) => sendResponse({ ok: false, error: e.message }));
+      return true;
+    }
 
     case 'GET_CALLING_CONFIG':
       api.getCallingConfig().then(sendResponse).catch(() =>
@@ -1120,6 +1281,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       api.get(`/crm/hubspot/search/contacts?q=${encodeURIComponent(message.query || '')}`)
         .then((results) => sendResponse(results))
         .catch((e) => sendResponse({ error: (e && e.data && e.data.detail) || e.message }));
+      return true;
+
+    case 'GET_CALL_HISTORY':
+      api.getCallHistory({
+        limit: message.limit || 20,
+        contactId: message.contactId || undefined,
+        dealId: message.dealId || undefined,
+      })
+        .then(sendResponse)
+        .catch((e) => sendResponse({ error: e.message }));
       return true;
 
     case 'GET_PREVIEW':
@@ -1207,7 +1378,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       updateState({
         status: 'processing',
         processingSource: 'hubspot_call',
-        watchingForRecording: false,
       });
       api.post(`/crm/hubspot/calls/${encodeURIComponent(callId)}/process`, {})
         .then((res) => {
@@ -1217,7 +1387,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             updateState({
               status: 'processing',
               currentMemoId: memoId,
-              watchingForRecording: false,
               processingSource: 'hubspot_call',
             });
             startPolling(memoId);
@@ -1225,16 +1394,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             api.getMemo(memoId)
               .then((memo) => {
                 openReviewFromMemo(memoId, memo);
-                updateState({ watchingForRecording: false, processingSource: 'hubspot_call' });
+                updateState({ processingSource: 'hubspot_call' });
               })
               .catch(() => {
-                updateState({ status: 'review', currentMemoId: memoId, watchingForRecording: false });
+                updateState({ status: 'review', currentMemoId: memoId });
               });
           } else if (memoId && st === 'pending_transcript') {
             updateState({
               status: 'processing',
               currentMemoId: memoId,
-              watchingForRecording: false,
               processingSource: 'hubspot_call',
             });
             startPolling(memoId);
@@ -1271,7 +1439,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         recordingsError: null,
         finalTranscript: '',
         interimTranscript: '',
-        watchingForRecording: false,
         processingSource: null,
       });
       recordingsKey = null;
@@ -1401,6 +1568,7 @@ function applyContextAsync(ctx) {
     recordings: replaceLists ? [] : (state.recordings || []),
     recordingsLoading: replaceLists ? true : state.recordingsLoading,
     recordingsError: replaceLists ? null : state.recordingsError,
+    lastCall: replaceLists ? null : state.lastCall,
   });
   fetchRecordingsIfNeeded(context);
   if (!key) return;

@@ -207,6 +207,8 @@ export const api = {
   // Convenience methods
   get: (endpoint) => request(endpoint),
   post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+  patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),
+  delete: (endpoint) => request(endpoint, { method: 'DELETE' }),
 
   // Auth
   async login(email, password) {
@@ -293,6 +295,32 @@ export const api = {
     return request('/calls/caller-ids', {
       method: 'POST',
       body: JSON.stringify({ phoneNumber, label: label || null }),
+    });
+  },
+
+  async getCall(sid) {
+    return request(`/calls/${encodeURIComponent(sid)}`);
+  },
+
+  async getCallHistory(params = {}) {
+    const q = new URLSearchParams();
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.contactId) q.set('contactId', params.contactId);
+    if (params.dealId) q.set('dealId', params.dealId);
+    const suffix = q.toString() ? `?${q}` : '';
+    return request(`/calls/history${suffix}`);
+  },
+
+  async setDefaultCallerId(phoneNumber) {
+    return request(`/calls/caller-ids/${encodeURIComponent(phoneNumber)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isDefault: true }),
+    });
+  },
+
+  async deleteCallerId(phoneNumber) {
+    return request(`/calls/caller-ids/${encodeURIComponent(phoneNumber)}`, {
+      method: 'DELETE',
     });
   },
 

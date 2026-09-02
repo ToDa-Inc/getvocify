@@ -60,6 +60,14 @@ export function canStartCall({ isRecording, isTabCapturing, callState } = {}) {
   return { ok: true, reason: null };
 }
 
+export function canSendDigits(callState) {
+  return callState === CALL_STATES.ACTIVE;
+}
+
+export function canMute(callState) {
+  return callState === CALL_STATES.ACTIVE;
+}
+
 export function callButtonLabel(callState) {
   switch (callState) {
     case CALL_STATES.CONNECTING:

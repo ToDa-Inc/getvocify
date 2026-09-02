@@ -2,10 +2,11 @@
 
 ## Database migration (required)
 
-Migration `025_outbound_calling.sql` has **not** been applied to any database yet. Run it before enabling calling:
+Apply both outbound-calling migrations before enabling calling:
 
 ```bash
 psql "$DATABASE_URL" -f backend/migrations/025_outbound_calling.sql
+psql "$DATABASE_URL" -f backend/migrations/026_dialer.sql
 ```
 
 Verify:
@@ -34,7 +35,12 @@ WHERE conname = 'memos_source_check';
    → `TWILIO_TWIML_APP_SID`
 3. Copy Account SID and Auth Token → `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`.
    The Auth Token is used only to validate webhook signatures.
-4. **Do not buy a phone number.** Caller ID comes from each user's verified personal or office number, so there is no number rental and no regulatory bundle.
+4. **Region.** This account lives in **Ireland (IE1)**. Set `TWILIO_EDGE=dublin` and
+   `TWILIO_REGION=ie1`. Requests to `api.twilio.com` (US1) return 401 even with a valid
+   Auth Token. The Python SDK needs **both** `edge` and `region`; region alone still
+   routes to US1. Voice Access Tokens must set `region=ie1` so the browser SDK connects
+   to Dublin.
+5. **Do not buy a phone number.** Caller ID comes from each user's verified personal or office number, so there is no number rental and no regulatory bundle.
 
 ### Webhook endpoints
 
@@ -105,7 +111,19 @@ The side-panel calling UI appears only when `GET /api/v1/calls/config` returns `
 
 ### Caller ID verification
 
-Twilio's verification call is **English-only from a US number**. The side panel shows the 6-digit code and warns about this (`Twilio te llamará en inglés desde un número de Estados Unidos.`). If the user misses the call, they retry from the panel; a previously verified number is not downgraded by a retry.
+Twilio's verification call is **English-only from a US number**. Number management lives on **Settings → Caller ID** (`/dashboard/settings`). The side panel only dials; "Añadir número" opens that page. If the user misses the call, they retry from Settings; a previously verified number is not downgraded by a retry.
+
+`CALLING_RECORDING_ANNOUNCEMENT_ENABLED` (default `false`) plays the AEPD disclosure to the prospect before bridging. The `/webhooks/twilio/whisper` route stays mounted so flipping the flag needs no redeploy.
+
+## Live call checks (after first real call)
+
+Record these against a real Twilio call before relying on post-call polling:
+
+- `activeCall.parameters.CallSid` should equal `outbound_calls.twilio_call_sid`. If it does not, the extension must poll `GET /calls/history?limit=1` instead of `GET /calls/{sid}`.
+- Mute mutes the far end, not just the UI.
+- DTMF reaches an IVR.
+- Two back-to-back calls reuse the Device without "Device destroyed".
+- With the announcement flag off, the WAV is still dual-channel.
 
 ## Local development
 

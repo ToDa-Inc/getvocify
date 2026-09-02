@@ -84,7 +84,8 @@ import {
   activityTimestampFromRecording,
   formatActivityTimestamp,
 } from '../lib/activity-date.js';
-import { CALL_STATES, callButtonLabel, normalizeDialTarget } from '../lib/dialer.js';
+import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
+import { describeCallState, formatCallDuration as formatLiveDuration, shouldPrefillNumber } from '../lib/call-format.js';
 
 (function ensureActivityRowStyles() {
   if (document.getElementById('activity-row-styles')) return;
@@ -189,8 +190,9 @@ let lastReviewMemo = null;
 let addFieldCloseHandler = null;
 /** Avoid re-fetching recent memos on every STATE_UPDATED while watching */
 let recentMemosLoaded = false;
-let recentMemosFetchGen = 0;
 let recentMemosCache = [];
+let outboundCallsCache = [];
+let recentMemosFetchGen = 0;
 let reviewFetchGen = 0;
 let previewFetchGen = 0;
 let loadedPreviewMemoId = null;
@@ -713,6 +715,45 @@ function appendCallActivityRow(listEl, rec) {
   listEl.appendChild(row);
 }
 
+function appendOutboundActivityRow(listEl, call) {
+  const row = document.createElement('div');
+  row.className = 'recording-row';
+  const dateStr = formatActivityTimestamp(call.startedAt);
+  const durStr = formatCallDuration(call.durationSeconds);
+  const meta = [dateStr, durStr].filter(Boolean).join(' · ');
+  const ready = call.memoStatus === 'pending_review' || call.memoStatus === 'approved';
+  const processing = call.status === 'dialing' || call.status === 'recorded' || (!ready && call.memoId);
+  let actionHtml = '';
+  if (ready && call.memoId) {
+    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-review="${escapeHtml(call.memoId)}">Revisar</button>`;
+  } else if (processing) {
+    actionHtml = busyStatusHtml('Transcribiendo…');
+  } else if (call.to) {
+    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(call.to)}" data-from="${escapeHtml(call.from || '')}">Reintentar</button>`;
+  }
+  row.innerHTML = `
+    <div class="recording-row-main">
+      <span class="activity-kind">Call</span>
+      <span class="recording-row-title">${escapeHtml(call.to || 'Llamada')}</span>
+      ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
+    </div>
+    <div class="recording-row-actions">${actionHtml}</div>
+  `;
+  row.querySelector('[data-outbound-review]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId: call.memoId });
+  });
+  row.querySelector('[data-outbound-redial]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const input = document.getElementById('call-number');
+    if (input) input.value = call.to;
+    const select = document.getElementById('call-caller-id');
+    if (select && call.from) select.value = call.from;
+    handleCallButton();
+  });
+  listEl.appendChild(row);
+}
+
 function openMemoFromActivity(memo) {
   if (memo.status === 'pending_review' || memo.status === 'pending_transcript') {
     chrome.runtime.sendMessage({
@@ -789,8 +830,8 @@ function renderRecordingsSection(state) {
   const items = mergeActivityItems({
     recordings: state.recordings || [],
     memos: recentMemosCache,
+    outboundCalls: outboundCallsCache,
   });
-  const watching = Boolean(state.watchingForRecording);
   const idle = state.status === 'idle';
   const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
   const loading = Boolean(state.recordingsLoading || memosLoading);
@@ -801,8 +842,8 @@ function renderRecordingsSection(state) {
     lastActivityListKey = null;
   }
 
-  section.style.display = idle && (watching || items.length > 0 || loading) ? 'block' : 'none';
-  if (watchRow) watchRow.style.display = watching ? 'flex' : 'none';
+  section.style.display = idle && (items.length > 0 || loading) ? 'block' : 'none';
+  if (watchRow) watchRow.style.display = 'none';
   if (kicker) {
     kicker.textContent = activityKickerLabel();
     kicker.style.display = idle && shouldShowActivityKicker(state.context, {
@@ -819,10 +860,10 @@ function renderRecordingsSection(state) {
     statusEl.textContent = WATCH_STATUS_COPY[state.watchPhase] || WATCH_STATUS_COPY.awaiting_recording;
   }
   if (dotEl) {
-    dotEl.style.display = watching ? 'inline-block' : 'none';
+    dotEl.style.display = 'none';
   }
   const stopBtn = document.getElementById('recordings-stop-watch');
-  if (stopBtn) stopBtn.style.display = watching ? '' : 'none';
+  if (stopBtn) stopBtn.style.display = 'none';
 
   if (!listEl) {
     if (showMoreBtn) showMoreBtn.style.display = 'none';
@@ -831,8 +872,10 @@ function renderRecordingsSection(state) {
   }
 
   const memoStamp = recentMemosCache.map((m) => `${m?.id || ''}:${m?.status || ''}`).join(',');
+  const outboundStamp = outboundCallsCache.map((c) => `${c?.callSid || ''}:${c?.status || ''}:${c?.memoStatus || ''}`).join(',');
   const listKey = activityListKey(state, {
     memoStamp,
+    outboundStamp,
     visibleCount: recordingsVisibleCount,
     memosLoading,
   });
@@ -858,6 +901,7 @@ function renderRecordingsSection(state) {
   listEl.innerHTML = '';
   visible.forEach((item) => {
     if (item.kind === 'call') appendCallActivityRow(listEl, item.recording);
+    else if (item.kind === 'outbound') appendOutboundActivityRow(listEl, item.outbound);
     else appendMemoActivityRow(listEl, item.memo);
   });
 
@@ -1160,6 +1204,7 @@ function renderState(state) {
         recentMemosScopeKey = scope.key;
         recentMemosLoaded = false;
         recentMemosCache = [];
+        outboundCallsCache = [];
         recentMemosFetchGen += 1;
       }
       if (scope.skip || !shouldFetchVocifyMemos(state.context)) {
@@ -1818,6 +1863,7 @@ async function loadRecentMemos(scope) {
 
     recentMemosLoaded = true;
     recentMemosCache = memoListFromResponse(memos);
+    await loadOutboundCalls(lastBgState?.context);
     if (lastBgState) renderRecordingsSection(lastBgState);
   } catch (e) {
     if (gen !== recentMemosFetchGen) return;
@@ -1825,6 +1871,29 @@ async function loadRecentMemos(scope) {
     recentMemosCache = [];
     console.error('[Popup] Failed to load recent memos:', e);
     if (lastBgState) renderRecordingsSection(lastBgState);
+  }
+}
+
+async function loadOutboundCalls(context) {
+  const contactId = context?.objectType === 'contact'
+    ? context.recordId
+    : (context?.contactId || undefined);
+  const dealId = context?.objectType === 'deal' ? context.recordId : undefined;
+  if (!contactId && !dealId) {
+    outboundCallsCache = [];
+    return;
+  }
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: 'GET_CALL_HISTORY',
+      contactId,
+      dealId,
+      limit: 20,
+    });
+    outboundCallsCache = Array.isArray(result?.calls) ? result.calls : [];
+  } catch (e) {
+    outboundCallsCache = [];
+    console.error('[Popup] Failed to load call history:', e);
   }
 }
 
@@ -2898,7 +2967,13 @@ function renderSuccess(result) {
 // ============================================
 // OUTBOUND CALLING
 // ============================================
-let callingConfig = { enabled: false, callerIds: [] };
+let callingConfig = { enabled: false, callerIds: [], settingsUrl: '' };
+let prefilledFrom = null;
+let callTimerId = null;
+let keypadEcho = '';
+let keypadBuilt = false;
+let dialerContactSearchTimeout = null;
+const CALLER_ID_PREF_KEY = 'dialerCallerId';
 
 async function loadCallingConfig() {
   try {
@@ -2917,40 +2992,203 @@ function verifiedCallerIds() {
   return (callingConfig.callerIds || []).filter((c) => c.status === 'verified');
 }
 
+function openCallerIdSettings() {
+  const url = callingConfig.settingsUrl || '';
+  if (url) chrome.tabs.create({ url });
+}
+
+function ensureKeypad() {
+  if (keypadBuilt) return;
+  const keypad = document.getElementById('call-keypad');
+  if (!keypad) return;
+  keypadBuilt = true;
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].forEach((digit) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = digit;
+    btn.dataset.digit = digit;
+    btn.addEventListener('click', () => sendDialerDigit(digit));
+    keypad.appendChild(btn);
+  });
+}
+
+function sendDialerDigit(digit) {
+  const call = lastBgState?.call || { state: CALL_STATES.IDLE };
+  if (!canSendDigits(call.state)) return;
+  keypadEcho += digit;
+  const label = document.getElementById('call-state-label');
+  if (label) label.textContent = keypadEcho;
+  chrome.runtime.sendMessage({ type: 'SEND_DIGITS', digits: digit });
+}
+
+function stopCallTimer() {
+  if (callTimerId != null) {
+    clearInterval(callTimerId);
+    callTimerId = null;
+  }
+}
+
+function startCallTimer(answeredAt) {
+  const timer = document.getElementById('call-timer');
+  if (!timer || !answeredAt) return;
+  const tick = () => {
+    timer.textContent = formatLiveDuration(Date.now() - answeredAt);
+  };
+  tick();
+  stopCallTimer();
+  callTimerId = setInterval(tick, 1000);
+}
+
+async function restoreCallerIdPreference(select, verified) {
+  if (!select || !verified.length) return;
+  const preferred = await chrome.storage.local.get([CALLER_ID_PREF_KEY]).then((r) => r[CALLER_ID_PREF_KEY]).catch(() => null);
+  const match = verified.find((c) => c.phoneNumber === preferred);
+  if (match) {
+    select.value = match.phoneNumber;
+    return;
+  }
+  const def = verified.find((c) => c.isDefault);
+  if (def) select.value = def.phoneNumber;
+}
+
 function renderCallSection() {
   const section = document.getElementById('call-section');
+  if (!section) return;
   if (!callingConfig.enabled) {
     section.hidden = true;
+    stopCallTimer();
     return;
   }
   section.hidden = false;
 
   const verified = verifiedCallerIds();
-  document.getElementById('caller-id-setup').hidden = verified.length > 0;
-
+  const emptyEl = document.getElementById('dialer-empty');
+  const fromEl = document.getElementById('dialer-from');
   const select = document.getElementById('call-caller-id');
-  select.hidden = verified.length === 0;
-  select.innerHTML = verified
-    .map(
-      (c) =>
-        `<option value="${escapeHtml(c.phoneNumber)}"${c.isDefault ? ' selected' : ''}>` +
-        `${escapeHtml(c.label || c.phoneNumber)}</option>`
-    )
-    .join('');
-
-  const call = lastBgState?.call || { state: CALL_STATES.IDLE };
   const button = document.getElementById('call-button');
-  button.textContent = callButtonLabel(call.state);
-  button.disabled = verified.length === 0;
+  if (emptyEl) emptyEl.hidden = verified.length > 0;
+  if (fromEl) fromEl.hidden = verified.length === 0;
+  if (select) {
+    const previous = select.value;
+    select.innerHTML = verified
+      .map(
+        (c) =>
+          `<option value="${escapeHtml(c.phoneNumber)}">` +
+          `${escapeHtml(c.label || c.phoneNumber)}</option>`
+      )
+      .join('');
+    if (previous && verified.some((c) => c.phoneNumber === previous)) {
+      select.value = previous;
+    } else {
+      restoreCallerIdPreference(select, verified);
+    }
+  }
+  if (button) button.disabled = verified.length === 0;
 
   const input = document.getElementById('call-number');
-  if (!input.value && lastBgState?.context?.contactPhone) {
-    input.value = lastBgState.context.contactPhone;
+  const ctx = lastBgState?.context || {};
+  const nextPrefill = shouldPrefillNumber({
+    currentValue: input?.value || '',
+    prefilledFrom,
+    contactId: ctx.contactId || null,
+    contactPhone: ctx.contactPhone || null,
+  });
+  if (input && nextPrefill) {
+    input.value = nextPrefill;
+    prefilledFrom = ctx.contactId || nextPrefill;
+  }
+
+  const call = lastBgState?.call || { state: CALL_STATES.IDLE };
+  if (button) button.textContent = callButtonLabel(call.state);
+
+  const live = document.getElementById('call-live');
+  const inCall = call.state && call.state !== CALL_STATES.IDLE;
+  if (live) live.hidden = !inCall;
+  const keypad = document.getElementById('call-keypad');
+  if (!inCall && keypad) keypad.hidden = true;
+  if (inCall) {
+    ensureKeypad();
+    const label = document.getElementById('call-state-label');
+    if (label && !keypadEcho) {
+      label.textContent = describeCallState({
+        state: call.state,
+        to: call.to,
+        answeredAt: call.answeredAt,
+        now: Date.now(),
+        muted: call.muted,
+      });
+    }
+    const muteBtn = document.getElementById('call-mute');
+    if (muteBtn) {
+      muteBtn.disabled = !canMute(call.state);
+      muteBtn.setAttribute('aria-pressed', call.muted ? 'true' : 'false');
+      muteBtn.textContent = call.muted ? 'Micro off' : 'Silenciar';
+    }
+    const keypadToggle = document.getElementById('call-keypad-toggle');
+    if (keypadToggle) keypadToggle.disabled = !canSendDigits(call.state);
+    if (call.state === CALL_STATES.ACTIVE && call.answeredAt) {
+      startCallTimer(call.answeredAt);
+    } else {
+      stopCallTimer();
+    }
+  } else {
+    keypadEcho = '';
+    stopCallTimer();
   }
 
   const status = document.getElementById('call-status');
-  status.hidden = !call.error;
-  status.textContent = call.error || '';
+  if (status) {
+    const text = call.error || '';
+    status.hidden = !text;
+    status.textContent = text;
+    status.classList.toggle('call-status-muted', !call.error);
+  }
+
+  renderPostCallCard(lastBgState?.lastCall);
+}
+
+function renderPostCallCard(lastCall) {
+  const el = document.getElementById('call-postcall');
+  if (!el) return;
+  if (!lastCall) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  const live = lastBgState?.call;
+  if (live && live.state && live.state !== CALL_STATES.IDLE) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
+  const duration = formatLiveDuration(lastCall.durationMs || 0);
+  const ready = lastCall.memoStatus === 'pending_review' || lastCall.memoStatus === 'approved';
+  let body = '';
+  if (lastCall.outcome === 'no_answer') {
+    body = `<span>Sin respuesta</span>
+      <button type="button" id="postcall-redial">Reintentar</button>`;
+  } else if (lastCall.errorMessage && lastCall.processing === false && lastCall.memoStatus !== 'pending_review') {
+    body = `<span>${escapeHtml(lastCall.errorMessage || 'La llamada falló')}</span>
+      <button type="button" id="postcall-redial">Reintentar</button>`;
+  } else if (ready && lastCall.memoId) {
+    body = `<span>Llamada de ${escapeHtml(duration)} · listo para revisar</span>
+      <button type="button" id="postcall-review">Revisar</button>`;
+  } else {
+    body = `<span class="status-busy"><span class="mini-spinner" aria-hidden="true"></span>Llamada de ${escapeHtml(duration)} · transcribiendo…</span>`;
+  }
+  el.innerHTML = `${body}<button type="button" id="postcall-dismiss" class="link-button" aria-label="Cerrar">×</button>`;
+  el.querySelector('#postcall-dismiss')?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
+  });
+  el.querySelector('#postcall-review')?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId: lastCall.memoId });
+  });
+  el.querySelector('#postcall-redial')?.addEventListener('click', () => {
+    const input = document.getElementById('call-number');
+    if (input && lastCall.to) input.value = lastCall.to;
+    handleCallButton();
+  });
 }
 
 async function handleCallButton() {
@@ -2960,43 +3198,69 @@ async function handleCallButton() {
     return;
   }
 
-  const raw = document.getElementById('call-number').value;
+  const raw = document.getElementById('call-number')?.value;
   const target = normalizeDialTarget(raw);
   const status = document.getElementById('call-status');
   if (!target) {
-    status.hidden = false;
-    status.textContent = 'Número no válido.';
+    if (status) {
+      status.hidden = false;
+      status.textContent = 'Número no válido.';
+      status.classList.remove('call-status-muted');
+    }
     return;
   }
 
   const result = await chrome.runtime.sendMessage({
     type: 'START_CALL',
     to: target,
-    callerId: document.getElementById('call-caller-id').value,
+    callerId: document.getElementById('call-caller-id')?.value,
   });
-  if (!result?.ok) {
+  if (!result?.ok && status) {
     status.hidden = false;
     status.textContent = result?.error || 'No se pudo iniciar la llamada.';
+    status.classList.remove('call-status-muted');
   }
 }
 
-async function handleVerifyCallerId() {
-  const phoneNumber = document.getElementById('caller-id-number').value;
-  const codeEl = document.getElementById('caller-id-code');
-  const result = await chrome.runtime.sendMessage({
-    type: 'VERIFY_CALLER_ID',
-    phoneNumber,
-    label: null,
-  });
-  codeEl.hidden = false;
-  if (result?.alreadyVerified) {
-    codeEl.textContent = 'Este número ya está verificado.';
-    loadCallingConfig();
-  } else if (result?.ok && result.verificationCode) {
-    codeEl.textContent = `Te llamamos ahora. Teclea este código: ${result.verificationCode}`;
-    setTimeout(loadCallingConfig, 20000);
-  } else {
-    codeEl.textContent = result?.error || 'No se pudo iniciar la verificación.';
+async function searchDialerContacts(query) {
+  const box = document.getElementById('call-contact-results');
+  if (!box) return;
+  const q = (query || '').trim();
+  if (q.length < 2) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = '<p class="body-muted" style="padding: 8px; text-align: center;">Buscando…</p>';
+  try {
+    const results = await chrome.runtime.sendMessage({ type: 'SEARCH_CONTACTS', query: q });
+    if (!Array.isArray(results) || results.error) {
+      box.innerHTML = `<p class="body-muted" style="padding: 8px; text-align: center;">${escapeHtml(results?.error || 'Sin resultados')}</p>`;
+      return;
+    }
+    const withPhone = results.filter((c) => c.phone);
+    if (!withPhone.length) {
+      box.innerHTML = '<p class="body-muted" style="padding: 8px; text-align: center;">Ningún contacto con teléfono</p>';
+      return;
+    }
+    box.innerHTML = '';
+    withPhone.forEach((c) => {
+      const item = document.createElement('div');
+      item.className = 'search-item';
+      item.innerHTML = `<p>${escapeHtml(c.name || c.email || 'Contacto')}</p>
+        <span>${escapeHtml([c.phone, c.company_name].filter(Boolean).join(' · '))}</span>`;
+      item.onclick = () => {
+        const input = document.getElementById('call-number');
+        if (input) input.value = c.phone;
+        prefilledFrom = c.contact_id || c.phone;
+        box.hidden = true;
+        box.innerHTML = '';
+      };
+      box.appendChild(item);
+    });
+  } catch (e) {
+    box.innerHTML = `<p class="body-muted" style="padding: 8px; text-align: center;">${escapeHtml(e?.message || 'Error')}</p>`;
   }
 }
 
@@ -3006,7 +3270,52 @@ async function handleVerifyCallerId() {
 
 // Paste transcript toggle
 document.getElementById('call-button')?.addEventListener('click', handleCallButton);
-document.getElementById('caller-id-verify')?.addEventListener('click', handleVerifyCallerId);
+document.getElementById('call-add-number')?.addEventListener('click', openCallerIdSettings);
+document.getElementById('call-add-number-empty')?.addEventListener('click', openCallerIdSettings);
+document.getElementById('call-mute')?.addEventListener('click', () => {
+  const muted = document.getElementById('call-mute')?.getAttribute('aria-pressed') !== 'true';
+  chrome.runtime.sendMessage({ type: 'MUTE_CALL', muted });
+});
+document.getElementById('call-keypad-toggle')?.addEventListener('click', () => {
+  ensureKeypad();
+  const keypad = document.getElementById('call-keypad');
+  if (!keypad) return;
+  keypad.hidden = !keypad.hidden;
+  document.getElementById('call-keypad-toggle')?.setAttribute('aria-expanded', keypad.hidden ? 'false' : 'true');
+});
+document.getElementById('call-caller-id')?.addEventListener('change', (e) => {
+  chrome.storage.local.set({ [CALLER_ID_PREF_KEY]: e.target.value });
+});
+document.getElementById('call-contact-search-toggle')?.addEventListener('click', () => {
+  const input = document.getElementById('call-number');
+  if (input) {
+    input.placeholder = 'Nombre o teléfono';
+    input.focus();
+  }
+  searchDialerContacts(document.getElementById('call-number')?.value || '');
+});
+document.getElementById('call-number')?.addEventListener('input', (e) => {
+  clearTimeout(dialerContactSearchTimeout);
+  const box = document.getElementById('call-contact-results');
+  if (box && !box.hidden) {
+    dialerContactSearchTimeout = setTimeout(() => searchDialerContacts(e.target.value), 300);
+  }
+});
+document.addEventListener('keydown', (e) => {
+  const keypad = document.getElementById('call-keypad');
+  if (!keypad || keypad.hidden) return;
+  if (/^[0-9*#]$/.test(e.key)) {
+    e.preventDefault();
+    sendDialerDigit(e.key);
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopCallTimer();
+  else {
+    const call = lastBgState?.call;
+    if (call?.state === CALL_STATES.ACTIVE && call.answeredAt) startCallTimer(call.answeredAt);
+  }
+});
 
 document.getElementById('paste-transcript-toggle')?.addEventListener('click', () => {
   const section = document.getElementById('paste-transcript-section');
@@ -3285,13 +3594,10 @@ document.getElementById('recordings-show-more')?.addEventListener('click', () =>
   const total = mergeActivityItems({
     recordings: lastBgState?.recordings || [],
     memos: recentMemosCache,
+    outboundCalls: outboundCallsCache,
   }).length;
   recordingsVisibleCount = nextVisibleCount(recordingsVisibleCount, total);
   if (lastBgState) renderRecordingsSection(lastBgState);
-});
-document.getElementById('call-watch-stop')?.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'STOP_CALL_WATCH' });
-  chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
 });
 
 // Discard button (step 2)

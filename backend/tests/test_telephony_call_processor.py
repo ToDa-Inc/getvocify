@@ -38,6 +38,16 @@ class TestTwilioWavUrl:
         )
         assert url.endswith("/RE1.wav")
 
+    def test_rewrites_us1_host_to_ireland_when_region_is_set(self):
+        with patch("app.services.telephony.call_processor.settings") as settings:
+            settings.TWILIO_EDGE = "dublin"
+            settings.TWILIO_REGION = "ie1"
+            url = twilio_wav_url(
+                "https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1"
+            )
+        assert url.startswith("https://api.dublin.ie1.twilio.com/")
+        assert url.endswith(".wav")
+
 
 class TestDownloadUsesBasicAuth:
     @patch("app.services.telephony.call_processor.httpx.AsyncClient")

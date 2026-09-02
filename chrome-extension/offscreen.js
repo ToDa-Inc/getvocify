@@ -26,6 +26,7 @@ let mediaRecorder = null;
 let audioChunks = [];
 let twilioDevice = null;
 let activeCall = null;
+let lastReportedCallState = null;
 let stream = null;
 let audioContext = null;
 let playbackContext = null;
@@ -299,8 +300,41 @@ async function startTabCapture(streamId, wsUrl, epoch) {
   }
 }
 
-function reportCallState(state, error) {
-  chrome.runtime.sendMessage({ type: 'CALL_STATE', state, error: error || null });
+function reportCallState(state, error, extra) {
+  lastReportedCallState = state;
+  chrome.runtime.sendMessage({
+    type: 'CALL_STATE',
+    state,
+    error: error || null,
+    ...(extra && typeof extra === 'object' ? extra : {}),
+  });
+}
+
+function attachDeviceListeners(device) {
+  device.on('error', (err) => {
+    activeCall = null;
+    reportCallState(CALL_STATES.IDLE, err?.message || 'Error de dispositivo');
+    try {
+      device.destroy();
+    } catch (_) { /* already gone */ }
+    if (twilioDevice === device) twilioDevice = null;
+  });
+  device.on('tokenWillExpire', () => {
+    chrome.runtime.sendMessage({ type: 'CALL_TOKEN_REFRESH_REQUEST' });
+  });
+}
+
+function ensureDevice(token) {
+  if (twilioDevice) {
+    twilioDevice.updateToken(token);
+    return twilioDevice;
+  }
+  twilioDevice = new globalThis.Twilio.Device(token, {
+    codecPreferences: ['opus', 'pcmu'],
+    logLevel: 'warn',
+  });
+  attachDeviceListeners(twilioDevice);
+  return twilioDevice;
 }
 
 async function startCall({ token, to, callerId, contactId, dealId }) {
@@ -308,22 +342,13 @@ async function startCall({ token, to, callerId, contactId, dealId }) {
     if (!globalThis.Twilio?.Device) {
       throw new Error('Twilio Voice SDK no cargado');
     }
-    // Recreated per call: the AccessToken is short-lived and outbound-only,
-    // so there is nothing to keep registered between calls.
-    if (twilioDevice) {
-      twilioDevice.destroy();
-      twilioDevice = null;
-    }
-    twilioDevice = new globalThis.Twilio.Device(token, {
-      codecPreferences: ['opus', 'pcmu'],
-      logLevel: 'warn',
-    });
+    const device = ensureDevice(token);
 
     reportCallState(CALL_STATES.CONNECTING);
 
     // `To` and `CallerId` reach the TwiML App's Voice URL as POST params.
     // CallerId is only a preference — the backend authorizes it.
-    activeCall = await twilioDevice.connect({
+    activeCall = await device.connect({
       params: {
         To: to,
         CallerId: callerId,
@@ -332,8 +357,17 @@ async function startCall({ token, to, callerId, contactId, dealId }) {
       },
     });
 
-    activeCall.on('ringing', () => reportCallState(CALL_STATES.RINGING));
-    activeCall.on('accept', () => reportCallState(CALL_STATES.ACTIVE));
+    const callSid = activeCall.parameters?.CallSid || null;
+    reportCallState(CALL_STATES.CONNECTING, null, { callSid });
+
+    activeCall.on('ringing', () => reportCallState(CALL_STATES.RINGING, null, { callSid }));
+    activeCall.on('accept', () => {
+      reportCallState(CALL_STATES.ACTIVE, null, {
+        callSid: activeCall?.parameters?.CallSid || callSid,
+        answeredAt: Date.now(),
+        muted: Boolean(activeCall?.isMuted?.()),
+      });
+    });
     activeCall.on('disconnect', () => {
       activeCall = null;
       reportCallState(CALL_STATES.IDLE);
@@ -360,11 +394,26 @@ function hangupCall() {
     /* already gone */
   }
   activeCall = null;
-  if (twilioDevice) {
-    twilioDevice.destroy();
-    twilioDevice = null;
-  }
   reportCallState(CALL_STATES.IDLE);
+}
+
+function muteCall(muted) {
+  if (!activeCall) return;
+  activeCall.mute(Boolean(muted));
+  reportCallState(lastReportedCallState || CALL_STATES.ACTIVE, null, {
+    muted: Boolean(activeCall.isMuted()),
+    callSid: activeCall.parameters?.CallSid || null,
+  });
+}
+
+function sendDigits(digits) {
+  if (!activeCall) return;
+  if (!/^[0-9*#]+$/.test(String(digits || ''))) return;
+  activeCall.sendDigits(digits);
+}
+
+function updateToken(token) {
+  if (twilioDevice && token) twilioDevice.updateToken(token);
 }
 
 function stopRecording(minEpoch) {
@@ -410,6 +459,15 @@ chrome.runtime.onMessage.addListener((message) => {
       break;
     case 'HANGUP_CALL':
       hangupCall();
+      break;
+    case 'MUTE_CALL':
+      muteCall(message.muted);
+      break;
+    case 'SEND_DIGITS':
+      sendDigits(message.digits);
+      break;
+    case 'UPDATE_TOKEN':
+      updateToken(message.token);
       break;
   }
 });

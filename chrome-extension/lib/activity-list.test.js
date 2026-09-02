@@ -141,6 +141,19 @@ describe('mergeActivityItems', () => {
     assert.deepEqual(items.map((i) => i.id), ['m-hs']);
     assert.equal(items[0].kind, 'memo');
   });
+
+  it('includes Vocify outbound calls and skips ones already shown as a memo', () => {
+    const items = mergeActivityItems({
+      recordings: [],
+      memos: [{ id: 'm-out', created_at: '2026-08-19T10:00:00.000Z', source: 'vocify_call' }],
+      outboundCalls: [
+        { callSid: 'CA1', startedAt: '2026-08-19T10:00:00.000Z', memoId: 'm-out' },
+        { callSid: 'CA2', startedAt: '2026-08-20T10:00:00.000Z', memoId: null },
+      ],
+    });
+    assert.equal(items.some((i) => i.kind === 'outbound' && i.id === 'CA2'), true);
+    assert.equal(items.some((i) => i.id === 'CA1'), false);
+  });
 });
 
 describe('nextVisibleCount', () => {

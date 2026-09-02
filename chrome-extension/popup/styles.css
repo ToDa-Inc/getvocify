@@ -1705,15 +1705,27 @@ body {
   border: 1px solid var(--hairline);
 }
 
-.call-row {
+.dialer-to,
+.dialer-from,
+.dialer-live {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-#call-number,
-#caller-id-number {
+.dialer-from,
+.dialer-live {
+  margin-top: 8px;
+}
+
+.dialer-from label {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+#call-number {
   flex: 1;
   min-width: 120px;
   padding: 8px 12px;
@@ -1725,17 +1737,15 @@ body {
   color: var(--foreground);
 }
 
-#call-number:focus,
-#caller-id-number:focus {
+#call-number:focus {
   outline: none;
   border-color: var(--beige);
   box-shadow: 0 0 0 3px rgba(107, 93, 79, 0.1);
 }
 
 #call-caller-id {
-  flex: 0 1 auto;
+  flex: 1;
   min-width: 0;
-  max-width: 140px;
   padding: 8px 10px;
   border-radius: 999px;
   border: 1px solid var(--hairline);
@@ -1746,7 +1756,9 @@ body {
 }
 
 #call-button,
-#caller-id-verify {
+#call-contact-search-toggle,
+#call-mute,
+#call-keypad-toggle {
   flex-shrink: 0;
   padding: 8px 14px;
   border-radius: 999px;
@@ -1759,14 +1771,94 @@ body {
   transition: background 0.15s;
 }
 
-#call-button:hover:not(:disabled),
-#caller-id-verify:hover {
+#call-contact-search-toggle,
+#call-mute,
+#call-keypad-toggle {
+  background: var(--secondary, #f3f1ee);
+  color: var(--foreground);
+  border: 1px solid var(--hairline);
+}
+
+#call-button:hover:not(:disabled) {
   background: var(--beige);
 }
 
-#call-button:disabled {
+#call-button:disabled,
+#call-mute:disabled,
+#call-keypad-toggle:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.dialer-action {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.dialer-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#call-state-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.dialer-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.dialer-keypad button {
+  width: 100%;
+  aspect-ratio: 1.6;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.dialer-results {
+  margin-top: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.dialer-postcall {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.dialer-postcall button:not(.link-button) {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: none;
+  background: var(--beige-dark);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--beige-dark);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
 }
 
 .call-status {
@@ -1775,18 +1867,15 @@ body {
   color: #b91c1c;
 }
 
+.call-status-muted {
+  color: var(--muted);
+}
+
 .call-hint {
   margin: 0 0 10px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--muted);
-}
-
-.call-code {
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--foreground);
 }
 
 /* One activity list on this record — calls and Vocify memos share a row language */
