@@ -107,6 +107,52 @@ export function dealTargetCardCopy({
  * Collapsed: one selected target card.
  * Open: compact picker (contact only + linked deals + create).
  */
+export function contactTargetCardCopy({
+  selectedContact = null,
+  fallbackName = '',
+  fallbackMeta = '',
+} = {}) {
+  if (selectedContact) {
+    return {
+      title: selectedContact.name || selectedContact.email || 'Contact',
+      reason: [selectedContact.email, selectedContact.phone, selectedContact.company_name]
+        .filter(Boolean)
+        .join(' · '),
+      known: true,
+      locked: true,
+    };
+  }
+  const name = String(fallbackName || '').trim();
+  if (name) {
+    return {
+      title: name,
+      reason: String(fallbackMeta || '').trim(),
+      known: true,
+      locked: false,
+    };
+  }
+  return {
+    title: 'No contact selected',
+    reason: 'Search to pick who to update',
+    known: false,
+    locked: false,
+  };
+}
+
+/** Search stays closed when the call already has a contact name. */
+export function contactPickerVisibility({
+  pickerOpen = false,
+  hasDisplayContact = false,
+} = {}) {
+  const showPicker = pickerOpen || !hasDisplayContact;
+  return {
+    showPicker,
+    showCard: !showPicker && hasDisplayContact,
+    showSearch: showPicker,
+    showChange: hasDisplayContact,
+  };
+}
+
 export function dealPickerVisibility({
   pickerOpen = false,
   needsConfirm = false,

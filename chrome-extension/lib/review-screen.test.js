@@ -5,6 +5,8 @@ import {
   canPaintInsightsFromMemo,
   dealCardWhilePreviewLoads,
   dealMatchSubtitle,
+  contactPickerVisibility,
+  contactTargetCardCopy,
   dealPickerVisibility,
   dealTargetCardCopy,
   resolveReviewPresentation,
@@ -224,6 +226,42 @@ describe('deal picker', () => {
   it('hides matcher jargon on linked deals', () => {
     assert.equal(dealMatchSubtitle('Linked to matched contact'), '');
     assert.equal(dealMatchSubtitle('Company association: Holcim'), 'Company association: Holcim');
+  });
+});
+
+describe('contact picker', () => {
+  it('shows the known contact card and hides search', () => {
+    const ui = contactPickerVisibility({ pickerOpen: false, hasDisplayContact: true });
+    assert.equal(ui.showPicker, false);
+    assert.equal(ui.showCard, true);
+    assert.equal(ui.showSearch, false);
+    assert.equal(ui.showChange, true);
+  });
+
+  it('opens search only after Change contact', () => {
+    const ui = contactPickerVisibility({ pickerOpen: true, hasDisplayContact: true });
+    assert.equal(ui.showPicker, true);
+    assert.equal(ui.showCard, false);
+    assert.equal(ui.showSearch, true);
+  });
+
+  it('uses the extracted name as a label, not a HubSpot lock', () => {
+    const copy = contactTargetCardCopy({
+      selectedContact: null,
+      fallbackName: 'Alvar Sanclimens',
+    });
+    assert.equal(copy.title, 'Alvar Sanclimens');
+    assert.equal(copy.known, true);
+    assert.equal(copy.locked, false);
+  });
+
+  it('locks the card only when HubSpot already selected the contact', () => {
+    const copy = contactTargetCardCopy({
+      selectedContact: { name: 'Alvar Sanclimens', email: 'alvar@example.com' },
+    });
+    assert.equal(copy.title, 'Alvar Sanclimens');
+    assert.equal(copy.reason, 'alvar@example.com');
+    assert.equal(copy.locked, true);
   });
 });
 

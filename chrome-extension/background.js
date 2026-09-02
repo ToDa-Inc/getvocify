@@ -1117,9 +1117,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep channel open for async response
 
     case 'SEARCH_CONTACTS':
-      api.get(`/crm/hubspot/search/contacts?q=${encodeURIComponent(message.query)}`)
-        .then(sendResponse)
-        .catch((e) => sendResponse({ error: e.message }));
+      api.get(`/crm/hubspot/search/contacts?q=${encodeURIComponent(message.query || '')}`)
+        .then((results) => sendResponse(results))
+        .catch((e) => sendResponse({ error: (e && e.data && e.data.detail) || e.message }));
       return true;
 
     case 'GET_PREVIEW':

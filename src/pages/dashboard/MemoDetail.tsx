@@ -433,6 +433,7 @@ const MemoDetail = () => {
                 memoId={id || ""}
                 initialDealId={dealIdFromUrl}
                 initialContactId={memo?.hubspotContactId || memo?.hubspot_contact_id}
+                fallbackContactName={extraction.contactName || extraction.contact_name}
                 previewRefreshKey={previewRefreshKey}
                 callSummary={extraction.summary}
                 onSuccess={handleSyncSuccess}

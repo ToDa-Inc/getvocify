@@ -8,6 +8,8 @@ import { api } from '../lib/api.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
 import {
   canPaintInsightsFromMemo,
+  contactPickerVisibility,
+  contactTargetCardCopy,
   dealCardWhilePreviewLoads,
   dealMatchSubtitle,
   dealPickerVisibility,
@@ -1528,6 +1530,7 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
     applyReviewLayout('pending_review');
     renderReviewRecordName(context);
     showExtractionError(presentation.message);
+    renderContactTarget(lastPreviewData);
     paintDealCardPending(context);
     showReviewFieldsPending();
     markApproveMatching();
@@ -1545,6 +1548,7 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
     lockReviewSession(context || {});
   }
   renderReviewRecordName(context);
+  renderContactTarget(lastPreviewData);
   paintDealCardPending(context);
   showReviewFieldsPending();
   markApproveMatching();
@@ -1915,7 +1919,10 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
 
       const dealLabel = document.getElementById('deal-target-label');
       if (dealLabel) {
-        dealLabel.textContent = lastPreviewData.selected_contact ? 'Deal (optional)' : 'Deal';
+        dealLabel.textContent =
+          lastPreviewData.selected_contact || contactFallback(lastPreviewData).name
+            ? 'Deal (optional)'
+            : 'Deal';
       }
       updateChangeDealButton(lastPreviewData);
 
@@ -2173,6 +2180,17 @@ function renderContactRow(c) {
   return btn;
 }
 
+function contactFallback(preview) {
+  const ctx = reviewTargetContext();
+  const name =
+    memoContactName(lastReviewMemo, preview) ||
+    ctx?.contactName ||
+    (ctx?.objectType === 'contact' ? getRecordDisplayName(ctx) : '') ||
+    '';
+  const meta = [ctx?.contactEmail, ctx?.companyName].filter(Boolean).join(' · ');
+  return { name, meta };
+}
+
 function renderContactTarget(preview) {
   const section = document.getElementById('contact-target-section');
   const candidatesEl = document.getElementById('contact-candidates');
@@ -2184,6 +2202,16 @@ function renderContactTarget(preview) {
   if (!section) return;
 
   const selected = preview?.selected_contact;
+  const fallback = contactFallback(preview);
+  const copy = contactTargetCardCopy({
+    selectedContact: selected,
+    fallbackName: fallback.name,
+    fallbackMeta: selected ? '' : fallback.meta,
+  });
+  const ui = contactPickerVisibility({
+    pickerOpen: contactPickerOpen,
+    hasDisplayContact: copy.known,
+  });
   const candidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
   const associated = associatedContactsFromContext(reviewTargetContext());
   const seen = new Set();
@@ -2196,40 +2224,24 @@ function renderContactTarget(preview) {
   }
 
   section.style.display = 'block';
-
-  if (selected) {
-    if (nameEl) nameEl.textContent = selected.name || selected.email || 'Contact';
-    if (metaEl) {
-      metaEl.textContent = [selected.email, selected.phone, selected.company_name]
-        .filter(Boolean)
-        .join(' · ');
-    }
-  }
-
-  const showPicker = contactPickerOpen || !selected;
-  if (card) card.style.display = selected && !showPicker ? 'block' : 'none';
+  if (nameEl) nameEl.textContent = copy.title;
+  if (metaEl) metaEl.textContent = copy.reason;
+  if (card) card.style.display = ui.showCard ? 'block' : 'none';
   if (changeBtn) {
-    changeBtn.style.display = selected ? '' : 'none';
-    changeBtn.textContent = showPicker ? 'Done' : 'Change contact';
+    changeBtn.style.display = ui.showChange ? '' : 'none';
+    changeBtn.textContent = ui.showPicker ? 'Done' : 'Change contact';
   }
-  if (searchBox) searchBox.style.display = showPicker ? 'block' : 'none';
+  if (searchBox) searchBox.style.display = ui.showSearch ? 'block' : 'none';
 
   if (!candidatesEl) return;
-  if (!showPicker) {
+  if (!ui.showPicker) {
     candidatesEl.style.display = 'none';
     candidatesEl.innerHTML = '';
     return;
   }
 
-  candidatesEl.style.display = 'block';
+  candidatesEl.style.display = pick.length ? 'block' : 'none';
   candidatesEl.innerHTML = '';
-  const hint = document.createElement('p');
-  hint.className = 'deal-subtitle';
-  hint.style.margin = '0 0 8px';
-  hint.textContent = pick.length
-    ? 'Pick who to update, or search another contact:'
-    : 'Search for the contact to update:';
-  candidatesEl.appendChild(hint);
   pick.forEach((c) => candidatesEl.appendChild(renderContactRow(c)));
 }
 
@@ -2731,43 +2743,48 @@ function clearContactSearchResults() {
 
 async function searchContacts(query) {
   if (!contactSearchResultsBox) return;
-  if (!query || query.length < 2) {
+  const q = (query || '').trim();
+  if (q.length < 2) {
     clearContactSearchResults();
     return;
   }
 
-  try {
-    const results = await chrome.runtime.sendMessage({ type: 'SEARCH_CONTACTS', query });
-    contactSearchResultsBox.innerHTML = '';
+  contactSearchResultsBox.style.display = 'block';
+  contactSearchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center;">Searching…</p>';
 
-    if (results && !results.error && Array.isArray(results) && results.length > 0) {
-      contactSearchResultsBox.style.display = 'block';
-      results.forEach((c) => {
-        const item = document.createElement('div');
-        item.className = 'search-item';
-        item.innerHTML = `
-          <p>${escapeHtml(c.name || c.email || 'Contact')}</p>
-          <span>${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>
-        `;
-        item.onclick = () => {
-          if (contactSearchInput) contactSearchInput.value = '';
-          clearContactSearchResults();
-          pickContact(c.contact_id);
-        };
-        contactSearchResultsBox.appendChild(item);
-      });
-    } else if (results && !results.error && Array.isArray(results) && results.length === 0) {
-      contactSearchResultsBox.style.display = 'block';
-      contactSearchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center;">No contacts found</p>';
-    } else if (results?.error) {
-      contactSearchResultsBox.style.display = 'block';
+  try {
+    const results = await chrome.runtime.sendMessage({ type: 'SEARCH_CONTACTS', query: q });
+    if (results?.error) {
       contactSearchResultsBox.innerHTML = `<p class="body-muted" style="padding: 12px; text-align: center; color: var(--destructive);">Search failed: ${escapeHtml(results.error)}</p>`;
-    } else {
-      clearContactSearchResults();
+      return;
     }
+    if (!Array.isArray(results)) {
+      contactSearchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center; color: var(--destructive);">Search failed</p>';
+      return;
+    }
+    if (results.length === 0) {
+      contactSearchResultsBox.innerHTML = '<p class="body-muted" style="padding: 12px; text-align: center;">No contacts found</p>';
+      return;
+    }
+
+    contactSearchResultsBox.innerHTML = '';
+    results.forEach((c) => {
+      const item = document.createElement('div');
+      item.className = 'search-item';
+      item.innerHTML = `
+        <p>${escapeHtml(c.name || c.email || 'Contact')}</p>
+        <span>${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>
+      `;
+      item.onclick = () => {
+        if (contactSearchInput) contactSearchInput.value = '';
+        clearContactSearchResults();
+        pickContact(c.contact_id);
+      };
+      contactSearchResultsBox.appendChild(item);
+    });
   } catch (e) {
     console.error('[Popup] Contact search error:', e);
-    clearContactSearchResults();
+    contactSearchResultsBox.innerHTML = `<p class="body-muted" style="padding: 12px; text-align: center; color: var(--destructive);">Search failed: ${escapeHtml(e?.message || 'Could not search')}</p>`;
   }
 }
 

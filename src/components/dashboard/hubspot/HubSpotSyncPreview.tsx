@@ -41,6 +41,7 @@ interface HubSpotSyncPreviewProps {
   memoId: string;
   initialDealId?: string | null;
   initialContactId?: string | null;
+  fallbackContactName?: string | null;
   /** Bust preview cache when memo transcript/extraction changes */
   previewRefreshKey?: string;
   /** Structured call note from extraction — shown as the copilot summary */
@@ -106,6 +107,7 @@ export const HubSpotSyncPreview = ({
   onSuccess,
   initialDealId,
   initialContactId,
+  fallbackContactName = "",
   previewRefreshKey = "default",
   callSummary = "",
   onContactName,
@@ -429,7 +431,7 @@ export const HubSpotSyncPreview = ({
   }, [searchQuery, dealPickerOpen, runSearch]);
 
   useEffect(() => {
-    const pickerVisible = contactPickerOpen || !preview?.selected_contact;
+    const pickerVisible = contactPickerOpen;
     if (!pickerVisible) return;
     const q = contactSearchQuery.trim();
     if (q.length < 2) {
@@ -546,7 +548,10 @@ export const HubSpotSyncPreview = ({
   }, [selectedContact?.name, onContactName]);
 
   const contactCandidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
-  const needsContactDecision = !selectedContact && contactCandidates.length > 0;
+  const fallbackName = String(fallbackContactName || "").trim();
+  const displayContactName = selectedContact?.name || selectedContact?.email || fallbackName;
+  const showContactPicker = contactPickerOpen || !displayContactName;
+  const needsContactDecision = !selectedContact && contactCandidates.length > 0 && !displayContactName;
   const skipDeal = !!preview?.skip_deal || isSkipDealRequested;
   const dealMatch = preview?.selected_deal;
   const isNewDeal = (preview?.is_new_deal ?? false) || isNewDealRequested;
@@ -696,7 +701,7 @@ export const HubSpotSyncPreview = ({
             <User className="h-4 w-4 text-beige" />
             <h5 className={THEME_TOKENS.typography.capsLabel}>Contact</h5>
           </div>
-          {selectedContact && !contactPickerOpen && (
+          {displayContactName && !contactPickerOpen && (
             <Button
               variant="ghost"
               size="sm"
@@ -709,7 +714,7 @@ export const HubSpotSyncPreview = ({
         </div>
 
         {/* Contact Candidates Picker */}
-        {(needsContactDecision || contactPickerOpen || !selectedContact) && (
+        {showContactPicker && (
           <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/25 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-foreground">
@@ -717,7 +722,7 @@ export const HubSpotSyncPreview = ({
                   ? "Several contacts matched — select who to update, or search:"
                   : "Pick who to update, or search another contact:"}
               </p>
-              {selectedContact && (
+              {displayContactName && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -819,25 +824,27 @@ export const HubSpotSyncPreview = ({
         )}
 
         {/* Selected Contact Card */}
-        {selectedContact && !contactPickerOpen && (
+        {displayContactName && !contactPickerOpen && (
           <div className="bg-secondary/5 rounded-2xl p-5 border border-border/40 hover:border-beige/30 transition-colors">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <UserCheck className="h-4 w-4 text-success shrink-0" />
-                  <p className="text-sm font-medium text-foreground truncate">{selectedContact.name || "Contact"}</p>
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {selectedContact?.name || displayContactName}
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground pt-0.5">
-                  {selectedContact.email && <span>{selectedContact.email}</span>}
-                  {selectedContact.phone && <span>{selectedContact.phone}</span>}
-                  {selectedContact.company_name && (
+                  {selectedContact?.email && <span>{selectedContact.email}</span>}
+                  {selectedContact?.phone && <span>{selectedContact.phone}</span>}
+                  {selectedContact?.company_name && (
                     <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
                       <Building className="h-3 w-3" />
                       {selectedContact.company_name}
                     </span>
                   )}
                 </div>
-                {selectedContact.match_reason && (
+                {selectedContact?.match_reason && (
                   <p className="text-[10px] text-muted-foreground/50 pt-1">
                     {selectedContact.match_reason} — contact and company updates will link here
                   </p>
@@ -854,7 +861,7 @@ export const HubSpotSyncPreview = ({
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-beige" />
             <h5 className={THEME_TOKENS.typography.capsLabel}>
-              {selectedContact ? "Deal Target (optional)" : "Deal Target"}
+              {displayContactName ? "Deal Target (optional)" : "Deal Target"}
             </h5>
           </div>
           {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (

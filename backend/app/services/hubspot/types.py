@@ -171,6 +171,7 @@ class FilterGroup(BaseModel):
 
 class SearchRequest(BaseModel):
     """Request body for searching HubSpot objects"""
+    query: Optional[str] = None
     filterGroups: list[FilterGroup] = Field(default_factory=list)
     properties: list[str] = Field(default_factory=list)  # Properties to return
     limit: int = Field(default=10, ge=1, le=100)

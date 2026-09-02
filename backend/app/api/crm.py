@@ -1015,36 +1015,17 @@ async def search_hubspot_contacts(
     """Search HubSpot contacts by name, email, or phone. Escape hatch when matching is wrong."""
     client = get_hubspot_client_from_connection(user_id, supabase)
     search_service = HubSpotSearchService(client)
-    association_service = HubSpotAssociationService(client)
     hits = await search_service.search_contacts_by_query(q, limit=10)
     matches: list[ContactMatch] = []
     for contact in hits:
         props = contact.properties or {}
         name = f"{props.get('firstname', '')} {props.get('lastname', '')}".strip() or None
-        company_id = None
-        company_name = None
-        try:
-            company_ids = await association_service.get_associations(
-                "contacts", str(contact.id), "companies"
-            )
-            if company_ids:
-                company_id = str(company_ids[0])
-                comp = await search_service.client.get(
-                    f"/crm/v3/objects/companies/{company_id}",
-                    params={"properties": "name"},
-                )
-                if comp:
-                    company_name = (comp.get("properties") or {}).get("name")
-        except Exception:
-            pass
         matches.append(ContactMatch(
             contact_id=str(contact.id),
             email=(props.get("email") or "") or "",
             name=name,
             phone=props.get("phone") or props.get("mobilephone"),
             jobtitle=props.get("jobtitle"),
-            company_id=company_id,
-            company_name=company_name,
             match_confidence=1.0,
             match_reason="Manual Search",
         ))

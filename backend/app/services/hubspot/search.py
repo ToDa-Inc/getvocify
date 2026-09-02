@@ -421,7 +421,7 @@ class HubSpotSearchService:
         query: str,
         limit: int = 10,
     ) -> list[HubSpotContact]:
-        """Manual contact picker: email, phone digits, then name."""
+        """Manual contact picker: email, phone, then HubSpot text query (prefix-safe)."""
         q = (query or "").strip()
         if not q:
             return []
@@ -433,5 +433,23 @@ class HubSpotSearchService:
             phone_hits = await self.find_contacts_by_phone(q, limit=limit)
             if phone_hits:
                 return phone_hits
-        return await self.find_contacts_by_name(q, limit=limit)
+        request = SearchRequest(
+            query=q,
+            properties=["email", "firstname", "lastname", "phone", "mobilephone", "jobtitle"],
+            limit=limit,
+        )
+        try:
+            response = await self.client.post(
+                f"/crm/v3/objects/{self.CONTACTS}/search",
+                data=request.model_dump(exclude_none=True, by_alias=True),
+            )
+        except Exception:
+            return []
+        out: list[HubSpotContact] = []
+        for row in (response or {}).get("results") or []:
+            try:
+                out.append(HubSpotContact(**row))
+            except Exception:
+                continue
+        return out
 
