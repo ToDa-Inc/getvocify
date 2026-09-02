@@ -247,12 +247,52 @@ async def _refresh_crm_updates_stale_pending_gauge():
         await asyncio.sleep(5 * 60)
 
 
+async def _periodic_memo_recovery():
+    """
+    Every 5 minutes, re-queue memos stuck in 'transcribing'/'extracting' past
+    RecoveryService.STUCK_THRESHOLD_MINUTES.
+
+    Startup recovery alone only helps memos stuck *before* a deploy/restart -
+    a memo that gets stuck between deploys (e.g. a pipeline-lease false
+    contention, a crashed background task) previously stayed stuck forever,
+    silently spinning on the frontend, until the next deploy happened to
+    restart the process. This closes that gap the same way
+    _refresh_crm_updates_stale_pending_gauge already does for crm_updates.
+    """
+    from app.deps import get_supabase
+    from app.services.recovery import RecoveryService
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    recovery_service = RecoveryService(supabase)
+    while True:
+        await asyncio.sleep(5 * 60)
+        try:
+            result = await recovery_service.recover_all_stuck_memos()
+            if result["found"] > 0:
+                logger.info(
+                    "🔄 Periodic recovery complete",
+                    extra={
+                        "domain": "recovery",
+                        "phase": "periodic",
+                        "found": result["found"],
+                        "recovered": result["recovered"],
+                    },
+                )
+        except Exception as e:
+            logger.exception(
+                "❌ Periodic recovery failed",
+                extra={"domain": "recovery", "phase": "periodic", "error": str(e)},
+            )
+
+
 @app.on_event("startup")
 async def startup_event():
     """
     Startup event handler.
     Recovers stuck memo processing tasks on server startup, and starts the
-    periodic crm_updates stale-pending gauge refresh.
+    periodic crm_updates stale-pending gauge refresh and periodic memo
+    recovery loops.
     """
     logger = logging.getLogger(__name__)
 
@@ -301,6 +341,7 @@ async def startup_event():
         )
 
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
+    asyncio.create_task(_periodic_memo_recovery())
 
 
 @app.get("/")
