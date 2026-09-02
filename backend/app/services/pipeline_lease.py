@@ -33,6 +33,36 @@ def _db_cutoff_iso() -> str:
     return (_utc_now() - timedelta(seconds=LEASE_SECONDS)).isoformat()
 
 
+def _row_has_run_id(result: Any, run_id: str) -> bool:
+    rows = getattr(result, "data", None)
+    if not isinstance(rows, list):
+        return False
+    return any(isinstance(row, dict) and row.get("pipeline_run_id") == run_id for row in rows)
+
+
+def _db_row_has_run_id(supabase: Any, memo_id: str, run_id: str) -> bool:
+    """PostgREST re-applies the PATCH filter to RETURNING.
+
+    After a successful lease write, pipeline_run_id is no longer null and
+    started_at is no longer older than the cutoff, so data=[] even though
+    we own the row. Confirm by primary key.
+    """
+    try:
+        row = (
+            supabase.table("memos")
+            .select("pipeline_run_id")
+            .eq("id", memo_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return False
+    rows = getattr(row, "data", None) or []
+    if not rows or not isinstance(rows[0], dict):
+        return False
+    return rows[0].get("pipeline_run_id") == run_id
+
+
 def acquire_pipeline_run(
     supabase: Any,
     memo_id: str,
@@ -67,8 +97,9 @@ def acquire_pipeline_run(
             if hasattr(q, "or_"):
                 q = q.or_(or_filter)
             result = q.execute()
-            rows = getattr(result, "data", None)
-            if isinstance(rows, list) and len(rows) == 0:
+            if not _row_has_run_id(result, run_id) and not _db_row_has_run_id(
+                supabase, mid, run_id
+            ):
                 with _guard:
                     current = _LIVE.get(mid)
                     if current and current[0] == run_id:

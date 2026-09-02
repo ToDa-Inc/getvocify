@@ -32,7 +32,57 @@ class _HeldClient:
     def or_(self, *_args, **_kwargs):
         return self
 
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
     def execute(self):
+        return _Result([])
+
+
+class _WriteButEmptyReturningClient:
+    """PostgREST PATCH + or() filter: row is updated, RETURNING is [].
+
+    After the write, pipeline_run_id is no longer null and started_at is
+    no longer older than the cutoff, so Prefer: return=representation
+    re-applies the filter and comes back empty. That is not a CAS miss.
+    """
+
+    def __init__(self):
+        self.row = {"pipeline_run_id": None, "pipeline_run_started_at": None}
+        self._pending = None
+        self._selecting = False
+
+    def table(self, _name):
+        return self
+
+    def update(self, payload):
+        self._pending = payload
+        self._selecting = False
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def or_(self, *_args, **_kwargs):
+        return self
+
+    def select(self, *_args, **_kwargs):
+        self._selecting = True
+        return self
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        if self._selecting:
+            self._selecting = False
+            return _Result([dict(self.row)])
+        if self._pending is not None:
+            self.row.update(self._pending)
+            self._pending = None
         return _Result([])
 
 
@@ -81,6 +131,12 @@ class PipelineLeaseTests(unittest.TestCase):
         self.assertIsNone(run_id)
         retry = acquire_pipeline_run(None, "memo-1", "extract")
         self.assertTrue(retry)
+
+    def test_acquire_when_update_writes_but_returning_is_empty(self):
+        client = _WriteButEmptyReturningClient()
+        run_id = acquire_pipeline_run(client, "memo-1", "extract")
+        self.assertTrue(run_id)
+        self.assertEqual(client.row.get("pipeline_run_id"), run_id)
 
 
 if __name__ == "__main__":
