@@ -48,7 +48,7 @@ class CallerIdPatchRequest(BaseModel):
 
 
 def _settings_url() -> str:
-    return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/calling"
+    return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/settings#caller-id"
 
 
 def mint_voice_access_token(user_id: str, ttl: int = TOKEN_TTL_SECONDS) -> str:

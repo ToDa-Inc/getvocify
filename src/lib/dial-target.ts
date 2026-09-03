@@ -68,6 +68,20 @@ export function formatLiveDuration(elapsedMs: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+export function isInCall(callState: string | undefined): boolean {
+  return Boolean(callState && callState !== CALL_STATES.IDLE);
+}
+
+export function floatingDialerChrome(
+  open: boolean,
+  callState: CallState | undefined,
+): { sheet: boolean; fab: boolean } {
+  return {
+    sheet: open,
+    fab: !open && isInCall(callState),
+  };
+}
+
 export function formatCallerIdDisplay(e164: string): string {
   const digits = (e164 || "").replace(/\D/g, "");
   if (e164.startsWith("+34") && digits.length === 11) {
@@ -75,4 +89,18 @@ export function formatCallerIdDisplay(e164: string): string {
     return `+34 ${national.slice(0, 3)} ${national.slice(3, 5)} ${national.slice(5, 7)} ${national.slice(7)}`;
   }
   return e164;
+}
+
+export function dialTargetFromContact(
+  contact: { phone?: string | null } | null | undefined,
+  defaultCountryCode = "34",
+): string | null {
+  return normalizeDialTarget(contact?.phone, defaultCountryCode);
+}
+
+export function contactInitials(name: string | null | undefined): string {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }

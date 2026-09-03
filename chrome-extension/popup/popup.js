@@ -85,7 +85,7 @@ import {
   formatActivityTimestamp,
 } from '../lib/activity-date.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
-import { contactCallCta, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration } from '../lib/call-format.js';
+import { contactCallCta, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, postCallNotice } from '../lib/call-format.js';
 
 (function ensureActivityRowStyles() {
   if (document.getElementById('activity-row-styles')) return;
@@ -3079,11 +3079,20 @@ function renderCallSection() {
     }
   }
 
+  const notice = postCallNotice(lastCall);
+  const noticeEl = document.getElementById('call-notice');
+  const noticeText = document.getElementById('call-notice-text');
+  if (noticeEl) {
+    noticeEl.hidden = !enabled || !notice.visible || mode === 'live';
+    if (noticeText) noticeText.textContent = notice.text;
+  }
+
   const showSection = mode === 'live' || mode === 'postcall' || mode === 'needs-cli' || Boolean(call.error);
   section.hidden = !showSection;
   section.classList.toggle('is-live', mode === 'live');
   if (!showSection) {
     stopCallTimer();
+    renderPostCallCard(lastCall);
     return;
   }
 
@@ -3147,7 +3156,7 @@ function renderCallSection() {
 function renderPostCallCard(lastCall) {
   const el = document.getElementById('call-postcall');
   if (!el) return;
-  if (!lastCall) {
+  if (!lastCall || lastCall.outcome !== 'answered') {
     el.hidden = true;
     el.innerHTML = '';
     return;
@@ -3162,27 +3171,22 @@ function renderPostCallCard(lastCall) {
   const duration = formatLiveDuration(lastCall.durationMs || 0);
   const ready = lastCall.memoStatus === 'pending_review' || lastCall.memoStatus === 'approved';
   let body = '';
-  if (lastCall.outcome === 'no_answer') {
-    body = `<span>Sin respuesta</span>
-      <button type="button" id="postcall-redial">Reintentar</button>`;
-  } else if (lastCall.errorMessage && lastCall.processing === false && lastCall.memoStatus !== 'pending_review') {
-    body = `<span>${escapeHtml(lastCall.errorMessage || 'La llamada falló')}</span>
-      <button type="button" id="postcall-redial">Reintentar</button>`;
+  if (lastCall.errorMessage && lastCall.processing === false && lastCall.memoStatus !== 'pending_review') {
+    body = `<span>${escapeHtml(lastCall.errorMessage || 'La llamada falló')}</span>`;
   } else if (ready && lastCall.memoId) {
     body = `<span>Llamada de ${escapeHtml(duration)} · listo para revisar</span>
       <button type="button" id="postcall-review">Revisar</button>`;
   } else {
     body = `<span class="status-busy"><span class="mini-spinner" aria-hidden="true"></span>Llamada de ${escapeHtml(duration)} · transcribiendo…</span>`;
   }
-  el.innerHTML = `${body}<button type="button" id="postcall-dismiss" class="link-button" aria-label="Cerrar">×</button>`;
+  el.innerHTML = `${body}<button type="button" id="postcall-dismiss" class="dialer-icon-btn" aria-label="Cerrar">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
+  </button>`;
   el.querySelector('#postcall-dismiss')?.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
   });
   el.querySelector('#postcall-review')?.addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId: lastCall.memoId });
-  });
-  el.querySelector('#postcall-redial')?.addEventListener('click', () => {
-    startOutboundCall(lastCall.to);
   });
 }
 
@@ -3239,6 +3243,9 @@ async function handleCallContact() {
 // Paste transcript toggle
 document.getElementById('call-button')?.addEventListener('click', handleCallButton);
 document.getElementById('call-contact')?.addEventListener('click', handleCallContact);
+document.getElementById('call-notice-dismiss')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
+});
 document.getElementById('call-add-number-empty')?.addEventListener('click', openCallerIdSettings);
 document.getElementById('call-mute')?.addEventListener('click', () => {
   const muted = document.getElementById('call-mute')?.getAttribute('aria-pressed') !== 'true';

@@ -5,6 +5,9 @@ import {
   callButtonLabel,
   canMute,
   canSendDigits,
+  contactInitials,
+  dialTargetFromContact,
+  floatingDialerChrome,
   formatCallerIdDisplay,
   formatLiveDuration,
   normalizeDialTarget,
@@ -54,5 +57,60 @@ describe('formatLiveDuration', () => {
 describe('formatCallerIdDisplay', () => {
   it('groups a Spanish mobile for the CLI caption', () => {
     assert.equal(formatCallerIdDisplay('+34669701069'), '+34 669 70 10 69');
+  });
+});
+
+describe('floatingDialerChrome', () => {
+  it('opens the sheet only while the panel is expanded', () => {
+    assert.deepEqual(floatingDialerChrome(true, CALL_STATES.IDLE), {
+      sheet: true,
+      fab: false,
+    });
+    assert.deepEqual(floatingDialerChrome(false, CALL_STATES.IDLE), {
+      sheet: false,
+      fab: false,
+    });
+  });
+
+  it('keeps a FAB when the panel is collapsed during a live call', () => {
+    assert.deepEqual(floatingDialerChrome(false, CALL_STATES.RINGING), {
+      sheet: false,
+      fab: true,
+    });
+    assert.deepEqual(floatingDialerChrome(false, CALL_STATES.ACTIVE), {
+      sheet: false,
+      fab: true,
+    });
+    assert.deepEqual(floatingDialerChrome(true, CALL_STATES.ACTIVE), {
+      sheet: true,
+      fab: false,
+    });
+  });
+});
+
+describe('dialTargetFromContact', () => {
+  it('normalizes the contact phone so the dashboard can dial it', () => {
+    assert.equal(
+      dialTargetFromContact({ phone: '+34600111222' }),
+      '+34600111222',
+    );
+    assert.equal(dialTargetFromContact({ phone: '600111222' }), '+34600111222');
+  });
+
+  it('returns null when the contact has no dialable phone', () => {
+    assert.equal(dialTargetFromContact(null), null);
+    assert.equal(dialTargetFromContact({ phone: null }), null);
+    assert.equal(dialTargetFromContact({ phone: 'n/a' }), null);
+  });
+});
+
+describe('contactInitials', () => {
+  it('uses first and last name letters', () => {
+    assert.equal(contactInitials('Enrique Rodríguez'), 'ER');
+  });
+
+  it('falls back to two letters of a single name', () => {
+    assert.equal(contactInitials('Juan'), 'JU');
+    assert.equal(contactInitials(''), '');
   });
 });

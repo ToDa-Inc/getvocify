@@ -75,9 +75,21 @@ export function dialerPanelMode({
 } = {}) {
   const inCall = Boolean(callState && callState !== CALL_STATES.IDLE);
   if (inCall) return 'live';
-  if (lastCall) return 'postcall';
+  if (lastCall && lastCall.outcome === 'answered') return 'postcall';
   const phone = String(contactPhone || '').trim();
   if (phone && canPlaceCall === false) return 'needs-cli';
   if (phone) return 'contact';
   return 'hidden';
+}
+
+export function postCallNotice(lastCall) {
+  if (!lastCall || lastCall.outcome === 'answered') {
+    return { visible: false, text: '' };
+  }
+  const error = String(lastCall.errorMessage || '');
+  if (/31005/i.test(error) || /application error/i.test(error)) {
+    return { visible: true, text: 'Twilio no alcanzó el servidor' };
+  }
+  if (error) return { visible: true, text: error };
+  return { visible: true, text: 'Sin respuesta' };
 }

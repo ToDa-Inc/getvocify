@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
@@ -13,6 +13,7 @@ import { crmApi } from "@/lib/api/crm";
 const SettingsPage = () => {
   const [isHubSpotConnected, setIsHubSpotConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -32,6 +33,17 @@ const SettingsPage = () => {
     };
     checkConnection();
   }, []);
+
+  useEffect(() => {
+    if (isLoading || location.hash !== "#caller-id") return;
+    const node = document.getElementById("caller-id");
+    if (!node) return;
+    const scroll = () =>
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+    scroll();
+    const id = window.setTimeout(scroll, 450);
+    return () => window.clearTimeout(id);
+  }, [isLoading, location.hash]);
 
   if (isLoading) {
     return (
@@ -83,7 +95,7 @@ const SettingsPage = () => {
         <TranscriptionLanguageSettings />
       </div>
 
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+      <div id="caller-id" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} scroll-mt-24 p-8`}>
         <CallerIdSettings />
       </div>
 

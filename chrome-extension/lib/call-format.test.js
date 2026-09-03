@@ -6,6 +6,7 @@ import {
   describeCallState,
   dialerPanelMode,
   formatCallDuration,
+  postCallNotice,
 } from './call-format.js';
 
 describe('formatCallDuration', () => {
@@ -149,14 +150,26 @@ describe('dialerPanelMode', () => {
     );
   });
 
-  it('shows post-call after hanging up', () => {
+  it('shows post-call follow-up only after an answered call', () => {
     assert.equal(
       dialerPanelMode({
         contactPhone: '+34648739267',
-        lastCall: { to: '+34648739267' },
+        lastCall: { to: '+34648739267', outcome: 'answered' },
         callState: CALL_STATES.IDLE,
       }),
       'postcall'
+    );
+  });
+
+  it('keeps the contact CTA after a no-answer so retry is the same button', () => {
+    assert.equal(
+      dialerPanelMode({
+        contactPhone: '+34648739267',
+        lastCall: { to: '+34648739267', outcome: 'no_answer' },
+        canPlaceCall: true,
+        callState: CALL_STATES.IDLE,
+      }),
+      'contact'
     );
   });
 
@@ -168,6 +181,39 @@ describe('dialerPanelMode', () => {
         callState: CALL_STATES.IDLE,
       }),
       'needs-cli'
+    );
+  });
+});
+
+describe('postCallNotice', () => {
+  it('is hidden when there is no last call', () => {
+    assert.deepEqual(postCallNotice(null), { visible: false, text: '' });
+  });
+
+  it('is hidden after an answered call — that uses the follow-up card', () => {
+    assert.equal(
+      postCallNotice({ outcome: 'answered', processing: true }).visible,
+      false
+    );
+  });
+
+  it('labels a clean miss as no answer', () => {
+    assert.deepEqual(
+      postCallNotice({ outcome: 'no_answer' }),
+      { visible: true, text: 'Sin respuesta' }
+    );
+  });
+
+  it('explains a Twilio webhook miss instead of calling it no answer', () => {
+    assert.deepEqual(
+      postCallNotice({
+        outcome: 'no_answer',
+        errorMessage: '31005 Connection declined',
+      }),
+      {
+        visible: true,
+        text: 'Twilio no alcanzó el servidor',
+      }
     );
   });
 });

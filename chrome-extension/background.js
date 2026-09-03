@@ -1181,6 +1181,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         break;
       }
+      if (nextState === CALL_STATES.IDLE && message.error && state.lastCall) {
+        updateState({
+          lastCall: { ...state.lastCall, errorMessage: message.error },
+        });
+        break;
+      }
       updateState({
         call: {
           ...prev,

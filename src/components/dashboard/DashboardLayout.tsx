@@ -19,10 +19,11 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
+import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
+import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
-  { icon: Phone, label: "Calling", path: "/dashboard/calling" },
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
   { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
   { icon: Link2, label: "Integrations", path: "/dashboard/integrations" },
@@ -32,9 +33,13 @@ const navItems = [
 
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [dialerOpen, setDialerOpen] = useState(false);
+  const [callState, setCallState] = useState<CallState>(CALL_STATES.IDLE);
   const location = useLocation();
   const { user } = useAuth();
   const impersonating = !!getImpersonation();
+  const dialerLive = isInCall(callState);
+  const dialerActive = dialerOpen || dialerLive;
 
   const isActive = (path: string) => {
     if (path === "/dashboard") {
@@ -95,6 +100,28 @@ const DashboardLayout = () => {
               )}
             </Link>
           ))}
+          <button
+            type="button"
+            aria-label="Abrir dialer"
+            aria-expanded={dialerOpen}
+            onClick={() => {
+              setDialerOpen((current) => !current);
+              setSidebarOpen(false);
+            }}
+            className={`
+              flex w-full items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-normal
+              transition-colors duration-150
+              ${dialerActive
+                ? "bg-beige/10 text-foreground"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"}
+            `}
+          >
+            <Phone className={`h-4 w-4 ${dialerActive ? "text-beige" : "opacity-70"}`} />
+            <span className="flex-1 text-left">Call</span>
+            {dialerLive ? (
+              <span className="h-1.5 w-1.5 rounded-full bg-beige" />
+            ) : null}
+          </button>
         </nav>
 
         <div className="p-4 mt-auto shrink-0">
@@ -159,6 +186,12 @@ const DashboardLayout = () => {
           <Outlet />
         </main>
       </div>
+
+      <FloatingDialer
+        open={dialerOpen}
+        onOpenChange={setDialerOpen}
+        onCallStateChange={setCallState}
+      />
     </div>
   );
 };

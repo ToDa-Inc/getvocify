@@ -1,47 +1,69 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Device, Call } from "@twilio/voice-sdk";
-import { Delete, Mic, MicOff, Phone, PhoneOff } from "lucide-react";
+import {
+  MagnifyingGlass,
+  Microphone,
+  MicrophoneSlash,
+  Phone,
+  PhoneDisconnect,
+} from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { callsApi } from "@/features/calls/api";
 import type { CallerId } from "@/features/calls/types";
+import { crmApi } from "@/lib/api/crm";
+import { ROUTES } from "@/shared/lib/constants";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import {
   CALL_STATES,
   callButtonLabel,
   canMute,
-  canSendDigits,
+  contactInitials,
+  dialTargetFromContact,
   formatCallerIdDisplay,
   formatLiveDuration,
   normalizeDialTarget,
   type CallState,
 } from "@/lib/dial-target";
 
-const KEYS: { digit: string; letters: string }[] = [
-  { digit: "1", letters: "" },
-  { digit: "2", letters: "ABC" },
-  { digit: "3", letters: "DEF" },
-  { digit: "4", letters: "GHI" },
-  { digit: "5", letters: "JKL" },
-  { digit: "6", letters: "MNO" },
-  { digit: "7", letters: "PQRS" },
-  { digit: "8", letters: "TUV" },
-  { digit: "9", letters: "WXYZ" },
-  { digit: "*", letters: "" },
-  { digit: "0", letters: "+" },
-  { digit: "#", letters: "" },
-];
+type ContactHit = {
+  contact_id: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  jobtitle?: string | null;
+  company_name?: string | null;
+};
+
+type SelectedTarget = {
+  contactId?: string | null;
+  name: string;
+  phone: string;
+};
+
+type LiveInfo = {
+  state: CallState;
+  elapsed: string;
+};
 
 type Props = {
   callerIds: CallerId[];
+  onLiveChange?: (live: LiveInfo) => void;
+  onRequestClose?: () => void;
 };
 
-export const DashboardDialer = ({ callerIds }: Props) => {
+export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Props) => {
   const verified = callerIds.filter(
     (c) => c.status === "verified" && c.source !== "twilio",
   );
   const defaultFrom =
     verified.find((c) => c.isDefault)?.phoneNumber || verified[0]?.phoneNumber || "";
 
-  const [to, setTo] = useState("");
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<ContactHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SelectedTarget | null>(null);
   const [from, setFrom] = useState(defaultFrom);
   const [state, setState] = useState<CallState>(CALL_STATES.IDLE);
   const [muted, setMuted] = useState(false);
@@ -51,10 +73,19 @@ export const DashboardDialer = ({ callerIds }: Props) => {
 
   const deviceRef = useRef<Device | null>(null);
   const callRef = useRef<Call | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const queryRef = useRef(query);
+  const onLiveChangeRef = useRef(onLiveChange);
+  onLiveChangeRef.current = onLiveChange;
+  queryRef.current = query;
 
   useEffect(() => {
     if (!from && defaultFrom) setFrom(defaultFrom);
   }, [defaultFrom, from]);
+
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!answeredAt || state !== CALL_STATES.ACTIVE) return;
@@ -65,7 +96,12 @@ export const DashboardDialer = ({ callerIds }: Props) => {
   }, [answeredAt, state]);
 
   useEffect(() => {
+    onLiveChangeRef.current?.({ state, elapsed });
+  }, [state, elapsed]);
+
+  useEffect(() => {
     return () => {
+      onLiveChangeRef.current?.({ state: CALL_STATES.IDLE, elapsed: "0:00" });
       try {
         callRef.current?.disconnect();
       } catch {
@@ -78,6 +114,34 @@ export const DashboardDialer = ({ callerIds }: Props) => {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (state !== CALL_STATES.IDLE || q.length < 2) {
+      if (q.length < 2) {
+        setHits([]);
+        setSearchError(null);
+      }
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    const timer = window.setTimeout(async () => {
+      try {
+        const results = await crmApi.searchContacts(q);
+        if (queryRef.current.trim() !== q) return;
+        setHits(Array.isArray(results) ? results : []);
+      } catch {
+        if (queryRef.current.trim() !== q) return;
+        setHits([]);
+        setSearchError("No se pudo buscar en HubSpot");
+      } finally {
+        if (queryRef.current.trim() === q) setSearching(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query, state]);
 
   const ensureDevice = async (token: string) => {
     if (deviceRef.current) {
@@ -108,23 +172,23 @@ export const DashboardDialer = ({ callerIds }: Props) => {
     }
   };
 
-  const startCall = async () => {
+  const startCall = async (target: SelectedTarget) => {
     setError(null);
-    const dest = normalizeDialTarget(to);
-    if (!dest) {
-      toast.error("Introduce un número válido");
-      return;
-    }
     if (!from) {
       toast.error("Verifica tu número antes de llamar");
       return;
     }
     try {
+      setSelected(target);
       setState(CALL_STATES.CONNECTING);
       const { token } = await callsApi.createToken();
       const device = await ensureDevice(token);
       const call = await device.connect({
-        params: { To: dest, CallerId: from },
+        params: {
+          To: target.phone,
+          CallerId: from,
+          ContactId: target.contactId || "",
+        },
       });
       callRef.current = call;
       call.on("ringing", () => setState(CALL_STATES.RINGING));
@@ -146,31 +210,33 @@ export const DashboardDialer = ({ callerIds }: Props) => {
     }
   };
 
+  const callContact = (hit: ContactHit) => {
+    const dest = dialTargetFromContact(hit);
+    if (!dest) {
+      toast.error("Este contacto no tiene teléfono");
+      return;
+    }
+    void startCall({
+      contactId: hit.contact_id,
+      name: hit.name || hit.email || formatCallerIdDisplay(dest),
+      phone: dest,
+    });
+  };
+
+  const callTypedNumber = (dest: string) => {
+    void startCall({
+      name: formatCallerIdDisplay(dest),
+      phone: dest,
+    });
+  };
+
   const inCall = state !== CALL_STATES.IDLE;
   const live = state === CALL_STATES.ACTIVE;
-
-  const pressKey = (digit: string) => {
-    if (live && canSendDigits(state) && callRef.current) {
-      callRef.current.sendDigits(digit);
-      return;
-    }
-    if (!inCall) {
-      setTo((prev) => `${prev}${digit}`);
-    }
-  };
-
-  const backspace = () => {
-    if (inCall) return;
-    setTo((prev) => prev.slice(0, -1));
-  };
-
-  const onAction = () => {
-    if (state === CALL_STATES.IDLE) {
-      void startCall();
-      return;
-    }
-    hangup();
-  };
+  const typedNumber = normalizeDialTarget(query);
+  const typedAlreadyListed =
+    Boolean(typedNumber) &&
+    hits.some((hit) => dialTargetFromContact(hit) === typedNumber);
+  const canPlace = verified.length > 0;
 
   const toggleMute = () => {
     if (!canMute(state) || !callRef.current) return;
@@ -179,104 +245,230 @@ export const DashboardDialer = ({ callerIds }: Props) => {
     setMuted(next);
   };
 
-  const statusLabel =
-    state === CALL_STATES.ACTIVE
-      ? elapsed
-      : state === CALL_STATES.IDLE
-        ? " "
-        : callButtonLabel(state);
+  if (inCall || selected) {
+    const label =
+      state === CALL_STATES.ACTIVE
+        ? elapsed
+        : state === CALL_STATES.IDLE
+          ? "Listo para llamar"
+          : callButtonLabel(state);
 
-  return (
-    <div className="mx-auto w-full max-w-[240px] select-none">
-      <div className="relative mb-0.5 min-h-[2.75rem] text-center">
-        <input
-          id="dialer-to"
-          type="tel"
-          inputMode="tel"
-          autoComplete="off"
-          value={to}
-          onChange={(e) => !inCall && setTo(e.target.value)}
-          placeholder="Número"
-          disabled={inCall}
-          className="w-full bg-transparent text-center text-[1.2rem] font-medium tabular-nums tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50 disabled:opacity-80"
-        />
-        <p className="h-3.5 text-[11px] text-muted-foreground">{statusLabel}</p>
-        {to && !inCall ? (
+    return (
+      <div className="select-none">
+        <div className="flex items-start gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 text-[10px] font-medium text-muted-foreground">
+            {contactInitials(selected?.name)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-medium text-foreground">
+              {selected?.name}
+            </p>
+            <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+              {selected ? formatCallerIdDisplay(selected.phone) : ""}
+            </p>
+            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-center gap-2">
+          {live ? (
+            <button
+              type="button"
+              aria-label={muted ? "Activar micrófono" : "Silenciar"}
+              aria-pressed={muted}
+              onClick={toggleMute}
+              className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
+                muted
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+              }`}
+            >
+              {muted ? (
+                <MicrophoneSlash size={16} weight="light" />
+              ) : (
+                <Microphone size={16} weight="light" />
+              )}
+            </button>
+          ) : null}
+
           <button
             type="button"
-            aria-label="Borrar"
-            onClick={backspace}
-            className="absolute right-0 top-1 rounded-full p-1 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-          >
-            <Delete className="h-4 w-4" />
-          </button>
-        ) : null}
-      </div>
-
-      <div className="grid grid-cols-3 gap-x-2.5 gap-y-1.5 py-0.5">
-        {KEYS.map(({ digit, letters }) => (
-          <button
-            key={digit}
-            type="button"
-            onClick={() => pressKey(digit)}
-            className="flex h-11 flex-col items-center justify-center rounded-full bg-secondary/70 text-foreground transition-colors hover:bg-secondary active:scale-[0.96]"
-          >
-            <span className="text-[1.15rem] font-medium leading-none">{digit}</span>
-            {letters ? (
-              <span className="mt-0.5 text-[8px] font-medium tracking-[0.14em] text-muted-foreground">
-                {letters}
-              </span>
-            ) : (
-              <span className="mt-0.5 h-[10px]" />
-            )}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-2.5 flex items-center justify-center gap-4">
-        {live ? (
-          <button
-            type="button"
-            aria-label={muted ? "Activar micrófono" : "Silenciar"}
-            aria-pressed={muted}
-            onClick={toggleMute}
-            className={`flex h-10 w-11 items-center justify-center rounded-full transition-colors ${
-              muted
-                ? "bg-foreground text-background"
-                : "bg-secondary text-foreground hover:bg-secondary/80"
+            onClick={() => {
+              if (inCall) {
+                hangup();
+                return;
+              }
+              if (selected) void startCall(selected);
+            }}
+            disabled={!canPlace && !inCall}
+            aria-label={callButtonLabel(state)}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] transition-colors disabled:opacity-40 ${
+              inCall
+                ? "text-destructive hover:bg-destructive/10"
+                : "bg-beige text-cream hover:bg-beige-dark"
             }`}
           >
-            {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            {inCall ? (
+              <PhoneDisconnect size={15} weight="light" />
+            ) : (
+              <Phone size={15} weight="light" />
+            )}
+            {inCall ? "Colgar" : "Llamar"}
           </button>
+        </div>
+
+        {!inCall ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSelected(null);
+              setError(null);
+              window.setTimeout(() => searchRef.current?.focus(), 0);
+            }}
+            className="mt-3 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            Buscar otro contacto
+          </button>
+        ) : null}
+
+        {from ? (
+          <p className="mt-3 text-center text-[11px] text-muted-foreground">
+            Sale como {formatCallerIdDisplay(from)}
+          </p>
         ) : (
-          <span className="h-10 w-11" />
+          <p className="mt-3 text-center text-[11px] text-muted-foreground">
+            <Link
+              to={ROUTES.CALLING}
+              onClick={() => onRequestClose?.()}
+              className="text-beige hover:underline"
+            >
+              Verifica tu número
+            </Link>{" "}
+            para llamar
+          </p>
         )}
 
-        <button
-          type="button"
-          onClick={onAction}
-          disabled={verified.length === 0 && state === CALL_STATES.IDLE}
-          aria-label={callButtonLabel(state)}
-          className={`flex h-12 w-12 items-center justify-center rounded-full text-cream shadow-sm transition-transform active:scale-95 disabled:opacity-40 ${
-            inCall ? "bg-destructive hover:bg-destructive/90" : "bg-beige hover:bg-beige-dark"
-          }`}
-        >
-          {inCall ? <PhoneOff className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
-        </button>
-        <span className="h-11 w-11" />
+        {error ? <p className="mt-2 text-center text-xs text-destructive">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="select-none">
+      <div className="relative">
+        <MagnifyingGlass
+          size={14}
+          weight="light"
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        />
+        <input
+          ref={searchRef}
+          type="search"
+          autoComplete="off"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Nombre, email o teléfono"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            const first = hits.find((hit) => dialTargetFromContact(hit));
+            if (first) {
+              callContact(first);
+              return;
+            }
+            if (typedNumber) callTypedNumber(typedNumber);
+          }}
+          className="w-full rounded-xl border border-border/50 bg-card py-2 pl-9 pr-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-beige/40"
+        />
+      </div>
+
+      <div className="mt-2 max-h-56 overflow-y-auto">
+        {typedNumber && !typedAlreadyListed ? (
+          <button
+            type="button"
+            disabled={!canPlace}
+            onClick={() => callTypedNumber(typedNumber)}
+            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-beige/10 disabled:opacity-40"
+          >
+            <Phone size={14} weight="light" className="shrink-0 text-beige" />
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-medium text-foreground">
+                Llamar a {formatCallerIdDisplay(typedNumber)}
+              </span>
+              <span className="block text-[11px] text-muted-foreground">Número escrito</span>
+            </span>
+          </button>
+        ) : null}
+
+        {searching ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+            <VocifySpinner size={12} />
+            Buscando…
+          </div>
+        ) : null}
+
+        {!searching &&
+          [...hits]
+            .sort((a, b) => {
+              const aOk = dialTargetFromContact(a) ? 0 : 1;
+              const bOk = dialTargetFromContact(b) ? 0 : 1;
+              return aOk - bOk;
+            })
+            .map((hit) => {
+            const dest = dialTargetFromContact(hit);
+            return (
+              <button
+                key={hit.contact_id}
+                type="button"
+                disabled={!canPlace || !dest}
+                onClick={() => callContact(hit)}
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-beige/10 disabled:opacity-40"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/50 text-[9px] font-medium text-muted-foreground">
+                  {contactInitials(hit.name || hit.email)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-foreground">
+                    {hit.name || hit.email || "Contacto"}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : "Sin teléfono"]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+
+        {!searching && query.trim().length >= 2 && hits.length === 0 && !typedNumber ? (
+          <p className="px-1 py-6 text-center text-xs text-muted-foreground">
+            {searchError || "Ningún contacto. Prueba otro nombre."}
+          </p>
+        ) : null}
+
+        {query.trim().length < 2 ? (
+          <p className="px-1 py-6 text-center text-xs text-muted-foreground">
+            Busca un contacto de HubSpot y llama.
+          </p>
+        ) : null}
       </div>
 
       {from ? (
         <p className="mt-3 text-center text-[11px] text-muted-foreground">
-          Caller ID {formatCallerIdDisplay(from)}
+          Sale como {formatCallerIdDisplay(from)}
         </p>
       ) : (
         <p className="mt-3 text-center text-[11px] text-muted-foreground">
-          Verifica tu número abajo para llamar
+          <Link
+            to={ROUTES.CALLING}
+            onClick={() => onRequestClose?.()}
+            className="text-beige hover:underline"
+          >
+            Verifica tu número
+          </Link>{" "}
+          para llamar
         </p>
       )}
-
-      {error ? <p className="mt-2 text-center text-xs text-destructive">{error}</p> : null}
     </div>
   );
 };

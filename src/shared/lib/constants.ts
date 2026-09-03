@@ -90,7 +90,7 @@ export const ROUTES = {
   INTEGRATIONS: '/dashboard/integrations',
   PROFILE: '/dashboard/profile',
   SETTINGS: '/dashboard/settings',
-  CALLING: '/dashboard/calling',
+  CALLING: '/dashboard/settings#caller-id',
   USAGE: '/dashboard/usage',
   COPILOT: '/dashboard/copilot',
 } as const;

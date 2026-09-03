@@ -300,6 +300,13 @@ async function startTabCapture(streamId, wsUrl, epoch) {
   }
 }
 
+function twilioErrorText(err, fallback = 'Error de llamada') {
+  if (!err) return fallback;
+  const code = err.code != null ? String(err.code) : '';
+  const msg = err.message || fallback;
+  return code && !msg.includes(code) ? `${code} ${msg}` : msg;
+}
+
 function reportCallState(state, error, extra) {
   lastReportedCallState = state;
   chrome.runtime.sendMessage({
@@ -313,7 +320,7 @@ function reportCallState(state, error, extra) {
 function attachDeviceListeners(device) {
   device.on('error', (err) => {
     activeCall = null;
-    reportCallState(CALL_STATES.IDLE, err?.message || 'Error de dispositivo');
+    reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'Error de dispositivo'));
     try {
       device.destroy();
     } catch (_) { /* already gone */ }
@@ -378,7 +385,7 @@ async function startCall({ token, to, callerId, contactId, dealId }) {
     });
     activeCall.on('error', (err) => {
       activeCall = null;
-      reportCallState(CALL_STATES.IDLE, err?.message || 'Error de llamada');
+      reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'Error de llamada'));
     });
   } catch (error) {
     activeCall = null;

@@ -20,7 +20,6 @@ import MemosPage from "./pages/dashboard/MemosPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
 import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
-import CallingPage from "./pages/dashboard/CallingPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -127,7 +126,7 @@ const App = () => (
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsPage />} />
-              <Route path="calling" element={<CallingPage />} />
+              <Route path="calling" element={<Navigate to="/dashboard/settings#caller-id" replace />} />
               <Route path="usage" element={<UsagePage />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
             </Route>
