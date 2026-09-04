@@ -5,13 +5,29 @@ import { Mic } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
 import { memosApi, memoKeys } from "@/features/memos/api";
-import type { MemoStatus } from "@/features/memos/types";
+import type { MemoStatus, ScreeningOutcome } from "@/features/memos/types";
 import { memoListTitle, memoListSubtitle } from "@/lib/copilot-note";
 import { RecordingsPanel } from "@/components/dashboard/RecordingsPanel";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
-const getStatusBadge = (status: MemoStatus) => {
+const getStatusBadge = (status: MemoStatus, screeningOutcome?: ScreeningOutcome | null) => {
+  if (status === "pending_review") {
+    if (screeningOutcome === "voicemail") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
+          Buzón de voz
+        </span>
+      );
+    }
+    if (screeningOutcome === "no_response") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
+          Sin respuesta
+        </span>
+      );
+    }
+  }
   switch (status) {
     case "approved":
       return (
@@ -131,7 +147,7 @@ const DashboardHome = () => {
                     </div>
 
                     <div className="flex flex-col items-end gap-3 flex-shrink-0">
-                      {getStatusBadge(memo.status)}
+                      {getStatusBadge(memo.status, memo.screeningOutcome)}
                       <span className={`${THEME_TOKENS.typography.capsLabel} text-right max-w-[11rem] leading-snug`}>
                         {formatRecordedAtLabel(memo.createdAt)}
                       </span>

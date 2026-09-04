@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CALL_STATES,
   callButtonLabel,
+  callerIdFormVisible,
   canMute,
   canSendDigits,
   contactInitials,
@@ -101,6 +102,14 @@ describe('dialTargetFromContact', () => {
     assert.equal(dialTargetFromContact(null), null);
     assert.equal(dialTargetFromContact({ phone: null }), null);
     assert.equal(dialTargetFromContact({ phone: 'n/a' }), null);
+  });
+});
+
+describe('callerIdFormVisible', () => {
+  it('shows the add-number form after load even when calling is disabled', () => {
+    assert.equal(callerIdFormVisible({ isLoading: false, enabled: false }), true);
+    assert.equal(callerIdFormVisible({ isLoading: false, enabled: true }), true);
+    assert.equal(callerIdFormVisible({ isLoading: true, enabled: true }), false);
   });
 });
 

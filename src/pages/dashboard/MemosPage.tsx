@@ -9,7 +9,23 @@ import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { formatDistanceToNow } from "date-fns";
 
-const getStatusBadge = (status: string) => {
+const getStatusBadge = (status: string, screeningOutcome?: string | null) => {
+  if (status === "pending_review") {
+    if (screeningOutcome === "voicemail") {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
+          Buzón de voz
+        </span>
+      );
+    }
+    if (screeningOutcome === "no_response") {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-muted-foreground">
+          Sin respuesta
+        </span>
+      );
+    }
+  }
   switch (status) {
     case "approved":
       return (
@@ -174,7 +190,7 @@ const MemosPage = () => {
                 </div>
                 
                 <div className="flex flex-col items-end gap-3 flex-shrink-0">
-                  {getStatusBadge(memo.status)}
+                  {getStatusBadge(memo.status, memo.screeningOutcome)}
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground text-right max-w-[11rem]">
                     <Calendar className="h-3 w-3 flex-shrink-0" />
                     <span className="leading-snug">

@@ -2,6 +2,7 @@
  * Shared recording row logic (ported from chrome-extension/popup/popup.js).
  */
 
+import type { ScreeningOutcome } from '@/features/memos/types';
 import type {
   CrmCallRecording,
   RecordingAction,
@@ -17,7 +18,10 @@ export function memoBusyLabel(status: string | null | undefined): string | null 
   return null;
 }
 
-export function getMemoStatusPill(rec: CrmCallRecording): RecordingStatusPill | null {
+export function getMemoStatusPill(
+  rec: CrmCallRecording,
+  screeningOutcome?: ScreeningOutcome | string | null,
+): RecordingStatusPill | null {
   const st = rec.memo_status;
   if (!rec.memo_id) return null;
   const busy = memoBusyLabel(st);
@@ -25,6 +29,12 @@ export function getMemoStatusPill(rec: CrmCallRecording): RecordingStatusPill | 
   if (st === 'approved') return { variant: 'approved', text: 'Synced', busy: false };
   if (st === 'failed') return { variant: 'failed', text: 'Failed', busy: false };
   if (st === 'pending_review' || st === 'pending_transcript') {
+    if (screeningOutcome === 'voicemail') {
+      return { variant: 'pending', text: 'Buzón de voz', busy: false };
+    }
+    if (screeningOutcome === 'no_response') {
+      return { variant: 'pending', text: 'Sin respuesta', busy: false };
+    }
     return { variant: 'pending', text: 'Review', busy: false };
   }
   return {

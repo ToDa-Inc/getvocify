@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Loader2, Package } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { authApi } from "@/features/auth";
 
 export const ProductOfferSettings = () => {
@@ -49,17 +50,12 @@ export const ProductOfferSettings = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-beige/10 flex items-center justify-center">
-          <Package className="h-5 w-5 text-beige" />
-        </div>
-        <div>
-          <h3 className="font-bold text-foreground">Product & offer</h3>
-          <p className="text-xs text-muted-foreground">
+      <div>
+        <h3 className={THEME_TOKENS.typography.sectionTitle}>Product & offer</h3>
+        <p className="text-xs text-muted-foreground mt-1">
             What you sell, who it is for, and proof points. Used as reference when extracting
             call notes — it is not copied into CRM summaries. Any team can put their own offer here.
-          </p>
-        </div>
+        </p>
       </div>
       <Textarea
         value={value}

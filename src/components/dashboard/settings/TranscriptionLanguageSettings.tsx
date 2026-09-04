@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Languages } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -81,17 +81,12 @@ export const TranscriptionLanguageSettings = () => {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-beige/10 flex items-center justify-center">
-          <Languages className="h-5 w-5 text-beige" />
-        </div>
-        <div>
-          <h3 className="font-bold text-foreground">Call languages</h3>
-          <p className="text-xs text-muted-foreground">
+      <div>
+        <h3 className={THEME_TOKENS.typography.sectionTitle}>Call languages</h3>
+        <p className="text-xs text-muted-foreground mt-1">
             Main language for HubSpot recordings, uploads, and WhatsApp. Add others only if
             those calls mix languages.
-          </p>
-        </div>
+        </p>
       </div>
 
       <div className="space-y-2">

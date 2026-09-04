@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Phone } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { useAuth } from "@/features/auth";
 import { callsApi } from "@/features/calls/api";
 import type { CallerId, CallingConfig } from "@/features/calls/types";
 import { ApiError } from "@/shared/lib/api-client";
+import { callerIdFormVisible } from "@/lib/dial-target";
 
 const POLL_MS = 3000;
 const POLL_MAX_MS = 120_000;
@@ -154,17 +155,12 @@ export const CallerIdSettings = () => {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-beige/10 flex items-center justify-center">
-          <Phone className="h-5 w-5 text-beige" />
-        </div>
-        <div>
-          <h3 className="font-bold text-foreground">Caller ID</h3>
-          <p className="text-xs text-muted-foreground">
-            El número que verán tus prospectos. Twilio te llamará, en
-            inglés, y teclearás un código.
-          </p>
-        </div>
+      <div>
+        <h3 className={THEME_TOKENS.typography.sectionTitle}>Caller ID</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          El número que verán tus prospectos. Twilio te llamará, en
+          inglés, y teclearás un código.
+        </p>
       </div>
 
       {!config?.enabled && (
@@ -228,7 +224,7 @@ export const CallerIdSettings = () => {
         </ul>
       )}
 
-      {config?.enabled && (
+      {callerIdFormVisible({ isLoading, enabled: config?.enabled }) && (
         <div className="space-y-3">
           {whatsappUnused && (
             <button

@@ -60,6 +60,7 @@ class TestBuildOutboundTwiml:
             to="+34600111222",
             caller_id="+34910000000",
             recording_callback_url="https://api.getvocify.com/webhooks/twilio/recording",
+            dial_status_callback_url="https://api.getvocify.com/webhooks/twilio/dial-status",
             whisper_url="https://api.getvocify.com/webhooks/twilio/whisper",
         )
 
@@ -72,6 +73,10 @@ class TestBuildOutboundTwiml:
 
     def test_dials_the_target_number(self):
         assert "+34600111222" in self._xml()
+
+    def test_registers_dial_status_callback(self):
+        assert "webhooks/twilio/dial-status" in self._xml()
+        assert 'method="POST"' in self._xml()
 
     def test_registers_recording_callback_on_completed(self):
         xml = self._xml()
@@ -92,6 +97,7 @@ class TestBuildOutboundTwiml:
             to="+34600111222",
             caller_id="+34910000000",
             recording_callback_url="https://api.getvocify.com/webhooks/twilio/recording",
+            dial_status_callback_url="https://api.getvocify.com/webhooks/twilio/dial-status",
             whisper_url=None,
         )
         with_whisper = self._xml()
@@ -110,6 +116,7 @@ class TestBuildOutboundTwiml:
                 to="600111222x",
                 caller_id="+34910000000",
                 recording_callback_url="https://x/r",
+                dial_status_callback_url="https://x/d",
                 whisper_url="https://x/w",
             )
 
@@ -119,6 +126,7 @@ class TestBuildOutboundTwiml:
                 to="+34600111222",
                 caller_id="910000000x",
                 recording_callback_url="https://x/r",
+                dial_status_callback_url="https://x/d",
                 whisper_url="https://x/w",
             )
 

@@ -125,6 +125,7 @@ def _memo_from_row(memo_data: dict) -> Memo:
             hubspotEngagementId=memo_data.get("hubspot_engagement_id"),
             hubspotContactId=memo_data.get("hubspot_contact_id"),
             hubspotDealId=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
+            screeningOutcome=memo_data.get("screening_outcome"),
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)

@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ShieldCheck } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
@@ -64,16 +63,12 @@ const SettingsPage = () => {
 
       {isHubSpotConnected ? (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-          <div className="flex items-center gap-4 mb-10">
-            <div className="w-12 h-12 rounded-2xl bg-beige/10 flex items-center justify-center">
-              <ShieldCheck className="h-6 w-6 text-beige" />
-            </div>
-            <div>
-              <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot Configuration</h2>
-              <p className="text-xs text-muted-foreground mt-1">Choose which HubSpot fields AI may fill from a call, and how each one is treated.</p>
-            </div>
+          <div className="mb-10">
+            <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot Configuration</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Choose which HubSpot fields AI may fill from a call, and how each one is treated.
+            </p>
           </div>
-
           <HubSpotConfiguration />
         </div>
       ) : (

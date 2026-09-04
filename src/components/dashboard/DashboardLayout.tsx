@@ -86,14 +86,14 @@ const DashboardLayout = () => {
               to={item.path}
               onClick={() => setSidebarOpen(false)}
               className={`
-                flex items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-normal
+                flex items-center gap-3 px-3 py-2 rounded-lg text-[13.5px]
                 transition-colors duration-150
                 ${isActive(item.path)
-                  ? "bg-beige/10 text-foreground"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"}
+                  ? "text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground"}
               `}
             >
-              <item.icon className={`h-4 w-4 ${isActive(item.path) ? "text-beige" : "opacity-70"}`} />
+              <item.icon className="h-4 w-4 opacity-70" />
               <span className="flex-1">{item.label}</span>
               {"beta" in item && item.beta && (
                 <span className="text-[10px] font-medium text-beige">Beta</span>
@@ -109,14 +109,14 @@ const DashboardLayout = () => {
               setSidebarOpen(false);
             }}
             className={`
-              flex w-full items-center gap-3 px-3 py-2 rounded-xl text-[13.5px] font-normal
+              flex w-full items-center gap-3 px-3 py-2 rounded-lg text-[13.5px]
               transition-colors duration-150
               ${dialerActive
-                ? "bg-beige/10 text-foreground"
-                : "text-muted-foreground hover:bg-secondary hover:text-foreground"}
+                ? "text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"}
             `}
           >
-            <Phone className={`h-4 w-4 ${dialerActive ? "text-beige" : "opacity-70"}`} />
+            <Phone className="h-4 w-4 opacity-70" />
             <span className="flex-1 text-left">Call</span>
             {dialerLive ? (
               <span className="h-1.5 w-1.5 rounded-full bg-beige" />

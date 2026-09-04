@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -509,3 +509,53 @@ class TestVoiceRouteSignature:
             )
 
         assert resp.status_code == 403
+
+
+class TestDialStatusWebhook:
+    def test_completed_dial_status_is_no_op(self):
+        supabase, stores = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": "user-1",
+                        "twilio_call_sid": "CA1",
+                        "status": "dialing",
+                    }
+                ]
+            }
+        )
+        with (
+            patch("app.api.webhooks.get_supabase", return_value=supabase),
+            patch.object(webhooks.settings, "ENVIRONMENT", "development"),
+            patch.dict("os.environ", {"TWILIO_SKIP_SIG_CHECK": "1"}),
+            patch(
+                "app.api.webhooks.log_missed_call_activity",
+                new_callable=AsyncMock,
+            ) as missed,
+        ):
+            resp = _test_client().post(
+                "/webhooks/twilio/dial-status",
+                data={"CallSid": "CA1", "DialCallStatus": "completed"},
+            )
+        assert resp.status_code == 200
+        assert "<Response" in resp.text
+        missed.assert_not_called()
+
+    def test_no_answer_triggers_missed_call_logging(self):
+        supabase, _ = _fake_supabase({})
+        with (
+            patch("app.api.webhooks.get_supabase", return_value=supabase),
+            patch.object(webhooks.settings, "ENVIRONMENT", "development"),
+            patch.dict("os.environ", {"TWILIO_SKIP_SIG_CHECK": "1"}),
+            patch(
+                "app.api.webhooks.log_missed_call_activity",
+                new_callable=AsyncMock,
+            ) as missed,
+        ):
+            resp = _test_client().post(
+                "/webhooks/twilio/dial-status",
+                data={"CallSid": "CA2", "DialCallStatus": "no-answer"},
+            )
+        assert resp.status_code == 200
+        assert "<Response" in resp.text
+        missed.assert_awaited_once()

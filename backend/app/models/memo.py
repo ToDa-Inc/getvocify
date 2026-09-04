@@ -142,6 +142,7 @@ class Memo(MemoBase):
     hubspotEngagementId: Optional[str] = None
     hubspotContactId: Optional[str] = None
     hubspotDealId: Optional[str] = None
+    screeningOutcome: Optional[str] = None
     
     class Config:
         from_attributes = True

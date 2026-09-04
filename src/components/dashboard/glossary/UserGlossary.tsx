@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Loader2, BookOpen, Sparkles, Languages, Library, Wand2, Upload, X } from "lucide-react";
+import { Plus, Trash2, Loader2, Sparkles, Languages, Library, Wand2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -221,15 +221,10 @@ export const UserGlossary = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-beige/10 flex items-center justify-center">
-            <BookOpen className="h-5 w-5 text-beige" />
-          </div>
-          <div>
-            <h3 className="font-bold text-foreground">Custom Vocabulary</h3>
-            <p className="text-xs text-muted-foreground">Train AI to recognize your specific terms.</p>
-          </div>
+        <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className={THEME_TOKENS.typography.sectionTitle}>Custom Vocabulary</h3>
+          <p className="text-xs text-muted-foreground mt-1">Train AI to recognize your specific terms.</p>
         </div>
         <div className="flex gap-2">
           <Button 

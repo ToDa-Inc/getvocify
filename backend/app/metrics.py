@@ -23,6 +23,16 @@ sync_duration = Histogram(
     ["result"],
     buckets=(1.0, 3.0, 5.0, 10.0, 20.0, 60.0),
 )
+download_duration = Histogram(
+    "vocify_download_duration_seconds",
+    "Twilio recording download duration in seconds",
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
+)
+hubspot_log_duration = Histogram(
+    "vocify_hubspot_log_duration_seconds",
+    "HubSpot call activity logging duration in seconds",
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0),
+)
 
 # Counters for errors and throughput
 pipeline_errors = Counter(
@@ -78,6 +88,14 @@ def record_extraction_duration(seconds: float) -> None:
 
 def record_sync_duration(seconds: float, result: str) -> None:
     _safe(sync_duration.labels(result=result).observe, seconds)
+
+
+def record_download_duration(seconds: float) -> None:
+    _safe(download_duration.observe, seconds)
+
+
+def record_hubspot_log_duration(seconds: float) -> None:
+    _safe(hubspot_log_duration.observe, seconds)
 
 
 def inc_pipeline_error(domain: str, phase: str) -> None:

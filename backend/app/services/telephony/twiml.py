@@ -77,6 +77,7 @@ def build_outbound_twiml(
     to: str,
     caller_id: str,
     recording_callback_url: str,
+    dial_status_callback_url: str,
     whisper_url: str | None = None,
     timeout: int = 30,
 ) -> str:
@@ -90,6 +91,8 @@ def build_outbound_twiml(
         record="record-from-answer-dual",
         recording_status_callback=recording_callback_url,
         recording_status_callback_event="completed",
+        action=dial_status_callback_url,
+        method="POST",
         # Keeps the SDR hearing ringback while the disclosure plays.
         answer_on_bridge=True,
         timeout=timeout,

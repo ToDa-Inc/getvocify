@@ -19,7 +19,8 @@ from app.deps import get_supabase
 from app.config import settings
 from app.webhook_context import set_correlation_id
 from app.logging_config import log_domain, DOMAIN_WEBHOOK
-from app.metrics import inc_webhook_message
+from app.metrics import inc_webhook_message, record_download_duration
+from app.services.pipeline_meta import pipeline_run, record_stage
 from app.services.hubspot.webhook_signature import verify_hubspot_webhook
 from app.services.whatsapp.client import WhatsAppClient
 from app.services.whatsapp.webhook_parser import parse_webhook
@@ -46,6 +47,7 @@ from app.services.telephony.call_processor import (
     attach_hubspot_contact_by_phone,
     download_twilio_recording,
     initiate_vocify_call_memo,
+    log_missed_call_activity,
     process_vocify_call_background,
 )
 from app.services.telephony.webhook_signature import (
@@ -679,6 +681,7 @@ async def twilio_voice(request: Request):
             to=to_number,
             caller_id=caller_id,
             recording_callback_url=f"{base}/webhooks/twilio/recording",
+            dial_status_callback_url=f"{base}/webhooks/twilio/dial-status",
             whisper_url=(
                 f"{base}/webhooks/twilio/whisper"
                 if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED
@@ -733,6 +736,31 @@ async def twilio_caller_id_status(request: Request):
     return Response(status_code=204)
 
 
+@router.post("/twilio/dial-status")
+async def twilio_dial_status(request: Request):
+    """Dial leg finished. Logs missed calls; completed calls use the recording webhook.
+
+    This is the `action` URL on `<Dial>`, not a fire-and-forget status
+    callback: Twilio requires a valid TwiML response here to continue (or
+    gracefully end) the *parent* leg — the SDR's browser call that placed
+    the Dial. For busy/no-answer/failed/canceled that parent leg is still
+    live and waiting, so an empty 204 (no TwiML, wrong content type) would
+    surface as the same "application error" the prod 403 investigation was
+    chasing, on every unanswered call. Always return `<Response/>`, which
+    hangs the parent leg up cleanly with no verbs left to run.
+    """
+    supabase = get_supabase()
+    params = await _twilio_form(request)
+    if not _twilio_authentic(request, params):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    call_sid = (params.get("CallSid") or "").strip()
+    dial_status = (params.get("DialCallStatus") or "").strip().lower()
+    if call_sid and dial_status != "completed":
+        await log_missed_call_activity(supabase, call_sid, dial_status)
+    return _twiml(str(VoiceResponse()))
+
+
 @router.post("/twilio/recording")
 async def twilio_recording(request: Request):
     """Recording is ready: persist the WAV, then transcribe and extract.
@@ -764,11 +792,19 @@ async def twilio_recording(request: Request):
     if call_row.get("memo_id"):
         return Response(status_code=204)  # redelivery
 
+    pipeline_started_at = time.perf_counter()
+    pre_stages: list = []
     duration = float(params.get("RecordingDuration") or 0) or 1.0
-    audio_bytes = await download_twilio_recording(recording_url)
-    path = await StorageService(supabase).upload_call_recording(
-        audio_bytes, call_row["user_id"], call_sid
-    )
+    with pipeline_run() as pre_stages:
+        t_dl = time.perf_counter()
+        audio_bytes = await download_twilio_recording(recording_url)
+        record_stage("download", t_dl, bytes=len(audio_bytes))
+        record_download_duration(time.perf_counter() - t_dl)
+        t_up = time.perf_counter()
+        path = await StorageService(supabase).upload_call_recording(
+            audio_bytes, call_row["user_id"], call_sid
+        )
+        record_stage("upload", t_up)
 
     supabase.table("outbound_calls").update(
         {
@@ -796,6 +832,8 @@ async def twilio_recording(request: Request):
                 audio_bytes,
                 duration,
                 supabase,
+                pre_stages=list(pre_stages),
+                pipeline_started_at=pipeline_started_at,
             )
         )
     return Response(status_code=204)

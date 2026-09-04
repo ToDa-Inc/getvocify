@@ -19,6 +19,51 @@ logger = logging.getLogger(__name__)
 CALLS_OBJECT_PATH = "/crm/v3/objects/calls"
 CALLING_EXTENSIONS_BASE = "/crm/extensions/calling/2026-03"
 
+# HubSpot hs_call_status values (see Calls API docs).
+HUBSPOT_STATUS_BY_DISPOSITION: dict[str, str] = {
+    "connected": "COMPLETED",
+    "voicemail": "COMPLETED",
+    "no_response": "COMPLETED",
+    "busy": "BUSY",
+    "no_answer": "NO_ANSWER",
+    "failed": "FAILED",
+    "canceled": "CANCELED",
+}
+
+HUBSPOT_BODY_BY_DISPOSITION: dict[str, str] = {
+    "connected": "Transcripcion y extraccion disponibles en Vocify.",
+    "voicemail": "Buzon de voz. Transcripcion disponible en Vocify.",
+    "no_response": "Sin respuesta / posible IVR. Transcripcion disponible en Vocify.",
+    "busy": "Ocupado.",
+    "no_answer": "Sin respuesta.",
+    "failed": "Llamada fallida.",
+    "canceled": "Llamada cancelada.",
+}
+
+
+def normalize_twilio_dial_status(dial_status: str) -> str:
+    """Map Twilio DialCallStatus to outbound_calls.call_disposition."""
+    raw = (dial_status or "").strip().lower()
+    mapping = {
+        "completed": "connected",
+        "busy": "busy",
+        "no-answer": "no_answer",
+        "failed": "failed",
+        "canceled": "canceled",
+    }
+    return mapping.get(raw, "failed")
+
+
+def hubspot_call_status_for_disposition(disposition: str) -> str:
+    return HUBSPOT_STATUS_BY_DISPOSITION.get(disposition, "COMPLETED")
+
+
+def hubspot_call_body_for_disposition(disposition: str) -> str:
+    return HUBSPOT_BODY_BY_DISPOSITION.get(
+        disposition,
+        HUBSPOT_BODY_BY_DISPOSITION["connected"],
+    )
+
 
 def build_call_properties(
     *,
@@ -32,6 +77,7 @@ def build_call_properties(
     owner_id: Optional[str],
     title: str,
     body: str,
+    call_status: str = "COMPLETED",
 ) -> dict[str, Any]:
     if not external_id:
         raise ValueError("external_id is required for the recordings pipeline")
@@ -47,7 +93,7 @@ def build_call_properties(
         "hs_call_duration": str(int(duration_ms)),
         "hs_call_from_number": from_number,
         "hs_call_to_number": to_number,
-        "hs_call_status": "COMPLETED",
+        "hs_call_status": call_status,
         "hs_call_direction": "OUTBOUND",
         "hs_call_source": "INTEGRATIONS_PLATFORM",
         "hs_call_app_id": app_id,

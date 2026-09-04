@@ -25,6 +25,8 @@ export type MemoStatus =
   | 'rejected'        // User rejected the extraction
   | 'failed';         // Processing error occurred
 
+export type ScreeningOutcome = 'connected' | 'voicemail' | 'no_response';
+
 /**
  * Check if memo is in a processing state (not actionable by user)
  */
@@ -185,6 +187,8 @@ export interface Memo {
   hubspotContactId?: Nullable<string>;
   /** HubSpot deal this memo was captured or approved against */
   hubspotDealId?: Nullable<string>;
+  /** Dialer screening result for vocify_call memos */
+  screeningOutcome?: Nullable<ScreeningOutcome>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
