@@ -70,6 +70,9 @@ class TelnyxClient:
             "sip_username": data["sip_username"],
         }
 
+    def delete_telephony_credential(self, credential_id: str) -> None:
+        self._request("DELETE", f"/telephony_credentials/{credential_id}")
+
     def mint_credential_token(self, credential_id: str) -> str:
         # Telnyx returns the JWT as a raw string body on this endpoint.
         http, owned = self._borrow_http()

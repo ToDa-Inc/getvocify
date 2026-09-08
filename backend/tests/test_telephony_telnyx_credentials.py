@@ -66,3 +66,41 @@ def test_mint_uses_existing_credential():
         "provider": "telnyx",
     }
     assert TOKEN_TTL_SECONDS_TELNYX == 24 * 3600
+
+
+def test_duplicate_insert_returns_winner_and_revokes_orphan():
+    supabase = MagicMock()
+    lookup = MagicMock()
+    lookup.execute.side_effect = [
+        MagicMock(data=[]),
+        MagicMock(
+            data=[{"credential_id": "cred-winner", "sip_username": "sip-winner"}]
+        ),
+    ]
+    insert = MagicMock()
+    insert.execute.side_effect = Exception(
+        "duplicate key value violates unique constraint 23505"
+    )
+
+    def table(_name):
+        q = MagicMock()
+        q.select.return_value.eq.return_value.eq.return_value.limit.return_value = (
+            lookup
+        )
+        q.insert.return_value = insert
+        return q
+
+    supabase.table.side_effect = table
+    with patch(
+        "app.services.telephony.telnyx_credentials.telnyx_rest"
+    ) as telnyx_rest:
+        telnyx_rest.return_value.create_telephony_credential.return_value = {
+            "credential_id": "cred-orphan",
+            "sip_username": "sip-orphan",
+        }
+        out = ensure_user_credential(supabase, "user-1")
+
+    assert out == {"credentialId": "cred-winner", "sipUsername": "sip-winner"}
+    telnyx_rest.return_value.delete_telephony_credential.assert_called_once_with(
+        "cred-orphan"
+    )

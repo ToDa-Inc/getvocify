@@ -41,3 +41,13 @@ def test_owned_http_client_is_closed_after_request():
         client.dial(to="+34600111222", caller_id="+34600999888", link_to="v3:parked")
     owned.close.assert_called_once()
     owned.post.assert_called_once()
+
+
+def test_delete_telephony_credential_uses_rest_path():
+    http = MagicMock()
+    http.delete.return_value.status_code = 200
+    http.delete.return_value.content = b""
+    http.delete.return_value.raise_for_status = lambda: None
+    client = TelnyxClient(api_key="KEY", connection_id="CONN", http=http)
+    client.delete_telephony_credential("cred-1")
+    http.delete.assert_called_once_with("/telephony_credentials/cred-1")
