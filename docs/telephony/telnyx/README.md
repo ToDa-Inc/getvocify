@@ -1,7 +1,14 @@
 # Telnyx reference
 
-Evaluated 2026-08-27 as a possible replacement for Twilio. **Outcome: not adopted.** Reasoning
-in [../DECISION.md](../DECISION.md).
+Evaluated 2026-08-27 as a possible replacement for Twilio. **Outcome of that
+evaluation: not adopted** (Spain CLI is law, not carrier). Reasoning in
+[../DECISION.md](../DECISION.md).
+
+**2026-09-08 — implementation on this branch.** A cost-swap (not a CLI fix) lives
+on `feat/telnyx-outbound-calling` behind `CALLING_PROVIDER`. Default remains
+`twilio`. Live acceptance has **not** run (needs Verified L2). Plan:
+[2026-09-08-telnyx-outbound-calling.md](../../superpowers/plans/2026-09-08-telnyx-outbound-calling.md).
+Runbook: [telnyx-setup.md](../../runbooks/telnyx-setup.md).
 
 Kept as reference because the evaluation surfaced several designs that are better than what we
 shipped, and because the decision should be revisited if the Short Duration surcharge changes
