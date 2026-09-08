@@ -27,6 +27,11 @@ from app.services.telephony.caller_id import (
     update_caller_id_label,
     CallerIdVerificationUnsupported,
 )
+from app.services.telephony.provider import calling_provider
+from app.services.telephony.telnyx_credentials import (
+    ensure_user_credential,
+    mint_telnyx_voice_token,
+)
 from app.services.telephony.twilio_client import telephony_configured
 from app.services.telephony.twiml import InvalidPhoneNumber
 
@@ -86,15 +91,20 @@ async def get_calling_config(
 ):
     """Whether calling is available here, plus this user's caller IDs."""
     hubspot_logging = bool(settings.HUBSPOT_APP_ID)
+    provider = calling_provider()
     if not telephony_configured():
         return {
             "enabled": False,
+            "provider": provider,
             "callerIds": [],
             "hubspotLogging": hubspot_logging,
             "settingsUrl": _settings_url(),
         }
+    if provider == "telnyx":
+        ensure_user_credential(supabase, user_id)
     return {
         "enabled": True,
+        "provider": provider,
         "callerIds": list_caller_ids(supabase, user_id),
         "hubspotLogging": hubspot_logging,
         "settingsUrl": _settings_url(),
@@ -102,11 +112,17 @@ async def get_calling_config(
 
 
 @router.post("/token")
-async def create_voice_token(user_id: str = Depends(get_user_id)):
+async def create_voice_token(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    if calling_provider() == "telnyx":
+        return mint_telnyx_voice_token(supabase, user_id)
     return {
         "token": mint_voice_access_token(user_id),
         "identity": str(user_id),
         "expiresIn": TOKEN_TTL_SECONDS,
+        "provider": calling_provider(),
     }
 
 

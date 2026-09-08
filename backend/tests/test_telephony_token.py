@@ -4,7 +4,13 @@ import jwt
 import pytest
 from fastapi import HTTPException
 
-from app.api.calls import CallerIdRequest, create_caller_id, mint_voice_access_token
+from app.api.calls import (
+    CallerIdRequest,
+    create_caller_id,
+    create_voice_token,
+    get_calling_config,
+    mint_voice_access_token,
+)
 
 
 class TestMintVoiceAccessToken:
@@ -84,3 +90,75 @@ class TestCreateCallerId:
         assert result["alreadyVerified"] is True
         assert "verificationCode" in result
         assert result["verificationCode"] is None
+
+
+class TestCallingConfigProvider:
+    @pytest.mark.asyncio
+    async def test_config_includes_provider(self):
+        with (
+            patch("app.api.calls.telephony_configured", return_value=False),
+            patch("app.api.calls.calling_provider", return_value="twilio"),
+        ):
+            result = await get_calling_config(
+                supabase=MagicMock(), user_id="user-1"
+            )
+        assert result["provider"] == "twilio"
+
+    @pytest.mark.asyncio
+    async def test_config_provisions_telnyx_credential(self):
+        with (
+            patch("app.api.calls.telephony_configured", return_value=True),
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch("app.api.calls.ensure_user_credential") as ensure,
+            patch("app.api.calls.list_caller_ids", return_value=[]),
+        ):
+            supabase = MagicMock()
+            result = await get_calling_config(
+                supabase=supabase, user_id="user-1"
+            )
+        ensure.assert_called_once_with(supabase, "user-1")
+        assert result["provider"] == "telnyx"
+        assert result["enabled"] is True
+
+
+class TestCreateVoiceToken:
+    @pytest.mark.asyncio
+    async def test_twilio_response_includes_provider(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="twilio"),
+            patch("app.api.calls.mint_voice_access_token", return_value="twilio-jwt"),
+        ):
+            result = await create_voice_token(
+                supabase=MagicMock(), user_id="user-1"
+            )
+        assert result == {
+            "token": "twilio-jwt",
+            "identity": "user-1",
+            "expiresIn": 3600,
+            "provider": "twilio",
+        }
+
+    @pytest.mark.asyncio
+    async def test_telnyx_mint_does_not_call_twilio_access_token(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch("app.api.calls.mint_telnyx_voice_token") as mint_telnyx,
+            patch("app.api.calls.AccessToken") as access_token,
+            patch("app.api.calls.mint_voice_access_token") as mint_twilio,
+        ):
+            mint_telnyx.return_value = {
+                "token": "telnyx-jwt",
+                "identity": "user-1",
+                "expiresIn": 86400,
+                "provider": "telnyx",
+            }
+            result = await create_voice_token(
+                supabase=MagicMock(), user_id="user-1"
+            )
+
+        assert result["provider"] == "telnyx"
+        assert result["token"] == "telnyx-jwt"
+        assert result["expiresIn"] == 86400
+        access_token.assert_not_called()
+        mint_twilio.assert_not_called()
+        mint_telnyx.assert_called_once()
