@@ -48,6 +48,7 @@ from app.services.telephony.twiml import (
 from app.services.storage import StorageService
 from app.services.telephony.call_processor import (
     attach_hubspot_contact_by_phone,
+    download_telnyx_recording,
     download_twilio_recording,
     initiate_vocify_call_memo,
     log_missed_call_activity,
@@ -934,13 +935,23 @@ def _find_outbound_by_session(supabase, session_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def _find_outbound_call(supabase, payload: dict) -> dict | None:
-    cid = payload.get("call_control_id") or ""
+def find_outbound_call(supabase, payload: dict) -> dict | None:
+    candidates = [
+        payload.get("call_control_id"),
+        (payload.get("client_state") or ""),
+    ]
+    for cid in [c for c in candidates if c]:
+        row = _find_outbound_by_carrier_id(supabase, cid)
+        if row:
+            return row
     return (
-        _find_outbound_by_pstn(supabase, cid)
-        or _find_outbound_by_carrier_id(supabase, cid)
+        _find_outbound_by_pstn(supabase, payload.get("call_control_id") or "")
         or _find_outbound_by_session(supabase, payload.get("call_session_id") or "")
     )
+
+
+def _find_outbound_call(supabase, payload: dict) -> dict | None:
+    return find_outbound_call(supabase, payload)
 
 
 def _pstn_event_id(row: dict, payload: dict) -> str | None:
@@ -1143,6 +1154,84 @@ async def telnyx_voice(request: Request):
         await _telnyx_hangup(supabase, payload)
         return Response(status_code=204)
     if event_type == "call.recording.saved":
+        return await _telnyx_recording_saved(supabase, payload)
+    return Response(status_code=204)
+
+
+def _recording_duration_seconds(payload: dict) -> float:
+    started = payload.get("recording_started_at") or payload.get("start_time")
+    ended = payload.get("recording_ended_at") or payload.get("end_time")
+    if started and ended:
+        try:
+            t0 = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+            t1 = datetime.fromisoformat(str(ended).replace("Z", "+00:00"))
+            secs = (t1 - t0).total_seconds()
+            if secs > 0:
+                return secs
+        except ValueError:
+            pass
+    return 1.0
+
+
+async def _telnyx_recording_saved(supabase, payload: dict) -> Response:
+    recording_id = (payload.get("recording_id") or "").strip()
+    call_row = find_outbound_call(supabase, payload)
+    if not call_row:
+        logger.warning(
+            "Telnyx recording for unknown call_control_id=%s",
+            payload.get("call_control_id"),
+        )
         return Response(status_code=204)
+    if call_row.get("memo_id"):
+        return Response(status_code=204)  # redelivery
+    if not recording_id:
+        logger.warning("Telnyx recording.saved missing recording_id")
+        return Response(status_code=204)
+
+    call_sid = call_row["carrier_call_id"]
+    pipeline_started_at = time.perf_counter()
+    pre_stages: list = []
+    duration = _recording_duration_seconds(payload)
+    with pipeline_run() as pre_stages:
+        t_dl = time.perf_counter()
+        audio_bytes = await download_telnyx_recording(recording_id)
+        record_stage("download", t_dl, bytes=len(audio_bytes))
+        record_download_duration(time.perf_counter() - t_dl)
+        t_up = time.perf_counter()
+        path = await StorageService(supabase).upload_call_recording(
+            audio_bytes, call_row["user_id"], call_sid
+        )
+        record_stage("upload", t_up)
+
+    supabase.table("outbound_calls").update(
+        {
+            "recording_sid": recording_id,
+            "recording_path": path,
+            "recording_duration": int(duration),
+            "answered_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=int(duration))
+            ).isoformat(),
+            "status": "recorded",
+        }
+    ).eq("carrier_call_id", call_sid).execute()
+    call_row["recording_duration"] = int(duration)
+    call_row["recording_path"] = path
+
+    call_row = await attach_hubspot_contact_by_phone(supabase, call_row)
+
+    memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
+    if memo_id and created:
+        asyncio.create_task(
+            process_vocify_call_background(
+                memo_id,
+                call_row["user_id"],
+                call_sid,
+                audio_bytes,
+                duration,
+                supabase,
+                pre_stages=list(pre_stages),
+                pipeline_started_at=pipeline_started_at,
+            )
+        )
     return Response(status_code=204)
 

@@ -27,6 +27,7 @@ from app.metrics import (
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_bytes
 from app.services.telephony.call_screening import classify_call_outcome
+from app.services.telephony.telnyx_client import telnyx_rest
 from app.services.transcript_sanitize import sanitize_user_transcript
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,27 @@ async def download_twilio_recording(recording_url: str) -> bytes:
     )
     async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, auth=auth) as client:
         response = await client.get(twilio_wav_url(recording_url))
+        response.raise_for_status()
+        return response.content
+
+
+def _telnyx_wav_url(recording: dict[str, Any]) -> str:
+    urls = recording.get("download_urls") or {}
+    wav_url = urls.get("wav") if isinstance(urls, dict) else None
+    if not wav_url:
+        raise ValueError("Telnyx recording missing download_urls.wav")
+    return str(wav_url)
+
+
+async def download_telnyx_recording(recording_id: str) -> bytes:
+    """Telnyx recording media requires Bearer auth. WAV only; URLs expire in ~10 min."""
+    wav_url = _telnyx_wav_url(telnyx_rest().get_recording(recording_id))
+    headers = {"Authorization": f"Bearer {settings.TELNYX_API_KEY}"}
+    async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, headers=headers) as client:
+        response = await client.get(wav_url)
+        if response.status_code in (403, 404):
+            wav_url = _telnyx_wav_url(telnyx_rest().get_recording(recording_id))
+            response = await client.get(wav_url)
         response.raise_for_status()
         return response.content
 

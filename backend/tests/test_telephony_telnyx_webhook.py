@@ -11,7 +11,7 @@ import copy
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import nacl.encoding
 import nacl.signing
@@ -607,3 +607,241 @@ class TestTelnyxHangup:
 
         assert resp.status_code == 204
         telnyx.hangup.assert_called_once_with(PSTN_ID)
+
+
+RECORDING_ID = "rec-1"
+
+
+def _close_created_task(coro, *args, **kwargs):
+    if hasattr(coro, "close"):
+        coro.close()
+    return MagicMock()
+
+
+def _recording_saved(**payload_overrides) -> dict:
+    payload = {
+        "call_control_id": PARKED_ID,
+        "call_session_id": SESSION_ID,
+        "client_state": None,
+        "recording_id": RECORDING_ID,
+        "recording_started_at": "2018-02-02T22:20:27.521992Z",
+        "recording_ended_at": "2018-02-02T22:21:27.521992Z",
+        "channels": "dual",
+        "format": "wav",
+    }
+    payload.update(payload_overrides)
+    return {"data": {"event_type": "call.recording.saved", "payload": payload}}
+
+
+def _recorded_row(**overrides) -> dict:
+    row = {
+        "user_id": USER_ID,
+        "carrier": "telnyx",
+        "carrier_call_id": PARKED_ID,
+        "status": "dialing",
+        "memo_id": None,
+        "hubspot_contact_id": "123",
+        "provider_state": {
+            "parked_id": PARKED_ID,
+            "pstn_id": PSTN_ID,
+            "session_id": SESSION_ID,
+        },
+    }
+    row.update(overrides)
+    return row
+
+
+class TestTelnyxRecordingSaved:
+    def test_recording_saved_uploads_and_starts_memo_pipeline(self):
+        signing, pub = _keys()
+        supabase, stores = _fake_supabase({"outbound_calls": [_recorded_row()]})
+        telnyx = MagicMock()
+
+        with (
+            patch(
+                "app.api.webhooks.download_telnyx_recording",
+                new_callable=AsyncMock,
+                return_value=b"RIFF....",
+            ) as download,
+            patch(
+                "app.api.webhooks.StorageService.upload_call_recording",
+                new_callable=AsyncMock,
+                return_value=f"{USER_ID}/{PARKED_ID}.wav",
+            ) as upload,
+            patch(
+                "app.api.webhooks.attach_hubspot_contact_by_phone",
+                new_callable=AsyncMock,
+                side_effect=lambda _sb, row: row,
+            ),
+            patch(
+                "app.api.webhooks.initiate_vocify_call_memo",
+                new_callable=AsyncMock,
+                return_value=("memo-1", True),
+            ) as initiate,
+            patch(
+                "app.api.webhooks.process_vocify_call_background",
+                new_callable=AsyncMock,
+            ) as process,
+            patch(
+                "app.api.webhooks.asyncio.create_task",
+                side_effect=_close_created_task,
+            ) as create_task,
+        ):
+            resp = _post(
+                _recording_saved(),
+                signing=signing,
+                pub=pub,
+                supabase=supabase,
+                telnyx=telnyx,
+            )
+
+        assert resp.status_code == 204
+        download.assert_awaited_once_with(RECORDING_ID)
+        upload.assert_awaited_once()
+        initiate.assert_awaited_once()
+        create_task.assert_called_once()
+        process.assert_called_once()
+        row = stores["outbound_calls"][0]
+        assert row["recording_sid"] == RECORDING_ID
+        assert row["recording_path"] == f"{USER_ID}/{PARKED_ID}.wav"
+        assert row["recording_duration"] == 60
+        assert row["status"] == "recorded"
+
+    def test_recording_saved_redelivery_with_memo_id_is_noop(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {"outbound_calls": [_recorded_row(memo_id="already")]}
+        )
+        telnyx = MagicMock()
+
+        with patch(
+            "app.api.webhooks.download_telnyx_recording",
+            new_callable=AsyncMock,
+        ) as download:
+            resp = _post(
+                _recording_saved(),
+                signing=signing,
+                pub=pub,
+                supabase=supabase,
+                telnyx=telnyx,
+            )
+
+        assert resp.status_code == 204
+        download.assert_not_called()
+
+    def test_recording_saved_unknown_call_is_204(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase({"outbound_calls": []})
+        telnyx = MagicMock()
+
+        with patch(
+            "app.api.webhooks.download_telnyx_recording",
+            new_callable=AsyncMock,
+        ) as download:
+            resp = _post(
+                _recording_saved(),
+                signing=signing,
+                pub=pub,
+                supabase=supabase,
+                telnyx=telnyx,
+            )
+
+        assert resp.status_code == 204
+        download.assert_not_called()
+
+    def test_recording_saved_finds_row_by_pstn_id(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase({"outbound_calls": [_recorded_row()]})
+        telnyx = MagicMock()
+
+        with (
+            patch(
+                "app.api.webhooks.download_telnyx_recording",
+                new_callable=AsyncMock,
+                return_value=b"RIFF....",
+            ) as download,
+            patch(
+                "app.api.webhooks.StorageService.upload_call_recording",
+                new_callable=AsyncMock,
+                return_value=f"{USER_ID}/{PARKED_ID}.wav",
+            ),
+            patch(
+                "app.api.webhooks.attach_hubspot_contact_by_phone",
+                new_callable=AsyncMock,
+                side_effect=lambda _sb, row: row,
+            ),
+            patch(
+                "app.api.webhooks.initiate_vocify_call_memo",
+                new_callable=AsyncMock,
+                return_value=("memo-1", True),
+            ),
+            patch(
+                "app.api.webhooks.process_vocify_call_background",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.webhooks.asyncio.create_task",
+                side_effect=_close_created_task,
+            ),
+        ):
+            resp = _post(
+                _recording_saved(call_control_id=PSTN_ID),
+                signing=signing,
+                pub=pub,
+                supabase=supabase,
+                telnyx=telnyx,
+            )
+
+        assert resp.status_code == 204
+        download.assert_awaited_once_with(RECORDING_ID)
+
+    def test_recording_saved_finds_row_by_client_state(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {"outbound_calls": [_recorded_row(carrier_call_id="client-state-1")]}
+        )
+        telnyx = MagicMock()
+
+        with (
+            patch(
+                "app.api.webhooks.download_telnyx_recording",
+                new_callable=AsyncMock,
+                return_value=b"RIFF....",
+            ) as download,
+            patch(
+                "app.api.webhooks.StorageService.upload_call_recording",
+                new_callable=AsyncMock,
+                return_value=f"{USER_ID}/client-state-1.wav",
+            ),
+            patch(
+                "app.api.webhooks.attach_hubspot_contact_by_phone",
+                new_callable=AsyncMock,
+                side_effect=lambda _sb, row: row,
+            ),
+            patch(
+                "app.api.webhooks.initiate_vocify_call_memo",
+                new_callable=AsyncMock,
+                return_value=("memo-1", True),
+            ),
+            patch(
+                "app.api.webhooks.process_vocify_call_background",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.api.webhooks.asyncio.create_task",
+                side_effect=_close_created_task,
+            ),
+        ):
+            resp = _post(
+                _recording_saved(
+                    call_control_id="v3:unknown-leg",
+                    client_state="client-state-1",
+                ),
+                signing=signing,
+                pub=pub,
+                supabase=supabase,
+                telnyx=telnyx,
+            )
+
+        assert resp.status_code == 204
+        download.assert_awaited_once_with(RECORDING_ID)
