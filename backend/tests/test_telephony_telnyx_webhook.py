@@ -383,6 +383,40 @@ class TestTelnyxParkedInitiated:
         assert row["hubspot_hub_id"] is None
         assert row["provider_state"] == {"parked_id": PARKED_ID, "pstn_id": PSTN_ID}
 
+    def test_sip_uri_from_still_resolves_to_credential_user(self):
+        signing, pub = _keys()
+        supabase, stores = _fake_supabase(_credential_tables())
+        telnyx = MagicMock()
+        telnyx.dial.return_value = {"call_control_id": PSTN_ID}
+
+        resp = _post(
+            _parked(sip="sip:userabc@sip.telnyx.com"),
+            signing=signing,
+            pub=pub,
+            supabase=supabase,
+            telnyx=telnyx,
+        )
+
+        assert resp.status_code == 204
+        telnyx.hangup.assert_not_called()
+        telnyx.dial.assert_called_once()
+        assert telnyx.dial.call_args.kwargs["caller_id"] == VERIFIED_CLI
+        assert telnyx.dial.call_args.kwargs["link_to"] == PARKED_ID
+        assert stores["outbound_calls"][0]["user_id"] == USER_ID
+
+    def test_dial_failure_after_insert_hangs_up_parked(self):
+        signing, pub = _keys()
+        supabase, stores = _fake_supabase(_credential_tables())
+        telnyx = MagicMock()
+        telnyx.dial.side_effect = RuntimeError("telnyx dial failed")
+
+        resp = _post(PARKED_INITIATED, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+
+        assert resp.status_code == 204
+        telnyx.hangup.assert_called_once_with(PARKED_ID)
+        assert stores["outbound_calls"][0]["carrier_call_id"] == PARKED_ID
+        assert stores["outbound_calls"][0]["provider_state"] == {"parked_id": PARKED_ID}
+
 
 class TestTelnyxAnsweredBridge:
     def test_answered_announcement_off_bridges_dual_wav(self):

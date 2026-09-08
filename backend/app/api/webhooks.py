@@ -842,8 +842,17 @@ async def twilio_recording(request: Request):
     return Response(status_code=204)
 
 
+def _sip_username(raw: str) -> str:
+    value = (raw or "").strip()
+    if value.lower().startswith("sip:"):
+        value = value[4:]
+    if "@" in value:
+        value = value.split("@", 1)[0]
+    return value
+
+
 def user_id_from_parked_payload(supabase, payload: dict) -> str | None:
-    sip = (payload.get("from") or "").strip()
+    sip = _sip_username(payload.get("from") or "")
     rows = (
         supabase.table("user_telephony_credentials")
         .select("user_id")
@@ -954,11 +963,15 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
         if "duplicate key" not in str(e).lower() and "23505" not in str(e):
             raise
 
-    pstn = telnyx_rest().dial(
-        to=to_number,
-        caller_id=caller_id,
-        link_to=parked_id,
-    )
+    try:
+        pstn = telnyx_rest().dial(
+            to=to_number,
+            caller_id=caller_id,
+            link_to=parked_id,
+        )
+    except Exception:
+        logger.exception("Telnyx PSTN dial failed; hanging up parked leg")
+        return _telnyx_hangup_parked(parked_id)
     supabase.table("outbound_calls").update(
         {
             "provider_state": {
