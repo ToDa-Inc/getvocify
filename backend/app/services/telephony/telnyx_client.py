@@ -37,18 +37,27 @@ class TelnyxClient:
             timeout=30.0,
         )
 
+    def _borrow_http(self) -> tuple[httpx.Client, bool]:
+        if self._http is not None:
+            return self._http, False
+        return self._client(), True
+
     def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
-        http = self._client()
-        verb = method.lower()
-        caller = getattr(http, verb, None)
-        if callable(caller) and verb in {"get", "post", "put", "patch", "delete"}:
-            response = caller(path, **kwargs)
-        else:
-            response = http.request(method, path, **kwargs)
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        http, owned = self._borrow_http()
+        try:
+            verb = method.lower()
+            caller = getattr(http, verb, None)
+            if callable(caller) and verb in {"get", "post", "put", "patch", "delete"}:
+                response = caller(path, **kwargs)
+            else:
+                response = http.request(method, path, **kwargs)
+            response.raise_for_status()
+            if not response.content:
+                return {}
+            return response.json()
+        finally:
+            if owned:
+                http.close()
 
     def create_telephony_credential(self, name: str) -> dict[str, Any]:
         data = self._request(
@@ -63,11 +72,14 @@ class TelnyxClient:
 
     def mint_credential_token(self, credential_id: str) -> str:
         # Telnyx returns the JWT as a raw string body on this endpoint.
-        http = self._client()
-        response = http.post(f"/telephony_credentials/{credential_id}/token")
-        response.raise_for_status()
-        text = response.text.strip().strip('"')
-        return text
+        http, owned = self._borrow_http()
+        try:
+            response = http.post(f"/telephony_credentials/{credential_id}/token")
+            response.raise_for_status()
+            return response.text.strip().strip('"')
+        finally:
+            if owned:
+                http.close()
 
     def create_verified_number(self, phone_number: str) -> dict[str, Any]:
         return self._request(

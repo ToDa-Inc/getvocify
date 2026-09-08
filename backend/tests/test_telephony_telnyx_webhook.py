@@ -597,6 +597,59 @@ class TestTelnyxAnsweredBridge:
         telnyx.bridge.assert_not_called()
         telnyx.speak.assert_not_called()
 
+    def test_answered_announcement_speaks_then_speak_ended_bridges(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+
+        answered = _post(
+            PSTN_ANSWERED,
+            signing=signing,
+            pub=pub,
+            supabase=supabase,
+            telnyx=telnyx,
+            CALLING_RECORDING_ANNOUNCEMENT_ENABLED=True,
+        )
+        assert answered.status_code == 204
+        telnyx.speak.assert_called_once()
+        assert telnyx.speak.call_args.args[0] == PSTN_ID
+        telnyx.bridge.assert_not_called()
+
+        speak_ended = {
+            "data": {
+                "event_type": "call.speak.ended",
+                "payload": {
+                    "call_control_id": PSTN_ID,
+                    "call_session_id": SESSION_ID,
+                },
+            }
+        }
+        resp = _post(
+            speak_ended,
+            signing=signing,
+            pub=pub,
+            supabase=supabase,
+            telnyx=telnyx,
+            CALLING_RECORDING_ANNOUNCEMENT_ENABLED=True,
+        )
+        assert resp.status_code == 204
+        telnyx.bridge.assert_called_once_with(PARKED_ID, PSTN_ID)
+
 
 class TestTelnyxHangup:
     def test_parked_hangup_tears_down_pstn(self):
@@ -727,6 +780,10 @@ class TestTelnyxRecordingSaved:
         initiate.assert_awaited_once()
         create_task.assert_called_once()
         process.assert_called_once()
+        assert process.call_args.args[0] == "memo-1"
+        assert process.call_args.args[1] == USER_ID
+        assert process.call_args.args[2] == PARKED_ID
+        assert process.call_args.args[3] == b"RIFF...."
         row = stores["outbound_calls"][0]
         assert row["recording_sid"] == RECORDING_ID
         assert row["recording_path"] == f"{USER_ID}/{PARKED_ID}.wav"

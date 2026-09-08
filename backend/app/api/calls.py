@@ -220,6 +220,11 @@ async def confirm_caller_id(
         return confirm_caller_id_verification(
             supabase, user_id, body.phoneNumber, body.code
         )
+    except TelnyxNotConfigured as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Calling is not configured on this environment",
+        ) from e
     except InvalidPhoneNumber as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)

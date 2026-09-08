@@ -114,6 +114,28 @@ class TestConfirmCallerId:
         assert exc.value.status_code in (400, 404)
         mock_confirm.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_telnyx_confirm_raises_503_when_not_configured(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch(
+                "app.api.calls.confirm_caller_id_verification",
+                side_effect=TelnyxNotConfigured(
+                    "TELNYX_API_KEY / TELNYX_CONNECTION_ID unset"
+                ),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await confirm_caller_id(
+                    body=CallerIdConfirmRequest(
+                        phoneNumber="+34600111222", code="482913"
+                    ),
+                    supabase=MagicMock(),
+                    user_id="user-1",
+                )
+
+        assert exc.value.status_code == 503
+
 
 class TestCallingConfigProvider:
     @pytest.mark.asyncio
