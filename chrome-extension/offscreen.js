@@ -552,8 +552,9 @@ function hangupCall() {
   reportCallState(CALL_STATES.ENDING);
   try {
     if (activeCallProvider === 'telnyx') {
+      // Do not disconnect the client here — that drops the SIP BYE
+      // before Telnyx can tear down the parked/PSTN legs.
       activeCall?.hangup?.();
-      destroyTelnyxClient(telnyxClient);
     } else if (activeCall) {
       activeCall.disconnect();
     }

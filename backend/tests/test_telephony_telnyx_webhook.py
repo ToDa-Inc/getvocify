@@ -246,6 +246,7 @@ def _post(event: dict, *, signing, pub: str, supabase, telnyx, **setting_overrid
     body = _event_body(event)
     settings = {
         "TELNYX_PUBLIC_KEY": pub,
+        "CALLING_PROVIDER": "telnyx",
         "CALLING_DEFAULT_COUNTRY_CODE": "34",
         "CALLING_RECORDING_ANNOUNCEMENT_ENABLED": False,
         **setting_overrides,
@@ -284,6 +285,24 @@ class TestTelnyxVoiceSignature:
             )
 
         assert resp.status_code == 403
+        telnyx.dial.assert_not_called()
+        assert stores.get("outbound_calls", []) == []
+
+    def test_twilio_provider_accepts_signature_and_does_not_dial(self):
+        signing, pub = _keys()
+        supabase, stores = _fake_supabase(_credential_tables())
+        telnyx = MagicMock()
+
+        resp = _post(
+            PARKED_INITIATED,
+            signing=signing,
+            pub=pub,
+            supabase=supabase,
+            telnyx=telnyx,
+            CALLING_PROVIDER="twilio",
+        )
+
+        assert resp.status_code == 204
         telnyx.dial.assert_not_called()
         assert stores.get("outbound_calls", []) == []
 
@@ -420,8 +439,15 @@ class TestTelnyxParkedInitiated:
         assert resp.status_code == 204
         telnyx.hangup.assert_called_once_with(PARKED_ID)
         assert stores["outbound_calls"][0]["carrier_call_id"] == PARKED_ID
+        assert stores["outbound_calls"][0]["status"] == "failed"
         assert stores["outbound_calls"][0]["provider_state"]["parked_id"] == PARKED_ID
         assert "pstn_id" not in stores["outbound_calls"][0]["provider_state"]
+
+        telnyx.reset_mock()
+        again = _post(PARKED_INITIATED, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+        assert again.status_code == 204
+        telnyx.dial.assert_not_called()
+        telnyx.hangup.assert_not_called()
 
     def test_pstn_initiated_with_e164_from_does_not_hang_up(self):
         signing, pub = _keys()

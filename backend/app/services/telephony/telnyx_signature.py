@@ -17,6 +17,13 @@ import nacl.signing
 logger = logging.getLogger(__name__)
 
 
+def _normalize_public_key(public_key: str) -> str:
+    key = (public_key or "").strip()
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
+        key = key[1:-1].strip()
+    return key
+
+
 def _verify_key(public_key: str) -> nacl.signing.VerifyKey:
     try:
         return nacl.signing.VerifyKey(public_key, encoder=nacl.encoding.HexEncoder)
@@ -33,6 +40,7 @@ def verify_telnyx_signature(
     now: int | None = None,
     max_skew_seconds: int = 300,
 ) -> bool:
+    public_key = _normalize_public_key(public_key)
     if not public_key or not timestamp or not signature or raw_body is None:
         return False
     try:

@@ -36,6 +36,7 @@ from app.services.telephony.caller_id import (
     resolve_caller_id,
 )
 from app.services.telephony.emergency import is_emergency_destination
+from app.services.telephony.provider import calling_provider
 from app.services.telephony.telnyx_client import telnyx_rest
 from app.services.telephony.telnyx_signature import verify_telnyx_signature
 from app.services.telephony.twiml import (
@@ -999,8 +1000,11 @@ def _provider_state(row: dict | None) -> dict:
 async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
     call_control_id = payload.get("call_control_id") or ""
     existing = _find_outbound_call(supabase, payload)
-    if existing and _provider_state(existing).get("pstn_id"):
-        return Response(status_code=204)
+    if existing:
+        if _provider_state(existing).get("pstn_id"):
+            return Response(status_code=204)
+        if existing.get("status") != "dialing":
+            return Response(status_code=204)
 
     user_id = user_id_from_parked_payload(supabase, payload)
     if not user_id:
@@ -1061,6 +1065,9 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
         )
     except Exception:
         logger.exception("Telnyx PSTN dial failed; hanging up parked leg")
+        supabase.table("outbound_calls").update({"status": "failed"}).eq(
+            "carrier_call_id", parked_id
+        ).execute()
         return _telnyx_hangup_parked(parked_id)
     supabase.table("outbound_calls").update(
         {
@@ -1134,6 +1141,8 @@ async def telnyx_voice(request: Request):
         raw_body=raw,
     ):
         return PlainTextResponse("Forbidden", status_code=403)
+    if calling_provider() != "telnyx":
+        return Response(status_code=204)
     try:
         event = json.loads(raw.decode("utf-8"))
     except Exception:

@@ -65,6 +65,20 @@ def test_rejects_tampered_body():
     )
 
 
+def test_strips_whitespace_and_quotes_from_public_key():
+    signing, pub = _keys()
+    ts = str(int(time.time()))
+    body = b'{"ok":true}'
+    sig = signing.sign(f"{ts}|".encode() + body).signature
+    wrapped = f'  "{pub}"\n'
+    assert verify_telnyx_signature(
+        public_key=wrapped,
+        timestamp=ts,
+        signature=base64.b64encode(sig).decode(),
+        raw_body=body,
+    )
+
+
 def test_rejects_stale_timestamp():
     signing, pub = _keys()
     ts = str(int(time.time()) - 400)

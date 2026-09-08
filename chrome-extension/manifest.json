@@ -14,7 +14,9 @@
     "http://localhost:8000/*",
     "ws://localhost:8000/*",
     "http://localhost:8888/*",
-    "ws://localhost:8888/*"
+    "ws://localhost:8888/*",
+    "https://*.telnyx.com/*",
+    "wss://*.telnyx.com/*"
   ],
   "background": {
     "service_worker": "background.js",
