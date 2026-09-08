@@ -972,10 +972,16 @@ async function startCallFlow({ to, callerId }) {
   if (!target) return { ok: false, error: 'Número de teléfono no válido.' };
 
   let token;
+  let provider;
   try {
-    ({ token } = await api.createVoiceToken());
+    ({ token, provider } = await api.createVoiceToken());
   } catch (e) {
     return { ok: false, error: 'No se pudo obtener el token de llamada.' };
+  }
+  if (!provider) {
+    try {
+      ({ provider } = await api.getCallingConfig());
+    } catch (_) { /* offscreen defaults to Twilio */ }
   }
 
   await getOffscreenDocument();
@@ -991,6 +997,7 @@ async function startCallFlow({ to, callerId }) {
     callerId,
     contactId,
     dealId,
+    provider,
   });
 
   updateState({
@@ -1229,8 +1236,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'CALL_TOKEN_REFRESH_REQUEST':
       api.createVoiceToken()
-        .then(({ token }) => {
-          chrome.runtime.sendMessage({ target: 'offscreen', type: 'UPDATE_TOKEN', token });
+        .then(({ token, provider }) => {
+          chrome.runtime.sendMessage({
+            target: 'offscreen',
+            type: 'UPDATE_TOKEN',
+            token,
+            provider,
+          });
         })
         .catch(() => {});
       break;

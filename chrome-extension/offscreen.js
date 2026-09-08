@@ -12,6 +12,7 @@ import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMed
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
 import { api } from './lib/api.js';
 import { LOCAL_API_BASE, apiBaseToWsOrigin } from './lib/api-base.js';
+import { vocifyCallHeaders } from './lib/telnyx-headers.js';
 
 async function defaultWsUrl() {
   try {
@@ -25,7 +26,10 @@ async function defaultWsUrl() {
 let mediaRecorder = null;
 let audioChunks = [];
 let twilioDevice = null;
+let telnyxClient = null;
 let activeCall = null;
+let activeCallProvider = null;
+let telnyxMuted = false;
 let lastReportedCallState = null;
 let stream = null;
 let audioContext = null;
@@ -344,12 +348,159 @@ function ensureDevice(token) {
   return twilioDevice;
 }
 
-async function startCall({ token, to, callerId, contactId, dealId }) {
+function requestCallTokenRefresh() {
+  chrome.runtime.sendMessage({ type: 'CALL_TOKEN_REFRESH_REQUEST' });
+}
+
+function isTelnyxAuthError(err) {
+  const code = Number(err?.code ?? err?.error?.code);
+  if (code === 34001 || code === 46001 || code === 46002 || code === 46003) return true;
+  const msg = String(err?.message || err?.error?.message || '');
+  return /unauthor|invalid (token|credent)|login failed|authentication/i.test(msg);
+}
+
+function telnyxCallSid(call) {
+  return call?.telnyxIDs?.telnyxCallControlId || call?.id || null;
+}
+
+function telnyxErrorText(err, fallback = 'Error de llamada') {
+  if (!err) return fallback;
+  const code = err.code != null ? String(err.code) : '';
+  const msg = err.message || err.error?.message || fallback;
+  return code && !String(msg).includes(code) ? `${code} ${msg}` : msg;
+}
+
+function destroyTelnyxClient(client) {
+  try {
+    client?.disconnect?.();
+  } catch (_) { /* already gone */ }
+  if (telnyxClient === client) telnyxClient = null;
+}
+
+function attachTelnyxClientListeners(client) {
+  client.on('telnyx.warning', (warning) => {
+    const payload = warning?.warning || warning;
+    if (isTelnyxAuthError(payload) || payload?.code === 34001) {
+      requestCallTokenRefresh();
+    }
+  });
+  client.on('telnyx.error', (err) => {
+    if (isTelnyxAuthError(err)) requestCallTokenRefresh();
+    if (lastReportedCallState && lastReportedCallState !== CALL_STATES.IDLE) {
+      activeCall = null;
+      activeCallProvider = null;
+      reportCallState(CALL_STATES.IDLE, telnyxErrorText(err, 'Error de dispositivo'));
+      destroyTelnyxClient(client);
+    }
+  });
+  client.on('telnyx.notification', (notification) => {
+    if (notification?.type !== 'callUpdate' || !notification.call) return;
+    if (activeCall && notification.call.id && activeCall.id && notification.call.id !== activeCall.id) {
+      return;
+    }
+    mapTelnyxCallState(notification.call);
+  });
+}
+
+function mapTelnyxCallState(call) {
+  const sid = telnyxCallSid(call);
+  const state = String(call?.state || '').toLowerCase();
+  if (state === 'active' || state === 'held') {
+    const extra = { callSid: sid, muted: telnyxMuted };
+    if (lastReportedCallState !== CALL_STATES.ACTIVE) extra.answeredAt = Date.now();
+    reportCallState(CALL_STATES.ACTIVE, null, extra);
+    return;
+  }
+  if (['ringing', 'early', 'trying', 'requesting', 'recovering'].includes(state)) {
+    reportCallState(CALL_STATES.RINGING, null, { callSid: sid });
+    return;
+  }
+  if (['hangup', 'destroy', 'destroyed', 'purge'].includes(state)) {
+    activeCall = null;
+    activeCallProvider = null;
+    reportCallState(CALL_STATES.IDLE);
+    destroyTelnyxClient(telnyxClient);
+  }
+}
+
+function ensureTelnyxRemote() {
+  return document.getElementById('telnyx-remote')
+    || document.body.appendChild(Object.assign(document.createElement('audio'), {
+      id: 'telnyx-remote',
+      autoplay: true,
+    }));
+}
+
+async function startCall({ token, to, callerId, contactId, dealId, provider }) {
+  if (provider === 'telnyx') {
+    return startTelnyxCall({ token, to, callerId, contactId, dealId });
+  }
+  return startTwilioCall({ token, to, callerId, contactId, dealId });
+}
+
+async function startTelnyxCall({ token, to, callerId, contactId, dealId }) {
+  try {
+    const TelnyxRTC = globalThis.TelnyxWebRTC?.TelnyxRTC;
+    if (!TelnyxRTC) throw new Error('Telnyx WebRTC SDK no cargado');
+
+    if (telnyxClient) destroyTelnyxClient(telnyxClient);
+
+    const client = new TelnyxRTC({ login_token: token });
+    telnyxClient = client;
+    attachTelnyxClientListeners(client);
+
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const onReady = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const onError = (err) => {
+        if (isTelnyxAuthError(err)) requestCallTokenRefresh();
+        if (settled) return;
+        settled = true;
+        reject(err);
+      };
+      client.on('telnyx.ready', onReady);
+      client.on('telnyx.error', onError);
+      client.connect();
+    });
+
+    reportCallState(CALL_STATES.CONNECTING);
+    telnyxMuted = false;
+    activeCallProvider = 'telnyx';
+
+    const remote = ensureTelnyxRemote();
+    const call = client.newCall({
+      destinationNumber: to,
+      audio: true,
+      remoteElement: remote,
+      customHeaders: vocifyCallHeaders({ callerId, contactId, dealId }),
+    });
+    activeCall = call;
+    const callSid = telnyxCallSid(call);
+    reportCallState(CALL_STATES.CONNECTING, null, { callSid });
+    if (typeof call.on === 'function') {
+      call.on('telnyx.notification', (notification) => {
+        if (notification?.call) mapTelnyxCallState(notification.call);
+      });
+    }
+  } catch (error) {
+    activeCall = null;
+    activeCallProvider = null;
+    destroyTelnyxClient(telnyxClient);
+    reportCallState(CALL_STATES.IDLE, telnyxErrorText(error, error.message || 'No se pudo iniciar la llamada'));
+  }
+}
+
+async function startTwilioCall({ token, to, callerId, contactId, dealId }) {
   try {
     if (!globalThis.Twilio?.Device) {
       throw new Error('Twilio Voice SDK no cargado');
     }
     const device = ensureDevice(token);
+    activeCallProvider = 'twilio';
 
     reportCallState(CALL_STATES.CONNECTING);
 
@@ -377,18 +528,22 @@ async function startCall({ token, to, callerId, contactId, dealId }) {
     });
     activeCall.on('disconnect', () => {
       activeCall = null;
+      activeCallProvider = null;
       reportCallState(CALL_STATES.IDLE);
     });
     activeCall.on('cancel', () => {
       activeCall = null;
+      activeCallProvider = null;
       reportCallState(CALL_STATES.IDLE);
     });
     activeCall.on('error', (err) => {
       activeCall = null;
+      activeCallProvider = null;
       reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'Error de llamada'));
     });
   } catch (error) {
     activeCall = null;
+    activeCallProvider = null;
     reportCallState(CALL_STATES.IDLE, error.message || 'No se pudo iniciar la llamada');
   }
 }
@@ -396,17 +551,34 @@ async function startCall({ token, to, callerId, contactId, dealId }) {
 function hangupCall() {
   reportCallState(CALL_STATES.ENDING);
   try {
-    if (activeCall) activeCall.disconnect();
+    if (activeCallProvider === 'telnyx') {
+      activeCall?.hangup?.();
+      destroyTelnyxClient(telnyxClient);
+    } else if (activeCall) {
+      activeCall.disconnect();
+    }
   } catch (_) {
     /* already gone */
   }
   activeCall = null;
+  activeCallProvider = null;
   reportCallState(CALL_STATES.IDLE);
 }
 
 function muteCall(muted) {
   if (!activeCall) return;
-  activeCall.mute(Boolean(muted));
+  const next = Boolean(muted);
+  if (activeCallProvider === 'telnyx') {
+    if (next) activeCall.muteAudio?.();
+    else activeCall.unmuteAudio?.();
+    telnyxMuted = next;
+    reportCallState(lastReportedCallState || CALL_STATES.ACTIVE, null, {
+      muted: telnyxMuted,
+      callSid: telnyxCallSid(activeCall),
+    });
+    return;
+  }
+  activeCall.mute(next);
   reportCallState(lastReportedCallState || CALL_STATES.ACTIVE, null, {
     muted: Boolean(activeCall.isMuted()),
     callSid: activeCall.parameters?.CallSid || null,
@@ -416,11 +588,20 @@ function muteCall(muted) {
 function sendDigits(digits) {
   if (!activeCall) return;
   if (!/^[0-9*#]+$/.test(String(digits || ''))) return;
+  if (activeCallProvider === 'telnyx') {
+    activeCall.dtmf?.(digits);
+    return;
+  }
   activeCall.sendDigits(digits);
 }
 
-function updateToken(token) {
-  if (twilioDevice && token) twilioDevice.updateToken(token);
+function updateToken(token, provider) {
+  if (!token) return;
+  if (provider === 'telnyx' || telnyxClient) {
+    telnyxClient?.login?.({ creds: { login_token: token } });
+    return;
+  }
+  if (twilioDevice) twilioDevice.updateToken(token);
 }
 
 function stopRecording(minEpoch) {
@@ -474,7 +655,7 @@ chrome.runtime.onMessage.addListener((message) => {
       sendDigits(message.digits);
       break;
     case 'UPDATE_TOKEN':
-      updateToken(message.token);
+      updateToken(message.token, message.provider);
       break;
   }
 });
