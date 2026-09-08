@@ -26,6 +26,7 @@ USER_ID = "11111111-1111-1111-1111-111111111111"
 SIP_USERNAME = "userabc"
 PARKED_ID = "v3:parked-leg"
 PSTN_ID = "v3:pstn-leg"
+SESSION_ID = "428c31b6-abf3-3bc1-b7f4-5013ef9657c1"
 VERIFIED_CLI = "+34910000000"
 PROSPECT = "+34600111222"
 
@@ -40,7 +41,7 @@ PARKED_INITIATED = {
             "call_control_id": PARKED_ID,
             "connection_id": "7267xxxxxxxxxxxxxx",
             "call_leg_id": "d14dbcee-880b-11eb-8204-02420a0f7568",
-            "call_session_id": "428c31b6-abf3-3bc1-b7f4-5013ef9657c1",
+            "call_session_id": SESSION_ID,
             "client_state": None,
             "from": SIP_USERNAME,
             "to": PROSPECT,
@@ -78,7 +79,7 @@ PSTN_ANSWERED = {
             "call_control_id": PSTN_ID,
             "connection_id": "7267xxxxxxxxxxxxxx",
             "call_leg_id": "e25eccff-990c-22fc-9315-13531b1f8679",
-            "call_session_id": "428c31b6-abf3-3bc1-b7f4-5013ef9657c1",
+            "call_session_id": SESSION_ID,
             "from": VERIFIED_CLI,
             "to": PROSPECT,
             "direction": "outgoing",
@@ -381,7 +382,11 @@ class TestTelnyxParkedInitiated:
         assert row["hubspot_contact_id"] == "123"
         assert row["hubspot_deal_id"] == "456"
         assert row["hubspot_hub_id"] is None
-        assert row["provider_state"] == {"parked_id": PARKED_ID, "pstn_id": PSTN_ID}
+        assert row["provider_state"] == {
+            "parked_id": PARKED_ID,
+            "pstn_id": PSTN_ID,
+            "session_id": SESSION_ID,
+        }
 
     def test_sip_uri_from_still_resolves_to_credential_user(self):
         signing, pub = _keys()
@@ -415,7 +420,47 @@ class TestTelnyxParkedInitiated:
         assert resp.status_code == 204
         telnyx.hangup.assert_called_once_with(PARKED_ID)
         assert stores["outbound_calls"][0]["carrier_call_id"] == PARKED_ID
-        assert stores["outbound_calls"][0]["provider_state"] == {"parked_id": PARKED_ID}
+        assert stores["outbound_calls"][0]["provider_state"]["parked_id"] == PARKED_ID
+        assert "pstn_id" not in stores["outbound_calls"][0]["provider_state"]
+
+    def test_pstn_initiated_with_e164_from_does_not_hang_up(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(_credential_tables())
+        telnyx = MagicMock()
+        telnyx.dial.return_value = {"call_control_id": PSTN_ID}
+
+        first = _post(PARKED_INITIATED, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+        assert first.status_code == 204
+        telnyx.reset_mock()
+
+        pstn_initiated = copy.deepcopy(PARKED_INITIATED)
+        pstn_initiated["data"]["payload"]["from"] = PROSPECT
+        pstn_initiated["data"]["payload"]["to"] = VERIFIED_CLI
+        pstn_initiated["data"]["payload"]["call_control_id"] = PSTN_ID
+        pstn_initiated["data"]["payload"]["state"] = "parked"
+
+        resp = _post(pstn_initiated, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+
+        assert resp.status_code == 204
+        telnyx.hangup.assert_not_called()
+        telnyx.dial.assert_not_called()
+
+    def test_redelivery_skips_dial_when_pstn_id_already_set(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(_credential_tables())
+        telnyx = MagicMock()
+        telnyx.dial.return_value = {"call_control_id": PSTN_ID}
+
+        first = _post(PARKED_INITIATED, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+        assert first.status_code == 204
+        assert telnyx.dial.call_count == 1
+        telnyx.reset_mock()
+
+        resp = _post(PARKED_INITIATED, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+
+        assert resp.status_code == 204
+        telnyx.dial.assert_not_called()
+        telnyx.hangup.assert_not_called()
 
 
 class TestTelnyxAnsweredBridge:
@@ -457,3 +502,72 @@ class TestTelnyxAnsweredBridge:
         assert body["record"] == "record-from-answer"
         assert body["record_channels"] == "dual"
         assert body["record_format"] == "wav"
+
+    def test_answered_bridges_when_row_keyed_by_parked_id_only(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "session_id": SESSION_ID,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+
+        resp = _post(
+            PSTN_ANSWERED,
+            signing=signing,
+            pub=pub,
+            supabase=supabase,
+            telnyx=telnyx,
+            CALLING_RECORDING_ANNOUNCEMENT_ENABLED=False,
+        )
+
+        assert resp.status_code == 204
+        telnyx.bridge.assert_called_once_with(PARKED_ID, PSTN_ID)
+
+
+class TestTelnyxHangup:
+    def test_parked_hangup_tears_down_pstn(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        hangup = {
+            "data": {
+                "event_type": "call.hangup",
+                "payload": {
+                    "call_control_id": PARKED_ID,
+                    "call_session_id": SESSION_ID,
+                    "hangup_cause": "originator_cancel",
+                },
+            }
+        }
+
+        resp = _post(hangup, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+
+        assert resp.status_code == 204
+        telnyx.hangup.assert_called_once_with(PSTN_ID)

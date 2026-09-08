@@ -851,8 +851,21 @@ def _sip_username(raw: str) -> str:
     return value
 
 
+def _looks_like_sip_identity(raw: str) -> bool:
+    value = (raw or "").strip()
+    if not value:
+        return False
+    if value.lower().startswith("sip:") or "@" in value:
+        return True
+    if value.startswith("+") or value.isdigit():
+        return False
+    return True
+
+
 def user_id_from_parked_payload(supabase, payload: dict) -> str | None:
     sip = _sip_username(payload.get("from") or "")
+    if not sip:
+        return None
     rows = (
         supabase.table("user_telephony_credentials")
         .select("user_id")
@@ -893,6 +906,43 @@ def _find_outbound_by_pstn(supabase, pstn_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def _find_outbound_by_carrier_id(supabase, call_control_id: str) -> dict | None:
+    if not call_control_id:
+        return None
+    rows = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .eq("carrier_call_id", call_control_id)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return rows[0] if rows else None
+
+
+def _find_outbound_by_session(supabase, session_id: str) -> dict | None:
+    if not session_id:
+        return None
+    rows = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .contains("provider_state", {"session_id": session_id})
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return rows[0] if rows else None
+
+
+def _find_outbound_call(supabase, payload: dict) -> dict | None:
+    cid = payload.get("call_control_id") or ""
+    return (
+        _find_outbound_by_pstn(supabase, cid)
+        or _find_outbound_by_carrier_id(supabase, cid)
+        or _find_outbound_by_session(supabase, payload.get("call_session_id") or "")
+    )
+
+
 def _bridge_parked(row: dict, pstn_id: str) -> Response:
     parked_id = (row.get("provider_state") or {}).get("parked_id") or row.get(
         "carrier_call_id"
@@ -917,24 +967,35 @@ def _hangup_dial_status(cause: str) -> str:
     return mapped.get((cause or "").lower(), "failed")
 
 
+def _provider_state(row: dict | None) -> dict:
+    state = (row or {}).get("provider_state") or {}
+    return state if isinstance(state, dict) else {}
+
+
 async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
-    parked_id = payload.get("call_control_id") or ""
+    call_control_id = payload.get("call_control_id") or ""
+    existing = _find_outbound_call(supabase, payload)
+    if existing and _provider_state(existing).get("pstn_id"):
+        return Response(status_code=204)
+
     user_id = user_id_from_parked_payload(supabase, payload)
     if not user_id:
-        return _telnyx_hangup_parked(parked_id)
+        if _looks_like_sip_identity(payload.get("from") or ""):
+            return _telnyx_hangup_parked(call_control_id)
+        return Response(status_code=204)
 
     raw_to = payload.get("to") or ""
     if is_emergency_destination(raw_to):
-        return _telnyx_hangup_parked(parked_id)
+        return _telnyx_hangup_parked(call_control_id)
 
     try:
         to_number = normalize_e164(raw_to, settings.CALLING_DEFAULT_COUNTRY_CODE)
     except InvalidPhoneNumber as e:
         logger.warning("Telnyx parked webhook rejected invalid destination: %s", e)
-        return _telnyx_hangup_parked(parked_id)
+        return _telnyx_hangup_parked(call_control_id)
 
     if is_emergency_destination(to_number):
-        return _telnyx_hangup_parked(parked_id)
+        return _telnyx_hangup_parked(call_control_id)
 
     try:
         caller_id = resolve_caller_id(
@@ -942,8 +1003,10 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
         )
     except CallerIdNotVerified as e:
         logger.warning("Telnyx parked webhook rejected: %s", e)
-        return _telnyx_hangup_parked(parked_id)
+        return _telnyx_hangup_parked(call_control_id)
 
+    parked_id = call_control_id
+    session_id = payload.get("call_session_id") or ""
     try:
         supabase.table("outbound_calls").insert(
             {
@@ -956,7 +1019,10 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
                 "hubspot_contact_id": _header(payload, "X-Vocify-Contact-Id") or None,
                 "hubspot_deal_id": _header(payload, "X-Vocify-Deal-Id") or None,
                 "status": "dialing",
-                "provider_state": {"parked_id": parked_id},
+                "provider_state": {
+                    "parked_id": parked_id,
+                    **({"session_id": session_id} if session_id else {}),
+                },
             }
         ).execute()
     except Exception as e:
@@ -977,6 +1043,7 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
             "provider_state": {
                 "parked_id": parked_id,
                 "pstn_id": pstn["call_control_id"],
+                **({"session_id": session_id} if session_id else {}),
             }
         }
     ).eq("carrier_call_id", parked_id).execute()
@@ -985,7 +1052,7 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
 
 def _telnyx_answered(supabase, payload: dict) -> Response:
     pstn_id = payload.get("call_control_id") or ""
-    row = _find_outbound_by_pstn(supabase, pstn_id)
+    row = _find_outbound_call(supabase, payload)
     if not row:
         return Response(status_code=204)
     if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED:
@@ -1000,17 +1067,23 @@ def _telnyx_answered(supabase, payload: dict) -> Response:
 
 def _telnyx_bridge_after_announcement(supabase, payload: dict) -> Response:
     pstn_id = payload.get("call_control_id") or ""
-    row = _find_outbound_by_pstn(supabase, pstn_id)
+    row = _find_outbound_call(supabase, payload)
     if not row:
         return Response(status_code=204)
     return _bridge_parked(row, pstn_id)
 
 
 async def _telnyx_hangup(supabase, payload: dict) -> None:
-    pstn_id = payload.get("call_control_id") or ""
+    cid = payload.get("call_control_id") or ""
     cause = (payload.get("hangup_cause") or "").lower()
-    row = _find_outbound_by_pstn(supabase, pstn_id)
+    row = _find_outbound_call(supabase, payload)
     if not row:
+        return
+    state = _provider_state(row)
+    parked_id = state.get("parked_id") or row.get("carrier_call_id")
+    pstn_id = state.get("pstn_id")
+    if cid and cid == parked_id and pstn_id:
+        telnyx_rest().hangup(pstn_id)
         return
     if row.get("status") == "recorded":
         return
@@ -1019,7 +1092,6 @@ async def _telnyx_hangup(supabase, payload: dict) -> None:
     await log_missed_call_activity(
         supabase, row["carrier_call_id"], _hangup_dial_status(cause)
     )
-    parked_id = (row.get("provider_state") or {}).get("parked_id")
     if parked_id:
         telnyx_rest().hangup(parked_id)
 
