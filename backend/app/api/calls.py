@@ -28,6 +28,7 @@ from app.services.telephony.caller_id import (
     CallerIdVerificationUnsupported,
 )
 from app.services.telephony.provider import calling_provider
+from app.services.telephony.telnyx_client import TelnyxNotConfigured
 from app.services.telephony.telnyx_credentials import (
     ensure_user_credential,
     mint_telnyx_voice_token,
@@ -101,7 +102,13 @@ async def get_calling_config(
             "settingsUrl": _settings_url(),
         }
     if provider == "telnyx":
-        ensure_user_credential(supabase, user_id)
+        try:
+            ensure_user_credential(supabase, user_id)
+        except TelnyxNotConfigured as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Calling is not configured on this environment",
+            ) from e
     return {
         "enabled": True,
         "provider": provider,
@@ -117,7 +124,13 @@ async def create_voice_token(
     user_id: str = Depends(get_user_id),
 ):
     if calling_provider() == "telnyx":
-        return mint_telnyx_voice_token(supabase, user_id)
+        try:
+            return mint_telnyx_voice_token(supabase, user_id)
+        except TelnyxNotConfigured as e:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Calling is not configured on this environment",
+            ) from e
     return {
         "token": mint_voice_access_token(user_id),
         "identity": str(user_id),

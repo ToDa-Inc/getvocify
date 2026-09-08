@@ -11,6 +11,7 @@ from app.api.calls import (
     get_calling_config,
     mint_voice_access_token,
 )
+from app.services.telephony.telnyx_client import TelnyxNotConfigured
 
 
 class TestMintVoiceAccessToken:
@@ -162,3 +163,36 @@ class TestCreateVoiceToken:
         access_token.assert_not_called()
         mint_twilio.assert_not_called()
         mint_telnyx.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_telnyx_token_raises_503_when_not_configured(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch(
+                "app.api.calls.mint_telnyx_voice_token",
+                side_effect=TelnyxNotConfigured(
+                    "TELNYX_API_KEY / TELNYX_CONNECTION_ID unset"
+                ),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await create_voice_token(supabase=MagicMock(), user_id="user-1")
+
+        assert exc.value.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_telnyx_config_raises_503_when_not_configured(self):
+        with (
+            patch("app.api.calls.telephony_configured", return_value=True),
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch(
+                "app.api.calls.ensure_user_credential",
+                side_effect=TelnyxNotConfigured(
+                    "TELNYX_API_KEY / TELNYX_CONNECTION_ID unset"
+                ),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await get_calling_config(supabase=MagicMock(), user_id="user-1")
+
+        assert exc.value.status_code == 503
