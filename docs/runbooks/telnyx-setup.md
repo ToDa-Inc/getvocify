@@ -11,9 +11,20 @@ Design:
 
 ## Live gate status
 
-**not executed** — needs Verified (L2) account. This environment has no Telnyx L2
-credentials. Steps 6–9 below are **not done**. Do not treat this document as a
-passed acceptance gate. Do not invent a CDR `cost` or a handset-CLI result.
+**in progress (2026-09-08)** — API key authenticates (`GET /v2/balance` 200,
+available credit $15.00). Account `GET /v2/verifications` reports
+`verification_level: 1` (email + phone). Level 2 still requires company info +
+Telnyx review. Do not treat L1 as a passed team-pilot gate.
+
+Configured against live Mission Control (no secrets in this file):
+
+- Outbound Voice Profile Destinations now include **ES** (plus US, CA)
+- Credential Connection renamed Vocify Dialer; `outbound.call_parking_enabled=true`
+- Webhook URL still unset (no local tunnel)
+- `POST /v2/verified_numbers` for the account +34 number returned **200**
+  (`verification_method=call`). OTP confirm and steps 7–9 are **not done**.
+
+Do not invent a CDR `cost` or a handset-CLI result.
 
 ## OTP confirm
 
@@ -77,12 +88,12 @@ no redeploy needed.
 
 Do not paste API keys, connection ids, or public keys into this file.
 
-- [ ] **1. Upgrade Mission Control to Verified (L2).** Paid limits cannot pilot a team.
-- [ ] **2. Create Credential Connection.** Auth type credentials. Webhook `https://<BACKEND_PUBLIC_URL>/webhooks/telnyx/voice`, API v2.
-- [ ] **3. PATCH connection:** `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
-- [ ] **4. Copy API key, connection id, Ed25519 public key into env.** `CALLING_PROVIDER=telnyx`.
+- [ ] **1. Upgrade Mission Control to Verified (L2).** Paid limits cannot pilot a team. **Currently L1.**
+- [x] **2. Create Credential Connection.** Auth type credentials. Webhook not pointed yet (no tunnel). API v2.
+- [x] **3. PATCH connection:** `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
+- [x] **4. Copy API key, connection id, Ed25519 public key into env.** Do not flip the code default; `CALLING_PROVIDER` stays `twilio` in `config.py`.
 - [ ] **5. Apply migration 029.**
-- [ ] **6. Verify one real +34 number** (`POST /v2/verified_numbers`). If it 4xx, stop — do not ship BYO for that country.
+- [ ] **6. Verify one real +34 number** (`POST /v2/verified_numbers` **200** on start; OTP confirm pending).
 - [ ] **7. Place one answered call.** Confirm: audio both ways, disclosure only on callee if flag on, dual WAV in Supabase, memo created, HubSpot engagement.
 - [ ] **8. Read CDR `cost` for that call.** Write the number in this runbook (do not invent a band).
 - [ ] **9. Photograph/note handset CLI.** Connected ≠ delivered.
