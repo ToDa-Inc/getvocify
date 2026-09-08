@@ -943,6 +943,19 @@ def _find_outbound_call(supabase, payload: dict) -> dict | None:
     )
 
 
+def _pstn_event_id(row: dict, payload: dict) -> str | None:
+    """PSTN call_control_id for answered/speak, or None if this is the parked leg."""
+    cid = payload.get("call_control_id") or ""
+    state = _provider_state(row)
+    parked_id = state.get("parked_id") or row.get("carrier_call_id") or ""
+    pstn_id = state.get("pstn_id") or ""
+    if not cid or cid == parked_id:
+        return None
+    if pstn_id and cid != pstn_id:
+        return None
+    return cid
+
+
 def _bridge_parked(row: dict, pstn_id: str) -> Response:
     parked_id = (row.get("provider_state") or {}).get("parked_id") or row.get(
         "carrier_call_id"
@@ -1051,9 +1064,11 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
 
 
 def _telnyx_answered(supabase, payload: dict) -> Response:
-    pstn_id = payload.get("call_control_id") or ""
     row = _find_outbound_call(supabase, payload)
     if not row:
+        return Response(status_code=204)
+    pstn_id = _pstn_event_id(row, payload)
+    if not pstn_id:
         return Response(status_code=204)
     if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED:
         telnyx_rest().speak(
@@ -1066,9 +1081,11 @@ def _telnyx_answered(supabase, payload: dict) -> Response:
 
 
 def _telnyx_bridge_after_announcement(supabase, payload: dict) -> Response:
-    pstn_id = payload.get("call_control_id") or ""
     row = _find_outbound_call(supabase, payload)
     if not row:
+        return Response(status_code=204)
+    pstn_id = _pstn_event_id(row, payload)
+    if not pstn_id:
         return Response(status_code=204)
     return _bridge_parked(row, pstn_id)
 

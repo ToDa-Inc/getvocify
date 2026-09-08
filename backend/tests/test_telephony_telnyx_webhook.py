@@ -535,6 +535,42 @@ class TestTelnyxAnsweredBridge:
         assert resp.status_code == 204
         telnyx.bridge.assert_called_once_with(PARKED_ID, PSTN_ID)
 
+    def test_parked_leg_answered_does_not_bridge(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                            "session_id": SESSION_ID,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        parked_answered = copy.deepcopy(PSTN_ANSWERED)
+        parked_answered["data"]["payload"]["call_control_id"] = PARKED_ID
+
+        resp = _post(
+            parked_answered,
+            signing=signing,
+            pub=pub,
+            supabase=supabase,
+            telnyx=telnyx,
+            CALLING_RECORDING_ANNOUNCEMENT_ENABLED=False,
+        )
+
+        assert resp.status_code == 204
+        telnyx.bridge.assert_not_called()
+        telnyx.speak.assert_not_called()
+
 
 class TestTelnyxHangup:
     def test_parked_hangup_tears_down_pstn(self):
