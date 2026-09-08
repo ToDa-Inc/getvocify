@@ -15,11 +15,12 @@ Design:
 credentials. Steps 6–9 below are **not done**. Do not treat this document as a
 passed acceptance gate. Do not invent a CDR `cost` or a handset-CLI result.
 
-## OTP confirm is API-only
+## OTP confirm
 
 Telnyx Verified Numbers send an OTP to the handset (`needsCodeSubmit: true`).
-Confirm is **API-only** until a UI field exists. There is **no OTP input** in the
-Chrome extension or dashboard Settings yet.
+Dashboard **Settings → Caller ID** collects that code and posts it. Vocify never
+generates or displays the Telnyx OTP. The extension still opens Settings; it
+does not collect the code itself.
 
 ```
 POST /api/v1/calls/caller-ids/confirm
@@ -90,9 +91,9 @@ Do not paste API keys, connection ids, or public keys into this file.
 ### Step 6 notes (+34 verify)
 
 Spain +34 Verified Numbers are undocumented at Telnyx. A 4xx is a user-visible
-failure, not a hang. Confirm the OTP via `POST /api/v1/calls/caller-ids/confirm`
-until the UI exists. If Telnyx 4xx on start, **stop** — do not ship BYO CLI for
-that country.
+failure, not a hang. Confirm the OTP in Settings → Caller ID (same
+`POST /api/v1/calls/caller-ids/confirm`). If Telnyx 4xx on start, **stop** —
+do not ship BYO CLI for that country.
 
 ### Step 7 notes (answered call)
 

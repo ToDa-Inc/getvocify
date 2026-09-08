@@ -8,8 +8,12 @@ function encodePhone(phoneNumber: string): string {
 export const callsApi = {
   getConfig: (): Promise<CallingConfig> => api.get<CallingConfig>('/calls/config'),
 
-  createToken: (): Promise<{ token: string; identity: string; expiresIn: number }> =>
-    api.post('/calls/token', {}),
+  createToken: (): Promise<{
+    token: string;
+    identity: string;
+    expiresIn: number;
+    provider?: string;
+  }> => api.post('/calls/token', {}),
 
   listCallerIds: (): Promise<{ callerIds: CallingConfig['callerIds'] }> =>
     api.get('/calls/caller-ids'),
@@ -18,6 +22,15 @@ export const callsApi = {
     api.post<AddCallerIdResponse>('/calls/caller-ids', {
       phoneNumber,
       label: label || null,
+    }),
+
+  confirmCallerId: (
+    phoneNumber: string,
+    code: string,
+  ): Promise<AddCallerIdResponse> =>
+    api.post<AddCallerIdResponse>('/calls/caller-ids/confirm', {
+      phoneNumber,
+      code,
     }),
 
   setDefaultCallerId: (phoneNumber: string): Promise<{ callerIds: CallingConfig['callerIds'] }> =>

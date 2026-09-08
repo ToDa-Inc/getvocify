@@ -4,6 +4,7 @@ import {
   CALL_STATES,
   callButtonLabel,
   callerIdFormVisible,
+  callerIdOtpVisible,
   canMute,
   canSendDigits,
   contactInitials,
@@ -110,6 +111,43 @@ describe('callerIdFormVisible', () => {
     assert.equal(callerIdFormVisible({ isLoading: false, enabled: false }), true);
     assert.equal(callerIdFormVisible({ isLoading: false, enabled: true }), true);
     assert.equal(callerIdFormVisible({ isLoading: true, enabled: true }), false);
+  });
+});
+
+describe('callerIdOtpVisible', () => {
+  it('shows the OTP field only for an enabled Telnyx pending number', () => {
+    assert.equal(
+      callerIdOtpVisible({
+        provider: 'telnyx',
+        enabled: true,
+        otpTarget: '+34600111222',
+      }),
+      true,
+    );
+    assert.equal(
+      callerIdOtpVisible({
+        provider: 'twilio',
+        enabled: true,
+        otpTarget: '+34600111222',
+      }),
+      false,
+    );
+    assert.equal(
+      callerIdOtpVisible({
+        provider: 'telnyx',
+        enabled: false,
+        otpTarget: '+34600111222',
+      }),
+      false,
+    );
+    assert.equal(
+      callerIdOtpVisible({
+        provider: 'telnyx',
+        enabled: true,
+        otpTarget: null,
+      }),
+      false,
+    );
   });
 });
 
