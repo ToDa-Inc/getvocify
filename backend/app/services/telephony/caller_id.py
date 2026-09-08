@@ -60,7 +60,7 @@ def start_caller_id_verification(
 
     existing_rows = (
         supabase.table("user_caller_ids")
-        .select("phone_number,status,label,twilio_validation_sid,verified_at")
+        .select("phone_number,status,label,verification_sid,verified_at")
         .eq("user_id", user_id)
         .eq("phone_number", phone_number)
         .limit(1)
@@ -72,7 +72,7 @@ def start_caller_id_verification(
         return {
             "phoneNumber": phone_number,
             "status": "verified",
-            "validationSid": row.get("twilio_validation_sid"),
+            "validationSid": row.get("verification_sid"),
             "alreadyVerified": True,
         }
 
@@ -93,7 +93,7 @@ def start_caller_id_verification(
         "user_id": user_id,
         "phone_number": phone_number,
         "status": "pending",
-        "twilio_validation_sid": validation.call_sid,
+        "verification_sid": validation.call_sid,
         "verified_at": None,
     }
     if label is not None:
@@ -114,11 +114,11 @@ def start_caller_id_verification(
 
 
 def _set_status(
-    supabase: Client, twilio_validation_sid: Optional[str], status: str
+    supabase: Client, verification_sid: Optional[str], status: str
 ) -> bool:
-    if not twilio_validation_sid:
+    if not verification_sid:
         logger.warning(
-            "caller ID status callback missing twilio_validation_sid (CallSid); "
+            "caller ID status callback missing verification_sid (CallSid); "
             "leaving row pending"
         )
         return False
@@ -128,22 +128,22 @@ def _set_status(
     res = (
         supabase.table("user_caller_ids")
         .update(update)
-        .eq("twilio_validation_sid", twilio_validation_sid)
+        .eq("verification_sid", verification_sid)
         .execute()
     )
     return bool(res.data)
 
 
 def mark_caller_id_verified(
-    supabase: Client, twilio_validation_sid: Optional[str]
+    supabase: Client, verification_sid: Optional[str]
 ) -> bool:
-    return _set_status(supabase, twilio_validation_sid, "verified")
+    return _set_status(supabase, verification_sid, "verified")
 
 
 def mark_caller_id_failed(
-    supabase: Client, twilio_validation_sid: Optional[str]
+    supabase: Client, verification_sid: Optional[str]
 ) -> bool:
-    return _set_status(supabase, twilio_validation_sid, "failed")
+    return _set_status(supabase, verification_sid, "failed")
 
 
 def _serialize_caller_id(row: dict[str, Any]) -> dict[str, Any]:

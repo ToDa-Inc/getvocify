@@ -224,7 +224,7 @@ class TestStartCallerIdVerification:
         assert result["alreadyVerified"] is False
         assert store[0]["phone_number"] == "+34600111222"
         assert store[0]["status"] == "pending"
-        assert store[0]["twilio_validation_sid"] == "CAabc123"
+        assert store[0]["verification_sid"] == "CAabc123"
 
     @patch("app.services.telephony.caller_id.twilio_rest")
     def test_passes_status_callback_to_twilio(self, rest):
@@ -250,7 +250,7 @@ class TestStartCallerIdVerification:
                     "phone_number": "+34600111222",
                     "status": "verified",
                     "label": "Oficina",
-                    "twilio_validation_sid": "CA-old",
+                    "verification_sid": "CA-old",
                     "verified_at": "2026-01-01T00:00:00Z",
                 }
             ]
@@ -336,13 +336,13 @@ class TestMarkCallerIdVerified:
                     "user_id": "user-1",
                     "phone_number": "+34600111222",
                     "status": "pending",
-                    "twilio_validation_sid": "CA111",
+                    "verification_sid": "CA111",
                 },
                 {
                     "user_id": "user-2",
                     "phone_number": "+34600111222",
                     "status": "pending",
-                    "twilio_validation_sid": "CA222",
+                    "verification_sid": "CA222",
                 },
             ]
         )
@@ -358,7 +358,7 @@ class TestMarkCallerIdVerified:
                     "user_id": "user-1",
                     "phone_number": "+34600111222",
                     "status": "pending",
-                    "twilio_validation_sid": "CA111",
+                    "verification_sid": "CA111",
                 }
             ]
         )

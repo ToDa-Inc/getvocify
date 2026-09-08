@@ -79,7 +79,7 @@ class TestAttachHubspotContactByPhone:
     def _row(self, **overrides):
         row = {
             "user_id": "user-1",
-            "twilio_call_sid": "CA1",
+            "carrier_call_id": "CA1",
             "to_number": "+34648739267",
             "hubspot_contact_id": None,
         }

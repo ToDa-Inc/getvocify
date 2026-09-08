@@ -634,7 +634,7 @@ async def twilio_voice(request: Request):
 
     # A genuine Twilio Voice Request always carries a CallSid. Its absence
     # means the request isn't what it claims to be — and an empty string
-    # would violate outbound_calls.twilio_call_sid's NOT NULL UNIQUE
+    # would violate outbound_calls.carrier_call_id's NOT NULL UNIQUE
     # constraint on the first request, then get silently swallowed as a
     # "duplicate key" on every one after.
     call_sid = params.get("CallSid") or ""
@@ -660,7 +660,7 @@ async def twilio_voice(request: Request):
         supabase.table("outbound_calls").insert(
             {
                 "user_id": user_id,
-                "twilio_call_sid": call_sid,
+                "carrier_call_id": call_sid,
                 "from_number": caller_id,
                 "to_number": to_number,
                 # Never taken from the request: a client-supplied hub id would
@@ -716,7 +716,7 @@ async def twilio_caller_id_status(request: Request):
     `VerificationStatus` plus the standard TwiML Voice Request parameters,
     which include `CallSid` — the same value `validation_requests.create(...)`
     returned as `call_sid`, which is what's persisted into
-    `user_caller_ids.twilio_validation_sid`. Matching on `To` (a bare phone
+    `user_caller_ids.verification_sid`. Matching on `To` (a bare phone
     number) instead of the SID would flip every row that shares that number
     across every user who ever registered it — a cross-tenant leak. So this
     matches by CallSid only; `mark_caller_id_verified`/`mark_caller_id_failed`
@@ -781,7 +781,7 @@ async def twilio_recording(request: Request):
     found = (
         supabase.table("outbound_calls")
         .select("*")
-        .eq("twilio_call_sid", call_sid)
+        .eq("carrier_call_id", call_sid)
         .limit(1)
         .execute()
     )
@@ -816,7 +816,7 @@ async def twilio_recording(request: Request):
             ).isoformat(),
             "status": "recorded",
         }
-    ).eq("twilio_call_sid", call_sid).execute()
+    ).eq("carrier_call_id", call_sid).execute()
     call_row["recording_duration"] = int(duration)
     call_row["recording_path"] = path
 

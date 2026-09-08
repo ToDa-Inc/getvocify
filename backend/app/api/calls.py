@@ -196,7 +196,7 @@ async def remove_caller_id(
 
 def _call_summary(row: dict, memo_status: Optional[str] = None) -> dict:
     return {
-        "callSid": row.get("twilio_call_sid"),
+        "callSid": row.get("carrier_call_id"),
         "to": row.get("to_number"),
         "from": row.get("from_number"),
         "contactId": row.get("hubspot_contact_id"),
@@ -237,7 +237,7 @@ async def list_call_history(
     query = (
         supabase.table("outbound_calls")
         .select(
-            "twilio_call_sid,to_number,from_number,hubspot_contact_id,"
+            "carrier_call_id,to_number,from_number,hubspot_contact_id,"
             "hubspot_deal_id,hubspot_engagement_id,status,created_at,"
             "answered_at,recording_duration,memo_id,error_message"
         )
@@ -265,12 +265,12 @@ async def get_call(
     rows = (
         supabase.table("outbound_calls")
         .select(
-            "twilio_call_sid,to_number,from_number,hubspot_contact_id,"
+            "carrier_call_id,to_number,from_number,hubspot_contact_id,"
             "hubspot_deal_id,hubspot_engagement_id,status,created_at,"
             "answered_at,recording_duration,memo_id,error_message"
         )
         .eq("user_id", user_id)
-        .eq("twilio_call_sid", call_sid)
+        .eq("carrier_call_id", call_sid)
         .limit(1)
         .execute()
         .data

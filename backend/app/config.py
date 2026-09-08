@@ -182,6 +182,12 @@ class Settings(BaseSettings):
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
 
+    CALLING_PROVIDER: str = "twilio"
+    TELNYX_API_KEY: Optional[str] = None
+    TELNYX_PUBLIC_KEY: Optional[str] = None
+    TELNYX_CONNECTION_ID: Optional[str] = None
+    TELNYX_OUTBOUND_VOICE_PROFILE_ID: Optional[str] = None
+
     # Unipile (optional - for WhatsApp via Unipile instead of Meta)
     UNIPILE_API_KEY: Optional[str] = None
     UNIPILE_BASE_URL: str = "https://api23.unipile.com:15349"
