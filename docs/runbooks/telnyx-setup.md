@@ -50,6 +50,12 @@ Apply `backend/migrations/029_telnyx_carrier.sql` before enabling
 `CALLING_PROVIDER=telnyx`. Numbered 029 so it does not collide with
 `028_companies.sql` on other branches.
 
+This file is **additive**. It does not rename `twilio_call_sid` or
+`twilio_validation_sid`. Triggers keep those columns in sync with
+`carrier_call_id` / `verification_sid` so `main` Twilio keeps working.
+
+Paste the file into the Supabase SQL editor (or):
+
 ```bash
 psql "$DATABASE_URL" -f backend/migrations/029_telnyx_carrier.sql
 ```
@@ -57,11 +63,10 @@ psql "$DATABASE_URL" -f backend/migrations/029_telnyx_carrier.sql
 Verify:
 
 ```sql
-\d outbound_calls
-\d user_caller_ids
-\d user_telephony_credentials
--- outbound_calls.carrier, carrier_call_id, provider_state
--- user_caller_ids.verification_sid (not twilio_validation_sid)
+select column_name from information_schema.columns
+where table_name = 'outbound_calls'
+  and column_name in ('twilio_call_sid','carrier_call_id','carrier','provider_state');
+select to_regclass('public.user_telephony_credentials');
 ```
 
 ## Env (no live secrets in this file)
@@ -91,10 +96,12 @@ no redeploy needed.
 Do not paste API keys, connection ids, or public keys into this file.
 
 - [ ] **1. Upgrade Mission Control to Verified (L2).** Paid limits cannot pilot a team. **Currently L1.**
-- [x] **2. Create Credential Connection.** Auth type credentials. Webhook not pointed yet (no tunnel). API v2.
+- [x] **2. Create Credential Connection.** Auth type credentials. Local test webhook
+  pointed at the 8889 ngrok tunnel (`/webhooks/telnyx/voice`), API v2. Not production.
 - [x] **3. PATCH connection:** `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
 - [x] **4. Copy API key, connection id, Ed25519 public key into env.** Do not flip the code default; `CALLING_PROVIDER` stays `twilio` in `config.py`.
-- [ ] **5. Apply migration 029.**
+- [x] **5. Apply migration 029** (additive). `twilio_call_sid` kept;
+  `carrier_call_id` / `user_telephony_credentials` present.
 - [x] **6. Verify one real +34 number.** Start **200**; OTP confirm **200**
   (`verified_at` 2026-09-08T15:17:53Z). Do not invent or record the code.
 - [ ] **7. Place one answered call.** Confirm: audio both ways, disclosure only on callee if flag on, dual WAV in Supabase, memo created, HubSpot engagement.
