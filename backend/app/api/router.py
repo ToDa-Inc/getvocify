@@ -17,6 +17,7 @@ from app.api import (
     admin,
     calls,
     hubspot_recordings,
+    company,
 )
 
 api_router = APIRouter()
@@ -24,6 +25,7 @@ api_router = APIRouter()
 # Include all route modules
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
+api_router.include_router(company.router)
 api_router.include_router(memos.router)
 api_router.include_router(crm.router)
 api_router.include_router(calls.router)

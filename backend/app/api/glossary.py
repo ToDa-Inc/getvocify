@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional, Dict, Any
 import logging
 import uuid
-from app.deps import get_supabase, get_user_id
+from app.deps import get_supabase, get_user_id, require_company_role
+from app.services.company import CompanyService
 from app.services.glossary import GlossaryService
 from app.services.glossary_templates import TemplateService
 from app.services.glossary_ai import GlossaryAIService
@@ -21,7 +22,8 @@ async def list_templates():
 async def import_template(
     template_id: str,
     user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase),
+    _membership=Depends(require_company_role("owner", "admin")),
 ):
     template = TemplateService.get_template(template_id)
     if not template:
@@ -71,7 +73,8 @@ async def get_glossary(
 async def add_glossary_item(
     item: GlossaryItem,
     user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase),
+    _membership=Depends(require_company_role("owner", "admin")),
 ):
     service = GlossaryService(supabase)
     current_glossary = await service.get_user_glossary(user_id)
@@ -100,7 +103,8 @@ async def update_glossary_item(
     item_id: str,
     update: GlossaryUpdate,
     user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase),
+    _membership=Depends(require_company_role("owner", "admin")),
 ):
     service = GlossaryService(supabase)
     current_glossary = await service.get_user_glossary(user_id)
@@ -125,7 +129,8 @@ async def update_glossary_item(
 async def delete_glossary_item(
     item_id: str,
     user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase)
+    supabase: Client = Depends(get_supabase),
+    _membership=Depends(require_company_role("owner", "admin")),
 ):
     service = GlossaryService(supabase)
     current_glossary = await service.get_user_glossary(user_id)
@@ -177,6 +182,7 @@ async def bulk_add(
     body: BulkAddRequest,
     user_id: str = Depends(get_user_id),
     supabase: Client = Depends(get_supabase),
+    _membership=Depends(require_company_role("owner", "admin")),
 ):
     """Add multiple glossary items. Skips duplicates by target_word."""
     service = GlossaryService(supabase)

@@ -12,6 +12,7 @@ import {
   X,
   Headphones,
   Phone,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
@@ -27,6 +28,7 @@ const navItems = [
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
   { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
   { icon: Link2, label: "Integrations", path: "/dashboard/integrations" },
+  { icon: Users, label: "Team", path: "/dashboard/team" },
   { icon: BarChart3, label: "Usage", path: "/dashboard/usage" },
   { icon: Settings, label: "Settings", path: "/dashboard/settings" },
 ];

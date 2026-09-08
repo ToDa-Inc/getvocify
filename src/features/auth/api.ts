@@ -16,6 +16,7 @@ import type {
 
 /** Map backend snake_case user to frontend camelCase User */
 function mapRawUser(raw: Record<string, unknown>): User {
+  const companyRaw = raw.company as Record<string, unknown> | null | undefined;
   return {
     id: raw.id as string,
     email: (raw.email as string) || '',
@@ -29,6 +30,16 @@ function mapRawUser(raw: Record<string, unknown>): User {
       ? (raw.stt_languages as string[])
       : ['es'],
     createdAt: (raw.created_at as string) || '',
+    company: companyRaw
+      ? {
+          id: String(companyRaw.id),
+          name: String(companyRaw.name ?? ''),
+          role: (companyRaw.role as 'owner' | 'admin' | 'member') ?? 'member',
+          seatLimit: Number(companyRaw.seat_limit ?? 1),
+          seatsUsed: Number(companyRaw.seats_used ?? 0),
+          seatsPending: Number(companyRaw.seats_pending ?? 0),
+        }
+      : null,
   };
 }
 

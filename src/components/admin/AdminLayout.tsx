@@ -117,6 +117,9 @@ const AdminLayout = () => {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
+              <Link to="/admin/companies">Companies</Link>
+            </Button>
+            <Button variant="ghost" size="sm" asChild>
               <Link to="/admin">Accounts</Link>
             </Button>
             <Button variant="outline" size="sm" onClick={handleLock} className="gap-1.5">

@@ -14,6 +14,7 @@ from typing import Optional, List
 
 from app.config import settings
 from app.deps import get_supabase, get_supabase_auth, get_user_id
+from app.services.company import CompanyService
 from app.rate_limit import limiter
 from app.services.auth_session import (
     RefreshTokenReuseCache,
@@ -58,6 +59,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class CompanySummary(BaseModel):
+    id: str
+    name: str
+    role: str
+    seat_limit: int
+    seats_used: int
+    seats_pending: int
+
+
 class UserResponse(BaseModel):
     """User response"""
     id: str
@@ -70,6 +80,7 @@ class UserResponse(BaseModel):
     product_context: Optional[str] = None
     stt_languages: List[str] = Field(default_factory=lambda: ["es"])
     created_at: str
+    company: Optional[CompanySummary] = None
 
 
 class UpdateProfileRequest(BaseModel):
@@ -83,8 +94,26 @@ class UpdateProfileRequest(BaseModel):
     stt_languages: Optional[List[str]] = None
 
 
-def _user_response(user_id: str, email: str, profile: dict) -> UserResponse:
+def _user_response(user_id: str, email: str, profile: dict, supabase: Client) -> UserResponse:
     from app.services.session_entities import normalize_stt_languages
+
+    company_svc = CompanyService(supabase)
+    company_summary = company_svc.company_summary_for_user(user_id)
+    company_payload = None
+    product_context = profile.get("product_context") or ""
+    auto_create = bool(profile.get("auto_create_contact_company", False))
+    if company_summary:
+        company_payload = CompanySummary(
+            id=company_summary["id"],
+            name=company_summary["name"] or "",
+            role=company_summary["role"],
+            seat_limit=company_summary["seat_limit"],
+            seats_used=company_summary["seats_used"],
+            seats_pending=company_summary["seats_pending"],
+        )
+        company_row = company_svc.get_company(company_summary["id"])
+        product_context = company_row.get("product_context") or ""
+        auto_create = bool(company_row.get("auto_create_contact_company", False))
 
     return UserResponse(
         id=user_id,
@@ -93,10 +122,11 @@ def _user_response(user_id: str, email: str, profile: dict) -> UserResponse:
         company_name=profile.get("company_name"),
         avatar_url=profile.get("avatar_url"),
         phone=profile.get("phone"),
-        auto_create_contact_company=bool(profile.get("auto_create_contact_company", False)),
-        product_context=profile.get("product_context") or "",
+        auto_create_contact_company=auto_create,
+        product_context=product_context,
         stt_languages=normalize_stt_languages(profile.get("stt_languages")),
         created_at=profile.get("created_at", ""),
+        company=company_payload,
     )
 
 
@@ -165,9 +195,19 @@ async def signup(
             )
         
         profile = profile_result.data[0]
+
+        company_name = (body.company_name or "").strip() or f"{body.full_name}'s workspace"
+        CompanyService(supabase).create_company_for_owner(
+            user_id=user_id,
+            name=company_name,
+            seat_limit=1,
+        )
+        # Refresh profile after company link
+        profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
+        profile = profile_result.data or profile
         
         return AuthResponse(
-            user=_user_response(user_id, body.email, profile),
+            user=_user_response(user_id, body.email, profile, supabase),
             access_token=access_token,
             refresh_token=refresh_token,
         )
@@ -240,9 +280,16 @@ async def login(
             profile = profile_data
         else:
             profile = profile_data_list[0]
+
+        # Ensure legacy users without a company get one on login
+        if not CompanyService(supabase).get_membership(user_id):
+            name = (profile.get("company_name") or "").strip() or "My workspace"
+            CompanyService(supabase).create_company_for_owner(user_id=user_id, name=name, seat_limit=1)
+            profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()
+            profile = (profile_result.data or [profile])[0]
         
         return AuthResponse(
-            user=_user_response(user_id, auth_response.user.email or "", profile),
+            user=_user_response(user_id, auth_response.user.email or "", profile, supabase),
             access_token=access_token,
             refresh_token=refresh_token,
         )
@@ -302,7 +349,7 @@ async def get_current_user(
         # Token already authenticated by get_user_id; decode claims for email only.
         email = _email_from_access_token(_bearer_token_from_request(request)) or ""
         
-        return _user_response(user_id, email, profile)
+        return _user_response(user_id, email, profile, supabase)
         
     except Exception as e:
         error_str = str(e)
@@ -324,10 +371,24 @@ async def update_profile(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """Update current user profile. Include phone for WhatsApp sender lookup."""
+    """Update current user profile. Company-wide fields go to the company (owner/admin)."""
     updates = {k: v for k, v in request.model_dump(exclude_none=True).items()}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    company_svc = CompanyService(supabase)
+    membership = company_svc.get_membership(user_id)
+    company_updates: dict = {}
+    if "auto_create_contact_company" in updates:
+        company_updates["auto_create_contact_company"] = updates.pop("auto_create_contact_company")
+    if "product_context" in updates:
+        company_updates["product_context"] = updates.pop("product_context")
+
+    if company_updates:
+        if not membership or not membership.can_manage_team:
+            raise HTTPException(status_code=403, detail="Only workspace owners/admins can edit shared settings")
+        supabase.table("companies").update(company_updates).eq("id", membership.company_id).execute()
+
     if "phone" in updates:
         normalized_phone = normalize_phone_for_lookup(updates.get("phone"))
         updates["phone"] = normalized_phone
@@ -335,13 +396,48 @@ async def update_profile(
         from app.services.session_entities import normalize_stt_languages
 
         updates["stt_languages"] = normalize_stt_languages(updates.get("stt_languages"))
-    supabase.table("user_profiles").update(updates).eq("id", user_id).execute()
+    if updates:
+        supabase.table("user_profiles").update(updates).eq("id", user_id).execute()
     profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
     if not profile_result.data:
         raise HTTPException(status_code=404, detail="Profile not found")
     p = profile_result.data
     email = _email_from_access_token(_bearer_token_from_request(http_request)) or ""
-    return _user_response(user_id, email, p)
+    return _user_response(user_id, email, p, supabase)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordConfirmRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=8)
+
+
+@router.post("/reset-password")
+@limiter.limit("5/hour")
+async def forgot_password(
+    request: Request,
+    body: ForgotPasswordRequest,
+    supabase: Client = Depends(get_supabase),
+):
+    """Always returns success to prevent email enumeration."""
+    svc = CompanyService(supabase)
+    await svc.create_password_reset(body.email)
+    return {"success": True, "message": "If an account exists, a reset link was sent."}
+
+
+@router.post("/reset-password/confirm")
+@limiter.limit("10/hour")
+async def reset_password_confirm(
+    request: Request,
+    body: ResetPasswordConfirmRequest,
+    supabase: Client = Depends(get_supabase),
+):
+    svc = CompanyService(supabase)
+    svc.consume_password_reset(body.token, body.password)
+    return {"success": True, "message": "Password updated. You can now log in."}
 
 
 @router.post("/logout")

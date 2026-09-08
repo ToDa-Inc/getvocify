@@ -10,9 +10,11 @@ from app.services.auth_session import (
     AccessTokenExpired,
     user_id_from_access_token,
 )
-from typing import Optional
+from typing import Optional, Callable
 import secrets
 import threading
+
+from app.services.company import CompanyService, Membership
 
 
 # Singleton Supabase client (thread-safe)
@@ -171,5 +173,33 @@ def require_master_key(
     x_master_key: Optional[str] = Header(None, alias="X-Master-Key"),
 ) -> str:
     return verify_master_key(x_master_key)
+
+
+def get_membership(
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+) -> Membership:
+    svc = CompanyService(supabase)
+    membership = svc.require_membership(user_id)
+    return membership
+
+
+def require_company_role(*roles: str) -> Callable:
+    allowed = frozenset(roles)
+
+    def _dep(
+        user_id: str = Depends(get_user_id),
+        supabase: Client = Depends(get_supabase),
+    ) -> Membership:
+        svc = CompanyService(supabase)
+        membership = svc.require_membership(user_id)
+        if membership.role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return membership
+
+    return _dep
 
 

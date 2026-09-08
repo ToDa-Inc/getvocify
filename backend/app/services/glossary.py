@@ -1,6 +1,7 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from supabase import Client
 from app.deps import get_supabase
+from app.services.company import get_company_id_for_user
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,35 +10,51 @@ class GlossaryService:
     def __init__(self, supabase: Client = None):
         self.supabase = supabase or get_supabase()
 
+    def _company_id_for_user(self, user_id: str) -> Optional[str]:
+        return get_company_id_for_user(self.supabase, user_id)
+
     async def get_user_glossary(self, user_id: str) -> List[Dict[str, Any]]:
         """
-        Fetch the custom vocabulary / glossary from user_profiles.
+        Fetch the shared company glossary (falls back to legacy user_profiles).
         """
+        company_id = self._company_id_for_user(user_id)
+        table = "companies" if company_id else "user_profiles"
+        key_col = "id"
+        key_val = company_id or user_id
         try:
-            response = self.supabase.table("user_profiles") \
-                .select("glossary") \
-                .eq("id", user_id) \
-                .single() \
+            response = (
+                self.supabase.table(table)
+                .select("glossary")
+                .eq(key_col, key_val)
+                .limit(1)
                 .execute()
-            
-            return response.data.get("glossary", []) if response.data else []
+            )
+            rows = response.data or []
+            if not rows:
+                return []
+            return rows[0].get("glossary", []) or []
         except Exception as e:
-            logger.error(f"Error fetching glossary for user {user_id}: {e}")
+            logger.error("Error fetching glossary for user %s: %s", user_id, e)
             return []
 
     async def update_glossary(self, user_id: str, glossary: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Update the entire glossary array for a user.
+        Update the shared company glossary (owner/admin only at API layer).
         """
+        company_id = self._company_id_for_user(user_id)
+        table = "companies" if company_id else "user_profiles"
+        key_col = "id"
+        key_val = company_id or user_id
         try:
-            response = self.supabase.table("user_profiles") \
-                .update({"glossary": glossary}) \
-                .eq("id", user_id) \
+            response = (
+                self.supabase.table(table)
+                .update({"glossary": glossary})
+                .eq(key_col, key_val)
                 .execute()
-            
+            )
             return response.data[0].get("glossary", []) if response.data else []
         except Exception as e:
-            logger.error(f"Error updating glossary for user {user_id}: {e}")
+            logger.error("Error updating glossary for user %s: %s", user_id, e)
             raise e
 
     def format_for_deepgram(self, glossary: List[Dict[str, Any]]) -> List[str]:

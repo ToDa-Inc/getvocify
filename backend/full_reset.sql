@@ -11,6 +11,7 @@
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS citext;
 
 -- ============================================
 -- PART 1: COMPLETE CLEANUP
@@ -119,14 +120,76 @@ CREATE TABLE user_profiles (
   glossary JSONB DEFAULT '[]',
   product_context TEXT DEFAULT '',
   stt_languages TEXT[] NOT NULL DEFAULT ARRAY['es'],
+  company_id UUID,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. CRM CONNECTIONS
+-- 1b. COMPANIES (shared workspace)
+CREATE TABLE companies (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  seat_limit INT NOT NULL DEFAULT 1 CHECK (seat_limit >= 1),
+  glossary JSONB NOT NULL DEFAULT '[]'::jsonb,
+  product_context TEXT NOT NULL DEFAULT '',
+  auto_create_contact_company BOOLEAN NOT NULL DEFAULT false,
+  primary_crm_connection_id UUID,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE company_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id),
+  UNIQUE (company_id, user_id)
+);
+
+CREATE UNIQUE INDEX idx_company_members_one_owner
+  ON company_members (company_id)
+  WHERE role = 'owner' AND status = 'active';
+
+CREATE TABLE company_invitations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  email CITEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+  token_hash TEXT NOT NULL,
+  invited_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_company_invitations_pending_email
+  ON company_invitations (company_id, email)
+  WHERE accepted_at IS NULL AND revoked_at IS NULL;
+
+CREATE TABLE password_reset_tokens (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE user_profiles
+  ADD CONSTRAINT user_profiles_company_id_fkey
+  FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL;
+
+-- 2. CRM CONNECTIONS (company-scoped; user_id = connected_by)
 CREATE TABLE crm_connections (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   
   provider TEXT NOT NULL CHECK (provider IN ('hubspot', 'salesforce', 'pipedrive')),
   status TEXT NOT NULL DEFAULT 'connected' CHECK (status IN ('connected', 'expired', 'error')),
@@ -141,17 +204,22 @@ CREATE TABLE crm_connections (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   
-  UNIQUE(user_id, provider)
+  UNIQUE(company_id, provider)
 );
 
 ALTER TABLE user_profiles
   ADD COLUMN primary_crm_connection_id UUID REFERENCES crm_connections(id) ON DELETE SET NULL;
+
+ALTER TABLE companies
+  ADD CONSTRAINT companies_primary_crm_connection_id_fkey
+  FOREIGN KEY (primary_crm_connection_id) REFERENCES crm_connections(id) ON DELETE SET NULL;
 
 -- 3. CRM CONFIGURATIONS
 CREATE TABLE crm_configurations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   connection_id UUID NOT NULL REFERENCES crm_connections(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   
   -- Pipeline scope
   default_pipeline_id TEXT NOT NULL,
@@ -399,6 +467,9 @@ CREATE INDEX idx_user_profiles_primary_crm
 -- ROW LEVEL SECURITY
 -- ============================================
 
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_configurations ENABLE ROW LEVEL SECURITY;
@@ -418,10 +489,15 @@ CREATE POLICY "Users can insert own profile"
   ON user_profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
--- CRM Connections Policies
-CREATE POLICY "Users can manage own connections"
+-- CRM Connections Policies (members of owning company)
+CREATE POLICY "Company members can manage connections"
   ON crm_connections FOR ALL
-  USING (auth.uid() = user_id);
+  USING (
+    company_id IN (
+      SELECT company_id FROM company_members
+      WHERE user_id = auth.uid() AND status = 'active'
+    )
+  );
 
 -- CRM Configurations Policies
 CREATE POLICY "Users can manage own configurations"

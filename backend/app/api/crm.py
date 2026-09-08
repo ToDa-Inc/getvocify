@@ -11,6 +11,7 @@ from typing import Any, Literal, Optional
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
+from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
 from app.services.hubspot import (
     HubSpotClient,
     HubSpotValidationService,
@@ -63,30 +64,23 @@ from supabase import Client
 router = APIRouter(prefix="/api/v1/crm", tags=["crm"])
 
 
+def _company_hubspot_connection_id(supabase: Client, user_id: str) -> str:
+    conn = require_crm_connection(supabase, user_id, "hubspot")
+    return str(conn["id"])
+
+
 def get_hubspot_client_from_connection(
     user_id: str,
     supabase: Client,
 ) -> HubSpotClient:
-    """
-    Get HubSpot client from user's connection.
-    Refreshes OAuth access_token when expired (HubSpot tokens last ~30 min).
-    
-    Raises:
-        HTTPException if no connection exists or token is invalid
-    """
-    # Get user's HubSpot connection
-    result = supabase.table("crm_connections").select("*").eq(
-        "user_id", user_id
-    ).eq("provider", "hubspot").single().execute()
-    
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="HubSpot connection not found. Please connect your HubSpot account first.",
-        )
-    
-    connection = result.data
-    
+    """Get HubSpot client from the company's shared connection."""
+    connection = require_crm_connection(
+        supabase,
+        user_id,
+        "hubspot",
+        detail="HubSpot connection not found. Please connect your HubSpot account first.",
+    )
+
     if connection["status"] != "connected":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -100,33 +94,31 @@ def get_hubspot_client_from_connection(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
         ) from e
-    
+
     access_token = connection.get("access_token")
     if not access_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="HubSpot access token is missing",
         )
-    
+
     return HubSpotClient(access_token)
 
 
 def _hubspot_access_token(user_id: str, supabase: Client) -> str:
-    result = (
-        supabase.table("crm_connections")
-        .select("id, access_token, refresh_token, token_expires_at, status")
-        .eq("user_id", user_id)
-        .eq("provider", "hubspot")
-        .single()
-        .execute()
+    connection = require_crm_connection(
+        supabase,
+        user_id,
+        "hubspot",
+        detail="HubSpot connection not found. Please connect your HubSpot account first.",
     )
-    if not result.data or result.data.get("status") != "connected":
+    if connection.get("status") != "connected":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="HubSpot connection not found. Please connect your HubSpot account first.",
         )
     try:
-        connection = ensure_fresh_hubspot_connection(supabase, result.data)
+        connection = ensure_fresh_hubspot_connection(supabase, connection)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -528,9 +520,11 @@ async def connect_hubspot(
             detail=validation_result.error or "Invalid HubSpot access token",
         )
     
-    # Store or update connection
+    # Store or update connection (company-scoped; owner/admin only)
+    company_id = require_crm_write_access(supabase, user_id)
     connection_data = {
         "user_id": user_id,
+        "company_id": company_id,
         "provider": "hubspot",
         "status": "connected",
         "access_token": request.access_token,
@@ -547,7 +541,7 @@ async def connect_hubspot(
     try:
         result = supabase.table("crm_connections").upsert(
             connection_data,
-            on_conflict="user_id,provider",
+            on_conflict="company_id,provider",
         ).execute()
     except Exception as e:
         error_msg = str(e)
@@ -669,8 +663,10 @@ async def hubspot_callback(
     if not validation_result.valid:
         return RedirectResponse(url=f"{error_url}&error=validation_failed", status_code=302)
 
+    company_id = require_company_id(supabase, user_id)
     connection_data = {
         "user_id": user_id,
+        "company_id": company_id,
         "provider": "hubspot",
         "status": "connected",
         "access_token": access_token,
@@ -686,7 +682,7 @@ async def hubspot_callback(
     try:
         supabase.table("crm_connections").upsert(
             connection_data,
-            on_conflict="user_id,provider",
+            on_conflict="company_id,provider",
         ).execute()
     except Exception:
         return RedirectResponse(url=f"{error_url}&error=save_failed", status_code=302)
@@ -777,8 +773,8 @@ async def get_hubspot_connection(
         raise
     
     result = supabase.table("crm_connections").select("*").eq(
-        "user_id", user_id
-    ).eq("provider", "hubspot").single().execute()
+        "company_id", require_company_id(supabase, user_id)
+    ).eq("provider", "hubspot").limit(1).execute()
     
     if not result.data:
         raise HTTPException(
@@ -786,7 +782,7 @@ async def get_hubspot_connection(
             detail="HubSpot connection not found",
         )
     
-    connection = result.data
+    connection = result.data[0]
     
     return HubSpotConnection(
         id=UUID(connection["id"]),
@@ -804,11 +800,14 @@ async def disconnect_hubspot(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """Disconnect HubSpot (delete connection)"""
-    result = supabase.table("crm_connections").delete().eq(
-        "user_id", user_id
+    """Disconnect HubSpot (delete company connection). Owner/admin only."""
+    company_id = require_crm_write_access(supabase, user_id)
+    supabase.table("crm_connections").delete().eq(
+        "company_id", company_id
     ).eq("provider", "hubspot").execute()
-    
+    supabase.table("companies").update({"primary_crm_connection_id": None}).eq(
+        "id", company_id
+    ).execute()
     return {"success": True, "message": "HubSpot disconnected"}
 
 
@@ -849,25 +848,14 @@ async def get_hubspot_schema(
     
     # Get connection for schema caching
     try:
-        conn_result = supabase.table("crm_connections").select("id").eq(
-            "user_id", user_id
-        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
-        
-        if not conn_result.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="HubSpot connection not found",
-            )
-        
-        connection_id = conn_result.data["id"]
-    except Exception as e:
-        error_str = str(e)
-        if "no rows" in error_str.lower() or "PGRST116" in error_str:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="HubSpot connection not found",
-            )
+        connection_id = _company_hubspot_connection_id(supabase, user_id)
+    except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HubSpot connection not found",
+        ) from e
     
     client = get_hubspot_client_from_connection(user_id, supabase)
     schema_service = HubSpotSchemaService(client, supabase, connection_id)
@@ -918,25 +906,14 @@ async def get_hubspot_pipelines(
     
     # Get connection
     try:
-        conn_result = supabase.table("crm_connections").select("id").eq(
-            "user_id", user_id
-        ).eq("provider", "hubspot").eq("status", "connected").single().execute()
-        
-        if not conn_result.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="HubSpot connection not found",
-            )
-        
-        connection_id = conn_result.data["id"]
-    except Exception as e:
-        error_str = str(e)
-        if "no rows" in error_str.lower() or "PGRST116" in error_str:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="HubSpot connection not found",
-            )
+        connection_id = _company_hubspot_connection_id(supabase, user_id)
+    except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HubSpot connection not found",
+        ) from e
     
     client = get_hubspot_client_from_connection(user_id, supabase)
     schema_service = HubSpotSchemaService(client, supabase, connection_id)
@@ -1061,19 +1038,20 @@ async def set_primary_crm_connection(
     user_id: str = Depends(get_user_id),
 ):
     """Set which connected CRM is used for memo sync when multiple are connected."""
+    company_id = require_crm_write_access(supabase, user_id)
     conn = (
         supabase.table("crm_connections")
         .select("id")
         .eq("id", str(connection_id))
-        .eq("user_id", user_id)
+        .eq("company_id", company_id)
         .eq("status", "connected")
         .single()
         .execute()
     )
     if not conn.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-    supabase.table("user_profiles").update({"primary_crm_connection_id": str(connection_id)}).eq(
-        "id", user_id
+    supabase.table("companies").update({"primary_crm_connection_id": str(connection_id)}).eq(
+        "id", company_id
     ).execute()
     return {"success": True, "primary_crm_connection_id": str(connection_id)}
 
@@ -1086,13 +1064,9 @@ async def configure_hubspot(
 ):
     """
     Save HubSpot configuration (onboarding step).
-    
-    Stores user's pipeline, stage, and field preferences.
-    
-    Requires:
-    - User must exist in user_profiles table
-    - HubSpot connection must be established
+    Owner/admin only — shared across the workspace.
     """
+    require_crm_write_access(supabase, user_id)
     # Verify user exists
     try:
         user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
@@ -1111,17 +1085,7 @@ async def configure_hubspot(
         raise
     
     # Get connection
-    conn_result = supabase.table("crm_connections").select("id").eq(
-        "user_id", user_id
-    ).eq("provider", "hubspot").eq("status", "connected").single().execute()
-    
-    if not conn_result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="HubSpot connection not found. Please connect your HubSpot account first.",
-        )
-    
-    connection_id = conn_result.data["id"]
+    connection_id = _company_hubspot_connection_id(supabase, user_id)
     
     # Save configuration
     config_service = CRMConfigurationService(supabase)
@@ -1156,9 +1120,10 @@ async def list_connections(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """List all CRM connections for the user"""
+    """List all CRM connections for the user's company workspace."""
+    company_id = require_company_id(supabase, user_id)
     result = supabase.table("crm_connections").select("*").eq(
-        "user_id", user_id
+        "company_id", company_id
     ).execute()
 
     connections = []
@@ -1179,14 +1144,15 @@ async def get_crm_preferences(
     user_id: str = Depends(get_user_id),
 ):
     """Primary CRM connection id when multiple providers are connected."""
-    prof = (
-        supabase.table("user_profiles")
+    company_id = require_company_id(supabase, user_id)
+    comp = (
+        supabase.table("companies")
         .select("primary_crm_connection_id")
-        .eq("id", user_id)
+        .eq("id", company_id)
         .maybe_single()
         .execute()
     )
-    pid = (prof.data or {}).get("primary_crm_connection_id") if prof and prof.data else None
+    pid = (comp.data or {}).get("primary_crm_connection_id") if comp and comp.data else None
     return {"primary_crm_connection_id": str(pid) if pid else None}
 
 

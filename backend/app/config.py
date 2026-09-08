@@ -121,6 +121,8 @@ class Settings(BaseSettings):
     # Application
     ENVIRONMENT: str = "development"
     FRONTEND_URL: str = "http://localhost:5173"
+    RESEND_API_KEY: Optional[str] = None
+    RESEND_FROM_EMAIL: Optional[str] = None
     # Public URL of this backend — used for Speechmatics callback notifications.
     # Set to https://api.getvocify.com in production, or your ngrok URL locally.
     BACKEND_PUBLIC_URL: str = "https://api.getvocify.com"

@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
+from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection
 from app.models.approval import DealMatch
 from app.models.crm_config import CRMConfigurationRequest, CRMConfigurationResponse, StageOption
 from app.models.salesforce_crm import SalesforceConnectionOut
@@ -37,21 +38,10 @@ router = APIRouter(prefix="/salesforce", tags=["crm", "salesforce"])
 
 
 def _get_salesforce_connection_row(supabase: Client, user_id: str) -> dict[str, Any]:
-    r = (
-        supabase.table("crm_connections")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("provider", "salesforce")
-        .eq("status", "connected")
-        .limit(1)
-        .execute()
-    )
-    if not r.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Salesforce connection not found",
-        )
-    return r.data[0]
+    row = require_crm_connection(supabase, user_id, "salesforce", detail="Salesforce connection not found")
+    if row.get("status") != "connected":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Salesforce connection not found")
+    return row
 
 
 def _sf_client_from_row(row: dict[str, Any], supabase: Client) -> SalesforceClient:
@@ -84,6 +74,7 @@ async def salesforce_authorize(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    require_crm_write_access(supabase, user_id)
     if not salesforce_oauth_enabled():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -155,8 +146,10 @@ async def salesforce_callback(
         logger.warning("Salesforce post-OAuth validation failed: %s", validation.error)
         return RedirectResponse(url=f"{bad}&error=validation_failed", status_code=302)
 
+    company_id = require_company_id(supabase, user_id)
     connection_data = {
         "user_id": user_id,
+        "company_id": company_id,
         "provider": "salesforce",
         "status": "connected",
         "access_token": access_token,
@@ -165,7 +158,7 @@ async def salesforce_callback(
         "metadata": {"instance_url": instance_url},
     }
     try:
-        supabase.table("crm_connections").upsert(connection_data, on_conflict="user_id,provider").execute()
+        supabase.table("crm_connections").upsert(connection_data, on_conflict="company_id,provider").execute()
     except Exception as e:
         logger.exception("Salesforce OAuth save to crm_connections failed: %s", e)
         return RedirectResponse(url=f"{bad}&error=save_failed", status_code=302)
@@ -178,27 +171,28 @@ async def salesforce_disconnect(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    company_id = require_crm_write_access(supabase, user_id)
     existing = (
         supabase.table("crm_connections")
         .select("id")
-        .eq("user_id", user_id)
+        .eq("company_id", company_id)
         .eq("provider", "salesforce")
         .limit(1)
         .execute()
     )
     sf_id = existing.data[0]["id"] if existing.data else None
-    supabase.table("crm_connections").delete().eq("user_id", user_id).eq("provider", "salesforce").execute()
+    supabase.table("crm_connections").delete().eq("company_id", company_id).eq("provider", "salesforce").execute()
     if sf_id:
-        prof = (
-            supabase.table("user_profiles")
+        comp = (
+            supabase.table("companies")
             .select("primary_crm_connection_id")
-            .eq("id", user_id)
+            .eq("id", company_id)
             .maybe_single()
             .execute()
         )
-        pid = (prof.data or {}).get("primary_crm_connection_id") if prof and prof.data else None
+        pid = (comp.data or {}).get("primary_crm_connection_id") if comp and comp.data else None
         if pid and str(pid) == str(sf_id):
-            supabase.table("user_profiles").update({"primary_crm_connection_id": None}).eq("id", user_id).execute()
+            supabase.table("companies").update({"primary_crm_connection_id": None}).eq("id", company_id).execute()
     return {"success": True}
 
 
@@ -315,6 +309,7 @@ async def configure_salesforce(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    require_crm_write_access(supabase, user_id)
     try:
         user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
         if not user_profile.data:
@@ -329,7 +324,7 @@ async def configure_salesforce(
     conn = (
         supabase.table("crm_connections")
         .select("id")
-        .eq("user_id", user_id)
+        .eq("company_id", require_company_id(supabase, user_id))
         .eq("provider", "salesforce")
         .eq("status", "connected")
         .limit(1)

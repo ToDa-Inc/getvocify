@@ -5,6 +5,7 @@
  */
 
 import type { ID, ISODateString, Nullable } from '@/shared/types/common';
+import type { CompanySummary } from '@/features/company/types';
 
 // ============================================
 // USER TYPES
@@ -37,6 +38,8 @@ export interface User {
   sttLanguages?: string[];
   /** When the user was created */
   createdAt: ISODateString;
+  /** Company workspace membership (shared CRM, glossary, seats) */
+  company?: CompanySummary | null;
 }
 
 /**

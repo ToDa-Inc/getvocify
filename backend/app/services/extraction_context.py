@@ -21,13 +21,25 @@ _HS_OBJECT_PATH = {
 
 def load_product_context(supabase: Client, user_id: str) -> str:
     try:
-        result = (
-            supabase.table("user_profiles")
-            .select("product_context")
-            .eq("id", user_id)
-            .limit(1)
-            .execute()
-        )
+        from app.services.company import get_company_id_for_user
+
+        company_id = get_company_id_for_user(supabase, user_id)
+        if company_id:
+            result = (
+                supabase.table("companies")
+                .select("product_context")
+                .eq("id", company_id)
+                .limit(1)
+                .execute()
+            )
+        else:
+            result = (
+                supabase.table("user_profiles")
+                .select("product_context")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
         rows = result.data or []
         if not rows:
             return ""

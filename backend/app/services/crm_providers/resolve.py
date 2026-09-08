@@ -14,18 +14,21 @@ from typing import Any, Optional
 
 from supabase import Client
 
+from app.services.company import get_company_id_for_user
 from app.services.crm_providers.errors import AmbiguousPrimaryCRMError
 
 
-def resolve_sync_connection(supabase: Client, user_id: str) -> Optional[dict[str, Any]]:
+def resolve_sync_connection_for_company(
+    supabase: Client, company_id: str
+) -> Optional[dict[str, Any]]:
     """
-    Returns the connection dict or None if no connected CRM.
+    Returns the connection dict or None if no connected CRM for a company.
     Raises AmbiguousPrimaryCRMError if 2+ connected and no primary set.
     """
     connected = (
         supabase.table("crm_connections")
         .select("*")
-        .eq("user_id", user_id)
+        .eq("company_id", company_id)
         .eq("status", "connected")
         .execute()
     )
@@ -37,32 +40,42 @@ def resolve_sync_connection(supabase: Client, user_id: str) -> Optional[dict[str
     if len(rows) == 1:
         return rows[0]
 
-    profile = (
-        supabase.table("user_profiles")
+    company = (
+        supabase.table("companies")
         .select("primary_crm_connection_id")
-        .eq("id", user_id)
+        .eq("id", company_id)
         .maybe_single()
         .execute()
     )
     primary_id = None
-    if profile and profile.data:
-        primary_id = profile.data.get("primary_crm_connection_id")
+    if company and company.data:
+        primary_id = company.data.get("primary_crm_connection_id")
 
     if primary_id:
         for r in rows:
             if str(r.get("id")) == str(primary_id):
                 return r
-        # Stale primary pointing to deleted/disconnected — treat as ambiguous
         raise AmbiguousPrimaryCRMError()
 
     raise AmbiguousPrimaryCRMError()
 
 
+def resolve_sync_connection(supabase: Client, user_id: str) -> Optional[dict[str, Any]]:
+    """Resolve CRM connection for the user's company workspace."""
+    company_id = get_company_id_for_user(supabase, user_id)
+    if not company_id:
+        return None
+    return resolve_sync_connection_for_company(supabase, company_id)
+
+
 def count_connected_crms(supabase: Client, user_id: str) -> int:
+    company_id = get_company_id_for_user(supabase, user_id)
+    if not company_id:
+        return 0
     r = (
         supabase.table("crm_connections")
         .select("id")
-        .eq("user_id", user_id)
+        .eq("company_id", company_id)
         .eq("status", "connected")
         .execute()
     )

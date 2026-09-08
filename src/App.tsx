@@ -13,6 +13,12 @@ import SupportPage from "./pages/SupportPage";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
+import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
+import TeamPage from "./pages/dashboard/TeamPage";
+import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
+import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
 import DashboardHome from "./pages/dashboard/DashboardHome";
 import RecordPage from "./pages/dashboard/RecordPage";
@@ -110,8 +116,13 @@ const App = () => (
             <Route path="/support" element={<SupportPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+            <Route path="/invite/:token" element={<InviteAcceptPage />} />
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminAccountsPage />} />
+              <Route path="companies" element={<AdminCompaniesPage />} />
+              <Route path="companies/:companyId" element={<AdminCompanyDetailPage />} />
               <Route path="accounts/:userId" element={<AdminAccountDetailPage />} />
             </Route>
             <Route path="/dashboard" element={
@@ -126,6 +137,7 @@ const App = () => (
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="team" element={<TeamPage />} />
               <Route path="calling" element={<Navigate to="/dashboard/settings#caller-id" replace />} />
               <Route path="usage" element={<UsagePage />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />

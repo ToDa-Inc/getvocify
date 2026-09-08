@@ -59,7 +59,7 @@ const LoginPage = () => {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password" className={THEME_TOKENS.typography.capsLabel}>Password</Label>
-                <Link to="/forgot-password" hidden className="text-[10px] font-black uppercase tracking-widest text-beige hover:underline">
+                <Link to="/forgot-password" className="text-[10px] font-black uppercase tracking-widest text-beige hover:underline">
                   Forgot?
                 </Link>
               </div>

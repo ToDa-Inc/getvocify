@@ -41,10 +41,15 @@ class CRMConfigurationService:
         """
         if not connection_id:
             if provider:
+                from app.services.company import get_company_id_for_user
+
+                company_id = get_company_id_for_user(self.supabase, user_id)
+                if not company_id:
+                    return None
                 conn_result = (
                     self.supabase.table("crm_connections")
                     .select("id")
-                    .eq("user_id", user_id)
+                    .eq("company_id", company_id)
                     .eq("provider", provider)
                     .eq("status", "connected")
                     .limit(1)
@@ -127,9 +132,17 @@ class CRMConfigurationService:
             HTTPException if connection doesn't exist or belongs to another user
         """
         # Verify connection exists and belongs to user
+        from app.services.company import get_company_id_for_user
+
+        company_id = get_company_id_for_user(self.supabase, user_id)
+        if not company_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No active company membership",
+            )
         conn_result = self.supabase.table("crm_connections").select("*").eq(
             "id", connection_id
-        ).eq("user_id", user_id).single().execute()
+        ).eq("company_id", company_id).single().execute()
         
         if not conn_result.data:
             raise HTTPException(
@@ -141,6 +154,7 @@ class CRMConfigurationService:
         config_data = {
             "connection_id": connection_id,
             "user_id": user_id,
+            "company_id": company_id,
             "default_pipeline_id": config.default_pipeline_id,
             "default_pipeline_name": config.default_pipeline_name,
             "default_stage_id": config.default_stage_id,

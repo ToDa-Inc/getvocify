@@ -268,7 +268,7 @@ const IntegrationsPage = () => {
           CRM <span className={THEME_TOKENS.typography.accentTitle}>Connections</span>
         </h1>
         <p className={THEME_TOKENS.typography.body}>
-          Seamlessly sync your voice memos with your existing stack.
+          CRM connections are shared across your workspace. Owners and admins can connect or change integrations.
         </p>
       </div>
 

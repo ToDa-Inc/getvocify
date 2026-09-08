@@ -58,7 +58,7 @@ const SettingsPage = () => {
         <h1 className={THEME_TOKENS.typography.pageTitle}>
           Account <span className={THEME_TOKENS.typography.accentTitle}>Settings</span>
         </h1>
-        <p className={THEME_TOKENS.typography.body}>Manage field mapping, call languages, caller ID, offer context, and glossary.</p>
+        <p className={THEME_TOKENS.typography.body}>Manage field mapping, call languages, caller ID, offer context, and glossary. CRM, glossary, and product context are shared across your workspace.</p>
       </div>
 
       {isHubSpotConnected ? (

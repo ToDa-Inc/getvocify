@@ -15,6 +15,8 @@ export const adminKeys = {
   account: (id: string) => [...adminKeys.all, "account", id] as const,
   runtime: () => [...adminKeys.all, "runtime"] as const,
   stuckMemos: () => [...adminKeys.all, "stuck-memos"] as const,
+  companies: (skip: number, search: string) => [...adminKeys.all, "companies", skip, search] as const,
+  company: (id: string) => [...adminKeys.all, "company", id] as const,
 };
 
 function masterHeaders(): HeadersInit {
@@ -214,5 +216,42 @@ export const adminApi = {
       headers: masterHeaders(),
     });
     return mapRuntime(raw);
+  },
+
+  listCompanies: async (args: { skip?: number; limit?: number; search?: string }) => {
+    const params = new URLSearchParams();
+    if (args.skip) params.set("skip", String(args.skip));
+    if (args.limit) params.set("limit", String(args.limit));
+    if (args.search) params.set("search", args.search);
+    const q = params.toString();
+    const raw = await api.get<Record<string, unknown>>(`/admin/companies${q ? `?${q}` : ""}`, {
+      headers: masterHeaders(),
+    });
+    return {
+      companies: Array.isArray(raw.companies) ? raw.companies : [],
+      total: Number(raw.total ?? 0),
+      skip: Number(raw.skip ?? 0),
+      limit: Number(raw.limit ?? 20),
+    };
+  },
+
+  getCompany: async (id: string) => {
+    return api.get<Record<string, unknown>>(`/admin/companies/${id}`, {
+      headers: masterHeaders(),
+    });
+  },
+
+  updateCompany: async (id: string, body: { name?: string; seat_limit?: number }) => {
+    return api.patch<Record<string, unknown>>(`/admin/companies/${id}`, body, {
+      headers: masterHeaders(),
+    });
+  },
+
+  transferMember: async (userId: string, toCompanyId: string, role = "member") => {
+    return api.post<Record<string, unknown>>(
+      `/admin/members/${userId}/transfer`,
+      { to_company_id: toCompanyId, role },
+      { headers: masterHeaders() },
+    );
   },
 };
