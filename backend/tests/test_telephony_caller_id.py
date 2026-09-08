@@ -1,8 +1,16 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+from fastapi import HTTPException
 
+from app.api.calls import (
+    CallerIdConfirmRequest,
+    CallerIdRequest,
+    confirm_caller_id,
+    create_caller_id,
+)
 from app.services.telephony.caller_id import (
     CallerIdNotVerified,
     CallerIdVerificationUnsupported,
@@ -392,6 +400,52 @@ class TestConfirmCallerIdVerification:
         telnyx.return_value.verify_number_code.assert_called_once_with(
             "+34600111222", "482913"
         )
+
+
+def _telnyx_http_4xx(status_code: int = 400) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://api.telnyx.com/v2/verified_numbers")
+    response = httpx.Response(status_code, request=request, text="rejected")
+    return httpx.HTTPStatusError("Client error", request=request, response=response)
+
+
+class TestTelnyxCallerIdHttpErrors:
+    @pytest.mark.asyncio
+    async def test_create_caller_id_maps_telnyx_4xx_to_client_error(self):
+        with (
+            patch("app.api.calls.telephony_configured", return_value=True),
+            patch(
+                "app.api.calls.start_caller_id_verification",
+                side_effect=_telnyx_http_4xx(400),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await create_caller_id(
+                    body=CallerIdRequest(phoneNumber="+34600111222"),
+                    supabase=MagicMock(),
+                    user_id="user-1",
+                )
+
+        assert exc.value.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_confirm_caller_id_maps_telnyx_4xx_to_client_error(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch(
+                "app.api.calls.confirm_caller_id_verification",
+                side_effect=_telnyx_http_4xx(422),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await confirm_caller_id(
+                    body=CallerIdConfirmRequest(
+                        phoneNumber="+34600111222", code="482913"
+                    ),
+                    supabase=MagicMock(),
+                    user_id="user-1",
+                )
+
+        assert exc.value.status_code in (400, 422)
 
 
 class TestMarkCallerIdVerified:

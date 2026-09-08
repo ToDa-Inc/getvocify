@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from supabase import Client
@@ -62,6 +63,19 @@ class CallerIdConfirmRequest(BaseModel):
 
 def _settings_url() -> str:
     return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/settings#caller-id"
+
+
+def _http_from_telnyx_status(exc: httpx.HTTPStatusError) -> HTTPException:
+    code = exc.response.status_code if exc.response is not None else 400
+    if 400 <= code < 500:
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Telnyx rejected this caller ID verification",
+        )
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Telnyx caller ID verification failed",
+    )
 
 
 def mint_voice_access_token(user_id: str, ttl: int = TOKEN_TTL_SECONDS) -> str:
@@ -183,6 +197,8 @@ async def create_caller_id(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
+    except httpx.HTTPStatusError as e:
+        raise _http_from_telnyx_status(e) from e
     if result.get("needsCodeSubmit"):
         return result
     return {**result, "verificationCode": result.get("verificationCode")}
@@ -212,6 +228,8 @@ async def confirm_caller_id(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
         ) from e
+    except httpx.HTTPStatusError as e:
+        raise _http_from_telnyx_status(e) from e
 
 
 @router.patch("/caller-ids/{phone_number}")
