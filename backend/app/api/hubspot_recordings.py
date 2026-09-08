@@ -32,7 +32,7 @@ async def get_authenticated_recording(
     found = (
         supabase.table("outbound_calls")
         .select("recording_path,hubspot_hub_id")
-        .eq("twilio_call_sid", external_id)
+        .eq("carrier_call_id", external_id)
         .limit(1)
         .execute()
     )

@@ -27,6 +27,7 @@ from app.metrics import (
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_bytes
 from app.services.telephony.call_screening import classify_call_outcome
+from app.services.telephony.telnyx_client import telnyx_rest
 from app.services.transcript_sanitize import sanitize_user_transcript
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,27 @@ async def download_twilio_recording(recording_url: str) -> bytes:
         return response.content
 
 
+def _telnyx_wav_url(recording: dict[str, Any]) -> str:
+    urls = recording.get("download_urls") or {}
+    wav_url = urls.get("wav") if isinstance(urls, dict) else None
+    if not wav_url:
+        raise ValueError("Telnyx recording missing download_urls.wav")
+    return str(wav_url)
+
+
+async def download_telnyx_recording(recording_id: str) -> bytes:
+    """Telnyx recording media requires Bearer auth. WAV only; URLs expire in ~10 min."""
+    wav_url = _telnyx_wav_url(telnyx_rest().get_recording(recording_id))
+    headers = {"Authorization": f"Bearer {settings.TELNYX_API_KEY}"}
+    async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, headers=headers) as client:
+        response = await client.get(wav_url)
+        if response.status_code in (403, 404):
+            wav_url = _telnyx_wav_url(telnyx_rest().get_recording(recording_id))
+            response = await client.get(wav_url)
+        response.raise_for_status()
+        return response.content
+
+
 async def initiate_vocify_call_memo(
     supabase: Client,
     call_row: dict[str, Any],
@@ -92,7 +114,7 @@ async def initiate_vocify_call_memo(
     memo_id = str(ins.data[0]["id"])
     supabase.table("outbound_calls").update(
         {"memo_id": memo_id, "status": "recorded"}
-    ).eq("twilio_call_sid", call_row["twilio_call_sid"]).execute()
+    ).eq("carrier_call_id", call_row["carrier_call_id"]).execute()
     return memo_id, True
 
 
@@ -124,7 +146,7 @@ async def attach_hubspot_contact_by_phone(
     except Exception as e:
         logger.warning(
             "HubSpot phone lookup skipped for %s: %s",
-            call_row.get("twilio_call_sid"),
+            call_row.get("carrier_call_id"),
             e,
         )
         return call_row
@@ -133,7 +155,7 @@ async def attach_hubspot_contact_by_phone(
     contact_id = str(chosen.id)
     supabase.table("outbound_calls").update(
         {"hubspot_contact_id": contact_id}
-    ).eq("twilio_call_sid", call_row["twilio_call_sid"]).execute()
+    ).eq("carrier_call_id", call_row["carrier_call_id"]).execute()
     call_row["hubspot_contact_id"] = contact_id
     return call_row
 
@@ -187,7 +209,7 @@ async def process_vocify_call_background(
             screening_outcome = classify_call_outcome(cleaned, duration)
             supabase.table("outbound_calls").update(
                 {"call_disposition": screening_outcome}
-            ).eq("twilio_call_sid", call_sid).execute()
+            ).eq("carrier_call_id", call_sid).execute()
 
             from app.api.memos import start_extraction_from_transcript
 
@@ -253,7 +275,7 @@ async def process_vocify_call_background(
         ).eq("id", memo_id).execute()
         supabase.table("outbound_calls").update(
             {"status": "failed", "error_message": str(e)[:2000]}
-        ).eq("twilio_call_sid", call_sid).execute()
+        ).eq("carrier_call_id", call_sid).execute()
         if pipeline_started_at is not None:
             # The `with pipeline_run()` block above has already unwound its
             # contextvar by the time we get here (on any exit, including via
@@ -298,7 +320,7 @@ async def finalize_screened_out_memo(
     ).eq("id", memo_id).execute()
     supabase.table("outbound_calls").update(
         {"call_disposition": outcome}
-    ).eq("twilio_call_sid", call_sid).execute()
+    ).eq("carrier_call_id", call_sid).execute()
 
 
 async def log_missed_call_activity(
@@ -322,7 +344,7 @@ async def log_missed_call_activity(
         found = (
             supabase.table("outbound_calls")
             .select("*")
-            .eq("twilio_call_sid", call_sid)
+            .eq("carrier_call_id", call_sid)
             .limit(1)
             .execute()
         )
@@ -367,7 +389,7 @@ async def log_missed_call_activity(
         hubspot_hub_id = str(portal_id)
         supabase.table("outbound_calls").update(
             {"hubspot_hub_id": hubspot_hub_id}
-        ).eq("twilio_call_sid", call_sid).execute()
+        ).eq("carrier_call_id", call_sid).execute()
 
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
         properties = build_call_properties(
@@ -397,7 +419,7 @@ async def log_missed_call_activity(
                 "status": "logged",
                 "call_disposition": disposition,
             }
-        ).eq("twilio_call_sid", call_sid).execute()
+        ).eq("carrier_call_id", call_sid).execute()
     except Exception as e:
         logger.warning(
             "HubSpot missed-call logging failed for %s: %s", call_sid, e
@@ -432,7 +454,7 @@ async def log_call_engagement(
         found = (
             supabase.table("outbound_calls")
             .select("*")
-            .eq("twilio_call_sid", call_sid)
+            .eq("carrier_call_id", call_sid)
             .limit(1)
             .execute()
         )
@@ -466,7 +488,7 @@ async def log_call_engagement(
         hubspot_hub_id = str(portal_id)
         supabase.table("outbound_calls").update(
             {"hubspot_hub_id": hubspot_hub_id}
-        ).eq("twilio_call_sid", call_sid).execute()
+        ).eq("carrier_call_id", call_sid).execute()
 
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
         properties = build_call_properties(
@@ -497,7 +519,7 @@ async def log_call_engagement(
                 "status": "logged",
                 "call_disposition": screening_outcome,
             }
-        ).eq("twilio_call_sid", call_sid).execute()
+        ).eq("carrier_call_id", call_sid).execute()
     except Exception as e:
         logger.warning("HubSpot call logging failed for %s: %s", call_sid, e)
     finally:

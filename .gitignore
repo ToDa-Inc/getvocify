@@ -38,6 +38,9 @@ tmp_*/
 chrome-extension.zip
 vite.config.ts.timestamp-*
 
+# Isolated git worktrees
+.worktrees/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

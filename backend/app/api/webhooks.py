@@ -35,6 +35,10 @@ from app.services.telephony.caller_id import (
     mark_caller_id_verified,
     resolve_caller_id,
 )
+from app.services.telephony.emergency import is_emergency_destination
+from app.services.telephony.provider import calling_provider
+from app.services.telephony.telnyx_client import telnyx_rest
+from app.services.telephony.telnyx_signature import verify_telnyx_signature
 from app.services.telephony.twiml import (
     DEFAULT_RECORDING_ANNOUNCEMENT_ES,
     InvalidPhoneNumber,
@@ -45,6 +49,7 @@ from app.services.telephony.twiml import (
 from app.services.storage import StorageService
 from app.services.telephony.call_processor import (
     attach_hubspot_contact_by_phone,
+    download_telnyx_recording,
     download_twilio_recording,
     initiate_vocify_call_memo,
     log_missed_call_activity,
@@ -634,7 +639,7 @@ async def twilio_voice(request: Request):
 
     # A genuine Twilio Voice Request always carries a CallSid. Its absence
     # means the request isn't what it claims to be — and an empty string
-    # would violate outbound_calls.twilio_call_sid's NOT NULL UNIQUE
+    # would violate outbound_calls.carrier_call_id's NOT NULL UNIQUE
     # constraint on the first request, then get silently swallowed as a
     # "duplicate key" on every one after.
     call_sid = params.get("CallSid") or ""
@@ -660,7 +665,7 @@ async def twilio_voice(request: Request):
         supabase.table("outbound_calls").insert(
             {
                 "user_id": user_id,
-                "twilio_call_sid": call_sid,
+                "carrier_call_id": call_sid,
                 "from_number": caller_id,
                 "to_number": to_number,
                 # Never taken from the request: a client-supplied hub id would
@@ -716,7 +721,7 @@ async def twilio_caller_id_status(request: Request):
     `VerificationStatus` plus the standard TwiML Voice Request parameters,
     which include `CallSid` — the same value `validation_requests.create(...)`
     returned as `call_sid`, which is what's persisted into
-    `user_caller_ids.twilio_validation_sid`. Matching on `To` (a bare phone
+    `user_caller_ids.verification_sid`. Matching on `To` (a bare phone
     number) instead of the SID would flip every row that shares that number
     across every user who ever registered it — a cross-tenant leak. So this
     matches by CallSid only; `mark_caller_id_verified`/`mark_caller_id_failed`
@@ -781,7 +786,7 @@ async def twilio_recording(request: Request):
     found = (
         supabase.table("outbound_calls")
         .select("*")
-        .eq("twilio_call_sid", call_sid)
+        .eq("carrier_call_id", call_sid)
         .limit(1)
         .execute()
     )
@@ -816,7 +821,408 @@ async def twilio_recording(request: Request):
             ).isoformat(),
             "status": "recorded",
         }
-    ).eq("twilio_call_sid", call_sid).execute()
+    ).eq("carrier_call_id", call_sid).execute()
+    call_row["recording_duration"] = int(duration)
+    call_row["recording_path"] = path
+
+    call_row = await attach_hubspot_contact_by_phone(supabase, call_row)
+
+    memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
+    if memo_id and created:
+        asyncio.create_task(
+            process_vocify_call_background(
+                memo_id,
+                call_row["user_id"],
+                call_sid,
+                audio_bytes,
+                duration,
+                supabase,
+                pre_stages=list(pre_stages),
+                pipeline_started_at=pipeline_started_at,
+            )
+        )
+    return Response(status_code=204)
+
+
+def _sip_username(raw: str) -> str:
+    value = (raw or "").strip()
+    if value.lower().startswith("sip:"):
+        value = value[4:]
+    if "@" in value:
+        value = value.split("@", 1)[0]
+    return value
+
+
+def _looks_like_sip_identity(raw: str) -> bool:
+    value = (raw or "").strip()
+    if not value:
+        return False
+    if value.lower().startswith("sip:") or "@" in value:
+        return True
+    if value.startswith("+") or value.isdigit():
+        return False
+    return True
+
+
+def user_id_from_parked_payload(supabase, payload: dict) -> str | None:
+    sip = _sip_username(payload.get("from") or "")
+    if not sip:
+        return None
+    rows = (
+        supabase.table("user_telephony_credentials")
+        .select("user_id")
+        .eq("provider", "telnyx")
+        .eq("sip_username", sip)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return str(rows[0]["user_id"]) if rows else None
+
+
+def _header(payload: dict, name: str) -> str:
+    for item in payload.get("custom_headers") or []:
+        key = item.get("header_name") or item.get("name") or ""
+        if key.lower() == name.lower():
+            return item.get("header_value") or item.get("value") or ""
+    return ""
+
+
+def _telnyx_hangup_parked(call_control_id: str) -> Response:
+    if call_control_id:
+        telnyx_rest().hangup(call_control_id)
+    return Response(status_code=204)
+
+
+def _find_outbound_by_pstn(supabase, pstn_id: str) -> dict | None:
+    if not pstn_id:
+        return None
+    rows = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .contains("provider_state", {"pstn_id": pstn_id})
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return rows[0] if rows else None
+
+
+def _find_outbound_by_carrier_id(supabase, call_control_id: str) -> dict | None:
+    if not call_control_id:
+        return None
+    rows = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .eq("carrier_call_id", call_control_id)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return rows[0] if rows else None
+
+
+def _find_outbound_by_session(supabase, session_id: str) -> dict | None:
+    if not session_id:
+        return None
+    rows = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .contains("provider_state", {"session_id": session_id})
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return rows[0] if rows else None
+
+
+def find_outbound_call(supabase, payload: dict) -> dict | None:
+    candidates = [
+        payload.get("call_control_id"),
+        (payload.get("client_state") or ""),
+    ]
+    for cid in [c for c in candidates if c]:
+        row = _find_outbound_by_carrier_id(supabase, cid)
+        if row:
+            return row
+    return (
+        _find_outbound_by_pstn(supabase, payload.get("call_control_id") or "")
+        or _find_outbound_by_session(supabase, payload.get("call_session_id") or "")
+    )
+
+
+def _find_outbound_call(supabase, payload: dict) -> dict | None:
+    return find_outbound_call(supabase, payload)
+
+
+def _pstn_event_id(row: dict, payload: dict) -> str | None:
+    """PSTN call_control_id for answered/speak, or None if this is the parked leg."""
+    cid = payload.get("call_control_id") or ""
+    state = _provider_state(row)
+    parked_id = state.get("parked_id") or row.get("carrier_call_id") or ""
+    pstn_id = state.get("pstn_id") or ""
+    if not cid or cid == parked_id:
+        return None
+    if pstn_id and cid != pstn_id:
+        return None
+    return cid
+
+
+def _bridge_parked(row: dict, pstn_id: str) -> Response:
+    parked_id = (row.get("provider_state") or {}).get("parked_id") or row.get(
+        "carrier_call_id"
+    )
+    if parked_id and pstn_id:
+        telnyx_rest().bridge(parked_id, pstn_id)
+    return Response(status_code=204)
+
+
+def _hangup_dial_status(cause: str) -> str:
+    mapped = {
+        "timeout": "no-answer",
+        "time_limit": "no-answer",
+        "no_answer": "no-answer",
+        "user_busy": "busy",
+        "call_rejected": "busy",
+        "busy": "busy",
+        "originator_cancel": "canceled",
+        "cancelled": "canceled",
+        "canceled": "canceled",
+    }
+    return mapped.get((cause or "").lower(), "failed")
+
+
+def _provider_state(row: dict | None) -> dict:
+    state = (row or {}).get("provider_state") or {}
+    return state if isinstance(state, dict) else {}
+
+
+async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
+    call_control_id = payload.get("call_control_id") or ""
+    existing = _find_outbound_call(supabase, payload)
+    if existing:
+        if _provider_state(existing).get("pstn_id"):
+            return Response(status_code=204)
+        if existing.get("status") != "dialing":
+            return Response(status_code=204)
+
+    user_id = user_id_from_parked_payload(supabase, payload)
+    if not user_id:
+        if _looks_like_sip_identity(payload.get("from") or ""):
+            return _telnyx_hangup_parked(call_control_id)
+        return Response(status_code=204)
+
+    raw_to = payload.get("to") or ""
+    if is_emergency_destination(raw_to):
+        return _telnyx_hangup_parked(call_control_id)
+
+    try:
+        to_number = normalize_e164(raw_to, settings.CALLING_DEFAULT_COUNTRY_CODE)
+    except InvalidPhoneNumber as e:
+        logger.warning("Telnyx parked webhook rejected invalid destination: %s", e)
+        return _telnyx_hangup_parked(call_control_id)
+
+    if is_emergency_destination(to_number):
+        return _telnyx_hangup_parked(call_control_id)
+
+    try:
+        caller_id = resolve_caller_id(
+            supabase, user_id, _header(payload, "X-Vocify-Caller-Id") or None
+        )
+    except CallerIdNotVerified as e:
+        logger.warning("Telnyx parked webhook rejected: %s", e)
+        return _telnyx_hangup_parked(call_control_id)
+
+    parked_id = call_control_id
+    session_id = payload.get("call_session_id") or ""
+    try:
+        supabase.table("outbound_calls").insert(
+            {
+                "user_id": user_id,
+                "carrier": "telnyx",
+                "carrier_call_id": parked_id,
+                "from_number": caller_id,
+                "to_number": to_number,
+                "hubspot_hub_id": None,
+                "hubspot_contact_id": _header(payload, "X-Vocify-Contact-Id") or None,
+                "hubspot_deal_id": _header(payload, "X-Vocify-Deal-Id") or None,
+                "status": "dialing",
+                "provider_state": {
+                    "parked_id": parked_id,
+                    **({"session_id": session_id} if session_id else {}),
+                },
+            }
+        ).execute()
+    except Exception as e:
+        if "duplicate key" not in str(e).lower() and "23505" not in str(e):
+            raise
+
+    try:
+        pstn = telnyx_rest().dial(
+            to=to_number,
+            caller_id=caller_id,
+            link_to=parked_id,
+        )
+    except Exception:
+        logger.exception("Telnyx PSTN dial failed; hanging up parked leg")
+        supabase.table("outbound_calls").update({"status": "failed"}).eq(
+            "carrier_call_id", parked_id
+        ).execute()
+        return _telnyx_hangup_parked(parked_id)
+    supabase.table("outbound_calls").update(
+        {
+            "provider_state": {
+                "parked_id": parked_id,
+                "pstn_id": pstn["call_control_id"],
+                **({"session_id": session_id} if session_id else {}),
+            }
+        }
+    ).eq("carrier_call_id", parked_id).execute()
+    return Response(status_code=204)
+
+
+def _telnyx_answered(supabase, payload: dict) -> Response:
+    row = _find_outbound_call(supabase, payload)
+    if not row:
+        return Response(status_code=204)
+    pstn_id = _pstn_event_id(row, payload)
+    if not pstn_id:
+        return Response(status_code=204)
+    if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED:
+        telnyx_rest().speak(
+            pstn_id,
+            settings.TWILIO_RECORDING_ANNOUNCEMENT
+            or DEFAULT_RECORDING_ANNOUNCEMENT_ES,
+        )
+        return Response(status_code=204)
+    return _bridge_parked(row, pstn_id)
+
+
+def _telnyx_bridge_after_announcement(supabase, payload: dict) -> Response:
+    row = _find_outbound_call(supabase, payload)
+    if not row:
+        return Response(status_code=204)
+    pstn_id = _pstn_event_id(row, payload)
+    if not pstn_id:
+        return Response(status_code=204)
+    return _bridge_parked(row, pstn_id)
+
+
+async def _telnyx_hangup(supabase, payload: dict) -> None:
+    cid = payload.get("call_control_id") or ""
+    cause = (payload.get("hangup_cause") or "").lower()
+    row = _find_outbound_call(supabase, payload)
+    if not row:
+        return
+    state = _provider_state(row)
+    parked_id = state.get("parked_id") or row.get("carrier_call_id")
+    pstn_id = state.get("pstn_id")
+    if cid and cid == parked_id and pstn_id:
+        telnyx_rest().hangup(pstn_id)
+        return
+    if row.get("status") == "recorded":
+        return
+    if cause == "normal_clearing":
+        return
+    await log_missed_call_activity(
+        supabase, row["carrier_call_id"], _hangup_dial_status(cause)
+    )
+    if parked_id:
+        telnyx_rest().hangup(parked_id)
+
+
+@router.post("/telnyx/voice")
+async def telnyx_voice(request: Request):
+    raw = await request.body()
+    if not verify_telnyx_signature(
+        public_key=settings.TELNYX_PUBLIC_KEY or "",
+        timestamp=request.headers.get("telnyx-timestamp", ""),
+        signature=request.headers.get("telnyx-signature-ed25519", ""),
+        raw_body=raw,
+    ):
+        return PlainTextResponse("Forbidden", status_code=403)
+    if calling_provider() != "telnyx":
+        return Response(status_code=204)
+    try:
+        event = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return Response(status_code=204)
+    data = event.get("data") if isinstance(event, dict) else None
+    if not isinstance(data, dict):
+        return Response(status_code=204)
+    event_type = data.get("event_type") or ""
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    supabase = get_supabase()
+    if event_type == "call.initiated" and payload.get("state") == "parked":
+        return await _telnyx_parked_initiated(supabase, payload)
+    if event_type == "call.answered":
+        return _telnyx_answered(supabase, payload)
+    if event_type in ("call.speak.ended", "call.playback.ended"):
+        return _telnyx_bridge_after_announcement(supabase, payload)
+    if event_type == "call.hangup":
+        await _telnyx_hangup(supabase, payload)
+        return Response(status_code=204)
+    if event_type == "call.recording.saved":
+        return await _telnyx_recording_saved(supabase, payload)
+    return Response(status_code=204)
+
+
+def _recording_duration_seconds(payload: dict) -> float:
+    started = payload.get("recording_started_at") or payload.get("start_time")
+    ended = payload.get("recording_ended_at") or payload.get("end_time")
+    if started and ended:
+        try:
+            t0 = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+            t1 = datetime.fromisoformat(str(ended).replace("Z", "+00:00"))
+            secs = (t1 - t0).total_seconds()
+            if secs > 0:
+                return secs
+        except ValueError:
+            pass
+    return 1.0
+
+
+async def _telnyx_recording_saved(supabase, payload: dict) -> Response:
+    recording_id = (payload.get("recording_id") or "").strip()
+    call_row = find_outbound_call(supabase, payload)
+    if not call_row:
+        logger.warning(
+            "Telnyx recording for unknown call_control_id=%s",
+            payload.get("call_control_id"),
+        )
+        return Response(status_code=204)
+    if call_row.get("memo_id"):
+        return Response(status_code=204)  # redelivery
+    if not recording_id:
+        logger.warning("Telnyx recording.saved missing recording_id")
+        return Response(status_code=204)
+
+    call_sid = call_row["carrier_call_id"]
+    pipeline_started_at = time.perf_counter()
+    pre_stages: list = []
+    duration = _recording_duration_seconds(payload)
+    with pipeline_run() as pre_stages:
+        t_dl = time.perf_counter()
+        audio_bytes = await download_telnyx_recording(recording_id)
+        record_stage("download", t_dl, bytes=len(audio_bytes))
+        record_download_duration(time.perf_counter() - t_dl)
+        t_up = time.perf_counter()
+        path = await StorageService(supabase).upload_call_recording(
+            audio_bytes, call_row["user_id"], call_sid
+        )
+        record_stage("upload", t_up)
+
+    supabase.table("outbound_calls").update(
+        {
+            "recording_sid": recording_id,
+            "recording_path": path,
+            "recording_duration": int(duration),
+            "answered_at": (
+                datetime.now(timezone.utc) - timedelta(seconds=int(duration))
+            ).isoformat(),
+            "status": "recorded",
+        }
+    ).eq("carrier_call_id", call_sid).execute()
     call_row["recording_duration"] = int(duration)
     call_row["recording_path"] = path
 

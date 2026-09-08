@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.services.pipeline_meta import extraction_source_type
 from app.services.storage import CALL_RECORDINGS_BUCKET
 from app.services.telephony.call_processor import twilio_wav_url
@@ -75,11 +77,109 @@ class TestDownloadUsesBasicAuth:
         assert client_cls.call_args.kwargs["auth"] == ("SK1", "secret")
 
 
+class TestDownloadTelnyxRecording:
+    @pytest.mark.asyncio
+    async def test_download_telnyx_recording_uses_wav_url(self):
+        from app.services.telephony.call_processor import download_telnyx_recording
+
+        wav_url = "https://s3.example.com/rec-1.wav"
+        telnyx = MagicMock()
+        telnyx.get_recording.return_value = {"download_urls": {"wav": wav_url}}
+
+        instance = MagicMock()
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"RIFF...."
+        response.raise_for_status.return_value = None
+        instance.get = AsyncMock(return_value=response)
+
+        with (
+            patch(
+                "app.services.telephony.call_processor.telnyx_rest",
+                return_value=telnyx,
+            ),
+            patch("app.services.telephony.call_processor.httpx.AsyncClient") as client_cls,
+            patch("app.services.telephony.call_processor.settings") as settings,
+        ):
+            settings.TELNYX_API_KEY = "KEY"
+            client_cls.return_value.__aenter__.return_value = instance
+            audio = await download_telnyx_recording("rec-1")
+
+        assert audio.startswith(b"RIFF")
+        telnyx.get_recording.assert_called_once_with("rec-1")
+        assert client_cls.call_args.kwargs["headers"]["Authorization"] == "Bearer KEY"
+        instance.get.assert_awaited_once_with(wav_url)
+
+    @pytest.mark.asyncio
+    async def test_download_telnyx_recording_fails_when_wav_url_missing(self):
+        from app.services.telephony.call_processor import download_telnyx_recording
+
+        telnyx = MagicMock()
+        telnyx.get_recording.return_value = {
+            "download_urls": {"mp3": "https://s3.example.com/rec-1.mp3"}
+        }
+        instance = MagicMock()
+        instance.get = AsyncMock()
+
+        with (
+            patch(
+                "app.services.telephony.call_processor.telnyx_rest",
+                return_value=telnyx,
+            ),
+            patch("app.services.telephony.call_processor.httpx.AsyncClient") as client_cls,
+            patch("app.services.telephony.call_processor.settings") as settings,
+        ):
+            settings.TELNYX_API_KEY = "KEY"
+            client_cls.return_value.__aenter__.return_value = instance
+            with pytest.raises(ValueError, match="download_urls.wav"):
+                await download_telnyx_recording("rec-1")
+
+        instance.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_download_telnyx_recording_refreshes_expired_url(self):
+        from app.services.telephony.call_processor import download_telnyx_recording
+
+        telnyx = MagicMock()
+        telnyx.get_recording.side_effect = [
+            {"download_urls": {"wav": "https://s3.example.com/old.wav"}},
+            {"download_urls": {"wav": "https://s3.example.com/new.wav"}},
+        ]
+        expired = MagicMock()
+        expired.status_code = 403
+        expired.content = b""
+        refreshed = MagicMock()
+        refreshed.status_code = 200
+        refreshed.content = b"RIFF...."
+        refreshed.raise_for_status.return_value = None
+        instance = MagicMock()
+        instance.get = AsyncMock(side_effect=[expired, refreshed])
+
+        with (
+            patch(
+                "app.services.telephony.call_processor.telnyx_rest",
+                return_value=telnyx,
+            ),
+            patch("app.services.telephony.call_processor.httpx.AsyncClient") as client_cls,
+            patch("app.services.telephony.call_processor.settings") as settings,
+        ):
+            settings.TELNYX_API_KEY = "KEY"
+            client_cls.return_value.__aenter__.return_value = instance
+            audio = await download_telnyx_recording("rec-1")
+
+        assert audio.startswith(b"RIFF")
+        assert telnyx.get_recording.call_count == 2
+        assert [c.args[0] for c in instance.get.await_args_list] == [
+            "https://s3.example.com/old.wav",
+            "https://s3.example.com/new.wav",
+        ]
+
+
 class TestAttachHubspotContactByPhone:
     def _row(self, **overrides):
         row = {
             "user_id": "user-1",
-            "twilio_call_sid": "CA1",
+            "carrier_call_id": "CA1",
             "to_number": "+34648739267",
             "hubspot_contact_id": None,
         }

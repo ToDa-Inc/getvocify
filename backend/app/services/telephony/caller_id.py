@@ -22,6 +22,8 @@ from supabase import Client
 from app.config import settings
 from twilio.base.exceptions import TwilioRestException
 
+from app.services.telephony.provider import calling_provider
+from app.services.telephony.telnyx_client import telnyx_rest
 from app.services.telephony.twilio_client import twilio_rest
 from app.services.telephony.twiml import normalize_e164
 
@@ -47,20 +49,27 @@ def _status_callback_url() -> str:
     return f"{base}/webhooks/twilio/caller-id-status"
 
 
+def _telnyx_verification_sid(payload: Any, phone_number: str) -> str:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    source = data if isinstance(data, dict) else payload if isinstance(payload, dict) else {}
+    vid = source.get("id")
+    return str(vid) if vid else phone_number
+
+
 def start_caller_id_verification(
     supabase: Client,
     user_id: str,
     raw_number: str,
     label: Optional[str],
 ) -> dict[str, Any]:
-    """Ask Twilio to verify a number and return the code the user must enter."""
+    """Start provider verification. Twilio returns a keypad code; Telnyx sends OTP."""
     phone_number = normalize_e164(
         raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
     )
 
     existing_rows = (
         supabase.table("user_caller_ids")
-        .select("phone_number,status,label,twilio_validation_sid,verified_at")
+        .select("phone_number,status,label,verification_sid,verified_at")
         .eq("user_id", user_id)
         .eq("phone_number", phone_number)
         .limit(1)
@@ -72,8 +81,31 @@ def start_caller_id_verification(
         return {
             "phoneNumber": phone_number,
             "status": "verified",
-            "validationSid": row.get("twilio_validation_sid"),
+            "validationSid": row.get("verification_sid"),
             "alreadyVerified": True,
+        }
+
+    if calling_provider() == "telnyx":
+        payload = telnyx_rest().create_verified_number(phone_number)
+        verification_sid = _telnyx_verification_sid(payload, phone_number)
+        upsert_row: dict[str, Any] = {
+            "user_id": user_id,
+            "phone_number": phone_number,
+            "status": "pending",
+            "verification_sid": verification_sid,
+            "verified_at": None,
+        }
+        if label is not None:
+            upsert_row["label"] = label
+        supabase.table("user_caller_ids").upsert(
+            upsert_row,
+            on_conflict="user_id,phone_number",
+        ).execute()
+        return {
+            "phoneNumber": phone_number,
+            "status": "pending",
+            "needsCodeSubmit": True,
+            "alreadyVerified": False,
         }
 
     try:
@@ -93,7 +125,7 @@ def start_caller_id_verification(
         "user_id": user_id,
         "phone_number": phone_number,
         "status": "pending",
-        "twilio_validation_sid": validation.call_sid,
+        "verification_sid": validation.call_sid,
         "verified_at": None,
     }
     if label is not None:
@@ -113,12 +145,55 @@ def start_caller_id_verification(
     }
 
 
+def confirm_caller_id_verification(
+    supabase: Client,
+    user_id: str,
+    raw_number: str,
+    code: str,
+) -> dict[str, Any]:
+    """Submit the Telnyx OTP and mark the number verified for this user."""
+    phone_number = normalize_e164(
+        raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
+    )
+    existing = (
+        supabase.table("user_caller_ids")
+        .select("phone_number")
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    if not existing:
+        raise CallerIdNotVerified(
+            f"no caller ID row for user {user_id} ({phone_number})"
+        )
+    telnyx_rest().verify_number_code(phone_number, code)
+    now = datetime.now(timezone.utc).isoformat()
+    res = (
+        supabase.table("user_caller_ids")
+        .update({"status": "verified", "verified_at": now})
+        .eq("user_id", user_id)
+        .eq("phone_number", phone_number)
+        .execute()
+    )
+    if not res.data:
+        raise CallerIdNotVerified(
+            f"no caller ID row for user {user_id} ({phone_number})"
+        )
+    return {
+        "phoneNumber": phone_number,
+        "status": "verified",
+        "alreadyVerified": False,
+    }
+
+
 def _set_status(
-    supabase: Client, twilio_validation_sid: Optional[str], status: str
+    supabase: Client, verification_sid: Optional[str], status: str
 ) -> bool:
-    if not twilio_validation_sid:
+    if not verification_sid:
         logger.warning(
-            "caller ID status callback missing twilio_validation_sid (CallSid); "
+            "caller ID status callback missing verification_sid (CallSid); "
             "leaving row pending"
         )
         return False
@@ -128,22 +203,22 @@ def _set_status(
     res = (
         supabase.table("user_caller_ids")
         .update(update)
-        .eq("twilio_validation_sid", twilio_validation_sid)
+        .eq("verification_sid", verification_sid)
         .execute()
     )
     return bool(res.data)
 
 
 def mark_caller_id_verified(
-    supabase: Client, twilio_validation_sid: Optional[str]
+    supabase: Client, verification_sid: Optional[str]
 ) -> bool:
-    return _set_status(supabase, twilio_validation_sid, "verified")
+    return _set_status(supabase, verification_sid, "verified")
 
 
 def mark_caller_id_failed(
-    supabase: Client, twilio_validation_sid: Optional[str]
+    supabase: Client, verification_sid: Optional[str]
 ) -> bool:
-    return _set_status(supabase, twilio_validation_sid, "failed")
+    return _set_status(supabase, verification_sid, "failed")
 
 
 def _serialize_caller_id(row: dict[str, Any]) -> dict[str, Any]:

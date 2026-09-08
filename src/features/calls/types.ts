@@ -9,8 +9,11 @@ export type CallerId = {
   source?: 'user' | 'twilio';
 };
 
+export type CallingProvider = 'twilio' | 'telnyx';
+
 export type CallingConfig = {
   enabled: boolean;
+  provider?: CallingProvider;
   callerIds: CallerId[];
   hubspotLogging: boolean;
   settingsUrl?: string;
@@ -22,4 +25,5 @@ export type AddCallerIdResponse = {
   verificationCode?: string | null;
   alreadyVerified?: boolean;
   validationSid?: string;
+  needsCodeSubmit?: boolean;
 };

@@ -11,20 +11,11 @@ from functools import lru_cache
 from twilio.rest import Client as TwilioRestClient
 
 from app.config import settings
+from app.services.telephony.provider import telephony_configured as telephony_configured
 
 
 class TelephonyNotConfigured(RuntimeError):
     """Twilio credentials are absent; calling features are unavailable."""
-
-
-def telephony_configured() -> bool:
-    return bool(
-        settings.TWILIO_ACCOUNT_SID
-        and settings.TWILIO_AUTH_TOKEN
-        and settings.TWILIO_API_KEY_SID
-        and settings.TWILIO_API_KEY_SECRET
-        and settings.TWILIO_TWIML_APP_SID
-    )
 
 
 @lru_cache(maxsize=1)

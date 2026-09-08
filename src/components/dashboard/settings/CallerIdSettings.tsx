@@ -8,7 +8,7 @@ import { useAuth } from "@/features/auth";
 import { callsApi } from "@/features/calls/api";
 import type { CallerId, CallingConfig } from "@/features/calls/types";
 import { ApiError } from "@/shared/lib/api-client";
-import { callerIdFormVisible } from "@/lib/dial-target";
+import { callerIdFormVisible, callerIdOtpVisible } from "@/lib/dial-target";
 
 const POLL_MS = 3000;
 const POLL_MAX_MS = 120_000;
@@ -20,6 +20,9 @@ export const CallerIdSettings = () => {
   const [number, setNumber] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [verificationCode, setVerificationCode] = useState<string | null>(null);
+  const [otpPhone, setOtpPhone] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [isConfirming, setIsConfirming] = useState(false);
   const [pollExpired, setPollExpired] = useState(false);
   const pollUntilRef = useRef<number | null>(null);
   const pollIdRef = useRef<number | null>(null);
@@ -60,10 +63,13 @@ export const CallerIdSettings = () => {
   }, []);
 
   const ids = (config?.callerIds || []).filter((c) => c.source !== "twilio");
-  const hasPending = ids.some((c) => c.status === "pending");
+  const isTelnyx = config?.provider === "telnyx";
+  const pendingRow = ids.find((c) => c.status === "pending") ?? null;
+  const hasPending = Boolean(pendingRow);
+  const otpTarget = otpPhone || pendingRow?.phoneNumber || null;
 
   useEffect(() => {
-    if (!hasPending || !config?.enabled) {
+    if (!hasPending || !config?.enabled || isTelnyx) {
       stopPoll();
       return;
     }
@@ -86,7 +92,7 @@ export const CallerIdSettings = () => {
       }
     }, POLL_MS);
     return () => stopPoll();
-  }, [hasPending, config?.enabled, load]);
+  }, [hasPending, config?.enabled, isTelnyx, load]);
 
   const whatsappPhone = user?.phone || "";
   const whatsappUnused =
@@ -101,11 +107,19 @@ export const CallerIdSettings = () => {
       const result = await callsApi.addCallerId(raw);
       if (result.alreadyVerified) {
         setVerificationCode(null);
+        setOtpPhone(null);
+        setOtpCode("");
         toast.success("Este número ya está verificado");
+      } else if (result.needsCodeSubmit) {
+        setVerificationCode(null);
+        setOtpPhone(result.phoneNumber);
+        setOtpCode("");
       } else if (result.verificationCode) {
         setVerificationCode(result.verificationCode);
+        setOtpPhone(null);
       } else {
         setVerificationCode(null);
+        setOtpPhone(null);
       }
       setNumber("");
       await load();
@@ -124,6 +138,32 @@ export const CallerIdSettings = () => {
     }
   };
 
+  const handleConfirm = async () => {
+    const phone = otpTarget;
+    const code = otpCode.trim();
+    if (!phone || !code) return;
+    try {
+      setIsConfirming(true);
+      await callsApi.confirmCallerId(phone, code);
+      setOtpPhone(null);
+      setOtpCode("");
+      toast.success("Número verificado");
+      await load();
+    } catch (error) {
+      const detail =
+        error instanceof ApiError &&
+        error.data &&
+        typeof error.data === "object" &&
+        "detail" in error.data &&
+        typeof (error.data as { detail: unknown }).detail === "string"
+          ? (error.data as { detail: string }).detail
+          : null;
+      toast.error(detail || "No se pudo confirmar el código");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
   const handleDefault = async (phoneNumber: string) => {
     try {
       const result = await callsApi.setDefaultCallerId(phoneNumber);
@@ -139,6 +179,10 @@ export const CallerIdSettings = () => {
     if (!window.confirm(`¿Eliminar ${row.phoneNumber}?`)) return;
     try {
       await callsApi.deleteCallerId(row.phoneNumber);
+      if (otpPhone === row.phoneNumber) {
+        setOtpPhone(null);
+        setOtpCode("");
+      }
       await load();
     } catch {
       toast.error("No se pudo eliminar el número");
@@ -158,8 +202,9 @@ export const CallerIdSettings = () => {
       <div>
         <h3 className={THEME_TOKENS.typography.sectionTitle}>Caller ID</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          El número que verán tus prospectos. Twilio te llamará, en
-          inglés, y teclearás un código.
+          {isTelnyx
+            ? "El número que verán tus prospectos. Te enviaremos un código a ese número; introdúcelo aquí."
+            : "El número que verán tus prospectos. Twilio te llamará, en inglés, y teclearás un código."}
         </p>
       </div>
 
@@ -178,8 +223,9 @@ export const CallerIdSettings = () => {
 
       {ids.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Verifica tu número una vez. Twilio te llamará, en inglés, desde un
-          número de Estados Unidos, y teclearás un código.
+          {isTelnyx
+            ? "Verifica tu número una vez. Te enviaremos un código; introdúcelo aquí. Vocify nunca genera ni muestra ese código."
+            : "Verifica tu número una vez. Twilio te llamará, en inglés, desde un número de Estados Unidos, y teclearás un código."}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -250,7 +296,7 @@ export const CallerIdSettings = () => {
               {isSaving ? "Verificando…" : "Verificar"}
             </Button>
           </div>
-          {verificationCode && (
+          {verificationCode && !isTelnyx && (
             <p className="text-center text-2xl font-bold tracking-[0.3em]">
               {verificationCode}
               <span className="mt-2 block text-xs font-normal tracking-normal text-muted-foreground">
@@ -259,7 +305,38 @@ export const CallerIdSettings = () => {
               </span>
             </p>
           )}
-          {pollExpired && (
+          {callerIdOtpVisible({
+            provider: config?.provider,
+            enabled: config?.enabled,
+            otpTarget,
+          }) && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Introduce el código enviado a {otpTarget}. Vocify nunca genera
+                ni muestra ese código.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  placeholder="Código"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={12}
+                  className="rounded-full h-11"
+                />
+                <Button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={isConfirming || !otpCode.trim()}
+                  className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
+                >
+                  {isConfirming ? "Confirmando…" : "Confirmar código"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {pollExpired && !isTelnyx && (
             <p className="text-sm text-muted-foreground">
               La verificación ha caducado. Inténtalo de nuevo.
             </p>

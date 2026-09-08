@@ -298,6 +298,13 @@ export const api = {
     });
   },
 
+  async confirmCallerId(phoneNumber, code) {
+    return request('/calls/caller-ids/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ phoneNumber, code }),
+    });
+  },
+
   async getCall(sid) {
     return request(`/calls/${encodeURIComponent(sid)}`);
   },

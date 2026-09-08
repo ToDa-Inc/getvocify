@@ -111,3 +111,12 @@ export function callerIdFormVisible(args: {
 }): boolean {
   return !args.isLoading;
 }
+
+/** Telnyx OTP field: pending number exists, calling is on, provider is Telnyx. */
+export function callerIdOtpVisible(args: {
+  provider?: string;
+  enabled?: boolean;
+  otpTarget: string | null;
+}): boolean {
+  return args.provider === "telnyx" && Boolean(args.enabled) && Boolean(args.otpTarget);
+}

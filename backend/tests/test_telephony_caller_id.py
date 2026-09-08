@@ -1,11 +1,20 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
+from fastapi import HTTPException
 
+from app.api.calls import (
+    CallerIdConfirmRequest,
+    CallerIdRequest,
+    confirm_caller_id,
+    create_caller_id,
+)
 from app.services.telephony.caller_id import (
     CallerIdNotVerified,
     CallerIdVerificationUnsupported,
+    confirm_caller_id_verification,
     delete_caller_id,
     get_caller_id,
     mark_caller_id_verified,
@@ -224,7 +233,7 @@ class TestStartCallerIdVerification:
         assert result["alreadyVerified"] is False
         assert store[0]["phone_number"] == "+34600111222"
         assert store[0]["status"] == "pending"
-        assert store[0]["twilio_validation_sid"] == "CAabc123"
+        assert store[0]["verification_sid"] == "CAabc123"
 
     @patch("app.services.telephony.caller_id.twilio_rest")
     def test_passes_status_callback_to_twilio(self, rest):
@@ -250,7 +259,7 @@ class TestStartCallerIdVerification:
                     "phone_number": "+34600111222",
                     "status": "verified",
                     "label": "Oficina",
-                    "twilio_validation_sid": "CA-old",
+                    "verification_sid": "CA-old",
                     "verified_at": "2026-01-01T00:00:00Z",
                 }
             ]
@@ -327,6 +336,117 @@ class TestStartCallerIdVerification:
             )
         assert "IE1" in str(exc.value) or "Irlanda" in str(exc.value)
 
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="telnyx")
+    @patch("app.services.telephony.caller_id.telnyx_rest")
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_telnyx_start_persists_pending_without_inventing_a_code(
+        self, twilio, telnyx, _provider
+    ):
+        telnyx.return_value.create_verified_number.return_value = {"data": {}}
+        supabase, store = fake_supabase([])
+
+        result = start_caller_id_verification(
+            supabase, "user-1", "+34600111222", label=None
+        )
+
+        assert result["needsCodeSubmit"] is True
+        assert "verificationCode" not in result or result["verificationCode"] is None
+        assert result["status"] == "pending"
+        assert result["alreadyVerified"] is False
+        assert store[0]["status"] == "pending"
+        assert store[0]["verification_sid"] == "+34600111222"
+        twilio.assert_not_called()
+        telnyx.return_value.create_verified_number.assert_called_once_with(
+            "+34600111222"
+        )
+
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="telnyx")
+    @patch("app.services.telephony.caller_id.telnyx_rest")
+    def test_telnyx_start_stores_provider_id_when_present(self, telnyx, _provider):
+        telnyx.return_value.create_verified_number.return_value = {
+            "data": {"id": "vn_abc"}
+        }
+        supabase, store = fake_supabase([])
+
+        start_caller_id_verification(supabase, "user-1", "+34600111222", label=None)
+
+        assert store[0]["verification_sid"] == "vn_abc"
+
+
+class TestConfirmCallerIdVerification:
+    @patch("app.services.telephony.caller_id.telnyx_rest")
+    def test_telnyx_confirm_marks_verified(self, telnyx):
+        telnyx.return_value.verify_number_code.return_value = {"data": {}}
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34600111222",
+                    "status": "pending",
+                    "verification_sid": "+34600111222",
+                    "verified_at": None,
+                }
+            ]
+        )
+
+        result = confirm_caller_id_verification(
+            supabase, "user-1", "+34600111222", "482913"
+        )
+
+        assert result["status"] == "verified"
+        assert result["phoneNumber"] == "+34600111222"
+        assert store[0]["status"] == "verified"
+        assert store[0]["verified_at"] is not None
+        telnyx.return_value.verify_number_code.assert_called_once_with(
+            "+34600111222", "482913"
+        )
+
+
+def _telnyx_http_4xx(status_code: int = 400) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://api.telnyx.com/v2/verified_numbers")
+    response = httpx.Response(status_code, request=request, text="rejected")
+    return httpx.HTTPStatusError("Client error", request=request, response=response)
+
+
+class TestTelnyxCallerIdHttpErrors:
+    @pytest.mark.asyncio
+    async def test_create_caller_id_maps_telnyx_4xx_to_client_error(self):
+        with (
+            patch("app.api.calls.telephony_configured", return_value=True),
+            patch(
+                "app.api.calls.start_caller_id_verification",
+                side_effect=_telnyx_http_4xx(400),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await create_caller_id(
+                    body=CallerIdRequest(phoneNumber="+34600111222"),
+                    supabase=MagicMock(),
+                    user_id="user-1",
+                )
+
+        assert exc.value.status_code in (400, 422)
+
+    @pytest.mark.asyncio
+    async def test_confirm_caller_id_maps_telnyx_4xx_to_client_error(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="telnyx"),
+            patch(
+                "app.api.calls.confirm_caller_id_verification",
+                side_effect=_telnyx_http_4xx(422),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await confirm_caller_id(
+                    body=CallerIdConfirmRequest(
+                        phoneNumber="+34600111222", code="482913"
+                    ),
+                    supabase=MagicMock(),
+                    user_id="user-1",
+                )
+
+        assert exc.value.status_code in (400, 422)
+
 
 class TestMarkCallerIdVerified:
     def test_verification_callback_updates_only_matching_validation_sid(self):
@@ -336,13 +456,13 @@ class TestMarkCallerIdVerified:
                     "user_id": "user-1",
                     "phone_number": "+34600111222",
                     "status": "pending",
-                    "twilio_validation_sid": "CA111",
+                    "verification_sid": "CA111",
                 },
                 {
                     "user_id": "user-2",
                     "phone_number": "+34600111222",
                     "status": "pending",
-                    "twilio_validation_sid": "CA222",
+                    "verification_sid": "CA222",
                 },
             ]
         )
@@ -358,7 +478,7 @@ class TestMarkCallerIdVerified:
                     "user_id": "user-1",
                     "phone_number": "+34600111222",
                     "status": "pending",
-                    "twilio_validation_sid": "CA111",
+                    "verification_sid": "CA111",
                 }
             ]
         )

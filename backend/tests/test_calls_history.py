@@ -66,7 +66,7 @@ def fake_db(tables: dict[str, list[dict]]):
 
 CALL_A = {
     "user_id": "user-1",
-    "twilio_call_sid": "CA1",
+    "carrier_call_id": "CA1",
     "to_number": "+34600111222",
     "from_number": "+34910000000",
     "hubspot_contact_id": "C1",
@@ -81,7 +81,7 @@ CALL_A = {
 }
 CALL_B = {
     "user_id": "user-1",
-    "twilio_call_sid": "CA2",
+    "carrier_call_id": "CA2",
     "to_number": "+34600999999",
     "from_number": "+34910000000",
     "hubspot_contact_id": "C2",
@@ -97,7 +97,7 @@ CALL_B = {
 CALL_OTHER_USER = {
     **CALL_A,
     "user_id": "user-2",
-    "twilio_call_sid": "CA-other",
+    "carrier_call_id": "CA-other",
     "memo_id": "memo-secret",
 }
 
@@ -122,7 +122,7 @@ async def test_history_is_scoped_to_the_user():
 @pytest.mark.asyncio
 async def test_history_limit_is_clamped_by_query():
     rows = [
-        {**CALL_B, "twilio_call_sid": f"CA{i}", "created_at": f"2026-09-01T{i:02d}:00:00Z"}
+        {**CALL_B, "carrier_call_id": f"CA{i}", "created_at": f"2026-09-01T{i:02d}:00:00Z"}
         for i in range(5)
     ]
     supabase, _ = fake_db({"outbound_calls": rows, "memos": []})

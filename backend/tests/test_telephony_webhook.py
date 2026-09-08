@@ -140,12 +140,12 @@ def _sign(url: str, params: dict[str, str], auth_token: str) -> str:
 
 
 class TestCallerIdStatusWebhook:
-    """`user_caller_ids.twilio_validation_sid` is the only match key.
+    """`user_caller_ids.verification_sid` is the only match key.
 
     Matching on `To` (a bare phone number) instead would flip every row that
     shares that number across every user who ever registered it, so the
     webhook must key off the `CallSid` Twilio includes on every Voice Request
-    (the same value persisted as `twilio_validation_sid`) and must not fall
+    (the same value persisted as `verification_sid`) and must not fall
     back to `To`/`PhoneNumber` when it's absent.
     """
 
@@ -157,13 +157,13 @@ class TestCallerIdStatusWebhook:
                         "user_id": "user-1",
                         "phone_number": "+34600111222",
                         "status": "pending",
-                        "twilio_validation_sid": "CA111",
+                        "verification_sid": "CA111",
                     },
                     {
                         "user_id": "user-2",
                         "phone_number": "+34600111222",
                         "status": "pending",
-                        "twilio_validation_sid": "CA222",
+                        "verification_sid": "CA222",
                     },
                 ]
             }
@@ -195,7 +195,7 @@ class TestCallerIdStatusWebhook:
                         "user_id": "user-1",
                         "phone_number": "+34600111222",
                         "status": "pending",
-                        "twilio_validation_sid": "CA111",
+                        "verification_sid": "CA111",
                     }
                 ]
             }
@@ -518,7 +518,7 @@ class TestDialStatusWebhook:
                 "outbound_calls": [
                     {
                         "user_id": "user-1",
-                        "twilio_call_sid": "CA1",
+                        "carrier_call_id": "CA1",
                         "status": "dialing",
                     }
                 ]
