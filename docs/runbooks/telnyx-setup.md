@@ -22,7 +22,9 @@ Configured against live Mission Control (no secrets in this file):
 - Credential Connection renamed Vocify Dialer; `outbound.call_parking_enabled=true`
 - Webhook URL still unset (no local tunnel)
 - `POST /v2/verified_numbers` for the account +34 number returned **200**
-  (`verification_method=call`). OTP confirm and steps 7–9 are **not done**.
+  (SMS then voice). OTP confirm succeeded on **2026-09-08** via
+  `POST /v2/verified_numbers/+34…/actions/verify` **200**; Telnyx lists **1**
+  verified number. Steps 7–9 are **not done**.
 
 Do not invent a CDR `cost` or a handset-CLI result.
 
@@ -93,7 +95,8 @@ Do not paste API keys, connection ids, or public keys into this file.
 - [x] **3. PATCH connection:** `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
 - [x] **4. Copy API key, connection id, Ed25519 public key into env.** Do not flip the code default; `CALLING_PROVIDER` stays `twilio` in `config.py`.
 - [ ] **5. Apply migration 029.**
-- [ ] **6. Verify one real +34 number** (`POST /v2/verified_numbers` **200** on start; OTP confirm pending).
+- [x] **6. Verify one real +34 number.** Start **200**; OTP confirm **200**
+  (`verified_at` 2026-09-08T15:17:53Z). Do not invent or record the code.
 - [ ] **7. Place one answered call.** Confirm: audio both ways, disclosure only on callee if flag on, dual WAV in Supabase, memo created, HubSpot engagement.
 - [ ] **8. Read CDR `cost` for that call.** Write the number in this runbook (do not invent a band).
 - [ ] **9. Photograph/note handset CLI.** Connected ≠ delivered.
