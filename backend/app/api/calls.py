@@ -19,12 +19,14 @@ from twilio.jwt.access_token.grants import VoiceGrant
 from app.config import settings
 from app.deps import get_supabase, get_user_id
 from app.services.telephony.caller_id import (
+    confirm_caller_id_verification,
     delete_caller_id,
     get_caller_id,
     list_caller_ids,
     set_default_caller_id,
     start_caller_id_verification,
     update_caller_id_label,
+    CallerIdNotVerified,
     CallerIdVerificationUnsupported,
 )
 from app.services.telephony.provider import calling_provider
@@ -51,6 +53,11 @@ class CallerIdRequest(BaseModel):
 class CallerIdPatchRequest(BaseModel):
     isDefault: Optional[bool] = None
     label: Optional[str] = Field(default=None, max_length=64)
+
+
+class CallerIdConfirmRequest(BaseModel):
+    phoneNumber: str
+    code: str = Field(min_length=4, max_length=12)
 
 
 def _settings_url() -> str:
@@ -153,8 +160,12 @@ async def create_caller_id(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """Start Twilio verification. Twilio calls the number in English, so the
-    caller must be shown `verificationCode` to type on the keypad."""
+    """Start caller-ID verification.
+
+    Twilio calls the number in English and returns `verificationCode` to type
+    on the keypad. Telnyx sends an OTP to the handset; the client must POST
+    `/caller-ids/confirm` (`needsCodeSubmit: true`). Never invent a Telnyx code.
+    """
     if not telephony_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -172,7 +183,35 @@ async def create_caller_id(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
+    if result.get("needsCodeSubmit"):
+        return result
     return {**result, "verificationCode": result.get("verificationCode")}
+
+
+@router.post("/caller-ids/confirm")
+async def confirm_caller_id(
+    body: CallerIdConfirmRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Telnyx only. Twilio confirm is the keypad on the verification call."""
+    if calling_provider() != "telnyx":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Caller ID confirm is only supported for Telnyx",
+        )
+    try:
+        return confirm_caller_id_verification(
+            supabase, user_id, body.phoneNumber, body.code
+        )
+    except InvalidPhoneNumber as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except CallerIdNotVerified as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+        ) from e
 
 
 @router.patch("/caller-ids/{phone_number}")

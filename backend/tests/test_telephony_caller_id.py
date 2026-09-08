@@ -6,6 +6,7 @@ import pytest
 from app.services.telephony.caller_id import (
     CallerIdNotVerified,
     CallerIdVerificationUnsupported,
+    confirm_caller_id_verification,
     delete_caller_id,
     get_caller_id,
     mark_caller_id_verified,
@@ -326,6 +327,71 @@ class TestStartCallerIdVerification:
                 supabase, "user-1", "+34669701069", label=None
             )
         assert "IE1" in str(exc.value) or "Irlanda" in str(exc.value)
+
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="telnyx")
+    @patch("app.services.telephony.caller_id.telnyx_rest")
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_telnyx_start_persists_pending_without_inventing_a_code(
+        self, twilio, telnyx, _provider
+    ):
+        telnyx.return_value.create_verified_number.return_value = {"data": {}}
+        supabase, store = fake_supabase([])
+
+        result = start_caller_id_verification(
+            supabase, "user-1", "+34600111222", label=None
+        )
+
+        assert result["needsCodeSubmit"] is True
+        assert "verificationCode" not in result or result["verificationCode"] is None
+        assert result["status"] == "pending"
+        assert result["alreadyVerified"] is False
+        assert store[0]["status"] == "pending"
+        assert store[0]["verification_sid"] == "+34600111222"
+        twilio.assert_not_called()
+        telnyx.return_value.create_verified_number.assert_called_once_with(
+            "+34600111222"
+        )
+
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="telnyx")
+    @patch("app.services.telephony.caller_id.telnyx_rest")
+    def test_telnyx_start_stores_provider_id_when_present(self, telnyx, _provider):
+        telnyx.return_value.create_verified_number.return_value = {
+            "data": {"id": "vn_abc"}
+        }
+        supabase, store = fake_supabase([])
+
+        start_caller_id_verification(supabase, "user-1", "+34600111222", label=None)
+
+        assert store[0]["verification_sid"] == "vn_abc"
+
+
+class TestConfirmCallerIdVerification:
+    @patch("app.services.telephony.caller_id.telnyx_rest")
+    def test_telnyx_confirm_marks_verified(self, telnyx):
+        telnyx.return_value.verify_number_code.return_value = {"data": {}}
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34600111222",
+                    "status": "pending",
+                    "verification_sid": "+34600111222",
+                    "verified_at": None,
+                }
+            ]
+        )
+
+        result = confirm_caller_id_verification(
+            supabase, "user-1", "+34600111222", "482913"
+        )
+
+        assert result["status"] == "verified"
+        assert result["phoneNumber"] == "+34600111222"
+        assert store[0]["status"] == "verified"
+        assert store[0]["verified_at"] is not None
+        telnyx.return_value.verify_number_code.assert_called_once_with(
+            "+34600111222", "482913"
+        )
 
 
 class TestMarkCallerIdVerified:

@@ -5,7 +5,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.calls import (
+    CallerIdConfirmRequest,
     CallerIdRequest,
+    confirm_caller_id,
     create_caller_id,
     create_voice_token,
     get_calling_config,
@@ -91,6 +93,26 @@ class TestCreateCallerId:
         assert result["alreadyVerified"] is True
         assert "verificationCode" in result
         assert result["verificationCode"] is None
+
+
+class TestConfirmCallerId:
+    @pytest.mark.asyncio
+    async def test_twilio_confirm_does_not_call_telnyx(self):
+        with (
+            patch("app.api.calls.calling_provider", return_value="twilio"),
+            patch("app.api.calls.confirm_caller_id_verification") as mock_confirm,
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await confirm_caller_id(
+                    body=CallerIdConfirmRequest(
+                        phoneNumber="+34600111222", code="482913"
+                    ),
+                    supabase=MagicMock(),
+                    user_id="user-1",
+                )
+
+        assert exc.value.status_code in (400, 404)
+        mock_confirm.assert_not_called()
 
 
 class TestCallingConfigProvider:
