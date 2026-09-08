@@ -35,6 +35,9 @@ from app.services.telephony.caller_id import (
     mark_caller_id_verified,
     resolve_caller_id,
 )
+from app.services.telephony.emergency import is_emergency_destination
+from app.services.telephony.telnyx_client import telnyx_rest
+from app.services.telephony.telnyx_signature import verify_telnyx_signature
 from app.services.telephony.twiml import (
     DEFAULT_RECORDING_ANNOUNCEMENT_ES,
     InvalidPhoneNumber,
@@ -836,5 +839,208 @@ async def twilio_recording(request: Request):
                 pipeline_started_at=pipeline_started_at,
             )
         )
+    return Response(status_code=204)
+
+
+def user_id_from_parked_payload(supabase, payload: dict) -> str | None:
+    sip = (payload.get("from") or "").strip()
+    rows = (
+        supabase.table("user_telephony_credentials")
+        .select("user_id")
+        .eq("provider", "telnyx")
+        .eq("sip_username", sip)
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return str(rows[0]["user_id"]) if rows else None
+
+
+def _header(payload: dict, name: str) -> str:
+    for item in payload.get("custom_headers") or []:
+        key = item.get("header_name") or item.get("name") or ""
+        if key.lower() == name.lower():
+            return item.get("header_value") or item.get("value") or ""
+    return ""
+
+
+def _telnyx_hangup_parked(call_control_id: str) -> Response:
+    if call_control_id:
+        telnyx_rest().hangup(call_control_id)
+    return Response(status_code=204)
+
+
+def _find_outbound_by_pstn(supabase, pstn_id: str) -> dict | None:
+    if not pstn_id:
+        return None
+    rows = (
+        supabase.table("outbound_calls")
+        .select("*")
+        .contains("provider_state", {"pstn_id": pstn_id})
+        .limit(1)
+        .execute()
+        .data
+    ) or []
+    return rows[0] if rows else None
+
+
+def _bridge_parked(row: dict, pstn_id: str) -> Response:
+    parked_id = (row.get("provider_state") or {}).get("parked_id") or row.get(
+        "carrier_call_id"
+    )
+    if parked_id and pstn_id:
+        telnyx_rest().bridge(parked_id, pstn_id)
+    return Response(status_code=204)
+
+
+def _hangup_dial_status(cause: str) -> str:
+    mapped = {
+        "timeout": "no-answer",
+        "time_limit": "no-answer",
+        "no_answer": "no-answer",
+        "user_busy": "busy",
+        "call_rejected": "busy",
+        "busy": "busy",
+        "originator_cancel": "canceled",
+        "cancelled": "canceled",
+        "canceled": "canceled",
+    }
+    return mapped.get((cause or "").lower(), "failed")
+
+
+async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
+    parked_id = payload.get("call_control_id") or ""
+    user_id = user_id_from_parked_payload(supabase, payload)
+    if not user_id:
+        return _telnyx_hangup_parked(parked_id)
+
+    raw_to = payload.get("to") or ""
+    if is_emergency_destination(raw_to):
+        return _telnyx_hangup_parked(parked_id)
+
+    try:
+        to_number = normalize_e164(raw_to, settings.CALLING_DEFAULT_COUNTRY_CODE)
+    except InvalidPhoneNumber as e:
+        logger.warning("Telnyx parked webhook rejected invalid destination: %s", e)
+        return _telnyx_hangup_parked(parked_id)
+
+    if is_emergency_destination(to_number):
+        return _telnyx_hangup_parked(parked_id)
+
+    try:
+        caller_id = resolve_caller_id(
+            supabase, user_id, _header(payload, "X-Vocify-Caller-Id") or None
+        )
+    except CallerIdNotVerified as e:
+        logger.warning("Telnyx parked webhook rejected: %s", e)
+        return _telnyx_hangup_parked(parked_id)
+
+    try:
+        supabase.table("outbound_calls").insert(
+            {
+                "user_id": user_id,
+                "carrier": "telnyx",
+                "carrier_call_id": parked_id,
+                "from_number": caller_id,
+                "to_number": to_number,
+                "hubspot_hub_id": None,
+                "hubspot_contact_id": _header(payload, "X-Vocify-Contact-Id") or None,
+                "hubspot_deal_id": _header(payload, "X-Vocify-Deal-Id") or None,
+                "status": "dialing",
+                "provider_state": {"parked_id": parked_id},
+            }
+        ).execute()
+    except Exception as e:
+        if "duplicate key" not in str(e).lower() and "23505" not in str(e):
+            raise
+
+    pstn = telnyx_rest().dial(
+        to=to_number,
+        caller_id=caller_id,
+        link_to=parked_id,
+    )
+    supabase.table("outbound_calls").update(
+        {
+            "provider_state": {
+                "parked_id": parked_id,
+                "pstn_id": pstn["call_control_id"],
+            }
+        }
+    ).eq("carrier_call_id", parked_id).execute()
+    return Response(status_code=204)
+
+
+def _telnyx_answered(supabase, payload: dict) -> Response:
+    pstn_id = payload.get("call_control_id") or ""
+    row = _find_outbound_by_pstn(supabase, pstn_id)
+    if not row:
+        return Response(status_code=204)
+    if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED:
+        telnyx_rest().speak(
+            pstn_id,
+            settings.TWILIO_RECORDING_ANNOUNCEMENT
+            or DEFAULT_RECORDING_ANNOUNCEMENT_ES,
+        )
+        return Response(status_code=204)
+    return _bridge_parked(row, pstn_id)
+
+
+def _telnyx_bridge_after_announcement(supabase, payload: dict) -> Response:
+    pstn_id = payload.get("call_control_id") or ""
+    row = _find_outbound_by_pstn(supabase, pstn_id)
+    if not row:
+        return Response(status_code=204)
+    return _bridge_parked(row, pstn_id)
+
+
+async def _telnyx_hangup(supabase, payload: dict) -> None:
+    pstn_id = payload.get("call_control_id") or ""
+    cause = (payload.get("hangup_cause") or "").lower()
+    row = _find_outbound_by_pstn(supabase, pstn_id)
+    if not row:
+        return
+    if row.get("status") == "recorded":
+        return
+    if cause == "normal_clearing":
+        return
+    await log_missed_call_activity(
+        supabase, row["carrier_call_id"], _hangup_dial_status(cause)
+    )
+    parked_id = (row.get("provider_state") or {}).get("parked_id")
+    if parked_id:
+        telnyx_rest().hangup(parked_id)
+
+
+@router.post("/telnyx/voice")
+async def telnyx_voice(request: Request):
+    raw = await request.body()
+    if not verify_telnyx_signature(
+        public_key=settings.TELNYX_PUBLIC_KEY or "",
+        timestamp=request.headers.get("telnyx-timestamp", ""),
+        signature=request.headers.get("telnyx-signature-ed25519", ""),
+        raw_body=raw,
+    ):
+        return PlainTextResponse("Forbidden", status_code=403)
+    try:
+        event = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return Response(status_code=204)
+    data = event.get("data") if isinstance(event, dict) else None
+    if not isinstance(data, dict):
+        return Response(status_code=204)
+    event_type = data.get("event_type") or ""
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    supabase = get_supabase()
+    if event_type == "call.initiated" and payload.get("state") == "parked":
+        return await _telnyx_parked_initiated(supabase, payload)
+    if event_type == "call.answered":
+        return _telnyx_answered(supabase, payload)
+    if event_type in ("call.speak.ended", "call.playback.ended"):
+        return _telnyx_bridge_after_announcement(supabase, payload)
+    if event_type == "call.hangup":
+        await _telnyx_hangup(supabase, payload)
+        return Response(status_code=204)
+    if event_type == "call.recording.saved":
+        return Response(status_code=204)
     return Response(status_code=204)
 
