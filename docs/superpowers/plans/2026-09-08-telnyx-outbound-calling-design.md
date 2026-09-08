@@ -95,7 +95,7 @@ Identity is the telephony credential, not a JWT claim the browser can forge. `cu
 
 ### 2. Schema
 
-Migration `028_telnyx_carrier.sql`:
+Migration `029_telnyx_carrier.sql`:
 
 - `outbound_calls.carrier TEXT NOT NULL DEFAULT 'twilio'`
 - rename `twilio_call_sid` → `carrier_call_id` (no dual-write; update all Python/JS references in the same PR)

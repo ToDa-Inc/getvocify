@@ -30,15 +30,14 @@ characters). Requires a Vocify user session. Twilio returns 400 on this route
 (Twilio still uses the keypad on the verification call). Never invent or echo a
 Telnyx code.
 
-## Migration 028 collision
+## Migration 029
 
-`backend/migrations/028_telnyx_carrier.sql` may collide with a parallel
-`028_companies.sql` on other branches. **Renumber at merge** if companies lands
-first. Apply the Telnyx file (whatever its final number) before enabling
-`CALLING_PROVIDER=telnyx`.
+Apply `backend/migrations/029_telnyx_carrier.sql` before enabling
+`CALLING_PROVIDER=telnyx`. Numbered 029 so it does not collide with
+`028_companies.sql` on other branches.
 
 ```bash
-psql "$DATABASE_URL" -f backend/migrations/028_telnyx_carrier.sql
+psql "$DATABASE_URL" -f backend/migrations/029_telnyx_carrier.sql
 ```
 
 Verify:
@@ -81,7 +80,7 @@ Do not paste API keys, connection ids, or public keys into this file.
 - [ ] **2. Create Credential Connection.** Auth type credentials. Webhook `https://<BACKEND_PUBLIC_URL>/webhooks/telnyx/voice`, API v2.
 - [ ] **3. PATCH connection:** `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
 - [ ] **4. Copy API key, connection id, Ed25519 public key into env.** `CALLING_PROVIDER=telnyx`.
-- [ ] **5. Apply migration 028.**
+- [ ] **5. Apply migration 029.**
 - [ ] **6. Verify one real +34 number** (`POST /v2/verified_numbers`). If it 4xx, stop — do not ship BYO for that country.
 - [ ] **7. Place one answered call.** Confirm: audio both ways, disclosure only on callee if flag on, dual WAV in Supabase, memo created, HubSpot engagement.
 - [ ] **8. Read CDR `cost` for that call.** Write the number in this runbook (do not invent a band).

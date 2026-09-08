@@ -30,7 +30,7 @@
 
 **Create**
 
-- `backend/migrations/028_telnyx_carrier.sql`
+- `backend/migrations/029_telnyx_carrier.sql`
 - `backend/app/services/telephony/provider.py`
 - `backend/app/services/telephony/telnyx_client.py`
 - `backend/app/services/telephony/telnyx_signature.py`
@@ -69,7 +69,7 @@
 ### Task 1: Schema + provider switch
 
 **Files:**
-- Create: `backend/migrations/028_telnyx_carrier.sql`
+- Create: `backend/migrations/029_telnyx_carrier.sql`
 - Create: `backend/app/services/telephony/provider.py`
 - Create: `backend/tests/test_telephony_provider.py`
 - Modify: `backend/app/config.py` (after the `TWILIO_*` block ~164–181)
@@ -128,7 +128,7 @@ Expected: FAIL with `ModuleNotFoundError: app.services.telephony.provider`
 - [ ] **Step 3: Write migration + provider module + config**
 
 ```sql
--- backend/migrations/028_telnyx_carrier.sql
+-- backend/migrations/029_telnyx_carrier.sql
 BEGIN;
 
 ALTER TABLE outbound_calls
@@ -243,7 +243,7 @@ Expected: PASS (Twilio behavior unchanged aside from column names)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/migrations/028_telnyx_carrier.sql backend/app/services/telephony/provider.py backend/app/services/telephony/twilio_client.py backend/app/config.py backend/app/api/calls.py backend/app/api/webhooks.py backend/app/api/hubspot_recordings.py backend/app/services/telephony/caller_id.py backend/app/services/telephony/call_processor.py backend/tests .env.example
+git add backend/migrations/029_telnyx_carrier.sql backend/app/services/telephony/provider.py backend/app/services/telephony/twilio_client.py backend/app/config.py backend/app/api/calls.py backend/app/api/webhooks.py backend/app/api/hubspot_recordings.py backend/app/services/telephony/caller_id.py backend/app/services/telephony/call_processor.py backend/tests .env.example
 git commit -m "$(cat <<'EOF'
 feat: add calling provider flag and carrier-agnostic call ids
 
@@ -1005,7 +1005,7 @@ Runbook must include, in order:
 2. Create Credential Connection. Auth type credentials. Webhook `https://<BACKEND_PUBLIC_URL>/webhooks/telnyx/voice`, API v2.
 3. PATCH connection: `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
 4. Copy API key, connection id, Ed25519 public key into env. `CALLING_PROVIDER=telnyx`.
-5. Apply migration 028.
+5. Apply migration 029.
 6. Verify one real +34 number (`POST /v2/verified_numbers`). If it 4xx, stop — do not ship BYO for that country.
 7. Place one answered call. Confirm: audio both ways, disclosure only on callee if flag on, dual WAV in Supabase, memo created, HubSpot engagement.
 8. Read CDR `cost` for that call. Write the number in the runbook (do not invent a band).
