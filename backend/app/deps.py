@@ -2,7 +2,7 @@
 Dependency injection for FastAPI routes
 """
 
-from fastapi import HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header
 from supabase import create_client, Client
 from app.config import settings
 from app.services.auth_session import (
