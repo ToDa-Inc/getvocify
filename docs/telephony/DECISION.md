@@ -1,7 +1,7 @@
 # Carrier decision: Twilio vs Telnyx for Vocify outbound calling
 
-**2026-09-08.** A Telnyx **cost swap** of the existing dialer is implemented on
-`feat/telnyx-outbound-calling` behind `CALLING_PROVIDER` (see
+**2026-09-08.** A Telnyx **cost swap** of the existing dialer is implemented
+behind `CALLING_PROVIDER` (see
 [the plan](../superpowers/plans/2026-09-08-telnyx-outbound-calling.md) and
 [the runbook](../runbooks/telnyx-setup.md)). This is not a Spain CLI fix — TDF/149
 and the 400-range still bind both carriers the same way. The default remains

@@ -11,8 +11,9 @@ from uuid import uuid4
 
 import asyncio
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, BackgroundTasks, Request, Query
 from fastapi.responses import PlainTextResponse, JSONResponse, Response
+from starlette.requests import ClientDisconnect
 from twilio.twiml.voice_response import VoiceResponse
 
 from app.deps import get_supabase
@@ -37,7 +38,9 @@ from app.services.telephony.caller_id import (
 )
 from app.services.telephony.emergency import is_emergency_destination
 from app.services.telephony.provider import calling_provider
-from app.services.telephony.telnyx_client import telnyx_rest
+from app.services.telephony.telnyx_client import (
+    telnyx_rest,
+)
 from app.services.telephony.telnyx_signature import verify_telnyx_signature
 from app.services.telephony.twiml import (
     DEFAULT_RECORDING_ANNOUNCEMENT_ES,
@@ -968,12 +971,27 @@ def _pstn_event_id(row: dict, payload: dict) -> str | None:
     return cid
 
 
-def _bridge_parked(row: dict, pstn_id: str) -> Response:
+async def _bridge_parked(supabase, row: dict, pstn_id: str) -> Response:
     parked_id = (row.get("provider_state") or {}).get("parked_id") or row.get(
         "carrier_call_id"
     )
     if parked_id and pstn_id:
-        telnyx_rest().bridge(parked_id, pstn_id)
+        try:
+            await _telnyx_io("playback_stop", parked_id)
+        except Exception:
+            logger.exception("Telnyx ringback stop failed; bridging anyway")
+        await _telnyx_io("bridge", parked_id, pstn_id)
+        carrier_id = row.get("carrier_call_id") or parked_id
+        supabase.table("outbound_calls").update(
+            {
+                "provider_state": {
+                    **_provider_state(row),
+                    "parked_id": parked_id,
+                    "pstn_id": pstn_id,
+                    "bridged": True,
+                }
+            }
+        ).eq("carrier_call_id", carrier_id).execute()
     return Response(status_code=204)
 
 
@@ -990,6 +1008,19 @@ def _hangup_dial_status(cause: str) -> str:
         "canceled": "canceled",
     }
     return mapped.get((cause or "").lower(), "failed")
+
+
+def _parked_hangup_cause(cause: str) -> str | None:
+    """SIP cause forwarded onto the WebRTC parked hangup so the dialer can toast."""
+    mapped = {
+        "user_busy": "USER_BUSY",
+        "busy": "USER_BUSY",
+        "call_rejected": "CALL_REJECTED",
+        "timeout": "TIMEOUT",
+        "time_limit": "TIMEOUT",
+        "no_answer": "TIMEOUT",
+    }
+    return mapped.get((cause or "").lower())
 
 
 def _provider_state(row: dict | None) -> dict:
@@ -1036,52 +1067,97 @@ async def _telnyx_parked_initiated(supabase, payload: dict) -> Response:
     parked_id = call_control_id
     session_id = payload.get("call_session_id") or ""
     try:
-        supabase.table("outbound_calls").insert(
-            {
-                "user_id": user_id,
-                "carrier": "telnyx",
-                "carrier_call_id": parked_id,
-                "from_number": caller_id,
-                "to_number": to_number,
-                "hubspot_hub_id": None,
-                "hubspot_contact_id": _header(payload, "X-Vocify-Contact-Id") or None,
-                "hubspot_deal_id": _header(payload, "X-Vocify-Deal-Id") or None,
-                "status": "dialing",
-                "provider_state": {
-                    "parked_id": parked_id,
-                    **({"session_id": session_id} if session_id else {}),
-                },
-            }
-        ).execute()
+        await _db_io(
+            lambda: supabase.table("outbound_calls")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "carrier": "telnyx",
+                    "carrier_call_id": parked_id,
+                    "from_number": caller_id,
+                    "to_number": to_number,
+                    "hubspot_hub_id": None,
+                    "hubspot_contact_id": _header(payload, "X-Vocify-Contact-Id")
+                    or None,
+                    "hubspot_deal_id": _header(payload, "X-Vocify-Deal-Id") or None,
+                    "status": "dialing",
+                    "provider_state": {
+                        "parked_id": parked_id,
+                        **({"session_id": session_id} if session_id else {}),
+                    },
+                }
+            )
+            .execute()
+        )
     except Exception as e:
         if "duplicate key" not in str(e).lower() and "23505" not in str(e):
             raise
 
     try:
-        pstn = telnyx_rest().dial(
+        pstn = await _telnyx_io(
+            "dial",
             to=to_number,
             caller_id=caller_id,
             link_to=parked_id,
         )
     except Exception:
         logger.exception("Telnyx PSTN dial failed; hanging up parked leg")
-        supabase.table("outbound_calls").update({"status": "failed"}).eq(
-            "carrier_call_id", parked_id
-        ).execute()
-        return _telnyx_hangup_parked(parked_id)
-    supabase.table("outbound_calls").update(
-        {
-            "provider_state": {
-                "parked_id": parked_id,
-                "pstn_id": pstn["call_control_id"],
-                **({"session_id": session_id} if session_id else {}),
+        await _db_io(
+            lambda: supabase.table("outbound_calls")
+            .update({"status": "failed"})
+            .eq("carrier_call_id", parked_id)
+            .execute()
+        )
+        await _tear_down_parked(parked_id)
+        return Response(status_code=204)
+    await _db_io(
+        lambda: supabase.table("outbound_calls")
+        .update(
+            {
+                "provider_state": {
+                    "parked_id": parked_id,
+                    "pstn_id": pstn["call_control_id"],
+                    **({"session_id": session_id} if session_id else {}),
+                }
             }
-        }
-    ).eq("carrier_call_id", parked_id).execute()
+        )
+        .eq("carrier_call_id", parked_id)
+        .execute()
+    )
+    # Ringback is client-side (DashboardDialer local WAV). Server playback looped
+    # forever and blocked hangup UX when PSTN failed before bridge.
+    _schedule_ring_watchdog(supabase, parked_id)
     return Response(status_code=204)
 
 
-def _telnyx_answered(supabase, payload: dict) -> Response:
+async def _hangup_if_still_ringing(
+    supabase, parked_id: str, *, delay_secs: float | None = None
+) -> None:
+    """If PSTN never bridges, hang the parked leg so ringback cannot loop for minutes."""
+    if delay_secs is None:
+        delay_secs = float(getattr(settings, "TELNYX_RING_WATCHDOG_SECS", 35) or 0)
+        if delay_secs <= 0:
+            return
+    await asyncio.sleep(delay_secs)
+    row = _find_outbound_by_carrier_id(supabase, parked_id)
+    if not row or row.get("status") != "dialing":
+        return
+    if _provider_state(row).get("bridged"):
+        return
+    logger.warning("Telnyx ring watchdog hanging parked %s", parked_id)
+    await _tear_down_parked(parked_id, cause="TIMEOUT")
+
+
+def _schedule_ring_watchdog(supabase, parked_id: str) -> None:
+    delay = float(getattr(settings, "TELNYX_RING_WATCHDOG_SECS", 35) or 0)
+    if delay <= 0:
+        return
+    asyncio.create_task(
+        _hangup_if_still_ringing(supabase, parked_id, delay_secs=delay)
+    )
+
+
+async def _telnyx_answered(supabase, payload: dict) -> Response:
     row = _find_outbound_call(supabase, payload)
     if not row:
         return Response(status_code=204)
@@ -1089,23 +1165,55 @@ def _telnyx_answered(supabase, payload: dict) -> Response:
     if not pstn_id:
         return Response(status_code=204)
     if settings.CALLING_RECORDING_ANNOUNCEMENT_ENABLED:
-        telnyx_rest().speak(
+        await _telnyx_io(
+            "speak",
             pstn_id,
             settings.TWILIO_RECORDING_ANNOUNCEMENT
             or DEFAULT_RECORDING_ANNOUNCEMENT_ES,
         )
         return Response(status_code=204)
-    return _bridge_parked(row, pstn_id)
+    return await _bridge_parked(supabase, row, pstn_id)
 
 
-def _telnyx_bridge_after_announcement(supabase, payload: dict) -> Response:
+async def _telnyx_bridge_after_announcement(supabase, payload: dict) -> Response:
     row = _find_outbound_call(supabase, payload)
     if not row:
         return Response(status_code=204)
     pstn_id = _pstn_event_id(row, payload)
     if not pstn_id:
         return Response(status_code=204)
-    return _bridge_parked(row, pstn_id)
+    return await _bridge_parked(supabase, row, pstn_id)
+
+
+async def _mark_call_disposition(
+    supabase, row: dict, hangup_cause: str, payload: dict | None = None
+) -> None:
+    """Persist terminal disposition immediately so the dialer can react before HubSpot."""
+    from app.services.hubspot.call_log import normalize_twilio_dial_status
+
+    call_sid = row["carrier_call_id"]
+    disposition = normalize_twilio_dial_status(_hangup_dial_status(hangup_cause))
+    state = {
+        **_provider_state(row),
+        "pstn_hangup": {
+            "cause": hangup_cause,
+            "sip": (payload or {}).get("sip_hangup_cause"),
+            "source": (payload or {}).get("hangup_source"),
+        },
+    }
+    await _db_io(
+        lambda: supabase.table("outbound_calls")
+        .update(
+            {
+                "call_disposition": disposition,
+                "status": "logged",
+                "provider_state": state,
+            }
+        )
+        .eq("carrier_call_id", call_sid)
+        .eq("status", "dialing")
+        .execute()
+    )
 
 
 async def _telnyx_hangup(supabase, payload: dict) -> None:
@@ -1117,23 +1225,105 @@ async def _telnyx_hangup(supabase, payload: dict) -> None:
     state = _provider_state(row)
     parked_id = state.get("parked_id") or row.get("carrier_call_id")
     pstn_id = state.get("pstn_id")
-    if cid and cid == parked_id and pstn_id:
-        telnyx_rest().hangup(pstn_id)
+    if cid and cid == parked_id:
+        if pstn_id:
+            await _telnyx_io("hangup", pstn_id)
+            return
+        if row.get("status") != "recorded" and cause != "normal_clearing":
+            _schedule_missed_call_log(
+                supabase, row["carrier_call_id"], _hangup_dial_status(cause)
+            )
         return
     if row.get("status") == "recorded":
         return
     if cause == "normal_clearing":
         return
-    await log_missed_call_activity(
-        supabase, row["carrier_call_id"], _hangup_dial_status(cause)
-    )
+    dial_status = _hangup_dial_status(cause)
+    await _mark_call_disposition(supabase, row, cause, payload)
     if parked_id:
-        telnyx_rest().hangup(parked_id)
+        parked_cause = _parked_hangup_cause(cause)
+        await _tear_down_parked(str(parked_id), cause=parked_cause)
+    _schedule_missed_call_log(supabase, row["carrier_call_id"], dial_status)
+
+
+async def _telnyx_call_cost(supabase, payload: dict) -> None:
+    """Persist Telnyx `call.cost` onto provider_state. Do not invent a figure."""
+    row = _find_outbound_call(supabase, payload)
+    if not row:
+        return
+    total = payload.get("total_cost")
+    if total is None:
+        return
+    state = {
+        **_provider_state(row),
+        "pstn_cost": {
+            "total": total,
+            "billed_duration_secs": payload.get("billed_duration_secs"),
+            "parts": payload.get("cost_parts") or [],
+        },
+    }
+    await _db_io(
+        lambda: supabase.table("outbound_calls")
+        .update({"provider_state": state})
+        .eq("carrier_call_id", row["carrier_call_id"])
+        .execute()
+    )
+    logger.info(
+        "Telnyx call.cost persisted cid=%s total=%s billed_secs=%s",
+        row["carrier_call_id"],
+        total,
+        payload.get("billed_duration_secs"),
+    )
+
+
+async def _telnyx_io(method: str, *args, **kwargs):
+    """Run sync Telnyx REST off the event loop so hangup webhooks are not dropped."""
+    fn = getattr(telnyx_rest(), method)
+    return await asyncio.to_thread(fn, *args, **kwargs)
+
+
+async def _db_io(fn):
+    """Run sync Supabase REST off the event loop."""
+    return await asyncio.to_thread(fn)
+
+
+async def _tear_down_parked(parked_id: str, *, cause: str | None = None) -> None:
+    """Stop server audio and hang the WebRTC parked leg so the dialer ends promptly."""
+    if not parked_id:
+        return
+    try:
+        await _telnyx_io("playback_stop", parked_id)
+    except Exception:
+        logger.exception("Telnyx playback_stop failed for %s", parked_id)
+    try:
+        if cause:
+            await _telnyx_io("hangup", parked_id, cause=cause)
+        else:
+            await _telnyx_io("hangup", parked_id)
+    except Exception:
+        logger.exception("Telnyx parked hangup failed for %s", parked_id)
+
+
+def _schedule_missed_call_log(
+    supabase, call_sid: str, dial_status: str
+) -> None:
+    """HubSpot missed-call logging can take seconds; never block hangup teardown."""
+
+    async def _run() -> None:
+        try:
+            await log_missed_call_activity(supabase, call_sid, dial_status)
+        except Exception:
+            logger.exception("Telnyx missed-call logging failed for %s", call_sid)
+
+    asyncio.create_task(_run())
 
 
 @router.post("/telnyx/voice")
-async def telnyx_voice(request: Request):
-    raw = await request.body()
+async def telnyx_voice(request: Request, background_tasks: BackgroundTasks):
+    try:
+        raw = await request.body()
+    except ClientDisconnect:
+        return Response(status_code=204)
     if not verify_telnyx_signature(
         public_key=settings.TELNYX_PUBLIC_KEY or "",
         timestamp=request.headers.get("telnyx-timestamp", ""),
@@ -1152,15 +1342,36 @@ async def telnyx_voice(request: Request):
         return Response(status_code=204)
     event_type = data.get("event_type") or ""
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    logger.info(
+        "Telnyx voice %s cid=%s state=%s cause=%s sip=%s src=%s from=%s to=%s cost=%s",
+        event_type,
+        payload.get("call_control_id"),
+        payload.get("state"),
+        payload.get("hangup_cause"),
+        payload.get("sip_hangup_cause"),
+        payload.get("hangup_source"),
+        payload.get("from"),
+        payload.get("to"),
+        payload.get("total_cost"),
+    )
     supabase = get_supabase()
     if event_type == "call.initiated" and payload.get("state") == "parked":
-        return await _telnyx_parked_initiated(supabase, payload)
+        # Dial/answer/playback can take tens of seconds. Ack first or Telnyx
+        # drops hangup (ClientDisconnect) and parked ringback loops forever.
+        background_tasks.add_task(_telnyx_parked_initiated, supabase, payload)
+        return Response(status_code=204)
     if event_type == "call.answered":
-        return _telnyx_answered(supabase, payload)
+        return await _telnyx_answered(supabase, payload)
     if event_type in ("call.speak.ended", "call.playback.ended"):
-        return _telnyx_bridge_after_announcement(supabase, payload)
+        return await _telnyx_bridge_after_announcement(supabase, payload)
     if event_type == "call.hangup":
-        await _telnyx_hangup(supabase, payload)
+        try:
+            await _telnyx_hangup(supabase, payload)
+        except Exception:
+            logger.exception("Telnyx hangup handling failed")
+        return Response(status_code=204)
+    if event_type == "call.cost":
+        await _telnyx_call_cost(supabase, payload)
         return Response(status_code=204)
     if event_type == "call.recording.saved":
         return await _telnyx_recording_saved(supabase, payload)

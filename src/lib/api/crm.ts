@@ -49,6 +49,17 @@ export interface CRMConfiguration {
   on_hold_lead_status_value?: string | null;
 }
 
+/** Keep fetched settings/dashboard data for the whole login session. Invalidate on mutate. */
+export const SESSION_QUERY_STALE_MS = Infinity;
+
+export const crmKeys = {
+  all: ["crm"] as const,
+  connections: () => [...crmKeys.all, "connections"] as const,
+  preferences: () => [...crmKeys.all, "preferences"] as const,
+  hubspotSetup: () => [...crmKeys.all, "hubspot", "setup"] as const,
+  salesforceSetup: () => [...crmKeys.all, "salesforce", "setup"] as const,
+};
+
 export const crmApi = {
   async listConnections(): Promise<{
     connections: { id: string; provider: string; status: string; created_at?: string }[];
@@ -77,8 +88,8 @@ export const crmApi = {
     if (!target) {
       throw new ApiError(
         400,
-        { detail: "Multiple CRMs connected. Choose a primary CRM in Integrations." },
-        "Multiple CRMs connected. Choose a primary CRM in Integrations.",
+        { detail: "Multiple CRMs connected. Choose a primary CRM in Settings." },
+        "Multiple CRMs connected. Choose a primary CRM in Settings.",
       );
     }
     if (target.provider === "salesforce") {

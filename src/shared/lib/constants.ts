@@ -87,11 +87,11 @@ export const ROUTES = {
   RECORD: '/dashboard/record',
   MEMOS: '/dashboard/memos',
   MEMO_DETAIL: (id: string) => `/dashboard/memos/${id}`,
-  INTEGRATIONS: '/dashboard/integrations',
+  INTEGRATIONS: '/dashboard/settings',
   PROFILE: '/dashboard/profile',
   SETTINGS: '/dashboard/settings',
-  CALLING: '/dashboard/settings#caller-id',
-  USAGE: '/dashboard/usage',
+  CALLING: '/dashboard/settings/calling#caller-id',
+  USAGE: '/dashboard/settings/usage',
   COPILOT: '/dashboard/copilot',
 } as const;
 

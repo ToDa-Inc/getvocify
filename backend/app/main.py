@@ -3,6 +3,7 @@ FastAPI application entry point
 """
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from starlette.responses import JSONResponse, Response
 from app.webhook_context import set_correlation_id, get_correlation_id
 from app.config import settings
 from app.api.router import api_router
+from app.paywall import PaywallMiddleware
 from app.logging_config import configure_logging
 from app.rate_limit import limiter, RATE_LIMITING_ENABLED
 import asyncio
@@ -138,6 +140,7 @@ app.add_middleware(MetricsAuthMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
 # Timeout middleware (30s for most endpoints, except transcription/upload)
 app.add_middleware(TimeoutMiddleware)
+app.add_middleware(PaywallMiddleware)
 
 # CORS middleware
 _frontend_url = settings.FRONTEND_URL.rstrip("/")
@@ -196,6 +199,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # Include API routes
 app.include_router(api_router)
+
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 # Prometheus metrics (optional - app runs without it if package missing)
 try:

@@ -1,6 +1,11 @@
 import { api } from '@/shared/lib/api-client';
 import type { AddCallerIdResponse, CallingConfig } from './types';
 
+export const callKeys = {
+  all: ["calls"] as const,
+  config: () => [...callKeys.all, "config"] as const,
+};
+
 function encodePhone(phoneNumber: string): string {
   return encodeURIComponent(phoneNumber);
 }
@@ -14,6 +19,11 @@ export const callsApi = {
     expiresIn: number;
     provider?: string;
   }> => api.post('/calls/token', {}),
+
+  getLatestDisposition: (): Promise<{
+    disposition: string | null;
+    status: string | null;
+  }> => api.get('/calls/outbound/latest-disposition'),
 
   listCallerIds: (): Promise<{ callerIds: CallingConfig['callerIds'] }> =>
     api.get('/calls/caller-ids'),

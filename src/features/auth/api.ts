@@ -15,7 +15,16 @@ import type {
 } from './types';
 
 /** Map backend snake_case user to frontend camelCase User */
-function mapRawUser(raw: Record<string, unknown>): User {
+export function mapAuthResponse(raw: Record<string, unknown>): AuthResponse {
+  return {
+    user: mapRawUser((raw.user as Record<string, unknown>) ?? {}),
+    accessToken: String(raw.access_token ?? ''),
+    refreshToken: String(raw.refresh_token ?? ''),
+    expiresIn: (raw.expires_in as number) || 3600,
+  };
+}
+
+export function mapRawUser(raw: Record<string, unknown>): User {
   const companyRaw = raw.company as Record<string, unknown> | null | undefined;
   return {
     id: raw.id as string,
@@ -38,6 +47,15 @@ function mapRawUser(raw: Record<string, unknown>): User {
           seatLimit: Number(companyRaw.seat_limit ?? 1),
           seatsUsed: Number(companyRaw.seats_used ?? 0),
           seatsPending: Number(companyRaw.seats_pending ?? 0),
+          accessMode: String(companyRaw.access_mode ?? 'open'),
+          billingStatus: String(companyRaw.billing_status ?? 'none'),
+          planType:
+            companyRaw.plan_type === 'starter' || companyRaw.plan_type === 'pro'
+              ? companyRaw.plan_type
+              : null,
+          paywalled: Boolean(companyRaw.paywalled),
+          canUseDialer:
+            companyRaw.can_use_dialer == null ? true : Boolean(companyRaw.can_use_dialer),
         }
       : null,
   };
@@ -66,12 +84,7 @@ export const authApi = {
       company_name: data.companyName,
     });
     
-    return {
-      user: mapRawUser((raw.user as Record<string, unknown>) ?? {}),
-      accessToken: raw.access_token as string,
-      refreshToken: raw.refresh_token as string,
-      expiresIn: (raw.expires_in as number) || 3600,
-    };
+    return mapAuthResponse(raw);
   },
 
   /**
@@ -79,13 +92,7 @@ export const authApi = {
    */
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
     const raw = await api.post<Record<string, unknown>>('/auth/login', credentials);
-    
-    return {
-      user: mapRawUser((raw.user as Record<string, unknown>) ?? {}),
-      accessToken: raw.access_token as string,
-      refreshToken: raw.refresh_token as string,
-      expiresIn: (raw.expires_in as number) || 3600,
-    };
+    return mapAuthResponse(raw);
   },
 
   /**

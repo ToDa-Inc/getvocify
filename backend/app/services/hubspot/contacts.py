@@ -210,6 +210,7 @@ class HubSpotContactService:
         self,
         extraction: MemoExtraction,
         allowed_fields: Optional[list[str]] = None,
+        hubspot_owner_id: Optional[str] = None,
     ) -> Optional[HubSpotContact]:
         """
         Create or update a contact from extraction.
@@ -217,6 +218,9 @@ class HubSpotContactService:
         Email is optional. Match by real email, then unique phone.
         Create with phone and/or name when there is no email.
         Never invent a placeholder address.
+        hubspot_owner_id is the Vocify user matched by email to a HubSpot
+        owner. Applied on create and on update so contact assignment stays
+        with the teammate who logged the activity.
         """
         from .contact_identity import real_contact_email_or_none
         from .object_properties import contact_properties_from_extraction
@@ -259,11 +263,15 @@ class HubSpotContactService:
                 k: v for k, v in properties.items()
                 if v and (k != "email" or not (existing.properties or {}).get("email"))
             }
+            if hubspot_owner_id:
+                update_properties["hubspot_owner_id"] = str(hubspot_owner_id)
             if update_properties:
                 return await self.update(existing.id, update_properties)
             return existing
 
         try:
+            if hubspot_owner_id:
+                properties["hubspot_owner_id"] = str(hubspot_owner_id)
             return await self.create(properties)
         except HubSpotConflictError:
             if email:

@@ -80,6 +80,29 @@ def _contact_props_updating_existing(
     )
 
 
+def owner_id_from_connection_metadata(meta: dict, user_id: str) -> Optional[str]:
+    """Per-member cache. Ignore legacy single hubspot_owner_id (company-wide)."""
+    owners = meta.get("hubspot_owners")
+    if not isinstance(owners, dict):
+        return None
+    cached = owners.get(user_id) or owners.get(str(user_id))
+    return str(cached) if cached else None
+
+
+def with_cached_owner_id(meta: dict, user_id: str, owner_id: str) -> dict:
+    owners = dict(meta.get("hubspot_owners") or {})
+    owners[str(user_id)] = str(owner_id)
+    return {**meta, "hubspot_owners": owners}
+
+
+def stamp_owner(properties: Optional[dict], owner_id: Optional[str]) -> dict:
+    """Copy properties and set hubspot_owner_id when a matched owner exists."""
+    props = dict(properties or {})
+    if owner_id:
+        props["hubspot_owner_id"] = str(owner_id)
+    return props
+
+
 async def _get_hubspot_owner_id_for_user(
     client: HubSpotClient,
     supabase,
@@ -89,7 +112,7 @@ async def _get_hubspot_owner_id_for_user(
     """
     Resolve HubSpot owner ID from SaaS user.
     Matches user email (from auth) to HubSpot owner email.
-    Caches result in crm_connections.metadata.
+    Caches per user on crm_connections.metadata.hubspot_owners.
     """
     if not supabase:
         return None
@@ -101,9 +124,9 @@ async def _get_hubspot_owner_id_for_user(
         conn_data = conn_result.data if conn_result else None
         if conn_data:
             meta = conn_data.get("metadata") or {}
-            cached = meta.get("hubspot_owner_id")
+            cached = owner_id_from_connection_metadata(meta, user_id)
             if cached:
-                return str(cached)
+                return cached
 
         # Get user email from Supabase auth (admin API)
         auth_user = supabase.auth.admin.get_user_by_id(user_id)
@@ -131,7 +154,7 @@ async def _get_hubspot_owner_id_for_user(
                     if owner_id:
                         meta = (conn_data or {}).get("metadata", {}) or {}
                         supabase.table("crm_connections").update({
-                            "metadata": {**meta, "hubspot_owner_id": owner_id}
+                            "metadata": with_cached_owner_id(meta, user_id, owner_id)
                         }).eq("id", str(connection_id)).execute()
                         return owner_id
                     break
@@ -150,6 +173,81 @@ async def _get_hubspot_owner_id_for_user(
         else:
             logger.warning("Could not resolve HubSpot owner for user %s: %s", user_id, e)
     return None
+
+
+async def cache_owners_for_members(
+    client: HubSpotClient,
+    supabase,
+    connection_id: Union[UUID, str],
+    members: list[dict],
+) -> dict[str, str]:
+    """Match each member email to a HubSpot owner. Returns {user_id: owner_id}."""
+    if not supabase or not members:
+        return {}
+    try:
+        conn_result = supabase.table("crm_connections").select("metadata").eq(
+            "id", str(connection_id)
+        ).single().execute()
+        conn_data = conn_result.data if conn_result else None
+    except Exception:
+        conn_data = None
+    meta = (conn_data or {}).get("metadata") or {}
+    matched: dict[str, str] = {}
+    missing: list[tuple[str, str]] = []
+    for member in members:
+        uid = str(member.get("user_id") or "")
+        if not uid:
+            continue
+        cached = owner_id_from_connection_metadata(meta, uid)
+        if cached:
+            matched[uid] = cached
+            continue
+        email = (member.get("email") or "").strip().lower()
+        if email:
+            missing.append((uid, email))
+    if not missing:
+        return matched
+
+    email_to_owner: dict[str, str] = {}
+    after = None
+    try:
+        while True:
+            params: dict[str, Any] = {"limit": 100}
+            if after:
+                params["after"] = after
+            resp = await client.get("/crm/v3/owners", params=params)
+            if not resp or "results" not in resp:
+                break
+            for owner in resp.get("results", []):
+                owner_email = (owner.get("email") or "").strip().lower()
+                owner_id = str(owner.get("id") or "")
+                if owner_email and owner_id:
+                    email_to_owner[owner_email] = owner_id
+            paging = resp.get("paging", {}) or {}
+            after = (paging.get("next") or {}).get("after")
+            if not after:
+                break
+    except Exception as e:
+        logger.warning("Could not list HubSpot owners for company match: %s", e)
+        return matched
+
+    updated_meta = dict(meta)
+    wrote = False
+    for uid, email in missing:
+        owner_id = email_to_owner.get(email)
+        if not owner_id:
+            continue
+        matched[uid] = owner_id
+        updated_meta = with_cached_owner_id(updated_meta, uid, owner_id)
+        wrote = True
+    if wrote:
+        try:
+            supabase.table("crm_connections").update({
+                "metadata": updated_meta
+            }).eq("id", str(connection_id)).execute()
+        except Exception as e:
+            logger.warning("Could not cache HubSpot owners for company: %s", e)
+    return matched
 
 
 class HubSpotSyncService:
@@ -516,8 +614,11 @@ class HubSpotSyncService:
                         action_type="upsert_contact",
                         resource_type="contact",
                     ) as tracked:
-                        props = _contact_props_updating_existing(
-                            self.contacts, extraction_for_contact, allowed_contact_fields
+                        props = stamp_owner(
+                            _contact_props_updating_existing(
+                                self.contacts, extraction_for_contact, allowed_contact_fields
+                            ),
+                            hubspot_owner_id,
                         )
                         props.pop("email", None)  # never rotate the locked identity email
                         if props:
@@ -564,8 +665,11 @@ class HubSpotSyncService:
                                 contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                                 if contact_ids:
                                     primary_contact_id = contact_ids[0]
-                                    props = _contact_props_updating_existing(
-                                        self.contacts, extraction_for_contact, allowed_contact_fields
+                                    props = stamp_owner(
+                                        _contact_props_updating_existing(
+                                            self.contacts, extraction_for_contact, allowed_contact_fields
+                                        ),
+                                        hubspot_owner_id,
                                     )
                                     if props:
                                         async with self.crm_updates.track(
@@ -605,7 +709,9 @@ class HubSpotSyncService:
                                     resource_type="contact",
                                 ) as tracked:
                                     contact = await self.contacts.create_or_update(
-                                        extraction_for_contact, allowed_fields=allowed_contact_fields
+                                        extraction_for_contact,
+                                        allowed_fields=allowed_contact_fields,
+                                        hubspot_owner_id=hubspot_owner_id,
                                     )
                                     if contact:
                                         contact_id = contact.id
@@ -625,7 +731,9 @@ class HubSpotSyncService:
                                 resource_type="contact",
                             ) as tracked:
                                 contact = await self.contacts.create_or_update(
-                                    extraction_for_contact, allowed_fields=allowed_contact_fields
+                                    extraction_for_contact,
+                                    allowed_fields=allowed_contact_fields,
+                                    hubspot_owner_id=hubspot_owner_id,
                                 )
                                 if contact:
                                     contact_id = contact.id
@@ -705,7 +813,7 @@ class HubSpotSyncService:
                             if k not in FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL
                         }
 
-                        if not filtered_properties:
+                        if not filtered_properties and not hubspot_owner_id:
                             # No changes to apply - still success
                             result.deal_id = deal_id
                             result.deal_name = existing_props.get("dealname") or "Deal"

@@ -1,80 +1,54 @@
-import { useState, useEffect, useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { crmApi, CRMSchema, CRMConfiguration, Pipeline } from "@/lib/api/crm";
+import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CRMConfiguration } from "@/lib/api/crm";
+import { DEFAULT_SALESFORCE_CONFIG, loadSalesforceSetup } from "@/lib/api/salesforce-setup";
 import { toast } from "sonner";
-import { Loader2, Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
+import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 
 interface SalesforceConfigurationProps {
   onSaved?: () => void;
+  readOnly?: boolean;
 }
 
 const RECOMMENDED_FIELDS = ["Name", "Amount", "CloseDate", "StageName", "Description", "Probability"];
 
-export const SalesforceConfiguration = ({ onSaved }: SalesforceConfigurationProps) => {
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
-  const [dealSchema, setDealSchema] = useState<CRMSchema | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export const SalesforceConfiguration = ({ onSaved, readOnly = false }: SalesforceConfigurationProps) => {
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: crmKeys.salesforceSetup(),
+    queryFn: loadSalesforceSetup,
+    staleTime: SESSION_QUERY_STALE_MS,
+  });
+
+  const [draft, setDraft] = useState<CRMConfiguration | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
 
-  const [config, setConfig] = useState<CRMConfiguration>({
-    default_pipeline_id: "sf_opportunity",
-    default_pipeline_name: "Opportunity",
-    default_stage_id: "",
-    default_stage_name: "",
-    allowed_deal_fields: ["Name", "Amount", "CloseDate", "StageName", "Description"],
-    allowed_contact_fields: ["FirstName", "LastName", "Email", "Phone"],
-    allowed_company_fields: ["Name"],
-    allowed_line_item_fields: [],
-    auto_create_contacts: true,
-    auto_create_companies: true,
-  });
+  const config = draft ?? data?.config ?? DEFAULT_SALESFORCE_CONFIG;
+  const pipelines = data?.pipelines ?? [];
+  const dealSchema = data?.dealSchema ?? null;
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [stages, schemaData, currentConfig] = await Promise.all([
-          crmApi.getSalesforceStages(),
-          crmApi.getSalesforceSchema(),
-          crmApi.getSalesforceConfiguration(),
-        ]);
-
-        const fakePipeline: Pipeline = {
-          id: "sf_opportunity",
-          label: "Opportunity",
-          stages: stages.map((s) => ({ id: s.id, label: s.label })),
-        };
-        setPipelines([fakePipeline]);
-        setDealSchema(schemaData);
-
-        if (currentConfig) {
-          setConfig(currentConfig);
-        } else if (stages.length > 0) {
-          setConfig((prev) => ({
-            ...prev,
-            default_pipeline_id: fakePipeline.id,
-            default_pipeline_name: fakePipeline.label,
-            default_stage_id: stages[0].id,
-            default_stage_name: stages[0].label,
-          }));
-        }
-      } catch {
-        toast.error("Failed to load Salesforce configuration");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const setConfig = (updater: CRMConfiguration | ((prev: CRMConfiguration) => CRMConfiguration)) => {
+    setDraft((prev) => {
+      const current = prev ?? data?.config ?? DEFAULT_SALESFORCE_CONFIG;
+      return typeof updater === "function" ? updater(current) : updater;
+    });
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
       await crmApi.saveSalesforceConfiguration(config);
+      queryClient.setQueryData(crmKeys.salesforceSetup(), (prev) =>
+        prev ? { ...prev, config } : prev,
+      );
+      setDraft(null);
       toast.success("Configuration saved!");
       onSaved?.();
     } catch {
@@ -108,10 +82,15 @@ export const SalesforceConfiguration = ({ onSaved }: SalesforceConfigurationProp
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 space-y-4">
-        <Loader2 className="h-8 w-8 animate-spin text-beige" />
-        <p className={THEME_TOKENS.typography.capsLabel}>Loading Schema...</p>
+      <div className={THEME_TOKENS.interaction.pageLoad}>
+        <VocifyLoader size="lg" label="Loading Salesforce fields..." />
       </div>
+    );
+  }
+
+  if (isError && !data) {
+    return (
+      <p className="text-sm text-muted-foreground">Could not load Salesforce fields. Try again in a moment.</p>
     );
   }
 
@@ -138,6 +117,7 @@ export const SalesforceConfiguration = ({ onSaved }: SalesforceConfigurationProp
             <div className="relative">
               <select
                 value={config.default_stage_id}
+                disabled={readOnly}
                 onChange={(e) => {
                   const s = selectedPipeline?.stages.find((st) => st.id === e.target.value);
                   if (s) {
@@ -207,6 +187,7 @@ export const SalesforceConfiguration = ({ onSaved }: SalesforceConfigurationProp
                     key={prop.name}
                     type="button"
                     onClick={() => {
+                      if (readOnly) return;
                       const active = config.allowed_deal_fields.includes(prop.name);
                       setConfig((prev) => ({
                         ...prev,
@@ -243,41 +224,47 @@ export const SalesforceConfiguration = ({ onSaved }: SalesforceConfigurationProp
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
-          <div>
-            <p className="font-bold text-foreground text-xs">Auto-create Contacts</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5 tracking-tight">
-              Create Salesforce contacts from memo extractions when not found.
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="flex items-start gap-4 p-3.5 rounded-2xl bg-secondary/5 border border-border/20">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] text-foreground">Create contacts</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              If none match, create from name or email.
             </p>
           </div>
           <Switch
+            className="shrink-0 mt-0.5"
             checked={config.auto_create_contacts}
+            disabled={readOnly}
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_contacts: val }))}
           />
         </div>
-        <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/5 border border-border/20">
-          <div>
-            <p className="font-bold text-foreground text-xs">Auto-create Accounts</p>
-            <p className="text-[9px] text-muted-foreground mt-0.5 tracking-tight">
-              Create Salesforce accounts from company names when not found.
+        <div className="flex items-start gap-4 p-3.5 rounded-2xl bg-secondary/5 border border-border/20">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] text-foreground">Create accounts</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              If none match, create from company name.
             </p>
           </div>
           <Switch
+            className="shrink-0 mt-0.5"
             checked={config.auto_create_companies}
+            disabled={readOnly}
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_companies: val }))}
           />
         </div>
       </div>
 
+      {!readOnly && (
       <Button
         onClick={handleSave}
         disabled={isSaving}
         className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-medium h-12"
       >
-        {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        {isSaving ? <VocifySpinner size={12} /> : null}
         Save Configuration
       </Button>
+      )}
     </div>
   );
 };

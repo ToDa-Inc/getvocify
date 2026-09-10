@@ -84,6 +84,12 @@ import {
   activityTimestampFromRecording,
   formatActivityTimestamp,
 } from '../lib/activity-date.js';
+import {
+  authorChipLabel,
+  authorsFromMembers,
+  canViewCompanyActivity,
+  filterActivityByAuthor,
+} from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
 import { contactCallCta, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, postCallNotice } from '../lib/call-format.js';
 
@@ -192,6 +198,9 @@ let addFieldCloseHandler = null;
 let recentMemosLoaded = false;
 let recentMemosCache = [];
 let outboundCallsCache = [];
+let currentUser = null;
+let activityAuthorFilter = '';
+let companyAuthors = [];
 let recentMemosFetchGen = 0;
 let reviewFetchGen = 0;
 let previewFetchGen = 0;
@@ -552,11 +561,38 @@ function setIdleListsHidden() {
   const empty = document.getElementById('activity-empty');
   const kicker = document.getElementById('recordings-inbox-kicker');
   const showMore = document.getElementById('recordings-show-more');
+  const filter = document.getElementById('activity-author-filter');
   if (wrap) wrap.style.display = 'none';
   if (recordings) recordings.style.display = 'none';
   if (empty) empty.style.display = 'none';
   if (kicker) kicker.style.display = 'none';
   if (showMore) showMore.style.display = 'none';
+  if (filter) filter.style.display = 'none';
+}
+
+function renderActivityAuthorFilter(visible) {
+  const el = document.getElementById('activity-author-filter');
+  if (!el) return;
+  const show = Boolean(visible && canViewCompanyActivity(currentUser) && companyAuthors.length > 1);
+  el.style.display = show ? 'flex' : 'none';
+  if (!show) return;
+  const chips = [
+    { id: '', label: 'All' },
+    ...companyAuthors.map((author) => ({
+      id: author.userId,
+      label: author.userId === currentUser?.id ? 'You' : author.label,
+    })),
+  ];
+  el.innerHTML = chips.map((chip) => (
+    `<button type="button" class="activity-author-chip${chip.id === activityAuthorFilter ? ' is-active' : ''}" data-author="${escapeHtml(chip.id)}">${escapeHtml(chip.label)}</button>`
+  )).join('');
+  el.querySelectorAll('[data-author]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activityAuthorFilter = btn.getAttribute('data-author') || '';
+      lastActivityListKey = null;
+      if (lastBgState) renderRecordingsSection(lastBgState);
+    });
+  });
 }
 
 function vocifyMemoCount(state) {
@@ -699,10 +735,14 @@ function appendCallActivityRow(listEl, rec) {
   const durStr = formatCallDuration(callDurationSeconds(rec));
   const meta = [dateStr, durStr].filter(Boolean).join(' · ');
   const title = rec.title || 'Call';
+  const author = canViewCompanyActivity(currentUser)
+    ? authorChipLabel(rec, currentUser?.id)
+    : null;
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Call</span>
       <span class="recording-row-title">${escapeHtml(title)}</span>
+      ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
     <div class="recording-row-actions">
@@ -731,10 +771,14 @@ function appendOutboundActivityRow(listEl, call) {
   } else if (call.to) {
     actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(call.to)}" data-from="${escapeHtml(call.from || '')}">Reintentar</button>`;
   }
+  const author = canViewCompanyActivity(currentUser)
+    ? authorChipLabel(call, currentUser?.id)
+    : null;
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Call</span>
       <span class="recording-row-title">${escapeHtml(call.to || 'Llamada')}</span>
+      ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
     <div class="recording-row-actions">${actionHtml}</div>
@@ -785,10 +829,14 @@ function appendMemoActivityRow(listEl, memo) {
   const title = memoListTitle(memo);
   const subtitle = memoListSubtitle(memo);
   const meta = [dateStr, subtitle].filter(Boolean).join(' · ');
+  const author = canViewCompanyActivity(currentUser)
+    ? authorChipLabel(memo, currentUser?.id)
+    : null;
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Memo</span>
       <span class="recording-row-title">${escapeHtml(title)}</span>
+      ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
     <div class="recording-row-actions">
@@ -823,11 +871,14 @@ function renderRecordingsSection(state) {
   const showMoreBtn = document.getElementById('recordings-show-more');
   if (!section) return;
 
-  const items = mergeActivityItems({
-    recordings: state.recordings || [],
-    memos: recentMemosCache,
-    outboundCalls: outboundCallsCache,
-  });
+  const items = filterActivityByAuthor(
+    mergeActivityItems({
+      recordings: state.recordings || [],
+      memos: recentMemosCache,
+      outboundCalls: outboundCallsCache,
+    }),
+    activityAuthorFilter || null,
+  );
   const idle = state.status === 'idle';
   const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
   const loading = Boolean(state.recordingsLoading || memosLoading);
@@ -847,6 +898,7 @@ function renderRecordingsSection(state) {
       loading,
     }) ? 'block' : 'none';
   }
+  renderActivityAuthorFilter(idle && (items.length > 0 || loading || companyAuthors.length > 1));
   if (!idle) {
     if (showMoreBtn) showMoreBtn.style.display = 'none';
     return;
@@ -874,6 +926,7 @@ function renderRecordingsSection(state) {
     outboundStamp,
     visibleCount: recordingsVisibleCount,
     memosLoading,
+    authorFilter: activityAuthorFilter,
   });
   if (showMoreBtn) {
     showMoreBtn.style.display = items.length > recordingsVisibleCount ? '' : 'none';
@@ -1853,6 +1906,7 @@ async function loadRecentMemos(scope) {
       type: 'GET_RECENT_MEMOS',
       dealId: resolved.dealId || undefined,
       contactId: resolved.contactId || undefined,
+      scope: canViewCompanyActivity(currentUser) ? 'company' : 'me',
     });
     if (gen !== recentMemosFetchGen) return;
     if (resolved.key !== recentMemosScopeKey) return;
@@ -1885,6 +1939,7 @@ async function loadOutboundCalls(context) {
       contactId,
       dealId,
       limit: 20,
+      scope: canViewCompanyActivity(currentUser) ? 'company' : 'me',
     });
     outboundCallsCache = Array.isArray(result?.calls) ? result.calls : [];
   } catch (e) {
@@ -3822,10 +3877,21 @@ async function init() {
 
   try {
     const user = await api.getCurrentUser();
+    currentUser = user;
     const nameEl = document.getElementById('user-name');
     if (nameEl) nameEl.textContent = firstName(user.full_name) || user.email || '';
     const emailEl = document.getElementById('user-email');
     if (emailEl) emailEl.textContent = user.email;
+    if (canViewCompanyActivity(user)) {
+      try {
+        const team = await api.get('/company/members');
+        companyAuthors = authorsFromMembers(team?.members || []);
+      } catch {
+        companyAuthors = [];
+      }
+    } else {
+      companyAuthors = [];
+    }
 
     markSignedIn();
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });

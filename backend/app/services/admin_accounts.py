@@ -14,6 +14,7 @@ def assemble_account_list_items(
     auth_users: List[dict],
     connections: List[dict],
     memos: List[dict],
+    companies_by_id: Optional[Dict[str, dict]] = None,
 ) -> List[dict]:
     auth_by_id = {str(u.get("id")): u for u in auth_users if u.get("id")}
     connections_by_user: Dict[str, List[dict]] = {}
@@ -56,6 +57,8 @@ def assemble_account_list_items(
             }
             for c in connections_by_user.get(uid, [])
         ]
+        company_id = str(profile.get("company_id") or "") or None
+        workspace = (companies_by_id or {}).get(company_id or "", {})
         items.append(
             {
                 "id": uid,
@@ -70,6 +73,10 @@ def assemble_account_list_items(
                 "approved_count": stats.get("approved_count", 0),
                 "failed_count": stats.get("failed_count", 0),
                 "last_memo_at": stats.get("last_memo_at"),
+                "company_id": company_id,
+                "workspace_name": workspace.get("name"),
+                "seat_limit": workspace.get("seat_limit"),
+                "seats_used": workspace.get("seats_used"),
             }
         )
     return items

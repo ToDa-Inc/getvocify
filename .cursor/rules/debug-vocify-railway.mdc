@@ -1,0 +1,6 @@
+---
+description: Vocify production debug pipeline — attach only when the user asks to debug live Vocify (logs, 502, email, billing, calls, vendors).
+alwaysApply: false
+---
+
+This is a **requested** Vocify debug, not routine feature work. Follow `.cursor/skills/debug-vocify/SKILL.md` and `.cursor/skills/debug-vocify/pipeline.md`. Reuse Railway login/MCP. Do not ask the user to log in again unless `railway whoami` fails.

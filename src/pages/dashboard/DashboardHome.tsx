@@ -1,11 +1,20 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { Mic } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
+import { companyApi, companyKeys } from "@/features/company/api";
 import { memosApi, memoKeys } from "@/features/memos/api";
 import type { MemoStatus, ScreeningOutcome } from "@/features/memos/types";
+import { AuthorFilter } from "@/components/dashboard/AuthorFilter";
+import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
+import {
+  authorChipLabel,
+  authorDisplayName,
+  canViewCompanyActivity,
+} from "@/lib/activity-authors";
 import { memoListTitle, memoListSubtitle } from "@/lib/copilot-note";
 import { RecordingsPanel } from "@/components/dashboard/RecordingsPanel";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
@@ -71,10 +80,31 @@ const DashboardHome = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const displayName = user ? getUserDisplayName(user) : "User";
+  const canViewCompany = canViewCompanyActivity(user?.company?.role);
+  const [authorUserId, setAuthorUserId] = useState<string | null>(null);
+
+  const { data: membersData } = useQuery({
+    queryKey: companyKeys.members(),
+    queryFn: companyApi.listMembers,
+    enabled: canViewCompany,
+  });
+  const authors = (membersData?.members ?? [])
+    .filter((member) => member.status === "active")
+    .map((member) => ({
+      userId: member.userId,
+      label: authorDisplayName(member.fullName, member.email),
+      email: member.email,
+    }));
+
+  const memoFilters = {
+    limit: 5,
+    scope: canViewCompany ? ("company" as const) : ("me" as const),
+    authorUserId: authorUserId ?? undefined,
+  };
 
   const { data: recentMemos = [], isLoading: memosLoading } = useQuery({
-    queryKey: memoKeys.list({ limit: 5 }),
-    queryFn: () => memosApi.list({ limit: 5 }),
+    queryKey: memoKeys.list(memoFilters),
+    queryFn: () => memosApi.list(memoFilters),
   });
 
   return (
@@ -92,7 +122,20 @@ const DashboardHome = () => {
         onComplete={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
       />
 
-      <RecordingsPanel />
+      {canViewCompany ? (
+        <AuthorFilter
+          authors={authors}
+          value={authorUserId}
+          onChange={setAuthorUserId}
+          currentUserId={user?.id}
+        />
+      ) : null}
+
+      <RecordingsPanel
+        authorUserId={authorUserId}
+        currentUserId={user?.id}
+        showAuthors={canViewCompany}
+      />
 
       {/* Recent Memos */}
       <div className="space-y-6">
@@ -113,7 +156,11 @@ const DashboardHome = () => {
             </div>
           ) : recentMemos.length === 0 ? (
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
-              <p className="text-muted-foreground">No memos yet. Record your first one above.</p>
+              <p className="text-muted-foreground">
+                {authorUserId
+                  ? "No memos for this teammate. Try All to see every labeled conversation."
+                  : "No memos yet. Record your first one above."}
+              </p>
             </div>
           ) : (
             recentMemos.map((memo) => {
@@ -138,9 +185,16 @@ const DashboardHome = () => {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-normal text-foreground text-[15px] truncate">
-                        {title}
-                      </h3>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className="font-normal text-foreground text-[15px] truncate">
+                          {title}
+                        </h3>
+                        {canViewCompany ? (
+                          <AuthorLabel
+                            name={authorChipLabel(memo.authorName, memo.userId, user?.id)}
+                          />
+                        ) : null}
+                      </div>
                       <p className="text-sm text-muted-foreground line-clamp-1 truncate mt-1 leading-relaxed">
                         {preview}
                       </p>

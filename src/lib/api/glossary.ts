@@ -17,6 +17,11 @@ export interface GlossaryTemplate {
   item_count: number;
 }
 
+export const glossaryKeys = {
+  all: ["glossary"] as const,
+  list: () => [...glossaryKeys.all, "list"] as const,
+};
+
 export const glossaryApi = {
   getGlossary: async () => {
     return api.get<GlossaryItem[]>("/glossary");

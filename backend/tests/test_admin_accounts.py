@@ -42,6 +42,33 @@ def test_assemble_list_item_joins_email_crm_and_memo_counts():
     assert row["failed_count"] == 1
     assert row["last_memo_at"] == "2026-08-20T00:00:00+00:00"
     assert row["crm"][0]["provider"] == "hubspot"
+    assert row["company_id"] is None
+    assert row["seat_limit"] is None
+
+
+def test_assemble_list_item_includes_workspace_licenses():
+    items = assemble_account_list_items(
+        profiles=[
+            {
+                "id": USER,
+                "full_name": "Ada",
+                "company_name": "Acme",
+                "phone": None,
+                "created_at": "",
+                "company_id": "comp-1",
+            }
+        ],
+        auth_users=[],
+        connections=[],
+        memos=[],
+        companies_by_id={
+            "comp-1": {"name": "Acme Workspace", "seat_limit": 5, "seats_used": 2},
+        },
+    )
+    assert items[0]["company_id"] == "comp-1"
+    assert items[0]["workspace_name"] == "Acme Workspace"
+    assert items[0]["seat_limit"] == 5
+    assert items[0]["seats_used"] == 2
 
 
 def test_assemble_list_item_without_auth_row_has_empty_email():
@@ -62,3 +89,5 @@ def test_assemble_list_item_without_auth_row_has_empty_email():
     assert items[0]["email"] == ""
     assert items[0]["memo_count"] == 0
     assert items[0]["crm"] == []
+    assert items[0]["company_id"] is None
+    assert items[0]["seat_limit"] is None

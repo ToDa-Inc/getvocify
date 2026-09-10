@@ -11,6 +11,14 @@ from typing import Any, Literal, Optional
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
+from app.services.activity_scope import (
+    annotate_recording_author,
+    can_view_company_activity,
+    company_user_ids,
+    invert_hubspot_owners,
+    load_viewer_scope,
+    visible_recordings_for_viewer,
+)
 from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
 from app.services.hubspot import (
     HubSpotClient,
@@ -137,17 +145,22 @@ def _join_memo_state(
     supabase: Client,
     user_id: str,
     recordings: list[dict],
+    user_ids: Optional[list[str]] = None,
 ) -> list[dict]:
     call_ids = [r["call_id"] for r in recordings if r.get("call_id")]
     if not call_ids:
         return recordings
-    memos_res = (
+    q = (
         supabase.table("memos")
-        .select("id, status, hubspot_engagement_id")
-        .eq("user_id", user_id)
+        .select("id, status, hubspot_engagement_id, user_id")
         .in_("hubspot_engagement_id", call_ids)
-        .execute()
     )
+    ids = [uid for uid in (user_ids or [user_id]) if uid]
+    if len(ids) == 1:
+        q = q.eq("user_id", ids[0])
+    elif ids:
+        q = q.in_("user_id", ids)
+    memos_res = q.execute()
     by_call: dict[str, dict] = {}
     for row in memos_res.data or []:
         eid = str(row.get("hubspot_engagement_id") or "")
@@ -160,8 +173,63 @@ def _join_memo_state(
             **rec,
             "memo_id": str(m["id"]) if m else None,
             "memo_status": m.get("status") if m else None,
+            "memo_user_id": str(m["user_id"]) if m and m.get("user_id") else None,
         })
     return out
+
+
+async def _present_recordings(
+    user_id: str,
+    supabase: Client,
+    items: list[dict],
+    author_user_id: Optional[str] = None,
+) -> list[dict]:
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    role = membership.role if membership else None
+    can_view_company = can_view_company_activity(role)
+    member_ids = company_user_ids(members) or [user_id]
+    owner_to_user: dict[str, str] = {}
+    conn = get_crm_connection(supabase, user_id, "hubspot")
+    if conn:
+        owner_to_user = invert_hubspot_owners(conn.get("metadata") or {})
+        try:
+            from app.services.hubspot.sync import cache_owners_for_members
+
+            client = get_hubspot_client_from_connection(user_id, supabase)
+            matched = await cache_owners_for_members(
+                client, supabase, conn["id"], members
+            )
+            owner_to_user = {hid: uid for uid, hid in matched.items()}
+        except Exception:
+            pass
+    annotated = [
+        annotate_recording_author(row, authors, owner_to_user) for row in items
+    ]
+    joined = _join_memo_state(
+        supabase,
+        user_id,
+        annotated,
+        user_ids=member_ids if can_view_company else [user_id],
+    )
+    for row in joined:
+        if row.get("author_user_id"):
+            continue
+        memo_uid = row.get("memo_user_id")
+        author = authors.get(str(memo_uid)) if memo_uid else None
+        if not author:
+            continue
+        row["author_user_id"] = author["user_id"]
+        row["author_name"] = author["name"]
+        row["author_email"] = author["email"]
+    visible = visible_recordings_for_viewer(
+        joined,
+        viewer_id=user_id,
+        can_view_company=can_view_company,
+    )
+    wanted = (author_user_id or "").strip()
+    if wanted and can_view_company:
+        visible = [row for row in visible if row.get("author_user_id") == wanted]
+    return visible
 
 
 async def _recordings_for_record(
@@ -169,10 +237,11 @@ async def _recordings_for_record(
     supabase: Client,
     from_object_type: str,
     record_id: str,
+    author_user_id: Optional[str] = None,
 ) -> list[dict]:
     client = get_hubspot_client_from_connection(user_id, supabase)
     items = await list_recordings_for_record(client, from_object_type, record_id)
-    return _join_memo_state(supabase, user_id, items)
+    return await _present_recordings(user_id, supabase, items, author_user_id)
 
 
 def _query_call_memo(supabase: Client, user_id: str, field: str, value: str) -> dict:
@@ -227,9 +296,12 @@ async def list_hubspot_recordings_for_deal(
     deal_id: str,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
+    author_user_id: Optional[str] = None,
 ):
     """HubSpot calls with recordings linked to this deal, plus Vocify memo state."""
-    return await _recordings_for_record(user_id, supabase, "deals", deal_id)
+    return await _recordings_for_record(
+        user_id, supabase, "deals", deal_id, author_user_id
+    )
 
 
 @router.get("/hubspot/contacts/{contact_id}/recordings")
@@ -237,9 +309,12 @@ async def list_hubspot_recordings_for_contact(
     contact_id: str,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
+    author_user_id: Optional[str] = None,
 ):
     """HubSpot calls with recordings linked to this contact, plus Vocify memo state."""
-    return await _recordings_for_record(user_id, supabase, "contacts", contact_id)
+    return await _recordings_for_record(
+        user_id, supabase, "contacts", contact_id, author_user_id
+    )
 
 
 @router.get("/hubspot/companies/{company_id}/recordings")
@@ -247,9 +322,12 @@ async def list_hubspot_recordings_for_company(
     company_id: str,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
+    author_user_id: Optional[str] = None,
 ):
     """HubSpot calls with recordings linked to this company, plus Vocify memo state."""
-    return await _recordings_for_record(user_id, supabase, "companies", company_id)
+    return await _recordings_for_record(
+        user_id, supabase, "companies", company_id, author_user_id
+    )
 
 
 @router.get("/hubspot/recordings")
@@ -257,11 +335,28 @@ async def list_recent_hubspot_recordings(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
     limit: int = Query(20, ge=1, le=50),
+    author_user_id: Optional[str] = None,
 ):
     """Newest HubSpot calls with recordings across the portal."""
     client = get_hubspot_client_from_connection(user_id, supabase)
-    items = await list_recent_recordings(client, limit=limit)
-    return _join_memo_state(supabase, user_id, items)
+    owner_id = None
+    wanted = (author_user_id or "").strip()
+    if wanted:
+        membership, members, _authors = load_viewer_scope(supabase, user_id)
+        if can_view_company_activity(membership.role if membership else None):
+            conn = get_crm_connection(supabase, user_id, "hubspot")
+            if conn:
+                try:
+                    from app.services.hubspot.sync import cache_owners_for_members
+
+                    matched = await cache_owners_for_members(
+                        client, supabase, conn["id"], members
+                    )
+                    owner_id = matched.get(wanted)
+                except Exception:
+                    owner_id = None
+    items = await list_recent_recordings(client, limit=limit, owner_id=owner_id)
+    return await _present_recordings(user_id, supabase, items, author_user_id)
 
 
 @router.post("/hubspot/calls/{call_id}/process")

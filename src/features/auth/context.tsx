@@ -20,7 +20,8 @@ import type {
   User, 
   LoginCredentials, 
   SignupData,
-  AuthContextValue 
+  AuthContextValue,
+  AuthResponse,
 } from './types';
 
 // Storage keys
@@ -96,19 +97,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     enabled: hasStoredSession,
   });
 
-  const login = useCallback(async (credentials: LoginCredentials): Promise<void> => {
-    const response = await authApi.login(credentials);
+  const applySession = useCallback((response: AuthResponse) => {
     storeTokens(response.accessToken, response.refreshToken);
     setHasStoredSession(true);
     queryClient.setQueryData<User>(authKeys.me(), response.user);
   }, [queryClient]);
 
+  const login = useCallback(async (credentials: LoginCredentials): Promise<void> => {
+    applySession(await authApi.login(credentials));
+  }, [applySession]);
+
   const signup = useCallback(async (data: SignupData): Promise<void> => {
-    const response = await authApi.signup(data);
-    storeTokens(response.accessToken, response.refreshToken);
-    setHasStoredSession(true);
-    queryClient.setQueryData<User>(authKeys.me(), response.user);
-  }, [queryClient]);
+    applySession(await authApi.signup(data));
+  }, [applySession]);
 
   const logout = useCallback(async (): Promise<void> => {
     try {
@@ -167,6 +168,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     restoreSession,
     login,
     signup,
+    applySession,
     logout,
     refresh,
   };

@@ -1,37 +1,29 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { authApi } from "@/features/auth";
+import { useAuth } from "@/features/auth";
+import { authApi, authKeys } from "@/features/auth/api";
+import type { User } from "@/features/auth/types";
 
-export const ProductOfferSettings = () => {
-  const [value, setValue] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+export const ProductOfferSettings = ({ readOnly = false }: { readOnly?: boolean }) => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState(user?.productContext ?? "");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const user = await authApi.me();
-        if (!cancelled) setValue(user.productContext || "");
-      } catch (error) {
-        console.error("Failed to load product context", error);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setValue(user?.productContext ?? "");
+  }, [user?.productContext]);
 
   const handleSave = async () => {
     try {
       setIsSaving(true);
-      await authApi.updateProfile({ productContext: value });
+      const updated = await authApi.updateProfile({ productContext: value });
+      queryClient.setQueryData<User>(authKeys.me(), updated);
       toast.success("Product context saved");
     } catch {
       toast.error("Could not save product context");
@@ -40,21 +32,13 @@ export const ProductOfferSettings = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="h-6 w-6 animate-spin text-beige" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
       <div>
         <h3 className={THEME_TOKENS.typography.sectionTitle}>Product & offer</h3>
         <p className="text-xs text-muted-foreground mt-1">
             What you sell, who it is for, and proof points. Used as reference when extracting
-            call notes — it is not copied into CRM summaries. Any team can put their own offer here.
+            call notes — it is not copied into CRM summaries. Owners and admins set this for the workspace.
         </p>
       </div>
       <Textarea
@@ -62,18 +46,29 @@ export const ProductOfferSettings = () => {
         onChange={(e) => setValue(e.target.value)}
         rows={8}
         maxLength={8000}
+        readOnly={readOnly}
+        disabled={readOnly}
         className="text-sm rounded-2xl"
         placeholder="Product, ICP, what you do not sell, proof points…"
       />
+      {!readOnly && (
       <div className="flex justify-end">
         <Button
           onClick={handleSave}
           disabled={isSaving}
           className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
         >
-          {isSaving ? "Saving…" : "Save offer"}
+          {isSaving ? (
+            <>
+              <VocifySpinner size={12} />
+              Saving…
+            </>
+          ) : (
+            "Save offer"
+          )}
         </Button>
       </div>
+      )}
     </div>
   );
 };

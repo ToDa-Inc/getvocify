@@ -159,7 +159,13 @@ export function liveCopyKey(state) {
   ].join('|');
 }
 
-export function activityListKey(state, { memoStamp = '', visibleCount = 5, memosLoading = false, outboundStamp = '' } = {}) {
+export function activityListKey(state, {
+  memoStamp = '',
+  visibleCount = 5,
+  memosLoading = false,
+  outboundStamp = '',
+  authorFilter = '',
+} = {}) {
   const recs = recordingStamp(state);
   const emptyList = !recs && !memoStamp && !outboundStamp;
   const loading = Boolean(state?.recordingsLoading || memosLoading);
@@ -169,6 +175,7 @@ export function activityListKey(state, { memoStamp = '', visibleCount = 5, memos
     outboundStamp,
     String(visibleCount || 5),
     emptyList && loading ? '1' : '0',
+    authorFilter || '',
   ].join('|');
 }
 

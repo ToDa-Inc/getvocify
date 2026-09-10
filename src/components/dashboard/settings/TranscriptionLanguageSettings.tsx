@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { authApi } from "@/features/auth";
+import { useAuth } from "@/features/auth";
+import { authApi, authKeys } from "@/features/auth/api";
+import type { User } from "@/features/auth/types";
 
 const OPTIONS = [
   { code: "es", label: "Spanish" },
@@ -21,32 +24,24 @@ function packLanguages(primary: string, extras: string[]): string[] {
   return [main, ...rest];
 }
 
+function unpack(user: User | null | undefined) {
+  const langs = user?.sttLanguages?.length ? user.sttLanguages : ["es"];
+  return { primary: langs[0] || "es", extras: langs.slice(1) };
+}
+
 export const TranscriptionLanguageSettings = () => {
-  const [primary, setPrimary] = useState("es");
-  const [extras, setExtras] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const initial = unpack(user);
+  const [primary, setPrimary] = useState(initial.primary);
+  const [extras, setExtras] = useState<string[]>(initial.extras);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const user = await authApi.me();
-        const langs = user.sttLanguages?.length ? user.sttLanguages : ["es"];
-        if (!cancelled) {
-          setPrimary(langs[0] || "es");
-          setExtras(langs.slice(1));
-        }
-      } catch (error) {
-        console.error("Failed to load transcription languages", error);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    const next = unpack(user);
+    setPrimary(next.primary);
+    setExtras(next.extras);
+  }, [user]);
 
   const toggleExtra = (code: string) => {
     setExtras((prev) =>
@@ -60,9 +55,10 @@ export const TranscriptionLanguageSettings = () => {
       const updated = await authApi.updateProfile({
         sttLanguages: packLanguages(primary, extras),
       });
-      const langs = updated.sttLanguages?.length ? updated.sttLanguages : ["es"];
-      setPrimary(langs[0] || "es");
-      setExtras(langs.slice(1));
+      queryClient.setQueryData<User>(authKeys.me(), updated);
+      const langs = unpack(updated);
+      setPrimary(langs.primary);
+      setExtras(langs.extras);
       toast.success("Transcription languages saved");
     } catch {
       toast.error("Could not save transcription languages");
@@ -70,14 +66,6 @@ export const TranscriptionLanguageSettings = () => {
       setIsSaving(false);
     }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="h-6 w-6 animate-spin text-beige" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-5">
@@ -137,7 +125,14 @@ export const TranscriptionLanguageSettings = () => {
           disabled={isSaving}
           className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
         >
-          {isSaving ? "Saving…" : "Save languages"}
+          {isSaving ? (
+            <>
+              <VocifySpinner size={12} />
+              Saving…
+            </>
+          ) : (
+            "Save languages"
+          )}
         </Button>
       </div>
     </div>

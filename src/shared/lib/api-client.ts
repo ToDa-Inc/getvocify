@@ -302,28 +302,30 @@ class ApiClient {
   /**
    * PUT request with JSON body
    */
-  put<T>(endpoint: string, data: unknown): Promise<T> {
+  put<T>(endpoint: string, data: unknown, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),
+      ...options,
     });
   }
 
   /**
    * PATCH request with JSON body
    */
-  patch<T>(endpoint: string, data: unknown): Promise<T> {
+  patch<T>(endpoint: string, data: unknown, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'PATCH',
       body: JSON.stringify(data),
+      ...options,
     });
   }
 
   /**
    * DELETE request
    */
-  delete<T = void>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'DELETE' });
+  delete<T = void>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, { method: 'DELETE', ...options });
   }
 
   /**

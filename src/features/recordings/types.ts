@@ -15,6 +15,10 @@ export interface CrmCallRecording {
   has_recording: boolean;
   memo_id?: string | null;
   memo_status?: MemoStatus | string | null;
+  hubspot_owner_id?: string | null;
+  author_user_id?: string | null;
+  author_name?: string | null;
+  author_email?: string | null;
 }
 
 export interface ProcessCallRecordingResponse {

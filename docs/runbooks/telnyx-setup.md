@@ -11,20 +11,56 @@ Design:
 
 ## Live gate status
 
-**in progress (2026-09-08)** — API key authenticates (`GET /v2/balance` 200,
-available credit $15.00). Account `GET /v2/verifications` reports
-`verification_level: 1` (email + phone). Level 2 still requires company info +
-Telnyx review. Do not treat L1 as a passed team-pilot gate.
+**in progress (2026-09-09)** — API key authenticates (`GET /v2/balance` 200,
+available credit **$14.73**). This account is on Telnyx’s **TPVE**
+framework (Account Levels: Trial / Paid / Verified / Enterprise), not
+legacy L1/L2. `GET /v2/verifications` still returns the leftover
+`verification_level: 1` / `verified_by_telnyx: null` payload; there is
+**no** public API for TPVE level. The official check is
+[Account Levels](https://portal.telnyx.com/#/account/account-levels).
+Dashboard **Verified** is the gate, not that legacy field.
 
 Configured against live Mission Control (no secrets in this file):
 
 - Outbound Voice Profile Destinations now include **ES** (plus US, CA)
-- Credential Connection renamed Vocify Dialer; `outbound.call_parking_enabled=true`
-- Webhook URL still unset (no local tunnel)
+- Credential Connection: parking on; Call Control App “Vocify Dialer PSTN”
+  active. Both webhooks point at the local ngrok tunnel
+  (`/webhooks/telnyx/voice`, API v2) — not production.
 - `POST /v2/verified_numbers` for the account +34 number returned **200**
   (SMS then voice). OTP confirm succeeded on **2026-09-08** via
   `POST /v2/verified_numbers/+34…/actions/verify` **200**; Telnyx lists **1**
-  verified number. Steps 7–9 are **not done**.
+  verified number. Steps 7–9 are **not done**. Park-and-dial reached PSTN
+  (dashboard 2026-09-08 ~19:14–20:19Z) but every attempt ended SIP **486**
+  before answer — no dual WAV, memo, or answered CDR.
+
+  Latest Vocify Dialer PSTN CDRs (`recv_refuse`, hangup 17, `connected=0`,
+  `cost=0.0`, STIR **B**, `is_local_calling=false`): Telnyx **did** send
+  `from` = the verified +34 (Dial command + `call.initiated`, not the
+  WebRTC SIP username). The far end refused in ~1s. Same BYO CLI on Twilio
+  **US1** completed; this is interconnect/attestation, not a missing Dial
+  `from`. Overnight the local ngrok tunnel died — webhooks were restored
+  before the next attempt. Credential Connection localization is **ES**
+  (national number format, not Frankfurt origination). Dial INVITE PAI/PPI
+  use `<sip:+E164@sip.telnyx.com>` (Telnyx reads the SIP user-part) and
+  `sip_transport_protocol=TLS` (Identity is not sent on UDP; Dial retries
+  UDP if Telnyx 422s TLS on PSTN).
+
+  Live 2026-09-09 09:55 local (`c9dedeb0-ac23-11f1-928c-02420a1f1070`)
+  actually exercised TLS + PAI: Telnyx stored Dial had
+  `sip_transport_protocol=TLS`, `privacy=none`, and PAI/PPI/RPID
+  `<sip:+34669701069@sip.telnyx.com>`. `POST /v2/calls` **200** (no UDP
+  retry). Destination `+34648739267`. PSTN hangup `user_busy` / SIP **486**
+  / `hangup_details=recv_refuse` in ~1s. CDR `connected=0`, `cost=0.0`,
+  webhook `call.cost` `total_cost=0.0000` (sip-trunking + call-control
+  parts both `0.0000`). STIR **B**, `is_local_calling=false`. Vocify is
+  dialing correctly; the far end still refuses. The webhook now persists
+  `call.cost` onto `outbound_calls.provider_state.pstn_cost`. That figure
+  is **not** the step-8 answered-call cost.
+
+  Same morning: milly `+34622915103` (10:07–10:08, twice) and Fernando
+  `+34646266037` (10:11, session `08588568-ac26-11f1-852e-02420a1f0d70`)
+  also SIP **486** in ~1s, Dial **200**, `from=+34669701069`, webhook
+  `total_cost=0.0000`. Three different Spanish mobiles, same refuse.
 
 Do not invent a CDR `cost` or a handset-CLI result.
 
@@ -53,6 +89,8 @@ Apply `backend/migrations/029_telnyx_carrier.sql` before enabling
 This file is **additive**. It does not rename `twilio_call_sid` or
 `twilio_validation_sid`. Triggers keep those columns in sync with
 `carrier_call_id` / `verification_sid` so `main` Twilio keeps working.
+It also adds `outbound_calls.call_disposition` if 027 was skipped
+(PostgREST `PGRST204` otherwise blocks HubSpot missed-call logging).
 
 Paste the file into the Supabase SQL editor (or):
 
@@ -79,13 +117,25 @@ else.
 | `CALLING_PROVIDER` | `telnyx` on this env only. Default in code is `twilio`. |
 | `TELNYX_API_KEY` | Mission Control API key |
 | `TELNYX_PUBLIC_KEY` | Ed25519 public key for webhook signatures |
-| `TELNYX_CONNECTION_ID` | Credential Connection id |
+| `TELNYX_CONNECTION_ID` | Credential Connection id (WebRTC / park) |
+| `TELNYX_CALL_CONTROL_APP_ID` | Call Control Application id (`POST /v2/calls`) |
 | `TELNYX_OUTBOUND_VOICE_PROFILE_ID` | Outbound Voice Profile with Spain enabled |
 | `BACKEND_PUBLIC_URL` | Public origin, no trailing slash. Webhook is `{BACKEND_PUBLIC_URL}/webhooks/telnyx/voice` |
 
-`telephony_configured()` is true for Telnyx when API key, public key, and
-connection id are all set. The side-panel calling UI appears only when
-`GET /api/v1/calls/config` returns `enabled: true`.
+`telephony_configured()` is true for Telnyx when API key, public key,
+credential connection id, and Call Control App id are all set. The
+side-panel calling UI appears only when `GET /api/v1/calls/config`
+returns `enabled: true`.
+
+Park answers the WebRTC leg immediately, so the browser plays a **local**
+ringback WAV (`/call-ringback.wav`, capped at 35s). Server-side
+`playback_start` was removed — it looped forever and blocked hangup UX when
+PSTN failed before bridge.
+
+When PSTN hangup arrives (busy/no-answer), the webhook persists
+`call_disposition` immediately and tears down the parked leg; the dashboard
+polls `GET /api/v1/calls/outbound/latest-disposition` to toast **Ocupado** /
+**Sin respuesta** even if Telnyx WebRTC does not forward SIP 486.
 
 `CALLING_RECORDING_ANNOUNCEMENT_ENABLED` (default `false`) plays the AEPD
 disclosure on the **PSTN / callee leg only**, then bridges. Flip per environment;
@@ -95,13 +145,41 @@ no redeploy needed.
 
 Do not paste API keys, connection ids, or public keys into this file.
 
-- [ ] **1. Upgrade Mission Control to Verified (L2).** Paid limits cannot pilot a team. **Currently L1.**
+- [x] **1. Mission Control account level.** Telnyx has two frameworks
+  ([Account Verification](https://support.telnyx.com/en/articles/1130595-account-verification));
+  an account is never on both. This org uses **TPVE** (Account Levels
+  page), not the legacy Verifications / Level 2 tab.
+
+  **Check (dashboard, only authority):**
+  https://portal.telnyx.com/#/account/account-levels — current level
+  should read **Verified** (owner screenshot / portal). Upgrade page:
+  https://portal.telnyx.com/#/account/account-levels/upgrade
+
+  **What the API can and cannot say (queried 2026-09-09 10:22):**
+  - There is **no** `GET /v2/account/levels` (404).
+  - `GET /v2/verifications` is the **legacy** object:
+    `verification_level: 1`, `verified_by_telnyx: null`, requirements
+    still list `complete_company_info` + `request_telnyx_verification`.
+    Do **not** treat that as “not verified” on a TPVE account.
+  - `GET /v2/balance` → credit `$14.73` (not Trial-empty).
+  - `GET /v2/verified_numbers` → `+34669701069` verified
+    (`verified_at` 2026-09-08T15:17:53Z). That is caller-ID, not
+    account level.
+  - `GET /v2/organization` → name `Vocify`, owner `dani@getvocify.com`.
+
+  TPVE **Verified** is not STIR **A**. A is owned Telnyx numbers.
 - [x] **2. Create Credential Connection.** Auth type credentials. Local test webhook
-  pointed at the 8889 ngrok tunnel (`/webhooks/telnyx/voice`), API v2. Not production.
+  pointed at the 8888 ngrok tunnel (`/webhooks/telnyx/voice`), API v2. Not production.
 - [x] **3. PATCH connection:** `outbound.call_parking_enabled=true`, attach Outbound Voice Profile with Spain enabled.
-- [x] **4. Copy API key, connection id, Ed25519 public key into env.** Do not flip the code default; `CALLING_PROVIDER` stays `twilio` in `config.py`.
+- [x] **3b. Create a Call Control Application** with the same webhook URL.
+  `POST /v2/calls` rejects a Credential Connection id (422 / `10015`:
+  “Only Call Control Apps with valid webhook URL are accepted”). That is
+  why parked WebRTC produced no ringtone until this id existed. Put it in
+  `TELNYX_CALL_CONTROL_APP_ID`.
+- [x] **4. Copy API key, credential connection id, Call Control App id, Ed25519 public key into env.** Do not flip the code default; `CALLING_PROVIDER` stays `twilio` in `config.py`.
 - [x] **5. Apply migration 029** (additive). `twilio_call_sid` kept;
   `carrier_call_id` / `user_telephony_credentials` present.
+  `outbound_calls.call_disposition` applied on the live DB (2026-09-08).
 - [x] **6. Verify one real +34 number.** Start **200**; OTP confirm **200**
   (`verified_at` 2026-09-08T15:17:53Z). Do not invent or record the code.
 - [ ] **7. Place one answered call.** Confirm: audio both ways, disclosure only on callee if flag on, dual WAV in Supabase, memo created, HubSpot engagement.
@@ -136,8 +214,9 @@ Do not copy the published rate card or invent a band.
 
 | Field | Value |
 |---|---|
-| Call / CDR id | _not measured — live gate not executed_ |
-| CDR `cost` | _not measured — live gate not executed_ |
+| Call / CDR id | _none — step 7 not executed. Unanswered 486 samples: `7a036876-abb9` (2026-09-08T19:14Z), `c9dedeb0-ac23-11f1-928c-02420a1f1070` (2026-09-09 09:55 local, TLS+PAI live)_ |
+| CDR `cost` | _not written — unanswered `0.0` / webhook `0.0000` is not the answered-call figure_ |
+| Notes | Vocify Dialer PSTN rows so far: `attempted=1`, `connected=0`, `cost=0.0`, CLI `+34669701069`, `hangup_details=recv_refuse`, `sip_invite_failure_status=486`, `shaken_stir=B`, `is_local_calling=false`. 09:55 Dial `from` was the verified +34 with TLS + `<sip:+E164@sip.telnyx.com>` PAI. Same BYO-CLI model as Twilio **US1**. TPVE dashboard Verified (legacy `GET /v2/verifications` still says 1). Telnyx support 2026-09-09: Tata-ICA 486 + `fail_on_single_reject` USER_BUSY (no failover); `intl_conv_eea_orig`. The ~$0.27 spend on 2026-09-08 was OTP (`call_verification` CLI `+1816…` + SMS `$0.142`), not answered dialer minutes. |
 
 ### Step 9 — handset CLI
 
@@ -175,6 +254,36 @@ make ngrok-url        # print the HTTPS base URL
 Set `BACKEND_PUBLIC_URL` to the tunnel URL (no trailing slash). Point the
 Credential Connection webhook at `{BACKEND_PUBLIC_URL}/webhooks/telnyx/voice`.
 
+## Telnyx support diagnosis (2026-09-09)
+
+Support diagnosed sessions `c9dedeb0` and `08588568`. This matches our CDRs.
+
+- First-priority carrier **Tata-ICA** returns SIP **486** in <1s (screening, not a timeout).
+- CLI `+34669701069` is PAI `<sip:+34669701069@sip.telnyx.com>`, STIR **B**.
+- All 6 routes: `vendor_local_calling=false`, group `intl_conv_eea_orig`.
+- `fail_on_single_reject` includes **USER_BUSY**, so 486 does not try
+  Ibasis_Zone1, BTS-EEA, BICS-EEA-OBR, Wavecrest-Eea, DIDWW-ICA.
+
+`fail_on_single_reject` is **not** on our public objects (Credential
+Connection, Call Control App “Vocify Dialer PSTN”, OVP `Default`
+`service_plan=global` / ES+US+CA). It is Telnyx routing. We cannot PATCH
+it. They queued a human for: remove USER_BUSY from that fail list, local
+calling for ES mobiles, PCAP on Tata-ICA, try the other five carriers.
+
+A Telnyx-owned ES DID would be STIR **A**. That is a product change
+(owned CLI, not BYO). Do not buy unless asked.
+
+### Reply to the queued ticket
+
+Please remove USER_BUSY / 486 from fail_on_single_reject on Call Control
+app 3044633068150195974 / OVP 3044421853813671360 so Tata-ICA 486
+failovers to Ibasis_Zone1, BTS-EEA, BICS-EEA-OBR, Wavecrest-Eea,
+DIDWW-ICA. Also enable vendor_local_calling / domestic ES treatment for
+ES-to-ES with Verified Number CLI +34669701069 (today
+intl_conv_eea_orig). We are not changing Vocify Dial headers further
+until that routing change is live. Sessions c9dedeb0-ac23-11f1-928c-02420a1f1070
+and 08588568-ac26-11f1-852e-02420a1f0d70.
+
 ## Ask Telnyx sales in writing (still open)
 
 1. Does the Short Duration surcharge apply to outbound SDR dialling where short
@@ -182,6 +291,22 @@ Credential Connection webhook at `{BACKEND_PUBLIC_URL}/webhooks/telnyx/voice`.
    traffic?
 2. Which origination band does a `+34` caller ID fall into — in-country or EEA?
    Worth ~33× on landline, and not published.
+3. ES-to-ES Call Control Dial with a **Verified Number** CLI (`from=+34…`, no
+   Telnyx DID): CDRs show `is_local_calling=false`, STIR **B**,
+   `hangup_details=recv_refuse`, SIP **486** in ~1s (`connected=0`). Twilio US1
+   with the same BYO CLI completed. What route/attestation does L2 or an
+   owned ES DID change? Session example: `85985fa8-abc2-11f1-8f5c-02420a1f0d70`.
+
+### Paste into Mission Control → Support
+
+Outbound Call Control Dial, no Telnyx DID. CLI is Verified Number
+`+34669701069`. Destinations `+34648739267`, `+34622915103`,
+`+34646266037`. All SIP 486 in ~1s, hangup_details=recv_refuse,
+connected=0, STIR B, is_local_calling=false. Sessions:
+`c9dedeb0-ac23-11f1-928c-02420a1f1070` (09:55 TLS+PAI),
+`08588568-ac26-11f1-852e-02420a1f0d70` (Fernando), milly 10:07–10:08.
+Same CLI on Twilio US1 connects. What do you need so ES mobiles actually
+ring?
 
 ## Compliance (unchanged from Twilio)
 

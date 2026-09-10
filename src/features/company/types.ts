@@ -9,6 +9,11 @@ export interface CompanySummary {
   seatLimit: number;
   seatsUsed: number;
   seatsPending: number;
+  accessMode?: 'open' | 'paywalled' | 'unlocked' | string;
+  billingStatus?: string;
+  planType?: 'starter' | 'pro' | null;
+  paywalled?: boolean;
+  canUseDialer?: boolean;
 }
 
 export interface CompanyDetails extends CompanySummary {

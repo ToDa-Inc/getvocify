@@ -15,6 +15,7 @@ export function useIntegrations() {
   return useQuery({
     queryKey: integrationKeys.connections(),
     queryFn: integrationsApi.listConnections,
+    staleTime: Infinity,
   });
 }
 

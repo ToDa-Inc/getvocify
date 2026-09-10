@@ -12,7 +12,7 @@ import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMed
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
 import { api } from './lib/api.js';
 import { LOCAL_API_BASE, apiBaseToWsOrigin } from './lib/api-base.js';
-import { vocifyCallHeaders } from './lib/telnyx-headers.js';
+import { telnyxHangupMessage, vocifyCallHeaders } from './lib/telnyx-headers.js';
 
 async function defaultWsUrl() {
   try {
@@ -406,9 +406,8 @@ function mapTelnyxCallState(call) {
   const sid = telnyxCallSid(call);
   const state = String(call?.state || '').toLowerCase();
   if (state === 'active' || state === 'held') {
-    const extra = { callSid: sid, muted: telnyxMuted };
-    if (lastReportedCallState !== CALL_STATES.ACTIVE) extra.answeredAt = Date.now();
-    reportCallState(CALL_STATES.ACTIVE, null, extra);
+    // Park answers the WebRTC leg immediately; PSTN is still ringing.
+    reportCallState(CALL_STATES.RINGING, null, { callSid: sid, muted: telnyxMuted });
     return;
   }
   if (['ringing', 'early', 'trying', 'requesting', 'recovering'].includes(state)) {
@@ -416,9 +415,11 @@ function mapTelnyxCallState(call) {
     return;
   }
   if (['hangup', 'destroy', 'destroyed', 'purge'].includes(state)) {
+    const ended = telnyxHangupMessage(call);
     activeCall = null;
     activeCallProvider = null;
-    reportCallState(CALL_STATES.IDLE);
+    stopLocalRingback();
+    reportCallState(CALL_STATES.IDLE, ended);
     destroyTelnyxClient(telnyxClient);
   }
 }
@@ -445,7 +446,10 @@ async function startTelnyxCall({ token, to, callerId, contactId, dealId }) {
 
     if (telnyxClient) destroyTelnyxClient(telnyxClient);
 
-    const client = new TelnyxRTC({ login_token: token });
+    const client = new TelnyxRTC({
+      login_token: token,
+      ringbackFile: chrome.runtime?.getURL?.('call-ringback.wav') || 'call-ringback.wav',
+    });
     telnyxClient = client;
     attachTelnyxClientListeners(client);
 
@@ -470,8 +474,14 @@ async function startTelnyxCall({ token, to, callerId, contactId, dealId }) {
     reportCallState(CALL_STATES.CONNECTING);
     telnyxMuted = false;
     activeCallProvider = 'telnyx';
+    stopLocalRingback();
+    startLocalRingback();
 
     const remote = ensureTelnyxRemote();
+    watchRemoteAudio(remote, () => {
+      // Park answers WebRTC immediately; remote audio is not PSTN answered.
+      stopLocalRingback();
+    });
     const call = client.newCall({
       destinationNumber: to,
       audio: true,
@@ -487,6 +497,7 @@ async function startTelnyxCall({ token, to, callerId, contactId, dealId }) {
       });
     }
   } catch (error) {
+    stopLocalRingback();
     activeCall = null;
     activeCallProvider = null;
     destroyTelnyxClient(telnyxClient);
@@ -548,7 +559,68 @@ async function startTwilioCall({ token, to, callerId, contactId, dealId }) {
   }
 }
 
+let stopRingbackFn = null;
+
+function watchRemoteAudio(remote, onAudio) {
+  let stopped = false;
+  let loudFrames = 0;
+  const data = new Uint8Array(256);
+  const hook = () => {
+    if (stopped) return;
+    const stream = remote.srcObject;
+    if (!(stream instanceof MediaStream)) {
+      setTimeout(hook, 150);
+      return;
+    }
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const tick = () => {
+      if (stopped) return;
+      analyser.getByteTimeDomainData(data);
+      let peak = 0;
+      for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
+      if (peak > 20) {
+        loudFrames += 1;
+        if (loudFrames >= 12) {
+          stopped = true;
+          onAudio();
+          return;
+        }
+      } else {
+        loudFrames = 0;
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  };
+  hook();
+}
+
+function startLocalRingback() {
+  const audio = new Audio(
+    (globalThis.chrome?.runtime?.getURL?.('call-ringback.wav')) || 'call-ringback.wav',
+  );
+  audio.loop = true;
+  void audio.play().catch(() => {});
+  const timer = setTimeout(() => stopLocalRingback(), 35_000);
+  stopRingbackFn = () => {
+    clearTimeout(timer);
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    stopRingbackFn = null;
+  };
+}
+
+function stopLocalRingback() {
+  stopRingbackFn?.();
+  stopRingbackFn = null;
+}
+
 function hangupCall() {
+  stopLocalRingback();
   reportCallState(CALL_STATES.ENDING);
   try {
     if (activeCallProvider === 'telnyx') {

@@ -9,6 +9,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { useAuth } from "@/features/auth";
 import { authApi, authKeys } from "@/features/auth/api";
 import { getUserInitials } from "@/features/auth/types";
+import { HUBSPOT_EMAIL_MATCH_HINT, WHATSAPP_PHONE_HINT } from "@/lib/identity-hints";
 
 const ProfilePage = () => {
   const { user, logout } = useAuth();
@@ -84,6 +85,9 @@ const ProfilePage = () => {
               placeholder="Your name"
               className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
             />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Shown as the label on your calls and memos.
+            </p>
           </div>
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Email</label>
@@ -93,17 +97,20 @@ const ProfilePage = () => {
               placeholder="Email from account"
               className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold opacity-50"
             />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {HUBSPOT_EMAIL_MATCH_HINT} Email is set at signup and cannot be changed here.
+            </p>
           </div>
           <div className="sm:col-span-2 space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Phone (optional)</label>
+            <label className={THEME_TOKENS.typography.capsLabel}>WhatsApp phone</label>
             <Input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 (555) 000-0000"
+              placeholder="+34600111222"
               className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
             />
-            <p className="text-xs text-muted-foreground mt-1">
-              Add your WhatsApp number for voice-to-CRM via WhatsApp
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              {WHATSAPP_PHONE_HINT}
             </p>
           </div>
         </div>

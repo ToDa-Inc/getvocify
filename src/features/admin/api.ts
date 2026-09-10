@@ -46,6 +46,10 @@ function mapListItem(raw: Record<string, unknown>): AdminAccountListItem {
     approvedCount: Number(raw.approved_count ?? 0),
     failedCount: Number(raw.failed_count ?? 0),
     lastMemoAt: (raw.last_memo_at as string) ?? null,
+    companyId: raw.company_id ? String(raw.company_id) : null,
+    workspaceName: (raw.workspace_name as string) ?? null,
+    seatLimit: raw.seat_limit != null ? Number(raw.seat_limit) : null,
+    seatsUsed: raw.seats_used != null ? Number(raw.seats_used) : null,
   };
 }
 
@@ -241,8 +245,39 @@ export const adminApi = {
     });
   },
 
-  updateCompany: async (id: string, body: { name?: string; seat_limit?: number }) => {
+  updateCompany: async (
+    id: string,
+    body: { name?: string; seat_limit?: number; access_mode?: "open" | "paywalled" | "unlocked" },
+  ) => {
     return api.patch<Record<string, unknown>>(`/admin/companies/${id}`, body, {
+      headers: masterHeaders(),
+    });
+  },
+
+  inviteToCompany: async (id: string, email: string, role: "admin" | "member" = "member") => {
+    return api.post<Record<string, unknown>>(
+      `/admin/companies/${id}/invites`,
+      { email, role },
+      { headers: masterHeaders() },
+    );
+  },
+
+  updateCompanyMember: async (companyId: string, memberId: string, role: string) => {
+    return api.patch<Record<string, unknown>>(
+      `/admin/companies/${companyId}/members/${memberId}`,
+      { role },
+      { headers: masterHeaders() },
+    );
+  },
+
+  removeCompanyMember: async (companyId: string, memberId: string) => {
+    return api.delete<void>(`/admin/companies/${companyId}/members/${memberId}`, {
+      headers: masterHeaders(),
+    });
+  },
+
+  revokeCompanyInvite: async (companyId: string, inviteId: string) => {
+    return api.delete<void>(`/admin/companies/${companyId}/invites/${inviteId}`, {
       headers: masterHeaders(),
     });
   },

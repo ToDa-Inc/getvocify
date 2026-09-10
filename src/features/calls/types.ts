@@ -13,6 +13,7 @@ export type CallingProvider = 'twilio' | 'telnyx';
 
 export type CallingConfig = {
   enabled: boolean;
+  canUseDialer?: boolean;
   provider?: CallingProvider;
   callerIds: CallerId[];
   hubspotLogging: boolean;

@@ -17,6 +17,7 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
+import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
@@ -26,6 +27,10 @@ import MemosPage from "./pages/dashboard/MemosPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
 import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
+import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
+import CallingSection from "./pages/dashboard/settings/CallingSection";
+import OfferSection from "./pages/dashboard/settings/OfferSection";
+import GlossarySection from "./pages/dashboard/settings/GlossarySection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -94,13 +99,21 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: Infinity,
+      gcTime: Infinity,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <LanguageProvider>
-      <TooltipProvider>
+      <TooltipProvider delayDuration={200}>
         <Toaster />
         <Sonner />
         <BrowserRouter>
@@ -136,10 +149,20 @@ const App = () => (
               <Route path="memos/:id" element={<MemoDetail />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="team" element={<TeamPage />} />
-              <Route path="calling" element={<Navigate to="/dashboard/settings#caller-id" replace />} />
-              <Route path="usage" element={<UsagePage />} />
+              <Route path="settings" element={<SettingsLayout />}>
+                <Route index element={<SettingsPage />} />
+                <Route path="calling" element={<CallingSection />} />
+                <Route path="offer" element={<OfferSection />} />
+                <Route path="glossary" element={<GlossarySection />} />
+                <Route path="team" element={<TeamPage />} />
+                <Route path="integrations" element={<IntegrationsPage />} />
+                <Route path="usage" element={<UsagePage />} />
+                <Route path="billing" element={<BillingPage />} />
+              </Route>
+              <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
+              <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
+              <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />
+              <Route path="usage" element={<Navigate to="/dashboard/settings/usage" replace />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
             </Route>
             <Route path="*" element={<NotFound />} />

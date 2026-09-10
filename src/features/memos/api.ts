@@ -45,6 +45,8 @@ export const memosApi = {
     if (filters?.endDate) params.set('end_date', filters.endDate);
     if (filters?.limit) params.set('limit', String(filters.limit));
     if (filters?.offset) params.set('offset', String(filters.offset));
+    if (filters?.scope) params.set('scope', filters.scope);
+    if (filters?.authorUserId) params.set('author_user_id', filters.authorUserId);
     
     const query = params.toString();
     return api.get<Memo[]>(`/memos${query ? `?${query}` : ''}`);

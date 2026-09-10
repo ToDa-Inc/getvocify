@@ -1,4 +1,6 @@
 import { api } from '@/shared/lib/api-client';
+import { mapAuthResponse } from '@/features/auth/api';
+import type { AuthResponse } from '@/features/auth/types';
 import type { CompanyDetails, CompanyMember, InvitePreview, PendingInvite } from './types';
 
 function mapCompany(raw: Record<string, unknown>): CompanyDetails {
@@ -11,6 +13,11 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     seatsPending: Number(raw.seats_pending ?? 0),
     seatsActive: Number(raw.seats_active ?? 0),
     seatsAvailable: Number(raw.seats_available ?? 0),
+    accessMode: String(raw.access_mode ?? 'open'),
+    billingStatus: String(raw.billing_status ?? 'none'),
+    planType: raw.plan_type === 'starter' || raw.plan_type === 'pro' ? raw.plan_type : null,
+    paywalled: Boolean(raw.paywalled),
+    canUseDialer: raw.can_use_dialer == null ? true : Boolean(raw.can_use_dialer),
   };
 }
 
@@ -97,11 +104,12 @@ export const companyApi = {
     };
   },
 
-  acceptInvite: async (token: string, password?: string, fullName?: string) => {
-    return api.post<{ success: boolean; message: string }>('/company/invites/accept', {
+  acceptInvite: async (token: string, password?: string, fullName?: string): Promise<AuthResponse> => {
+    const raw = await api.post<Record<string, unknown>>('/company/invites/accept', {
       token,
       password,
       full_name: fullName,
     });
+    return mapAuthResponse(raw);
   },
 };

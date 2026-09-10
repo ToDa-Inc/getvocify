@@ -22,6 +22,7 @@ CALL_PROPERTIES = (
     "hs_call_to_number",
     "hs_timestamp",
     "hs_createdate",
+    "hubspot_owner_id",
 )
 
 MAX_RECORDINGS_PER_RECORD = 20
@@ -86,6 +87,7 @@ def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
     timestamp_iso = None
     if ts_ms:
         timestamp_iso = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
+    owner_id = str(props.get("hubspot_owner_id") or "").strip() or None
     return {
         "call_id": str(data.get("id")),
         "title": title,
@@ -94,6 +96,7 @@ def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": call_duration_ms(props),
         "duration_seconds": call_duration_seconds(props),
         "has_recording": bool(rec),
+        "hubspot_owner_id": owner_id,
     }
 
 
@@ -219,15 +222,21 @@ async def list_recent_recordings(
     client: HubSpotClient,
     *,
     limit: int = RECENT_RECORDINGS_LIMIT,
+    owner_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Newest HubSpot calls with a recording, across the portal."""
+    filters = [{
+        "propertyName": "hs_call_recording_url",
+        "operator": "HAS_PROPERTY",
+    }]
+    if owner_id:
+        filters.append({
+            "propertyName": "hubspot_owner_id",
+            "operator": "EQ",
+            "value": str(owner_id),
+        })
     body = {
-        "filterGroups": [{
-            "filters": [{
-                "propertyName": "hs_call_recording_url",
-                "operator": "HAS_PROPERTY",
-            }],
-        }],
+        "filterGroups": [{"filters": filters}],
         "sorts": [{"propertyName": "hs_timestamp", "direction": "DESCENDING"}],
         "properties": list(CALL_PROPERTIES),
         "limit": min(max(limit, 1), 100),

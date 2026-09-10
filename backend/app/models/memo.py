@@ -130,6 +130,8 @@ class Memo(MemoBase):
     """Full memo model returned by API"""
     id: UUID
     userId: str
+    authorName: Optional[str] = None
+    authorEmail: Optional[str] = None
     transcript: Optional[str] = None
     transcriptConfidence: Optional[float] = None
     extraction: Optional[MemoExtraction] = None

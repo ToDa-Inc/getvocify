@@ -20,6 +20,7 @@ def telephony_configured() -> bool:
             settings.TELNYX_API_KEY
             and settings.TELNYX_PUBLIC_KEY
             and settings.TELNYX_CONNECTION_ID
+            and settings.TELNYX_CALL_CONTROL_APP_ID
         )
     return bool(
         settings.TWILIO_ACCOUNT_SID

@@ -23,6 +23,7 @@ def test_parse_call_summary_falls_back_to_created_at():
     assert summary["timestamp_ms"] is not None
     assert summary["timestamp"]
     assert summary["title"] == "Call with Leire Garin"
+    assert summary["hubspot_owner_id"] is None
 
 
 def test_parse_call_summary_parses_iso_hs_timestamp():
@@ -35,3 +36,14 @@ def test_parse_call_summary_parses_iso_hs_timestamp():
     })
     assert summary["timestamp_ms"] is not None
     assert summary["timestamp"]
+
+
+def test_parse_call_summary_includes_owner():
+    summary = parse_call_summary({
+        "id": "789",
+        "properties": {
+            "hs_call_recording_url": "https://example.com/rec.mp3",
+            "hubspot_owner_id": "111",
+        },
+    })
+    assert summary["hubspot_owner_id"] == "111"

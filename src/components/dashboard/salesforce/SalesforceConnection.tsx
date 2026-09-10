@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api/crm";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 
 interface SalesforceConnectionProps {
   onConnected: () => void;
@@ -33,7 +33,7 @@ export const SalesforceConnection = ({ onConnected }: SalesforceConnectionProps)
         disabled={isLoading}
         className="w-full bg-beige text-cream hover:bg-beige-dark rounded-lg text-sm font-medium h-11"
       >
-        {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        {isLoading ? <VocifySpinner size={12} /> : null}
         Connect with Salesforce
       </Button>
     </div>

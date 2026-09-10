@@ -213,8 +213,9 @@ class TestResolveCallerId:
 
 
 class TestStartCallerIdVerification:
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
     @patch("app.services.telephony.caller_id.twilio_rest")
-    def test_normalizes_number_and_returns_twilio_code(self, rest):
+    def test_normalizes_number_and_returns_twilio_code(self, rest, _provider):
         rest.return_value.validation_requests.create.return_value = SimpleNamespace(
             validation_code="482913",
             friendly_name="Oficina",
@@ -235,8 +236,9 @@ class TestStartCallerIdVerification:
         assert store[0]["status"] == "pending"
         assert store[0]["verification_sid"] == "CAabc123"
 
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
     @patch("app.services.telephony.caller_id.twilio_rest")
-    def test_passes_status_callback_to_twilio(self, rest):
+    def test_passes_status_callback_to_twilio(self, rest, _provider):
         rest.return_value.validation_requests.create.return_value = SimpleNamespace(
             validation_code="111111",
             friendly_name=None,
@@ -278,8 +280,9 @@ class TestStartCallerIdVerification:
         }
         assert store[0]["status"] == "verified"
 
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
     @patch("app.services.telephony.caller_id.twilio_rest")
-    def test_does_not_clobber_label_with_none_on_reverification(self, rest):
+    def test_does_not_clobber_label_with_none_on_reverification(self, rest, _provider):
         rest.return_value.validation_requests.create.return_value = SimpleNamespace(
             validation_code="999999",
             friendly_name=None,
@@ -300,8 +303,9 @@ class TestStartCallerIdVerification:
 
         assert store[0]["label"] == "Oficina"
 
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
     @patch("app.services.telephony.caller_id.twilio_rest")
-    def test_twilio_owned_number_still_requires_verification(self, rest):
+    def test_twilio_owned_number_still_requires_verification(self, rest, _provider):
         rest.return_value.validation_requests.create.return_value = SimpleNamespace(
             validation_code="123456",
             friendly_name=None,
@@ -318,8 +322,9 @@ class TestStartCallerIdVerification:
         assert result["alreadyVerified"] is False
         assert store[0]["status"] == "pending"
 
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
     @patch("app.services.telephony.caller_id.twilio_rest")
-    def test_ireland_rejects_personal_verified_caller_id(self, rest):
+    def test_ireland_rejects_personal_verified_caller_id(self, rest, _provider):
         from twilio.base.exceptions import TwilioRestException
 
         rest.return_value.validation_requests.create.side_effect = TwilioRestException(

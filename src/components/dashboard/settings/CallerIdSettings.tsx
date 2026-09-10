@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Input } from "@/components/ui/input";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useAuth } from "@/features/auth";
 import { callsApi } from "@/features/calls/api";
-import type { CallerId, CallingConfig } from "@/features/calls/types";
+import { useCallingConfig } from "@/features/calls/useCallingConfig";
+import type { CallerId } from "@/features/calls/types";
 import { ApiError } from "@/shared/lib/api-client";
 import { callerIdFormVisible, callerIdOtpVisible } from "@/lib/dial-target";
 
@@ -15,8 +17,7 @@ const POLL_MAX_MS = 120_000;
 
 export const CallerIdSettings = () => {
   const { user } = useAuth();
-  const [config, setConfig] = useState<CallingConfig | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { config, isLoading, reload, setConfig } = useCallingConfig();
   const [number, setNumber] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [verificationCode, setVerificationCode] = useState<string | null>(null);
@@ -24,31 +25,12 @@ export const CallerIdSettings = () => {
   const [otpCode, setOtpCode] = useState("");
   const [isConfirming, setIsConfirming] = useState(false);
   const [pollExpired, setPollExpired] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<CallerId | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const pollUntilRef = useRef<number | null>(null);
   const pollIdRef = useRef<number | null>(null);
 
-  const load = useCallback(async () => {
-    const next = await callsApi.getConfig();
-    setConfig(next);
-    return next;
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const next = await callsApi.getConfig();
-        if (!cancelled) setConfig(next);
-      } catch (error) {
-        console.error("Failed to load calling config", error);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const load = useCallback(async () => reload(), [reload]);
 
   const stopPoll = () => {
     if (pollIdRef.current != null) {
@@ -175,24 +157,29 @@ export const CallerIdSettings = () => {
     }
   };
 
-  const handleDelete = async (row: CallerId) => {
-    if (!window.confirm(`¿Eliminar ${row.phoneNumber}?`)) return;
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      await callsApi.deleteCallerId(row.phoneNumber);
-      if (otpPhone === row.phoneNumber) {
+      setIsDeleting(true);
+      await callsApi.deleteCallerId(pendingDelete.phoneNumber);
+      if (otpPhone === pendingDelete.phoneNumber) {
         setOtpPhone(null);
         setOtpCode("");
       }
+      setPendingDelete(null);
+      toast.success("Número eliminado");
       await load();
     } catch {
       toast.error("No se pudo eliminar el número");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   if (isLoading) {
     return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="h-6 w-6 animate-spin text-beige" />
+      <div className={THEME_TOKENS.interaction.pageLoad}>
+        <VocifyLoader size="lg" label="Loading caller ID..." />
       </div>
     );
   }
@@ -260,7 +247,7 @@ export const CallerIdSettings = () => {
                   type="button"
                   variant="ghost"
                   className="h-8 rounded-full px-3 text-[10px]"
-                  onClick={() => handleDelete(row)}
+                  onClick={() => setPendingDelete(row)}
                 >
                   Eliminar
                 </Button>
@@ -293,7 +280,14 @@ export const CallerIdSettings = () => {
               disabled={isSaving || !number.trim()}
               className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
             >
-              {isSaving ? "Verificando…" : "Verificar"}
+              {isSaving ? (
+                <>
+                  <VocifySpinner size={12} />
+                  Verificando…
+                </>
+              ) : (
+                "Verificar"
+              )}
             </Button>
           </div>
           {verificationCode && !isTelnyx && (
@@ -331,7 +325,14 @@ export const CallerIdSettings = () => {
                   disabled={isConfirming || !otpCode.trim()}
                   className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
                 >
-                  {isConfirming ? "Confirmando…" : "Confirmar código"}
+                  {isConfirming ? (
+                    <>
+                      <VocifySpinner size={12} />
+                      Confirmando…
+                    </>
+                  ) : (
+                    "Confirmar código"
+                  )}
                 </Button>
               </div>
             </div>
@@ -343,6 +344,20 @@ export const CallerIdSettings = () => {
           )}
         </div>
       )}
+
+      <ConfirmAction
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title="¿Eliminar este número?"
+        description={
+          pendingDelete
+            ? `${pendingDelete.phoneNumber} dejará de usarse como caller ID.`
+            : ""
+        }
+        confirmLabel="Eliminar"
+        pending={isDeleting}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 };

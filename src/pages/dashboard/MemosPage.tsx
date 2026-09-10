@@ -1,10 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Mic, Search, Calendar, Clock, AlertCircle } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { Input } from "@/components/ui/input";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
-import { memosApi } from "@/features/memos/api";
+import { AuthorFilter } from "@/components/dashboard/AuthorFilter";
+import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
+import { useAuth } from "@/features/auth";
+import { companyApi, companyKeys } from "@/features/company/api";
+import { memoKeys, memosApi } from "@/features/memos/api";
+import {
+  authorChipLabel,
+  authorDisplayName,
+  canViewCompanyActivity,
+} from "@/lib/activity-authors";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { formatDistanceToNow } from "date-fns";
@@ -60,30 +70,40 @@ const getStatusBadge = (status: string, screeningOutcome?: string | null) => {
 };
 
 const MemosPage = () => {
-  const [memos, setMemos] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [searchTerm, setSearchTerm] = useState("");
+  const [authorUserId, setAuthorUserId] = useState<string | null>(null);
 
-  const fetchMemos = async () => {
-    try {
-      const data = await memosApi.list({ limit: 500 });
-      setMemos(data);
-      setError(null);
-    } catch (err) {
-      console.error("Failed to fetch memos:", err);
-      setError("Could not load your conversations.");
-    } finally {
-      setIsLoading(false);
-    }
+  const { data: membersData } = useQuery({
+    queryKey: companyKeys.members(),
+    queryFn: companyApi.listMembers,
+    enabled: canViewCompany,
+  });
+  const authors = (membersData?.members ?? [])
+    .filter((member) => member.status === "active")
+    .map((member) => ({
+      userId: member.userId,
+      label: authorDisplayName(member.fullName, member.email),
+      email: member.email,
+    }));
+
+  const memoFilters = {
+    limit: 200,
+    scope: canViewCompany ? ("company" as const) : ("me" as const),
+    authorUserId: authorUserId ?? undefined,
   };
 
-  useEffect(() => {
-    fetchMemos();
-    // Refresh every 10 seconds to catch status updates
-    const interval = setInterval(fetchMemos, 10000);
-    return () => clearInterval(interval);
-  }, []);
+  const {
+    data: memos = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: memoKeys.list(memoFilters),
+    queryFn: () => memosApi.list(memoFilters),
+    refetchInterval: 10_000,
+  });
 
   const filteredMemos = memos.filter(memo => {
     if (!searchTerm.trim()) return true;
@@ -111,7 +131,15 @@ const MemosPage = () => {
           <p className={THEME_TOKENS.typography.body}>Manage and review your sales conversations.</p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col items-stretch md:items-end gap-3">
+          {canViewCompany ? (
+            <AuthorFilter
+              authors={authors}
+              value={authorUserId}
+              onChange={setAuthorUserId}
+              currentUserId={user?.id}
+            />
+          ) : null}
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 group-focus-within:text-beige transition-colors" />
             <Input 
@@ -128,11 +156,11 @@ const MemosPage = () => {
         <div className="flex flex-col items-center justify-center py-20">
           <VocifyLoader size="md" label="Syncing conversations..." />
         </div>
-      ) : error ? (
+      ) : isError ? (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-12 text-center`}>
           <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-4" />
-          <p className="text-muted-foreground">{error}</p>
-          <button onClick={fetchMemos} className="mt-4 text-sm font-medium text-beige hover:underline">
+          <p className="text-muted-foreground">Could not load your conversations.</p>
+          <button onClick={() => void refetch()} className="mt-4 text-sm font-medium text-beige hover:underline">
             Try again
           </button>
         </div>
@@ -142,12 +170,20 @@ const MemosPage = () => {
             <Mic className="h-6 w-6 text-muted-foreground/40" />
           </div>
           <h3 className="text-xl font-normal text-foreground mb-2">
-            {searchTerm ? "No matches found" : "No voice memos yet"}
+            {searchTerm
+              ? "No matches found"
+              : authorUserId
+                ? "No memos for this teammate"
+                : "No voice memos yet"}
           </h3>
           <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
-            {searchTerm ? `No results for "${searchTerm}"` : "Your recorded conversations will appear here once processed."}
+            {searchTerm
+              ? `No results for "${searchTerm}"`
+              : authorUserId
+                ? "Try All to see every labeled conversation."
+                : "Your recorded conversations will appear here once processed."}
           </p>
-          {!searchTerm && (
+          {!searchTerm && !authorUserId && (
             <Link 
               to="/dashboard/record"
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-beige text-cream rounded-full font-normal"
@@ -175,6 +211,11 @@ const MemosPage = () => {
                     <h3 className="font-normal text-foreground text-[15px] truncate">
                       {memoListTitle(memo)}
                     </h3>
+                    {canViewCompany ? (
+                      <AuthorLabel
+                        name={authorChipLabel(memo.authorName, memo.userId, user?.id)}
+                      />
+                    ) : null}
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       {formatDuration(memo.audioDuration)}

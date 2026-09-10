@@ -1,106 +1,343 @@
-import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ShieldCheck, Unplug } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/features/auth";
+import { integrationKeys } from "@/features/integrations/api";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
+import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { IconAction } from "@/components/ui/icon-action";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
-import { UserGlossary } from "@/components/dashboard/glossary/UserGlossary";
-import { ProductOfferSettings } from "@/components/dashboard/settings/ProductOfferSettings";
-import { TranscriptionLanguageSettings } from "@/components/dashboard/settings/TranscriptionLanguageSettings";
-import { CallerIdSettings } from "@/components/dashboard/settings/CallerIdSettings";
-import { crmApi } from "@/lib/api/crm";
+import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
+import { SalesforceConfiguration } from "@/components/dashboard/salesforce/SalesforceConfiguration";
+import { SalesforceConnection } from "@/components/dashboard/salesforce/SalesforceConnection";
+
+const LIVE = [
+  {
+    id: "hubspot" as const,
+    name: "HubSpot",
+    description: "Deals, contacts, and call activities",
+    logo: "https://cdn.worldvectorlogo.com/logos/hubspot.svg",
+  },
+  {
+    id: "salesforce" as const,
+    name: "Salesforce",
+    description: "Opportunities and contacts",
+    logo: "https://cdn.worldvectorlogo.com/logos/salesforce-2.svg",
+  },
+];
+
+function oauthErrorMessage(params: URLSearchParams): string | null {
+  const hubspot = params.get("hubspot");
+  const salesforce = params.get("salesforce");
+  const error = params.get("error");
+  if (!(hubspot === "error" || salesforce === "error" || error)) return null;
+
+  const errDesc = params.get("error_description");
+  const decoded = errDesc ? decodeURIComponent(errDesc.replace(/\+/g, " ")) : "";
+  const sfErrors: Record<string, string> = {
+    missing_params: "Salesforce did not return authorization. Try again.",
+    invalid_state: "Session expired. Please try connecting again.",
+    token_exchange_failed:
+      "Could not complete Salesforce login. Check that the Callback URL matches SALESFORCE_REDIRECT_URI.",
+    no_token: "Salesforce did not return tokens. Enable API and refresh_token scopes.",
+    validation_failed: "Salesforce login worked but API access failed.",
+    save_failed: "Could not save the connection.",
+    invalid_scope: "Salesforce rejected the requested scopes.",
+    OAUTH_EC_APP_NOT_FOUND: "Salesforce does not recognize this OAuth app.",
+  };
+
+  if (error === "invalid_state") return sfErrors.invalid_state;
+  if (salesforce === "error") {
+    if (error && sfErrors[error]) return sfErrors[error];
+    if (decoded.toLowerCase().includes("not installed")) {
+      return "This Salesforce app is not installed in the org you signed into.";
+    }
+    if (decoded) return `Salesforce: ${decoded}`;
+    if (error && error !== "error") return `Failed to connect Salesforce (${error}).`;
+    return "Failed to connect Salesforce.";
+  }
+  return "Failed to connect HubSpot.";
+}
 
 const SettingsPage = () => {
-  const [isHubSpotConnected, setIsHubSpotConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const location = useLocation();
+  const { user } = useAuth();
+  const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [connectId, setConnectId] = useState<"hubspot" | "salesforce" | null>(null);
+  const [disconnectId, setDisconnectId] = useState<"hubspot" | "salesforce" | null>(null);
+
+  const { data: connections = [], isLoading: connectionsLoading } = useQuery({
+    queryKey: crmKeys.connections(),
+    queryFn: async () => {
+      const { connections: rows } = await crmApi.listConnections();
+      return (rows || []).filter((c) => c.status === "connected");
+    },
+    staleTime: SESSION_QUERY_STALE_MS,
+  });
+
+  const { data: prefs } = useQuery({
+    queryKey: crmKeys.preferences(),
+    queryFn: () => crmApi.getCrmPreferences(),
+    staleTime: SESSION_QUERY_STALE_MS,
+  });
+
+  const primaryConnectionId = prefs?.primary_crm_connection_id ?? null;
+  const hubspot = connections.find((c) => c.provider === "hubspot");
+  const salesforce = connections.find((c) => c.provider === "salesforce");
+
+  const refreshCrm = () => {
+    queryClient.invalidateQueries({ queryKey: crmKeys.all });
+    queryClient.invalidateQueries({ queryKey: integrationKeys.all });
+  };
 
   useEffect(() => {
-    const checkConnection = async () => {
-      try {
-        // Connection ≠ saved configuration: use connections list, not config 404.
-        const { connections } = await crmApi.listConnections();
-        const hubspotConnected = (connections || []).some(
-          (c) => c.provider === "hubspot" && c.status === "connected",
-        );
-        setIsHubSpotConnected(hubspotConnected);
-      } catch (error) {
-        console.error("Failed to check connection", error);
-        setIsHubSpotConnected(false);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    checkConnection();
-  }, []);
+    const hubspotStatus = searchParams.get("hubspot");
+    const salesforceStatus = searchParams.get("salesforce");
+    if (hubspotStatus === "connected") {
+      toast.success("HubSpot connected");
+      setSearchParams({}, { replace: true });
+      refreshCrm();
+      return;
+    }
+    if (salesforceStatus === "connected") {
+      toast.success("Salesforce connected");
+      setSearchParams({}, { replace: true });
+      refreshCrm();
+      return;
+    }
+    const err = oauthErrorMessage(searchParams);
+    if (err) {
+      toast.error(err, { duration: 12_000 });
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the OAuth return query
+  }, [searchParams]);
 
-  useEffect(() => {
-    if (isLoading || location.hash !== "#caller-id") return;
-    const node = document.getElementById("caller-id");
-    if (!node) return;
-    const scroll = () =>
-      node.scrollIntoView({ behavior: "smooth", block: "start" });
-    scroll();
-    const id = window.setTimeout(scroll, 450);
-    return () => window.clearTimeout(id);
-  }, [isLoading, location.hash]);
+  const primaryMutation = useMutation({
+    mutationFn: (id: string) => crmApi.setPrimaryCrmConnection(id),
+    onSuccess: (_, id) => {
+      queryClient.setQueryData(crmKeys.preferences(), { primary_crm_connection_id: id });
+      toast.success("Primary CRM updated");
+    },
+    onError: () => toast.error("Could not update primary CRM"),
+  });
 
-  if (isLoading) {
+  const disconnectMutation = useMutation({
+    mutationFn: async (id: "hubspot" | "salesforce") => {
+      if (id === "hubspot") await crmApi.disconnectHubSpot();
+      else await crmApi.disconnectSalesforce();
+    },
+    onSuccess: (_, id) => {
+      toast.success(`Disconnected from ${id === "hubspot" ? "HubSpot" : "Salesforce"}`);
+      setDisconnectId(null);
+      refreshCrm();
+    },
+    onError: () => toast.error("Failed to disconnect"),
+  });
+
+  const refreshPermissions = useMutation({
+    mutationFn: async () => {
+      const { redirect_url } = await crmApi.getHubSpotAuthorizeUrl();
+      window.location.href = redirect_url;
+    },
+    onError: (error: unknown) => {
+      const msg =
+        error && typeof error === "object" && "data" in error
+          ? String((error as { data?: { detail?: string } }).data?.detail ?? "Failed to refresh HubSpot permissions")
+          : "Failed to refresh HubSpot permissions";
+      toast.error(msg);
+    },
+  });
+
+  if (connectionsLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px]">
-        <VocifyLoader size="lg" label="Loading Settings..." />
+      <div className={THEME_TOKENS.interaction.pageLoad}>
+        <VocifyLoader size="lg" label="Loading CRM..." />
       </div>
     );
   }
 
   return (
-    <div className={`max-w-2xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
-      <div className={V_PATTERNS.dashboardHeader}>
-        <h1 className={THEME_TOKENS.typography.pageTitle}>
-          Account <span className={THEME_TOKENS.typography.accentTitle}>Settings</span>
-        </h1>
-        <p className={THEME_TOKENS.typography.body}>Manage field mapping, call languages, caller ID, offer context, and glossary. CRM, glossary, and product context are shared across your workspace.</p>
+    <div className="space-y-6">
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
+        <div className="mb-6">
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>CRM</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {canManage
+              ? "Connect a CRM, then choose the pipeline and fields AI may fill."
+              : "Workspace CRM. Ask an admin to connect or change it."}
+          </p>
+        </div>
+
+        {canManage && connections.length > 1 && (
+          <div className="mb-6">
+            <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>Primary for memo sync</p>
+            <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
+              {connections.map((c) => {
+                const selected = primaryConnectionId === c.id;
+                const label = c.provider === "hubspot" ? "HubSpot" : "Salesforce";
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    aria-pressed={selected}
+                    disabled={primaryMutation.isPending}
+                    onClick={() => primaryMutation.mutate(c.id)}
+                    className={`rounded-full px-4 h-8 text-xs transition-colors ${
+                      selected ? "bg-beige text-cream" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="divide-y divide-border/40">
+          {LIVE.map((item) => {
+            const connected = item.id === "hubspot" ? Boolean(hubspot) : Boolean(salesforce);
+            const connection = item.id === "hubspot" ? hubspot : salesforce;
+            const isPrimary =
+              Boolean(connection) &&
+              connections.length > 1 &&
+              primaryConnectionId === connection?.id;
+
+            return (
+              <div key={item.id} className="flex items-center gap-4 py-4 first:pt-0 last:pb-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary/5 p-2">
+                  <img src={item.logo} alt="" className="h-full w-full object-contain" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-foreground">{item.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {connected ? (
+                      <span className="text-success">
+                        Connected{isPrimary ? " · primary" : ""}
+                      </span>
+                    ) : (
+                      item.description
+                    )}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {connected ? (
+                    <>
+                      {canManage && item.id === "hubspot" && (
+                        <IconAction
+                          label="Refresh HubSpot permissions"
+                          pendingLabel="Redirecting…"
+                          pending={refreshPermissions.isPending}
+                          onClick={() => refreshPermissions.mutate()}
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                        </IconAction>
+                      )}
+                      {canManage && (
+                        <IconAction
+                          label={`Disconnect ${item.name}`}
+                          tone="danger"
+                          onClick={() => setDisconnectId(item.id)}
+                        >
+                          <Unplug className="h-4 w-4" />
+                        </IconAction>
+                      )}
+                    </>
+                  ) : canManage ? (
+                    <Button
+                      size="sm"
+                      className="rounded-full bg-beige text-cream h-9 px-4"
+                      onClick={() => setConnectId(item.id)}
+                    >
+                      Connect
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Not connected</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {isHubSpotConnected ? (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-          <div className="mb-10">
-            <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot Configuration</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Choose which HubSpot fields AI may fill from a call, and how each one is treated.
+      {hubspot && (
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
+          <div className="mb-6">
+            <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot fields</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {canManage
+                ? "New deals go to the pipeline you pick. Calls, contacts, tasks, and deals assign to the teammate whose Vocify email matches their HubSpot user."
+                : "Workspace field mapping. Ask an admin to change it."}
             </p>
           </div>
-          <HubSpotConfiguration />
-        </div>
-      ) : (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-          <h2 className={THEME_TOKENS.typography.sectionTitle}>CRM configuration</h2>
-          <p className="text-sm text-muted-foreground mt-2 mb-4">
-            Connect HubSpot in Integrations to manage pipelines and field allowlists here.
-          </p>
-          <Link
-            to="/dashboard/integrations"
-            className="inline-flex items-center justify-center rounded-lg bg-beige text-cream px-5 py-2 text-sm font-medium"
-          >
-            Open Integrations
-          </Link>
+          <HubSpotConfiguration readOnly={!canManage} />
         </div>
       )}
 
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-        <TranscriptionLanguageSettings />
-      </div>
+      {salesforce && (
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
+          <div className="mb-6">
+            <h2 className={THEME_TOKENS.typography.sectionTitle}>Salesforce fields</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {canManage
+                ? "Default stage and fields AI may fill on opportunities."
+                : "Workspace field mapping. Ask an admin to change it."}
+            </p>
+          </div>
+          <SalesforceConfiguration readOnly={!canManage} />
+        </div>
+      )}
 
-      <div id="caller-id" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} scroll-mt-24 p-8`}>
-        <CallerIdSettings />
-      </div>
+      <Dialog open={connectId !== null} onOpenChange={(open) => !open && setConnectId(null)}>
+        <DialogContent className={`${THEME_TOKENS.radius.container} max-w-lg border-border/70 bg-card p-6 md:p-8`}>
+          <DialogHeader>
+            <DialogTitle className={THEME_TOKENS.typography.sectionTitle}>
+              Connect {connectId === "salesforce" ? "Salesforce" : "HubSpot"}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              {connectId === "salesforce"
+                ? "You will be redirected to Salesforce to authorize API access."
+                : "You will be redirected to HubSpot to authorize access."}
+            </DialogDescription>
+          </DialogHeader>
+          {connectId === "salesforce" ? (
+            <SalesforceConnection
+              onConnected={() => {
+                setConnectId(null);
+                refreshCrm();
+              }}
+            />
+          ) : (
+            <HubSpotConnection
+              onConnected={() => {
+                setConnectId(null);
+                refreshCrm();
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-        <ProductOfferSettings />
-      </div>
-
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-        <UserGlossary />
-      </div>
+      <ConfirmAction
+        open={disconnectId !== null}
+        onOpenChange={(open) => !open && setDisconnectId(null)}
+        title={`Disconnect ${disconnectId === "salesforce" ? "Salesforce" : "HubSpot"}?`}
+        description="Saved field mapping and sync history for this CRM will be removed."
+        confirmLabel="Disconnect"
+        pending={disconnectMutation.isPending}
+        onConfirm={() => {
+          if (disconnectId) disconnectMutation.mutate(disconnectId);
+        }}
+      />
     </div>
   );
 };

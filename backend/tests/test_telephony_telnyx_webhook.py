@@ -6,6 +6,7 @@ Fixture envelope matches Telnyx Voice API webhooks (`call.initiated` +
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import json
@@ -15,8 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import nacl.encoding
 import nacl.signing
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 
 from app.api import webhooks
 from app.api.webhooks import router as webhooks_router
@@ -249,6 +251,8 @@ def _post(event: dict, *, signing, pub: str, supabase, telnyx, **setting_overrid
         "CALLING_PROVIDER": "telnyx",
         "CALLING_DEFAULT_COUNTRY_CODE": "34",
         "CALLING_RECORDING_ANNOUNCEMENT_ENABLED": False,
+        "TELNYX_RINGBACK_URL": "https://api.example/static/call-ringback.wav",
+        "TELNYX_RING_WATCHDOG_SECS": 0,
         **setting_overrides,
     }
     with (
@@ -305,6 +309,12 @@ class TestTelnyxVoiceSignature:
         assert resp.status_code == 204
         telnyx.dial.assert_not_called()
         assert stores.get("outbound_calls", []) == []
+
+    def test_client_disconnect_on_body_is_204(self):
+        request = MagicMock()
+        request.body = AsyncMock(side_effect=ClientDisconnect())
+        resp = asyncio.run(webhooks.telnyx_voice(request, BackgroundTasks()))
+        assert resp.status_code == 204
 
 
 class TestTelnyxParkedInitiated:
@@ -388,7 +398,13 @@ class TestTelnyxParkedInitiated:
         resp = _post(PARKED_INITIATED, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
 
         assert resp.status_code == 204
-        body = http.post.call_args.kwargs["json"]
+        dial_calls = [
+            call
+            for call in http.post.call_args_list
+            if call.args and call.args[0] == "/calls"
+        ]
+        assert len(dial_calls) == 1
+        body = dial_calls[0].kwargs["json"]
         assert body["from"] == VERIFIED_CLI
         assert body["to"] == PROSPECT
         assert body["link_to"] == PARKED_ID
@@ -521,9 +537,13 @@ class TestTelnyxAnsweredBridge:
         )
 
         assert resp.status_code == 204
-        path = http.post.call_args.args[0]
+        assert http.post.call_count == 2
+        assert http.post.call_args_list[0].args[0] == (
+            f"/calls/{PARKED_ID}/actions/playback_stop"
+        )
+        path = http.post.call_args_list[1].args[0]
         assert path == f"/calls/{PARKED_ID}/actions/bridge"
-        body = http.post.call_args.kwargs["json"]
+        body = http.post.call_args_list[1].kwargs["json"]
         assert body["call_control_id"] == PSTN_ID
         assert body["record"] == "record-from-answer"
         assert body["record_channels"] == "dual"
@@ -596,6 +616,7 @@ class TestTelnyxAnsweredBridge:
         assert resp.status_code == 204
         telnyx.bridge.assert_not_called()
         telnyx.speak.assert_not_called()
+        telnyx.playback_start.assert_not_called()
 
     def test_answered_announcement_speaks_then_speak_ended_bridges(self):
         signing, pub = _keys()
@@ -686,6 +707,151 @@ class TestTelnyxHangup:
 
         assert resp.status_code == 204
         telnyx.hangup.assert_called_once_with(PSTN_ID)
+
+    def test_parked_hangup_without_pstn_does_not_rehangup_ended_leg(self):
+        signing, pub = _keys()
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "failed",
+                        "provider_state": {"parked_id": PARKED_ID},
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        hangup = {
+            "data": {
+                "event_type": "call.hangup",
+                "payload": {
+                    "call_control_id": PARKED_ID,
+                    "call_session_id": SESSION_ID,
+                    "hangup_cause": "originator_cancel",
+                },
+            }
+        }
+
+        with patch(
+            "app.api.webhooks.log_missed_call_activity",
+            new_callable=AsyncMock,
+        ) as missed:
+            resp = _post(
+                hangup, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx
+            )
+
+        assert resp.status_code == 204
+        telnyx.hangup.assert_not_called()
+        missed.assert_called_once()
+
+    def test_pstn_busy_hangs_up_parked_with_user_busy(self):
+        signing, pub = _keys()
+        supabase, stores = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        hangup = {
+            "data": {
+                "event_type": "call.hangup",
+                "payload": {
+                    "call_control_id": PSTN_ID,
+                    "call_session_id": SESSION_ID,
+                    "hangup_cause": "user_busy",
+                    "sip_hangup_cause": "486",
+                    "hangup_source": "unknown",
+                },
+            }
+        }
+
+        with patch(
+            "app.api.webhooks.log_missed_call_activity",
+            new_callable=AsyncMock,
+        ) as missed:
+            resp = _post(
+                hangup, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx
+            )
+
+        assert resp.status_code == 204
+        telnyx.playback_stop.assert_called_once_with(PARKED_ID)
+        telnyx.hangup.assert_called_once_with(PARKED_ID, cause="USER_BUSY")
+        assert missed.await_count == 1
+        assert stores["outbound_calls"][0]["call_disposition"] == "busy"
+        assert stores["outbound_calls"][0]["provider_state"]["pstn_hangup"] == {
+            "cause": "user_busy",
+            "sip": "486",
+            "source": "unknown",
+        }
+
+    def test_call_cost_merges_onto_provider_state_after_busy(self):
+        signing, pub = _keys()
+        supabase, stores = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "logged",
+                        "call_disposition": "busy",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                            "pstn_hangup": {
+                                "cause": "user_busy",
+                                "sip": "486",
+                                "source": "unknown",
+                            },
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        cost = {
+            "data": {
+                "event_type": "call.cost",
+                "payload": {
+                    "call_control_id": PSTN_ID,
+                    "call_session_id": SESSION_ID,
+                    "total_cost": "0.0000",
+                    "billed_duration_secs": 0,
+                    "cost_parts": [
+                        {"type": "sip-trunking", "cost": "0.0000"},
+                        {"type": "call-control", "cost": "0.0000", "rate": "0.00200"},
+                    ],
+                },
+            }
+        }
+
+        resp = _post(cost, signing=signing, pub=pub, supabase=supabase, telnyx=telnyx)
+
+        assert resp.status_code == 204
+        state = stores["outbound_calls"][0]["provider_state"]
+        assert state["pstn_hangup"]["cause"] == "user_busy"
+        assert state["pstn_cost"] == {
+            "total": "0.0000",
+            "billed_duration_secs": 0,
+            "parts": [
+                {"type": "sip-trunking", "cost": "0.0000"},
+                {"type": "call-control", "cost": "0.0000", "rate": "0.00200"},
+            ],
+        }
 
 
 RECORDING_ID = "rec-1"
@@ -928,3 +1094,58 @@ class TestTelnyxRecordingSaved:
 
         assert resp.status_code == 204
         download.assert_awaited_once_with(RECORDING_ID)
+
+
+class TestTelnyxRingWatchdog:
+    def test_watchdog_hangs_parked_if_still_dialing_and_not_bridged(self):
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        with patch("app.api.webhooks.telnyx_rest", return_value=telnyx):
+            asyncio.run(
+                webhooks._hangup_if_still_ringing(
+                    supabase, PARKED_ID, delay_secs=0
+                )
+            )
+        telnyx.hangup.assert_called_once_with(PARKED_ID, cause="TIMEOUT")
+
+    def test_watchdog_skips_bridged_call(self):
+        supabase, _ = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "user_id": USER_ID,
+                        "carrier": "telnyx",
+                        "carrier_call_id": PARKED_ID,
+                        "status": "dialing",
+                        "provider_state": {
+                            "parked_id": PARKED_ID,
+                            "pstn_id": PSTN_ID,
+                            "bridged": True,
+                        },
+                    }
+                ]
+            }
+        )
+        telnyx = MagicMock()
+        with patch("app.api.webhooks.telnyx_rest", return_value=telnyx):
+            asyncio.run(
+                webhooks._hangup_if_still_ringing(
+                    supabase, PARKED_ID, delay_secs=0
+                )
+            )
+        telnyx.hangup.assert_not_called()

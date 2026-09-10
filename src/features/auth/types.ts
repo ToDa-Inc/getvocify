@@ -187,6 +187,8 @@ export interface AuthContextValue extends AuthState {
   login: (credentials: LoginCredentials) => Promise<void>;
   /** Sign up new user */
   signup: (data: SignupData) => Promise<void>;
+  /** Persist tokens from login, signup, or invite accept */
+  applySession: (response: AuthResponse) => void;
   /** Log out current user */
   logout: () => Promise<void>;
   /** Refresh the current session */

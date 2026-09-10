@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { vocifyCallHeaders } from './telnyx-headers.js';
+import { telnyxHangupMessage, vocifyCallHeaders } from './telnyx-headers.js';
 
 describe('vocifyCallHeaders', () => {
   it('returns no headers when every id is missing', () => {
@@ -27,5 +27,16 @@ describe('vocifyCallHeaders', () => {
       vocifyCallHeaders({ callerId: '', contactId: 42, dealId: null }),
       [{ name: 'X-Vocify-Contact-Id', value: '42' }],
     );
+  });
+});
+
+describe('telnyxHangupMessage', () => {
+  it('maps SIP 486 / USER_BUSY to Ocupado', () => {
+    assert.equal(telnyxHangupMessage({ sipCode: 486 }), 'Ocupado');
+    assert.equal(telnyxHangupMessage({ hangupCause: 'USER_BUSY' }), 'Ocupado');
+  });
+
+  it('returns null for a normal hangup', () => {
+    assert.equal(telnyxHangupMessage({ sipCode: 200, causeCode: 16 }), null);
   });
 });

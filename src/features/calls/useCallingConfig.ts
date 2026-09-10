@@ -1,33 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
-import { callsApi } from "@/features/calls/api";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { callKeys, callsApi } from "@/features/calls/api";
+import { SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
 import type { CallingConfig } from "@/features/calls/types";
 
 export function useCallingConfig() {
-  const [config, setConfig] = useState<CallingConfig | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: config = null, isLoading } = useQuery({
+    queryKey: callKeys.config(),
+    queryFn: () => callsApi.getConfig(),
+    staleTime: SESSION_QUERY_STALE_MS,
+  });
 
   const reload = useCallback(async () => {
     const next = await callsApi.getConfig();
-    setConfig(next);
+    queryClient.setQueryData(callKeys.config(), next);
     return next;
-  }, []);
+  }, [queryClient]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const next = await callsApi.getConfig();
-        if (!cancelled) setConfig(next);
-      } catch (error) {
-        console.error("Failed to load calling config", error);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const setConfig = useCallback(
+    (updater: CallingConfig | ((prev: CallingConfig | null) => CallingConfig | null)) => {
+      queryClient.setQueryData<CallingConfig | null>(callKeys.config(), (prev) =>
+        typeof updater === "function" ? updater(prev ?? null) : updater,
+      );
+    },
+    [queryClient],
+  );
 
-  return { config, isLoading, reload };
+  return { config, isLoading, reload, setConfig };
 }

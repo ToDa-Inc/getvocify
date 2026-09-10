@@ -35,11 +35,13 @@ WHERE conname = 'memos_source_check';
    → `TWILIO_TWIML_APP_SID`
 3. Copy Account SID and Auth Token → `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`.
    The Auth Token is used only to validate webhook signatures.
-4. **Region.** This account lives in **Ireland (IE1)**. Set `TWILIO_EDGE=dublin` and
-   `TWILIO_REGION=ie1`. Requests to `api.twilio.com` (US1) return 401 even with a valid
-   Auth Token. The Python SDK needs **both** `edge` and `region`; region alone still
-   routes to US1. Voice Access Tokens must set `region=ie1` so the browser SDK connects
-   to Dublin.
+4. **Region.** The account we ship against is **US1**. Leave `TWILIO_EDGE` and
+   `TWILIO_REGION` unset so the SDK and recording download hit `api.twilio.com`.
+   If you ever point this env at an **Ireland (IE1)** account, set both
+   `TWILIO_EDGE=dublin` and `TWILIO_REGION=ie1` — requests to `api.twilio.com`
+   then return 401 even with a valid Auth Token, and Voice Access Tokens must
+   include `region=ie1` so the browser SDK connects to Dublin. Region alone
+   still routes to US1; the Python SDK needs both.
 5. **Do not buy a phone number.** Caller ID comes from each user's verified personal or office number, so there is no number rental and no regulatory bundle.
 
 ### Webhook endpoints

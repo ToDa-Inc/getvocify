@@ -38,6 +38,20 @@ export const THEME_TOKENS = {
     fadeIn: "animate-fade-in",
     tapScale: "active:scale-[0.98] transition-transform duration-150",
   },
+
+  /**
+   * Interactive chrome. Use IconAction for icon-only controls (tooltip + press + pending).
+   * Use ConfirmAction before destructive work. Toasts land bottom-right via Sonner.
+   */
+  interaction: {
+    iconButton:
+      "inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40",
+    iconDanger: "hover:bg-destructive/10 hover:text-destructive",
+    pageLoad: "flex min-h-[280px] items-center justify-center",
+    navPill: "rounded-full px-3.5 py-1.5 text-[13px] transition-colors",
+    navPillActive: "glass-nav text-foreground",
+    navPillIdle: "text-muted-foreground hover:bg-white/25 hover:text-foreground",
+  },
 };
 
 export const V_PATTERNS = {

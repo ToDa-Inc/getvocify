@@ -9,13 +9,16 @@ import type { CrmCallRecording, ProcessCallRecordingResponse } from './types';
 
 export const recordingKeys = {
   all: ['recordings'] as const,
-  list: (limit = 20) => [...recordingKeys.all, 'list', limit] as const,
+  list: (limit = 20, authorUserId?: string | null) =>
+    [...recordingKeys.all, 'list', limit, authorUserId ?? ''] as const,
 };
 
 export const recordingsApi = {
   /** Recent calls with recordings across the connected CRM portal. */
-  list: (limit = 20): Promise<CrmCallRecording[]> => {
-    return api.get<CrmCallRecording[]>(`/crm/hubspot/recordings?limit=${limit}`);
+  list: (limit = 20, authorUserId?: string | null): Promise<CrmCallRecording[]> => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (authorUserId) params.set('author_user_id', authorUserId);
+    return api.get<CrmCallRecording[]>(`/crm/hubspot/recordings?${params}`);
   },
 
   /** Start or retry transcription for a call recording. */

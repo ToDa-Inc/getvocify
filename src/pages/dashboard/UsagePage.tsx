@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { BarChart3, Mic, Clock, TrendingUp } from "lucide-react";
-import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { memosApi, memoKeys } from "@/features/memos/api";
 
 const UsagePage = () => {
@@ -54,30 +55,15 @@ const UsagePage = () => {
 
   if (isLoading) {
     return (
-      <div className={`max-w-5xl mx-auto space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
-        <div className={V_PATTERNS.dashboardHeader}>
-          <h1 className={THEME_TOKENS.typography.pageTitle}>
-            Usage <span className={THEME_TOKENS.typography.accentTitle}>Analytics</span>
-          </h1>
-          <p className={THEME_TOKENS.typography.body}>Track your performance and time saved with Vocify.</p>
-        </div>
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-12 text-center`}>
-          <div className="w-8 h-8 border-2 border-beige border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className={THEME_TOKENS.typography.capsLabel}>Loading analytics...</p>
-        </div>
+      <div className={THEME_TOKENS.interaction.pageLoad}>
+        <VocifyLoader size="lg" label="Loading usage..." />
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className={`max-w-5xl mx-auto space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
-        <div className={V_PATTERNS.dashboardHeader}>
-          <h1 className={THEME_TOKENS.typography.pageTitle}>
-            Usage <span className={THEME_TOKENS.typography.accentTitle}>Analytics</span>
-          </h1>
-          <p className={THEME_TOKENS.typography.body}>Track your performance and time saved with Vocify.</p>
-        </div>
+      <div className="space-y-8">
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-12 text-center space-y-4`}>
           <p className="font-bold text-foreground">Couldn't load usage analytics</p>
           <p className="text-sm text-muted-foreground">
@@ -87,9 +73,16 @@ const UsagePage = () => {
             type="button"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="inline-flex items-center justify-center rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-medium disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-medium disabled:opacity-60"
           >
-            {isFetching ? "Retrying..." : "Try again"}
+            {isFetching ? (
+              <>
+                <VocifySpinner size={12} />
+                Retrying…
+              </>
+            ) : (
+              "Try again"
+            )}
           </button>
         </div>
       </div>
@@ -97,13 +90,7 @@ const UsagePage = () => {
   }
 
   return (
-    <div className={`max-w-5xl mx-auto space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
-      <div className={V_PATTERNS.dashboardHeader}>
-        <h1 className={THEME_TOKENS.typography.pageTitle}>
-          Usage <span className={THEME_TOKENS.typography.accentTitle}>Analytics</span>
-        </h1>
-        <p className={THEME_TOKENS.typography.body}>Track your performance and time saved with Vocify.</p>
-      </div>
+    <div className="space-y-8">
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

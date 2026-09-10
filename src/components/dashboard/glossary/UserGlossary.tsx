@@ -1,20 +1,27 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Loader2, Sparkles, Languages, Library, Wand2, Upload, X } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Trash2, Sparkles, Wand2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
+import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { glossaryApi, GlossaryItem, GlossaryTemplate, BulkAddItem } from "@/lib/api/glossary";
+import { glossaryApi, glossaryKeys, GlossaryItem, BulkAddItem } from "@/lib/api/glossary";
 import { parseBulkInput, type ParsedBulkItem } from "@/lib/glossary/parseBulkInput";
 
 export const UserGlossary = () => {
-  const [items, setItems] = useState<GlossaryItem[]>([]);
-  const [templates, setTemplates] = useState<GlossaryTemplate[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: items = [], isLoading } = useQuery({
+    queryKey: glossaryKeys.list(),
+    queryFn: () => glossaryApi.getGlossary(),
+    staleTime: Infinity,
+  });
+  const [pendingDelete, setPendingDelete] = useState<GlossaryItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);
   const [newWord, setNewWord] = useState("");
   const [newHints, setNewHints] = useState("");
   const [newCategory, setNewCategory] = useState("Company");
@@ -103,13 +110,13 @@ export const UserGlossary = () => {
       setBulkInput("");
       setBulkPreview([]);
       setShowBulkAdd(false);
-      fetchGlossary();
+      queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
     } catch {
       toast.error("Failed to add words");
     } finally {
       setIsBulkAdding(false);
     }
-  }, [bulkPreview]);
+  }, [bulkPreview, queryClient]);
 
   const setPreviewHints = useCallback((id: string, hints: string[]) => {
     setBulkPreview((prev) => prev.map((p) => (p.id === id ? { ...p, hints } : p)));
@@ -123,30 +130,6 @@ export const UserGlossary = () => {
     setBulkPreview((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
-  useEffect(() => {
-    Promise.all([fetchGlossary(), fetchTemplates()]);
-  }, []);
-
-  const fetchGlossary = async () => {
-    try {
-      const data = await glossaryApi.getGlossary();
-      setItems(data);
-    } catch (error) {
-      console.error("Failed to fetch glossary", error);
-    }
-  };
-
-  const fetchTemplates = async () => {
-    try {
-      const data = await glossaryApi.getTemplates();
-      setTemplates(data);
-    } catch (error) {
-      console.error("Failed to fetch templates", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleSuggest = async () => {
     if (!newWord.trim()) return;
     try {
@@ -158,20 +141,6 @@ export const UserGlossary = () => {
       toast.error("Failed to generate hints");
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  const handleImport = async (templateId: string) => {
-    try {
-      setIsImporting(true);
-      await glossaryApi.importTemplate(templateId);
-      toast.success("Template imported successfully!");
-      setShowTemplates(false);
-      fetchGlossary();
-    } catch (error) {
-      toast.error("Failed to import template");
-    } finally {
-      setIsImporting(false);
     }
   };
 
@@ -193,7 +162,7 @@ export const UserGlossary = () => {
       setNewWord("");
       setNewHints("");
       setIsAdding(false);
-      fetchGlossary();
+      queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
     } catch (error) {
       toast.error("Failed to add word");
     } finally {
@@ -201,20 +170,25 @@ export const UserGlossary = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!pendingDelete?.id) return;
     try {
-      await glossaryApi.deleteItem(id);
+      setIsDeleting(true);
+      await glossaryApi.deleteItem(pendingDelete.id);
       toast.success("Removed from glossary");
-      fetchGlossary();
-    } catch (error) {
+      setPendingDelete(null);
+      queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
+    } catch {
       toast.error("Failed to delete word");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   if (isLoading) {
     return (
-      <div className="flex justify-center p-8">
-        <Loader2 className="h-6 w-6 animate-spin text-beige" />
+      <div className={THEME_TOKENS.interaction.pageLoad}>
+        <VocifyLoader size="lg" label="Loading glossary..." />
       </div>
     );
   }
@@ -223,19 +197,12 @@ export const UserGlossary = () => {
     <div className="space-y-6">
         <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className={THEME_TOKENS.typography.sectionTitle}>Custom Vocabulary</h3>
-          <p className="text-xs text-muted-foreground mt-1">Train AI to recognize your specific terms.</p>
+          <h3 className={THEME_TOKENS.typography.sectionTitle}>Glossary</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Add names and terms this workspace actually says. Starts empty.
+          </p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => setShowTemplates(!showTemplates)}
-            className={`rounded-full ${showTemplates ? 'bg-beige/10 text-beige' : 'text-muted-foreground'}`}
-          >
-            <Library className="h-4 w-4 mr-2" />
-            Packs
-          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -321,7 +288,7 @@ export const UserGlossary = () => {
                   onClick={handleBulkSuggest}
                   className="rounded-full text-xs h-8"
                 >
-                  {isBulkSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3 mr-1" />}
+                  {isBulkSuggesting ? <VocifySpinner size={12} /> : <Wand2 className="h-3 w-3 mr-1" />}
                   Generate missing sound-alikes
                 </Button>
               </div>
@@ -406,40 +373,13 @@ export const UserGlossary = () => {
                 className="w-full rounded-full bg-beige text-cream font-bold"
               >
                 {isBulkAdding ? (
-                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Adding...</>
+                  <><VocifySpinner size={12} /> Adding...</>
                 ) : (
                   <>Add {bulkPreview.filter((p) => p.include).length} to glossary</>
                 )}
               </Button>
             </>
           )}
-        </div>
-      )}
-
-      {showTemplates && (
-        <div className="p-6 rounded-2xl bg-beige/5 border border-beige/20 space-y-4 animate-in fade-in zoom-in-95">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-xs font-medium text-beige">Available Starter Packs</h4>
-            <span className="text-[10px] text-muted-foreground italic">Instant setup for your industry</span>
-          </div>
-          <div className="grid gap-3">
-            {templates.map(t => (
-              <div key={t.id} className="flex items-center justify-between p-4 bg-white rounded-xl border border-beige/10 shadow-sm hover:border-beige/30 transition-all group">
-                <div className="flex-1">
-                  <h5 className="font-bold text-sm text-foreground">{t.name}</h5>
-                  <p className="text-[10px] text-muted-foreground line-clamp-1">{t.description}</p>
-                </div>
-                <Button 
-                  size="sm" 
-                  disabled={isImporting}
-                  onClick={() => handleImport(t.id)}
-                  className="rounded-full bg-beige hover:bg-beige-dark text-white text-[10px] font-black uppercase px-4"
-                >
-                  {isImporting ? <Loader2 className="h-3 w-3 animate-spin" /> : "Import Pack"}
-                </Button>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
@@ -461,7 +401,7 @@ export const UserGlossary = () => {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-beige hover:text-beige-dark disabled:opacity-30 transition-colors"
                   title="Generate AI hints"
                 >
-                  {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                  {isGenerating ? <VocifySpinner size={12} /> : <Wand2 className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -490,7 +430,7 @@ export const UserGlossary = () => {
               )}
             </div>
             <Input 
-              placeholder="e.g. En red, Enred, Eden red" 
+              placeholder="How it sounds, comma separated" 
               value={newHints}
               onChange={(e) => setNewHints(e.target.value)}
               className="rounded-full bg-white"
@@ -501,7 +441,7 @@ export const UserGlossary = () => {
             disabled={isGenerating}
             className="w-full rounded-full bg-beige text-white font-bold"
           >
-            {isGenerating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {isGenerating ? <VocifySpinner size={12} /> : null}
             Add to Vocabulary
           </Button>
         </div>
@@ -509,8 +449,11 @@ export const UserGlossary = () => {
 
       <div className="space-y-3">
         {items.length === 0 ? (
-          <div className="text-center py-10 border-2 border-dashed border-beige/10 rounded-3xl">
-            <p className="text-sm text-muted-foreground italic">No custom words added yet.</p>
+          <div className="text-center py-10 border border-dashed border-border/60 rounded-2xl">
+            <p className="text-sm text-foreground">No terms yet</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Add company names, product names, or words the transcript keeps missing.
+            </p>
           </div>
         ) : (
           items.map((item) => (
@@ -540,29 +483,33 @@ export const UserGlossary = () => {
                   )}
                 </div>
               </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => handleDelete(item.id!)}
-                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                <IconAction
+                  label={`Remove ${item.target_word}`}
+                  tone="danger"
+                  onClick={() => setPendingDelete(item)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </IconAction>
+              </div>
             </div>
           ))
         )}
       </div>
 
-      <div className="p-4 rounded-2xl bg-beige/5 border border-beige/10 flex gap-4 items-start">
-        <Languages className="h-5 w-5 text-beige mt-1 shrink-0" />
-        <div className="space-y-1">
-          <p className="text-xs font-bold text-beige uppercase tracking-widest">Spain Sales Lingo Tip</p>
-          <p className="text-[11px] text-muted-foreground leading-relaxed italic">
-            Add common Spanglish terms like "El Budget", "Fee mensual", or "Deal de 50k" 
-            to ensure perfect CRM mapping even when reps mix languages.
-          </p>
-        </div>
-      </div>
+      <ConfirmAction
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title="Remove this term?"
+        description={
+          pendingDelete
+            ? `"${pendingDelete.target_word}" will no longer be used to correct transcripts.`
+            : ""
+        }
+        confirmLabel="Remove"
+        pending={isDeleting}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 };

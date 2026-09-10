@@ -13,6 +13,11 @@ from fastapi import HTTPException, status
 from supabase import Client
 
 from app.config import settings
+from app.services.billing.entitlement import (
+    ACCESS_MODES,
+    access_mode_of,
+    workspace_entitlements,
+)
 from app.emails.templates import (
     build_invite_email_html,
     build_password_changed_email_html,
@@ -62,18 +67,51 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def _missing_company_schema(exc: BaseException) -> bool:
+    """True when company tables have not been migrated yet."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        if code in ("PGRST205", "404"):
+            return True
+        msg = (exc.message or str(exc)).lower()
+        if any(t in msg for t in ("company_members", "company_invitations", "companies")):
+            if "could not find" in msg or "does not exist" in msg:
+                return True
+
+    msg = str(exc).lower()
+    return (
+        "pgrst205" in msg
+        or 'relation "company_members" does not exist' in msg
+        or ("404" in msg and "company_members" in msg)
+    )
+
+
 class CompanyService:
     def __init__(self, supabase: Client):
         self.supabase = supabase
 
     def get_membership(self, user_id: str) -> Optional[Membership]:
-        result = (
-            self.supabase.table("company_members")
-            .select("id, company_id, user_id, role, status")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
+        try:
+            result = (
+                self.supabase.table("company_members")
+                .select("id, company_id, user_id, role, status")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:
+            if _missing_company_schema(exc):
+                logger.warning(
+                    "Company schema unavailable (run migration 028_companies.sql): %s",
+                    exc,
+                )
+                return None
+            raise
         rows = result.data or []
         if not rows:
             return None
@@ -153,6 +191,7 @@ class CompanyService:
             "seats_pending": pending,
             "seats_used": active + pending,
             "seats_available": max(0, limit - active - pending),
+            "access_mode": access_mode_of(company),
         }
 
     def ensure_seat_available(self, company_id: str) -> None:
@@ -192,12 +231,34 @@ class CompanyService:
         ).execute()
         return company_id
 
+    def ensure_company_workspace(self, user_id: str, *, name: str) -> None:
+        """Create a solo workspace when tables exist but the user has no membership."""
+        try:
+            if self.get_membership(user_id):
+                return
+            self.create_company_for_owner(user_id=user_id, name=name, seat_limit=1)
+        except Exception as exc:
+            if _missing_company_schema(exc):
+                logger.warning(
+                    "Skipping company workspace setup until migration 028 is applied: %s",
+                    exc,
+                )
+                return
+            raise
+
+    def billing_for(self, company_id: str) -> dict:
+        from app.services.billing.store import get_billing
+
+        return get_billing(self.supabase, company_id) or {}
+
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
         membership = self.get_membership(user_id)
         if not membership or not membership.is_active:
             return None
         company = self.get_company(membership.company_id)
         usage = self.seat_usage(membership.company_id)
+        billing = self.billing_for(membership.company_id)
+        entitlements = workspace_entitlements(company, billing)
         return {
             "id": membership.company_id,
             "name": company.get("name"),
@@ -206,6 +267,11 @@ class CompanyService:
             "seats_used": usage["seats_used"],
             "seats_pending": usage["seats_pending"],
             "seats_active": usage["seats_active"],
+            "access_mode": entitlements["access_mode"],
+            "billing_status": entitlements["billing_status"],
+            "plan_type": entitlements["plan_type"],
+            "paywalled": entitlements["paywalled"],
+            "can_use_dialer": entitlements["can_use_dialer"],
         }
 
     def list_members(self, company_id: str) -> List[dict]:
@@ -304,7 +370,7 @@ class CompanyService:
         company_id: str,
         email: str,
         role: str,
-        invited_by: str,
+        invited_by: Optional[str] = None,
         send_email: bool = True,
     ) -> Tuple[dict, Optional[str], bool]:
         if role not in INVITE_ROLES:
@@ -450,7 +516,7 @@ class CompanyService:
         password: Optional[str],
         full_name: Optional[str],
         auth_client: Any,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, str]:
         invite = self.get_invite_by_token(raw_token)
         company_id = str(invite["company_id"])
         email = str(invite["email"])
@@ -492,7 +558,7 @@ class CompanyService:
         self.supabase.table("company_invitations").update(
             {"accepted_at": _iso(_now())}
         ).eq("id", invite["id"]).execute()
-        return user_id, company_id
+        return user_id, company_id, email
 
     def count_owners(self, company_id: str) -> int:
         result = (
@@ -609,6 +675,46 @@ class CompanyService:
             .execute()
         )
         return (result.data or [{}])[0]
+
+    def update_access_mode(self, company_id: str, access_mode: str) -> dict:
+        if access_mode not in ACCESS_MODES:
+            raise HTTPException(status_code=400, detail="access_mode must be open, paywalled, or unlocked")
+        result = (
+            self.supabase.table("companies")
+            .update({"access_mode": access_mode, "updated_at": _iso(_now())})
+            .eq("id", company_id)
+            .execute()
+        )
+        return (result.data or [{}])[0]
+
+    def admin_set_member_role(self, company_id: str, member_id: str, role: str) -> dict:
+        if role not in ("owner", "admin", "member"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        target = self._get_member_row(company_id, member_id)
+        if target["role"] == "owner" and role != "owner" and self.count_owners(company_id) <= 1:
+            raise HTTPException(status_code=409, detail="Cannot demote the last owner")
+        if role == "owner" and target["role"] != "owner":
+            self.supabase.table("company_members").update(
+                {"role": "admin", "updated_at": _iso(_now())}
+            ).eq("company_id", company_id).eq("role", "owner").execute()
+        result = (
+            self.supabase.table("company_members")
+            .update({"role": role, "updated_at": _iso(_now())})
+            .eq("id", member_id)
+            .eq("company_id", company_id)
+            .execute()
+        )
+        return (result.data or [target])[0]
+
+    def admin_remove_member(self, company_id: str, member_id: str) -> dict:
+        target = self._get_member_row(company_id, member_id)
+        if target["role"] == "owner" and self.count_owners(company_id) <= 1:
+            raise HTTPException(status_code=409, detail="Cannot remove the last owner")
+        self.supabase.table("company_members").delete().eq("id", member_id).execute()
+        self.supabase.table("user_profiles").update({"company_id": None}).eq(
+            "id", target["user_id"]
+        ).execute()
+        return target
 
     def transfer_member(
         self,

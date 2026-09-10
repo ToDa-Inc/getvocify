@@ -1306,6 +1306,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         limit: message.limit || 20,
         contactId: message.contactId || undefined,
         dealId: message.dealId || undefined,
+        scope: message.scope || undefined,
+        authorUserId: message.authorUserId || undefined,
       })
         .then(sendResponse)
         .catch((e) => sendResponse({ error: e.message }));
@@ -1375,6 +1377,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.dealId) params.set('hubspot_deal_id', String(message.dealId));
       else if (message.contactId) params.set('hubspot_contact_id', String(message.contactId));
       params.set('limit', '5');
+      if (message.scope) params.set('scope', String(message.scope));
+      if (message.authorUserId) params.set('author_user_id', String(message.authorUserId));
       api.get(`/memos?${params.toString()}`)
         .then((results) => sendResponse(memoListFromResponse(results)))
         .catch((e) => {

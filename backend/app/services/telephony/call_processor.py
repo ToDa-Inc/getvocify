@@ -207,9 +207,16 @@ async def process_vocify_call_background(
             record_transcription_duration(time.perf_counter() - t0, "vocify_call")
 
             screening_outcome = classify_call_outcome(cleaned, duration)
-            supabase.table("outbound_calls").update(
-                {"call_disposition": screening_outcome}
-            ).eq("carrier_call_id", call_sid).execute()
+            try:
+                supabase.table("outbound_calls").update(
+                    {"call_disposition": screening_outcome}
+                ).eq("carrier_call_id", call_sid).execute()
+            except Exception:
+                logger.warning(
+                    "Could not persist call_disposition for %s",
+                    call_sid,
+                    exc_info=True,
+                )
 
             from app.api.memos import start_extraction_from_transcript
 
@@ -323,6 +330,27 @@ async def finalize_screened_out_memo(
     ).eq("carrier_call_id", call_sid).execute()
 
 
+def _company_hubspot_connection(supabase: Client, user_id: str) -> Optional[dict]:
+    from app.services.company_scope import get_crm_connection
+
+    return get_crm_connection(supabase, user_id, "hubspot")
+
+
+async def _hubspot_owner_id_for_caller(
+    supabase: Client,
+    user_id: str,
+    client: Any,
+    connection: Optional[dict],
+) -> Optional[str]:
+    if not connection:
+        return None
+    from app.services.hubspot.sync import _get_hubspot_owner_id_for_user
+
+    return await _get_hubspot_owner_id_for_user(
+        client, supabase, user_id, connection["id"]
+    )
+
+
 async def log_missed_call_activity(
     supabase: Client,
     call_sid: str,
@@ -368,15 +396,7 @@ async def log_missed_call_activity(
         if not row.get("hubspot_contact_id"):
             return
 
-        conn = (
-            supabase.table("crm_connections")
-            .select("metadata")
-            .eq("user_id", row["user_id"])
-            .eq("provider", "hubspot")
-            .limit(1)
-            .execute()
-        )
-        conn_row = (conn.data or [None])[0]
+        conn_row = _company_hubspot_connection(supabase, row["user_id"])
         metadata = (conn_row or {}).get("metadata") or {}
         portal_id = metadata.get("portal_id")
         if not portal_id:
@@ -392,6 +412,9 @@ async def log_missed_call_activity(
         ).eq("carrier_call_id", call_sid).execute()
 
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
+        owner_id = await _hubspot_owner_id_for_caller(
+            supabase, row["user_id"], client, conn_row
+        )
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)
             .isoformat()
@@ -402,7 +425,7 @@ async def log_missed_call_activity(
             external_id=call_sid,
             external_account_id=hubspot_hub_id,
             app_id=str(settings.HUBSPOT_APP_ID or ""),
-            owner_id=None,
+            owner_id=owner_id,
             title="Llamada Vocify",
             body=hubspot_call_body_for_disposition(disposition),
             call_status=hubspot_call_status_for_disposition(disposition),
@@ -417,9 +440,18 @@ async def log_missed_call_activity(
             {
                 "hubspot_engagement_id": engagement_id,
                 "status": "logged",
-                "call_disposition": disposition,
             }
         ).eq("carrier_call_id", call_sid).execute()
+        try:
+            supabase.table("outbound_calls").update(
+                {"call_disposition": disposition}
+            ).eq("carrier_call_id", call_sid).execute()
+        except Exception:
+            logger.warning(
+                "Could not persist call_disposition for %s",
+                call_sid,
+                exc_info=True,
+            )
     except Exception as e:
         logger.warning(
             "HubSpot missed-call logging failed for %s: %s", call_sid, e
@@ -467,15 +499,7 @@ async def log_call_engagement(
         if not row.get("hubspot_contact_id"):
             return
 
-        conn = (
-            supabase.table("crm_connections")
-            .select("metadata")
-            .eq("user_id", row["user_id"])
-            .eq("provider", "hubspot")
-            .limit(1)
-            .execute()
-        )
-        conn_row = (conn.data or [None])[0]
+        conn_row = _company_hubspot_connection(supabase, row["user_id"])
         metadata = (conn_row or {}).get("metadata") or {}
         portal_id = metadata.get("portal_id")
         if not portal_id:
@@ -491,6 +515,9 @@ async def log_call_engagement(
         ).eq("carrier_call_id", call_sid).execute()
 
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
+        owner_id = await _hubspot_owner_id_for_caller(
+            supabase, row["user_id"], client, conn_row
+        )
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)
             .isoformat()
@@ -501,7 +528,7 @@ async def log_call_engagement(
             external_id=call_sid,
             external_account_id=hubspot_hub_id,
             app_id=str(settings.HUBSPOT_APP_ID or ""),
-            owner_id=None,
+            owner_id=owner_id,
             title="Llamada Vocify",
             body=hubspot_call_body_for_disposition(screening_outcome),
             call_status=hubspot_call_status_for_disposition(screening_outcome),
@@ -517,9 +544,18 @@ async def log_call_engagement(
             {
                 "hubspot_engagement_id": engagement_id,
                 "status": "logged",
-                "call_disposition": screening_outcome,
             }
         ).eq("carrier_call_id", call_sid).execute()
+        try:
+            supabase.table("outbound_calls").update(
+                {"call_disposition": screening_outcome}
+            ).eq("carrier_call_id", call_sid).execute()
+        except Exception:
+            logger.warning(
+                "Could not persist call_disposition for %s",
+                call_sid,
+                exc_info=True,
+            )
     except Exception as e:
         logger.warning("HubSpot call logging failed for %s: %s", call_sid, e)
     finally:

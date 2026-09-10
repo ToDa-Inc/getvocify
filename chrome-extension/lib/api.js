@@ -314,6 +314,8 @@ export const api = {
     if (params.limit) q.set('limit', String(params.limit));
     if (params.contactId) q.set('contactId', params.contactId);
     if (params.dealId) q.set('dealId', params.dealId);
+    if (params.scope) q.set('scope', params.scope);
+    if (params.authorUserId) q.set('author_user_id', params.authorUserId);
     const suffix = q.toString() ? `?${q}` : '';
     return request(`/calls/history${suffix}`);
   },

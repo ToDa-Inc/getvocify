@@ -66,6 +66,11 @@ class CompanySummary(BaseModel):
     seat_limit: int
     seats_used: int
     seats_pending: int
+    access_mode: str = "open"
+    billing_status: str = "none"
+    plan_type: Optional[str] = None
+    paywalled: bool = False
+    can_use_dialer: bool = True
 
 
 class UserResponse(BaseModel):
@@ -110,6 +115,11 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
             seat_limit=company_summary["seat_limit"],
             seats_used=company_summary["seats_used"],
             seats_pending=company_summary["seats_pending"],
+            access_mode=company_summary.get("access_mode") or "open",
+            billing_status=company_summary.get("billing_status") or "none",
+            plan_type=company_summary.get("plan_type"),
+            paywalled=bool(company_summary.get("paywalled")),
+            can_use_dialer=bool(company_summary.get("can_use_dialer", True)),
         )
         company_row = company_svc.get_company(company_summary["id"])
         product_context = company_row.get("product_context") or ""
@@ -125,7 +135,7 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
         auto_create_contact_company=auto_create,
         product_context=product_context,
         stt_languages=normalize_stt_languages(profile.get("stt_languages")),
-        created_at=profile.get("created_at", ""),
+        created_at=profile.get("created_at") or "",
         company=company_payload,
     )
 
@@ -197,10 +207,9 @@ async def signup(
         profile = profile_result.data[0]
 
         company_name = (body.company_name or "").strip() or f"{body.full_name}'s workspace"
-        CompanyService(supabase).create_company_for_owner(
+        CompanyService(supabase).ensure_company_workspace(
             user_id=user_id,
             name=company_name,
-            seat_limit=1,
         )
         # Refresh profile after company link
         profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).single().execute()
@@ -282,11 +291,12 @@ async def login(
             profile = profile_data_list[0]
 
         # Ensure legacy users without a company get one on login
-        if not CompanyService(supabase).get_membership(user_id):
-            name = (profile.get("company_name") or "").strip() or "My workspace"
-            CompanyService(supabase).create_company_for_owner(user_id=user_id, name=name, seat_limit=1)
-            profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()
-            profile = (profile_result.data or [profile])[0]
+        CompanyService(supabase).ensure_company_workspace(
+            user_id=user_id,
+            name=(profile.get("company_name") or "").strip() or "My workspace",
+        )
+        profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()
+        profile = (profile_result.data or [profile])[0]
         
         return AuthResponse(
             user=_user_response(user_id, auth_response.user.email or "", profile, supabase),
@@ -348,7 +358,16 @@ async def get_current_user(
         profile = profile_result.data
         # Token already authenticated by get_user_id; decode claims for email only.
         email = _email_from_access_token(_bearer_token_from_request(request)) or ""
-        
+
+        CompanyService(supabase).ensure_company_workspace(
+            user_id=user_id,
+            name=(profile.get("company_name") or "").strip() or "My workspace",
+        )
+        profile_result = supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()
+        profile_rows = profile_result.data or []
+        if profile_rows:
+            profile = profile_rows[0]
+
         return _user_response(user_id, email, profile, supabase)
         
     except Exception as e:

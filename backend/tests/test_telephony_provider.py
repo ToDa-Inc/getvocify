@@ -24,6 +24,7 @@ def test_telnyx_needs_key_connection_and_public_key():
         settings.TELNYX_API_KEY = "KEY"
         settings.TELNYX_PUBLIC_KEY = "pub"
         settings.TELNYX_CONNECTION_ID = "conn"
+        settings.TELNYX_CALL_CONTROL_APP_ID = "app"
         assert telephony_configured() is True
         settings.TELNYX_PUBLIC_KEY = None
         assert telephony_configured() is False

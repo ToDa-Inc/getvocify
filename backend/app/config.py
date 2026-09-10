@@ -188,7 +188,13 @@ class Settings(BaseSettings):
     TELNYX_API_KEY: Optional[str] = None
     TELNYX_PUBLIC_KEY: Optional[str] = None
     TELNYX_CONNECTION_ID: Optional[str] = None
+    TELNYX_CALL_CONTROL_APP_ID: Optional[str] = None
     TELNYX_OUTBOUND_VOICE_PROFILE_ID: Optional[str] = None
+    # Public WAV Telnyx fetches for parked-leg ringback. Defaults to
+    # `{BACKEND_PUBLIC_URL}/static/call-ringback.wav`.
+    TELNYX_RINGBACK_URL: Optional[str] = None
+    # Hang parked ringback if PSTN never bridges. 0 disables (tests).
+    TELNYX_RING_WATCHDOG_SECS: int = 35
 
     # Unipile (optional - for WhatsApp via Unipile instead of Meta)
     UNIPILE_API_KEY: Optional[str] = None
@@ -209,6 +215,15 @@ class Settings(BaseSettings):
 
     # Internal admin console. Unset = admin routes return 503; app still boots.
     MASTER_KEY: Optional[str] = None
+
+    # Stripe workspace billing (optional — app boots without it; checkout returns 503).
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_PRICE_STARTER_MONTHLY: Optional[str] = None
+    STRIPE_PRICE_PRO_MONTHLY: Optional[str] = None
+    STRIPE_PRICE_STARTER_YEARLY: Optional[str] = None
+    STRIPE_PRICE_PRO_YEARLY: Optional[str] = None
     
     @field_validator('SUPABASE_URL')
     @classmethod

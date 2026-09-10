@@ -681,7 +681,7 @@ async def _apply_deal_mirror(
             action_type=ACTION_TYPE,
             resource_type="deal",
         ) as tracked:
-            await deals.update(ctx.deal_id, deal_props, hubspot_owner_id=ctx.hubspot_owner_id)
+            await deals.update(ctx.deal_id, deal_props)
             tracked.data = {
                 "deal_id": ctx.deal_id,
                 "call_outcome": ctx.call_outcome,

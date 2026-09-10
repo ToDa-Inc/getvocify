@@ -3,7 +3,9 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Play, Pause, Check, ExternalLink, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { authorChipLabel } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
@@ -11,6 +13,7 @@ import { shouldPollMemo } from "@/lib/memo-poll";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { clearCachedPreview } from "@/lib/preview-cache";
 import { api } from "@/shared/lib/api-client";
+import { useAuth } from "@/features/auth";
 import { memosApi } from "@/features/memos/api";
 
 /** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
@@ -34,6 +37,7 @@ function labelsFromDealUrl(dealUrl: string | undefined | null): {
 }
 
 const MemoDetail = () => {
+  const { user } = useAuth();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const dealIdFromUrl = searchParams.get("deal_id");
@@ -189,6 +193,7 @@ const MemoDetail = () => {
 
   useEffect(() => {
     if (!id || !memo || memo.status !== "pending_transcript" || isConfirmingTranscript) return;
+    if (memo.userId && user?.id && memo.userId !== user.id) return;
     if (!memo.transcript?.trim()) return;
     void handleConfirmTranscript();
   }, [id, memo?.status, memo?.transcript, isConfirmingTranscript]);
@@ -216,6 +221,8 @@ const MemoDetail = () => {
     );
   }
 
+  const isOwnMemo = !memo.userId || memo.userId === user?.id;
+  const authorName = authorChipLabel(memo.authorName, memo.userId, user?.id);
   const isProcessing = ["uploading", "transcribing", "extracting", "pending_transcript"].includes(memo.status);
   const extractionFailed = memo.status === "failed";
   const hasExtraction = !isProcessing && !extractionFailed && !!memo.extraction;
@@ -223,10 +230,15 @@ const MemoDetail = () => {
   const isHubSpotCall =
     memo.source === "hubspot_call" || Boolean(memo.hubspotEngagementId);
   const canReTranscribe =
+    isOwnMemo &&
     isHubSpotCall &&
     memo.status !== "approved" &&
     !isProcessing;
   const previewRefreshKey = `${memo.status}:${memo.processedAt || ""}:${memo.transcript?.length || 0}`;
+
+  const loggedAs = user?.fullName || user?.email || "you";
+  const attachedContact = reviewContactName || extraction.contactName || extraction.contact_name;
+  const attachedDeal = syncResult?.deal_name || extraction.companyName || extraction.company_name;
 
   if (syncResult) {
     const { crmName, viewInCrm } = labelsFromDealUrl(syncResult.deal_url);
@@ -247,11 +259,20 @@ const MemoDetail = () => {
             </div>
             <h2 className="text-3xl font-normal tracking-tight text-foreground mb-4">Sync Successful</h2>
             <p className="text-muted-foreground mb-10 leading-relaxed mx-auto max-w-sm">
-              Updated{" "}
-              {crmName === "Salesforce" ? "opportunity" : "deal"}{" "}
-              <span className="text-foreground">{syncResult.deal_name || extraction.companyName || "Unknown"}</span>{" "}
-              in {crmName}
-              {crmName === "HubSpot" ? ". All tasks and associations have been processed." : "."}
+              Synced{" "}
+              {attachedContact ? (
+                <span className="text-foreground">{attachedContact}</span>
+              ) : (
+                "this call"
+              )}
+              {attachedDeal ? (
+                <>
+                  {" "}on{" "}
+                  <span className="text-foreground">{attachedDeal}</span>
+                </>
+              ) : null}{" "}
+              to {crmName}.
+              {crmName === "HubSpot" ? ` Logged as ${loggedAs}.` : ""}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               {syncResult.deal_url ? (
@@ -291,16 +312,25 @@ const MemoDetail = () => {
             <span className={THEME_TOKENS.typography.accentTitle}> Details</span>
           )}
         </h1>
+        {!isOwnMemo && authorName ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <AuthorLabel name={authorName} />
+          </div>
+        ) : null}
         <p className={THEME_TOKENS.typography.body}>
           {isProcessing
             ? "AI is extracting CRM fields..."
             : extractionFailed
               ? "Extraction failed. Re-extract to continue."
-              : "Review and sync to CRM."}
+              : !isOwnMemo
+                ? `Recorded by ${memo.authorName || "a teammate"}. Review only.`
+              : attachedContact
+                ? `Attached to ${attachedContact}${attachedDeal ? ` · ${attachedDeal}` : ""}. Review and sync to CRM.`
+                : "Review and sync to CRM."}
         </p>
       </div>
 
-      {extractionFailed && (
+      {extractionFailed && isOwnMemo && (
         <div className="mb-8 p-6 rounded-[2rem] border-2 border-destructive/30 bg-destructive/5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex items-start gap-4 flex-1">
             <div className="w-12 h-12 rounded-2xl bg-destructive/10 flex items-center justify-center shrink-0">
@@ -425,7 +455,7 @@ const MemoDetail = () => {
         </div>
 
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
-        {hasExtraction && (
+        {hasExtraction && isOwnMemo && (
           <div className="lg:col-span-3 min-w-0">
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
@@ -444,6 +474,16 @@ const MemoDetail = () => {
         )}
 
         {/* Full-width extracting spinner when no extraction yet */}
+        {hasExtraction && !isOwnMemo && (
+          <div className="lg:col-span-3 min-w-0">
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8`}>
+              <p className={THEME_TOKENS.typography.body}>
+                This call belongs to {memo.authorName || "a teammate"}. You can read the transcript; only they can sync it.
+              </p>
+            </div>
+          </div>
+        )}
+
         {isProcessing && memo?.transcript && !hasExtraction && (
           <div className="col-span-full flex flex-col items-center justify-center py-16 border border-dashed border-border/40 rounded-[2rem] bg-secondary/[0.02]">
             <VocifyLoader size="lg" label="AI is analyzing your sales conversation" />

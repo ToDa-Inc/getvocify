@@ -148,6 +148,10 @@ export interface Memo {
   id: ID;
   /** Owner user ID */
   userId: ID;
+  /** Display name of the teammate who recorded this memo */
+  authorName?: Nullable<string>;
+  /** Email of the teammate who recorded this memo */
+  authorEmail?: Nullable<string>;
   /** Current status in the pipeline */
   status: MemoStatus;
 
@@ -234,6 +238,10 @@ export interface MemoFilters {
   limit?: number;
   /** Number of items to skip */
   offset?: number;
+  /** me (default) or company — company is owner/admin only */
+  scope?: 'me' | 'company';
+  /** When scope is company, limit to this teammate */
+  authorUserId?: string;
 }
 
 /**

@@ -1,18 +1,15 @@
 import { useState } from "react";
-import { Outlet, Link, useLocation } from "react-router-dom";
+import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
 import {
   Home,
   Mic,
-  Link2,
-  BarChart3,
   Settings,
   Menu,
   X,
   Headphones,
   Phone,
-  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
@@ -22,16 +19,16 @@ import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
 import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
+import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
   { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
-  { icon: Link2, label: "Integrations", path: "/dashboard/integrations" },
-  { icon: Users, label: "Team", path: "/dashboard/team" },
-  { icon: BarChart3, label: "Usage", path: "/dashboard/usage" },
   { icon: Settings, label: "Settings", path: "/dashboard/settings" },
 ];
+
+const BILLING_PATH = "/dashboard/settings/billing";
 
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -42,6 +39,13 @@ const DashboardLayout = () => {
   const impersonating = !!getImpersonation();
   const dialerLive = isInCall(callState);
   const dialerActive = dialerOpen || dialerLive;
+  const canManageBilling = user?.company?.role === "owner" || user?.company?.role === "admin";
+  const paywalled = companyIsPaywalled(user?.company);
+  const showDialer = !paywalled && companyCanUseDialer(user?.company);
+
+  if (paywalled && location.pathname !== BILLING_PATH) {
+    return <Navigate to={BILLING_PATH} replace />;
+  }
 
   const isActive = (path: string) => {
     if (path === "/dashboard") {
@@ -51,7 +55,7 @@ const DashboardLayout = () => {
   };
 
   return (
-    <div className="dashboard-shell min-h-screen bg-background flex w-full">
+    <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-foreground/20 z-40 lg:hidden"
@@ -82,72 +86,82 @@ const DashboardLayout = () => {
         </div>
 
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => (
+          {!paywalled && navItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}
               onClick={() => setSidebarOpen(false)}
               className={`
-                flex items-center gap-3 px-3 py-2 rounded-lg text-[13.5px]
-                transition-colors duration-150
+                flex items-center gap-3 px-3 py-2 text-[13.5px]
+                ${THEME_TOKENS.radius.pill} transition-colors duration-150
                 ${isActive(item.path)
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground"}
+                  ? THEME_TOKENS.interaction.navPillActive
+                  : THEME_TOKENS.interaction.navPillIdle}
               `}
             >
-              <item.icon className="h-4 w-4 opacity-70" />
+              <item.icon className={`h-4 w-4 ${isActive(item.path) ? "opacity-100" : "opacity-70"}`} />
               <span className="flex-1">{item.label}</span>
               {"beta" in item && item.beta && (
                 <span className="text-[10px] font-medium text-beige">Beta</span>
               )}
             </Link>
           ))}
-          <button
-            type="button"
-            aria-label="Abrir dialer"
-            aria-expanded={dialerOpen}
-            onClick={() => {
-              setDialerOpen((current) => !current);
-              setSidebarOpen(false);
-            }}
-            className={`
-              flex w-full items-center gap-3 px-3 py-2 rounded-lg text-[13.5px]
-              transition-colors duration-150
-              ${dialerActive
-                ? "text-foreground font-medium"
-                : "text-muted-foreground hover:text-foreground"}
-            `}
-          >
-            <Phone className="h-4 w-4 opacity-70" />
-            <span className="flex-1 text-left">Call</span>
-            {dialerLive ? (
-              <span className="h-1.5 w-1.5 rounded-full bg-beige" />
-            ) : null}
-          </button>
+          {showDialer && (
+            <button
+              type="button"
+              aria-label="Abrir dialer"
+              aria-expanded={dialerOpen}
+              onClick={() => {
+                setDialerOpen((current) => !current);
+                setSidebarOpen(false);
+              }}
+              className={`
+                flex w-full items-center gap-3 px-3 py-2 text-[13.5px]
+                ${THEME_TOKENS.radius.pill} transition-colors duration-150
+                ${dialerActive
+                  ? THEME_TOKENS.interaction.navPillActive
+                  : THEME_TOKENS.interaction.navPillIdle}
+              `}
+            >
+              <Phone className={`h-4 w-4 ${dialerActive ? "opacity-100" : "opacity-70"}`} />
+              <span className="flex-1 text-left">Call</span>
+              {dialerLive ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-beige" />
+              ) : null}
+            </button>
+          )}
         </nav>
 
         <div className="p-4 mt-auto shrink-0">
           <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
-            <p className="text-sm font-normal text-foreground mb-1">Scale with us</p>
+            <p className="text-sm font-normal text-foreground mb-1">
+              {canManageBilling ? "Plans" : "Scale with us"}
+            </p>
             <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              Unlimited memos and multi-CRM sync.
+              {canManageBilling
+                ? "Starter captures the call. Pro puts you on the line."
+                : "Unlimited memos and multi-CRM sync."}
             </p>
             <Button
               asChild
               size="sm"
               className="w-full bg-beige text-cream hover:bg-beige-dark"
             >
-              <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
-                Book a demo
-              </a>
+              {canManageBilling ? (
+                <Link to={BILLING_PATH}>{paywalled ? "Choose a plan" : "Manage billing"}</Link>
+              ) : (
+                <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
+                  Book a demo
+                </a>
+              )}
             </Button>
           </div>
         </div>
       </aside>
 
-      <div className="lg:pl-60 min-h-screen flex flex-col min-w-0 w-full">
+      <div className="lg:pl-60 flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
         <ImpersonationBanner />
-        <header className="h-14 sticky top-0 z-30 px-6 flex items-center justify-between glass-panel border-b border-white/40 backdrop-blur-md">
+        <header className="h-14 shrink-0 z-30 px-6 flex items-center justify-between bg-background border-b border-border">
           <Button
             variant="ghost"
             size="icon"
@@ -184,16 +198,18 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto p-6 md:p-8">
+        <main className="flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
           <Outlet />
         </main>
       </div>
 
-      <FloatingDialer
-        open={dialerOpen}
-        onOpenChange={setDialerOpen}
-        onCallStateChange={setCallState}
-      />
+      {showDialer ? (
+        <FloatingDialer
+          open={dialerOpen}
+          onOpenChange={setDialerOpen}
+          onCallStateChange={setCallState}
+        />
+      ) : null}
     </div>
   );
 };

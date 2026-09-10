@@ -10,6 +10,7 @@ from pydantic import BaseModel, EmailStr, Field
 from supabase import Client
 
 from app.deps import get_supabase, get_supabase_auth, get_user_id
+from app.services.billing.entitlement import workspace_entitlements
 from app.services.company import CompanyService, INVITE_ROLES
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,12 @@ class CompanyResponse(BaseModel):
     seats_active: int
     seats_available: int
     role: str
+    access_mode: str = "open"
+    billing_status: str = "none"
+    plan_type: Optional[str] = None
+    billing_interval: Optional[str] = None
+    paywalled: bool = False
+    can_use_dialer: bool = True
 
 
 class UpdateCompanyRequest(BaseModel):
@@ -82,6 +89,9 @@ class AcceptInviteRequest(BaseModel):
 class AcceptInviteResponse(BaseModel):
     success: bool
     message: str
+    user: Optional[dict] = None
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
 
 
 @router.get("", response_model=CompanyResponse)
@@ -93,6 +103,8 @@ async def get_company(
     membership = svc.require_membership(user_id)
     company = svc.get_company(membership.company_id)
     usage = svc.seat_usage(membership.company_id)
+    billing = svc.billing_for(membership.company_id)
+    entitlements = workspace_entitlements(company, billing)
     return CompanyResponse(
         id=membership.company_id,
         name=company.get("name") or "",
@@ -102,6 +114,12 @@ async def get_company(
         seats_active=usage["seats_active"],
         seats_available=usage["seats_available"],
         role=membership.role,
+        access_mode=entitlements["access_mode"],
+        billing_status=entitlements["billing_status"],
+        plan_type=entitlements["plan_type"],
+        billing_interval=billing.get("billing_interval"),
+        paywalled=entitlements["paywalled"],
+        can_use_dialer=entitlements["can_use_dialer"],
     )
 
 
@@ -255,11 +273,26 @@ async def accept_invite(
     supabase: Client = Depends(get_supabase),
     auth_client: Client = Depends(get_supabase_auth),
 ):
+    from app.api.auth import _user_response
+    from app.services.admin_session import mint_session_for_email
+
     svc = CompanyService(supabase)
-    svc.accept_invite(
+    user_id, _company_id, email = svc.accept_invite(
         raw_token=body.token,
         password=body.password,
         full_name=body.full_name,
         auth_client=auth_client,
     )
-    return AcceptInviteResponse(success=True, message="Invitation accepted. You can now log in.")
+    minted = mint_session_for_email(email)
+    profile_result = (
+        supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()
+    )
+    profile = (profile_result.data or [{}])[0]
+    user = _user_response(user_id, email, profile, supabase)
+    return AcceptInviteResponse(
+        success=True,
+        message="Invitation accepted",
+        user=user.model_dump(),
+        access_token=minted.access_token,
+        refresh_token=minted.refresh_token,
+    )

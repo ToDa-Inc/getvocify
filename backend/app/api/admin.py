@@ -4,7 +4,7 @@ Internal admin API — master-key gated account console.
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -150,7 +150,7 @@ async def list_accounts(
     count_query = supabase.table("user_profiles").select("id", count="exact")
     list_query = (
         supabase.table("user_profiles")
-        .select("id,full_name,company_name,phone,created_at")
+        .select("id,full_name,company_name,phone,created_at,company_id")
         .order("created_at", desc=True)
     )
     if search_ids is not None:
@@ -183,7 +183,29 @@ async def list_accounts(
         )
         memos = memo_result.data or []
 
-    accounts = assemble_account_list_items(profiles, auth_users, connections, memos)
+    companies_by_id: Dict[str, dict] = {}
+    company_ids = [str(p["company_id"]) for p in profiles if p.get("company_id")]
+    if company_ids:
+        unique_ids = list(dict.fromkeys(company_ids))
+        company_rows = (
+            supabase.table("companies")
+            .select("id,name,seat_limit")
+            .in_("id", unique_ids)
+            .execute()
+            .data
+            or []
+        )
+        svc = CompanyService(supabase)
+        for row in company_rows:
+            cid = str(row["id"])
+            usage = svc.seat_usage(cid)
+            companies_by_id[cid] = {
+                "name": row.get("name"),
+                "seat_limit": usage["seat_limit"],
+                "seats_used": usage["seats_used"],
+            }
+
+    accounts = assemble_account_list_items(profiles, auth_users, connections, memos, companies_by_id)
     return {"accounts": accounts, "total": total, "skip": skip, "limit": limit}
 
 
@@ -316,11 +338,48 @@ class AdminCreateCompanyRequest(BaseModel):
 class AdminUpdateCompanyRequest(BaseModel):
     name: Optional[str] = None
     seat_limit: Optional[int] = Field(default=None, ge=1)
+    access_mode: Optional[Literal["open", "paywalled", "unlocked"]] = None
+
+
+class AdminInviteRequest(BaseModel):
+    email: EmailStr
+    role: str = Field(default="member")
+
+
+class AdminUpdateMemberRequest(BaseModel):
+    role: str
 
 
 class AdminTransferMemberRequest(BaseModel):
     to_company_id: UUID
     role: str = "member"
+
+
+def _company_admin_payload(svc: CompanyService, cid: str) -> dict:
+    company = svc.get_company(cid)
+    usage = svc.seat_usage(cid)
+    billing = svc.billing_for(cid)
+    return {
+        "company": {
+            "id": cid,
+            "name": company.get("name"),
+            "seat_limit": usage["seat_limit"],
+            "seats_used": usage["seats_used"],
+            "seats_pending": usage["seats_pending"],
+            "seats_available": usage["seats_available"],
+            "access_mode": company.get("access_mode") or "open",
+            "billing_status": billing.get("billing_status") or "none",
+            "billing_interval": billing.get("billing_interval"),
+            "current_period_end": billing.get("current_period_end"),
+            "cancel_at_period_end": bool(billing.get("cancel_at_period_end")),
+            "glossary_count": len(company.get("glossary") or []),
+            "product_context_preview": (company.get("product_context") or "")[:200],
+            "auto_create_contact_company": company.get("auto_create_contact_company"),
+            "created_at": company.get("created_at"),
+        },
+        "members": svc.list_members(cid),
+        "pending_invites": svc.list_pending_invites(cid),
+    }
 
 
 @router.get("/companies")
@@ -352,6 +411,7 @@ async def list_companies(
     for c in companies:
         cid = str(c["id"])
         usage = svc.seat_usage(cid)
+        billing = svc.billing_for(cid)
         members = svc.count_active_members(cid)
         conn = (
             supabase.table("crm_connections")
@@ -365,6 +425,8 @@ async def list_companies(
                 "name": c.get("name"),
                 "seat_limit": usage["seat_limit"],
                 "seats_used": usage["seats_used"],
+                "access_mode": usage.get("access_mode") or "open",
+                "billing_status": billing.get("billing_status") or "none",
                 "member_count": members,
                 "crm": conn.data or [],
                 "created_at": c.get("created_at"),
@@ -381,29 +443,12 @@ async def get_company_admin(
 ):
     cid = str(company_id)
     svc = CompanyService(supabase)
-    company = svc.get_company(cid)
-    usage = svc.seat_usage(cid)
-    members = svc.list_members(cid)
-    invites = svc.list_pending_invites(cid)
+    payload = _company_admin_payload(svc, cid)
     connections = (
         supabase.table("crm_connections").select("*").eq("company_id", cid).execute().data or []
     )
-    return {
-        "company": {
-            "id": cid,
-            "name": company.get("name"),
-            "seat_limit": usage["seat_limit"],
-            "seats_used": usage["seats_used"],
-            "seats_pending": usage["seats_pending"],
-            "glossary_count": len(company.get("glossary") or []),
-            "product_context_preview": (company.get("product_context") or "")[:200],
-            "auto_create_contact_company": company.get("auto_create_contact_company"),
-            "created_at": company.get("created_at"),
-        },
-        "members": members,
-        "pending_invites": invites,
-        "crm_connections": connections,
-    }
+    payload["crm_connections"] = connections
+    return payload
 
 
 @router.patch("/companies/{company_id}")
@@ -419,8 +464,10 @@ async def update_company_admin(
         svc.update_company_name(cid, body.name)
     if body.seat_limit is not None:
         svc.update_seat_limit(cid, body.seat_limit)
+    if body.access_mode is not None:
+        svc.update_access_mode(cid, body.access_mode)
     _write_audit(supabase, "update_company", metadata={"company_id": cid, **body.model_dump(exclude_none=True)})
-    return {"success": True}
+    return {"success": True, **_company_admin_payload(svc, cid)}
 
 
 @router.post("/companies")
@@ -483,6 +530,101 @@ async def add_member_to_company_admin(
         "add_company_member",
         target_user_id=uid,
         metadata={"company_id": cid, "role": body.role},
+    )
+    return {"success": True}
+
+
+@router.post("/companies/{company_id}/invites")
+async def invite_to_company_admin(
+    company_id: UUID,
+    body: AdminInviteRequest,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    cid = str(company_id)
+    svc = CompanyService(supabase)
+    invite, invite_url, email_sent = await svc.create_invite(
+        company_id=cid,
+        email=body.email,
+        role=body.role,
+        send_email=True,
+    )
+    _write_audit(
+        supabase,
+        "admin_invite",
+        metadata={"company_id": cid, "email": str(body.email), "role": body.role},
+    )
+    return {
+        "success": True,
+        "email_sent": email_sent,
+        "invite_url": invite_url,
+        "invite": {
+            "id": str(invite["id"]),
+            "email": str(invite["email"]),
+            "role": invite["role"],
+            "expires_at": invite["expires_at"],
+        },
+    }
+
+
+@router.patch("/companies/{company_id}/members/{member_id}")
+async def update_company_member_admin(
+    company_id: UUID,
+    member_id: UUID,
+    body: AdminUpdateMemberRequest,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    cid = str(company_id)
+    svc = CompanyService(supabase)
+    updated = svc.admin_set_member_role(cid, str(member_id), body.role)
+    _write_audit(
+        supabase,
+        "admin_update_member_role",
+        metadata={"company_id": cid, "member_id": str(member_id), "role": body.role},
+    )
+    return {"success": True, "role": updated.get("role")}
+
+
+@router.delete("/companies/{company_id}/members/{member_id}")
+async def remove_company_member_admin(
+    company_id: UUID,
+    member_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    cid = str(company_id)
+    svc = CompanyService(supabase)
+    target = svc.admin_remove_member(cid, str(member_id))
+    emails = svc._auth_emails_by_ids([str(target["user_id"])])
+    company = svc.get_company(cid)
+    await svc.notify_removed(
+        emails.get(str(target["user_id"]), ""),
+        company.get("name") or "Vocify",
+    )
+    _write_audit(
+        supabase,
+        "admin_remove_member",
+        target_user_id=str(target["user_id"]),
+        metadata={"company_id": cid, "member_id": str(member_id)},
+    )
+    return {"success": True}
+
+
+@router.delete("/companies/{company_id}/invites/{invite_id}")
+async def revoke_company_invite_admin(
+    company_id: UUID,
+    invite_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    cid = str(company_id)
+    svc = CompanyService(supabase)
+    svc.revoke_invite(str(invite_id), cid)
+    _write_audit(
+        supabase,
+        "admin_revoke_invite",
+        metadata={"company_id": cid, "invite_id": str(invite_id)},
     )
     return {"success": True}
 

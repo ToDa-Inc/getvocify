@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Phone } from "lucide-react";
+import { Phone } from "lucide-react";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Button } from "@/components/ui/button";
+import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { memoKeys } from "@/features/memos/api";
 import { recordingKeys, recordingsApi } from "@/features/recordings/api";
 import type { CrmCallRecording, RecordingStatusPill } from "@/features/recordings/types";
+import { authorChipLabel } from "@/lib/activity-authors";
 import { callDurationSeconds, formatCallDuration } from "@/lib/call-duration";
 import { formatRecordedAt } from "@/lib/memo-dates";
 import {
@@ -38,15 +41,24 @@ function RecordingRow({
   recording,
   onAction,
   busyCallId,
+  currentUserId,
+  showAuthors = false,
 }: {
   recording: CrmCallRecording;
   onAction: (recording: CrmCallRecording) => void;
   busyCallId: string | null;
+  currentUserId?: string | null;
+  showAuthors?: boolean;
 }) {
   const action = getRecordingAction(recording);
   const pill = getMemoStatusPill(recording);
   const dateStr = formatRecordedAt(recordingTimestamp(recording));
   const durStr = formatCallDuration(callDurationSeconds(recording));
+  const author = authorChipLabel(
+    recording.author_name,
+    recording.author_user_id,
+    currentUserId,
+  );
   const meta = [dateStr, durStr].filter(Boolean).join(" · ");
   const isBusy = busyCallId === recording.call_id;
 
@@ -63,10 +75,13 @@ function RecordingRow({
         <Phone className="h-5 w-5 text-beige" />
       </div>
 
-      <div className="flex-1 min-w-0">
-        <h3 className="font-normal text-foreground text-[15px] truncate">
-          {recording.title || "Call"}
-        </h3>
+                    <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="font-normal text-foreground text-[15px] truncate">
+            {recording.title || "Call"}
+          </h3>
+          {showAuthors ? <AuthorLabel name={author} /> : null}
+        </div>
         {meta ? (
           <p className="text-sm text-muted-foreground mt-1">{meta}</p>
         ) : null}
@@ -76,7 +91,7 @@ function RecordingRow({
         {pill ? (
           pill.busy ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <VocifySpinner size={12} />
               {pill.text}
             </span>
           ) : (
@@ -101,7 +116,7 @@ function RecordingRow({
           >
             {isBusy ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                <VocifySpinner size={12} />
                 Starting…
               </>
             ) : (
@@ -114,7 +129,15 @@ function RecordingRow({
   );
 }
 
-export function RecordingsPanel() {
+export function RecordingsPanel({
+  authorUserId = null,
+  currentUserId = null,
+  showAuthors = false,
+}: {
+  authorUserId?: string | null;
+  currentUserId?: string | null;
+  showAuthors?: boolean;
+} = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [busyCallId, setBusyCallId] = useState<string | null>(null);
@@ -130,8 +153,8 @@ export function RecordingsPanel() {
     isError,
     error,
   } = useQuery({
-    queryKey: recordingKeys.list(20),
-    queryFn: () => recordingsApi.list(20),
+    queryKey: recordingKeys.list(20, authorUserId),
+    queryFn: () => recordingsApi.list(20, authorUserId),
     enabled: hasRecordingsCrm,
     refetchInterval: (query) =>
       recordingsNeedPoll(query.state.data ?? []) ? POLL_MS : false,
@@ -188,8 +211,7 @@ export function RecordingsPanel() {
       <div className="space-y-4">
         {isLoading ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
-            <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-            <p className={THEME_TOKENS.typography.capsLabel}>Loading recordings…</p>
+            <VocifyLoader size="md" label="Loading recordings…" />
           </div>
         ) : isError ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center space-y-3`}>
@@ -197,10 +219,10 @@ export function RecordingsPanel() {
               Could not load recordings. Your CRM connection may need attention.
             </p>
             <Link
-              to="/dashboard/integrations"
+              to="/dashboard/settings"
               className={`${THEME_TOKENS.typography.capsLabel} text-beige hover:underline`}
             >
-              Check integrations
+              Check CRM settings
             </Link>
             {error instanceof Error && error.message ? (
               <p className="text-xs text-muted-foreground">{error.message}</p>
@@ -208,7 +230,11 @@ export function RecordingsPanel() {
           </div>
         ) : visibleRecordings.length === 0 ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
-            <p className="text-muted-foreground">No call recordings found yet.</p>
+            <p className="text-muted-foreground">
+              {authorUserId
+                ? "No recordings for this teammate. Try All to see every labeled call."
+                : "No call recordings found yet."}
+            </p>
           </div>
         ) : (
           visibleRecordings.map((recording) => (
@@ -217,6 +243,8 @@ export function RecordingsPanel() {
               recording={recording}
               onAction={handleAction}
               busyCallId={busyCallId}
+              currentUserId={currentUserId}
+              showAuthors={showAuthors}
             />
           ))
         )}

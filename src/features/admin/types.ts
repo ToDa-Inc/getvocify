@@ -17,6 +17,10 @@ export type AdminAccountListItem = {
   approvedCount: number;
   failedCount: number;
   lastMemoAt: string | null;
+  companyId: string | null;
+  workspaceName: string | null;
+  seatLimit: number | null;
+  seatsUsed: number | null;
 };
 
 export type AdminAccountConfiguration = {

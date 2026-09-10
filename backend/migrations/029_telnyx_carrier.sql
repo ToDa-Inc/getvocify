@@ -17,6 +17,15 @@ ALTER TABLE outbound_calls
 ALTER TABLE outbound_calls
   ADD COLUMN IF NOT EXISTS provider_state JSONB NOT NULL DEFAULT '{}';
 
+-- 027 added this; keep it here so Telnyx-only envs that skipped 027 still
+-- persist missed-call / screening dispositions (PGRST204 otherwise).
+ALTER TABLE outbound_calls
+  ADD COLUMN IF NOT EXISTS call_disposition TEXT
+    CHECK (call_disposition IN (
+      'connected', 'voicemail', 'no_response',
+      'busy', 'no_answer', 'failed', 'canceled'
+    ));
+
 UPDATE outbound_calls
 SET carrier_call_id = twilio_call_sid
 WHERE carrier_call_id IS NULL;

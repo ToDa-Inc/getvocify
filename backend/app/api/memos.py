@@ -6,12 +6,20 @@ import asyncio
 import logging
 import time
 from httpcore import ReadError as HttpcoreReadError
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Body
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, status, Body
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional, List, Union
 from app.deps import get_supabase, get_user_id
+from app.services.activity_scope import (
+    UnknownCompanyAuthor,
+    can_view_company_activity,
+    company_user_ids,
+    load_viewer_scope,
+    memo_readable_by,
+    resolve_list_user_ids,
+)
 from app.services.storage import StorageService
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
@@ -97,7 +105,7 @@ async def _curated_field_specs_for_primary_crm(
     return specs
 
 
-def _memo_from_row(memo_data: dict) -> Memo:
+def _memo_from_row(memo_data: dict, author: Optional[dict] = None) -> Memo:
     """Build Memo from DB row, with defensive handling for malformed data."""
     extraction = memo_data.get("extraction")
     if extraction is not None and isinstance(extraction, dict):
@@ -110,6 +118,8 @@ def _memo_from_row(memo_data: dict) -> Memo:
         return Memo(
             id=memo_data["id"],
             userId=memo_data["user_id"],
+            authorName=(author or {}).get("name"),
+            authorEmail=(author or {}).get("email"),
             audioUrl=memo_data.get("audio_url") or "",
             audioDuration=memo_data["audio_duration"],
             status=memo_data["status"],
@@ -713,25 +723,55 @@ async def list_memos(
     offset: int = 0,
     hubspot_deal_id: Optional[str] = None,
     hubspot_contact_id: Optional[str] = None,
+    scope: str = Query("me"),
+    author_user_id: Optional[str] = None,
 ):
     """
-    List user's memos.
+    List memos.
+
+    Members see their own. Owners and admins may pass scope=company to see
+    every teammate, optionally filtered by author_user_id.
 
     Optional HubSpot filters (for the extension on a deal/contact page):
     - hubspot_deal_id: memos from calls on that deal, or approved against it
     - hubspot_contact_id: memos from calls on that contact
     """
-    limit = max(1, min(limit, 50))
+    limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    role = membership.role if membership else None
+    scope_value = scope if isinstance(scope, str) else getattr(scope, "default", None)
+    scope_norm = str(scope_value or "me").strip().lower()
+    if scope_norm == "company" and not can_view_company_activity(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owners and admins can list company activity",
+        )
+    try:
+        user_ids = resolve_list_user_ids(
+            viewer_id=user_id,
+            viewer_role=role,
+            member_ids=company_user_ids(members),
+            scope=scope_norm,
+            author_user_id=(author_user_id or "").strip() or None,
+        )
+    except UnknownCompanyAuthor:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Author is not in your company",
+        )
 
     q = (
         supabase.table("memos")
         .select("*")
-        .eq("user_id", user_id)
         .order("created_at", desc=True)
         .limit(limit)
         .offset(offset)
     )
+    if len(user_ids) == 1:
+        q = q.eq("user_id", user_ids[0])
+    else:
+        q = q.in_("user_id", user_ids)
 
     deal_id = (hubspot_deal_id or "").strip() or None
     contact_id = (hubspot_contact_id or "").strip() or None
@@ -743,7 +783,10 @@ async def list_memos(
         q = q.eq("hubspot_contact_id", contact_id)
 
     result = q.execute()
-    memos = [_memo_from_row(memo_data) for memo_data in (result.data or [])]
+    memos = [
+        _memo_from_row(memo_data, authors.get(str(memo_data.get("user_id"))))
+        for memo_data in (result.data or [])
+    ]
     return memos
 
 
@@ -863,7 +906,7 @@ async def get_memo(
     user_id: str = Depends(get_user_id),
 ):
     """Get a single memo by ID"""
-    result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).execute()
+    result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
 
     if not result.data:
         raise HTTPException(
@@ -872,7 +915,19 @@ async def get_memo(
         )
 
     memo_data = result.data[0]
-    return _memo_from_row(memo_data)
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    owner_id = str(memo_data.get("user_id") or "")
+    if not memo_readable_by(
+        viewer_id=user_id,
+        owner_user_id=owner_id,
+        viewer_role=membership.role if membership else None,
+        same_company=owner_id in set(company_user_ids(members)),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found"
+        )
+    return _memo_from_row(memo_data, authors.get(owner_id))
 
 
 # Maps SyncResult.error_code (set in sync.py / salesforce_provider.py) to an HTTP

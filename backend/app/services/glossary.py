@@ -39,7 +39,7 @@ class GlossaryService:
 
     async def update_glossary(self, user_id: str, glossary: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Update the shared company glossary (owner/admin only at API layer).
+        Update the shared company glossary. Any workspace member may add or edit terms.
         """
         company_id = self._company_id_for_user(user_id)
         table = "companies" if company_id else "user_profiles"

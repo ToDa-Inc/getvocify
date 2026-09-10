@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi } from "@/lib/api/crm";
+import { useAuth } from "@/features/auth";
 import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
 import {
@@ -112,6 +113,8 @@ export const HubSpotSyncPreview = ({
   callSummary = "",
   onContactName,
 }: HubSpotSyncPreviewProps) => {
+  const { user } = useAuth();
+  const loggedAs = user?.fullName || user?.email;
   const [loading, setLoading] = useState(true);
   const [isSwitchingTarget, setIsSwitchingTarget] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1307,6 +1310,11 @@ export const HubSpotSyncPreview = ({
                     ? "Confirm & Update Deal"
                     : "Confirm & Create Deal"}
         </Button>
+        {loggedAs ? (
+          <p className="text-[10px] text-muted-foreground text-center mt-3">
+            Calls, notes, and tasks log in HubSpot as {loggedAs}. Existing contact owners stay put.
+          </p>
+        ) : null}
       </div>
     </div>
   );

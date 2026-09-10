@@ -5,12 +5,15 @@ import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
+import { useAuth } from "@/features/auth";
 import { companyApi } from "@/features/company/api";
+import { HUBSPOT_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const InviteAcceptPage = () => {
   const { token = "" } = useParams();
   const navigate = useNavigate();
+  const { applySession } = useAuth();
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
 
@@ -21,8 +24,11 @@ const InviteAcceptPage = () => {
   });
 
   const acceptMutation = useMutation({
-    mutationFn: () => companyApi.acceptInvite(token, password, fullName || undefined),
-    onSuccess: () => navigate("/login", { replace: true }),
+    mutationFn: () => companyApi.acceptInvite(token, password || undefined, fullName || undefined),
+    onSuccess: (session) => {
+      applySession(session);
+      navigate("/dashboard", { replace: true });
+    },
   });
 
   if (isLoading) {
@@ -52,6 +58,9 @@ const InviteAcceptPage = () => {
           <p className="text-sm text-muted-foreground mt-2">
             {preview.email} · {preview.role}
           </p>
+          <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+            {HUBSPOT_EMAIL_MATCH_HINT}
+          </p>
         </div>
         <Input placeholder="Your name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
         {preview.requiresPassword ? (
@@ -63,7 +72,13 @@ const InviteAcceptPage = () => {
           />
         ) : (
           <p className="text-sm text-muted-foreground">
-            You already have a Vocify account. Accepting will add you to this workspace — log in afterward with your existing password.
+            You already have a Vocify account. Accepting will add you to this workspace and sign you in.
+          </p>
+        )}
+        {acceptMutation.isError && (
+          <p className="text-sm text-destructive">
+            {(acceptMutation.error as { data?: { detail?: string } })?.data?.detail
+              || "Could not accept invitation"}
           </p>
         )}
         <Button
@@ -71,7 +86,7 @@ const InviteAcceptPage = () => {
           disabled={(preview.requiresPassword && password.length < 8) || acceptMutation.isPending}
           onClick={() => acceptMutation.mutate()}
         >
-          Accept invitation
+          {acceptMutation.isPending ? "Joining…" : "Accept invitation"}
         </Button>
       </div>
     </div>

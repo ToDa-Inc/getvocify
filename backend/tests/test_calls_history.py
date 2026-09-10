@@ -158,6 +158,41 @@ async def test_get_call_other_user_is_404_not_403():
 
 
 @pytest.mark.asyncio
+async def test_history_company_scope_includes_teammate_calls(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services.activity_scope import authors_by_user_id
+
+    members = [
+        {"user_id": "user-1", "full_name": "Ada", "email": "ada@acme.com", "status": "active"},
+        {"user_id": "user-2", "full_name": "Bea", "email": "bea@acme.com", "status": "active"},
+    ]
+    membership = SimpleNamespace(role="owner", company_id="co-1")
+    monkeypatch.setattr(
+        "app.api.calls.load_viewer_scope",
+        lambda _sb, _uid: (membership, members, authors_by_user_id(members)),
+    )
+    supabase, _ = fake_db(
+        {
+            "outbound_calls": [CALL_A, CALL_OTHER_USER, CALL_B],
+            "memos": [{"id": "memo-1", "status": "pending_review"}],
+        }
+    )
+    result = await list_call_history(
+        limit=20,
+        contactId=None,
+        dealId=None,
+        supabase=supabase,
+        user_id="user-1",
+        scope="company",
+    )
+    sids = [c["callSid"] for c in result["calls"]]
+    assert "CA-other" in sids
+    other = next(c for c in result["calls"] if c["callSid"] == "CA-other")
+    assert other["authorName"] == "Bea"
+
+
+@pytest.mark.asyncio
 async def test_get_call_returns_summary():
     supabase, _ = fake_db(
         {

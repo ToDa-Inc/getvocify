@@ -4,6 +4,7 @@ Twilio is the carrier we ship on. Decision to stay is in [../DECISION.md](../DEC
 
 | Document | What it covers |
 |---|---|
+| [outbound-pipeline.md](outbound-pipeline.md) | How the shipped Twilio dialer works: caller ID vs dest phone, webhooks, `outbound_calls`, screening, HubSpot |
 | [assumption-audit.md](assumption-audit.md) | Adversarial audit of the seven assumptions the shipped implementation rests on, each marked CONFIRMED / REFUTED / DOCS SILENT / UNVERIFIABLE against primary sources |
 | [`../../runbooks/twilio-setup.md`](../../runbooks/twilio-setup.md) | Operational setup: console configuration, HubSpot recording endpoint registration, local development, cost model |
 

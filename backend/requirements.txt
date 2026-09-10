@@ -20,3 +20,4 @@ sentry-sdk[fastapi]>=2.0.0
 slowapi>=0.1.9
 twilio>=9.0.0
 PyNaCl>=1.5.0
+stripe>=11.0.0

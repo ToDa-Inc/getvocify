@@ -19,6 +19,16 @@ from twilio.jwt.access_token.grants import VoiceGrant
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
+from app.services.billing.entitlement import can_use_dialer
+from app.services.company import CompanyService
+from app.services.activity_scope import (
+    UnknownCompanyAuthor,
+    can_view_company_activity,
+    company_user_ids,
+    load_viewer_scope,
+    memo_readable_by,
+    resolve_list_user_ids,
+)
 from app.services.telephony.caller_id import (
     confirm_caller_id_verification,
     delete_caller_id,
@@ -106,6 +116,24 @@ def mint_voice_access_token(user_id: str, ttl: int = TOKEN_TTL_SECONDS) -> str:
     return token.to_jwt()
 
 
+def _dialer_allowed(supabase: Client, user_id: str) -> bool:
+    svc = CompanyService(supabase)
+    membership = svc.get_membership(user_id)
+    if not membership:
+        return True
+    company = svc.get_company(membership.company_id)
+    billing = svc.billing_for(membership.company_id)
+    return can_use_dialer(company, billing)
+
+
+def _require_dialer(supabase: Client, user_id: str) -> None:
+    if not _dialer_allowed(supabase, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The dialer is included on Pro",
+        )
+
+
 @router.get("/config")
 async def get_calling_config(
     supabase: Client = Depends(get_supabase),
@@ -114,15 +142,17 @@ async def get_calling_config(
     """Whether calling is available here, plus this user's caller IDs."""
     hubspot_logging = bool(settings.HUBSPOT_APP_ID)
     provider = calling_provider()
+    entitled = _dialer_allowed(supabase, user_id)
     if not telephony_configured():
         return {
             "enabled": False,
+            "canUseDialer": entitled,
             "provider": provider,
             "callerIds": [],
             "hubspotLogging": hubspot_logging,
             "settingsUrl": _settings_url(),
         }
-    if provider == "telnyx":
+    if entitled and provider == "telnyx":
         try:
             ensure_user_credential(supabase, user_id)
         except TelnyxNotConfigured as e:
@@ -131,9 +161,10 @@ async def get_calling_config(
                 detail="Calling is not configured on this environment",
             ) from e
     return {
-        "enabled": True,
+        "enabled": entitled,
+        "canUseDialer": entitled,
         "provider": provider,
-        "callerIds": list_caller_ids(supabase, user_id),
+        "callerIds": list_caller_ids(supabase, user_id) if entitled else [],
         "hubspotLogging": hubspot_logging,
         "settingsUrl": _settings_url(),
     }
@@ -144,6 +175,7 @@ async def create_voice_token(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    _require_dialer(supabase, user_id)
     if calling_provider() == "telnyx":
         try:
             return mint_telnyx_voice_token(supabase, user_id)
@@ -157,6 +189,33 @@ async def create_voice_token(
         "identity": str(user_id),
         "expiresIn": TOKEN_TTL_SECONDS,
         "provider": calling_provider(),
+    }
+
+
+@router.get("/outbound/latest-disposition")
+async def get_latest_outbound_disposition(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Return the most recent in-flight outbound call disposition for the dialer."""
+    from datetime import datetime, timedelta, timezone
+
+    since = (datetime.now(timezone.utc) - timedelta(minutes=3)).isoformat()
+    found = (
+        supabase.table("outbound_calls")
+        .select("call_disposition,status,created_at")
+        .eq("user_id", user_id)
+        .gte("created_at", since)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    row = (found.data or [None])[0]
+    if not row or row.get("status") not in ("dialing", "logged"):
+        return {"disposition": None, "status": None}
+    return {
+        "disposition": row.get("call_disposition"),
+        "status": row.get("status"),
     }
 
 
@@ -285,7 +344,12 @@ async def remove_caller_id(
     return {"ok": True}
 
 
-def _call_summary(row: dict, memo_status: Optional[str] = None) -> dict:
+def _call_summary(
+    row: dict,
+    memo_status: Optional[str] = None,
+    author: Optional[dict] = None,
+) -> dict:
+    owner_id = str(row.get("user_id") or "")
     return {
         "callSid": row.get("carrier_call_id"),
         "to": row.get("to_number"),
@@ -300,6 +364,10 @@ def _call_summary(row: dict, memo_status: Optional[str] = None) -> dict:
         "memoId": row.get("memo_id"),
         "memoStatus": memo_status,
         "errorMessage": row.get("error_message"),
+        "userId": owner_id or None,
+        "authorUserId": (author or {}).get("user_id") or owner_id or None,
+        "authorName": (author or {}).get("name"),
+        "authorEmail": (author or {}).get("email"),
     }
 
 
@@ -324,16 +392,43 @@ async def list_call_history(
     dealId: Optional[str] = None,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
+    scope: str = Query("me"),
+    author_user_id: Optional[str] = None,
 ):
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    role = membership.role if membership else None
+    scope_value = scope if isinstance(scope, str) else getattr(scope, "default", None)
+    scope_norm = str(scope_value or "me").strip().lower()
+    if scope_norm == "company" and not can_view_company_activity(role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only owners and admins can list company activity",
+        )
+    try:
+        user_ids = resolve_list_user_ids(
+            viewer_id=user_id,
+            viewer_role=role,
+            member_ids=company_user_ids(members),
+            scope=scope_norm,
+            author_user_id=(author_user_id or "").strip() or None,
+        )
+    except UnknownCompanyAuthor:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Author is not in your company",
+        )
     query = (
         supabase.table("outbound_calls")
         .select(
-            "carrier_call_id,to_number,from_number,hubspot_contact_id,"
+            "carrier_call_id,to_number,from_number,user_id,hubspot_contact_id,"
             "hubspot_deal_id,hubspot_engagement_id,status,created_at,"
             "answered_at,recording_duration,memo_id,error_message"
         )
-        .eq("user_id", user_id)
     )
+    if len(user_ids) == 1:
+        query = query.eq("user_id", user_ids[0])
+    else:
+        query = query.in_("user_id", user_ids)
     if contactId:
         query = query.eq("hubspot_contact_id", contactId)
     if dealId:
@@ -342,7 +437,12 @@ async def list_call_history(
     statuses = _memo_status_by_id(supabase, [r.get("memo_id") for r in rows])
     return {
         "calls": [
-            _call_summary(row, statuses.get(row.get("memo_id"))) for row in rows
+            _call_summary(
+                row,
+                statuses.get(row.get("memo_id")),
+                authors.get(str(row.get("user_id") or "")),
+            )
+            for row in rows
         ]
     }
 
@@ -356,11 +456,10 @@ async def get_call(
     rows = (
         supabase.table("outbound_calls")
         .select(
-            "carrier_call_id,to_number,from_number,hubspot_contact_id,"
+            "carrier_call_id,to_number,from_number,user_id,hubspot_contact_id,"
             "hubspot_deal_id,hubspot_engagement_id,status,created_at,"
             "answered_at,recording_duration,memo_id,error_message"
         )
-        .eq("user_id", user_id)
         .eq("carrier_call_id", call_sid)
         .limit(1)
         .execute()
@@ -371,5 +470,20 @@ async def get_call(
             status_code=status.HTTP_404_NOT_FOUND, detail="Call not found"
         )
     row = rows[0]
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    owner_id = str(row.get("user_id") or "")
+    if not memo_readable_by(
+        viewer_id=user_id,
+        owner_user_id=owner_id,
+        viewer_role=membership.role if membership else None,
+        same_company=owner_id in set(company_user_ids(members)),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Call not found"
+        )
     statuses = _memo_status_by_id(supabase, [row.get("memo_id")])
-    return _call_summary(row, statuses.get(row.get("memo_id")))
+    return _call_summary(
+        row,
+        statuses.get(row.get("memo_id")),
+        authors.get(owner_id),
+    )
