@@ -192,6 +192,7 @@ def assemble_account_detail(
                     "allowed_line_item_fields": cfg.get("allowed_line_item_fields") or [],
                     "auto_create_contacts": cfg.get("auto_create_contacts"),
                     "auto_create_companies": cfg.get("auto_create_companies"),
+                    "auto_sync_hubspot_calls": cfg.get("auto_sync_hubspot_calls"),
                     "lost_lead_status_value": cfg.get("lost_lead_status_value"),
                     "on_hold_lead_status_value": cfg.get("on_hold_lead_status_value"),
                 }

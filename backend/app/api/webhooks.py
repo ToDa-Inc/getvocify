@@ -344,9 +344,10 @@ async def hubspot_webhook(request: Request):
     """
     HubSpot app webhooks (recording URL, call create).
 
-    Acknowledged only. Transcription starts when the user presses Transcribe
-    in the extension (POST /crm/hubspot/calls/{id}/process). Auto-STT on every
-    recording would bill Deepgram for calls nobody reviews.
+    Recording-ready events start transcribe → extract → sync only when
+    crm_configurations.auto_sync_hubspot_calls is on. Otherwise the
+    extension Transcribe button remains the trigger
+    (POST /crm/hubspot/calls/{id}/process).
     """
     cid = f"hs_{uuid4().hex[:8]}"
     set_correlation_id(cid)
@@ -383,29 +384,23 @@ async def hubspot_webhook(request: Request):
     else:
         events = []
 
-    skipped = 0
+    from app.services.hubspot.auto_sync import handle_hubspot_recording_events
 
-    for ev in events:
-        if not isinstance(ev, dict):
-            continue
-        sub = ev.get("subscriptionType") or ev.get("subscription_type")
-        if sub in ("engagement.propertyChange", "object.propertyChange"):
-            if ev.get("propertyName") != "hs_call_recording_url":
-                continue
-            val = (ev.get("propertyValue") or ev.get("property_value") or "").strip()
-            if not val:
-                continue
-        elif sub in ("engagement.creation", "object.creation"):
-            pass
-        else:
-            continue
-
-        skipped += 1
+    processed, skipped = await handle_hubspot_recording_events(get_supabase(), events)
+    for _ in range(processed):
+        inc_webhook_message("hubspot", "processed")
+    for _ in range(skipped):
         inc_webhook_message("hubspot", "skipped")
 
     logger.info(
-        "HubSpot webhook complete (STT is Transcribe-only)",
-        extra=log_domain(DOMAIN_WEBHOOK, "hubspot_complete", processed=0, skipped=skipped, events=len(events)),
+        "HubSpot webhook complete",
+        extra=log_domain(
+            DOMAIN_WEBHOOK,
+            "hubspot_complete",
+            processed=processed,
+            skipped=skipped,
+            events=len(events),
+        ),
     )
     return JSONResponse(content={"status": "ok"}, status_code=200)
 

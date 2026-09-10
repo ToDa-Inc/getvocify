@@ -2,7 +2,6 @@
 CRM integration API endpoints
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
@@ -62,10 +61,7 @@ from app.services.hubspot.calls import (
     list_recent_recordings,
     list_recordings_for_record,
 )
-from app.services.hubspot.call_processor import (
-    initiate_hubspot_call_memo,
-    process_hubspot_call_background,
-)
+from app.services.hubspot.call_processor import enqueue_hubspot_call_process
 from supabase import Client
 
 
@@ -382,49 +378,15 @@ async def process_hubspot_call(
             detail="This call has no recording yet.",
         )
 
-    memo_id, created = await initiate_hubspot_call_memo(
+    result = await enqueue_hubspot_call_process(
         supabase, user_id, call_id, access_token
     )
-    if not memo_id:
+    if not result.get("memo_id"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not create memo for this call",
         )
-
-    should_process = created
-    memo_row = (
-        supabase.table("memos")
-        .select("status")
-        .eq("id", memo_id)
-        .single()
-        .execute()
-    )
-    current_status = (memo_row.data or {}).get("status") if memo_row.data else "transcribing"
-
-    if not created and current_status == "failed":
-        supabase.table("memos").update(
-            {
-                "status": "transcribing",
-                "error_message": None,
-                "processing_started_at": datetime.utcnow().isoformat(),
-            }
-        ).eq("id", memo_id).execute()
-        should_process = True
-        current_status = "transcribing"
-
-    if should_process:
-        asyncio.create_task(
-            process_hubspot_call_background(
-                memo_id, user_id, access_token, call_id, supabase
-            )
-        )
-
-    return {
-        "memo_id": memo_id,
-        "status": current_status,
-        "created": created,
-        "processing_started": should_process,
-    }
+    return result
 
 
 @router.get("/hubspot/contacts/{contact_id}/context")

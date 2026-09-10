@@ -31,6 +31,7 @@ export const DEFAULT_HUBSPOT_CONFIG: CRMConfiguration = {
   lost_reason_deal_property: null,
   lost_lead_status_value: null,
   on_hold_lead_status_value: null,
+  auto_sync_hubspot_calls: false,
 };
 
 function lineItemErrorLooksLikeScope(err: unknown): boolean {
@@ -100,6 +101,7 @@ export async function loadHubSpotSetup(refresh = false): Promise<HubSpotSetup> {
         lost_reason_deal_property: currentConfig.lost_reason_deal_property ?? null,
         lost_lead_status_value: currentConfig.lost_lead_status_value ?? null,
         on_hold_lead_status_value: currentConfig.on_hold_lead_status_value ?? null,
+        auto_sync_hubspot_calls: currentConfig.auto_sync_hubspot_calls ?? false,
       }
     : { ...DEFAULT_HUBSPOT_CONFIG };
 

@@ -10,10 +10,11 @@ Flow:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from supabase import Client
 
@@ -118,6 +119,58 @@ async def initiate_hubspot_call_memo(
     if not ins.data:
         return None, False
     return str(ins.data[0]["id"]), True
+
+
+async def enqueue_hubspot_call_process(
+    supabase: Client,
+    user_id: str,
+    call_id: str,
+    access_token: str,
+) -> dict[str, Any]:
+    """Create or reuse the memo and start processing when needed."""
+    memo_id, created = await initiate_hubspot_call_memo(
+        supabase, user_id, call_id, access_token
+    )
+    if not memo_id:
+        return {
+            "memo_id": None,
+            "status": None,
+            "created": False,
+            "processing_started": False,
+        }
+
+    memo_row = (
+        supabase.table("memos")
+        .select("status")
+        .eq("id", memo_id)
+        .single()
+        .execute()
+    )
+    current_status = (memo_row.data or {}).get("status") if memo_row.data else "transcribing"
+    should_process = created
+    if not created and current_status == "failed":
+        supabase.table("memos").update(
+            {
+                "status": "transcribing",
+                "error_message": None,
+                "processing_started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", memo_id).execute()
+        should_process = True
+        current_status = "transcribing"
+
+    if should_process:
+        asyncio.create_task(
+            process_hubspot_call_background(
+                memo_id, user_id, access_token, call_id, supabase
+            )
+        )
+    return {
+        "memo_id": memo_id,
+        "status": current_status,
+        "created": created,
+        "processing_started": should_process,
+    }
 
 
 async def process_hubspot_call_background(
@@ -227,6 +280,9 @@ async def process_hubspot_call_background(
                 },
             },
         )
+        from app.services.hubspot.auto_sync import maybe_auto_approve_hubspot_call
+
+        await maybe_auto_approve_hubspot_call(supabase, memo_id, user_id)
 
         persist_pipeline_meta(
             supabase,
