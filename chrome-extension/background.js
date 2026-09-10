@@ -13,6 +13,11 @@ import { planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './lib
 import { planRecordingsFetch, planRecordingsResult } from './lib/recordings-fetch.js';
 import { memoListFromResponse } from './lib/activity-list.js';
 import {
+  crmConfigAutoSyncEnabled,
+  decideHubspotCallPollAction,
+  decideProcessHubspotCallAction,
+} from './lib/hubspot-process.js';
+import {
   applyTranscriptUpdate,
   canStartTabCapture,
   isListenEpochCurrent,
@@ -826,9 +831,11 @@ async function autoConfirmLegacyTranscript(memoId) {
   }
 }
 
-function startPolling(memoId) {
+function startPolling(memoId, { autoSync = false } = {}) {
   clearMemoPoll();
   let pollCount = 0;
+  let pendingReviewTicks = 0;
+  const waitForAutoSync = Boolean(autoSync);
   console.log('[BG] Starting polling for memo:', memoId);
 
   const tick = async () => {
@@ -837,18 +844,26 @@ function startPolling(memoId) {
       const memo = await api.getMemo(memoId);
       console.log('[BG] Poll #', pollCount, 'status:', memo.status);
 
-      if (memo.status === 'pending_transcript') {
+      const action = decideHubspotCallPollAction(memo.status, {
+        autoSync: waitForAutoSync,
+        pendingReviewTicks,
+      });
+      if (action.type === 'confirm_transcript') {
         await autoConfirmLegacyTranscript(memoId);
         return;
       }
-      if (memo.status === 'pending_review') {
+      if (action.type === 'wait_auto_sync') {
+        pendingReviewTicks += 1;
+        return;
+      }
+      if (action.type === 'review') {
         clearMemoPoll();
         showNotification('Ready for Review', 'Review and sync CRM fields.');
         openReviewFromMemo(memoId, memo);
-      } else if (memo.status === 'approved') {
+      } else if (action.type === 'success') {
         clearMemoPoll();
         updateState({ status: 'success', syncResult: memo });
-      } else if (memo.status === 'failed') {
+      } else if (action.type === 'failed') {
         clearMemoPoll();
         updateState({ status: 'idle', currentMemoId: null, processingSource: null });
         showNotification('Couldn’t finish this call', memo.errorMessage || 'Try Transcribe again.');
@@ -1079,7 +1094,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         updateState(newState);
         if (newState.status === 'processing' && newState.currentMemoId) {
-          startPolling(String(newState.currentMemoId));
+          startPolling(String(newState.currentMemoId), {
+            autoSync: Boolean(newState.autoSyncHubspotCalls),
+          });
         }
       }
       break;
@@ -1401,34 +1418,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         status: 'processing',
         processingSource: 'hubspot_call',
       });
-      api.post(`/crm/hubspot/calls/${encodeURIComponent(callId)}/process`, {})
-        .then((res) => {
-          const memoId = res?.memo_id ? String(res.memo_id) : null;
-          const st = res?.status;
-          if (memoId && (st === 'transcribing' || st === 'uploading' || st === 'extracting')) {
+      Promise.all([
+        api.post(`/crm/hubspot/calls/${encodeURIComponent(callId)}/process`, {}),
+        api.get('/crm/hubspot/configuration').catch(() => null),
+      ])
+        .then(([res, config]) => {
+          const autoSync = crmConfigAutoSyncEnabled(config);
+          const action = decideProcessHubspotCallAction(res);
+          if (action.type === 'poll') {
             updateState({
               status: 'processing',
-              currentMemoId: memoId,
+              currentMemoId: action.memoId,
               processingSource: 'hubspot_call',
+              autoSyncHubspotCalls: autoSync,
             });
-            startPolling(memoId);
-          } else if (memoId && st === 'pending_review') {
-            api.getMemo(memoId)
+            startPolling(action.memoId, { autoSync });
+          } else if (action.type === 'review') {
+            api.getMemo(action.memoId)
               .then((memo) => {
-                openReviewFromMemo(memoId, memo);
+                openReviewFromMemo(action.memoId, memo);
                 updateState({ processingSource: 'hubspot_call' });
               })
               .catch(() => {
-                updateState({ status: 'review', currentMemoId: memoId });
+                updateState({ status: 'review', currentMemoId: action.memoId });
               });
-          } else if (memoId && st === 'pending_transcript') {
-            updateState({
-              status: 'processing',
-              currentMemoId: memoId,
-              processingSource: 'hubspot_call',
-            });
-            startPolling(memoId);
-          } else if (memoId && st === 'failed') {
+          } else if (action.type === 'success') {
+            api.getMemo(action.memoId)
+              .then((memo) => {
+                updateState({
+                  status: 'success',
+                  currentMemoId: action.memoId,
+                  syncResult: memo,
+                  processingSource: 'hubspot_call',
+                });
+              })
+              .catch(() => {
+                updateState({
+                  status: 'success',
+                  currentMemoId: action.memoId,
+                  processingSource: 'hubspot_call',
+                });
+              });
+          } else {
             updateState({ status: 'idle', currentMemoId: null, processingSource: null });
           }
           if (state.context) fetchRecordingsIfNeeded(state.context, { force: true });

@@ -254,6 +254,7 @@ CREATE TABLE crm_configurations (
   -- creates HubSpot picklist options itself - see oauth.py's scope list.
   lost_lead_status_value TEXT,
   on_hold_lead_status_value TEXT,
+  auto_sync_hubspot_calls BOOLEAN NOT NULL DEFAULT false,
 
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),

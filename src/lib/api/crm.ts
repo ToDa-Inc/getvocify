@@ -47,6 +47,11 @@ export interface CRMConfiguration {
    */
   lost_lead_status_value?: string | null;
   on_hold_lead_status_value?: string | null;
+  /**
+   * After a HubSpot recording is ready, write notes/tasks/allowed fields
+   * without waiting for review. Off by default.
+   */
+  auto_sync_hubspot_calls?: boolean;
 }
 
 /** Keep fetched settings/dashboard data for the whole login session. Invalidate on mutate. */

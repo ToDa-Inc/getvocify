@@ -66,6 +66,14 @@ class CRMConfigurationRequest(BaseModel):
             "means not configured: the On Hold button doesn't appear until set."
         ),
     )
+    auto_sync_hubspot_calls: bool = Field(
+        default=False,
+        description=(
+            "After a HubSpot recording is ready, transcribe, extract, and write "
+            "notes, tasks, and allowed fields without waiting for review. "
+            "Lead status is not changed. Off by default."
+        ),
+    )
 
 
 class CRMConfigurationResponse(BaseModel):
@@ -90,6 +98,7 @@ class CRMConfigurationResponse(BaseModel):
     lost_reason_deal_property: Optional[str] = None
     lost_lead_status_value: Optional[str] = None
     on_hold_lead_status_value: Optional[str] = None
+    auto_sync_hubspot_calls: bool = False
     is_configured: bool = True
     created_at: str
     updated_at: str

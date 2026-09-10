@@ -107,6 +107,7 @@ class CRMConfigurationService:
             lost_reason_deal_property=config_data.get("lost_reason_deal_property"),
             lost_lead_status_value=config_data.get("lost_lead_status_value"),
             on_hold_lead_status_value=config_data.get("on_hold_lead_status_value"),
+            auto_sync_hubspot_calls=bool(config_data.get("auto_sync_hubspot_calls", False)),
             created_at=config_data.get("created_at") or "",
             updated_at=config_data.get("updated_at") or "",
         )
@@ -169,6 +170,7 @@ class CRMConfigurationService:
             "lost_reason_deal_property": config.lost_reason_deal_property,
             "lost_lead_status_value": config.lost_lead_status_value,
             "on_hold_lead_status_value": config.on_hold_lead_status_value,
+            "auto_sync_hubspot_calls": config.auto_sync_hubspot_calls,
         }
         
         # Upsert configuration
@@ -205,6 +207,7 @@ class CRMConfigurationService:
             lost_reason_deal_property=saved_config.get("lost_reason_deal_property"),
             lost_lead_status_value=saved_config.get("lost_lead_status_value"),
             on_hold_lead_status_value=saved_config.get("on_hold_lead_status_value"),
+            auto_sync_hubspot_calls=bool(saved_config.get("auto_sync_hubspot_calls", False)),
             created_at=saved_config["created_at"],
             updated_at=saved_config["updated_at"],
         )
