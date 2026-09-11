@@ -9,7 +9,15 @@ import { CALL_STATES, canStartCall, normalizeDialTarget } from './lib/dialer.js'
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
 import { pickContextTab } from './lib/review-targets.js';
-import { planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './lib/page-scope.js';
+import {
+  hydrateFromIdentityCache,
+  identityCacheFromEntries,
+  identityCacheToEntries,
+  planPageContextUpdate,
+  recordScopeKey,
+  recordingsScopeKey,
+  rememberIdentity,
+} from './lib/page-scope.js';
 import { planRecordingsFetch, planRecordingsResult } from './lib/recordings-fetch.js';
 import { memoListFromResponse } from './lib/activity-list.js';
 import {
@@ -103,6 +111,25 @@ let recordingsInFlightKey = null;
 let recordingsFetchGen = 0;
 /** Last URL we applied per tab — HubSpot SPA often updates url without changeInfo.url */
 const lastSeenUrlByTab = new Map();
+/** Name/phone for records already opened this browser session. Keyed by objectType:recordId. */
+const IDENTITY_CACHE_STORAGE_KEY = 'pageIdentityCache';
+let identityCache = new Map();
+const identityCacheReady = (async () => {
+  try {
+    const stored = await chrome.storage.session.get(IDENTITY_CACHE_STORAGE_KEY);
+    identityCache = identityCacheFromEntries(stored[IDENTITY_CACHE_STORAGE_KEY]);
+  } catch (_) {
+    identityCache = new Map();
+  }
+})();
+
+function persistIdentityCache() {
+  try {
+    chrome.storage.session.set({
+      [IDENTITY_CACHE_STORAGE_KEY]: identityCacheToEntries(identityCache),
+    });
+  } catch (_) { /* session storage may be unavailable */ }
+}
 
 /**
  * Side panel / service worker have no "current window". Prefer the last HubSpot
@@ -1584,10 +1611,13 @@ async function enrichPageContext(ctx) {
 
 function applyEnrichedIfCurrent(enriched) {
   if (recordScopeKey(state.context) !== recordScopeKey(enriched)) return;
+  identityCache = rememberIdentity(identityCache, enriched);
+  persistIdentityCache();
   updateState({ context: enriched });
 }
 
 async function refreshContextFromActiveTab() {
+  await identityCacheReady;
   const tab = await getContextTab();
   rememberTab(tab);
   if (!tab?.id || !tab.url) {
@@ -1599,7 +1629,7 @@ async function refreshContextFromActiveTab() {
 }
 
 function applyContextAsync(ctx) {
-  const plan = planPageContextUpdate(state.context, ctx);
+  const plan = planPageContextUpdate(state.context, hydrateFromIdentityCache(ctx, identityCache));
   const { context, skipBroadcast, replaceLists } = plan;
   const key = recordScopeKey(context);
 
@@ -1723,7 +1753,7 @@ function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
 function reevaluateTabContext(tabId, url) {
   if (!url) return;
   lastSeenUrlByTab.set(tabId, url);
-  api.getTokens().then(({ accessToken }) => {
+  Promise.all([api.getTokens(), identityCacheReady]).then(([{ accessToken }]) => {
     if (!accessToken) return;
     reevaluateTabContextAuthenticated(tabId, url);
   }).catch(() => {});
@@ -1745,12 +1775,8 @@ function reevaluateTabContextAuthenticated(tabId, url) {
     state.status === 'review' ||
     state.status === 'success';
 
-  if (flowBusy) {
-    applyContextAsync(ctx);
-    return;
-  }
-
   applyContextAsync(ctx);
+  if (flowBusy) return;
   if (recordId) startCallWatch(recordId, recordType);
   else clearCallWatch();
 }

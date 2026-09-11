@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
@@ -91,8 +92,13 @@ const BillingPage = () => {
         returnUrl: `${window.location.origin}${RETURN_PATH}`,
       }),
     onSuccess: (res, plan) => {
+      const selected = data?.plans.find((item) => item.id === plan);
       if (res.action === "checkout") {
-        const selected = data?.plans.find((item) => item.id === plan);
+        if (res.checkoutUrl) {
+          setCheckout(null);
+          window.location.href = res.checkoutUrl;
+          return;
+        }
         if (res.clientSecret && data?.publishableKey && selected) {
           setCheckout({
             plan,
@@ -102,17 +108,13 @@ const BillingPage = () => {
           });
           return;
         }
-        if (res.checkoutUrl) {
-          window.location.href = res.checkoutUrl;
-          return;
-        }
         toast.error("Could not open checkout");
         setCheckout(null);
         return;
       }
       setCheckout(null);
       refreshBilling();
-      toast.success(`You're on ${planLabel(plan)}.`);
+      toast.message(`You're already on ${planLabel(plan)}.`);
     },
     onError: (error) => {
       setCheckout(null);
@@ -210,6 +212,23 @@ const BillingPage = () => {
         )}
       </div>
 
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 md:p-6`}>
+        <p className={THEME_TOKENS.typography.capsLabel}>Seats</p>
+        <p className="text-sm text-foreground mt-2">
+          {data.seatsUsed} of {data.seatLimit} seats in use
+        </p>
+        <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+          Plans are per workspace, not per seat. Invite and remove people on Team.
+          Each person has their own login. Vocify sets the seat cap — it does not change when you switch Starter or Pro.
+        </p>
+        <Link
+          to="/dashboard/settings/team"
+          className={`${THEME_TOKENS.typography.capsLabel} text-beige hover:underline inline-block mt-3`}
+        >
+          Manage team
+        </Link>
+      </div>
+
       {!data.configured && (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5`}>
           <p className="text-sm text-muted-foreground">
@@ -285,15 +304,7 @@ const BillingPage = () => {
                 <Button
                   disabled={checkoutMutation.isPending || isCurrent}
                   onClick={() => {
-                    if (!isCurrent) {
-                      setCheckout({
-                        plan: plan.id,
-                        planName: plan.name,
-                        priceLabel: priceLabelFor(plan, interval),
-                        clientSecret: null,
-                      });
-                      checkoutMutation.mutate(plan.id);
-                    }
+                    if (!isCurrent) checkoutMutation.mutate(plan.id);
                   }}
                   className={`w-full rounded-full h-11 ${
                     highlighted

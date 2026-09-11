@@ -14,6 +14,7 @@ import {
   authorChipLabel,
   authorDisplayName,
   canViewCompanyActivity,
+  defaultActivityAuthorId,
 } from "@/lib/activity-authors";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { formatRecordedAtLabel } from "@/lib/memo-dates";
@@ -73,7 +74,12 @@ const MemosPage = () => {
   const { user } = useAuth();
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [searchTerm, setSearchTerm] = useState("");
-  const [authorUserId, setAuthorUserId] = useState<string | null>(null);
+  const [authorOverride, setAuthorOverride] = useState<string | null | undefined>(undefined);
+  const authorUserId =
+    authorOverride !== undefined
+      ? authorOverride
+      : defaultActivityAuthorId(canViewCompany, user?.id);
+  const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const { data: membersData } = useQuery({
     queryKey: companyKeys.members(),
@@ -136,7 +142,7 @@ const MemosPage = () => {
             <AuthorFilter
               authors={authors}
               value={authorUserId}
-              onChange={setAuthorUserId}
+              onChange={setAuthorOverride}
               currentUserId={user?.id}
             />
           ) : null}
@@ -172,16 +178,18 @@ const MemosPage = () => {
           <h3 className="text-xl font-normal text-foreground mb-2">
             {searchTerm
               ? "No matches found"
-              : authorUserId
+              : viewingTeammate
                 ? "No memos for this teammate"
                 : "No voice memos yet"}
           </h3>
           <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
             {searchTerm
               ? `No results for "${searchTerm}"`
-              : authorUserId
+              : viewingTeammate
                 ? "Try All to see every labeled conversation."
-                : "Your recorded conversations will appear here once processed."}
+                : canViewCompany && authorUserId
+                  ? "Try All to see every labeled conversation."
+                  : "Your recorded conversations will appear here once processed."}
           </p>
           {!searchTerm && !authorUserId && (
             <Link 

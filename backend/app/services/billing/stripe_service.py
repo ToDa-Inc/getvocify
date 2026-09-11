@@ -141,6 +141,41 @@ class StripeService:
             raise StripeServiceError("Billing portal session has no url")
         return str(url)
 
+    def create_subscription_update_portal_session(
+        self,
+        *,
+        customer_id: str,
+        return_url: str,
+        subscription_id: str,
+        subscription_item_id: str,
+        price_id: str,
+    ) -> str:
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url,
+            flow_data={
+                "type": "subscription_update_confirm",
+                "subscription_update_confirm": {
+                    "subscription": subscription_id,
+                    "items": [
+                        {
+                            "id": subscription_item_id,
+                            "price": price_id,
+                            "quantity": 1,
+                        }
+                    ],
+                },
+                "after_completion": {
+                    "type": "redirect",
+                    "redirect": {"return_url": return_url},
+                },
+            },
+        )
+        url = stripe_obj_get(session, "url")
+        if not url:
+            raise StripeServiceError("Billing portal session has no url")
+        return str(url)
+
     def retrieve_subscription(self, subscription_id: str) -> Any:
         return stripe.Subscription.retrieve(subscription_id)
 

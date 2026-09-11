@@ -748,6 +748,10 @@ class CompanyService:
         user_id = self._email_exists_in_auth(email)
         if not user_id:
             return
+        now = _iso(_now())
+        self.supabase.table("password_reset_tokens").update({"used_at": now}).eq(
+            "user_id", user_id
+        ).is_("used_at", "null").execute()
         raw_token = secrets.token_urlsafe(32)
         expires = _now() + timedelta(hours=PASSWORD_RESET_EXPIRY_HOURS)
         self.supabase.table("password_reset_tokens").insert(
@@ -776,7 +780,11 @@ class CompanyService:
         except ResendClientError as exc:
             logger.warning("Password reset email failed: %s", exc)
 
-    def consume_password_reset(self, raw_token: str, new_password: str) -> None:
+    def email_for_user(self, user_id: str) -> Optional[str]:
+        email = (self._auth_emails_by_ids([user_id]).get(user_id) or "").strip()
+        return email or None
+
+    def consume_password_reset(self, raw_token: str, new_password: str) -> Optional[str]:
         token_hash = hash_token(raw_token)
         now = _iso(_now())
         result = (
@@ -797,6 +805,7 @@ class CompanyService:
         self.supabase.table("password_reset_tokens").update(
             {"used_at": now}
         ).eq("id", row["id"]).execute()
+        return self.email_for_user(user_id)
 
     async def notify_password_changed(self, email: str) -> None:
         client = get_resend_client()

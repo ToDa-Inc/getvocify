@@ -38,3 +38,26 @@ export function filterByAuthor<T>(
   if (!authorUserId) return items;
   return items.filter((item) => getUserId(item) === authorUserId);
 }
+
+/** Owners/admins start on their own activity. Members have no company filter. */
+export function defaultActivityAuthorId(
+  canViewCompany: boolean,
+  userId?: string | null,
+): string | null {
+  if (canViewCompany && userId) return userId;
+  return null;
+}
+
+export function activityFilterChips(
+  authors: ActivityAuthor[],
+  currentUserId?: string | null,
+): { id: string | null; label: string }[] {
+  const chips: { id: string | null; label: string }[] = [];
+  if (currentUserId) chips.push({ id: currentUserId, label: "Mine" });
+  chips.push({ id: null, label: "All" });
+  for (const author of authors) {
+    if (author.userId === currentUserId) continue;
+    chips.push({ id: author.userId, label: author.label });
+  }
+  return chips;
+}

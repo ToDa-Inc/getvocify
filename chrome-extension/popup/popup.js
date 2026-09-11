@@ -85,9 +85,11 @@ import {
   formatActivityTimestamp,
 } from '../lib/activity-date.js';
 import {
+  activityFilterChips,
   authorChipLabel,
   authorsFromMembers,
   canViewCompanyActivity,
+  defaultActivityAuthorFilter,
   filterActivityByAuthor,
 } from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
@@ -252,6 +254,9 @@ function startIdleContextPoll() {
 
 function enterLoggedOut() {
   authStatus = 'signed_out';
+  currentUser = null;
+  companyAuthors = [];
+  activityAuthorFilter = '';
   stopIdleContextPoll();
   stopTranscriptPolishPoll();
   stopSessionHeartbeat();
@@ -574,24 +579,21 @@ function renderActivityAuthorFilter(visible) {
   const el = document.getElementById('activity-author-filter');
   if (!el) return;
   const show = Boolean(visible && canViewCompanyActivity(currentUser) && companyAuthors.length > 1);
-  el.style.display = show ? 'flex' : 'none';
+  el.style.display = show ? 'block' : 'none';
   if (!show) return;
-  const chips = [
-    { id: '', label: 'All' },
-    ...companyAuthors.map((author) => ({
-      id: author.userId,
-      label: author.userId === currentUser?.id ? 'You' : author.label,
-    })),
-  ];
-  el.innerHTML = chips.map((chip) => (
-    `<button type="button" class="activity-author-chip${chip.id === activityAuthorFilter ? ' is-active' : ''}" data-author="${escapeHtml(chip.id)}">${escapeHtml(chip.label)}</button>`
-  )).join('');
-  el.querySelectorAll('[data-author]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      activityAuthorFilter = btn.getAttribute('data-author') || '';
-      lastActivityListKey = null;
-      if (lastBgState) renderRecordingsSection(lastBgState);
-    });
+  const chips = activityFilterChips(companyAuthors, currentUser?.id);
+  el.innerHTML = `<label class="activity-author-select-wrap">
+    <span class="activity-author-select-label">Show</span>
+    <select id="activity-author-select" class="activity-author-select" aria-label="Show activity from">
+      ${chips.map((chip) => (
+        `<option value="${escapeHtml(chip.id)}"${chip.id === activityAuthorFilter ? ' selected' : ''}>${escapeHtml(chip.label)}</option>`
+      )).join('')}
+    </select>
+  </label>`;
+  el.querySelector('#activity-author-select')?.addEventListener('change', (event) => {
+    activityAuthorFilter = event.target.value || '';
+    lastActivityListKey = null;
+    if (lastBgState) renderRecordingsSection(lastBgState);
   });
 }
 
@@ -3042,9 +3044,17 @@ function verifiedCallerIds() {
   );
 }
 
-function openCallerIdSettings() {
-  const url = callingConfig.settingsUrl || '';
+async function openDashboardPath(path) {
+  const url = path.startsWith('http') ? path : `${await api.appUrl()}${path}`;
   if (url) chrome.tabs.create({ url });
+}
+
+function openCallerIdSettings() {
+  void openDashboardPath(callingConfig.settingsUrl || '/dashboard/settings/calling#caller-id');
+}
+
+function openGeneralSettings() {
+  void openDashboardPath('/dashboard/settings');
 }
 
 function ensureKeypad() {
@@ -3121,6 +3131,10 @@ function renderCallSection() {
   });
 
   const showCta = mode === 'contact' && cta.visible;
+  const settingsBtn = document.getElementById('open-calling-settings');
+  const callRow = document.getElementById('call-cta-row');
+  if (settingsBtn) settingsBtn.hidden = !enabled || !showCta;
+  if (callRow) callRow.hidden = !showCta;
   if (contactBtn) {
     contactBtn.hidden = !showCta;
     if (contactLabel) contactLabel.textContent = cta.label || 'Llamar a este contacto';
@@ -3302,6 +3316,8 @@ document.getElementById('call-notice-dismiss')?.addEventListener('click', () => 
   chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
 });
 document.getElementById('call-add-number-empty')?.addEventListener('click', openCallerIdSettings);
+document.getElementById('open-calling-settings')?.addEventListener('click', openCallerIdSettings);
+document.getElementById('open-dashboard-settings')?.addEventListener('click', openGeneralSettings);
 document.getElementById('call-mute')?.addEventListener('click', () => {
   const muted = document.getElementById('call-mute')?.getAttribute('aria-pressed') !== 'true';
   chrome.runtime.sendMessage({ type: 'MUTE_CALL', muted });
@@ -3833,6 +3849,12 @@ try {
 // ============================================
 // LOGIN HANDLERS
 // ============================================
+document.getElementById('forgot-password-link')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  const url = `${await api.appUrl()}/forgot-password`;
+  chrome.tabs.create({ url });
+});
+
 document.getElementById('login-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const btn = e.target.querySelector('button');
@@ -3892,6 +3914,7 @@ async function init() {
     } else {
       companyAuthors = [];
     }
+    activityAuthorFilter = defaultActivityAuthorFilter(user);
 
     markSignedIn();
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });

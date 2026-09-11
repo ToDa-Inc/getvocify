@@ -17,12 +17,12 @@ const ROLE_OPTIONS = [
   {
     value: "member" as const,
     label: "Member",
-    hint: "Shared CRM and glossary. Calls stay theirs; owners and admins see every teammate’s labeled activity.",
+    hint: "Own login, password, and email. Shared CRM. Only their memos and HubSpot recordings (email must match their HubSpot user).",
   },
   {
     value: "admin" as const,
     label: "Admin",
-    hint: "Invite the team, and edit CRM fields and offer context.",
+    hint: "Invite the team, edit CRM and offer. Activity defaults to Mine; All shows every teammate’s labeled calls and memos.",
   },
 ];
 
@@ -173,6 +173,11 @@ const TeamPage = () => {
             {seatsUsed} of {seatLimit} seats
           </p>
         </div>
+        {!canManage && (
+          <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
+            Your password and email are yours. Change the password from Profile. Memos and HubSpot recordings stay filtered to you unless an admin opens All.
+          </p>
+        )}
         <div className="divide-y divide-border/40">
           {(roster?.members ?? []).map((m) => (
             <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">

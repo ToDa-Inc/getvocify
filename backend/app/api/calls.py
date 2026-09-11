@@ -72,7 +72,7 @@ class CallerIdConfirmRequest(BaseModel):
 
 
 def _settings_url() -> str:
-    return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/settings#caller-id"
+    return f"{(settings.FRONTEND_URL or '').rstrip('/')}/dashboard/settings/calling#caller-id"
 
 
 def _http_from_telnyx_status(exc: httpx.HTTPStatusError) -> HTTPException:

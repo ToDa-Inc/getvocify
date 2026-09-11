@@ -10,7 +10,7 @@ import { callsApi } from "@/features/calls/api";
 import { useCallingConfig } from "@/features/calls/useCallingConfig";
 import type { CallerId } from "@/features/calls/types";
 import { ApiError } from "@/shared/lib/api-client";
-import { callerIdFormVisible, callerIdOtpVisible } from "@/lib/dial-target";
+import { callerIdOtpVisible, callerIdSetupPhase } from "@/lib/dial-target";
 
 const POLL_MS = 3000;
 const POLL_MAX_MS = 120_000;
@@ -27,6 +27,8 @@ export const CallerIdSettings = () => {
   const [pollExpired, setPollExpired] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<CallerId | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [retrySend, setRetrySend] = useState(false);
   const pollUntilRef = useRef<number | null>(null);
   const pollIdRef = useRef<number | null>(null);
 
@@ -91,7 +93,7 @@ export const CallerIdSettings = () => {
         setVerificationCode(null);
         setOtpPhone(null);
         setOtpCode("");
-        toast.success("Este número ya está verificado");
+        toast.success("This number is already verified");
       } else if (result.needsCodeSubmit) {
         setVerificationCode(null);
         setOtpPhone(result.phoneNumber);
@@ -104,6 +106,7 @@ export const CallerIdSettings = () => {
         setOtpPhone(null);
       }
       setNumber("");
+      setRetrySend(false);
       await load();
     } catch (error) {
       const detail =
@@ -114,7 +117,7 @@ export const CallerIdSettings = () => {
         typeof (error.data as { detail: unknown }).detail === "string"
           ? (error.data as { detail: string }).detail
           : null;
-      toast.error(detail || "No se pudo iniciar la verificación");
+      toast.error(detail || "Could not start verification");
     } finally {
       setIsSaving(false);
     }
@@ -129,7 +132,7 @@ export const CallerIdSettings = () => {
       await callsApi.confirmCallerId(phone, code);
       setOtpPhone(null);
       setOtpCode("");
-      toast.success("Número verificado");
+      toast.success("Number verified");
       await load();
     } catch (error) {
       const detail =
@@ -140,7 +143,7 @@ export const CallerIdSettings = () => {
         typeof (error.data as { detail: unknown }).detail === "string"
           ? (error.data as { detail: string }).detail
           : null;
-      toast.error(detail || "No se pudo confirmar el código");
+      toast.error(detail || "Could not confirm the code");
     } finally {
       setIsConfirming(false);
     }
@@ -153,7 +156,7 @@ export const CallerIdSettings = () => {
         prev ? { ...prev, callerIds: result.callerIds } : prev,
       );
     } catch {
-      toast.error("No se pudo marcar como predeterminado");
+      toast.error("Could not set as default");
     }
   };
 
@@ -167,10 +170,10 @@ export const CallerIdSettings = () => {
         setOtpCode("");
       }
       setPendingDelete(null);
-      toast.success("Número eliminado");
+      toast.success("Number removed");
       await load();
     } catch {
-      toast.error("No se pudo eliminar el número");
+      toast.error("Could not remove the number");
     } finally {
       setIsDeleting(false);
     }
@@ -184,163 +187,220 @@ export const CallerIdSettings = () => {
     );
   }
 
+  const showOtp = callerIdOtpVisible({
+    provider: config?.provider,
+    enabled: config?.enabled,
+    otpTarget,
+  });
+  const verifying = Boolean(hasPending || verificationCode || otpTarget);
+  const phase = callerIdSetupPhase({
+    numberCount: ids.length,
+    verifying,
+    showAddForm,
+  });
+  const showSendForm =
+    Boolean(config?.enabled) && (phase === "add" || (phase === "verify" && retrySend));
+
+  const sendForm = (
+    <div className="space-y-3">
+      {whatsappUnused && (
+        <button
+          type="button"
+          className="text-xs text-beige hover:underline"
+          onClick={() => setNumber(whatsappPhone)}
+        >
+          Use {whatsappPhone} from your profile
+        </button>
+      )}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Input
+          value={number}
+          onChange={(e) => setNumber(e.target.value)}
+          placeholder="+34 600 111 222"
+          className="rounded-full h-11"
+        />
+        <Button
+          onClick={handleVerify}
+          disabled={isSaving || !number.trim()}
+          className="rounded-full bg-beige text-cream px-6"
+        >
+          {isSaving ? (
+            <>
+              <VocifySpinner size={12} />
+              Sending…
+            </>
+          ) : (
+            "Send code"
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div>
         <h3 className={THEME_TOKENS.typography.sectionTitle}>Caller ID</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          {isTelnyx
-            ? "El número que verán tus prospectos. Te enviaremos un código a ese número; introdúcelo aquí."
-            : "El número que verán tus prospectos. Twilio te llamará, en inglés, y teclearás un código."}
+        <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+          The number people see when you call from Vocify. Verify it once, then dial from the
+          extension.
         </p>
       </div>
 
       {!config?.enabled && (
         <p className="text-sm text-muted-foreground">
-          Las llamadas no están configuradas en este entorno.
+          Calling is not available in this environment.
         </p>
       )}
 
       {config?.enabled && config.hubspotLogging === false && (
         <p className="text-xs text-muted-foreground">
-          Las llamadas se grabarán en Vocify, pero no se registrarán en HubSpot
-          hasta que HUBSPOT_APP_ID esté configurado.
+          Calls stay in Vocify until HubSpot call logging is configured.
         </p>
       )}
 
-      {ids.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {isTelnyx
-            ? "Verifica tu número una vez. Te enviaremos un código; introdúcelo aquí. Vocify nunca genera ni muestra ese código."
-            : "Verifica tu número una vez. Twilio te llamará, en inglés, desde un número de Estados Unidos, y teclearás un código."}
-        </p>
-      ) : (
+      {ids.length > 0 && (
         <ul className="space-y-3">
-          {ids.map((row) => (
-            <li
-              key={row.phoneNumber}
-              className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 px-4 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">{row.phoneNumber}</p>
-                {row.label ? (
-                  <p className="text-xs text-muted-foreground">{row.label}</p>
+          {ids.map((row) => {
+            const ready = row.status === "verified";
+            const statusLabel = ready
+              ? row.isDefault
+                ? "Ready · default"
+                : "Ready"
+              : "Waiting for the code";
+            return (
+              <li
+                key={row.phoneNumber}
+                className="flex flex-wrap items-center gap-3 rounded-xl border border-border/40 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-foreground">{row.phoneNumber}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {row.label ? `${row.label} · ${statusLabel}` : statusLabel}
+                  </p>
+                </div>
+                {ready &&
+                !row.isDefault &&
+                ids.filter((item) => item.status === "verified").length > 1 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => handleDefault(row.phoneNumber)}
+                  >
+                    Use as default
+                  </Button>
                 ) : null}
-              </div>
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                {row.status}
-              </span>
-              {row.status === "verified" &&
-              !row.isDefault &&
-              ids.filter((c) => c.status === "verified").length > 1 ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 rounded-full px-3 text-[10px]"
-                  onClick={() => handleDefault(row.phoneNumber)}
-                >
-                  Hacer predeterminado
-                </Button>
-              ) : null}
-              {row.source !== "twilio" ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 rounded-full px-3 text-[10px]"
-                  onClick={() => setPendingDelete(row)}
-                >
-                  Eliminar
-                </Button>
-              ) : null}
-            </li>
-          ))}
+                {row.source !== "twilio" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => setPendingDelete(row)}
+                  >
+                    Remove
+                  </Button>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {callerIdFormVisible({ isLoading, enabled: config?.enabled }) && (
-        <div className="space-y-3">
-          {whatsappUnused && (
+      {phase === "ready" && (
+        <button
+          type="button"
+          className="text-xs text-beige hover:underline"
+          onClick={() => setShowAddForm(true)}
+        >
+          Add another number
+        </button>
+      )}
+
+      {phase === "add" && config?.enabled && (
+        <div className="space-y-4 rounded-2xl border border-border/40 bg-secondary/5 px-5 py-5">
+          <div>
+            <p className={THEME_TOKENS.typography.capsLabel}>Add a number</p>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              {isTelnyx
+                ? "International format. We text a code to that phone — Vocify never invents or shows it."
+                : "International format. You get a short call in English and type the code we show next."}
+            </p>
+          </div>
+          {sendForm}
+          {ids.length > 0 && (
             <button
               type="button"
-              className="text-xs text-beige underline"
-              onClick={() => setNumber(whatsappPhone)}
+              className="text-xs text-muted-foreground hover:underline"
+              onClick={() => setShowAddForm(false)}
             >
-              Usar {whatsappPhone} (tu número de WhatsApp)
+              Cancel
             </button>
           )}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              placeholder="+34 600 111 222"
-              className="rounded-full h-11"
-            />
-            <Button
-              onClick={handleVerify}
-              disabled={isSaving || !number.trim()}
-              className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
-            >
-              {isSaving ? (
-                <>
-                  <VocifySpinner size={12} />
-                  Verificando…
-                </>
-              ) : (
-                "Verificar"
-              )}
-            </Button>
+        </div>
+      )}
+
+      {phase === "verify" && (
+        <div className="space-y-4 rounded-2xl border border-border/40 bg-secondary/5 px-5 py-5">
+          <div>
+            <p className={THEME_TOKENS.typography.capsLabel}>Finish verification</p>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              {isTelnyx
+                ? `Enter the code sent to ${otpTarget}.`
+                : verificationCode
+                  ? "Answer the call and type this code on your keypad."
+                  : "Answer the verification call, or send a new code if you missed it."}
+            </p>
           </div>
           {verificationCode && !isTelnyx && (
-            <p className="text-center text-2xl font-bold tracking-[0.3em]">
+            <p className="text-2xl font-semibold tracking-[0.25em] text-foreground">
               {verificationCode}
-              <span className="mt-2 block text-xs font-normal tracking-normal text-muted-foreground">
-                Twilio llamará a ese número, en inglés, desde un número de
-                Estados Unidos. Teclea este código.
-              </span>
             </p>
           )}
-          {callerIdOtpVisible({
-            provider: config?.provider,
-            enabled: config?.enabled,
-            otpTarget,
-          }) && (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Introduce el código enviado a {otpTarget}. Vocify nunca genera
-                ni muestra ese código.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder="Código"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={12}
-                  className="rounded-full h-11"
-                />
-                <Button
-                  type="button"
-                  onClick={handleConfirm}
-                  disabled={isConfirming || !otpCode.trim()}
-                  className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
-                >
-                  {isConfirming ? (
-                    <>
-                      <VocifySpinner size={12} />
-                      Confirmando…
-                    </>
-                  ) : (
-                    "Confirmar código"
-                  )}
-                </Button>
-              </div>
+          {showOtp && (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                placeholder="Code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={12}
+                className="rounded-full h-11"
+              />
+              <Button
+                type="button"
+                onClick={handleConfirm}
+                disabled={isConfirming || !otpCode.trim()}
+                className="rounded-full bg-beige text-cream px-6"
+              >
+                {isConfirming ? (
+                  <>
+                    <VocifySpinner size={12} />
+                    Confirming…
+                  </>
+                ) : (
+                  "Confirm"
+                )}
+              </Button>
             </div>
           )}
           {pollExpired && !isTelnyx && (
-            <p className="text-sm text-muted-foreground">
-              La verificación ha caducado. Inténtalo de nuevo.
-            </p>
+            <p className="text-sm text-muted-foreground">The call expired. Send a new code.</p>
+          )}
+          {showSendForm ? (
+            sendForm
+          ) : (
+            <button
+              type="button"
+              className="text-xs text-beige hover:underline"
+              onClick={() => {
+                if (otpTarget) setNumber(otpTarget);
+                setRetrySend(true);
+              }}
+            >
+              Send a new code
+            </button>
           )}
         </div>
       )}
@@ -348,13 +408,13 @@ export const CallerIdSettings = () => {
       <ConfirmAction
         open={pendingDelete !== null}
         onOpenChange={(open) => !open && setPendingDelete(null)}
-        title="¿Eliminar este número?"
+        title="Remove this number?"
         description={
           pendingDelete
-            ? `${pendingDelete.phoneNumber} dejará de usarse como caller ID.`
+            ? `${pendingDelete.phoneNumber} will no longer be used as caller ID.`
             : ""
         }
-        confirmLabel="Eliminar"
+        confirmLabel="Remove"
         pending={isDeleting}
         onConfirm={() => void handleDelete()}
       />

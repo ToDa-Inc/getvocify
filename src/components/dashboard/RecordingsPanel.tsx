@@ -231,9 +231,11 @@ export function RecordingsPanel({
         ) : visibleRecordings.length === 0 ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
             <p className="text-muted-foreground">
-              {authorUserId
+              {authorUserId && authorUserId !== currentUserId
                 ? "No recordings for this teammate. Try All to see every labeled call."
-                : "No call recordings found yet."}
+                : authorUserId
+                  ? "No recordings of yours yet. Try All to see every labeled call."
+                  : "No call recordings found yet."}
             </p>
           </div>
         ) : (

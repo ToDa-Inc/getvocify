@@ -22,7 +22,7 @@ from app.services.auth_session import (
     classify_refresh_failure,
     should_reissue_on_gotrue_bug,
 )
-from supabase import Client
+from supabase import Client, create_client
 
 _refresh_reuse = RefreshTokenReuseCache(ttl_seconds=30)
 
@@ -434,6 +434,38 @@ class ResetPasswordConfirmRequest(BaseModel):
     password: str = Field(..., min_length=8)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+
+
+def _verify_current_password(email: str, password: str) -> None:
+    # Fresh anon client so we do not stamp a user JWT onto the shared auth singleton.
+    anon = (getattr(settings, "SUPABASE_ANON_KEY", None) or "").strip()
+    key = anon or settings.SUPABASE_SERVICE_ROLE_KEY
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Auth is not configured",
+        )
+    check_client = create_client(settings.SUPABASE_URL, key)
+    try:
+        check = check_client.auth.sign_in_with_password({
+            "email": email,
+            "password": password,
+        })
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        ) from exc
+    if not getattr(check, "user", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+
 @router.post("/reset-password")
 @limiter.limit("5/hour")
 async def forgot_password(
@@ -455,8 +487,37 @@ async def reset_password_confirm(
     supabase: Client = Depends(get_supabase),
 ):
     svc = CompanyService(supabase)
-    svc.consume_password_reset(body.token, body.password)
+    email = svc.consume_password_reset(body.token, body.password)
+    if email:
+        await svc.notify_password_changed(email)
     return {"success": True, "message": "Password updated. You can now log in."}
+
+
+@router.post("/change-password")
+@limiter.limit("5/hour")
+async def change_password(
+    request: Request,
+    body: ChangePasswordRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Signed-in user changes their own password. Emails the account on success."""
+    if body.current_password == body.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different",
+        )
+    svc = CompanyService(supabase)
+    email = _email_from_access_token(_bearer_token_from_request(request)) or svc.email_for_user(user_id)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not resolve account email",
+        )
+    _verify_current_password(email, body.current_password)
+    supabase.auth.admin.update_user_by_id(user_id, {"password": body.new_password})
+    await svc.notify_password_changed(email)
+    return {"success": True, "message": "Password updated"}
 
 
 @router.post("/logout")

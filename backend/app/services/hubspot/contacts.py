@@ -102,7 +102,7 @@ class HubSpotContactService:
             encoded = quote(email.strip().lower(), safe="")
             response = await self.client.get(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}/{encoded}",
-                params={"idProperty": "email", "properties": "email,firstname,lastname,phone,jobtitle"},
+                params={"idProperty": "email", "properties": "email,firstname,lastname,phone,mobilephone,jobtitle"},
             )
             if response:
                 return HubSpotContact(**response)
@@ -114,7 +114,7 @@ class HubSpotContactService:
         """
         Get a contact by ID.
         """
-        props = properties or ["email", "firstname", "lastname", "phone", "jobtitle"]
+        props = properties or ["email", "firstname", "lastname", "phone", "mobilephone", "jobtitle"]
         try:
             response = await self.client.get(
                 f"/crm/v3/objects/{self.OBJECT_TYPE}/{contact_id}",

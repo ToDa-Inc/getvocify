@@ -28,6 +28,7 @@ def build_invite_email_html(*, company_name: str, invite_url: str, expires_days:
     body = f"""
 <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#444;">
   You've been invited to join <strong>{company_name}</strong> on Vocify.
+  You'll create your own password. Use this same email as your HubSpot user so your calls and CRM updates assign to you.
 </p>
 <p style="margin:0 0 28px;">
   <a href="{invite_url}" style="display:inline-block;background:#B8956A;color:#FFFFFF;text-decoration:none;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:600;">

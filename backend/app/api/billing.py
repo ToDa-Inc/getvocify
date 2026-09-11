@@ -16,9 +16,10 @@ from app.services.billing.catalog import catalog_payload
 from app.services.billing.entitlement import (
     billing_status_of,
     plan_type_of,
+    subscription_item_id,
     workspace_entitlements,
 )
-from app.services.billing.store import apply_subscription, upsert_customer
+from app.services.billing.store import upsert_customer
 from app.services.billing.stripe_service import (
     StripeService,
     StripeServiceError,
@@ -197,17 +198,24 @@ async def create_checkout(
         if plan_type_of(billing) == body.plan and billing.get("billing_interval") == body.interval:
             return CheckoutResponse(action="updated", plan_type=body.plan)
         try:
-            updated = stripe_svc.update_subscription(
+            subscription = stripe_svc.retrieve_subscription(str(sub_id))
+            item_id = subscription_item_id(subscription)
+            if not item_id:
+                raise StripeServiceError("Subscription has no items")
+            portal_url = stripe_svc.create_subscription_update_portal_session(
+                customer_id=str(customer_id),
+                return_url=_with_query(return_url, "billing", "success"),
                 subscription_id=str(sub_id),
-                company_id=membership.company_id,
-                plan=body.plan,
-                interval=body.interval,
+                subscription_item_id=str(item_id),
                 price_id=price_id,
             )
         except StripeServiceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        apply_subscription(supabase, company, updated)
-        return CheckoutResponse(action="updated", plan_type=body.plan)
+        return CheckoutResponse(
+            action="checkout",
+            checkout_url=portal_url,
+            plan_type=body.plan,
+        )
 
     try:
         session = stripe_svc.create_checkout_session(

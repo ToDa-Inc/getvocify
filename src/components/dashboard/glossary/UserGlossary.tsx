@@ -11,7 +11,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { glossaryApi, glossaryKeys, GlossaryItem, BulkAddItem } from "@/lib/api/glossary";
 import { parseBulkInput, type ParsedBulkItem } from "@/lib/glossary/parseBulkInput";
 
-export const UserGlossary = () => {
+export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
   const queryClient = useQueryClient();
   const { data: items = [], isLoading } = useQuery({
     queryKey: glossaryKeys.list(),
@@ -199,9 +199,12 @@ export const UserGlossary = () => {
         <div>
           <h3 className={THEME_TOKENS.typography.sectionTitle}>Glossary</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            Add names and terms this workspace actually says. Starts empty.
+            {readOnly
+              ? "Workspace terms used in transcription. Ask an admin to change them."
+              : "Add names and terms this workspace actually says. Starts empty."}
           </p>
         </div>
+        {!readOnly && (
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -220,9 +223,10 @@ export const UserGlossary = () => {
             {isAdding ? "Cancel" : <><Plus className="h-4 w-4 mr-2" /> Add</>}
           </Button>
         </div>
+        )}
       </div>
 
-      {showBulkAdd && (
+      {!readOnly && showBulkAdd && (
         <div className="p-6 rounded-2xl bg-secondary/5 border border-beige/20 space-y-6 animate-in fade-in slide-in-from-top-2">
           <div>
             <h4 className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>Bulk import</h4>
@@ -383,7 +387,7 @@ export const UserGlossary = () => {
         </div>
       )}
 
-      {isAdding && (
+      {!readOnly && isAdding && (
         <div className="p-6 rounded-2xl bg-secondary/5 border border-beige/20 space-y-4 animate-in fade-in slide-in-from-top-2">
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -452,7 +456,9 @@ export const UserGlossary = () => {
           <div className="text-center py-10 border border-dashed border-border/60 rounded-2xl">
             <p className="text-sm text-foreground">No terms yet</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Add company names, product names, or words the transcript keeps missing.
+              {readOnly
+                ? "Ask an admin to add company or product names."
+                : "Add company names, product names, or words the transcript keeps missing."}
             </p>
           </div>
         ) : (
@@ -483,6 +489,7 @@ export const UserGlossary = () => {
                   )}
                 </div>
               </div>
+              {!readOnly && (
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <IconAction
                   label={`Remove ${item.target_word}`}
@@ -492,6 +499,7 @@ export const UserGlossary = () => {
                   <Trash2 className="h-4 w-4" />
                 </IconAction>
               </div>
+              )}
             </div>
           ))
         )}

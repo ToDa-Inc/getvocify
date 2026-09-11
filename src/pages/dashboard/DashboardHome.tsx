@@ -14,6 +14,7 @@ import {
   authorChipLabel,
   authorDisplayName,
   canViewCompanyActivity,
+  defaultActivityAuthorId,
 } from "@/lib/activity-authors";
 import { memoListTitle, memoListSubtitle } from "@/lib/copilot-note";
 import { RecordingsPanel } from "@/components/dashboard/RecordingsPanel";
@@ -81,7 +82,12 @@ const DashboardHome = () => {
   const { user } = useAuth();
   const displayName = user ? getUserDisplayName(user) : "User";
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
-  const [authorUserId, setAuthorUserId] = useState<string | null>(null);
+  const [authorOverride, setAuthorOverride] = useState<string | null | undefined>(undefined);
+  const authorUserId =
+    authorOverride !== undefined
+      ? authorOverride
+      : defaultActivityAuthorId(canViewCompany, user?.id);
+  const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const { data: membersData } = useQuery({
     queryKey: companyKeys.members(),
@@ -123,12 +129,12 @@ const DashboardHome = () => {
       />
 
       {canViewCompany ? (
-        <AuthorFilter
-          authors={authors}
-          value={authorUserId}
-          onChange={setAuthorUserId}
-          currentUserId={user?.id}
-        />
+            <AuthorFilter
+              authors={authors}
+              value={authorUserId}
+              onChange={setAuthorOverride}
+              currentUserId={user?.id}
+            />
       ) : null}
 
       <RecordingsPanel
@@ -157,9 +163,11 @@ const DashboardHome = () => {
           ) : recentMemos.length === 0 ? (
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 text-center`}>
               <p className="text-muted-foreground">
-                {authorUserId
+                {viewingTeammate
                   ? "No memos for this teammate. Try All to see every labeled conversation."
-                  : "No memos yet. Record your first one above."}
+                  : canViewCompany && authorUserId
+                    ? "No memos of yours yet. Try All to see every labeled conversation."
+                    : "No memos yet. Record your first one above."}
               </p>
             </div>
           ) : (

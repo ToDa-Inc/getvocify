@@ -170,6 +170,16 @@ export const authApi = {
       password,
     });
   },
+
+  /**
+   * Change password while signed in. Sends a confirmation email.
+   */
+  changePassword: (currentPassword: string, newPassword: string): Promise<void> => {
+    return api.post<void>('/auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+  },
 };
 
 

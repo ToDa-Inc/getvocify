@@ -78,3 +78,65 @@ export function planPageContextUpdate(prev, next) {
     replaceLists: !sameScope,
   };
 }
+
+const IDENTITY_FIELDS = [
+  'dealName',
+  'contactName',
+  'companyName',
+  'contactEmail',
+  'contactPhone',
+  'contactId',
+  'companyId',
+  'dealContacts',
+  'companyContacts',
+];
+
+const IDENTITY_CACHE_MAX = 40;
+
+function identitySnapshot(ctx) {
+  const key = recordScopeKey(ctx);
+  if (!key) return null;
+  const snap = { objectType: ctx.objectType, recordId: ctx.recordId };
+  let useful = false;
+  for (const field of IDENTITY_FIELDS) {
+    if (ctx[field] != null) {
+      snap[field] = ctx[field];
+      useful = true;
+    }
+  }
+  return useful ? snap : null;
+}
+
+/** Paint name/phone from a prior visit to this exact record. Never copies another record. */
+export function hydrateFromIdentityCache(urlCtx, cache) {
+  const key = recordScopeKey(urlCtx);
+  if (!key || !cache) return urlCtx;
+  const cached = cache instanceof Map ? cache.get(key) : cache[key];
+  if (!cached) return urlCtx;
+  const next = { ...urlCtx };
+  for (const field of IDENTITY_FIELDS) {
+    if (cached[field] != null) next[field] = cached[field];
+  }
+  return next;
+}
+
+export function rememberIdentity(cache, enriched, maxEntries = IDENTITY_CACHE_MAX) {
+  const key = recordScopeKey(enriched);
+  const snap = identitySnapshot(enriched);
+  const next = cache instanceof Map ? new Map(cache) : new Map();
+  if (!key || !snap) return next;
+  if (next.has(key)) next.delete(key);
+  next.set(key, snap);
+  while (next.size > maxEntries) {
+    next.delete(next.keys().next().value);
+  }
+  return next;
+}
+
+export function identityCacheToEntries(cache) {
+  return cache instanceof Map ? [...cache.entries()] : [];
+}
+
+export function identityCacheFromEntries(entries) {
+  return new Map(Array.isArray(entries) ? entries : []);
+}

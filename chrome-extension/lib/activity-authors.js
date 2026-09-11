@@ -49,3 +49,19 @@ export function authorsFromMembers(members) {
     }))
     .filter((author) => author.userId);
 }
+
+export function defaultActivityAuthorFilter(user) {
+  if (canViewCompanyActivity(user) && user?.id) return String(user.id);
+  return '';
+}
+
+export function activityFilterChips(authors, currentUserId) {
+  const chips = [];
+  if (currentUserId) chips.push({ id: String(currentUserId), label: 'Mine' });
+  chips.push({ id: '', label: 'All' });
+  for (const author of authors || []) {
+    if (!author?.userId || String(author.userId) === String(currentUserId || '')) continue;
+    chips.push({ id: String(author.userId), label: author.label });
+  }
+  return chips;
+}

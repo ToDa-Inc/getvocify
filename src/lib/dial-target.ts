@@ -112,6 +112,17 @@ export function callerIdFormVisible(args: {
   return !args.isLoading;
 }
 
+/** Which caller-ID panel to show: add a number, finish verification, or the ready list. */
+export function callerIdSetupPhase(args: {
+  numberCount: number;
+  verifying: boolean;
+  showAddForm: boolean;
+}): "add" | "verify" | "ready" {
+  if (args.verifying) return "verify";
+  if (args.numberCount === 0 || args.showAddForm) return "add";
+  return "ready";
+}
+
 /** Telnyx OTP field: pending number exists, calling is on, provider is Telnyx. */
 export function callerIdOtpVisible(args: {
   provider?: string;

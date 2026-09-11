@@ -5,6 +5,7 @@ import {
   callButtonLabel,
   callerIdFormVisible,
   callerIdOtpVisible,
+  callerIdSetupPhase,
   canMute,
   canSendDigits,
   contactInitials,
@@ -103,6 +104,33 @@ describe('dialTargetFromContact', () => {
     assert.equal(dialTargetFromContact(null), null);
     assert.equal(dialTargetFromContact({ phone: null }), null);
     assert.equal(dialTargetFromContact({ phone: 'n/a' }), null);
+  });
+});
+
+describe('callerIdSetupPhase', () => {
+  it('shows verify while a number is waiting, even if the add form is open', () => {
+    assert.equal(
+      callerIdSetupPhase({ numberCount: 1, verifying: true, showAddForm: true }),
+      'verify',
+    );
+  });
+
+  it('shows add when there are no numbers yet', () => {
+    assert.equal(
+      callerIdSetupPhase({ numberCount: 0, verifying: false, showAddForm: false }),
+      'add',
+    );
+  });
+
+  it('shows the ready list until the user asks to add another', () => {
+    assert.equal(
+      callerIdSetupPhase({ numberCount: 1, verifying: false, showAddForm: false }),
+      'ready',
+    );
+    assert.equal(
+      callerIdSetupPhase({ numberCount: 1, verifying: false, showAddForm: true }),
+      'add',
+    );
   });
 });
 

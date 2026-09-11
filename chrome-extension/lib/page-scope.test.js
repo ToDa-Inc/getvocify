@@ -1,6 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { keepReviewSessionContext, mergePageContext, planPageContextUpdate, recordScopeKey, recordingsScopeKey } from './page-scope.js';
+import {
+  hydrateFromIdentityCache,
+  identityCacheFromEntries,
+  identityCacheToEntries,
+  keepReviewSessionContext,
+  mergePageContext,
+  planPageContextUpdate,
+  recordScopeKey,
+  recordingsScopeKey,
+  rememberIdentity,
+} from './page-scope.js';
 
 describe('recordScopeKey', () => {
   it('keys by object type and id', () => {
@@ -108,5 +118,77 @@ describe('keepReviewSessionContext', () => {
     const kept = keepReviewSessionContext(locked, enriched);
     assert.equal(kept.contactName, 'Franck');
     assert.equal(kept.recordId, 'C1');
+  });
+});
+
+describe('identity cache', () => {
+  it('hydrates a URL-only contact from a previous visit to that same record', () => {
+    const cache = rememberIdentity(new Map(), {
+      objectType: 'contact',
+      recordId: 'C2',
+      contactName: 'Andreea Mora',
+      contactPhone: '+34669701069',
+    });
+    const urlOnly = { objectType: 'contact', recordId: 'C2', hubId: '1', region: 'eu1' };
+    const hydrated = hydrateFromIdentityCache(urlOnly, cache);
+    assert.equal(hydrated.contactName, 'Andreea Mora');
+    assert.equal(hydrated.contactPhone, '+34669701069');
+    assert.equal(hydrated.hubId, '1');
+    assert.equal(hydrated._enrichedKey, undefined);
+  });
+
+  it('does not reuse another contact’s phone', () => {
+    const cache = rememberIdentity(new Map(), {
+      objectType: 'contact',
+      recordId: 'C1',
+      contactName: 'Dani',
+      contactPhone: '+34600000001',
+    });
+    const hydrated = hydrateFromIdentityCache(
+      { objectType: 'contact', recordId: 'C2' },
+      cache,
+    );
+    assert.equal(hydrated.contactPhone, undefined);
+    assert.equal(hydrated.recordId, 'C2');
+  });
+
+  it('lets a tab switch paint the cached phone on the first broadcast', () => {
+    const cache = rememberIdentity(new Map(), {
+      objectType: 'contact',
+      recordId: 'C2',
+      contactName: 'Andreea',
+      contactPhone: '+34669701069',
+    });
+    const prev = {
+      objectType: 'contact',
+      recordId: 'C1',
+      contactName: 'Dani',
+      contactPhone: '+34600000001',
+    };
+    const plan = planPageContextUpdate(
+      prev,
+      hydrateFromIdentityCache({ objectType: 'contact', recordId: 'C2' }, cache),
+    );
+    assert.equal(plan.skipBroadcast, false);
+    assert.equal(plan.context.contactName, 'Andreea');
+    assert.equal(plan.context.contactPhone, '+34669701069');
+  });
+
+  it('round-trips LRU entries for session storage', () => {
+    let cache = rememberIdentity(new Map(), {
+      objectType: 'contact',
+      recordId: 'C1',
+      contactPhone: '+1',
+    });
+    cache = rememberIdentity(cache, {
+      objectType: 'contact',
+      recordId: 'C2',
+      contactPhone: '+2',
+    });
+    const restored = identityCacheFromEntries(identityCacheToEntries(cache));
+    assert.equal(
+      hydrateFromIdentityCache({ objectType: 'contact', recordId: 'C2' }, restored).contactPhone,
+      '+2',
+    );
   });
 });

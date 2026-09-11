@@ -2,6 +2,7 @@
 CRM integration API endpoints
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
@@ -409,7 +410,19 @@ async def get_contact_context_for_extension(
         client = get_hubspot_client_from_connection(user_id, supabase)
         search_service = HubSpotSearchService(client)
         contact_service = HubSpotContactService(client, search_service)
-        contact = await contact_service.get(contact_id)
+        from app.services.hubspot.associations import HubSpotAssociationService
+        from app.services.hubspot.companies import HubSpotCompanyService
+
+        associations = HubSpotAssociationService(client)
+        contact, company_ids = await asyncio.gather(
+            contact_service.get(contact_id),
+            associations.get_associations("contacts", contact_id, "companies"),
+            return_exceptions=True,
+        )
+        if isinstance(contact, Exception):
+            return empty
+        if isinstance(company_ids, Exception):
+            company_ids = []
         props = contact.properties or {}
         first = props.get("firstname") or ""
         last = props.get("lastname") or ""
@@ -419,11 +432,6 @@ async def get_contact_context_for_extension(
         company_id = None
         company_name = None
         try:
-            from app.services.hubspot.associations import HubSpotAssociationService
-            from app.services.hubspot.companies import HubSpotCompanyService
-
-            associations = HubSpotAssociationService(client)
-            company_ids = await associations.get_associations("contacts", contact_id, "companies")
             if company_ids:
                 company_id = str(company_ids[0])
                 company_service = HubSpotCompanyService(client, search_service)

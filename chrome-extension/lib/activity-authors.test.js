@@ -1,10 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  activityFilterChips,
   activityItemAuthorId,
   authorChipLabel,
   authorsFromMembers,
   canViewCompanyActivity,
+  defaultActivityAuthorFilter,
   filterActivityByAuthor,
 } from './activity-authors.js';
 
@@ -36,5 +38,18 @@ describe('activity authors', () => {
       { userId: 'u2', full_name: '', email: 'bob@acme.com', status: 'active' },
     ]);
     assert.deepEqual(authors.map((a) => a.label), ['Ada', 'bob']);
+  });
+
+  it('defaults owners to Mine and members to no filter', () => {
+    assert.equal(defaultActivityAuthorFilter({ id: 'u1', company: { role: 'owner' } }), 'u1');
+    assert.equal(defaultActivityAuthorFilter({ id: 'u1', company: { role: 'member' } }), '');
+  });
+
+  it('orders extension chips Mine then All then teammates', () => {
+    const chips = activityFilterChips(
+      [{ userId: 'u1', label: 'Ada' }, { userId: 'u2', label: 'Bob' }],
+      'u1',
+    );
+    assert.deepEqual(chips.map((chip) => chip.label), ['Mine', 'All', 'Bob']);
   });
 });

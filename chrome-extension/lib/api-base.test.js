@@ -2,8 +2,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LOCAL_API_BASE,
+  LOCAL_APP_URL,
   PROD_API_BASE,
+  PROD_APP_URL,
   apiBaseToWsOrigin,
+  appUrlFromApiBase,
   isUnpackedExtension,
   resolveApiBase,
 } from './api-base.js';
@@ -49,5 +52,15 @@ describe('apiBaseToWsOrigin', () => {
 
   it('maps production https API to wss origin', () => {
     assert.equal(apiBaseToWsOrigin(PROD_API_BASE), 'wss://api.getvocify.com');
+  });
+});
+
+describe('appUrlFromApiBase', () => {
+  it('opens the local app for a local API', () => {
+    assert.equal(appUrlFromApiBase(LOCAL_API_BASE), LOCAL_APP_URL);
+  });
+
+  it('opens the production app for the production API', () => {
+    assert.equal(appUrlFromApiBase(PROD_API_BASE), PROD_APP_URL);
   });
 });

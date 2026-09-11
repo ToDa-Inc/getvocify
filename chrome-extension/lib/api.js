@@ -15,7 +15,7 @@ import {
   shouldClearAuthOnRefreshStatus,
 } from './auth-session.js';
 import { parseSseBuffer } from './copilot-sse.js';
-import { PROD_API_BASE, isUnpackedExtension, resolveApiBase } from './api-base.js';
+import { PROD_API_BASE, appUrlFromApiBase, isUnpackedExtension, resolveApiBase } from './api-base.js';
 
 async function getApiBase() {
   try {
@@ -205,6 +205,10 @@ export const api = {
   request,
 
   // Convenience methods
+  async appUrl() {
+    return appUrlFromApiBase(await getApiBase());
+  },
+
   get: (endpoint) => request(endpoint),
   post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
   patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),

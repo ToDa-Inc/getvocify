@@ -1,9 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  activityFilterChips,
   authorChipLabel,
   authorDisplayName,
   canViewCompanyActivity,
+  defaultActivityAuthorId,
   filterByAuthor,
 } from "./activity-authors.ts";
 
@@ -35,5 +37,27 @@ describe("activity authors", () => {
       ["b"],
     );
     assert.equal(filterByAuthor(rows, null, (row) => row.userId).length, 2);
+  });
+
+  it("defaults owners and admins to their own activity", () => {
+    assert.equal(defaultActivityAuthorId(true, "u1"), "u1");
+    assert.equal(defaultActivityAuthorId(false, "u1"), null);
+    assert.equal(defaultActivityAuthorId(true, null), null);
+  });
+
+  it("orders filter chips Mine then All then teammates", () => {
+    const chips = activityFilterChips(
+      [
+        { userId: "u1", label: "Ada" },
+        { userId: "u2", label: "Bob" },
+      ],
+      "u1",
+    );
+    assert.deepEqual(
+      chips.map((chip) => chip.label),
+      ["Mine", "All", "Bob"],
+    );
+    assert.equal(chips[0].id, "u1");
+    assert.equal(chips[1].id, null);
   });
 });
