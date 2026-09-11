@@ -324,6 +324,10 @@ const MemoDetail = () => {
               ? "Extraction failed. Re-extract to continue."
               : !isOwnMemo
                 ? `Recorded by ${memo.authorName || "a teammate"}. Review only.`
+              : memo.status === "approved"
+                ? attachedContact
+                  ? `Already written to CRM for ${attachedContact}${attachedDeal ? ` · ${attachedDeal}` : ""}. Open later to check or correct.`
+                  : "Already written to CRM. Open later to check or correct."
               : attachedContact
                 ? `Attached to ${attachedContact}${attachedDeal ? ` · ${attachedDeal}` : ""}. Review and sync to CRM.`
                 : "Review and sync to CRM."}
@@ -466,6 +470,7 @@ const MemoDetail = () => {
                 fallbackContactName={extraction.contactName || extraction.contact_name}
                 previewRefreshKey={previewRefreshKey}
                 callSummary={extraction.summary}
+                alreadyWritten={memo.status === "approved"}
                 onSuccess={handleSyncSuccess}
                 onContactName={setReviewContactName}
               />

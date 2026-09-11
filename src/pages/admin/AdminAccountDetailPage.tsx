@@ -96,6 +96,10 @@ const AdminAccountDetailPage = () => {
                   <div><dt className="text-muted-foreground">Contact fields</dt><dd>{conn.configuration.allowedContactFields.join(", ") || "—"}</dd></div>
                   <div><dt className="text-muted-foreground">On hold status</dt><dd>{conn.configuration.onHoldLeadStatusValue || "—"}</dd></div>
                   <div><dt className="text-muted-foreground">Lost status</dt><dd>{conn.configuration.lostLeadStatusValue || "—"}</dd></div>
+                  <div>
+                    <dt className="text-muted-foreground">Skip Approve</dt>
+                    <dd>{conn.configuration.autoAcceptCrm ? "On — writes after processing" : "Off — waits for Approve"}</dd>
+                  </div>
                 </dl>
               ) : (
                 <p className="text-sm text-muted-foreground">No configuration saved yet</p>

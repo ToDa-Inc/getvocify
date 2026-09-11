@@ -17,6 +17,7 @@ export const DEFAULT_SALESFORCE_CONFIG: CRMConfiguration = {
   allowed_line_item_fields: [],
   auto_create_contacts: true,
   auto_create_companies: true,
+  auto_sync_hubspot_calls: false,
 };
 
 export async function loadSalesforceSetup(): Promise<SalesforceSetup> {

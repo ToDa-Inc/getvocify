@@ -10,6 +10,7 @@ import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/fill-policy";
+import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
 
 interface HubSpotConfigurationProps {
   onSaved?: () => void;
@@ -232,6 +233,12 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
         </div>
       </div>
 
+      <AutoAcceptCrmToggle
+        checked={Boolean(config.auto_sync_hubspot_calls)}
+        disabled={readOnly}
+        onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_sync_hubspot_calls: val }))}
+      />
+
       {(lineItemsScopeMissing || lineItemsSchemaError) && (
         <div className="rounded-2xl border border-warning/30 bg-warning/5 px-5 py-4 text-sm text-foreground">
           <p className="font-bold mb-1">
@@ -400,23 +407,6 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="flex items-start gap-4 p-3.5 rounded-2xl bg-secondary/5 border border-border/20">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] text-foreground">Auto-update after HubSpot calls</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            When a HubSpot recording is ready, transcribe, extract, and write
-            notes, tasks, and allowed fields. Review or correct later. Lead
-            status is not changed.
-          </p>
-        </div>
-        <Switch
-          className="shrink-0 mt-0.5"
-          checked={Boolean(config.auto_sync_hubspot_calls)}
-          disabled={readOnly}
-          onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_sync_hubspot_calls: val }))}
-        />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">

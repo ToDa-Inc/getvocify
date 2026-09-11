@@ -4,7 +4,7 @@ from app.services.hubspot.auto_sync import (
     connection_matches_portal,
     recording_ready_jobs,
     resolve_auto_sync_user_id,
-    should_auto_approve_hubspot_call,
+    should_auto_approve,
     should_start_auto_sync,
 )
 
@@ -110,51 +110,36 @@ def test_resolve_auto_sync_user_does_not_guess_on_a_team():
     )
 
 
-def test_auto_approve_requires_hubspot_call_toggle_and_locked_record():
+def test_auto_approve_requires_toggle_and_locked_record():
+    assert should_auto_approve(auto_sync_enabled=True, contact_id="c1", deal_id=None) is True
+    assert should_auto_approve(auto_sync_enabled=True, contact_id=None, deal_id="d1") is True
+    assert should_auto_approve(auto_sync_enabled=True, contact_id="", deal_id="  ") is False
+    assert should_auto_approve(auto_sync_enabled=False, contact_id="c1", deal_id="d1") is False
+
+
+def test_auto_approve_covers_dialer_and_voice_memo_when_locked():
+    assert should_auto_approve(auto_sync_enabled=True, contact_id="c1", deal_id="d1") is True
+    assert should_auto_approve(auto_sync_enabled=True, contact_id="c1", deal_id=None) is True
+
+
+def test_auto_approve_skips_screened_out_calls():
     assert (
-        should_auto_approve_hubspot_call(
-            source="hubspot_call",
+        should_auto_approve(
             auto_sync_enabled=True,
             contact_id="c1",
-            deal_id=None,
+            deal_id="d1",
+            screening_outcome="voicemail",
+        )
+        is False
+    )
+    assert (
+        should_auto_approve(
+            auto_sync_enabled=True,
+            contact_id="c1",
+            deal_id="d1",
+            screening_outcome="connected",
         )
         is True
-    )
-    assert (
-        should_auto_approve_hubspot_call(
-            source="hubspot_call",
-            auto_sync_enabled=True,
-            contact_id=None,
-            deal_id="d1",
-        )
-        is True
-    )
-    assert (
-        should_auto_approve_hubspot_call(
-            source="hubspot_call",
-            auto_sync_enabled=True,
-            contact_id="",
-            deal_id="  ",
-        )
-        is False
-    )
-    assert (
-        should_auto_approve_hubspot_call(
-            source="hubspot_call",
-            auto_sync_enabled=False,
-            contact_id="c1",
-            deal_id="d1",
-        )
-        is False
-    )
-    assert (
-        should_auto_approve_hubspot_call(
-            source="vocify_call",
-            auto_sync_enabled=True,
-            contact_id="c1",
-            deal_id="d1",
-        )
-        is False
     )
 
 

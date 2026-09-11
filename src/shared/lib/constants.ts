@@ -41,7 +41,7 @@ export const MEMO_STATUS_CONFIG = {
     bgColor: 'bg-amber-100',
   },
   approved: {
-    label: 'Approved',
+    label: 'Synced',
     color: 'text-green-600',
     bgColor: 'bg-green-100',
   },

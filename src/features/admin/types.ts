@@ -32,6 +32,7 @@ export type AdminAccountConfiguration = {
   allowedLineItemFields: string[];
   autoCreateContacts: boolean | null;
   autoCreateCompanies: boolean | null;
+  autoAcceptCrm: boolean | null;
   lostLeadStatusValue: string | null;
   onHoldLeadStatusValue: string | null;
 };

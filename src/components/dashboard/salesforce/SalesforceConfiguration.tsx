@@ -9,6 +9,7 @@ import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } fro
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
 
 interface SalesforceConfigurationProps {
   onSaved?: () => void;
@@ -141,6 +142,12 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
           </div>
         </div>
       </div>
+
+      <AutoAcceptCrmToggle
+        checked={Boolean(config.auto_sync_hubspot_calls)}
+        disabled={readOnly}
+        onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_sync_hubspot_calls: val }))}
+      />
 
       <div className="space-y-6">
         <div className="flex items-center gap-3 text-beige">

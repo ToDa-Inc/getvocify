@@ -41,7 +41,7 @@ const getStatusBadge = (status: MemoStatus, screeningOutcome?: ScreeningOutcome 
     case "approved":
       return (
         <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-success/10 text-success">
-          Approved
+          Synced
         </span>
       );
     case "pending_review":

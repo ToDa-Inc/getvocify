@@ -47,6 +47,8 @@ interface HubSpotSyncPreviewProps {
   previewRefreshKey?: string;
   /** Structured call note from extraction — shown as the copilot summary */
   callSummary?: string | null;
+  /** Memo already synced (manual Approve or skip-Approve write). */
+  alreadyWritten?: boolean;
   onSuccess: (data: any) => void;
   onContactName?: (name: string | null) => void;
 }
@@ -111,6 +113,7 @@ export const HubSpotSyncPreview = ({
   fallbackContactName = "",
   previewRefreshKey = "default",
   callSummary = "",
+  alreadyWritten = false,
   onContactName,
 }: HubSpotSyncPreviewProps) => {
   const { user } = useAuth();
@@ -1304,13 +1307,20 @@ export const HubSpotSyncPreview = ({
               ? "Select a contact first"
               : needsDealDecision && !dealDecisionMade
                 ? "Select a deal first"
-                : skipDeal && selectedContact
-                  ? "Confirm & Update Contact"
-                  : dealMatch
-                    ? "Confirm & Update Deal"
-                    : "Confirm & Create Deal"}
+                : alreadyWritten
+                  ? "Write correction"
+                  : skipDeal && selectedContact
+                    ? "Confirm & Update Contact"
+                    : dealMatch
+                      ? "Confirm & Update Deal"
+                      : "Confirm & Create Deal"}
         </Button>
-        {loggedAs ? (
+        {alreadyWritten ? (
+          <p className="text-[10px] text-muted-foreground text-center mt-3">
+            This was written after processing. Edit anything that is wrong and write the correction.
+            Lead status is never auto-changed.
+          </p>
+        ) : loggedAs ? (
           <p className="text-[10px] text-muted-foreground text-center mt-3">
             Calls, notes, and tasks log in HubSpot as {loggedAs}. Existing contact owners stay put.
           </p>

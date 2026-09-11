@@ -1,10 +1,10 @@
 """
-Opt-in auto-sync for HubSpot-native call recordings.
+Opt-in auto-approve after extraction (the dangerous path).
 
-When crm_configurations.auto_sync_hubspot_calls is on, a recording-ready
-webhook starts the existing transcribe → extract path and then approves
-onto the call's associated contact/deal. Lead status is never written.
-New deals are never created. Off by default.
+When crm_configurations.auto_sync_hubspot_calls is on, a finished memo with
+a locked contact or deal is approved without waiting for the rep. HubSpot
+recordings also start transcribe on the webhook. Lead status is never
+written. New deals are never created. Off by default.
 """
 
 from __future__ import annotations
@@ -74,14 +74,17 @@ def resolve_auto_sync_user_id(
     return str(fallback_user_id) if fallback_user_id else None
 
 
-def should_auto_approve_hubspot_call(
+def should_auto_approve(
     *,
-    source: str,
     auto_sync_enabled: bool,
     contact_id: Optional[str],
     deal_id: Optional[str],
+    screening_outcome: Optional[str] = None,
 ) -> bool:
-    if source != "hubspot_call" or not auto_sync_enabled:
+    if not auto_sync_enabled:
+        return False
+    outcome = (screening_outcome or "").strip()
+    if outcome and outcome != "connected":
         return False
     return bool((contact_id or "").strip() or (deal_id or "").strip())
 
@@ -229,13 +232,16 @@ async def maybe_auto_approve_hubspot_call(
     memo_id: str,
     user_id: str,
 ) -> bool:
-    """Approve a finished HubSpot-call memo when the workspace toggle is on."""
+    """Approve a finished memo when the workspace auto-accept toggle is on."""
     from app.services.crm_config import CRMConfigurationService
     from app.services.memo_approval import approve_memo_core
 
     fetched = (
         supabase.table("memos")
-        .select("id,status,source,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
+        .select(
+            "id,status,source,hubspot_contact_id,hubspot_deal_id,"
+            "matched_deal_id,screening_outcome"
+        )
         .eq("id", memo_id)
         .limit(1)
         .execute()
@@ -246,17 +252,15 @@ async def maybe_auto_approve_hubspot_call(
     if data.get("status") != "pending_review":
         return False
 
-    config = await CRMConfigurationService(supabase).get_configuration(
-        user_id, provider="hubspot"
-    )
+    config = await CRMConfigurationService(supabase).get_configuration(user_id)
     enabled = bool(config and getattr(config, "auto_sync_hubspot_calls", False))
     contact_id = data.get("hubspot_contact_id")
     deal_id = data.get("hubspot_deal_id") or data.get("matched_deal_id")
-    if not should_auto_approve_hubspot_call(
-        source=str(data.get("source") or ""),
+    if not should_auto_approve(
         auto_sync_enabled=enabled,
         contact_id=contact_id,
         deal_id=deal_id,
+        screening_outcome=data.get("screening_outcome"),
     ):
         return False
 
@@ -265,12 +269,12 @@ async def maybe_auto_approve_hubspot_call(
         await approve_memo_core(supabase, memo_id, user_id, payload)
     except Exception:
         logger.exception(
-            "HubSpot auto-sync approve failed",
-            extra=log_domain(DOMAIN_MEMO, "hubspot_auto_sync_failed", memo_id=memo_id),
+            "CRM auto-approve failed",
+            extra=log_domain(DOMAIN_MEMO, "crm_auto_approve_failed", memo_id=memo_id),
         )
         return False
     logger.info(
-        "HubSpot auto-sync approved",
-        extra=log_domain(DOMAIN_MEMO, "hubspot_auto_sync_approved", memo_id=memo_id),
+        "CRM auto-approved",
+        extra=log_domain(DOMAIN_MEMO, "crm_auto_approved", memo_id=memo_id),
     )
     return True

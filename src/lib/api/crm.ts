@@ -48,8 +48,10 @@ export interface CRMConfiguration {
   lost_lead_status_value?: string | null;
   on_hold_lead_status_value?: string | null;
   /**
-   * After a HubSpot recording is ready, write notes/tasks/allowed fields
-   * without waiting for review. Off by default.
+   * After extraction, skip Approve and write notes/tasks/allowed fields.
+   * Applies to any locked contact/deal (HubSpot recordings, Salesforce,
+   * Vocify dialer, extension memos). Off by default. Column name is
+   * historical — not HubSpot-only.
    */
   auto_sync_hubspot_calls?: boolean;
 }

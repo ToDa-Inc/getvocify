@@ -63,7 +63,7 @@ function mapConfiguration(raw: Record<string, unknown>) {
     allowedLineItemFields: (raw.allowed_line_item_fields as string[]) ?? [],
     autoCreateContacts: raw.auto_create_contacts as boolean | null,
     autoCreateCompanies: raw.auto_create_companies as boolean | null,
-    autoSyncHubspotCalls: raw.auto_sync_hubspot_calls as boolean | null,
+    autoAcceptCrm: raw.auto_sync_hubspot_calls as boolean | null,
     lostLeadStatusValue: (raw.lost_lead_status_value as string) ?? null,
     onHoldLeadStatusValue: (raw.on_hold_lead_status_value as string) ?? null,
   };

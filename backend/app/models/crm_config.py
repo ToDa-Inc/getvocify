@@ -69,9 +69,8 @@ class CRMConfigurationRequest(BaseModel):
     auto_sync_hubspot_calls: bool = Field(
         default=False,
         description=(
-            "After a HubSpot recording is ready, transcribe, extract, and write "
-            "notes, tasks, and allowed fields without waiting for review. "
-            "Lead status is not changed. Off by default."
+            "After extraction, write notes, tasks, and allowed fields without "
+            "waiting for approve. Lead status is not changed. Off by default."
         ),
     )
 

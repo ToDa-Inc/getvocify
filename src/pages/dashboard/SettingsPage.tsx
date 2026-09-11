@@ -275,7 +275,7 @@ const SettingsPage = () => {
             <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot fields</h2>
             <p className="text-sm text-muted-foreground mt-1">
               {canManage
-                ? "New deals go to the pipeline you pick. Calls, contacts, tasks, and deals assign to the teammate whose Vocify email matches their HubSpot user."
+                ? "Pipeline, who gets credit, and whether Vocify writes after processing — HubSpot recordings, the Vocify dialer, and memos locked to a contact. Or wait for Approve."
                 : "Workspace field mapping. Ask an admin to change it."}
             </p>
           </div>
@@ -289,7 +289,7 @@ const SettingsPage = () => {
             <h2 className={THEME_TOKENS.typography.sectionTitle}>Salesforce fields</h2>
             <p className="text-sm text-muted-foreground mt-1">
               {canManage
-                ? "Default stage and fields AI may fill on opportunities."
+                ? "Default stage, fields AI may fill, and whether Vocify writes after processing — or waits for Approve."
                 : "Workspace field mapping. Ask an admin to change it."}
             </p>
           </div>

@@ -276,6 +276,9 @@ async def extract_memo_async(
             "✅ Extract memo async complete",
             extra=log_domain(DOMAIN_MEMO, "extract_async_complete", memo_id=memo_id),
         )
+        from app.services.hubspot.auto_sync import maybe_auto_approve_hubspot_call
+
+        await maybe_auto_approve_hubspot_call(supabase, memo_id, user_id)
         
     except Exception as e:
         outcome = "failed"

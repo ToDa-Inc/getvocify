@@ -1672,6 +1672,9 @@ async def _extract_and_create_memo(
             "✅ Memo created",
             extra=log_domain(DOMAIN_WHATSAPP, "memo_created", memo_id=memo_id, whatsapp_message_id=whatsapp_message_id),
         )
+        from app.services.hubspot.auto_sync import maybe_auto_approve_hubspot_call
+
+        await maybe_auto_approve_hubspot_call(supabase, str(memo_id), user_id)
         return memo_id, extraction
     except Exception as e:
         logger.exception(
