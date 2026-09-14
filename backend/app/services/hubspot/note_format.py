@@ -10,7 +10,7 @@ import html
 import re
 from typing import Any, Optional
 
-from app.services.transcript_turns import parse_transcript_turns
+from app.services.transcript_turns import parse_transcript_turns, turns_for_display
 
 
 _HEADING_RE = re.compile(r"^(#{1,3})\s+(\S.*)$")
@@ -138,7 +138,10 @@ _SKIP_NOTE_FIELDS = frozenset({"hubspot_owner_id", "hs_object_id"})
 
 
 def _humanize_field_name(name: str) -> str:
-    return (name or "").replace("_", " ").strip().title()
+    raw = (name or "").strip()
+    if raw.lower().startswith("vocify_"):
+        raw = raw[7:]
+    return raw.replace("_", " ").strip().title()
 
 
 def _note_value_display(value: Any) -> str:
@@ -147,6 +150,13 @@ def _note_value_display(value: Any) -> str:
     if isinstance(value, list):
         return ", ".join(str(item) for item in value if item not in (None, ""))
     return str(value).strip()
+
+
+def _humanize_note_value(value: Any) -> str:
+    raw = _note_value_display(value)
+    if "_" in raw and raw.replace("_", "").isalnum():
+        return raw.replace("_", " ").strip().title()
+    return raw
 
 
 def record_written_fields(
@@ -185,21 +195,28 @@ def format_field_changes_section(
     title = "Campos actualizados" if spanish else "Fields updated"
     labels = _OBJECT_LABELS_ES if spanish else _OBJECT_LABELS_EN
     created_tag = "nueva" if spanish else "new"
+    empty = "vacío" if spanish else "empty"
     items: list[str] = []
     for change in rows:
         object_label = labels.get(str(change.get("object_type") or ""), str(change.get("object_type") or "").title())
         if change.get("created"):
             object_label = f"{object_label} ({created_tag})"
         field_label = html.escape(str(change.get("label") or _humanize_field_name(str(change.get("field") or ""))))
-        new_value = html.escape(_note_value_display(change.get("value")))
+        new_value = html.escape(_humanize_note_value(change.get("value")))
         previous = _note_value_display(change.get("previous"))
         if previous:
+            old_value = html.escape(_humanize_note_value(previous))
             items.append(
-                f"<li><strong>{html.escape(object_label)} · {field_label}:</strong> "
-                f"{html.escape(previous)} → {new_value}</li>"
+                f"<li><strong>{html.escape(object_label)} · {field_label}</strong><br>"
+                f"<s style=\"color:#b42318\">{old_value}</s>"
+                f" → <strong style=\"color:#067647\">{new_value}</strong></li>"
             )
         else:
-            items.append(f"<li><strong>{html.escape(object_label)} · {field_label}:</strong> {new_value}</li>")
+            items.append(
+                f"<li><strong>{html.escape(object_label)} · {field_label}</strong><br>"
+                f"<s style=\"color:#b42318\">{html.escape(empty)}</s>"
+                f" → <strong style=\"color:#067647\">{new_value}</strong></li>"
+            )
     return f"<p><strong>{html.escape(title)}</strong></p>\n<ul>{''.join(items)}</ul>"
 
 
@@ -300,7 +317,7 @@ def format_hubspot_note_body(
     if transcript:
         tx_label = "Transcripción" if spanish else "Transcript"
         parts.append(f"<p><strong>{html.escape(tx_label)}</strong></p>")
-        turns = parse_transcript_turns(transcript)
+        turns = turns_for_display(parse_transcript_turns(transcript))
         for turn in turns:
             text = html.escape(turn["text"]).replace("\n", "<br>")
             if turn.get("speaker"):

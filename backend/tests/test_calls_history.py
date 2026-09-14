@@ -107,7 +107,7 @@ async def test_history_is_scoped_to_the_user():
     supabase, _ = fake_db(
         {
             "outbound_calls": [CALL_A, CALL_OTHER_USER, CALL_B],
-            "memos": [{"id": "memo-1", "status": "pending_review"}],
+            "memos": [{"id": "memo-1", "status": "pending_review", "screening_outcome": "voicemail"}],
         }
     )
     result = await list_call_history(
@@ -116,6 +116,7 @@ async def test_history_is_scoped_to_the_user():
     sids = [c["callSid"] for c in result["calls"]]
     assert sids == ["CA2", "CA1"]
     assert result["calls"][1]["memoStatus"] == "pending_review"
+    assert result["calls"][1]["screeningOutcome"] == "voicemail"
     assert result["calls"][0]["memoStatus"] is None
 
 
@@ -175,7 +176,7 @@ async def test_history_company_scope_includes_teammate_calls(monkeypatch):
     supabase, _ = fake_db(
         {
             "outbound_calls": [CALL_A, CALL_OTHER_USER, CALL_B],
-            "memos": [{"id": "memo-1", "status": "pending_review"}],
+            "memos": [{"id": "memo-1", "status": "pending_review", "screening_outcome": "voicemail"}],
         }
     )
     result = await list_call_history(
@@ -205,4 +206,5 @@ async def test_get_call_returns_summary():
     assert result["to"] == "+34600111222"
     assert result["from"] == "+34910000000"
     assert result["memoStatus"] == "approved"
+    assert result["screeningOutcome"] is None
     assert result["durationSeconds"] == 42

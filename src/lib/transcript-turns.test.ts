@@ -6,6 +6,7 @@ import {
   parseTranscriptTurns,
   reviewSpeakerLabels,
   speakerDisplayLabel,
+  turnsForDisplay,
 } from "./transcript-turns.ts";
 
 const DISPLAY = `Speaker 1
@@ -55,5 +56,13 @@ Sí. Buenas. ¿Qué tal?`;
     const turns = parseTranscriptTurns(named);
     assert.equal(turns[0].speaker, "JUAN");
     assert.equal(speakerDisplayLabel("JUAN", { s1: "You", s2: "Francisco" }), "Francisco");
+  });
+
+  it("splits a collapsed S1 conversation into You/Them lines", () => {
+    const display = turnsForDisplay(parseTranscriptTurns(
+      "SPEAKER: S1\n¿Usted ahora mismo está con Zoho?\nSí.\n¿Qué tipo de venta?\nB2B outbound.",
+    ));
+    assert.deepEqual(display.map((t) => t.speaker), ["S1", "S2", "S1", "S2"]);
+    assert.equal(display[1].text, "Sí.");
   });
 });

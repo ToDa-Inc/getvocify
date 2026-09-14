@@ -79,6 +79,11 @@ export function dialerPanelMode({
 }
 
 /** Same busy copy as HubSpot rows (`src/lib/recordings.ts`) and memo rows. */
+function isScreenedOut(outcome) {
+  const value = String(outcome || '').trim();
+  return value === 'voicemail' || value === 'no_response';
+}
+
 export function memoBusyLabel(status) {
   if (status === 'uploading') return 'Uploading';
   if (status === 'extracting') return 'Extracting';
@@ -96,7 +101,7 @@ export function outboundActivityChrome(call = {}) {
   const autoSync = Boolean(call.autoSync);
   const busy = memoBusyLabel(memoStatus);
   if (busy) return { kind: 'busy', label: busy };
-  if (memoId && memoStatus === 'pending_review' && autoSync) {
+  if (memoId && memoStatus === 'pending_review' && autoSync && !isScreenedOut(call.screeningOutcome)) {
     return { kind: 'busy', label: 'Writing' };
   }
   if (memoId && (memoStatus === 'pending_review' || memoStatus === 'pending_transcript')) {
@@ -124,6 +129,7 @@ export function postCallCard({
   autoSync = false,
   errorMessage = '',
   processing,
+  screeningOutcome,
 } = {}) {
   const duration = durationLabel || '0:00';
   if (errorMessage && processing === false && memoStatus !== 'pending_review' && memoStatus !== 'approved') {
@@ -138,6 +144,16 @@ export function postCallCard({
     };
   }
   if (memoStatus === 'pending_review' && memoId) {
+    if (isScreenedOut(screeningOutcome)) {
+      return {
+        kind: 'review',
+        text: screeningOutcome === 'voicemail'
+          ? `Llamada de ${duration} · marcada como buzón`
+          : `Llamada de ${duration} · sin conversación`,
+        actionLabel: 'Revisar',
+        memoId,
+      };
+    }
     if (autoSync) {
       return { kind: 'busy', text: `Llamada de ${duration} · escribiendo en CRM` };
     }

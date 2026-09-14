@@ -1222,8 +1222,8 @@ export const HubSpotSyncPreview = ({
                       </div>
 
                       {hadExisting && (
-                        <p className="text-[10px] text-muted-foreground line-through opacity-60">
-                          Was: {optionLabelFor(update.current_value, update.options) || "—"}
+                        <p className="text-[10px] text-[#b42318] line-through">
+                          {optionLabelFor(update.current_value, update.options) || "—"}
                         </p>
                       )}
 
@@ -1263,9 +1263,7 @@ export const HubSpotSyncPreview = ({
                         </div>
                       ) : (
                         <p
-                          className={`text-sm font-normal leading-relaxed ${
-                            isOverride ? "text-destructive" : "text-foreground"
-                          }`}
+                          className="text-sm font-normal leading-relaxed text-[#067647]"
                         >
                           {isCrmDateField(update)
                             ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"

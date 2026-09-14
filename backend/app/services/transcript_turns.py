@@ -113,6 +113,48 @@ def parse_transcript_turns(transcript: str) -> list[dict]:
     return out
 
 
+_SHORT_REPLY = re.compile(
+    r"^(s[ií]|vale+|ok+|okay|claro|de acuerdo|perfecto|genial|yes|yeah)\.?!?$",
+    re.IGNORECASE,
+)
+
+
+def _infer_collapsed_speaker(line: str, expect_answer: bool) -> tuple[str, bool]:
+    if _SHORT_REPLY.match(line.rstrip(".,!")):
+        return "S2", False
+    if "?" in line or "¿" in line:
+        return "S1", True
+    if expect_answer:
+        return "S2", False
+    return "S1", False
+
+
+def turns_for_display(turns: list[dict]) -> list[dict]:
+    """Split a one-speaker STT blob into readable lines and guess sides.
+
+    Deepgram often dumps both parties under SPEAKER: S1. One giant 'Rep'
+    paragraph is unreadable in HubSpot and in the extension.
+    """
+    if not turns:
+        return []
+    speakers = {normalize_speaker(t.get("speaker")) for t in turns if t.get("speaker")}
+    collapsed = len(speakers) <= 1
+    out: list[dict] = []
+    expect_answer = False
+    for turn in turns:
+        text = (turn.get("text") or "").strip()
+        if not text:
+            continue
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if not collapsed or len(lines) <= 1:
+            out.append({"speaker": None if collapsed else turn.get("speaker"), "text": text})
+            continue
+        for line in lines:
+            speaker, expect_answer = _infer_collapsed_speaker(line, expect_answer)
+            out.append({"speaker": speaker, "text": line})
+    return out
+
+
 def _fingerprint(turn: dict) -> str:
     speaker = normalize_speaker(turn.get("speaker")) or ""
     text = re.sub(r"\s+", " ", (turn.get("text") or "")).strip().lower()

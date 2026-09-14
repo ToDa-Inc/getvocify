@@ -62,10 +62,12 @@ def test_note_body_includes_written_field_changes():
         ],
     )
     assert "Fields updated" in body
-    assert "Contact · Vocify Fit" in body
+    assert "Contact · Fit" in body
     assert "moderate" in body
     assert "Company (new) · Crm Utilizado" in body
     assert "zoho" in body
+    assert 'style="color:#067647"' in body
+    assert "<s " in body
 
 
 def test_field_changes_section_shows_previous_value_and_spanish_title():
@@ -83,7 +85,8 @@ def test_field_changes_section_shows_previous_value_and_spanish_title():
     )
     assert "Campos actualizados" in html
     assert "Contacto · Sales motion" in html
-    assert "inside_sales → field_sales" in html
+    assert '<s style="color:#b42318">Inside Sales</s>' in html
+    assert '<strong style="color:#067647">Field Sales</strong>' in html
 
 
 def test_record_written_fields_skips_owner_and_empty_values():
@@ -103,6 +106,22 @@ def test_record_written_fields_skips_owner_and_empty_values():
             "created": False,
         }
     ]
+
+
+def test_note_body_splits_collapsed_transcript_into_turns():
+    body = format_hubspot_note_body(
+        summary="Hello there",
+        transcript=(
+            "SPEAKER: S1\n"
+            "¿Usted ahora mismo está con Zoho?\n"
+            "Sí.\n"
+            "B2B outbound."
+        ),
+    )
+    assert body.count("<strong>Comercial:</strong>") >= 1
+    assert body.count("<strong>Contacto:</strong>") >= 1
+    assert "¿Usted ahora mismo está con Zoho?" in body
+    assert "Sí." in body
 
 
 def test_format_summary_html_strips_asterisk_bullet_markers():

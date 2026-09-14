@@ -348,6 +348,7 @@ def _call_summary(
     row: dict,
     memo_status: Optional[str] = None,
     author: Optional[dict] = None,
+    screening_outcome: Optional[str] = None,
 ) -> dict:
     owner_id = str(row.get("user_id") or "")
     return {
@@ -363,6 +364,7 @@ def _call_summary(
         "durationSeconds": row.get("recording_duration"),
         "memoId": row.get("memo_id"),
         "memoStatus": memo_status,
+        "screeningOutcome": screening_outcome,
         "errorMessage": row.get("error_message"),
         "userId": owner_id or None,
         "authorUserId": (author or {}).get("user_id") or owner_id or None,
@@ -377,12 +379,18 @@ def _memo_status_by_id(supabase: Client, memo_ids: list) -> dict:
         return {}
     rows = (
         supabase.table("memos")
-        .select("id,status")
+        .select("id,status,screening_outcome")
         .in_("id", ids)
         .execute()
         .data
     ) or []
-    return {row.get("id"): row.get("status") for row in rows}
+    return {
+        row.get("id"): {
+            "status": row.get("status"),
+            "screening_outcome": row.get("screening_outcome"),
+        }
+        for row in rows
+    }
 
 
 @router.get("/history")
@@ -439,8 +447,9 @@ async def list_call_history(
         "calls": [
             _call_summary(
                 row,
-                statuses.get(row.get("memo_id")),
+                (statuses.get(row.get("memo_id")) or {}).get("status"),
                 authors.get(str(row.get("user_id") or "")),
+                (statuses.get(row.get("memo_id")) or {}).get("screening_outcome"),
             )
             for row in rows
         ]
@@ -482,8 +491,10 @@ async def get_call(
             status_code=status.HTTP_404_NOT_FOUND, detail="Call not found"
         )
     statuses = _memo_status_by_id(supabase, [row.get("memo_id")])
+    meta = statuses.get(row.get("memo_id")) or {}
     return _call_summary(
         row,
-        statuses.get(row.get("memo_id")),
+        meta.get("status"),
         authors.get(owner_id),
+        meta.get("screening_outcome"),
     )

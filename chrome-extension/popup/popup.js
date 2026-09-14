@@ -59,6 +59,7 @@ import {
   parseTranscriptTurns,
   speakerDisplayLabel,
   speakerSide,
+  turnsForDisplay,
 } from '../lib/transcript-turns.js';
 import { callDurationSeconds, formatCallDuration } from '../lib/call-duration.js';
 import { memoContactName, memoListSubtitle, memoListTitle, reviewIdsFromMemo } from '../lib/memo-identity.js';
@@ -1821,7 +1822,7 @@ function renderTranscriptConversation(text, { container = null, labels = null } 
 
   if (!convo) return;
 
-  const turns = parseTranscriptTurns(normalized);
+  const turns = turnsForDisplay(parseTranscriptTurns(normalized));
   const roleLabels = labels || reviewSpeakerLabels();
 
   if (!turns.length) {
@@ -3315,6 +3316,7 @@ function renderPostCallCard(lastCall) {
   const card = postCallCard({
     memoStatus: lastCall.memoStatus,
     memoId: lastCall.memoId,
+    screeningOutcome: lastCall.screeningOutcome,
     durationLabel: duration,
     autoSync: Boolean(lastBgState?.autoSyncHubspotCalls),
     errorMessage: lastCall.errorMessage,

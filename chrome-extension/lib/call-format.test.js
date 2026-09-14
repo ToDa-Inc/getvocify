@@ -250,6 +250,24 @@ describe('postCallCard', () => {
     );
   });
 
+  it('does not stay on writing when screening skipped the CRM write', () => {
+    assert.deepEqual(
+      postCallCard({
+        memoStatus: 'pending_review',
+        memoId: 'm1',
+        durationLabel: '1:03',
+        autoSync: true,
+        screeningOutcome: 'voicemail',
+      }),
+      {
+        kind: 'review',
+        text: 'Llamada de 1:03 · marcada como buzón',
+        actionLabel: 'Revisar',
+        memoId: 'm1',
+      },
+    );
+  });
+
   it('shows the call as already written after approve', () => {
     assert.deepEqual(
       postCallCard({
@@ -294,6 +312,15 @@ describe('outboundActivityChrome', () => {
     assert.deepEqual(
       outboundActivityChrome({ memoId: 'm1', memoStatus: 'pending_review', autoSync: true }),
       { kind: 'busy', label: 'Writing' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({
+        memoId: 'm1',
+        memoStatus: 'pending_review',
+        autoSync: true,
+        screeningOutcome: 'voicemail',
+      }),
+      { kind: 'continue', label: 'Continue', memoId: 'm1' },
     );
     assert.deepEqual(
       outboundActivityChrome({ memoId: 'm1', memoStatus: 'approved' }),

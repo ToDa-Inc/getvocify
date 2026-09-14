@@ -5,6 +5,7 @@ import {
   reviewSpeakerLabels,
   speakerDisplayLabel,
   speakerSide,
+  turnsForDisplay,
 } from "@/lib/transcript-turns";
 
 interface TranscriptConversationProps {
@@ -19,7 +20,7 @@ export function TranscriptConversation({
   className,
 }: TranscriptConversationProps) {
   const normalized = normalizeDiarizedTranscript(transcript);
-  const turns = parseTranscriptTurns(normalized);
+  const turns = turnsForDisplay(parseTranscriptTurns(normalized));
   const labels = reviewSpeakerLabels(contactName);
   const hasSpeakers = turns.some((t) => t.speaker);
 

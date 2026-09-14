@@ -961,6 +961,7 @@ function startCallStatusPoll(callSid) {
           ...state.lastCall,
           memoId: call.memoId || null,
           memoStatus: call.memoStatus || null,
+          screeningOutcome: call.screeningOutcome || state.lastCall?.screeningOutcome || null,
           processing: !terminal,
           errorMessage: call.errorMessage || null,
           durationSeconds: call.durationSeconds ?? state.lastCall?.durationSeconds,

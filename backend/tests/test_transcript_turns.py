@@ -5,6 +5,7 @@ from app.services.transcript_turns import (
     prospect_name_from_existing,
     speaker_display_label,
     speaker_prompt_legend,
+    turns_for_display,
 )
 
 DISPLAY = """Speaker 1
@@ -62,3 +63,17 @@ def test_speaker_prompt_legend_uses_crm_contact_name():
     assert "S1" in legend
     assert "María Ruiz" in legend
     assert speaker_prompt_legend("no speakers here at all") == ""
+
+
+def test_turns_for_display_splits_collapsed_s1_conversation():
+    turns = parse_transcript_turns(
+        "SPEAKER: S1\n"
+        "¿Usted ahora mismo está con Zoho?\n"
+        "Sí.\n"
+        "¿Qué tipo de venta está realizando usted?\n"
+        "B2B, outbound calls de oficina."
+    )
+    display = turns_for_display(turns)
+    assert [t["speaker"] for t in display] == ["S1", "S2", "S1", "S2"]
+    assert display[1]["text"] == "Sí."
+    assert len(turns_for_display(parse_transcript_turns(RAW))) == 3

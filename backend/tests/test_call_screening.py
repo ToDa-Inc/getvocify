@@ -72,3 +72,21 @@ class TestClassifyCallOutcome:
             "Hola, no puedo atender ahora mismo. Deja tu mensaje después del tono."
         )
         assert classify_call_outcome(transcript, duration=45.0) == "voicemail"
+
+    def test_collapsed_s1_conversation_is_connected(self):
+        """Deepgram labeled only S1; the text is still a two-way discovery call."""
+        transcript = (
+            "SPEAKER: S1\n"
+            "¿Hola?\n"
+            "Hola, buenas tardes. Disculpe que le estoy molestando.\n"
+            "¿Usted ahora mismo está con Zoho?\n"
+            "Sí.\n"
+            "¿Qué tipo de venta está realizando usted?\n"
+            "B2B, outbound calls de oficina.\n"
+            "Vale, ok, un equipo de SDRs, ¿no?\n"
+            "Sí, SDRs y BDRs.\n"
+            "¿Y usted es el vicepresidente de ventas?\n"
+            "Sí, claro.\n"
+            "De acuerdo, en dos semanas hablamos. Chao."
+        )
+        assert classify_call_outcome(transcript, duration=63.0) == "connected"

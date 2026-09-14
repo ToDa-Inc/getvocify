@@ -36,6 +36,39 @@ export function firstName(full: string | null | undefined): string {
   return part || "";
 }
 
+const SHORT_REPLY = /^(s[ií]|vale+|ok+|okay|claro|de acuerdo|perfecto|genial|yes|yeah)\.?!?$/i;
+
+function inferCollapsedSpeaker(line: string, expectAnswer: boolean): { speaker: string; expectAnswer: boolean } {
+  if (SHORT_REPLY.test(line.replace(/[.,!]+$/, ""))) return { speaker: "S2", expectAnswer: false };
+  if (line.includes("?") || line.includes("¿")) return { speaker: "S1", expectAnswer: true };
+  if (expectAnswer) return { speaker: "S2", expectAnswer: false };
+  return { speaker: "S1", expectAnswer: false };
+}
+
+/** Split a one-speaker STT blob into readable You/Them lines. */
+export function turnsForDisplay(turns: TranscriptTurn[]): TranscriptTurn[] {
+  const list = Array.isArray(turns) ? turns : [];
+  const speakers = new Set(list.map((t) => normalizeSpeaker(t?.speaker)).filter(Boolean));
+  const collapsed = speakers.size <= 1;
+  const out: TranscriptTurn[] = [];
+  let expectAnswer = false;
+  for (const turn of list) {
+    const text = String(turn?.text || "").trim();
+    if (!text) continue;
+    const lines = text.split(/\r?\n/).map((ln) => ln.trim()).filter(Boolean);
+    if (!collapsed || lines.length <= 1) {
+      out.push({ speaker: collapsed ? null : turn.speaker, text });
+      continue;
+    }
+    for (const line of lines) {
+      const guessed = inferCollapsedSpeaker(line, expectAnswer);
+      expectAnswer = guessed.expectAnswer;
+      out.push({ speaker: guessed.speaker, text: line });
+    }
+  }
+  return out;
+}
+
 export function parseTranscriptTurns(text: string): TranscriptTurn[] {
   const raw = String(text || "").trim();
   if (!raw) return [];
