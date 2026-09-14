@@ -11,7 +11,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from app.services.hubspot.associations import HubSpotAssociationService
 from app.services.hubspot.client import HubSpotClient
+from app.services.hubspot.exceptions import (
+    HubSpotNotFoundError,
+    HubSpotScopeError,
+    HubSpotValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,25 +118,64 @@ async def log_call_to_hubspot(
     contact_id: Optional[str],
     deal_id: Optional[str],
 ) -> str:
-    """Create the engagement and associate it, returning the engagement id."""
-    created = await client.post(CALLS_OBJECT_PATH, data={"properties": properties})
+    """Create the Call on the contact/deal in one request when possible.
+
+    HubSpot requires associationTypeId on associate-after-create
+    (`…/associations/{toType}/{toId}/{associationTypeId}`). The old
+    typeless v3 PUT 404s and leaves an orphan Call. Notes already
+    send types on create; do the same here (194 contact, 206 deal).
+    """
+    associations = HubSpotAssociationService(client)
+    targets: list[tuple[str, str, int]] = []
+    if contact_id:
+        targets.append(("contacts", str(contact_id), associations.CALL_TO_CONTACT))
+    if deal_id:
+        targets.append(("deals", str(deal_id), associations.CALL_TO_DEAL))
+
+    payload: dict[str, Any] = {"properties": properties}
+    if targets:
+        payload["associations"] = [
+            {
+                "to": {"id": to_id},
+                "types": [
+                    {
+                        "associationCategory": "HUBSPOT_DEFINED",
+                        "associationTypeId": type_id,
+                    }
+                ],
+            }
+            for _, to_id, type_id in targets
+        ]
+
+    try:
+        created = await client.post(CALLS_OBJECT_PATH, data=payload)
+    except (HubSpotScopeError, HubSpotValidationError, HubSpotNotFoundError) as e:
+        if not targets:
+            raise
+        logger.warning(
+            "Call create with associations failed (safe to retry bare): %s", e
+        )
+        created = await client.post(
+            CALLS_OBJECT_PATH, data={"properties": properties}
+        )
+        engagement_id = str((created or {}).get("id") or "")
+        if not engagement_id:
+            raise RuntimeError("HubSpot did not return a call engagement id")
+        for object_type, to_id, _type_id in targets:
+            try:
+                await associations.create_association(
+                    "calls", engagement_id, object_type, to_id
+                )
+            except Exception as assoc_e:
+                logger.warning(
+                    "Could not associate call %s with %s %s: %s",
+                    engagement_id, object_type, to_id, assoc_e,
+                )
+        return engagement_id
+
     engagement_id = str((created or {}).get("id") or "")
     if not engagement_id:
         raise RuntimeError("HubSpot did not return a call engagement id")
-
-    for object_type, object_id in (("contacts", contact_id), ("deals", deal_id)):
-        if not object_id:
-            continue
-        try:
-            await client.put(
-                f"{CALLS_OBJECT_PATH}/{engagement_id}/associations/"
-                f"{object_type}/{object_id}"
-            )
-        except Exception as e:
-            logger.warning(
-                "Could not associate call %s with %s %s: %s",
-                engagement_id, object_type, object_id, e,
-            )
     return engagement_id
 
 

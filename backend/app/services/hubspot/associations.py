@@ -43,6 +43,11 @@ class HubSpotAssociationService:
     NOTE_TO_CONTACT = 202
     NOTE_TO_COMPANY = 190
     NOTE_TO_DEAL = 214
+
+    # Call → object. Same HubSpot default table, "Call to object" section.
+    # 194 / 206 confirmed in developers.hubspot.com associate-records guide.
+    CALL_TO_CONTACT = 194
+    CALL_TO_DEAL = 206
     
     def __init__(self, client: HubSpotClient):
         self.client = client
