@@ -126,6 +126,7 @@ const App = () => (
             <Route path="/blog" element={<BlogPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/docs" element={<DocsPage />} />
+            <Route path="/docs/hubspot" element={<DocsPage />} />
             <Route path="/support" element={<SupportPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />

@@ -29,26 +29,32 @@ const SupportPage = () => {
               <div>
                 <h3 className="font-bold text-foreground mb-1">¿Cómo conecto Vocify con HubSpot?</h3>
                 <p className="text-muted-foreground">
-                  Desde el panel de Vocify, ve a Integraciones → HubSpot → Conectar HubSpot, e inicia sesión con tu
-                  cuenta. Consulta la{" "}
-                  <a href="/docs" className="text-beige font-semibold hover:underline">
-                    guía de configuración
-                  </a>{" "}
-                  para más detalles.
+                  In Vocify, open Settings → CRM, click Connect on the HubSpot row, then
+                  authorize Vocify on HubSpot&apos;s permission screen. Full steps:{" "}
+                  <a href="/docs#install" className="text-beige font-semibold hover:underline">
+                    Vocify setup guide for HubSpot
+                  </a>
+                  .
                 </p>
               </div>
               <div>
                 <h3 className="font-bold text-foreground mb-1">¿Qué datos de HubSpot usa Vocify?</h3>
                 <p className="text-muted-foreground">
-                  Vocify lee y actualiza contactos, empresas y negocios en tu cuenta de HubSpot, únicamente para
-                  reflejar la información extraída de tus memos de voz. Nunca compartimos ni vendemos tus datos.
+                  Vocify reads and updates HubSpot contacts, companies, deals, and line
+                  items you allow, reads owners, and can create notes, tasks, and Call
+                  activities from a memo or dialer call. We do not sell that data.
                 </p>
               </div>
               <div>
                 <h3 className="font-bold text-foreground mb-1">¿Cómo desconecto la integración?</h3>
                 <p className="text-muted-foreground">
-                  Ve a Integraciones → HubSpot → Desconectar. También puedes revocar el acceso desde Settings →
-                  Integrations → Connected apps en tu cuenta de HubSpot.
+                  In Vocify: Settings → CRM → disconnect HubSpot (this clears field
+                  mapping). In HubSpot: Settings → Integrations → Connected Apps →
+                  Vocify → Uninstall. Details:{" "}
+                  <a href="/docs#disconnect" className="text-beige font-semibold hover:underline">
+                    disconnect and uninstall
+                  </a>
+                  .
                 </p>
               </div>
             </div>

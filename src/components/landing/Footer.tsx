@@ -35,6 +35,12 @@ const Footer = () => {
               >
                 How it works
               </Link>
+              <Link to="/docs" className="text-sm text-muted-foreground hover:text-beige transition-colors">
+                HubSpot setup guide
+              </Link>
+              <Link to="/support" className="text-sm text-muted-foreground hover:text-beige transition-colors">
+                Support
+              </Link>
               <a
                 href={DEMO_BOOKING_URL}
                 target="_blank"

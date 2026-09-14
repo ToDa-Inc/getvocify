@@ -26,7 +26,17 @@ export function isLandingDomain(): boolean {
 }
 
 /** Paths that are valid on the landing domain (no redirect to app) */
-const LANDING_PATHS = ["/", "/en", "/privacy", "/about", "/blog", "/terms", "/docs", "/support"];
+const LANDING_PATHS = [
+  "/",
+  "/en",
+  "/privacy",
+  "/about",
+  "/blog",
+  "/terms",
+  "/docs",
+  "/docs/hubspot",
+  "/support",
+];
 
 export function isLandingPath(path: string): boolean {
   return LANDING_PATHS.includes(path);
