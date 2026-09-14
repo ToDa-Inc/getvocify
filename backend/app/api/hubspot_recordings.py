@@ -1,9 +1,10 @@
 """The endpoint HubSpot calls to obtain a playable recording URL.
 
-Unauthenticated by design — HubSpot calls it server-to-server. Authorization is
-the pairing of an unguessable Twilio CallSid with the `externalAccountId` of the
-hub that owns the call. The URL returned is a short-lived Supabase signed URL,
-which honours `Range` and returns `206` so HubSpot's player can seek.
+Unauthenticated by design — HubSpot calls it server-to-server. The Twilio
+CallSid in the path is the secret. If HubSpot also sends `externalAccountId`,
+it must match `hubspot_hub_id` on the call. The URL returned is a short-lived
+Supabase signed URL, which honours `Range` and returns `206` so HubSpot's
+player can seek.
 """
 
 from __future__ import annotations
@@ -44,10 +45,13 @@ async def get_authenticated_recording(
 
     hub_id = (row.get("hubspot_hub_id") or "").strip()
     account_id = (externalAccountId or "").strip()
-    if not hub_id or not account_id or hub_id != account_id:
+    # HubSpot's recordings/ready probe often omits query params and only
+    # substitutes %s with hs_call_external_id (the Twilio CallSid). CallSid is
+    # the secret. Fail only when HubSpot claims a different portal.
+    if account_id and hub_id and hub_id != account_id:
         logger.warning(
-            "Recording %s denied: hub_id=%r externalAccountId=%r",
-            external_id, hub_id, account_id,
+            "Recording %s denied: hub_id=%r externalAccountId=%r appId=%r",
+            external_id, hub_id, account_id, (appId or "").strip(),
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Wrong account"

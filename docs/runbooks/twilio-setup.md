@@ -101,11 +101,10 @@ Without `HUBSPOT_APP_ID`, `build_call_properties` raises on an empty `app_id` an
 
 ### Hub ID and recording access
 
-`hubspot_hub_id` on `outbound_calls` is populated at log time from `crm_connections.metadata.portal_id` — never from the browser. The public recording endpoint fail-closes with 403 when:
-
-- `hubspot_hub_id` is empty
-- `externalAccountId` is missing on the request
-- `externalAccountId` does not match `hubspot_hub_id`
+`hubspot_hub_id` on `outbound_calls` is populated at log time from `crm_connections.metadata.portal_id` — never from the browser. The public recording endpoint fail-closes with 403 only when HubSpot
+sends `externalAccountId` and it does not match `hubspot_hub_id`.
+`recordings/ready` often probes `/public/hubspot/recordings/{CallSid}`
+with no query params; CallSid is the secret in that case.
 
 ## Extension UI
 
