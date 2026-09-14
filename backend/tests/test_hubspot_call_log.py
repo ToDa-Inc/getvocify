@@ -1,7 +1,9 @@
 import pytest
 
 from app.services.hubspot.call_log import (
+    build_call_properties,
     hubspot_call_body_for_disposition,
+    hubspot_call_disposition_guid,
     hubspot_call_status_for_disposition,
     log_call_to_hubspot,
     normalize_twilio_dial_status,
@@ -44,6 +46,48 @@ class TestCallLogDisposition:
     def test_hubspot_body_mapping(self):
         assert "Buzon de voz" in hubspot_call_body_for_disposition("voicemail")
         assert hubspot_call_body_for_disposition("no_answer") == "Sin respuesta."
+
+    def test_disposition_guid_is_hubspot_connected(self):
+        assert (
+            hubspot_call_disposition_guid("connected")
+            == "f240bbac-87c9-4f6e-bf70-924b57d47db7"
+        )
+        assert hubspot_call_disposition_guid("failed") is None
+
+    def test_build_call_properties_sets_connected_guid(self):
+        props = build_call_properties(
+            occurred_at="2026-09-14T15:10:09Z",
+            to_number="+34600000000",
+            from_number="+34900000000",
+            duration_ms=12000,
+            external_id="CAxxx",
+            external_account_id="147506535",
+            app_id="31731417",
+            owner_id=None,
+            title="Llamada Vocify",
+            body="ok",
+            call_status="COMPLETED",
+            disposition="connected",
+        )
+        assert props["hs_call_status"] == "COMPLETED"
+        assert props["hs_call_disposition"] == "f240bbac-87c9-4f6e-bf70-924b57d47db7"
+
+    def test_build_call_properties_omits_unknown_disposition(self):
+        props = build_call_properties(
+            occurred_at="2026-09-14T15:10:09Z",
+            to_number="+34600000000",
+            from_number="+34900000000",
+            duration_ms=0,
+            external_id="CAxxx",
+            external_account_id="147506535",
+            app_id="31731417",
+            owner_id=None,
+            title="Llamada Vocify",
+            body="fail",
+            call_status="FAILED",
+            disposition="failed",
+        )
+        assert "hs_call_disposition" not in props
 
 
 class TestLogCallToHubspot:

@@ -429,6 +429,7 @@ async def log_missed_call_activity(
             title="Llamada Vocify",
             body=hubspot_call_body_for_disposition(disposition),
             call_status=hubspot_call_status_for_disposition(disposition),
+            disposition=disposition,
         )
         engagement_id = await log_call_to_hubspot(
             client,
@@ -532,6 +533,7 @@ async def log_call_engagement(
             title="Llamada Vocify",
             body=hubspot_call_body_for_disposition(screening_outcome),
             call_status=hubspot_call_status_for_disposition(screening_outcome),
+            disposition=screening_outcome,
         )
         engagement_id = await log_call_to_hubspot(
             client,

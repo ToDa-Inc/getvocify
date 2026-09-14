@@ -46,6 +46,16 @@ HUBSPOT_BODY_BY_DISPOSITION: dict[str, str] = {
     "canceled": "Llamada cancelada.",
 }
 
+# HubSpot timeline "Call outcome" reads hs_call_disposition (GUID), not
+# hs_call_status. Values from the Calls API docs default table only —
+# no GUID for failed / canceled / no_response, so those stay unset.
+HUBSPOT_DISPOSITION_GUID: dict[str, str] = {
+    "connected": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    "voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    "busy": "9d9162e7-6cf3-4944-bf63-4dff82258764",
+    "no_answer": "73a0d17f-1163-4015-bdd5-ec830791da20",
+}
+
 
 def normalize_twilio_dial_status(dial_status: str) -> str:
     """Map Twilio DialCallStatus to outbound_calls.call_disposition."""
@@ -71,6 +81,10 @@ def hubspot_call_body_for_disposition(disposition: str) -> str:
     )
 
 
+def hubspot_call_disposition_guid(disposition: str) -> Optional[str]:
+    return HUBSPOT_DISPOSITION_GUID.get((disposition or "").strip().lower())
+
+
 def build_call_properties(
     *,
     occurred_at: str,
@@ -84,6 +98,7 @@ def build_call_properties(
     title: str,
     body: str,
     call_status: str = "COMPLETED",
+    disposition: Optional[str] = None,
 ) -> dict[str, Any]:
     if not external_id:
         raise ValueError("external_id is required for the recordings pipeline")
@@ -106,6 +121,9 @@ def build_call_properties(
         "hs_call_external_id": external_id,
         "hs_call_external_account_id": external_account_id,
     }
+    outcome = hubspot_call_disposition_guid(disposition or "")
+    if outcome:
+        props["hs_call_disposition"] = outcome
     if owner_id:
         props["hubspot_owner_id"] = str(owner_id)
     return props
