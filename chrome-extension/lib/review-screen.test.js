@@ -263,6 +263,14 @@ describe('contact picker', () => {
     assert.equal(copy.reason, 'alvar@example.com');
     assert.equal(copy.locked, true);
   });
+
+  it('proposes creating a company when the locked contact has none', () => {
+    const copy = contactTargetCardCopy({
+      selectedContact: { name: 'Dani', email: 'dani@example.com', contact_id: 'C-1' },
+      newCompany: { name: 'Acme', properties: { crm_utilizado: 'zoho' } },
+    });
+    assert.equal(copy.reason, 'dani@example.com · Create Acme');
+  });
 });
 
 describe('resolveReviewPresentation', () => {
@@ -381,6 +389,7 @@ describe('approveCtaLabel', () => {
     assert.equal(approveCtaLabel({ hasDeal: true, hasContact: true }), 'Update deal');
     assert.equal(approveCtaLabel({ skipDeal: true, hasContact: true }), 'Update contact');
     assert.equal(approveCtaLabel({ isNewDeal: true, hasContact: true }), 'Create deal');
+    assert.equal(approveCtaLabel({ alreadyWritten: true, hasContact: true }), 'Write correction');
     assert.equal(approveCtaLabel({}), 'Update CRM');
   });
 });

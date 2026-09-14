@@ -93,7 +93,7 @@ import {
   filterActivityByAuthor,
 } from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
-import { contactCallCta, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, postCallNotice } from '../lib/call-format.js';
+import { contactCallCta, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice } from '../lib/call-format.js';
 
 (function ensureActivityRowStyles() {
   if (document.getElementById('activity-row-styles')) return;
@@ -203,6 +203,8 @@ let outboundCallsCache = [];
 let currentUser = null;
 let activityAuthorFilter = '';
 let companyAuthors = [];
+let activityAuthorFilterBound = false;
+let activityAuthorOptionsStamp = '';
 let recentMemosFetchGen = 0;
 let reviewFetchGen = 0;
 let previewFetchGen = 0;
@@ -575,33 +577,109 @@ function setIdleListsHidden() {
   if (filter) filter.style.display = 'none';
 }
 
+function activityAuthorChipsStamp(chips) {
+  return chips.map((chip) => `${chip.id}:${chip.label}`).join('|');
+}
+
+function closeActivityAuthorDropdown() {
+  const dropdown = document.getElementById('activity-author-dropdown');
+  const trigger = document.getElementById('activity-author-trigger');
+  if (!dropdown?.classList.contains('open')) return;
+  dropdown.classList.remove('open');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('click', closeActivityAuthorDropdownOutside);
+}
+
+function closeActivityAuthorDropdownOutside(event) {
+  const shell = document.getElementById('activity-author-select-shell');
+  if (shell?.contains(event.target)) return;
+  closeActivityAuthorDropdown();
+}
+
+function bindActivityAuthorFilterOnce() {
+  if (activityAuthorFilterBound) return;
+  const trigger = document.getElementById('activity-author-trigger');
+  const dropdown = document.getElementById('activity-author-dropdown');
+  if (!trigger || !dropdown) return;
+  activityAuthorFilterBound = true;
+  trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const open = !dropdown.classList.contains('open');
+    closeActivityAuthorDropdown();
+    if (open) {
+      dropdown.classList.add('open');
+      trigger.setAttribute('aria-expanded', 'true');
+      setTimeout(() => document.addEventListener('click', closeActivityAuthorDropdownOutside), 0);
+    }
+  });
+}
+
+function syncActivityAuthorFilterLabel(chips) {
+  const trigger = document.getElementById('activity-author-trigger');
+  if (!trigger) return;
+  const current = chips.find((chip) => chip.id === activityAuthorFilter) || chips[0];
+  const label = current?.label || 'Mine';
+  trigger.textContent = label;
+  trigger.title = label;
+}
+
+function renderActivityAuthorFilterOptions(chips) {
+  const dropdown = document.getElementById('activity-author-dropdown');
+  if (!dropdown) return;
+  dropdown.innerHTML = chips.map((chip) => (
+    `<button type="button" class="activity-author-opt${chip.id === activityAuthorFilter ? ' is-active' : ''}" data-author="${escapeHtml(chip.id)}" role="option">${escapeHtml(chip.label)}</button>`
+  )).join('');
+  dropdown.querySelectorAll('[data-author]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      activityAuthorFilter = btn.getAttribute('data-author') || '';
+      lastActivityListKey = null;
+      closeActivityAuthorDropdown();
+      syncActivityAuthorFilterLabel(chips);
+      dropdown.querySelectorAll('.activity-author-opt').forEach((el) => {
+        el.classList.toggle('is-active', el.getAttribute('data-author') === activityAuthorFilter);
+      });
+      if (lastBgState) renderRecordingsSection(lastBgState);
+    });
+  });
+}
+
 function renderActivityAuthorFilter(visible) {
   const el = document.getElementById('activity-author-filter');
   if (!el) return;
   const show = Boolean(visible && canViewCompanyActivity(currentUser) && companyAuthors.length > 1);
-  el.style.display = show ? 'block' : 'none';
-  if (!show) return;
+  el.style.display = show ? 'inline-flex' : 'none';
+  if (!show) {
+    closeActivityAuthorDropdown();
+    return;
+  }
+  bindActivityAuthorFilterOnce();
   const chips = activityFilterChips(companyAuthors, currentUser?.id);
-  el.innerHTML = `<label class="activity-author-select-wrap">
-    <span class="activity-author-select-label">Show</span>
-    <select id="activity-author-select" class="activity-author-select" aria-label="Show activity from">
-      ${chips.map((chip) => (
-        `<option value="${escapeHtml(chip.id)}"${chip.id === activityAuthorFilter ? ' selected' : ''}>${escapeHtml(chip.label)}</option>`
-      )).join('')}
-    </select>
-  </label>`;
-  el.querySelector('#activity-author-select')?.addEventListener('change', (event) => {
-    activityAuthorFilter = event.target.value || '';
-    lastActivityListKey = null;
-    if (lastBgState) renderRecordingsSection(lastBgState);
-  });
+  const stamp = activityAuthorChipsStamp(chips);
+  if (stamp !== activityAuthorOptionsStamp) {
+    activityAuthorOptionsStamp = stamp;
+    renderActivityAuthorFilterOptions(chips);
+  }
+  syncActivityAuthorFilterLabel(chips);
 }
 
-function vocifyMemoCount(state) {
-  return mergeActivityItems({
-    recordings: state?.recordings || [],
-    memos: recentMemosCache,
-  }).filter((item) => item.kind === 'memo').length;
+function filteredActivityItems(state) {
+  return filterActivityByAuthor(
+    mergeActivityItems({
+      recordings: state?.recordings || [],
+      memos: recentMemosCache,
+      outboundCalls: outboundCallsCache,
+    }),
+    activityAuthorFilter || null,
+  );
+}
+
+function selectedActivityAuthorLabel() {
+  if (!activityAuthorFilter) return null;
+  const chips = activityFilterChips(companyAuthors, currentUser?.id);
+  const current = chips.find((chip) => chip.id === activityAuthorFilter);
+  if (!current) return null;
+  return current.label === 'Mine' ? 'you' : current.label;
 }
 
 function syncActivityEmptyState(state) {
@@ -622,12 +700,13 @@ function syncActivityEmptyState(state) {
     syncRecordActivityVisibility();
     return;
   }
-  const recordings = (state.recordings || []).filter((r) => r.has_recording);
+  const items = filteredActivityItems(state);
   const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
+  const loading = Boolean(state.recordingsLoading || memosLoading);
   const msg = activityEmptyMessage(state.context, {
-    recordingsCount: recordings.length,
-    memosCount: vocifyMemoCount(state),
-    loading: Boolean(state.recordingsLoading || memosLoading),
+    itemCount: items.length,
+    loading,
+    authorLabel: selectedActivityAuthorLabel(),
   });
   if (msg) {
     emptyEl.textContent = msg;
@@ -643,10 +722,12 @@ function syncRecordActivityVisibility() {
   const wrap = document.getElementById('record-activity');
   const rec = document.getElementById('recordings-section');
   const empty = document.getElementById('activity-empty');
+  const filter = document.getElementById('activity-author-filter');
   if (!wrap) return;
   const recOn = rec && rec.style.display !== 'none';
   const emptyOn = empty && empty.style.display !== 'none';
-  wrap.style.display = recOn || emptyOn ? 'block' : 'none';
+  const filterOn = filter && filter.style.display !== 'none';
+  wrap.style.display = recOn || emptyOn || filterOn ? 'block' : 'none';
 }
 
 function getRecordDisplayName(context) {
@@ -654,13 +735,6 @@ function getRecordDisplayName(context) {
   if (context.objectType === 'deal') return context.dealName || null;
   if (context.objectType === 'contact') return context.contactName || null;
   if (context.objectType === 'company') return context.companyName || null;
-  return null;
-}
-
-function memoBusyLabel(status) {
-  if (status === 'uploading') return 'Uploading';
-  if (status === 'extracting') return 'Extracting';
-  if (status === 'transcribing') return 'Transcribing';
   return null;
 }
 
@@ -763,15 +837,17 @@ function appendOutboundActivityRow(listEl, call) {
   const dateStr = formatActivityTimestamp(call.startedAt);
   const durStr = formatCallDuration(call.durationSeconds);
   const meta = [dateStr, durStr].filter(Boolean).join(' · ');
-  const ready = call.memoStatus === 'pending_review' || call.memoStatus === 'approved';
-  const processing = call.status === 'dialing' || call.status === 'recorded' || (!ready && call.memoId);
+  const chrome = outboundActivityChrome({
+    ...call,
+    autoSync: Boolean(lastBgState?.autoSyncHubspotCalls),
+  });
   let actionHtml = '';
-  if (ready && call.memoId) {
-    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-review="${escapeHtml(call.memoId)}">Revisar</button>`;
-  } else if (processing) {
-    actionHtml = busyStatusHtml('Transcribiendo…');
-  } else if (call.to) {
-    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(call.to)}" data-from="${escapeHtml(call.from || '')}">Reintentar</button>`;
+  if (chrome.kind === 'continue' || chrome.kind === 'view') {
+    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-review="${escapeHtml(chrome.memoId)}">${escapeHtml(chrome.label)}</button>`;
+  } else if (chrome.kind === 'busy') {
+    actionHtml = busyStatusHtml(chrome.label);
+  } else if (chrome.kind === 'redial') {
+    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(chrome.to)}" data-from="${escapeHtml(chrome.from || '')}">${escapeHtml(chrome.label)}</button>`;
   }
   const author = canViewCompanyActivity(currentUser)
     ? authorChipLabel(call, currentUser?.id)
@@ -779,7 +855,7 @@ function appendOutboundActivityRow(listEl, call) {
   row.innerHTML = `
     <div class="recording-row-main">
       <span class="activity-kind">Call</span>
-      <span class="recording-row-title">${escapeHtml(call.to || 'Llamada')}</span>
+      <span class="recording-row-title">${escapeHtml(call.to || 'Call')}</span>
       ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
     </div>
@@ -873,17 +949,11 @@ function renderRecordingsSection(state) {
   const showMoreBtn = document.getElementById('recordings-show-more');
   if (!section) return;
 
-  const items = filterActivityByAuthor(
-    mergeActivityItems({
-      recordings: state.recordings || [],
-      memos: recentMemosCache,
-      outboundCalls: outboundCallsCache,
-    }),
-    activityAuthorFilter || null,
-  );
+  const items = filteredActivityItems(state);
   const idle = state.status === 'idle';
   const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
   const loading = Boolean(state.recordingsLoading || memosLoading);
+  const showFilter = idle && canViewCompanyActivity(currentUser) && companyAuthors.length > 1;
   const scopeKey = recordingsScopeKey(state.context);
   if (scopeKey !== lastRecordingsScopeKey) {
     lastRecordingsScopeKey = scopeKey;
@@ -891,7 +961,7 @@ function renderRecordingsSection(state) {
     lastActivityListKey = null;
   }
 
-  section.style.display = idle && (items.length > 0 || loading) ? 'block' : 'none';
+  section.style.display = idle && (items.length > 0 || loading || showFilter) ? 'block' : 'none';
   if (watchRow) watchRow.style.display = 'none';
   if (kicker) {
     kicker.textContent = activityKickerLabel();
@@ -900,7 +970,7 @@ function renderRecordingsSection(state) {
       loading,
     }) ? 'block' : 'none';
   }
-  renderActivityAuthorFilter(idle && (items.length > 0 || loading || companyAuthors.length > 1));
+  renderActivityAuthorFilter(showFilter);
   if (!idle) {
     if (showMoreBtn) showMoreBtn.style.display = 'none';
     return;
@@ -2162,6 +2232,7 @@ function updateApproveButtonState(preview) {
     isNewDeal: !!preview?.is_new_deal,
     hasDeal: !!preview?.selected_deal,
     hasContact: !!contactName,
+    alreadyWritten: lastReviewMemo?.status === 'approved',
   };
   approveSyncButton.textContent = approveCtaLabel(cta);
   approveSyncButton.title = approveCtaTitle({ skipDeal, contactName, dealName });
@@ -2329,6 +2400,7 @@ function renderContactTarget(preview) {
     selectedContact: selected,
     fallbackName: fallback.name,
     fallbackMeta: selected ? '' : fallback.meta,
+    newCompany: preview?.new_company,
   });
   const ui = contactPickerVisibility({
     pickerOpen: contactPickerOpen,
@@ -2570,7 +2642,9 @@ function renderProposedUpdates(updates, availableFields) {
     }
   };
 
-  crmFieldGroups(filteredList).forEach((group) => {
+  crmFieldGroups(filteredList, {
+    creatingCompany: !!lastPreviewData?.new_company && !lastPreviewData?.selected_contact?.company_id,
+  }).forEach((group) => {
     if (group.label) {
       const kicker = document.createElement('p');
       kicker.className = 'crm-field-kicker';
@@ -3238,15 +3312,22 @@ function renderPostCallCard(lastCall) {
   }
   el.hidden = false;
   const duration = formatLiveDuration(lastCall.durationMs || 0);
-  const ready = lastCall.memoStatus === 'pending_review' || lastCall.memoStatus === 'approved';
+  const card = postCallCard({
+    memoStatus: lastCall.memoStatus,
+    memoId: lastCall.memoId,
+    durationLabel: duration,
+    autoSync: Boolean(lastBgState?.autoSyncHubspotCalls),
+    errorMessage: lastCall.errorMessage,
+    processing: lastCall.processing,
+  });
   let body = '';
-  if (lastCall.errorMessage && lastCall.processing === false && lastCall.memoStatus !== 'pending_review') {
-    body = `<span>${escapeHtml(lastCall.errorMessage || 'La llamada falló')}</span>`;
-  } else if (ready && lastCall.memoId) {
-    body = `<span>Llamada de ${escapeHtml(duration)} · listo para revisar</span>
-      <button type="button" id="postcall-review">Revisar</button>`;
+  if (card.kind === 'error') {
+    body = `<span>${escapeHtml(card.text || 'La llamada falló')}</span>`;
+  } else if (card.kind === 'review' || card.kind === 'synced') {
+    body = `<span>${escapeHtml(card.text)}</span>
+      <button type="button" id="postcall-review">${escapeHtml(card.actionLabel)}</button>`;
   } else {
-    body = `<span class="status-busy"><span class="mini-spinner" aria-hidden="true"></span>Llamada de ${escapeHtml(duration)} · transcribiendo…</span>`;
+    body = `<span class="status-busy"><span class="mini-spinner" aria-hidden="true"></span>${escapeHtml(card.text)}</span>`;
   }
   el.innerHTML = `${body}<button type="button" id="postcall-dismiss" class="dialer-icon-btn" aria-label="Cerrar">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
@@ -3580,6 +3661,7 @@ approveSyncButton?.addEventListener('click', async () => {
       contactId: targets.contactId || undefined,
       companyId: targets.companyId || undefined,
       skipDeal,
+      createCompany: !!(lastPreviewData?.new_company && !targets.companyId),
     });
     // Background never rejects this message (it always calls sendResponse), so
     // a failed sync surfaces as response.error here, not as a thrown exception.

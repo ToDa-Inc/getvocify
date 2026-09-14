@@ -57,6 +57,7 @@ from .object_properties import (
     company_properties_from_extraction,
     line_items_from_extraction,
 )
+from .note_format import record_written_fields
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ def _contact_props_updating_existing(
     contacts: HubSpotContactService,
     extraction: MemoExtraction,
     allowed_fields: Optional[list[str]],
+    current: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Map extraction onto an existing contact without renaming them from a spoken name."""
     props = contact_properties_from_extraction(
@@ -75,9 +77,26 @@ def _contact_props_updating_existing(
     return drop_call_unsafe_props(
         props,
         existing_record=True,
-        current={},
+        current=current if current is not None else {},
         object_type="contacts",
     )
+
+
+async def _current_contact_properties(
+    contacts: HubSpotContactService,
+    contact_id: Optional[str],
+    properties: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    if not contact_id:
+        return {}
+    try:
+        row = await contacts.get(
+            str(contact_id),
+            properties=list(properties) if properties else None,
+        )
+        return dict((row.properties or {}) if row else {})
+    except Exception:
+        return {}
 
 
 def owner_id_from_connection_metadata(meta: dict, user_id: str) -> Optional[str]:
@@ -502,6 +521,7 @@ class HubSpotSyncService:
         company_id = company_id or existing_company_id
         contact_id = contact_id or existing_contact_id
         resolved_contact_id = contact_id  # preserve contact-first anchor through upsert logic
+        written_fields: list[dict[str, Any]] = []
         
         try:
             # Step 1: Company — prefer resolved company_id (contact-first), else create/upsert
@@ -529,6 +549,11 @@ class HubSpotSyncService:
                             resource_type="company",
                         ) as tracked:
                             await self.companies.update(company_id, company_props)
+                            record_written_fields(
+                                written_fields,
+                                object_type="companies",
+                                props=company_props,
+                            )
                             tracked.data = {"company_id": company_id, "updated_fields": list(company_props.keys())}
                             tracked.resource_id = company_id
                             logger.info(
@@ -571,6 +596,19 @@ class HubSpotSyncService:
                             if company:
                                 company_id = company.id
                                 result.company_id = company_id
+                                created_props = company_properties_from_extraction(
+                                    extraction,
+                                    allowed_fields=allowed_company_fields,
+                                    identity_props=self.companies.map_extraction_to_properties(extraction),
+                                )
+                                if extraction.companyName:
+                                    created_props = {"name": extraction.companyName, **created_props}
+                                record_written_fields(
+                                    written_fields,
+                                    object_type="companies",
+                                    props=created_props,
+                                    created=True,
+                                )
                                 tracked.data = {"company_id": company_id, "name": extraction.companyName}
                                 tracked.resource_id = company_id
                                 logger.info(
@@ -614,15 +652,29 @@ class HubSpotSyncService:
                         action_type="upsert_contact",
                         resource_type="contact",
                     ) as tracked:
+                        current_contact = await _current_contact_properties(
+                            self.contacts,
+                            resolved_contact_id,
+                            list(allowed_contact_fields or []),
+                        )
                         props = stamp_owner(
                             _contact_props_updating_existing(
-                                self.contacts, extraction_for_contact, allowed_contact_fields
+                                self.contacts,
+                                extraction_for_contact,
+                                allowed_contact_fields,
+                                current=current_contact,
                             ),
                             hubspot_owner_id,
                         )
                         props.pop("email", None)  # never rotate the locked identity email
                         if props:
                             await self.contacts.update(resolved_contact_id, props)
+                            record_written_fields(
+                                written_fields,
+                                object_type="contacts",
+                                props=props,
+                                current=current_contact,
+                            )
                         contact_id = resolved_contact_id
                         result.contact_id = contact_id
                         tracked.data = {"contact_id": contact_id, "email": extraction_for_contact.contactEmail}
@@ -665,9 +717,17 @@ class HubSpotSyncService:
                                 contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                                 if contact_ids:
                                     primary_contact_id = contact_ids[0]
+                                    current_contact = await _current_contact_properties(
+                                        self.contacts,
+                                        primary_contact_id,
+                                        list(allowed_contact_fields or []),
+                                    )
                                     props = stamp_owner(
                                         _contact_props_updating_existing(
-                                            self.contacts, extraction_for_contact, allowed_contact_fields
+                                            self.contacts,
+                                            extraction_for_contact,
+                                            allowed_contact_fields,
+                                            current=current_contact,
                                         ),
                                         hubspot_owner_id,
                                     )
@@ -680,6 +740,12 @@ class HubSpotSyncService:
                                             resource_type="contact",
                                         ) as tracked:
                                             await self.contacts.update(primary_contact_id, props)
+                                            record_written_fields(
+                                                written_fields,
+                                                object_type="contacts",
+                                                props=props,
+                                                current=current_contact,
+                                            )
                                             contact_id = primary_contact_id
                                             result.contact_id = contact_id
                                             tracked.data = {"contact_id": primary_contact_id, "email": extraction_for_contact.contactEmail}
@@ -831,6 +897,12 @@ class HubSpotSyncService:
                                     filtered_properties,
                                     hubspot_owner_id=hubspot_owner_id,
                                 )
+                                record_written_fields(
+                                    written_fields,
+                                    object_type="deals",
+                                    props=filtered_properties,
+                                    current=existing_props,
+                                )
                                 result.deal_id = deal.id
                                 tracked.data = {
                                     "deal_id": deal.id,
@@ -901,8 +973,16 @@ class HubSpotSyncService:
                             contact_ids = await self.associations.get_associations("deals", deal_id, "contacts")
                             if contact_ids:
                                 primary_contact_id = contact_ids[0]
+                                current_contact = await _current_contact_properties(
+                                    self.contacts,
+                                    primary_contact_id,
+                                    list(allowed_contact_fields or []),
+                                )
                                 props = _contact_props_updating_existing(
-                                    self.contacts, extraction_for_contact, allowed_contact_fields
+                                    self.contacts,
+                                    extraction_for_contact,
+                                    allowed_contact_fields,
+                                    current=current_contact,
                                 )
                                 props.pop("email", None)
                                 if props:
@@ -914,6 +994,12 @@ class HubSpotSyncService:
                                         resource_type="contact",
                                     ) as tracked:
                                         await self.contacts.update(primary_contact_id, props)
+                                        record_written_fields(
+                                            written_fields,
+                                            object_type="contacts",
+                                            props=props,
+                                            current=current_contact,
+                                        )
                                         contact_id = primary_contact_id
                                         result.contact_id = primary_contact_id
                                         tracked.data = {"contact_id": primary_contact_id, "updated_fields": list(props.keys())}
@@ -955,6 +1041,11 @@ class HubSpotSyncService:
                                     resource_type="company",
                                 ) as tracked:
                                     await self.companies.update(cids[0], company_props)
+                                    record_written_fields(
+                                        written_fields,
+                                        object_type="companies",
+                                        props=company_props,
+                                    )
                                     company_id = company_id or cids[0]
                                     result.company_id = company_id
                                     tracked.data = {
@@ -1415,6 +1506,7 @@ class HubSpotSyncService:
                                 source="hubspot_call",
                                 call_outcome=call_outcome,
                                 lost_reason=lost_reason,
+                                field_changes=written_fields,
                             )
                             note_properties = {
                                 "hs_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

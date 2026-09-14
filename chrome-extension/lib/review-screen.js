@@ -111,13 +111,18 @@ export function contactTargetCardCopy({
   selectedContact = null,
   fallbackName = '',
   fallbackMeta = '',
+  newCompany = null,
 } = {}) {
   if (selectedContact) {
+    const bits = [selectedContact.email, selectedContact.phone, selectedContact.company_name]
+      .filter(Boolean);
+    if (!selectedContact.company_id && newCompany) {
+      const createName = String(newCompany.name || '').trim();
+      bits.push(createName ? `Create ${createName}` : 'Create company');
+    }
     return {
       title: selectedContact.name || selectedContact.email || 'Contact',
-      reason: [selectedContact.email, selectedContact.phone, selectedContact.company_name]
-        .filter(Boolean)
-        .join(' · '),
+      reason: bits.join(' · '),
       known: true,
       locked: true,
     };
@@ -261,7 +266,9 @@ export function approveCtaLabel({
   isNewDeal = false,
   hasDeal = false,
   hasContact = false,
+  alreadyWritten = false,
 } = {}) {
+  if (alreadyWritten) return 'Write correction';
   if (isNewDeal) return 'Create deal';
   if (skipDeal && hasContact && !hasDeal) return 'Update contact';
   if (hasDeal) return 'Update deal';

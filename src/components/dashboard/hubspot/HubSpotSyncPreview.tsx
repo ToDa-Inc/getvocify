@@ -606,6 +606,7 @@ export const HubSpotSyncPreview = ({
           contactId,
           companyId,
           skipDeal: effectiveSkipDeal,
+          createCompany: Boolean(preview?.new_company && !companyId),
         },
       );
       toast.success(effectiveSkipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
@@ -853,6 +854,13 @@ export const HubSpotSyncPreview = ({
                 {selectedContact?.match_reason && (
                   <p className="text-[10px] text-muted-foreground/50 pt-1">
                     {selectedContact.match_reason} — contact and company updates will link here
+                  </p>
+                )}
+                {preview?.new_company && !selectedContact?.company_id && (
+                  <p className="text-xs text-beige pt-2">
+                    {preview.new_company.name
+                      ? `No company on this contact. Confirm will create ${preview.new_company.name}.`
+                      : "No company on this contact. Add a company name to create one."}
                   </p>
                 )}
               </div>
@@ -1175,7 +1183,9 @@ export const HubSpotSyncPreview = ({
                 {
                   deals: "Deal Properties",
                   contacts: "Contact Properties",
-                  companies: "Company Properties",
+                  companies: preview?.new_company && !selectedContact?.company_id
+                    ? "New Company"
+                    : "Company Properties",
                   line_items: "Line Items",
                   task: "Tasks",
                 }[String(currentObject)] || currentObject;

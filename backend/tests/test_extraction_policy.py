@@ -3,6 +3,7 @@ from app.services.extraction_policy import (
     annotate_schema_fill_policies,
     apply_fill_policies,
     classify_fill_policy,
+    drop_call_unsafe_props,
     fill_policy_instruction,
 )
 from app.services.extraction import (
@@ -171,3 +172,23 @@ def test_drops_current_value_echo_and_unknown_enum():
     )
     assert out.get("dealstage") is None
     assert out["contact_properties"].get("vocify_sales_motion") is None
+
+
+def test_drop_call_unsafe_keeps_empty_research_fields_on_existing_contact():
+    props = drop_call_unsafe_props(
+        {"vocify_fit": "moderate", "vocify_sales_motion": "field_sales", "firstname": "Dani"},
+        existing_record=True,
+        current={},
+        object_type="contacts",
+    )
+    assert props == {"vocify_fit": "moderate", "vocify_sales_motion": "field_sales"}
+
+
+def test_drop_call_unsafe_does_not_overwrite_filled_research_fields():
+    props = drop_call_unsafe_props(
+        {"vocify_fit": "moderate"},
+        existing_record=True,
+        current={"vocify_fit": "strong"},
+        object_type="contacts",
+    )
+    assert props == {}

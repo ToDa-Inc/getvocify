@@ -103,11 +103,20 @@ export function crmFieldInputKind(update) {
   return 'text';
 }
 
-export function crmFieldGroups(updates) {
+export function crmObjectGroupLabel(objectType, { creatingCompany = false } = {}) {
+  if (objectType === 'companies' && creatingCompany) return 'New company';
+  return OBJECT_KICKERS[objectType] || objectType;
+}
+
+export function crmFieldGroups(updates, { creatingCompany = false } = {}) {
   const list = Array.isArray(updates) ? updates.filter(Boolean) : [];
   const types = [...new Set(list.map((u) => u.object_type || 'deals'))];
   if (types.length <= 1) {
-    return [{ objectType: types[0] || null, label: null, updates: list }];
+    const objectType = types[0] || null;
+    const label = objectType === 'companies' && creatingCompany
+      ? crmObjectGroupLabel(objectType, { creatingCompany })
+      : null;
+    return [{ objectType, label, updates: list }];
   }
   const groups = [];
   for (const update of list) {
@@ -119,7 +128,7 @@ export function crmFieldGroups(updates) {
     }
     groups.push({
       objectType,
-      label: OBJECT_KICKERS[objectType] || objectType,
+      label: crmObjectGroupLabel(objectType, { creatingCompany }),
       updates: [update],
     });
   }

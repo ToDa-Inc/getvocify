@@ -6,6 +6,9 @@ import {
   describeCallState,
   dialerPanelMode,
   formatCallDuration,
+  memoBusyLabel,
+  outboundActivityChrome,
+  postCallCard,
   postCallNotice,
 } from './call-format.js';
 
@@ -40,25 +43,24 @@ describe('describeCallState', () => {
     assert.equal(describeCallState({ state: CALL_STATES.ENDING }), 'Colgando…');
   });
 
-  it('includes duration and mute on active', () => {
-    const now = 10_000;
+  it('keeps duration off the status — the right-side timer is the clock', () => {
     assert.equal(
       describeCallState({
         state: CALL_STATES.ACTIVE,
         answeredAt: 3000,
-        now,
+        now: 10_000,
         muted: false,
       }),
-      'En llamada · 0:07'
+      'En llamada'
     );
-    assert.match(
+    assert.equal(
       describeCallState({
         state: CALL_STATES.ACTIVE,
         answeredAt: 3000,
-        now,
+        now: 10_000,
         muted: true,
       }),
-      /silenciado/
+      'En llamada · silenciado'
     );
   });
 });
@@ -214,6 +216,102 @@ describe('postCallNotice', () => {
         visible: true,
         text: 'Twilio no alcanzó el servidor',
       }
+    );
+  });
+});
+
+describe('postCallCard', () => {
+  it('asks to review only when auto-sync is off', () => {
+    assert.deepEqual(
+      postCallCard({
+        memoStatus: 'pending_review',
+        memoId: 'm1',
+        durationLabel: '1:15',
+        autoSync: false,
+      }),
+      {
+        kind: 'review',
+        text: 'Llamada de 1:15 · listo para revisar',
+        actionLabel: 'Revisar',
+        memoId: 'm1',
+      },
+    );
+  });
+
+  it('keeps writing copy while auto-sync may still approve', () => {
+    assert.equal(
+      postCallCard({
+        memoStatus: 'pending_review',
+        memoId: 'm1',
+        durationLabel: '1:15',
+        autoSync: true,
+      }).kind,
+      'busy',
+    );
+  });
+
+  it('shows the call as already written after approve', () => {
+    assert.deepEqual(
+      postCallCard({
+        memoStatus: 'approved',
+        memoId: 'm1',
+        durationLabel: '1:15',
+      }),
+      {
+        kind: 'synced',
+        text: 'Llamada de 1:15 · escrito en CRM',
+        actionLabel: 'Ver',
+        memoId: 'm1',
+      },
+    );
+  });
+});
+
+describe('memoBusyLabel', () => {
+  it('uses the same English labels as HubSpot activity rows', () => {
+    assert.equal(memoBusyLabel('uploading'), 'Uploading');
+    assert.equal(memoBusyLabel('transcribing'), 'Transcribing');
+    assert.equal(memoBusyLabel('extracting'), 'Extracting');
+    assert.equal(memoBusyLabel('pending_review'), null);
+    assert.equal(memoBusyLabel('approved'), null);
+  });
+});
+
+describe('outboundActivityChrome', () => {
+  it('does not call every in-flight outbound call Transcribing', () => {
+    assert.deepEqual(
+      outboundActivityChrome({ memoId: 'm1', memoStatus: 'extracting' }),
+      { kind: 'busy', label: 'Extracting' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({ memoId: 'm1', memoStatus: 'transcribing' }),
+      { kind: 'busy', label: 'Transcribing' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({ memoId: 'm1', memoStatus: 'pending_review' }),
+      { kind: 'continue', label: 'Continue', memoId: 'm1' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({ memoId: 'm1', memoStatus: 'pending_review', autoSync: true }),
+      { kind: 'busy', label: 'Writing' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({ memoId: 'm1', memoStatus: 'approved' }),
+      { kind: 'view', label: 'View', memoId: 'm1' },
+    );
+  });
+
+  it('does not treat dialing as transcription', () => {
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'dialing', to: '+3466008692355' }),
+      { kind: 'none', label: '' },
+    );
+  });
+
+  it('uses Processing only when the call is recorded and memo status is still unknown', () => {
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'recorded', memoId: 'm1' }),
+      { kind: 'busy', label: 'Processing' },
     );
   });
 });

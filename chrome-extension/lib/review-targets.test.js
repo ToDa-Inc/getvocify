@@ -159,6 +159,31 @@ describe('bindPreviewToPage', () => {
     );
   });
 
+  it('drops company fields when the contact has no company', () => {
+    const visible = proposedUpdatesForPage({
+      skip_deal: true,
+      selected_contact: { contact_id: 'C-1' },
+      proposed_updates: [
+        { object_type: 'contacts', field_name: 'vocify_fit', new_value: 'moderate' },
+        { object_type: 'companies', field_name: 'crm_utilizado', new_value: 'zoho' },
+      ],
+    });
+    assert.deepEqual(visible.map((u) => u.field_name), ['vocify_fit']);
+  });
+
+  it('keeps company fields when review proposes creating a company', () => {
+    const visible = proposedUpdatesForPage({
+      skip_deal: true,
+      selected_contact: { contact_id: 'C-1' },
+      new_company: { properties: { crm_utilizado: 'zoho' } },
+      proposed_updates: [
+        { object_type: 'contacts', field_name: 'vocify_fit', new_value: 'moderate' },
+        { object_type: 'companies', field_name: 'crm_utilizado', new_value: 'zoho' },
+      ],
+    });
+    assert.deepEqual(visible.map((u) => u.field_name), ['vocify_fit', 'crm_utilizado']);
+  });
+
   it('drops the matcher deal when the record was closed (inbox)', () => {
     const out = bindPreviewToPage({
       preview: { selected_deal: { deal_id: 'D-old', deal_name: 'Old deal' } },

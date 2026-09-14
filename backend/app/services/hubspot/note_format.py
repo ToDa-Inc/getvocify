@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from app.services.transcript_turns import parse_transcript_turns
 
@@ -132,6 +132,75 @@ def _speaker_display(raw: Optional[str], spanish: bool) -> str:
 
 _OUTCOME_LABELS_EN = {"converted": "Converted", "on_hold": "On hold", "lost": "Lost"}
 _OUTCOME_LABELS_ES = {"converted": "Convertido", "on_hold": "En pausa", "lost": "Perdido"}
+_OBJECT_LABELS_EN = {"contacts": "Contact", "companies": "Company", "deals": "Deal"}
+_OBJECT_LABELS_ES = {"contacts": "Contacto", "companies": "Empresa", "deals": "Negocio"}
+_SKIP_NOTE_FIELDS = frozenset({"hubspot_owner_id", "hs_object_id"})
+
+
+def _humanize_field_name(name: str) -> str:
+    return (name or "").replace("_", " ").strip().title()
+
+
+def _note_value_display(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value if item not in (None, ""))
+    return str(value).strip()
+
+
+def record_written_fields(
+    written: list[dict[str, Any]],
+    *,
+    object_type: str,
+    props: Optional[dict[str, Any]],
+    current: Optional[dict[str, Any]] = None,
+    created: bool = False,
+) -> None:
+    """Append property writes for the HubSpot note's field-changes section."""
+    for key, value in (props or {}).items():
+        if key in _SKIP_NOTE_FIELDS or value in (None, ""):
+            continue
+        previous = (current or {}).get(key) if current else None
+        written.append(
+            {
+                "object_type": object_type,
+                "field": key,
+                "value": value,
+                "previous": previous if previous not in (None, "") else None,
+                "created": created,
+            }
+        )
+
+
+def format_field_changes_section(
+    changes: Optional[list[dict[str, Any]]],
+    *,
+    spanish: bool,
+) -> str:
+    """HTML list of CRM fields written on this sync (contact / company / deal)."""
+    rows = [change for change in (changes or []) if (change.get("field") and change.get("value") not in (None, ""))]
+    if not rows:
+        return ""
+    title = "Campos actualizados" if spanish else "Fields updated"
+    labels = _OBJECT_LABELS_ES if spanish else _OBJECT_LABELS_EN
+    created_tag = "nueva" if spanish else "new"
+    items: list[str] = []
+    for change in rows:
+        object_label = labels.get(str(change.get("object_type") or ""), str(change.get("object_type") or "").title())
+        if change.get("created"):
+            object_label = f"{object_label} ({created_tag})"
+        field_label = html.escape(str(change.get("label") or _humanize_field_name(str(change.get("field") or ""))))
+        new_value = html.escape(_note_value_display(change.get("value")))
+        previous = _note_value_display(change.get("previous"))
+        if previous:
+            items.append(
+                f"<li><strong>{html.escape(object_label)} · {field_label}:</strong> "
+                f"{html.escape(previous)} → {new_value}</li>"
+            )
+        else:
+            items.append(f"<li><strong>{html.escape(object_label)} · {field_label}:</strong> {new_value}</li>")
+    return f"<p><strong>{html.escape(title)}</strong></p>\n<ul>{''.join(items)}</ul>"
 
 
 def format_call_outcome_section(
@@ -177,6 +246,7 @@ def format_hubspot_note_body(
     source: Optional[str] = None,
     call_outcome: Optional[str] = None,
     lost_reason: Optional[str] = None,
+    field_changes: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """
     Build an HTML HubSpot note: summary first, then readable transcript,
@@ -221,6 +291,10 @@ def format_hubspot_note_body(
             else "No summary available — see transcript below."
         )
         parts.append(f"<p><em>{html.escape(missing)}</em></p>")
+
+    field_html = format_field_changes_section(field_changes, spanish=spanish)
+    if field_html:
+        parts.append(field_html)
 
     # Transcript section
     if transcript:

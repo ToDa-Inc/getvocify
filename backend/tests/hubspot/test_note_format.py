@@ -1,7 +1,9 @@
 from app.services.hubspot.note_format import (
     first_bullet_plaintext,
+    format_field_changes_section,
     format_hubspot_note_body,
     format_summary_html,
+    record_written_fields,
 )
 
 FRANCK = """# Contexto
@@ -43,6 +45,64 @@ def test_first_bullet_plaintext_for_deal_description():
     assert first_bullet_plaintext(FRANCK) == (
         "Llamada en frío a Franck de NEURTEK para presentar Vocify"
     )
+
+
+def test_note_body_includes_written_field_changes():
+    body = format_hubspot_note_body(
+        summary="Hello there",
+        transcript="You\nHi",
+        field_changes=[
+            {"object_type": "contacts", "field": "vocify_fit", "value": "moderate"},
+            {
+                "object_type": "companies",
+                "field": "crm_utilizado",
+                "value": "zoho",
+                "created": True,
+            },
+        ],
+    )
+    assert "Fields updated" in body
+    assert "Contact · Vocify Fit" in body
+    assert "moderate" in body
+    assert "Company (new) · Crm Utilizado" in body
+    assert "zoho" in body
+
+
+def test_field_changes_section_shows_previous_value_and_spanish_title():
+    html = format_field_changes_section(
+        [
+            {
+                "object_type": "contacts",
+                "field": "vocify_sales_motion",
+                "label": "Sales motion",
+                "previous": "inside_sales",
+                "value": "field_sales",
+            }
+        ],
+        spanish=True,
+    )
+    assert "Campos actualizados" in html
+    assert "Contacto · Sales motion" in html
+    assert "inside_sales → field_sales" in html
+
+
+def test_record_written_fields_skips_owner_and_empty_values():
+    written: list[dict] = []
+    record_written_fields(
+        written,
+        object_type="contacts",
+        props={"vocify_fit": "moderate", "hubspot_owner_id": "99", "jobtitle": ""},
+        current={"vocify_fit": None},
+    )
+    assert written == [
+        {
+            "object_type": "contacts",
+            "field": "vocify_fit",
+            "value": "moderate",
+            "previous": None,
+            "created": False,
+        }
+    ]
 
 
 def test_format_summary_html_strips_asterisk_bullet_markers():

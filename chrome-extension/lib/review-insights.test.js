@@ -110,6 +110,23 @@ describe('crm field rows', () => {
     assert.equal(mixed[2].updates[0].field_name, 'amount');
   });
 
+  it('labels company fields as New company when review will create one', () => {
+    const onlyCompany = crmFieldGroups(
+      [{ object_type: 'companies', field_name: 'crm_utilizado', new_value: 'zoho' }],
+      { creatingCompany: true },
+    );
+    assert.equal(onlyCompany[0].label, 'New company');
+
+    const mixedCreate = crmFieldGroups(
+      [
+        { object_type: 'contacts', field_name: 'vocify_fit', new_value: 'moderate' },
+        { object_type: 'companies', field_name: 'crm_utilizado', new_value: 'zoho' },
+      ],
+      { creatingCompany: true },
+    );
+    assert.deepEqual(mixedCreate.map((g) => g.label), ['Contact', 'New company']);
+  });
+
   it('labels Add field with just the name unless objects are mixed', () => {
     const field = { name: 'jobtitle', label: 'Job title', object_type: 'contacts' };
     assert.equal(addFieldOptionLabel(field, { mixedObjects: false }), 'Job title');

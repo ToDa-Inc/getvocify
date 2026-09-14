@@ -539,13 +539,21 @@ async def log_call_engagement(
             contact_id=row.get("hubspot_contact_id"),
             deal_id=row.get("hubspot_deal_id"),
         )
-        await mark_recording_ready(client, engagement_id)
         supabase.table("outbound_calls").update(
             {
                 "hubspot_engagement_id": engagement_id,
                 "status": "logged",
             }
         ).eq("carrier_call_id", call_sid).execute()
+        try:
+            await mark_recording_ready(client, engagement_id)
+        except Exception as rec_err:
+            logger.warning(
+                "HubSpot recording-ready failed for %s (call %s still logged): %s",
+                engagement_id,
+                call_sid,
+                rec_err,
+            )
         try:
             supabase.table("outbound_calls").update(
                 {"call_disposition": screening_outcome}

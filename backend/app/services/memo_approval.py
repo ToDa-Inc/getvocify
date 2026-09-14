@@ -209,6 +209,10 @@ async def approve_memo_core(
         auto_create_contacts = False
     if company_id:
         auto_create_companies = False
+    if payload is not None and payload.create_company is False:
+        auto_create_companies = False
+    elif payload is not None and payload.create_company is True and not company_id:
+        auto_create_companies = True
 
     try:
         provider = build_crm_provider(supabase, crm_connection)

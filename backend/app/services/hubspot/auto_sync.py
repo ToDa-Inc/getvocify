@@ -102,6 +102,7 @@ def approval_payload_for_auto_sync(
         contact_id=contact,
         skip_deal=not bool(deal),
         create_note=True,
+        create_company=False,
         call_outcome=None,
     )
 

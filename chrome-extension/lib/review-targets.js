@@ -134,10 +134,17 @@ export function bindPreviewToPage({
 
 export function proposedUpdatesForPage(preview) {
   const updates = Array.isArray(preview?.proposed_updates) ? preview.proposed_updates : [];
-  if (preview?.skip_deal && !preview?.selected_deal) {
-    return updates.filter((u) => (u?.object_type || 'deals') !== 'deals');
-  }
-  return updates;
+  const companyId = preview?.selected_contact?.company_id;
+  return updates.filter((u) => {
+    const objectType = u?.object_type || 'deals';
+    if (preview?.skip_deal && !preview?.selected_deal && objectType === 'deals') {
+      return false;
+    }
+    if (!companyId && objectType === 'companies' && !preview?.new_company) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function bindPreviewIds({

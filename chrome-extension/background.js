@@ -954,7 +954,8 @@ function startCallStatusPoll(callSid) {
     }
     try {
       const call = await api.getCall(callSid);
-      const terminal = call.status === 'logged' || call.status === 'failed';
+      const terminal = call.status === 'logged' || call.status === 'failed'
+        || ['approved', 'rejected', 'failed'].includes(call.memoStatus);
       updateState({
         lastCall: {
           ...state.lastCall,
@@ -1378,6 +1379,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         company_id: message.companyId || undefined,
         skip_deal: !!message.skipDeal,
         create_note: message.createNote !== false,
+        ...(message.createCompany === true ? { create_company: true } : {}),
       })
         .then(result => {
           updateState({ status: 'success', syncResult: result });

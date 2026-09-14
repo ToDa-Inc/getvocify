@@ -229,7 +229,7 @@ export const crmApi = {
     dealId?: string,
     isNewDeal: boolean = false,
     extraction?: any,
-    opts?: { contactId?: string; companyId?: string; skipDeal?: boolean }
+    opts?: { contactId?: string; companyId?: string; skipDeal?: boolean; createCompany?: boolean }
   ) {
     return api.post(`/memos/${memoId}/approve`, {
       deal_id: dealId,
@@ -238,6 +238,7 @@ export const crmApi = {
       contact_id: opts?.contactId,
       company_id: opts?.companyId,
       skip_deal: opts?.skipDeal || false,
+      ...(opts?.createCompany ? { create_company: true } : {}),
     });
   },
 };

@@ -151,12 +151,14 @@ def test_auto_sync_payload_never_creates_a_deal_or_sets_lead_status():
     assert with_deal.skip_deal is False
     assert with_deal.call_outcome is None
     assert with_deal.create_note is True
+    assert with_deal.create_company is False
 
     contact_only = approval_payload_for_auto_sync(contact_id="c1", deal_id=None)
     assert contact_only.deal_id is None
     assert contact_only.skip_deal is True
     assert contact_only.is_new_deal is False
     assert contact_only.call_outcome is None
+    assert contact_only.create_company is False
 
 
 def test_crm_config_defaults_auto_sync_off():

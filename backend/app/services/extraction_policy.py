@@ -221,10 +221,10 @@ def drop_call_unsafe_props(
         if policy == "strategy":
             continue
         if policy == "research":
-            if not current or _has_value(current.get(key)):
+            if _has_value((current or {}).get(key)):
                 continue
         if policy == "identity" and key.lower() in {"email", "hs_email"}:
-            if not current or _has_value(current.get(key)):
+            if _has_value((current or {}).get(key)):
                 continue
         out[key] = value
     return out

@@ -36,6 +36,40 @@ def _format_value_for_display(value: Any) -> str:
     return str(value)
 
 
+def proposed_new_company(
+    *,
+    has_existing_company: bool,
+    company_name: Optional[str],
+    company_props: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """
+    Manual-review signal: create a company when the locked record has none.
+
+    Auto-approve must not invent a company. Preview only — Confirm still
+    needs a name before HubSpot will create the record.
+    """
+    if has_existing_company:
+        return None
+    name = (company_name or "").strip() or None
+    props = {
+        key: value
+        for key, value in (company_props or {}).items()
+        if value not in (None, "")
+    }
+    if name:
+        props.pop("name", None)
+    elif isinstance(props.get("name"), str) and props["name"].strip():
+        name = props.pop("name").strip()
+    if not name and not props:
+        return None
+    out: dict[str, Any] = {}
+    if name:
+        out["name"] = name
+    if props:
+        out["properties"] = props
+    return out
+
+
 class HubSpotPreviewService:
     """
     Builds approval previews showing what will be updated in HubSpot.
@@ -482,8 +516,8 @@ class HubSpotPreviewService:
                 object_type="contacts",
             ))
 
-        has_existing_company = bool(current_company_props) or (
-            bool(selected_deal_id) and not is_new_deal
+        has_existing_company = bool(current_company_props) or bool(
+            getattr(selected_contact, "company_id", None)
         )
         company_props = company_properties_from_extraction(
             extraction,
@@ -493,6 +527,11 @@ class HubSpotPreviewService:
                 if self.company_service else {}
             ),
         )
+        new_company = proposed_new_company(
+            has_existing_company=has_existing_company,
+            company_name=extraction.companyName,
+            company_props=company_props,
+        )
         if has_existing_company:
             company_props = drop_call_unsafe_props(
                 company_props,
@@ -500,28 +539,42 @@ class HubSpotPreviewService:
                 current=current_company_props,
                 object_type="companies",
             )
-        for field_name, new_value in company_props.items():
-            if field_name == "name" and show_identity_create:
-                continue
-            new_display = _display_value(field_name, new_value)
-            if not new_display:
-                continue
-            current_display = _display_value(field_name, current_company_props.get(field_name))
-            if has_existing_company and (current_display == new_display or field_name == "name"):
-                continue
-            key = f"companies:{field_name}"
-            spec = field_specs_map.get(key, {})
-            label = field_labels.get(key, field_name.replace("_", " ").title())
+        already_proposed_company_name = any(
+            u.field_name == "company_name" and (u.object_type or "") == "companies"
+            for u in proposed_updates
+        )
+        if new_company and new_company.get("name") and not already_proposed_company_name:
             proposed_updates.append(ProposedUpdate(
-                field_name=field_name,
-                field_label=label,
-                current_value=(current_display or "(empty)") if has_existing_company else None,
-                new_value=new_display,
-                extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
-                field_type=spec.get("type"),
-                options=spec.get("options"),
+                field_name="company_name",
+                field_label="Company",
+                current_value=None,
+                new_value=new_company["name"],
+                extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
                 object_type="companies",
             ))
+        if has_existing_company or new_company:
+            for field_name, new_value in company_props.items():
+                if field_name == "name":
+                    continue
+                new_display = _display_value(field_name, new_value)
+                if not new_display:
+                    continue
+                current_display = _display_value(field_name, current_company_props.get(field_name))
+                if has_existing_company and current_display == new_display:
+                    continue
+                key = f"companies:{field_name}"
+                spec = field_specs_map.get(key, {})
+                label = field_labels.get(key, field_name.replace("_", " ").title())
+                proposed_updates.append(ProposedUpdate(
+                    field_name=field_name,
+                    field_label=label,
+                    current_value=(current_display or "(empty)") if has_existing_company else None,
+                    new_value=new_display,
+                    extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                    field_type=spec.get("type"),
+                    options=spec.get("options"),
+                    object_type="companies",
+                ))
 
         # Line items (create proposals) — deal-scoped
         if not skip_deal:
@@ -559,21 +612,28 @@ class HubSpotPreviewService:
         }
         available_fields_list: list[AvailableField] = []
         object_field_sources = (
-            [("contacts", allowed_contact_fields), ("companies", allowed_company_fields)]
+            [("contacts", allowed_contact_fields)]
             if skip_deal
             else [
                 ("deals", allowed_fields),
                 ("contacts", allowed_contact_fields),
-                ("companies", allowed_company_fields),
             ]
         )
+        if has_existing_company or new_company:
+            object_field_sources = list(object_field_sources) + [
+                ("companies", allowed_company_fields)
+            ]
         for object_type, names in object_field_sources:
             for name in names:
                 if f"{object_type}:{name}" in proposed_keys:
                     continue
                 # Identity labels already covered by contact_name / company_name rows
                 if object_type == "companies" and name == "name":
-                    continue
+                    if has_existing_company or any(
+                        u.field_name == "company_name" and (u.object_type or "") == "companies"
+                        for u in proposed_updates
+                    ):
+                        continue
                 # Existing contacts keep their CRM name — don't offer firstname/lastname as addable updates
                 if has_existing_contact and object_type == "contacts" and is_identity_name_field(name):
                     continue
@@ -589,7 +649,6 @@ class HubSpotPreviewService:
                 ))
 
         new_contact = None
-        new_company = None
         if is_new_deal and not selected_contact:
             from .contact_identity import real_contact_email_or_none
 
@@ -602,7 +661,7 @@ class HubSpotPreviewService:
                     "email": email,
                     "phone": phone,
                 }
-            if extraction.companyName:
+            if extraction.companyName and not new_company:
                 new_company = {"name": extraction.companyName}
 
         return ApprovalPreview(

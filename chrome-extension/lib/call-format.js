@@ -24,12 +24,8 @@ export function describeCallState({ state, to, answeredAt, now, muted } = {}) {
       return 'Conectando…';
     case CALL_STATES.RINGING:
       return to ? `Llamando a ${to}…` : 'Llamando…';
-    case CALL_STATES.ACTIVE: {
-      const elapsed = formatCallDuration(
-        Number(now) - Number(answeredAt || now)
-      );
-      return muted ? `En llamada · ${elapsed} · silenciado` : `En llamada · ${elapsed}`;
-    }
+    case CALL_STATES.ACTIVE:
+      return muted ? 'En llamada · silenciado' : 'En llamada';
     case CALL_STATES.ENDING:
       return 'Colgando…';
     default:
@@ -80,6 +76,80 @@ export function dialerPanelMode({
   if (phone && canPlaceCall === false) return 'needs-cli';
   if (phone) return 'contact';
   return 'hidden';
+}
+
+/** Same busy copy as HubSpot rows (`src/lib/recordings.ts`) and memo rows. */
+export function memoBusyLabel(status) {
+  if (status === 'uploading') return 'Uploading';
+  if (status === 'extracting') return 'Extracting';
+  if (status === 'transcribing') return 'Transcribing';
+  return null;
+}
+
+/**
+ * Activity chrome for a Vocify outbound call. Uses memo status, not call.status.
+ * dialing is not transcription.
+ */
+export function outboundActivityChrome(call = {}) {
+  const memoId = call.memoId || null;
+  const memoStatus = call.memoStatus || null;
+  const autoSync = Boolean(call.autoSync);
+  const busy = memoBusyLabel(memoStatus);
+  if (busy) return { kind: 'busy', label: busy };
+  if (memoId && memoStatus === 'pending_review' && autoSync) {
+    return { kind: 'busy', label: 'Writing' };
+  }
+  if (memoId && (memoStatus === 'pending_review' || memoStatus === 'pending_transcript')) {
+    return { kind: 'continue', label: 'Continue', memoId };
+  }
+  if (memoId && memoStatus === 'approved') {
+    return { kind: 'view', label: 'View', memoId };
+  }
+  if (call.status === 'recorded' && !memoStatus) {
+    return { kind: 'busy', label: 'Processing' };
+  }
+  if (call.status === 'failed' && call.to) {
+    return { kind: 'redial', label: 'Reintentar', to: call.to, from: call.from || '' };
+  }
+  if (call.to && !memoId && call.status !== 'dialing') {
+    return { kind: 'redial', label: 'Reintentar', to: call.to, from: call.from || '' };
+  }
+  return { kind: 'none', label: '' };
+}
+
+export function postCallCard({
+  memoStatus,
+  memoId,
+  durationLabel = '',
+  autoSync = false,
+  errorMessage = '',
+  processing,
+} = {}) {
+  const duration = durationLabel || '0:00';
+  if (errorMessage && processing === false && memoStatus !== 'pending_review' && memoStatus !== 'approved') {
+    return { kind: 'error', text: errorMessage };
+  }
+  if (memoStatus === 'approved' && memoId) {
+    return {
+      kind: 'synced',
+      text: `Llamada de ${duration} · escrito en CRM`,
+      actionLabel: 'Ver',
+      memoId,
+    };
+  }
+  if (memoStatus === 'pending_review' && memoId) {
+    if (autoSync) {
+      return { kind: 'busy', text: `Llamada de ${duration} · escribiendo en CRM` };
+    }
+    return {
+      kind: 'review',
+      text: `Llamada de ${duration} · listo para revisar`,
+      actionLabel: 'Revisar',
+      memoId,
+    };
+  }
+  const busy = memoBusyLabel(memoStatus) || 'Processing';
+  return { kind: 'busy', text: `Llamada de ${duration} · ${busy}` };
 }
 
 export function postCallNotice(lastCall) {

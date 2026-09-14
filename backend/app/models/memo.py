@@ -175,6 +175,13 @@ class ApproveMemoRequest(BaseModel):
     )
     extraction: Optional[MemoExtraction] = None
     create_note: bool = Field(default=True, description="Create CRM note when a deal is synced")
+    create_company: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Manual Confirm can create a company when the contact has none. "
+            "False never creates (auto-approve). None uses workspace auto_create_companies."
+        ),
+    )
     call_outcome: Optional[Literal["converted", "on_hold", "lost"]] = Field(
         None,
         description=(
