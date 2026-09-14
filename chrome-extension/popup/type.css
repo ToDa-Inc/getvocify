@@ -176,3 +176,46 @@
   color: var(--muted);
   background: rgba(0, 0, 0, 0.04);
 }
+
+.dialer-postcall {
+  flex-wrap: nowrap;
+}
+
+#postcall-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#postcall-review {
+  flex-shrink: 0;
+}
+
+.dialer-postcall button.dialer-dismiss {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialer-dismiss:hover {
+  color: var(--foreground);
+}
+
+#call-mute.is-muted,
+#call-mute[aria-pressed="true"] {
+  color: var(--muted);
+  background: #f3f1ee;
+  opacity: 0.5;
+}

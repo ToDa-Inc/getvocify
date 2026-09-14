@@ -43,7 +43,7 @@ describe('describeCallState', () => {
     assert.equal(describeCallState({ state: CALL_STATES.ENDING }), 'Colgando…');
   });
 
-  it('keeps duration off the status — the right-side timer is the clock', () => {
+  it('keeps duration and mute off the status — the timer and mic own those', () => {
     assert.equal(
       describeCallState({
         state: CALL_STATES.ACTIVE,
@@ -60,7 +60,7 @@ describe('describeCallState', () => {
         now: 10_000,
         muted: true,
       }),
-      'En llamada · silenciado'
+      'En llamada'
     );
   });
 });

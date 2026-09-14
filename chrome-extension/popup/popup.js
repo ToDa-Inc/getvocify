@@ -3263,12 +3263,9 @@ function renderCallSection() {
     const muteBtn = document.getElementById('call-mute');
     if (muteBtn) {
       muteBtn.disabled = !canMute(call.state);
+      muteBtn.classList.toggle('is-muted', Boolean(call.muted));
       muteBtn.setAttribute('aria-pressed', call.muted ? 'true' : 'false');
       muteBtn.setAttribute('aria-label', call.muted ? 'Activar micrófono' : 'Silenciar');
-      const micOn = muteBtn.querySelector('.icon-mic');
-      const micOff = muteBtn.querySelector('.icon-mic-off');
-      if (micOn) micOn.hidden = Boolean(call.muted);
-      if (micOff) micOff.hidden = !call.muted;
     }
     const keypadToggle = document.getElementById('call-keypad-toggle');
     if (keypadToggle) keypadToggle.disabled = !canSendDigits(call.state);
@@ -3299,16 +3296,14 @@ function renderCallSection() {
 
 function renderPostCallCard(lastCall) {
   const el = document.getElementById('call-postcall');
-  if (!el) return;
-  if (!lastCall || lastCall.outcome !== 'answered') {
-    el.hidden = true;
-    el.innerHTML = '';
-    return;
-  }
+  const textEl = document.getElementById('postcall-text');
+  const reviewBtn = document.getElementById('postcall-review');
+  const busyEl = document.getElementById('postcall-busy');
+  if (!el || !textEl) return;
   const live = lastBgState?.call;
-  if (live && live.state && live.state !== CALL_STATES.IDLE) {
+  const inCall = Boolean(live && live.state && live.state !== CALL_STATES.IDLE);
+  if (!lastCall || lastCall.outcome !== 'answered' || inCall) {
     el.hidden = true;
-    el.innerHTML = '';
     return;
   }
   el.hidden = false;
@@ -3322,24 +3317,14 @@ function renderPostCallCard(lastCall) {
     errorMessage: lastCall.errorMessage,
     processing: lastCall.processing,
   });
-  let body = '';
-  if (card.kind === 'error') {
-    body = `<span>${escapeHtml(card.text || 'La llamada falló')}</span>`;
-  } else if (card.kind === 'review' || card.kind === 'synced') {
-    body = `<span>${escapeHtml(card.text)}</span>
-      <button type="button" id="postcall-review">${escapeHtml(card.actionLabel)}</button>`;
-  } else {
-    body = `<span class="status-busy"><span class="mini-spinner" aria-hidden="true"></span>${escapeHtml(card.text)}</span>`;
+  textEl.textContent = card.kind === 'error' ? (card.text || 'La llamada falló') : (card.text || '');
+  if (busyEl) busyEl.hidden = card.kind !== 'busy';
+  if (reviewBtn) {
+    const showAction = card.kind === 'review' || card.kind === 'synced';
+    reviewBtn.hidden = !showAction;
+    reviewBtn.textContent = showAction ? (card.actionLabel || '') : '';
+    reviewBtn.dataset.memoId = card.memoId || lastCall.memoId || '';
   }
-  el.innerHTML = `${body}<button type="button" id="postcall-dismiss" class="dialer-icon-btn" aria-label="Cerrar">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="M6 6l12 12"></path></svg>
-  </button>`;
-  el.querySelector('#postcall-dismiss')?.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
-  });
-  el.querySelector('#postcall-review')?.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId: lastCall.memoId });
-  });
 }
 
 async function startOutboundCall(raw) {
@@ -3397,6 +3382,14 @@ document.getElementById('call-button')?.addEventListener('click', handleCallButt
 document.getElementById('call-contact')?.addEventListener('click', handleCallContact);
 document.getElementById('call-notice-dismiss')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
+});
+document.getElementById('postcall-dismiss')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'DISMISS_LAST_CALL' });
+});
+document.getElementById('postcall-review')?.addEventListener('click', () => {
+  const memoId = document.getElementById('postcall-review')?.dataset.memoId;
+  if (!memoId) return;
+  chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId });
 });
 document.getElementById('call-add-number-empty')?.addEventListener('click', openCallerIdSettings);
 document.getElementById('open-calling-settings')?.addEventListener('click', openCallerIdSettings);

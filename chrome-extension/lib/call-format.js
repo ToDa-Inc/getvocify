@@ -25,7 +25,7 @@ export function describeCallState({ state, to, answeredAt, now, muted } = {}) {
     case CALL_STATES.RINGING:
       return to ? `Llamando a ${to}…` : 'Llamando…';
     case CALL_STATES.ACTIVE:
-      return muted ? 'En llamada · silenciado' : 'En llamada';
+      return 'En llamada';
     case CALL_STATES.ENDING:
       return 'Colgando…';
     default:
