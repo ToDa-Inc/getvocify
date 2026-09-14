@@ -8,6 +8,7 @@ import SolutionSection from "@/components/landing/SolutionSection";
 import Features from "@/components/landing/Features";
 import SocialProof from "@/components/landing/SocialProof";
 import ROICalculator from "@/components/landing/ROICalculator";
+import PricingSection from "@/components/landing/PricingSection";
 import ComparisonSection from "@/components/landing/ComparisonSection";
 import UseCasesSection from "@/components/landing/UseCasesSection";
 import FAQSection from "@/components/landing/FAQSection";
@@ -38,6 +39,7 @@ const Index = () => {
         <SolutionSection />
         <Features />
         <SocialProof />
+        <PricingSection />
         <ROICalculator />
         <ComparisonSection />
         <UseCasesSection />

@@ -18,10 +18,10 @@ PRODUCTS: dict[tuple[PlanId, Interval], str] = {
 }
 
 AMOUNT_CENTS: dict[tuple[PlanId, Interval], int] = {
-    ("starter", "monthly"): 3000,
-    ("pro", "monthly"): 5000,
-    ("starter", "yearly"): 30000,
-    ("pro", "yearly"): 50000,
+    ("starter", "monthly"): 3900,
+    ("pro", "monthly"): 5900,
+    ("starter", "yearly"): 39000,
+    ("pro", "yearly"): 59000,
 }
 
 PRODUCT_TO_PLAN: dict[str, PlanId] = {
@@ -78,7 +78,7 @@ def amount_euros(plan: str, interval: str) -> int:
 
 
 def yearly_monthly_amount(monthly: int, yearly: int) -> int:
-    return round(yearly / 12)
+    return (yearly + 6) // 12
 
 
 def yearly_discount_percent(monthly: int, yearly: int) -> int:

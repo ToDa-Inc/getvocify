@@ -22,17 +22,17 @@ def test_plan_from_product_id():
 def test_catalog_payload_has_pro_dialer():
     payload = catalog_payload()
     starter, pro = payload["plans"]
-    assert starter["monthly_amount"] == 30
-    assert starter["yearly_amount"] == 300
-    assert starter["yearly_monthly_amount"] == 25
+    assert starter["monthly_amount"] == 39
+    assert starter["yearly_amount"] == 390
+    assert starter["yearly_monthly_amount"] == 33
     assert starter["yearly_discount_percent"] == 17
-    assert pro["monthly_amount"] == 50
-    assert pro["yearly_amount"] == 500
-    assert pro["yearly_monthly_amount"] == 42
+    assert pro["monthly_amount"] == 59
+    assert pro["yearly_amount"] == 590
+    assert pro["yearly_monthly_amount"] == 49
     assert pro["yearly_discount_percent"] == 17
     assert payload["yearly_discount_percent"] == 17
-    assert yearly_discount_percent(30, 300) == 17
-    assert yearly_discount_percent(50, 500) == 17
+    assert yearly_discount_percent(39, 390) == 17
+    assert yearly_discount_percent(59, 590) == 17
     assert pro["includes_dialer"] is True
     assert pro["dialer_minutes"] == 1000
     assert "Dialer included — 1,000 minutes" in pro["features"]

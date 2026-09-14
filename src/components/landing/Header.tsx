@@ -15,6 +15,7 @@ const Header = () => {
 
   const navLinks = [
     { href: "#features", label: t.nav.features },
+    { href: "#pricing", label: t.nav.pricing },
     { href: "#calculator", label: t.nav.calculator },
     { href: "#how-it-works", label: t.nav.about },
   ];

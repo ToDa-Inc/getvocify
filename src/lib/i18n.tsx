@@ -13,6 +13,7 @@ const translations = {
     nav: {
       features: "Features",
       calculator: "Calculator",
+      pricing: "Pricing",
       about: "How it works",
       login: "Login",
       getStarted: "Get Started",
@@ -137,6 +138,28 @@ const translations = {
       yearly: "Estimated yearly value of reclaimed time",
       cta: "Reclaim Your Time Now",
     },
+    pricing: {
+      label: "Pricing",
+      title1: "Simple plans.",
+      title2: "Per workspace seat.",
+      subtitle: "Both plans include HubSpot sync, transcription, and CRM updates. Pro adds the dialer.",
+      perMonth: "/ month",
+      orYearly: "or €{yearly} / year (€{monthly} / month)",
+      proBadge: "Includes dialer",
+      cta: "Book a demo",
+      note: "Prices in euros, billed per workspace seat. Annual billing saves about 17%.",
+      starterFeatures: [
+        "Voice memos and transcription",
+        "HubSpot field updates, notes, and tasks",
+        "Follow-ups and coaching",
+        "No Vocify dialer",
+      ],
+      proFeatures: [
+        "Everything in Starter",
+        "Vocify dialer with 1,000 minutes included",
+        "Calls on the HubSpot timeline with recording",
+      ],
+    },
     faq: {
       label: "FAQ",
       title1: "Frequently Asked",
@@ -173,6 +196,7 @@ const translations = {
     nav: {
       features: "Funciones",
       calculator: "Calculadora",
+      pricing: "Precios",
       about: "Cómo funciona",
       login: "Acceder",
       getStarted: "Empezar",
@@ -296,6 +320,28 @@ const translations = {
       potential: "% coste salarial (tiempo admin)",
       yearly: "Valor anual estimado del tiempo recuperado",
       cta: "Recupera tu tiempo ahora",
+    },
+    pricing: {
+      label: "Precios",
+      title1: "Planes sencillos.",
+      title2: "Por usuario del workspace.",
+      subtitle: "Ambos planes incluyen sync con HubSpot, transcripción y actualizaciones de CRM. Pro añade el dialer.",
+      perMonth: "/ mes",
+      orYearly: "o {yearly}€ / año ({monthly}€ / mes)",
+      proBadge: "Incluye dialer",
+      cta: "Reservar demo",
+      note: "Precios en euros, por usuario del workspace. El pago anual ahorra un ~17%.",
+      starterFeatures: [
+        "Notas de voz y transcripción",
+        "Actualizaciones HubSpot, notas y tareas",
+        "Seguimientos y coaching",
+        "Sin dialer de Vocify",
+      ],
+      proFeatures: [
+        "Todo lo de Starter",
+        "Dialer de Vocify con 1.000 minutos incluidos",
+        "Llamadas en la timeline de HubSpot con grabación",
+      ],
     },
     faq: {
       label: "FAQ",

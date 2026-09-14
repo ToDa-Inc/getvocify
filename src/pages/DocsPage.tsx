@@ -421,8 +421,8 @@ const DocsPage = () => {
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="rounded-2xl border border-border/70 bg-card p-6">
                 <p className="text-[13px] text-muted-foreground">Starter</p>
-                <p className="text-2xl text-foreground mt-1">€30 / month</p>
-                <p className="text-sm mt-1">or €300 / year (€25 / month)</p>
+                <p className="text-2xl text-foreground mt-1">€39 / month</p>
+                <p className="text-sm mt-1">or €390 / year (€33 / month)</p>
                 <p className="mt-4">
                   Voice memos, transcription, HubSpot field updates, notes,
                   tasks, and follow-ups. No Vocify dialer.
@@ -430,8 +430,8 @@ const DocsPage = () => {
               </div>
               <div className="rounded-2xl border border-border/70 bg-card p-6">
                 <p className="text-[13px] text-muted-foreground">Pro</p>
-                <p className="text-2xl text-foreground mt-1">€50 / month</p>
-                <p className="text-sm mt-1">or €500 / year (€42 / month)</p>
+                <p className="text-2xl text-foreground mt-1">€59 / month</p>
+                <p className="text-sm mt-1">or €590 / year (€49 / month)</p>
                 <p className="mt-4">
                   Everything in Starter, plus the Vocify dialer with 1,000
                   minutes included so calls land on the HubSpot timeline with

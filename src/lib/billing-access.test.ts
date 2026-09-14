@@ -43,9 +43,9 @@ describe("companyCanUseDialer", () => {
 
 describe("yearly pricing", () => {
   it("marks the yearly cut as a percent and a monthly equivalent", () => {
-    assert.equal(yearlyDiscountPercent(30, 300), 17);
-    assert.equal(yearlyDiscountPercent(50, 500), 17);
-    assert.equal(yearlyMonthlyAmount(300), 25);
-    assert.equal(yearlyMonthlyAmount(500), 42);
+    assert.equal(yearlyDiscountPercent(39, 390), 17);
+    assert.equal(yearlyDiscountPercent(59, 590), 17);
+    assert.equal(yearlyMonthlyAmount(390), 33);
+    assert.equal(yearlyMonthlyAmount(590), 49);
   });
 });
