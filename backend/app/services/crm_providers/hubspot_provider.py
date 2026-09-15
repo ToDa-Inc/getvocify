@@ -154,6 +154,7 @@ class HubSpotCRMProvider:
         contact_candidates=None,
         create_new_deal: bool = False,
         include_unchanged: bool = False,
+        skip_deal: bool = False,
     ) -> ApprovalPreview:
         del default_stage_name  # HubSpot Configuration stores canonical IDs, not names
         return await self._preview_service().build_preview(
@@ -172,6 +173,7 @@ class HubSpotCRMProvider:
             contact_candidates=contact_candidates,
             create_new_deal=create_new_deal,
             include_unchanged=include_unchanged,
+            skip_deal=skip_deal,
         )
 
     async def find_matching_deals(

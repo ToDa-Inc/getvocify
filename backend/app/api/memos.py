@@ -1357,6 +1357,7 @@ async def get_approval_preview(
             contact_candidates=contact_candidates,
             create_new_deal=create_new,
             include_unchanged=replay_written_fields(memo_data.get("status")),
+            skip_deal=skip_deal,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1517,6 +1518,7 @@ async def post_approval_preview(
             contact_candidates=contact_candidates,
             create_new_deal=create_new,
             include_unchanged=replay_written_fields(memo_data.get("status")),
+            skip_deal=skip_deal,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)

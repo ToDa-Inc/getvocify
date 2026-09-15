@@ -1032,6 +1032,7 @@ async def _build_preview_for_selection(
         selected_contact=selected_contact,
         contact_candidates=contact_candidates,
         create_new_deal=create_new,
+        skip_deal=skip_deal,
     )
     crm_name = _crm_display_name(conn.get("provider"))
     option_rows = [m.model_dump() for m in matches]

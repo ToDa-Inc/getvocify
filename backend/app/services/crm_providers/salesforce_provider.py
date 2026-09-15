@@ -169,10 +169,11 @@ class SalesforceCRMProvider:
         contact_candidates: Optional[Any] = None,
         create_new_deal: bool = False,
         include_unchanged: bool = False,
+        skip_deal: bool = False,
     ) -> ApprovalPreview:
         del default_pipeline_id, default_stage_id
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
-        del selected_contact, contact_candidates, create_new_deal, include_unchanged
+        del selected_contact, contact_candidates, create_new_deal, include_unchanged, skip_deal
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,

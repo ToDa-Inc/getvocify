@@ -135,12 +135,14 @@ class HubSpotPreviewService:
         contact_candidates: Optional[list[ContactMatch]] = None,
         create_new_deal: bool = False,
         include_unchanged: bool = False,
+        skip_deal: bool = False,
     ) -> ApprovalPreview:
         """
         Build a preview from the same allowlist, stage-resolution, and validation
         paths used by sync so every proposed update is actually deliverable.
 
         Modes:
+        - skip_deal → contact/company fields only (even with no locked contact)
         - selected_deal_id set → update that deal (+ optional contact anchor)
         - create_new_deal → create deal preview
         - selected_contact only → contact/company fields, skip deal (Option A)
@@ -158,7 +160,11 @@ class HubSpotPreviewService:
         if allowed_line_item_fields is None:
             allowed_line_item_fields = ["name", "quantity", "price"]
 
-        if selected_deal_id:
+        if skip_deal:
+            is_new_deal = False
+            skip_deal = True
+            selected_deal_id = None
+        elif selected_deal_id:
             is_new_deal = False
             skip_deal = False
         elif create_new_deal:
