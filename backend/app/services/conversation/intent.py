@@ -23,13 +23,26 @@ ADD_PATTERNS = frozenset({
 REJECT_PATTERNS = frozenset({
     "reject", "no", "nope", "wrong", "incorrect", "cancel",
 })
+KEEP_PATTERNS = frozenset({
+    "no actualizar",
+})
+SKIP_DEAL_PATTERNS = frozenset({
+    "quita el deal",
+    "sin deal",
+})
+CHANGE_DEAL_PATTERNS = frozenset({
+    "otro deal",
+})
+
+_SEARCH_DEAL_EL_DE = re.compile(r"^el\s+deal\s+de\s+(.+)$")
+_SEARCH_DEAL_REMAINDER = re.compile(r"\b(?:deal|oportunidad)\s+(.+)$")
 
 
 @dataclass
 class ResolvedIntent:
     """Parsed intent from user message."""
 
-    intent: str  # approve | add_fields | reject | crm_update | unclear
+    intent: str  # approve | keep | add_fields | skip_deal | change_deal | search_deal | unclear
     memo_id: Optional[str] = None
     params: Optional[dict] = None  # For crm_update: property, value, etc.
     confidence: float = 1.0
@@ -41,6 +54,39 @@ def _normalize(text: str) -> str:
     if not text:
         return ""
     return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _waiting_approval_intent(
+    intent: str,
+    state: Optional[str],
+    pending_memo_id: Optional[str],
+    *,
+    params: Optional[dict] = None,
+) -> ResolvedIntent:
+    if state != "waiting_approval" or not pending_memo_id:
+        return ResolvedIntent(intent="unclear", by_rules=True, confidence=0.5)
+    return ResolvedIntent(
+        intent=intent,
+        memo_id=pending_memo_id,
+        params=params,
+        by_rules=True,
+        confidence=1.0,
+    )
+
+
+def _extract_search_deal_query(normalized: str) -> Optional[str]:
+    if normalized.startswith("busca deal"):
+        return normalized[len("busca deal"):].strip() or None
+
+    match = _SEARCH_DEAL_EL_DE.match(normalized)
+    if match:
+        return match.group(1).strip() or None
+
+    match = _SEARCH_DEAL_REMAINDER.search(normalized)
+    if match:
+        return match.group(1).strip() or None
+
+    return None
 
 
 def resolve_intent_by_rules(
@@ -61,33 +107,30 @@ def resolve_intent_by_rules(
 
     # Exact match
     if normalized in APPROVE_PATTERNS:
-        if state != "waiting_approval" or not pending_memo_id:
-            return ResolvedIntent(intent="unclear", by_rules=True, confidence=0.5)
-        return ResolvedIntent(
-            intent="approve",
-            memo_id=pending_memo_id,
-            by_rules=True,
-            confidence=1.0,
-        )
+        return _waiting_approval_intent("approve", state, pending_memo_id)
 
     if normalized in ADD_PATTERNS:
-        if state != "waiting_approval" or not pending_memo_id:
-            return ResolvedIntent(intent="unclear", by_rules=True, confidence=0.5)
-        return ResolvedIntent(
-            intent="add_fields",
-            memo_id=pending_memo_id,
-            by_rules=True,
-            confidence=1.0,
-        )
+        return _waiting_approval_intent("add_fields", state, pending_memo_id)
 
     if normalized in REJECT_PATTERNS:
-        if state != "waiting_approval" or not pending_memo_id:
-            return ResolvedIntent(intent="unclear", by_rules=True, confidence=0.5)
-        return ResolvedIntent(
-            intent="reject",
-            memo_id=pending_memo_id,
-            by_rules=True,
-            confidence=1.0,
+        return _waiting_approval_intent("keep", state, pending_memo_id)
+
+    if normalized in KEEP_PATTERNS:
+        return _waiting_approval_intent("keep", state, pending_memo_id)
+
+    if normalized in SKIP_DEAL_PATTERNS:
+        return _waiting_approval_intent("skip_deal", state, pending_memo_id)
+
+    if normalized in CHANGE_DEAL_PATTERNS:
+        return _waiting_approval_intent("change_deal", state, pending_memo_id)
+
+    search_query = _extract_search_deal_query(normalized)
+    if search_query:
+        return _waiting_approval_intent(
+            "search_deal",
+            state,
+            pending_memo_id,
+            params={"q": search_query},
         )
 
     # Legacy: approve:uuid or add:uuid (keep for backwards compatibility)
@@ -150,12 +193,14 @@ class IntentService:
                 f"{m.get('direction', '?')}: {m.get('content', '')[:100]}" for m in messages[-10:]
             )
             system = """You analyze WhatsApp replies in a voice-memo-to-CRM workflow.
-The user received an extraction summary and can: approve, add/edit fields, reject, or give CRM instructions.
-Reply with JSON only: {"intent": "approve"|"add_fields"|"reject"|"crm_update"|"unclear", "memo_id": "uuid or null", "params": {}, "confidence": 0.0-1.0}
+The user received an extraction summary and can approve, keep CRM as-is, add/edit fields, skip or change the deal, or search for a deal by name.
+Reply with JSON only: {"intent": "approve"|"keep"|"add_fields"|"skip_deal"|"change_deal"|"search_deal"|"unclear", "memo_id": "uuid or null", "params": {}, "confidence": 0.0-1.0}
 - approve: user wants to approve the extraction and push to CRM
+- keep: user wants to keep CRM as-is (no update), same as "no actualizar"
 - add_fields: user wants to add or edit fields before approving
-- reject: user wants to reject/cancel
-- crm_update: user gives instructions like "add deal amount 50k" or "add this to HubSpot"
+- skip_deal: user wants contact-only preview without a deal
+- change_deal: user wants to pick a different deal
+- search_deal: user names a deal to search for; put the query in params.q
 - unclear: cannot determine intent
 Current state: """ + (state or "idle")
             if pending_memo_id:
