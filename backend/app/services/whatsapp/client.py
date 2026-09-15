@@ -35,6 +35,15 @@ class WhatsAppClient:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.access_token}"}
 
+    async def _post_message(self, payload: dict) -> None:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                self._url(f"{self.phone_number_id}/messages"),
+                headers=self._headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+
     async def send_text(self, to: str, text: str, **kwargs) -> None:
         """Send a plain text message to a WhatsApp number (E.164)."""
         payload = {
@@ -44,13 +53,7 @@ class WhatsAppClient:
             "type": "text",
             "text": {"body": text[:4096]},
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                self._url(f"{self.phone_number_id}/messages"),
-                headers=self._headers(),
-                json=payload,
-            )
-            resp.raise_for_status()
+        await self._post_message(payload)
 
     async def send_interactive_buttons(
         self,
@@ -79,13 +82,56 @@ class WhatsAppClient:
                 "action": {"buttons": action_buttons},
             },
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                self._url(f"{self.phone_number_id}/messages"),
-                headers=self._headers(),
-                json=payload,
-            )
-            resp.raise_for_status()
+        await self._post_message(payload)
+
+    async def send_interactive_list(
+        self,
+        to: str,
+        body: str,
+        button_text: str,
+        sections: list[dict],
+        **kwargs,
+    ) -> None:
+        """
+        Send interactive list message.
+        sections: [{"title": "...", "rows": [{"id", "title", "description?"}]}]
+        Max 10 rows total; body 1024, button 20, row title 24, description 72, id 200.
+        """
+        action_sections = []
+        row_count = 0
+        for section in sections:
+            rows = []
+            for row in section.get("rows", []):
+                if row_count >= 10:
+                    break
+                item: dict = {
+                    "id": row["id"][:200],
+                    "title": row["title"][:24],
+                }
+                if "description" in row:
+                    item["description"] = row["description"][:72]
+                rows.append(item)
+                row_count += 1
+            if rows:
+                action_sections.append({"title": section["title"], "rows": rows})
+            if row_count >= 10:
+                break
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to.lstrip("+"),
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": body[:1024]},
+                "action": {
+                    "button": button_text[:20],
+                    "sections": action_sections,
+                },
+            },
+        }
+        await self._post_message(payload)
 
     async def download_media(self, msg: IncomingMessage) -> tuple[bytes, str]:
         """
