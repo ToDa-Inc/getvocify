@@ -68,8 +68,9 @@ def parse_webhook(payload: dict) -> list[IncomingMessage]:
                         )
                     elif m.get("type") == "interactive":
                         interactive = m.get("interactive") or {}
-                        if interactive.get("type") == "button_reply":
-                            reply = interactive.get("button_reply") or {}
+                        interactive_type = interactive.get("type")
+                        if interactive_type in ("button_reply", "list_reply"):
+                            reply = interactive.get(interactive_type) or {}
                             context = m.get("context") or {}
                             messages.append(
                                 IncomingMessage(
