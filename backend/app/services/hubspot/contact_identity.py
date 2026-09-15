@@ -138,6 +138,40 @@ def extraction_email(extraction: MemoExtraction) -> Optional[str]:
     return None
 
 
+CONTACT_CONTEXT_PROPERTIES = [
+    "email",
+    "firstname",
+    "lastname",
+    "phone",
+    "mobilephone",
+    "jobtitle",
+    "hs_whatsapp_phone_number",
+    "hs_searchable_calculated_phone_number",
+    "hs_searchable_calculated_mobile_number",
+]
+
+_STORED_PHONE_KEYS = (
+    "phone",
+    "mobilephone",
+    "hs_whatsapp_phone_number",
+    "hs_searchable_calculated_phone_number",
+    "hs_searchable_calculated_mobile_number",
+)
+
+
+def stored_contact_phone(properties: Optional[dict[str, Any]]) -> Optional[str]:
+    """First dialable HubSpot phone field. UI often shows a number that is not `phone`."""
+    props = properties or {}
+    for key in _STORED_PHONE_KEYS:
+        value = props.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
 def extraction_phone(extraction: MemoExtraction) -> Optional[str]:
     top = (extraction.contactPhone or "").strip() or None
     if top:

@@ -144,6 +144,15 @@ export function dispositionMessage(disposition?: string | null): string | null {
   if (value === "failed") return "Llamada fallida";
   return null;
 }
+
+/** Twilio Voice SDK 31005 after Dial hangs up the parent leg — not a Voice URL miss. */
+export function isCarrierHangupError(error: unknown): boolean {
+  if (error && typeof error === "object" && Number((error as { code?: number }).code) === 31005) {
+    return true;
+  }
+  const text = String(error || "");
+  return /\b31005\b/.test(text) || /error sent from gateway in hangup/i.test(text);
+}
 export function telnyxHangupMessage(call: {
   sipCode?: number | string | null;
   sipReason?: string | null;

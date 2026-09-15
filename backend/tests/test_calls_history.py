@@ -78,6 +78,7 @@ CALL_A = {
     "recording_duration": 42,
     "memo_id": "memo-1",
     "error_message": None,
+    "call_disposition": "connected",
 }
 CALL_B = {
     "user_id": "user-1",
@@ -208,3 +209,4 @@ async def test_get_call_returns_summary():
     assert result["memoStatus"] == "approved"
     assert result["screeningOutcome"] is None
     assert result["durationSeconds"] == 42
+    assert result["callDisposition"] == "connected"

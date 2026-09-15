@@ -559,3 +559,37 @@ class TestDialStatusWebhook:
         assert resp.status_code == 200
         assert "<Response" in resp.text
         missed.assert_awaited_once()
+
+
+class TestMissedCallDisposition:
+    def test_persists_busy_even_without_a_hubspot_contact(self):
+        import asyncio
+
+        from app.services.telephony.call_processor import log_missed_call_activity
+
+        supabase, stores = _fake_supabase(
+            {
+                "outbound_calls": [
+                    {
+                        "carrier_call_id": "CA-busy",
+                        "user_id": "user-1",
+                        "to_number": "+34600111222",
+                        "from_number": "+34910000000",
+                        "hubspot_contact_id": None,
+                        "hubspot_engagement_id": None,
+                        "memo_id": None,
+                        "status": "dialing",
+                    }
+                ]
+            }
+        )
+
+        async def _unchanged(_sb, row):
+            return row
+
+        with patch(
+            "app.services.telephony.call_processor.attach_hubspot_contact_by_phone",
+            new=_unchanged,
+        ):
+            asyncio.run(log_missed_call_activity(supabase, "CA-busy", "busy"))
+        assert stores["outbound_calls"][0]["call_disposition"] == "busy"

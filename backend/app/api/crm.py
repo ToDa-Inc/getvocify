@@ -34,6 +34,10 @@ from app.services.hubspot import (
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
 from app.services.preview_targets import unique_associated_contact_id
+from app.services.hubspot.contact_identity import (
+    CONTACT_CONTEXT_PROPERTIES,
+    stored_contact_phone,
+)
 from app.models.hubspot import (
     ConnectHubSpotRequest,
     ConnectHubSpotResponse,
@@ -415,7 +419,7 @@ async def get_contact_context_for_extension(
 
         associations = HubSpotAssociationService(client)
         contact, company_ids = await asyncio.gather(
-            contact_service.get(contact_id),
+            contact_service.get(contact_id, properties=CONTACT_CONTEXT_PROPERTIES),
             associations.get_associations("contacts", contact_id, "companies"),
             return_exceptions=True,
         )
@@ -428,7 +432,7 @@ async def get_contact_context_for_extension(
         last = props.get("lastname") or ""
         name = f"{first} {last}".strip() or None
         email = props.get("email") or None
-        phone = props.get("phone") or props.get("mobilephone") or None
+        phone = stored_contact_phone(props)
         company_id = None
         company_name = None
         try:
@@ -493,7 +497,7 @@ async def get_company_context_for_extension(
         contacts_out: list[dict] = []
         for cid in (contact_ids or [])[:5]:
             try:
-                contact = await contact_service.get(str(cid))
+                contact = await contact_service.get(str(cid), properties=CONTACT_CONTEXT_PROPERTIES)
                 props = contact.properties or {}
                 first = props.get("firstname") or ""
                 last = props.get("lastname") or ""
@@ -503,7 +507,7 @@ async def get_company_context_for_extension(
                         "contact_id": str(cid),
                         "name": name,
                         "email": props.get("email") or None,
-                        "phone": props.get("phone") or props.get("mobilephone") or None,
+                        "phone": stored_contact_phone(props),
                         "company_id": company_id,
                         "company_name": company_name,
                     }
@@ -1357,7 +1361,7 @@ async def get_deal_context_for_prefill(
         contacts_out: list[dict] = []
         for cid in (contact_ids or [])[:5]:
             try:
-                contact = await contact_service.get(str(cid))
+                contact = await contact_service.get(str(cid), properties=CONTACT_CONTEXT_PROPERTIES)
                 cprops = contact.properties or {}
                 first = cprops.get("firstname") or ""
                 last = cprops.get("lastname") or ""
@@ -1366,7 +1370,7 @@ async def get_deal_context_for_prefill(
                         "contact_id": str(cid),
                         "name": f"{first} {last}".strip() or None,
                         "email": cprops.get("email") or None,
-                        "phone": cprops.get("phone") or cprops.get("mobilephone") or None,
+                        "phone": stored_contact_phone(cprops),
                         "company_id": ctx.get("companyId"),
                         "company_name": ctx.get("companyName"),
                     }

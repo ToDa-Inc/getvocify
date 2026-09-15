@@ -363,6 +363,37 @@ body {
   font-size: 12px;
 }
 
+#call-setup-hint {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--muted);
+}
+
+#call-setup-hint[data-action="calling-settings"]:not([disabled]) {
+  color: var(--beige);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+#call-setup-hint[data-action="calling-settings"]:not([disabled]):hover,
+#call-setup-hint[data-action="calling-settings"]:not([disabled]):focus-visible {
+  color: var(--beige-dark);
+}
+
+#call-setup-hint[disabled] {
+  cursor: default;
+  color: var(--muted);
+}
+
 .call-notice .dialer-icon-btn {
   width: 24px;
   height: 24px;

@@ -379,17 +379,17 @@ async def log_missed_call_activity(
         row = (found.data or [None])[0]
         if not row:
             return
+        try:
+            supabase.table("outbound_calls").update(
+                {"call_disposition": disposition}
+            ).eq("carrier_call_id", call_sid).execute()
+        except Exception:
+            logger.warning(
+                "Could not persist call_disposition for %s",
+                call_sid,
+                exc_info=True,
+            )
         if row.get("hubspot_engagement_id") or row.get("memo_id"):
-            return
-        if row.get("call_disposition") in (
-            "busy",
-            "no_answer",
-            "failed",
-            "canceled",
-            "connected",
-            "voicemail",
-            "no_response",
-        ):
             return
 
         row = await attach_hubspot_contact_by_phone(supabase, row)

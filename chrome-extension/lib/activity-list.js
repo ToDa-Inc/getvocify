@@ -137,6 +137,8 @@ function extraOutbound(outboundCalls, liveOutbound) {
         memoId: liveOutbound.memoId || existing.memoId || null,
         memoStatus: liveOutbound.memoStatus || existing.memoStatus || null,
         screeningOutcome: liveOutbound.screeningOutcome || existing.screeningOutcome || null,
+        disposition: liveOutbound.disposition || existing.disposition || existing.callDisposition || null,
+        callDisposition: liveOutbound.disposition || existing.callDisposition || existing.disposition || null,
       }
     : liveOutbound;
   return [merged, ...listed.filter((c) => c?.callSid !== liveOutbound.callSid)];
@@ -167,10 +169,14 @@ export function uiChromeKey(state) {
     ctx?.objectType || '',
     ctx?.recordId || '',
     ctx?.dealName || ctx?.contactName || ctx?.companyName || '',
+    ctx?.contactPhone || '',
     state?.call?.state || '',
     last?.callSid || '',
     last?.processing ? '1' : '0',
     last?.memoStatus || '',
+    last?.outcome || '',
+    last?.disposition || '',
+    last?.errorMessage || '',
   ].join('|');
 }
 

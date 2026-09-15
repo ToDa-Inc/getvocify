@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { CALL_STATES } from './dialer.js';
 import {
   contactCallCta,
+  contactCallHint,
+  contactCallTooltip,
   describeCallState,
   dialerPanelMode,
   formatCallDuration,
@@ -10,8 +12,12 @@ import {
   outboundActivityChrome,
   postCallCard,
   postCallNotice,
+  shouldShowContactCallCta,
   snapshotCallOutcome,
   lastCallAsOutbound,
+  applyCallPoll,
+  dispositionMessage,
+  isCarrierHangupError,
 } from './call-format.js';
 
 describe('formatCallDuration', () => {
@@ -71,7 +77,7 @@ describe('contactCallCta', () => {
   it('is hidden when there is no contact phone', () => {
     assert.deepEqual(
       contactCallCta({ contactPhone: null, contactName: 'Toni Mora' }),
-      { visible: false, phone: null, label: '', caption: '' }
+      { visible: false, phone: null, label: '', caption: '', ready: false }
     );
   });
 
@@ -98,6 +104,7 @@ describe('contactCallCta', () => {
         phone: '+34648739267',
         label: 'Llamar a Toni',
         caption: '+34 648 73 92 67',
+        ready: true,
       }
     );
   });
@@ -109,15 +116,15 @@ describe('contactCallCta', () => {
     );
   });
 
-  it('is hidden when there is no verified caller ID', () => {
-    assert.equal(
-      contactCallCta({
-        contactPhone: '+34648739267',
-        contactName: 'Toni Mora',
-        canPlaceCall: false,
-      }).visible,
-      false
-    );
+  it('still shows Call when the contact has a phone but caller ID is not ready', () => {
+    const cta = contactCallCta({
+      contactPhone: '+34648739267',
+      contactName: 'Toni Mora',
+      canPlaceCall: false,
+    });
+    assert.equal(cta.visible, true);
+    assert.equal(cta.ready, false);
+    assert.equal(cta.label, 'Llamar a Toni');
   });
 
   it('leaves non-Spanish numbers unformatted in the caption', () => {
@@ -187,6 +194,91 @@ describe('dialerPanelMode', () => {
       'needs-cli'
     );
   });
+
+  it('asks to set up calling when the contact has a phone but calling is off', () => {
+    assert.equal(
+      dialerPanelMode({
+        contactPhone: '+34648739267',
+        callingEnabled: false,
+        callState: CALL_STATES.IDLE,
+      }),
+      'setup'
+    );
+  });
+});
+
+describe('shouldShowContactCallCta', () => {
+  const cta = { visible: true };
+
+  it('shows the Call row for a ready contact, missing caller ID, or unset calling', () => {
+    assert.equal(shouldShowContactCallCta('contact', cta), true);
+    assert.equal(shouldShowContactCallCta('needs-cli', cta), true);
+    assert.equal(shouldShowContactCallCta('setup', cta), true);
+  });
+
+  it('does not show Call while live or when the CTA is hidden', () => {
+    assert.equal(shouldShowContactCallCta('live', cta), false);
+    assert.equal(shouldShowContactCallCta('contact', { visible: false }), false);
+    assert.equal(shouldShowContactCallCta('hidden', cta), false);
+  });
+});
+
+describe('contactCallHint', () => {
+  it('points missing caller ID and unset calling at Calling settings', () => {
+    assert.deepEqual(
+      contactCallHint({ mode: 'needs-cli', objectType: 'contact', hasPhone: true }),
+      {
+        text: 'Add your number in Calling settings to place this call',
+        action: 'calling-settings',
+      }
+    );
+    assert.deepEqual(
+      contactCallHint({ mode: 'setup', objectType: 'contact', hasPhone: true }),
+      {
+        text: "Calling isn't set up for this account. Open Calling settings.",
+        action: 'calling-settings',
+      }
+    );
+  });
+
+  it('does not send a no-phone HubSpot contact to Vocify calling settings', () => {
+    assert.deepEqual(
+      contactCallHint({ mode: 'hidden', objectType: 'contact', hasPhone: false }),
+      { text: 'No phone number on this contact', action: null }
+    );
+  });
+
+  it('stays quiet on inbox or when Call is ready', () => {
+    assert.deepEqual(contactCallHint({ mode: 'contact', objectType: 'contact', hasPhone: true }), {
+      text: '',
+      action: null,
+    });
+    assert.deepEqual(contactCallHint({ mode: 'hidden', objectType: null, hasPhone: false }), {
+      text: '',
+      action: null,
+    });
+  });
+});
+
+describe('contactCallTooltip', () => {
+  it('puts the setup copy on Call when the account is not ready', () => {
+    const hint = contactCallHint({ mode: 'needs-cli', hasPhone: true });
+    assert.equal(
+      contactCallTooltip({ ready: false, caption: '+34 600 11 12 22', hint }),
+      hint.text
+    );
+  });
+
+  it('keeps the phone caption when Call can dial', () => {
+    assert.equal(
+      contactCallTooltip({
+        ready: true,
+        caption: '+34 600 11 12 22',
+        hint: contactCallHint({ mode: 'contact', hasPhone: true }),
+      }),
+      '+34 600 11 12 22'
+    );
+  });
 });
 
 describe('postCallNotice', () => {
@@ -208,17 +300,56 @@ describe('postCallNotice', () => {
     );
   });
 
-  it('explains a Twilio webhook miss instead of calling it no answer', () => {
+  it('does not treat a Twilio 31005 hangup as a server miss', () => {
     assert.deepEqual(
       postCallNotice({
         outcome: 'no_answer',
-        errorMessage: '31005 Connection declined',
+        errorMessage: '31005 ConnectionError: Error sent from Gateway in HANGUP',
+      }),
+      { visible: true, text: 'Sin respuesta' }
+    );
+  });
+
+  it('shows busy when DialCallStatus says so, even if the SDK sent 31005', () => {
+    assert.deepEqual(
+      postCallNotice({
+        outcome: 'no_answer',
+        disposition: 'busy',
+        errorMessage: '31005 ConnectionError: Error sent from Gateway in HANGUP',
+      }),
+      { visible: true, text: 'Ocupado' }
+    );
+  });
+
+  it('keeps the TwiML application-error copy when the Voice URL never succeeded', () => {
+    assert.deepEqual(
+      postCallNotice({
+        outcome: 'no_answer',
+        errorMessage: 'Application error',
       }),
       {
         visible: true,
         text: 'Twilio no alcanzó el servidor',
       }
     );
+  });
+});
+
+describe('isCarrierHangupError', () => {
+  it('matches Twilio 31005 hangup noise, not a TwiML application error', () => {
+    assert.equal(isCarrierHangupError('31005 ConnectionError: Error sent from Gateway in HANGUP'), true);
+    assert.equal(isCarrierHangupError({ code: 31005, message: 'Connection error' }), true);
+    assert.equal(isCarrierHangupError('Application error'), false);
+  });
+});
+
+describe('dispositionMessage', () => {
+  it('uses the same busy / no-answer copy as the dashboard dialer', () => {
+    assert.equal(dispositionMessage('busy'), 'Ocupado');
+    assert.equal(dispositionMessage('no_answer'), 'Sin respuesta');
+    assert.equal(dispositionMessage('canceled'), 'Llamada cancelada');
+    assert.equal(dispositionMessage('failed'), 'Llamada fallida');
+    assert.equal(dispositionMessage('connected'), null);
   });
 });
 
@@ -267,6 +398,17 @@ describe('postCallCard', () => {
         actionLabel: 'Revisar',
         memoId: 'm1',
       },
+    );
+  });
+
+  it('does not treat a 31005 hangup on an answered call as a failed card', () => {
+    assert.equal(
+      postCallCard({
+        processing: false,
+        errorMessage: '31005 ConnectionError: Error sent from Gateway in HANGUP',
+        durationLabel: '0:06',
+      }).kind,
+      'busy',
     );
   });
 
@@ -344,6 +486,35 @@ describe('outboundActivityChrome', () => {
       { kind: 'busy', label: 'Processing' },
     );
   });
+
+  it('labels busy and no-answer instead of offering Reintentar', () => {
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'busy', to: '+34600111222' }),
+      { kind: 'status', label: 'Ocupado' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'no_answer', to: '+34600111222' }),
+      { kind: 'status', label: 'Sin respuesta' },
+    );
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'logged', callDisposition: 'busy', to: '+34600111222' }),
+      { kind: 'status', label: 'Ocupado' },
+    );
+  });
+
+  it('still offers Reintentar when the carrier marked the call failed', () => {
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'failed', to: '+34600111222', from: '+34910000000' }),
+      { kind: 'redial', label: 'Reintentar', to: '+34600111222', from: '+34910000000' },
+    );
+  });
+
+  it('does not offer Reintentar on a logged call with no carrier failure', () => {
+    assert.deepEqual(
+      outboundActivityChrome({ status: 'logged', to: '+34600111222', from: '+34910000000' }),
+      { kind: 'none', label: '' },
+    );
+  });
 });
 
 describe('snapshotCallOutcome', () => {
@@ -371,7 +542,39 @@ describe('lastCallAsOutbound', () => {
       processing: false,
       endedAt: Date.now(),
     });
-    assert.equal(outboundActivityChrome(row).kind, 'redial');
+    assert.deepEqual(outboundActivityChrome(row), { kind: 'status', label: 'Sin respuesta' });
+  });
+
+  it('carries busy disposition onto the activity row', () => {
+    const row = lastCallAsOutbound({
+      callSid: 'CA1',
+      to: '+34600111222',
+      outcome: 'no_answer',
+      disposition: 'busy',
+      processing: false,
+      endedAt: Date.now(),
+    });
+    assert.equal(row.status, 'busy');
+    assert.deepEqual(outboundActivityChrome(row), { kind: 'status', label: 'Ocupado' });
+  });
+
+  it('offers Reintentar only when TwiML never ran', () => {
+    const row = lastCallAsOutbound({
+      callSid: 'CA1',
+      to: '+34600111222',
+      callerId: '+34910000000',
+      outcome: 'no_answer',
+      processing: false,
+      errorMessage: 'Application error',
+      endedAt: Date.now(),
+    });
+    assert.equal(row.status, 'failed');
+    assert.deepEqual(outboundActivityChrome(row), {
+      kind: 'redial',
+      label: 'Reintentar',
+      to: '+34600111222',
+      from: '+34910000000',
+    });
   });
 
   it('shows Processing while an answered call is still uploading', () => {
@@ -383,5 +586,22 @@ describe('lastCallAsOutbound', () => {
     });
     assert.equal(outboundActivityChrome(row).kind, 'busy');
     assert.equal(outboundActivityChrome(row).label, 'Processing');
+  });
+});
+
+describe('applyCallPoll', () => {
+  it('replaces SDK 31005 with DialCallStatus from GET /calls', () => {
+    const next = applyCallPoll(
+      {
+        callSid: 'CA1',
+        outcome: 'no_answer',
+        errorMessage: '31005 ConnectionError: Error sent from Gateway in HANGUP',
+        processing: false,
+      },
+      { callDisposition: 'busy', status: 'logged', errorMessage: null },
+    );
+    assert.equal(next.disposition, 'busy');
+    assert.equal(next.errorMessage, null);
+    assert.equal(next.processing, false);
   });
 });

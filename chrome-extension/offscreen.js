@@ -8,6 +8,7 @@
  */
 
 import { CALL_STATES } from './lib/dialer.js';
+import { isCarrierHangupError } from './lib/call-format.js';
 import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMediaConstraints } from './lib/tab-capture.js';
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
 import { api } from './lib/api.js';
@@ -327,6 +328,7 @@ async function startTabCapture(streamId, wsUrl, epoch) {
 
 function twilioErrorText(err, fallback = 'Error de llamada') {
   if (!err) return fallback;
+  if (isCarrierHangupError(err)) return null;
   const code = err.code != null ? String(err.code) : '';
   const msg = err.message || fallback;
   return code && !msg.includes(code) ? `${code} ${msg}` : msg;
@@ -344,6 +346,9 @@ function reportCallState(state, error, extra) {
 
 function attachDeviceListeners(device) {
   device.on('error', (err) => {
+    if (isCarrierHangupError(err) || isCarrierHangupError(twilioErrorText(err, ''))) {
+      return;
+    }
     activeCall = null;
     reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'Error de dispositivo'));
     try {

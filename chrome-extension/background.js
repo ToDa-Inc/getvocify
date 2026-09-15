@@ -6,7 +6,7 @@
 
 import { api } from './lib/api.js';
 import { CALL_STATES, canStartCall, normalizeDialTarget } from './lib/dialer.js';
-import { snapshotCallOutcome } from './lib/call-format.js';
+import { snapshotCallOutcome, applyCallPoll, isCarrierHangupError } from './lib/call-format.js';
 import { isUsableMicRecording } from './lib/media-stream.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
@@ -1009,19 +1009,12 @@ function startCallStatusPoll(callSid) {
     }
     try {
       const call = await api.getCall(callSid);
+      const next = applyCallPoll(state.lastCall, call);
+      if (!next) return;
       const terminal = call.status === 'logged' || call.status === 'failed'
-        || ['approved', 'rejected', 'failed'].includes(call.memoStatus);
-      updateState({
-        lastCall: {
-          ...state.lastCall,
-          memoId: call.memoId || null,
-          memoStatus: call.memoStatus || null,
-          screeningOutcome: call.screeningOutcome || state.lastCall?.screeningOutcome || null,
-          processing: !terminal,
-          errorMessage: call.errorMessage || null,
-          durationSeconds: call.durationSeconds ?? state.lastCall?.durationSeconds,
-        },
-      });
+        || ['approved', 'rejected', 'failed'].includes(call.memoStatus)
+        || ['busy', 'no_answer', 'canceled', 'failed'].includes(next.disposition);
+      updateState({ lastCall: next });
       if (terminal) clearCallStatusPoll();
     } catch (_) { /* 404 until the webhook inserts; keep polling */ }
   };
@@ -1035,6 +1028,8 @@ function snapshotLastCall(prev) {
     answeredAt: prev.answeredAt,
   });
   const answered = outcome === 'answered';
+  const hangupNoise = isCarrierHangupError(prev.error);
+  const error = hangupNoise ? null : (prev.error || null);
   const endedAt = Date.now();
   const lastCall = {
     callSid: prev.callSid || null,
@@ -1049,10 +1044,10 @@ function snapshotLastCall(prev) {
     memoStatus: null,
     processing: answered,
     outcome,
-    errorMessage: prev.error || null,
+    errorMessage: error,
   };
-  updateState({ call: idleCall(prev.error), lastCall });
-  if (answered && lastCall.callSid) startCallStatusPoll(lastCall.callSid);
+  updateState({ call: idleCall(error), lastCall });
+  if (lastCall.callSid) startCallStatusPoll(lastCall.callSid);
   if (state.context) {
     fetchRecordingsIfNeeded(state.context, { force: true });
     if (state.context.recordId) {
@@ -1299,12 +1294,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (nextState === CALL_STATES.IDLE && prev.state !== CALL_STATES.IDLE) {
         snapshotLastCall({
           ...prev,
-          error: message.error || prev.error,
+          error: isCarrierHangupError(message.error) ? null : (message.error || prev.error),
           callSid: message.callSid || prev.callSid,
         });
         break;
       }
-      if (nextState === CALL_STATES.IDLE && message.error && state.lastCall) {
+      if (nextState === CALL_STATES.IDLE && isCarrierHangupError(message.error)) {
+        break;
+      }
+      if (
+        nextState === CALL_STATES.IDLE
+        && message.error
+        && state.lastCall
+      ) {
         updateState({
           lastCall: { ...state.lastCall, errorMessage: message.error },
         });

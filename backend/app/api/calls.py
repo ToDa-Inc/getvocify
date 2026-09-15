@@ -365,6 +365,7 @@ def _call_summary(
         "memoId": row.get("memo_id"),
         "memoStatus": memo_status,
         "screeningOutcome": screening_outcome,
+        "callDisposition": row.get("call_disposition"),
         "errorMessage": row.get("error_message"),
         "userId": owner_id or None,
         "authorUserId": (author or {}).get("user_id") or owner_id or None,
@@ -430,7 +431,7 @@ async def list_call_history(
         .select(
             "carrier_call_id,to_number,from_number,user_id,hubspot_contact_id,"
             "hubspot_deal_id,hubspot_engagement_id,status,created_at,"
-            "answered_at,recording_duration,memo_id,error_message"
+            "answered_at,recording_duration,memo_id,error_message,call_disposition"
         )
     )
     if len(user_ids) == 1:
@@ -467,7 +468,7 @@ async def get_call(
         .select(
             "carrier_call_id,to_number,from_number,user_id,hubspot_contact_id,"
             "hubspot_deal_id,hubspot_engagement_id,status,created_at,"
-            "answered_at,recording_duration,memo_id,error_message"
+            "answered_at,recording_duration,memo_id,error_message,call_disposition"
         )
         .eq("carrier_call_id", call_sid)
         .limit(1)

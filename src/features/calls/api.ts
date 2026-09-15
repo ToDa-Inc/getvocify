@@ -25,6 +25,13 @@ export const callsApi = {
     status: string | null;
   }> => api.get('/calls/outbound/latest-disposition'),
 
+  getCall: (callSid: string): Promise<{
+    callSid?: string | null;
+    callDisposition?: string | null;
+    status?: string | null;
+    errorMessage?: string | null;
+  }> => api.get(`/calls/${encodeURIComponent(callSid)}`),
+
   listCallerIds: (): Promise<{ callerIds: CallingConfig['callerIds'] }> =>
     api.get('/calls/caller-ids'),
 

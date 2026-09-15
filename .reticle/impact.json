@@ -1,0 +1,50 @@
+{
+  "counts": {
+    "calls": 8,
+    "verdicts": 2,
+    "passed": 2,
+    "failed": 0,
+    "unknown": 0,
+    "refusals": 0,
+    "marks": 0,
+    "sessions": 3,
+    "tokensReturned": 1390,
+    "drivingMs": 65189
+  },
+  "days": [
+    {
+      "date": "2026-09-15",
+      "counts": {
+        "calls": 8,
+        "verdicts": 2,
+        "passed": 2,
+        "failed": 0,
+        "unknown": 0,
+        "refusals": 0,
+        "marks": 0,
+        "sessions": 3,
+        "tokensReturned": 1390,
+        "drivingMs": 65189
+      }
+    }
+  ],
+  "records": {
+    "longestRunMs": 0,
+    "bestVerdictDay": 2,
+    "bestDefectDay": 0,
+    "streakDays": 1,
+    "bestStreakDays": 1
+  },
+  "savings": {
+    "tokens": {
+      "value": 1810,
+      "basis": "vs an agent reading the app through screenshots"
+    },
+    "minutes": {
+      "value": 1,
+      "basis": "vs checking each consequence by hand, plus one re-prompt cycle per defect caught"
+    }
+  },
+  "since": 1789473886954,
+  "defects": []
+}

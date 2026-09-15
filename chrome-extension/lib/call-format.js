@@ -51,16 +51,48 @@ export function contactCallCta({
 } = {}) {
   const phone = String(contactPhone || '').trim();
   const inCall = Boolean(callState && callState !== CALL_STATES.IDLE);
-  if (!phone || inCall || canPlaceCall === false) {
-    return { visible: false, phone: null, label: '', caption: '' };
+  if (!phone || inCall) {
+    return { visible: false, phone: null, label: '', caption: '', ready: false };
   }
   const first = String(contactName || '').trim().split(/\s+/)[0];
+  const ready = canPlaceCall !== false;
   return {
     visible: true,
     phone,
     label: first ? `Llamar a ${first}` : 'Llamar a este contacto',
     caption: formatPhoneCaption(phone),
+    ready,
   };
+}
+
+export function shouldShowContactCallCta(mode, cta) {
+  return Boolean(
+    cta?.visible && (mode === 'contact' || mode === 'needs-cli' || mode === 'setup')
+  );
+}
+
+export function contactCallHint({ mode, objectType, hasPhone } = {}) {
+  if (mode === 'needs-cli') {
+    return {
+      text: 'Add your number in Calling settings to place this call',
+      action: 'calling-settings',
+    };
+  }
+  if (mode === 'setup') {
+    return {
+      text: "Calling isn't set up for this account. Open Calling settings.",
+      action: 'calling-settings',
+    };
+  }
+  if (objectType === 'contact' && !hasPhone) {
+    return { text: 'No phone number on this contact', action: null };
+  }
+  return { text: '', action: null };
+}
+
+export function contactCallTooltip({ ready, caption, hint } = {}) {
+  if (!ready && hint?.text) return hint.text;
+  return String(caption || '');
 }
 
 export function dialerPanelMode({
@@ -68,14 +100,35 @@ export function dialerPanelMode({
   callState,
   lastCall,
   canPlaceCall = true,
+  callingEnabled = true,
 } = {}) {
   const inCall = Boolean(callState && callState !== CALL_STATES.IDLE);
   if (inCall) return 'live';
   if (lastCall && lastCall.outcome === 'answered') return 'postcall';
   const phone = String(contactPhone || '').trim();
+  if (!callingEnabled) return phone ? 'setup' : 'hidden';
   if (phone && canPlaceCall === false) return 'needs-cli';
   if (phone) return 'contact';
   return 'hidden';
+}
+
+/** Same copy as `src/lib/dial-session.ts` `dispositionMessage`. */
+export function dispositionMessage(disposition) {
+  const value = String(disposition || '').toLowerCase();
+  if (value === 'busy') return 'Ocupado';
+  if (value === 'no_answer' || value === 'no-answer' || value === 'no_response') {
+    return 'Sin respuesta';
+  }
+  if (value === 'canceled' || value === 'cancelled') return 'Llamada cancelada';
+  if (value === 'failed') return 'Llamada fallida';
+  return null;
+}
+
+/** Twilio Voice SDK 31005 after Dial hangs up the parent leg — not a Voice URL miss. */
+export function isCarrierHangupError(error) {
+  if (error && typeof error === 'object' && Number(error.code) === 31005) return true;
+  const text = String(error || '');
+  return /\b31005\b/.test(text) || /error sent from gateway in hangup/i.test(text);
 }
 
 /** Same busy copy as HubSpot rows (`src/lib/recordings.ts`) and memo rows. */
@@ -113,10 +166,13 @@ export function outboundActivityChrome(call = {}) {
   if (call.status === 'recorded' && !memoStatus) {
     return { kind: 'busy', label: 'Processing' };
   }
-  if (call.status === 'failed' && call.to) {
-    return { kind: 'redial', label: 'Reintentar', to: call.to, from: call.from || '' };
+  const disposition = call.callDisposition || call.disposition
+    || (['busy', 'no_answer', 'canceled', 'failed'].includes(call.status) ? call.status : null);
+  const missed = dispositionMessage(disposition);
+  if (missed && disposition !== 'failed') {
+    return { kind: 'status', label: missed };
   }
-  if (call.to && !memoId && call.status !== 'dialing') {
+  if ((call.status === 'failed' || disposition === 'failed') && call.to) {
     return { kind: 'redial', label: 'Reintentar', to: call.to, from: call.from || '' };
   }
   return { kind: 'none', label: '' };
@@ -132,7 +188,13 @@ export function postCallCard({
   screeningOutcome,
 } = {}) {
   const duration = durationLabel || '0:00';
-  if (errorMessage && processing === false && memoStatus !== 'pending_review' && memoStatus !== 'approved') {
+  if (
+    errorMessage
+    && !isCarrierHangupError(errorMessage)
+    && processing === false
+    && memoStatus !== 'pending_review'
+    && memoStatus !== 'approved'
+  ) {
     return { kind: 'error', text: errorMessage };
   }
   if (memoStatus === 'approved' && memoId) {
@@ -177,7 +239,11 @@ export function lastCallAsOutbound(lastCall) {
   if (!lastCall?.callSid) return null;
   let status = 'logged';
   if (lastCall.processing) status = 'recorded';
-  else if (lastCall.outcome === 'no_answer') status = 'no_answer';
+  else if (lastCall.disposition === 'busy') status = 'busy';
+  else if (lastCall.disposition === 'canceled' || lastCall.disposition === 'cancelled') status = 'canceled';
+  else if (lastCall.disposition === 'failed') status = 'failed';
+  else if (/application error/i.test(String(lastCall.errorMessage || ''))) status = 'failed';
+  else if (lastCall.outcome === 'no_answer') status = lastCall.disposition || 'no_answer';
   else if (!lastCall.memoStatus) status = 'recorded';
   return {
     callSid: lastCall.callSid,
@@ -186,9 +252,31 @@ export function lastCallAsOutbound(lastCall) {
     memoId: lastCall.memoId || null,
     memoStatus: lastCall.memoStatus || null,
     screeningOutcome: lastCall.screeningOutcome || null,
+    disposition: lastCall.disposition || null,
     to: lastCall.to || null,
     from: lastCall.callerId || null,
     status,
+  };
+}
+
+export function applyCallPoll(lastCall, call) {
+  if (!lastCall) return lastCall;
+  const disposition = call.callDisposition || lastCall.disposition || null;
+  const hangupNoise = isCarrierHangupError(lastCall.errorMessage);
+  const apiError = call.errorMessage || null;
+  const errorMessage = apiError || (hangupNoise ? null : lastCall.errorMessage || null);
+  const terminal = call.status === 'logged' || call.status === 'failed'
+    || ['approved', 'rejected', 'failed'].includes(call.memoStatus)
+    || ['busy', 'no_answer', 'canceled', 'failed'].includes(disposition);
+  return {
+    ...lastCall,
+    memoId: call.memoId || lastCall.memoId || null,
+    memoStatus: call.memoStatus || lastCall.memoStatus || null,
+    screeningOutcome: call.screeningOutcome || lastCall.screeningOutcome || null,
+    durationSeconds: call.durationSeconds ?? lastCall.durationSeconds,
+    disposition,
+    errorMessage: dispositionMessage(disposition) ? null : errorMessage,
+    processing: lastCall.outcome === 'answered' ? !terminal : false,
   };
 }
 
@@ -196,8 +284,13 @@ export function postCallNotice(lastCall) {
   if (!lastCall || lastCall.outcome === 'answered') {
     return { visible: false, text: '' };
   }
+  const fromDisposition = dispositionMessage(lastCall.disposition);
+  if (fromDisposition) return { visible: true, text: fromDisposition };
   const error = String(lastCall.errorMessage || '');
-  if (/31005/i.test(error) || /application error/i.test(error)) {
+  if (isCarrierHangupError(error)) {
+    return { visible: true, text: 'Sin respuesta' };
+  }
+  if (/application error/i.test(error)) {
     return { visible: true, text: 'Twilio no alcanzó el servidor' };
   }
   if (error) return { visible: true, text: error };

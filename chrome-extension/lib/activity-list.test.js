@@ -203,6 +203,26 @@ describe('mergeActivityItems', () => {
     assert.equal(items.some((i) => i.kind === 'outbound'), false);
     assert.equal(items.some((i) => i.id === 'm-out'), true);
   });
+
+  it('keeps DialCallStatus from history when lastCall has not polled yet', () => {
+    const items = mergeActivityItems({
+      recordings: [],
+      memos: [],
+      outboundCalls: [{
+        callSid: 'CA1',
+        startedAt: '2026-08-20T10:00:00.000Z',
+        callDisposition: 'busy',
+        status: 'logged',
+      }],
+      lastCall: {
+        callSid: 'CA1',
+        endedAt: Date.parse('2026-08-20T10:00:00.000Z'),
+        outcome: 'no_answer',
+      },
+    });
+    assert.equal(items[0].outbound.disposition, 'busy');
+    assert.equal(items[0].outbound.callDisposition, 'busy');
+  });
 });
 
 describe('nextVisibleCount', () => {
@@ -304,6 +324,27 @@ describe('uiChromeKey', () => {
     assert.notEqual(
       uiChromeKey(idle),
       uiChromeKey({ ...idle, lastCall: { callSid: 'CA1', processing: true } }),
+    );
+  });
+
+  it('changes when DialCallStatus lands so busy / no-answer replace 31005', () => {
+    assert.notEqual(
+      uiChromeKey({ ...idle, lastCall: { callSid: 'CA1', outcome: 'no_answer' } }),
+      uiChromeKey({ ...idle, lastCall: { callSid: 'CA1', outcome: 'no_answer', disposition: 'busy' } }),
+    );
+  });
+
+  it('changes when the contact phone arrives so Call can paint', () => {
+    const named = {
+      ...idle,
+      context: { objectType: 'contact', recordId: 'C1', contactName: 'Alex Aymerich' },
+    };
+    assert.notEqual(
+      uiChromeKey(named),
+      uiChromeKey({
+        ...named,
+        context: { ...named.context, contactPhone: '+34600111222' },
+      }),
     );
   });
 });

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "intents": {
+    "inline:the-vocify-login-page-shows-an-email-sign-in-for-1a6b59de": {
+      "id": "inline:the-vocify-login-page-shows-an-email-sign-in-for-1a6b59de",
+      "statement": "The Vocify login page shows an email sign-in form so an agent can prove the instrumented app is reachable.",
+      "state": "proved",
+      "declaredAt": 1789474283855,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "textbox",
+          "name": "Email Address"
+        }
+      },
+      "surface": {
+        "route": "/login"
+      },
+      "provenBy": {
+        "verdictId": "reticle_assert:1789474283873",
+        "grade": "presence",
+        "at": 1789474283873
+      }
+    },
+    "inline:clicking-sign-up-on-the-login-page-takes-the-use-bba2509c": {
+      "id": "inline:clicking-sign-up-on-the-login-page-takes-the-use-bba2509c",
+      "statement": "Clicking Sign Up on the login page takes the user to the signup form.",
+      "state": "proved",
+      "declaredAt": 1789474290300,
+      "binding": {
+        "kind": "route",
+        "pathname": "/signup"
+      },
+      "surface": {
+        "route": "/signup",
+        "files": [
+          "src/pages/auth/LoginPage.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1789474290320",
+        "grade": "presence",
+        "at": 1789474290320
+      }
+    }
+  }
+}

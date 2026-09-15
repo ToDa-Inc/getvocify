@@ -14,6 +14,7 @@ import type { CallerId } from "@/features/calls/types";
 import { crmApi } from "@/lib/api/crm";
 import {
   dispositionMessage,
+  isCarrierHangupError,
   mapTelnyxCallState,
   startLocalRingback,
   TELNYX_RING_TIMEOUT_MS,
@@ -78,6 +79,19 @@ type Props = {
   onRequestClose?: () => void;
 };
 
+async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
+  if (callSid) {
+    try {
+      const call = await callsApi.getCall(callSid);
+      return call.callDisposition || null;
+    } catch {
+      return null;
+    }
+  }
+  const latest = await callsApi.getLatestDisposition();
+  return latest.disposition || null;
+}
+
 export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Props) => {
   const verified = callerIds.filter(
     (c) => c.status === "verified" && c.source !== "twilio",
@@ -96,6 +110,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const [answeredAt, setAnsweredAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState("0:00");
   const [error, setError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<string | null>(null);
 
   const deviceRef = useRef<Device | null>(null);
   const callRef = useRef<Call | null>(null);
@@ -104,6 +119,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const stopRingbackRef = useRef<(() => void) | null>(null);
   const voiceClientRef = useRef<VoiceClient>("twilio");
   const hangupRef = useRef<() => void>(() => {});
+  const callSidRef = useRef<string | null>(null);
+  const wasAnsweredRef = useRef(false);
+  const pendingMissRef = useRef(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef(query);
   const onLiveChangeRef = useRef(onLiveChange);
@@ -131,31 +149,33 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       return;
     }
     const timer = window.setTimeout(() => {
-      toast.error("Sin respuesta");
+      setOutcome("Sin respuesta");
+      pendingMissRef.current = false;
       hangupRef.current();
     }, TELNYX_RING_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [state]);
 
   useEffect(() => {
-    if (
-      voiceClientRef.current !== "telnyx" ||
-      (state !== CALL_STATES.RINGING && state !== CALL_STATES.CONNECTING)
-    ) {
-      return;
-    }
+    const inFlight = state === CALL_STATES.RINGING || state === CALL_STATES.CONNECTING;
+    const waiting = state === CALL_STATES.IDLE && pendingMissRef.current && !wasAnsweredRef.current;
+    if (!inFlight && !waiting) return;
     let stopped = false;
+    const started = Date.now();
     const poll = async () => {
       if (stopped) return;
+      if (waiting && Date.now() - started > 20_000) {
+        pendingMissRef.current = false;
+        return;
+      }
       try {
-        const { disposition, status } = await callsApi.getLatestDisposition();
-        if (status === "logged" && disposition) {
-          const message = dispositionMessage(disposition);
-          if (message) {
-            toast.error(message);
-            hangupRef.current();
-            return;
-          }
+        const message = dispositionMessage(await fetchCarrierDisposition(callSidRef.current));
+        if (message) {
+          setOutcome(message);
+          setError(null);
+          pendingMissRef.current = false;
+          if (inFlight) hangupRef.current();
+          return;
         }
       } catch {
         /* WebRTC hangup or timeout will still end the call */
@@ -234,6 +254,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
     });
     device.on("error", (err) => {
+      if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) return;
       setError(err?.message || "Error de Twilio");
       setState(CALL_STATES.IDLE);
     });
@@ -331,8 +352,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       if (next === CALL_STATES.IDLE) {
         const ended = telnyxHangupMessage(notification.call);
         if (ended) {
-          setError(ended);
-          toast.error(ended);
+          setOutcome(ended);
+          setError(null);
+          pendingMissRef.current = false;
         }
         hangup();
         return;
@@ -352,25 +374,48 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       },
     });
     callRef.current = call;
-    call.on("ringing", () => setState(CALL_STATES.RINGING));
+    const rememberSid = () => {
+      const sid = call.parameters?.CallSid;
+      if (sid) callSidRef.current = sid;
+    };
+    rememberSid();
+    call.on("ringing", () => {
+      rememberSid();
+      setState(CALL_STATES.RINGING);
+    });
     call.on("accept", () => {
+      rememberSid();
+      wasAnsweredRef.current = true;
+      pendingMissRef.current = false;
       setAnsweredAt(Date.now());
       setState(CALL_STATES.ACTIVE);
     });
     call.on("disconnect", hangup);
     call.on("cancel", hangup);
     call.on("error", (err) => {
+      if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) {
+        if (!wasAnsweredRef.current) {
+          setOutcome((prev) => prev || "Sin respuesta");
+        }
+        hangup();
+        return;
+      }
       setError(err?.message || "Error de llamada");
+      pendingMissRef.current = false;
       hangup();
     });
   };
 
   const startCall = async (target: SelectedTarget) => {
     setError(null);
+    setOutcome(null);
     if (!from) {
       toast.error("Verifica tu número antes de llamar");
       return;
     }
+    callSidRef.current = null;
+    wasAnsweredRef.current = false;
+    pendingMissRef.current = true;
     try {
       setSelected(target);
       setState(CALL_STATES.CONNECTING);
@@ -384,6 +429,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     } catch (err) {
       stopRingback();
       setState(CALL_STATES.IDLE);
+      pendingMissRef.current = false;
       const message = err instanceof Error ? err.message : "No se pudo iniciar la llamada";
       setError(message);
       toast.error(message);
@@ -438,7 +484,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       state === CALL_STATES.ACTIVE
         ? elapsed
         : state === CALL_STATES.IDLE
-          ? "Listo para llamar"
+          ? outcome || "Listo para llamar"
           : callButtonLabel(state);
 
     return (
@@ -511,6 +557,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             onClick={() => {
               setSelected(null);
               setError(null);
+              setOutcome(null);
               window.setTimeout(() => searchRef.current?.focus(), 0);
             }}
             className="mt-3 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"

@@ -11,6 +11,8 @@ import {
   telnyxRtcClientOptions,
   vocifyCallHeaders,
   voiceClientFromToken,
+  dispositionMessage,
+  isCarrierHangupError,
 } from "./dial-session.ts";
 
 describe("voiceClientFromToken", () => {
@@ -75,6 +77,27 @@ describe("telnyxNewCallOptions", () => {
         ],
       },
     );
+  });
+});
+
+describe("dispositionMessage", () => {
+  it("maps carrier dispositions to the dialer toast copy", () => {
+    assert.equal(dispositionMessage("busy"), "Ocupado");
+    assert.equal(dispositionMessage("no_answer"), "Sin respuesta");
+    assert.equal(dispositionMessage("canceled"), "Llamada cancelada");
+    assert.equal(dispositionMessage("failed"), "Llamada fallida");
+    assert.equal(dispositionMessage("connected"), null);
+  });
+});
+
+describe("isCarrierHangupError", () => {
+  it("matches Twilio 31005 hangup noise", () => {
+    assert.equal(
+      isCarrierHangupError("31005 ConnectionError: Error sent from Gateway in HANGUP"),
+      true,
+    );
+    assert.equal(isCarrierHangupError({ code: 31005 }), true);
+    assert.equal(isCarrierHangupError("Application error"), false);
   });
 });
 
