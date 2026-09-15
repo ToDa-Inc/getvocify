@@ -20,6 +20,7 @@ def resolve_preview_deal_selection(
     has_selected_contact: bool,
     has_contact_candidates: bool,
     linked_deal_count: int = 0,
+    skip_deal: bool = False,
 ) -> Tuple[Optional[str], bool]:
     """
     Return (selected_deal_id, create_new).
@@ -28,6 +29,8 @@ def resolve_preview_deal_selection(
     length, but a single linked deal is not auto-selected.
     """
     del linked_deal_count
+    if skip_deal:
+        return None, False
     if deal_id:
         return deal_id, False
     if create_new_deal:

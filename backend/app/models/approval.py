@@ -154,6 +154,10 @@ class PreviewRequest(BaseModel):
     """Request body for preview with optional edited extraction"""
     deal_id: Optional[str] = Field(None, description="Deal ID to update (None = create new)")
     create_new_deal: bool = Field(default=False, description="Force create-new-deal preview mode")
+    skip_deal: bool = Field(
+        default=False,
+        description="Contact/company-only preview; do not rehydrate memo deal id",
+    )
     contact_id: Optional[str] = Field(
         None,
         description="Explicit HubSpot contact ID (page context or candidate pick)",

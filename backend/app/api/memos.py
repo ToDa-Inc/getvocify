@@ -1220,6 +1220,7 @@ async def get_approval_preview(
     memo_id: UUID,
     deal_id: Optional[str] = None,
     create_new_deal: bool = False,
+    skip_deal: bool = False,
     contact_id: Optional[str] = None,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
@@ -1240,7 +1241,10 @@ async def get_approval_preview(
 
     memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
 
-    if not deal_id and not create_new_deal:
+    if skip_deal:
+        deal_id = None
+        create_new_deal = False
+    elif not deal_id and not create_new_deal:
         deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
     if not contact_id:
         contact_id = (memo_data.get("hubspot_contact_id") or "").strip() or None
@@ -1322,6 +1326,7 @@ async def get_approval_preview(
         has_selected_contact=selected_contact is not None,
         has_contact_candidates=bool(contact_candidates),
         linked_deal_count=len(anchor.deal_matches) if anchor else 0,
+        skip_deal=skip_deal,
     )
 
     try:
@@ -1411,6 +1416,7 @@ async def post_approval_preview(
     """
     deal_id = payload.deal_id if payload else None
     create_new_deal = bool(payload.create_new_deal) if payload else False
+    skip_deal = bool(payload.skip_deal) if payload else False
     contact_id = payload.contact_id if payload else None
     if deal_id == "":
         deal_id = None
@@ -1418,7 +1424,10 @@ async def post_approval_preview(
         contact_id = None
 
     memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
-    if not deal_id and not create_new_deal:
+    if skip_deal:
+        deal_id = None
+        create_new_deal = False
+    elif not deal_id and not create_new_deal:
         deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
     if not contact_id:
         contact_id = (memo_data.get("hubspot_contact_id") or "").strip() or None
@@ -1481,6 +1490,7 @@ async def post_approval_preview(
         has_selected_contact=selected_contact is not None,
         has_contact_candidates=bool(contact_candidates),
         linked_deal_count=len(anchor.deal_matches) if anchor else 0,
+        skip_deal=skip_deal,
     )
 
     try:
