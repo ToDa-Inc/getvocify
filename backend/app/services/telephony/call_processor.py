@@ -547,6 +547,19 @@ async def log_call_engagement(
                 "status": "logged",
             }
         ).eq("carrier_call_id", call_sid).execute()
+        memo_id = row.get("memo_id")
+        if memo_id and engagement_id:
+            try:
+                supabase.table("memos").update(
+                    {"hubspot_engagement_id": str(engagement_id)}
+                ).eq("id", memo_id).is_("hubspot_engagement_id", "null").execute()
+            except Exception:
+                logger.warning(
+                    "Could not link HubSpot engagement %s to memo %s",
+                    engagement_id,
+                    memo_id,
+                    exc_info=True,
+                )
         try:
             await mark_recording_ready(client, engagement_id)
         except Exception as rec_err:

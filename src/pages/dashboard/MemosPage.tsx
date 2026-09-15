@@ -75,11 +75,6 @@ const MemosPage = () => {
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [searchTerm, setSearchTerm] = useState("");
   const [authorOverride, setAuthorOverride] = useState<string | null | undefined>(undefined);
-  const authorUserId =
-    authorOverride !== undefined
-      ? authorOverride
-      : defaultActivityAuthorId(canViewCompany, user?.id);
-  const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const { data: membersData } = useQuery({
     queryKey: companyKeys.members(),
@@ -93,6 +88,11 @@ const MemosPage = () => {
       label: authorDisplayName(member.fullName, member.email),
       email: member.email,
     }));
+  const authorUserId =
+    authorOverride !== undefined
+      ? authorOverride
+      : defaultActivityAuthorId(canViewCompany, user?.id, authors.length);
+  const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const memoFilters = {
     limit: 200,
@@ -144,6 +144,7 @@ const MemosPage = () => {
               value={authorUserId}
               onChange={setAuthorOverride}
               currentUserId={user?.id}
+              canViewCompany
             />
           ) : null}
           <div className="relative group">

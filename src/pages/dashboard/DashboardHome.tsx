@@ -83,11 +83,6 @@ const DashboardHome = () => {
   const displayName = user ? getUserDisplayName(user) : "User";
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [authorOverride, setAuthorOverride] = useState<string | null | undefined>(undefined);
-  const authorUserId =
-    authorOverride !== undefined
-      ? authorOverride
-      : defaultActivityAuthorId(canViewCompany, user?.id);
-  const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const { data: membersData } = useQuery({
     queryKey: companyKeys.members(),
@@ -101,6 +96,11 @@ const DashboardHome = () => {
       label: authorDisplayName(member.fullName, member.email),
       email: member.email,
     }));
+  const authorUserId =
+    authorOverride !== undefined
+      ? authorOverride
+      : defaultActivityAuthorId(canViewCompany, user?.id, authors.length);
+  const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const memoFilters = {
     limit: 5,
@@ -134,6 +134,7 @@ const DashboardHome = () => {
               value={authorUserId}
               onChange={setAuthorOverride}
               currentUserId={user?.id}
+              canViewCompany
             />
       ) : null}
 

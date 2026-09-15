@@ -17,6 +17,7 @@ from app.services.activity_scope import (
     company_user_ids,
     invert_hubspot_owners,
     load_viewer_scope,
+    should_apply_author_recording_filter,
     visible_recordings_for_viewer,
 )
 from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
@@ -167,6 +168,40 @@ def _join_memo_state(
         eid = str(row.get("hubspot_engagement_id") or "")
         if eid:
             by_call[eid] = row
+
+    missing_ids = [cid for cid in call_ids if cid not in by_call]
+    if missing_ids:
+        oc_q = (
+            supabase.table("outbound_calls")
+            .select("memo_id, hubspot_engagement_id")
+            .in_("hubspot_engagement_id", missing_ids)
+        )
+        if len(ids) == 1:
+            oc_q = oc_q.eq("user_id", ids[0])
+        elif ids:
+            oc_q = oc_q.in_("user_id", ids)
+        oc_res = oc_q.execute()
+        pending: dict[str, str] = {}
+        for row in oc_res.data or []:
+            eid = str(row.get("hubspot_engagement_id") or "")
+            memo_id = row.get("memo_id")
+            if eid and memo_id:
+                pending[eid] = str(memo_id)
+        if pending:
+            memo_res = (
+                supabase.table("memos")
+                .select("id, status, hubspot_engagement_id, user_id")
+                .in_("id", list(pending.values()))
+                .execute()
+            )
+            memos_by_id = {
+                str(m["id"]): m for m in (memo_res.data or []) if m.get("id")
+            }
+            for eid, memo_id in pending.items():
+                memo = memos_by_id.get(memo_id)
+                if memo:
+                    by_call[eid] = memo
+
     out = []
     for rec in recordings:
         m = by_call.get(rec["call_id"])
@@ -227,8 +262,12 @@ async def _present_recordings(
         viewer_id=user_id,
         can_view_company=can_view_company,
     )
-    wanted = (author_user_id or "").strip()
-    if wanted and can_view_company:
+    if should_apply_author_recording_filter(
+        author_user_id=author_user_id,
+        can_view_company=can_view_company,
+        members=members,
+    ):
+        wanted = (author_user_id or "").strip()
         visible = [row for row in visible if row.get("author_user_id") == wanted]
     return visible
 
@@ -344,7 +383,12 @@ async def list_recent_hubspot_recordings(
     wanted = (author_user_id or "").strip()
     if wanted:
         membership, members, _authors = load_viewer_scope(supabase, user_id)
-        if can_view_company_activity(membership.role if membership else None):
+        can_view = can_view_company_activity(membership.role if membership else None)
+        if should_apply_author_recording_filter(
+            author_user_id=wanted,
+            can_view_company=can_view,
+            members=members,
+        ):
             conn = get_crm_connection(supabase, user_id, "hubspot")
             if conn:
                 try:

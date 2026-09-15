@@ -8,6 +8,7 @@ import {
   canViewCompanyActivity,
   defaultActivityAuthorFilter,
   filterActivityByAuthor,
+  shouldShowActivityAuthorFilter,
 } from './activity-authors.js';
 
 describe('activity authors', () => {
@@ -40,9 +41,17 @@ describe('activity authors', () => {
     assert.deepEqual(authors.map((a) => a.label), ['Ada', 'bob']);
   });
 
-  it('defaults owners to Mine and members to no filter', () => {
-    assert.equal(defaultActivityAuthorFilter({ id: 'u1', company: { role: 'owner' } }), 'u1');
-    assert.equal(defaultActivityAuthorFilter({ id: 'u1', company: { role: 'member' } }), '');
+  it('defaults owners to Mine only when the filter is visible', () => {
+    const owner = { id: 'u1', company: { role: 'owner' } };
+    assert.equal(defaultActivityAuthorFilter(owner, 2), 'u1');
+    assert.equal(defaultActivityAuthorFilter(owner, 1), '');
+    assert.equal(defaultActivityAuthorFilter({ id: 'u1', company: { role: 'member' } }, 2), '');
+  });
+
+  it('shows the author filter for solo owners and admins', () => {
+    const owner = { id: 'u1', company: { role: 'owner' } };
+    assert.equal(shouldShowActivityAuthorFilter(owner), true);
+    assert.equal(shouldShowActivityAuthorFilter({ id: 'u1', company: { role: 'member' } }), false);
   });
 
   it('orders extension chips Mine then All then teammates', () => {

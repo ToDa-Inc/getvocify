@@ -39,12 +39,20 @@ export function filterByAuthor<T>(
   return items.filter((item) => getUserId(item) === authorUserId);
 }
 
-/** Owners/admins start on their own activity. Members have no company filter. */
+/** Owners/admins start on Mine only when the author filter is on screen. */
+export function shouldShowActivityAuthorFilter(
+  canViewCompany: boolean,
+  userId?: string | null,
+): boolean {
+  return Boolean(canViewCompany && userId);
+}
+
 export function defaultActivityAuthorId(
   canViewCompany: boolean,
   userId?: string | null,
+  teammateCount = 0,
 ): string | null {
-  if (canViewCompany && userId) return userId;
+  if (canViewCompany && userId && teammateCount > 1) return userId;
   return null;
 }
 

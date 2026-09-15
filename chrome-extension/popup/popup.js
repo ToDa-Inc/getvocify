@@ -93,6 +93,7 @@ import {
   canViewCompanyActivity,
   defaultActivityAuthorFilter,
   filterActivityByAuthor,
+  shouldShowActivityAuthorFilter,
 } from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
 import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta } from '../lib/call-format.js';
@@ -635,7 +636,7 @@ function renderActivityAuthorFilterOptions(chips) {
 function renderActivityAuthorFilter(visible) {
   const el = document.getElementById('activity-author-filter');
   if (!el) return;
-  const show = Boolean(visible && canViewCompanyActivity(currentUser) && companyAuthors.length > 1);
+  const show = Boolean(visible && shouldShowActivityAuthorFilter(currentUser));
   el.style.display = show ? 'inline-flex' : 'none';
   if (!show) {
     closeActivityAuthorDropdown();
@@ -959,7 +960,7 @@ function renderRecordingsSection(state) {
   const idle = state.status === 'idle';
   const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
   const loading = Boolean(state.recordingsLoading || memosLoading);
-  const showFilter = idle && canViewCompanyActivity(currentUser) && companyAuthors.length > 1;
+  const showFilter = idle && shouldShowActivityAuthorFilter(currentUser);
   const scopeKey = recordingsScopeKey(state.context);
   if (scopeKey !== lastRecordingsScopeKey) {
     lastRecordingsScopeKey = scopeKey;
@@ -4073,7 +4074,7 @@ async function init() {
     } else {
       companyAuthors = [];
     }
-    activityAuthorFilter = defaultActivityAuthorFilter(user);
+    activityAuthorFilter = defaultActivityAuthorFilter(user, companyAuthors.length);
 
     markSignedIn();
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });

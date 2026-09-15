@@ -17,6 +17,26 @@ def can_view_company_activity(role: Optional[str]) -> bool:
     return (role or "") in ("owner", "admin")
 
 
+def active_member_count(members: list[dict]) -> int:
+    return sum(
+        1
+        for member in members
+        if member.get("user_id") and (member.get("status") or "active") == "active"
+    )
+
+
+def should_apply_author_recording_filter(
+    *,
+    author_user_id: Optional[str],
+    can_view_company: bool,
+    members: list[dict],
+) -> bool:
+    """Mine filter is only meaningful when the author chip is on screen."""
+    if not (author_user_id or "").strip() or not can_view_company:
+        return False
+    return active_member_count(members) > 1
+
+
 def author_display_name(full_name: Optional[str], email: Optional[str]) -> str:
     name = (full_name or "").strip()
     if name:

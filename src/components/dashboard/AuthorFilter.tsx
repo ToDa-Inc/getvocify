@@ -1,20 +1,27 @@
 import { ChevronDown } from "lucide-react";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { ActivityAuthor } from "@/lib/activity-authors";
-import { activityFilterChips } from "@/lib/activity-authors";
+import {
+  activityFilterChips,
+  shouldShowActivityAuthorFilter,
+} from "@/lib/activity-authors";
 
 export function AuthorFilter({
   authors,
   value,
   onChange,
   currentUserId,
+  canViewCompany = true,
 }: {
   authors: ActivityAuthor[];
   value: string | null;
   onChange: (userId: string | null) => void;
   currentUserId?: string | null;
+  canViewCompany?: boolean;
 }) {
-  if (authors.length < 2) return null;
+  if (!shouldShowActivityAuthorFilter(Boolean(canViewCompany), currentUserId)) {
+    return null;
+  }
 
   return (
     <label className="inline-flex items-center gap-2">

@@ -50,8 +50,12 @@ export function authorsFromMembers(members) {
     .filter((author) => author.userId);
 }
 
-export function defaultActivityAuthorFilter(user) {
-  if (canViewCompanyActivity(user) && user?.id) return String(user.id);
+export function shouldShowActivityAuthorFilter(user) {
+  return Boolean(canViewCompanyActivity(user) && user?.id);
+}
+
+export function defaultActivityAuthorFilter(user, teammateCount = 0) {
+  if (canViewCompanyActivity(user) && user?.id && teammateCount > 1) return String(user.id);
   return '';
 }
 

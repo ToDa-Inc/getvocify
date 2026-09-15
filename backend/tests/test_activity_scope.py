@@ -7,6 +7,7 @@ from app.services.activity_scope import (
     invert_hubspot_owners,
     memo_readable_by,
     resolve_list_user_ids,
+    should_apply_author_recording_filter,
     visible_recordings_for_viewer,
 )
 import pytest
@@ -131,3 +132,26 @@ def test_annotate_and_filter_recordings():
         viewer_id="u1",
         can_view_company=True,
     )) == 2
+
+
+def test_solo_owner_does_not_apply_mine_recording_filter():
+    solo = [{"user_id": "u1", "status": "active"}]
+    team = [
+        {"user_id": "u1", "status": "active"},
+        {"user_id": "u2", "status": "active"},
+    ]
+    assert should_apply_author_recording_filter(
+        author_user_id="u1",
+        can_view_company=True,
+        members=solo,
+    ) is False
+    assert should_apply_author_recording_filter(
+        author_user_id="u1",
+        can_view_company=True,
+        members=team,
+    ) is True
+    assert should_apply_author_recording_filter(
+        author_user_id="u1",
+        can_view_company=True,
+        members=[{"user_id": "u1", "status": "active"}, {"user_id": "u2", "status": "removed"}],
+    ) is False

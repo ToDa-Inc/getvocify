@@ -7,6 +7,7 @@ import {
   canViewCompanyActivity,
   defaultActivityAuthorId,
   filterByAuthor,
+  shouldShowActivityAuthorFilter,
 } from "./activity-authors.ts";
 
 describe("activity authors", () => {
@@ -39,10 +40,29 @@ describe("activity authors", () => {
     assert.equal(filterByAuthor(rows, null, (row) => row.userId).length, 2);
   });
 
-  it("defaults owners and admins to their own activity", () => {
-    assert.equal(defaultActivityAuthorId(true, "u1"), "u1");
-    assert.equal(defaultActivityAuthorId(false, "u1"), null);
-    assert.equal(defaultActivityAuthorId(true, null), null);
+  it("defaults owners and admins to their own activity when the filter is visible", () => {
+    assert.equal(defaultActivityAuthorId(true, "u1", 2), "u1");
+    assert.equal(defaultActivityAuthorId(false, "u1", 2), null);
+    assert.equal(defaultActivityAuthorId(true, null, 2), null);
+  });
+
+  it("does not default Mine when the author filter is hidden", () => {
+    assert.equal(defaultActivityAuthorId(true, "u1", 1), null);
+    assert.equal(defaultActivityAuthorId(true, "u1", 0), null);
+  });
+
+  it("shows the author filter for solo owners and admins", () => {
+    assert.equal(shouldShowActivityAuthorFilter(true, "u1"), true);
+    assert.equal(shouldShowActivityAuthorFilter(false, "u1"), false);
+    assert.equal(shouldShowActivityAuthorFilter(true, null), false);
+  });
+
+  it("offers Mine and All chips for a solo owner", () => {
+    const chips = activityFilterChips([], "u1");
+    assert.deepEqual(
+      chips.map((chip) => chip.label),
+      ["Mine", "All"],
+    );
   });
 
   it("orders filter chips Mine then All then teammates", () => {
