@@ -17,9 +17,20 @@ PRIMARY_BUTTONS: list[dict[str, str]] = [
     {"id": ACT_RETARGET, "title": "Cambiar deal"},
 ]
 
+_CHOICE_TO_ACTION: dict[int, str] = {
+    1: ACT_APPROVE,
+    2: ACT_KEEP,
+    3: ACT_RETARGET,
+}
+
 
 def primary_buttons() -> list[dict[str, str]]:
     return PRIMARY_BUTTONS
+
+
+def choice_to_action(choice: int) -> str | None:
+    """Map Unipile numbered reply (1/2/3) to Meta semantic action id."""
+    return _CHOICE_TO_ACTION.get(choice)
 
 
 def _pick_deal_id(deal_id: str) -> str:

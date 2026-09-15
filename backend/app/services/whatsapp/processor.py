@@ -23,6 +23,7 @@ from app.services.memo_approval import approve_memo_core
 from app.services.stt_batch import transcribe_bytes
 from app.services.storage import StorageService
 from app.services.preview_targets import resolve_preview_deal_selection
+from app.services.whatsapp.actions import choice_to_action
 from app.services.whatsapp.processor_actions import (
     action_from_inbound,
     copy_steps_from_extraction,
@@ -1393,31 +1394,18 @@ async def _handle_waiting_approval(
             supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
         )
         return True
-    if choice == 2:
-        extraction_data, _ = await _load_memo_extraction(supabase, memo_id, user_id)
-        extraction = MemoExtraction(**extraction_data)
-        matches, _connection_id, _provider_name = await _find_candidate_deals(supabase, user_id, extraction)
-        if not matches:
-            await wa_client.send_text(
-                msg.from_phone,
-                "I did not find matching deals. Reply *1* to create a new deal, or *3* to edit fields.",
-                **_client_kwargs(msg),
+    action_id = choice_to_action(choice) if choice else None
+    if action_id:
+        mapped = action_from_inbound(action_id)
+        if mapped == "keep":
+            await _reject_pending_memo(supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id)
+            return True
+        if mapped == "retarget":
+            await _retarget_with_options(
+                supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
             )
             return True
-        numbered = _format_deal_choices(matches, extraction)
-        conv_svc.set_state(
-            conversation_id,
-            "waiting_deal_choice",
-            pending_memo_id=memo_id,
-            pending_artifact_ids={
-                "deal_options": [m.model_dump() for m in matches],
-                "new_deal_index": len(matches) + 1,
-            },
-        )
-        conv_svc.add_message(conversation_id, "outbound", numbered, "text", {"memo_id": memo_id})
-        await wa_client.send_text(msg.from_phone, numbered, **_client_kwargs(msg))
-        return True
-    if choice == 3 or norm in ADD_PATTERNS:
+    if norm in ADD_PATTERNS:
         conv_svc.set_state(conversation_id, "waiting_add_fields", pending_memo_id=memo_id)
         help_text = "Send the corrections as field/value lines:\namount: 50000\nclose date: 2026-06-15\nnext step: send proposal Friday"
         conv_svc.add_message(conversation_id, "outbound", help_text, "text")
@@ -1519,7 +1507,7 @@ async def _handle_waiting_approval(
             return True
     await wa_client.send_text(
         msg.from_phone,
-        "I did not understand that. Reply *1* to update CRM, *2* to choose another deal, or *3* to edit fields.",
+        "No entendí. Responde *1* actualizar, *2* no actualizar, o *3* cambiar deal.",
         **_client_kwargs(msg),
     )
     return True

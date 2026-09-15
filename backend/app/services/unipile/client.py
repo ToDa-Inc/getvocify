@@ -113,7 +113,7 @@ class UnipileClient:
     ) -> None:
         """
         Unipile does not support Meta-style interactive buttons.
-        Append compact reply instructions: approve:uuid or add:uuid.
+        Append numbered reply instructions matching PRIMARY_BUTTONS order.
         """
         if not chat_id or not account_id:
             logger.warning(
@@ -122,24 +122,13 @@ class UnipileClient:
             )
             return
 
-        # Short UX: reply *1* / *2* (WhatsApp bold); no UUIDs in text.
-        # Buttons may have id "1"/"2" or legacy "approve:uuid"/"add:uuid"
-        approve_id = add_id = None
-        for b in buttons[:3]:
-            bid = (b.get("id") or "").strip()
-            if bid.startswith("approve:") or bid == "1":
-                approve_id = "1"
-            elif bid.startswith("add:") or bid == "2":
-                add_id = "2"
-
-        # WhatsApp *bold* helps users spot the numeric choices on small screens.
         footer_parts = []
-        if approve_id:
-            footer_parts.append("Reply *1* to approve")
-        if add_id:
-            footer_parts.append("*2* to add fields")
-        footer = ", or ".join(footer_parts) if footer_parts else ""
+        for i, button in enumerate(buttons[:3], start=1):
+            title = (button.get("title") or "").strip().lower()
+            if title:
+                footer_parts.append(f"*{i}* {title}")
 
+        footer = f"Responde {', '.join(footer_parts)}" if footer_parts else ""
         full_text = f"{body}\n\n{footer}"[:4096] if footer else body[:4096]
         await self.send_text(to, full_text, chat_id=chat_id, account_id=account_id)
 
