@@ -168,6 +168,30 @@ export function postCallCard({
   return { kind: 'busy', text: `Llamada de ${duration} · ${busy}` };
 }
 
+export function snapshotCallOutcome({ callState, answeredAt } = {}) {
+  if (answeredAt || callState === CALL_STATES.ACTIVE) return 'answered';
+  return 'no_answer';
+}
+
+export function lastCallAsOutbound(lastCall) {
+  if (!lastCall?.callSid) return null;
+  let status = 'logged';
+  if (lastCall.processing) status = 'recorded';
+  else if (lastCall.outcome === 'no_answer') status = 'no_answer';
+  else if (!lastCall.memoStatus) status = 'recorded';
+  return {
+    callSid: lastCall.callSid,
+    startedAt: lastCall.answeredAt || lastCall.endedAt || null,
+    answeredAt: lastCall.answeredAt || null,
+    memoId: lastCall.memoId || null,
+    memoStatus: lastCall.memoStatus || null,
+    screeningOutcome: lastCall.screeningOutcome || null,
+    to: lastCall.to || null,
+    from: lastCall.callerId || null,
+    status,
+  };
+}
+
 export function postCallNotice(lastCall) {
   if (!lastCall || lastCall.outcome === 'answered') {
     return { visible: false, text: '' };

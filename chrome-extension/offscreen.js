@@ -13,6 +13,7 @@ import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-chann
 import { api } from './lib/api.js';
 import { LOCAL_API_BASE, apiBaseToWsOrigin } from './lib/api-base.js';
 import { telnyxHangupMessage, vocifyCallHeaders } from './lib/telnyx-headers.js';
+import { cloneAudioStream } from './lib/media-stream.js';
 
 async function defaultWsUrl() {
   try {
@@ -32,6 +33,9 @@ let activeCallProvider = null;
 let telnyxMuted = false;
 let lastReportedCallState = null;
 let stream = null;
+let recorderStream = null;
+let pcmStream = null;
+let micStartedAt = 0;
 let audioContext = null;
 let playbackContext = null;
 let workletNode = null;
@@ -174,6 +178,18 @@ function loopTabAudioToSpeakers(mediaStream) {
   playbackSource.connect(playbackContext.destination);
 }
 
+function stopOwnedTracks() {
+  [stream, recorderStream, pcmStream].forEach((owned) => {
+    if (!owned) return;
+    owned.getTracks().forEach((track) => {
+      try { track.stop(); } catch (_) { /* already ended */ }
+    });
+  });
+  stream = null;
+  recorderStream = null;
+  pcmStream = null;
+}
+
 function tearDownGraph({ stopTracks = true } = {}) {
   if (workletNode) {
     workletNode.disconnect();
@@ -198,10 +214,7 @@ function tearDownGraph({ stopTracks = true } = {}) {
     playbackContext = null;
   }
 
-  if (stopTracks && stream) {
-    stream.getTracks().forEach((track) => track.stop());
-    stream = null;
-  }
+  if (stopTracks) stopOwnedTracks();
 }
 
 async function startRecording(wsUrl) {
@@ -216,43 +229,51 @@ async function startRecording(wsUrl) {
         autoGainControl: true,
       },
     });
+    recorderStream = cloneAudioStream(stream);
+    pcmStream = cloneAudioStream(stream);
 
     const recorderOptions = { mimeType: 'audio/webm;codecs=opus' };
     if (!MediaRecorder.isTypeSupported(recorderOptions.mimeType)) {
       delete recorderOptions.mimeType;
     }
-    mediaRecorder = new MediaRecorder(stream, recorderOptions);
+    mediaRecorder = new MediaRecorder(recorderStream, recorderOptions);
     audioChunks = [];
+    micStartedAt = Date.now();
 
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) audioChunks.push(event.data);
     };
 
     mediaRecorder.onstop = () => {
+      const durationMs = micStartedAt ? Date.now() - micStartedAt : 0;
       const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
       const reader = new FileReader();
       reader.onloadend = () => {
         chrome.runtime.sendMessage({
           type: 'RECORDING_COMPLETE',
           audioData: reader.result,
+          durationMs,
+          byteLength: audioBlob.size,
         });
       };
       reader.readAsDataURL(audioBlob);
-
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-        stream = null;
-      }
+      stopOwnedTracks();
     };
 
-    await connectPcmSocket(stream, wsUrl);
-    mediaRecorder.start(100);
+    try {
+      await connectPcmSocket(pcmStream, wsUrl);
+    } catch (sttError) {
+      console.warn('[Offscreen] Live STT failed; mic recording continues', sttError);
+    }
+    if (captureMode !== 'mic' || !mediaRecorder) return;
+    mediaRecorder.start(1000);
 
     chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
     console.log('[Offscreen] Recording started');
   } catch (error) {
     console.error('[Offscreen] Recording error:', error);
     captureMode = null;
+    stopOwnedTracks();
     const denied = error.name === 'NotAllowedError' || /permission/i.test(error.message || '');
     chrome.runtime.sendMessage({
       type: 'RECORDING_ERROR',
@@ -687,14 +708,24 @@ function stopRecording(minEpoch) {
   const mode = captureMode;
   captureMode = null;
 
-  tearDownGraph({ stopTracks: mode !== 'mic' });
-
   if (mode === 'mic' && mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop();
+    tearDownGraph({ stopTracks: false });
+    const rec = mediaRecorder;
     mediaRecorder = null;
+    try {
+      if (rec.state === 'recording') rec.requestData();
+      rec.stop();
+    } catch (error) {
+      chrome.runtime.sendMessage({
+        type: 'RECORDING_ERROR',
+        error: error.message || 'Failed to stop recording.',
+      });
+      stopOwnedTracks();
+    }
     return;
   }
 
+  tearDownGraph({ stopTracks: true });
   mediaRecorder = null;
   if (mode === 'tab') {
     chrome.runtime.sendMessage({ type: 'TAB_CAPTURE_STOPPED' });

@@ -10,6 +10,8 @@ import {
   outboundActivityChrome,
   postCallCard,
   postCallNotice,
+  snapshotCallOutcome,
+  lastCallAsOutbound,
 } from './call-format.js';
 
 describe('formatCallDuration', () => {
@@ -335,10 +337,51 @@ describe('outboundActivityChrome', () => {
     );
   });
 
+
   it('uses Processing only when the call is recorded and memo status is still unknown', () => {
     assert.deepEqual(
       outboundActivityChrome({ status: 'recorded', memoId: 'm1' }),
       { kind: 'busy', label: 'Processing' },
     );
+  });
+});
+
+describe('snapshotCallOutcome', () => {
+  it('treats an in-progress connected call as answered even if accept missed answeredAt', () => {
+    assert.equal(
+      snapshotCallOutcome({ callState: CALL_STATES.ACTIVE, answeredAt: null }),
+      'answered',
+    );
+  });
+
+  it('keeps ringing hangups as no_answer', () => {
+    assert.equal(
+      snapshotCallOutcome({ callState: CALL_STATES.RINGING, answeredAt: null }),
+      'no_answer',
+    );
+  });
+});
+
+describe('lastCallAsOutbound', () => {
+  it('does not mark a ringing hangup as Processing', () => {
+    const row = lastCallAsOutbound({
+      callSid: 'CA1',
+      to: '+34600111222',
+      outcome: 'no_answer',
+      processing: false,
+      endedAt: Date.now(),
+    });
+    assert.equal(outboundActivityChrome(row).kind, 'redial');
+  });
+
+  it('shows Processing while an answered call is still uploading', () => {
+    const row = lastCallAsOutbound({
+      callSid: 'CA1',
+      outcome: 'answered',
+      processing: true,
+      answeredAt: Date.now(),
+    });
+    assert.equal(outboundActivityChrome(row).kind, 'busy');
+    assert.equal(outboundActivityChrome(row).label, 'Processing');
   });
 });

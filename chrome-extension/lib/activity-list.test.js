@@ -2,6 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RECORDINGS_PAGE_SIZE,
+  RECORDINGS_EXPAND_SIZE,
+  shouldPeekNextActivity,
   activityEmptyMessage,
   activityKickerLabel,
   isRecordPageContext,
@@ -73,6 +75,21 @@ describe('activityEmptyMessage', () => {
     assert.equal(
       activityEmptyMessage({ objectType: 'deal', recordId: 'D1' }, { memosCount: 1 }),
       null
+    );
+    assert.equal(activityEmptyMessage(null, { itemCount: 1, authorLabel: 'Dani' }), null);
+  });
+
+  it('names the selected teammate when their filtered list is empty', () => {
+    assert.equal(
+      activityEmptyMessage({ objectType: 'contact', recordId: 'C1' }, {
+        itemCount: 0,
+        authorLabel: 'Dani',
+      }),
+      'No activity from Dani yet.',
+    );
+    assert.equal(
+      activityEmptyMessage(null, { itemCount: 0, authorLabel: 'you' }),
+      'No activity from you yet.',
     );
   });
 });
@@ -154,15 +171,56 @@ describe('mergeActivityItems', () => {
     assert.equal(items.some((i) => i.kind === 'outbound' && i.id === 'CA2'), true);
     assert.equal(items.some((i) => i.id === 'CA1'), false);
   });
+
+  it('shows the just-hung-up dialer call before HubSpot has a recording URL', () => {
+    const items = mergeActivityItems({
+      recordings: [
+        { call_id: 'hs-1', has_recording: false, timestamp: '2026-09-15T07:54:08.000Z' },
+      ],
+      memos: [],
+      outboundCalls: [],
+      lastCall: {
+        callSid: 'CAa864a439a2b9d5ba8c86412a3be38aaf',
+        answeredAt: Date.parse('2026-09-15T07:52:26.000Z'),
+        endedAt: Date.parse('2026-09-15T07:54:08.000Z'),
+        outcome: 'answered',
+        processing: true,
+      },
+    });
+    assert.equal(items[0].kind, 'outbound');
+    assert.equal(items[0].id, 'CAa864a439a2b9d5ba8c86412a3be38aaf');
+  });
+
+  it('does not duplicate lastCall when history already linked that SID to a memo', () => {
+    const items = mergeActivityItems({
+      recordings: [],
+      memos: [{ id: 'm-out', created_at: '2026-08-19T10:00:00.000Z', source: 'vocify_call' }],
+      outboundCalls: [
+        { callSid: 'CA1', startedAt: '2026-08-19T10:00:00.000Z', memoId: 'm-out' },
+      ],
+      lastCall: { callSid: 'CA1', endedAt: Date.parse('2026-08-19T10:00:00.000Z'), processing: true },
+    });
+    assert.equal(items.some((i) => i.kind === 'outbound'), false);
+    assert.equal(items.some((i) => i.id === 'm-out'), true);
+  });
 });
 
 describe('nextVisibleCount', () => {
-  it('shows 5 then adds 5 up to the fetched total', () => {
-    assert.equal(RECORDINGS_PAGE_SIZE, 5);
-    assert.equal(nextVisibleCount(5, 20), 10);
-    assert.equal(nextVisibleCount(10, 20), 15);
-    assert.equal(nextVisibleCount(15, 20), 20);
+  it('starts at one row, then adds a page up to the fetched total', () => {
+    assert.equal(RECORDINGS_PAGE_SIZE, 1);
+    assert.equal(RECORDINGS_EXPAND_SIZE, 5);
+    assert.equal(nextVisibleCount(1, 20), 6);
+    assert.equal(nextVisibleCount(6, 20), 11);
+    assert.equal(nextVisibleCount(16, 20), 20);
     assert.equal(nextVisibleCount(20, 20), 20);
+  });
+});
+
+describe('shouldPeekNextActivity', () => {
+  it('peeks the next row only while the list is still collapsed', () => {
+    assert.equal(shouldPeekNextActivity(1, 4), true);
+    assert.equal(shouldPeekNextActivity(1, 1), false);
+    assert.equal(shouldPeekNextActivity(6, 20), false);
   });
 });
 
@@ -239,6 +297,13 @@ describe('uiChromeKey', () => {
     assert.notEqual(
       uiChromeKey({ status: 'review', currentMemoId: 'm1' }),
       uiChromeKey({ status: 'review', currentMemoId: 'm2' }),
+    );
+  });
+
+  it('changes when the just-hung-up call lands so post-call and activity repaint', () => {
+    assert.notEqual(
+      uiChromeKey(idle),
+      uiChromeKey({ ...idle, lastCall: { callSid: 'CA1', processing: true } }),
     );
   });
 });

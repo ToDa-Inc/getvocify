@@ -67,6 +67,7 @@ import { calendarFromIso, calendarMonth, shiftCalendarMonth } from '../lib/date-
 import { keepReviewSessionContext, recordingsScopeKey } from '../lib/page-scope.js';
 import {
   RECORDINGS_PAGE_SIZE,
+  shouldPeekNextActivity,
   activityEmptyMessage,
   activityKickerLabel,
   isRecordPageContext,
@@ -96,31 +97,17 @@ import {
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
 import { contactCallCta, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice } from '../lib/call-format.js';
 
-(function ensureActivityRowStyles() {
-  if (document.getElementById('activity-row-styles')) return;
-  const el = document.createElement('style');
-  el.id = 'activity-row-styles';
-  el.textContent = `
-    .recording-row-title-line {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 10px;
-      min-width: 0;
-    }
-    .recording-row-title-line .recording-row-title {
-      min-width: 0;
-      flex: 1;
-    }
-    .recording-row-date {
-      font-size: 11px;
-      color: var(--muted);
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-  `;
-  document.head.appendChild(el);
-})();
+function paintCallMuteButton(muted, enabled) {
+  const muteBtn = document.getElementById('call-mute');
+  if (!muteBtn) return;
+  const on = Boolean(muted);
+  muteBtn.disabled = !enabled;
+  muteBtn.classList.toggle('is-muted', on);
+  muteBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const label = on ? 'Activar micrófono' : 'Silenciar';
+  muteBtn.setAttribute('aria-label', label);
+  muteBtn.setAttribute('data-tip', label);
+}
 
 // ============================================
 // SCREEN ELEMENTS
@@ -552,8 +539,8 @@ function renderRecordHeader(state) {
     const tip = type
       ? `Record a voice memo for this ${type.toLowerCase()}`
       : 'Record a voice memo';
-    recordButton.setAttribute('data-tip', tip);
     recordButton.setAttribute('aria-label', tip);
+    recordButton.removeAttribute('data-tip');
   }
   if (!sub) return;
   if (state.isCopilotListening || state.status === 'copilot') {
@@ -670,6 +657,7 @@ function filteredActivityItems(state) {
       recordings: state?.recordings || [],
       memos: recentMemosCache,
       outboundCalls: outboundCallsCache,
+      lastCall: state?.lastCall || null,
     }),
     activityAuthorFilter || null,
   );
@@ -829,6 +817,13 @@ function appendCallActivityRow(listEl, rec) {
         : ''}
     </div>
   `;
+  if (action) {
+    row.classList.add('is-actionable');
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      row.querySelector('[data-call-id]')?.click();
+    });
+  }
   listEl.appendChild(row);
 }
 
@@ -838,17 +833,18 @@ function appendOutboundActivityRow(listEl, call) {
   const dateStr = formatActivityTimestamp(call.startedAt);
   const durStr = formatCallDuration(call.durationSeconds);
   const meta = [dateStr, durStr].filter(Boolean).join(' · ');
-  const chrome = outboundActivityChrome({
+  const outboundChrome = outboundActivityChrome({
     ...call,
     autoSync: Boolean(lastBgState?.autoSyncHubspotCalls),
   });
   let actionHtml = '';
-  if (chrome.kind === 'continue' || chrome.kind === 'view') {
-    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-review="${escapeHtml(chrome.memoId)}">${escapeHtml(chrome.label)}</button>`;
-  } else if (chrome.kind === 'busy') {
-    actionHtml = busyStatusHtml(chrome.label);
-  } else if (chrome.kind === 'redial') {
-    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(chrome.to)}" data-from="${escapeHtml(chrome.from || '')}">${escapeHtml(chrome.label)}</button>`;
+  if (outboundChrome.kind === 'continue' || outboundChrome.kind === 'view') {
+    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-review="${escapeHtml(outboundChrome.memoId)}">${escapeHtml(outboundChrome.label)}</button>`;
+    row.classList.add('is-actionable');
+  } else if (outboundChrome.kind === 'busy') {
+    actionHtml = busyStatusHtml(outboundChrome.label);
+  } else if (outboundChrome.kind === 'redial') {
+    actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(outboundChrome.to)}" data-from="${escapeHtml(outboundChrome.from || '')}">${escapeHtml(outboundChrome.label)}</button>`;
   }
   const author = canViewCompanyActivity(currentUser)
     ? authorChipLabel(call, currentUser?.id)
@@ -862,10 +858,19 @@ function appendOutboundActivityRow(listEl, call) {
     </div>
     <div class="recording-row-actions">${actionHtml}</div>
   `;
+  const openOutboundReview = () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId: call.memoId });
+  };
   row.querySelector('[data-outbound-review]')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    chrome.runtime.sendMessage({ type: 'OPEN_CALL_MEMO', memoId: call.memoId });
+    openOutboundReview();
   });
+  if (outboundChrome.kind === 'continue' || outboundChrome.kind === 'view') {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      openOutboundReview();
+    });
+  }
   row.querySelector('[data-outbound-redial]')?.addEventListener('click', (e) => {
     e.stopPropagation();
     startOutboundCall(call.to);
@@ -927,10 +932,8 @@ function appendMemoActivityRow(listEl, memo) {
   const isActionable = canContinue || canView;
   if (!isActionable) {
     row.classList.add('not-actionable');
-    row.style.opacity = '0.6';
-  }
-  if (isActionable) {
-    row.style.cursor = 'pointer';
+  } else {
+    row.classList.add('is-actionable');
     row.addEventListener('click', () => openMemoFromActivity(memo));
   }
   row.querySelector('.btn-recording-action')?.addEventListener('click', (e) => {
@@ -993,7 +996,14 @@ function renderRecordingsSection(state) {
   }
 
   const memoStamp = recentMemosCache.map((m) => `${m?.id || ''}:${m?.status || ''}`).join(',');
-  const outboundStamp = outboundCallsCache.map((c) => `${c?.callSid || ''}:${c?.status || ''}:${c?.memoStatus || ''}`).join(',');
+  const last = state?.lastCall;
+  const lastStamp = last?.callSid
+    ? `${last.callSid}:${last.memoStatus || ''}:${last.processing ? '1' : '0'}`
+    : '';
+  const outboundStamp = [
+    ...outboundCallsCache.map((c) => `${c?.callSid || ''}:${c?.status || ''}:${c?.memoStatus || ''}`),
+    lastStamp,
+  ].filter(Boolean).join(',');
   const listKey = activityListKey(state, {
     memoStamp,
     outboundStamp,
@@ -1020,12 +1030,26 @@ function renderRecordingsSection(state) {
   }
 
   const visible = items.slice(0, recordingsVisibleCount);
+  const peek = shouldPeekNextActivity(recordingsVisibleCount, items.length)
+    ? items[recordingsVisibleCount]
+    : null;
+  listEl.classList.toggle('is-collapsed', Boolean(peek));
   listEl.innerHTML = '';
   visible.forEach((item) => {
     if (item.kind === 'call') appendCallActivityRow(listEl, item.recording);
     else if (item.kind === 'outbound') appendOutboundActivityRow(listEl, item.outbound);
     else appendMemoActivityRow(listEl, item.memo);
   });
+  if (peek) {
+    if (peek.kind === 'call') appendCallActivityRow(listEl, peek.recording);
+    else if (peek.kind === 'outbound') appendOutboundActivityRow(listEl, peek.outbound);
+    else appendMemoActivityRow(listEl, peek.memo);
+    const peekRow = listEl.lastElementChild;
+    if (peekRow) {
+      peekRow.classList.add('is-peek');
+      peekRow.setAttribute('aria-hidden', 'true');
+    }
+  }
 
   listEl.querySelectorAll('[data-call-id]').forEach((btn) => {
     btn.addEventListener('click', handleRecordingAction);
@@ -3132,16 +3156,40 @@ function openGeneralSettings() {
   void openDashboardPath('/dashboard/settings');
 }
 
+const KEYPAD_KEYS = [
+  ['1', ''],
+  ['2', 'ABC'],
+  ['3', 'DEF'],
+  ['4', 'GHI'],
+  ['5', 'JKL'],
+  ['6', 'MNO'],
+  ['7', 'PQRS'],
+  ['8', 'TUV'],
+  ['9', 'WXYZ'],
+  ['*', ''],
+  ['0', '+'],
+  ['#', ''],
+];
+
 function ensureKeypad() {
   if (keypadBuilt) return;
   const keypad = document.getElementById('call-keypad');
   if (!keypad) return;
   keypadBuilt = true;
-  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].forEach((digit) => {
+  KEYPAD_KEYS.forEach(([digit, sub]) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = digit;
     btn.dataset.digit = digit;
+    const main = document.createElement('span');
+    main.className = 'dialer-key-main';
+    main.textContent = digit;
+    btn.appendChild(main);
+    if (sub) {
+      const subEl = document.createElement('span');
+      subEl.className = 'dialer-key-sub';
+      subEl.textContent = sub;
+      btn.appendChild(subEl);
+    }
     btn.addEventListener('click', () => sendDialerDigit(digit));
     keypad.appendChild(btn);
   });
@@ -3247,7 +3295,11 @@ function renderCallSection() {
   const inCall = mode === 'live';
   if (live) live.hidden = !inCall;
   const keypad = document.getElementById('call-keypad');
-  if (!inCall && keypad) keypad.hidden = true;
+  if (!inCall && keypad) {
+    keypad.hidden = true;
+    document.getElementById('call-keypad-toggle')?.classList.remove('is-active');
+    document.getElementById('call-keypad-toggle')?.setAttribute('aria-expanded', 'false');
+  }
   if (inCall) {
     ensureKeypad();
     const label = document.getElementById('call-state-label');
@@ -3260,13 +3312,7 @@ function renderCallSection() {
         muted: call.muted,
       });
     }
-    const muteBtn = document.getElementById('call-mute');
-    if (muteBtn) {
-      muteBtn.disabled = !canMute(call.state);
-      muteBtn.classList.toggle('is-muted', Boolean(call.muted));
-      muteBtn.setAttribute('aria-pressed', call.muted ? 'true' : 'false');
-      muteBtn.setAttribute('aria-label', call.muted ? 'Activar micrófono' : 'Silenciar');
-    }
+    paintCallMuteButton(call.muted, canMute(call.state));
     const keypadToggle = document.getElementById('call-keypad-toggle');
     if (keypadToggle) keypadToggle.disabled = !canSendDigits(call.state);
     const hangupBtn = document.getElementById('call-button');
@@ -3401,9 +3447,11 @@ document.getElementById('call-mute')?.addEventListener('click', () => {
 document.getElementById('call-keypad-toggle')?.addEventListener('click', () => {
   ensureKeypad();
   const keypad = document.getElementById('call-keypad');
+  const toggle = document.getElementById('call-keypad-toggle');
   if (!keypad) return;
   keypad.hidden = !keypad.hidden;
-  document.getElementById('call-keypad-toggle')?.setAttribute('aria-expanded', keypad.hidden ? 'false' : 'true');
+  toggle?.setAttribute('aria-expanded', keypad.hidden ? 'false' : 'true');
+  toggle?.classList.toggle('is-active', !keypad.hidden);
 });
 document.addEventListener('keydown', (e) => {
   const keypad = document.getElementById('call-keypad');
@@ -3700,6 +3748,7 @@ document.getElementById('recordings-show-more')?.addEventListener('click', () =>
     recordings: lastBgState?.recordings || [],
     memos: recentMemosCache,
     outboundCalls: outboundCallsCache,
+    lastCall: lastBgState?.lastCall || null,
   }).length;
   recordingsVisibleCount = nextVisibleCount(recordingsVisibleCount, total);
   if (lastBgState) renderRecordingsSection(lastBgState);

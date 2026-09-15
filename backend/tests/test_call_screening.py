@@ -21,14 +21,35 @@ class TestClassifyCallOutcome:
         )
         assert classify_call_outcome(transcript, duration=20.0) == "no_response"
 
-    def test_two_speakers_but_secondary_too_brief_is_no_response(self):
+    def test_two_speakers_but_secondary_too_brief_is_connected_after_30s(self):
+        """Twilio already marks no-answer. A 40s two-party call must be extracted
+        even when diarization gives the other side almost no words."""
         transcript = (
             "S1: Hola, le llamo de Vocify para comentarle nuestra solución "
             "de transcripción comercial y cómo podemos ayudarle con HubSpot.\n"
             "S2: No.\n"
             "S1: Entiendo, gracias."
         )
-        assert classify_call_outcome(transcript, duration=40.0) == "no_response"
+        assert classify_call_outcome(transcript, duration=40.0) == "connected"
+
+    def test_imbalanced_diarization_on_long_call_is_connected(self):
+        """15 Sep 2026 demo: 102s, S1=12 words / S2=190 words, two people talking.
+        The 10% secondary-word ratio used to emit no_response."""
+        s1 = "SPEAKER: S1\nVale. ¿Sí? Hola, ¿hablo con Tony? ¿Con Tony? Sí, hola.\n\n"
+        s2 = "SPEAKER: S2\n" + ("Escuchas la llamada de Marcos. " * 32)
+        assert classify_call_outcome(s1 + s2, duration=102.0) == "connected"
+
+    def test_empty_transcript_stays_no_response_even_after_30s(self):
+        assert classify_call_outcome("", duration=102.0) == "no_response"
+
+    def test_long_single_speaker_without_voicemail_is_connected(self):
+        transcript = (
+            "SPEAKER: S1\n"
+            "Hola Toni te llamo de Vocify para enseñarte cómo registramos "
+            "las llamadas y actualizamos HubSpot al colgar. "
+            "Hoy vemos la extensión, el dialer y los campos del deal."
+        )
+        assert classify_call_outcome(transcript, duration=90.0) == "connected"
 
     def test_real_conversation_is_connected(self):
         transcript = (

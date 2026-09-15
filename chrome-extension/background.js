@@ -6,6 +6,8 @@
 
 import { api } from './lib/api.js';
 import { CALL_STATES, canStartCall, normalizeDialTarget } from './lib/dialer.js';
+import { snapshotCallOutcome } from './lib/call-format.js';
+import { isUsableMicRecording } from './lib/media-stream.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
 import { pickContextTab } from './lib/review-targets.js';
@@ -356,7 +358,45 @@ function showNotification(title, message) {
 // ============================================
 // OFFSCREEN DOCUMENT
 // ============================================
+let closeOffscreenTimerId = null;
+let pendingMicStartedAt = 0;
+let pendingMicDurationMs = 0;
+
+function cancelScheduledOffscreenClose() {
+  if (closeOffscreenTimerId != null) {
+    clearTimeout(closeOffscreenTimerId);
+    closeOffscreenTimerId = null;
+  }
+}
+
+function offscreenStillNeeded() {
+  return Boolean(
+    state.isRecording
+    || state.isCopilotListening
+    || (state.call?.state && state.call.state !== CALL_STATES.IDLE)
+  );
+}
+
+function closeOffscreenIfIdle() {
+  cancelScheduledOffscreenClose();
+  if (offscreenStillNeeded()) return;
+  chrome.offscreen.closeDocument().catch(() => {});
+}
+
+function scheduleOffscreenClose(ms = 15000) {
+  cancelScheduledOffscreenClose();
+  closeOffscreenTimerId = setTimeout(() => {
+    closeOffscreenTimerId = null;
+    if (state.status === 'processing' && !state.currentMemoId && !state.isRecording) {
+      updateState({ status: 'idle' });
+      showNotification('Recording Error', 'The recording did not finish. Try again.');
+    }
+    closeOffscreenIfIdle();
+  }, ms);
+}
+
 async function getOffscreenDocument({ recreate = false } = {}) {
+  cancelScheduledOffscreenClose();
   const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
   if (contexts.length > 0) {
     if (!recreate) return;
@@ -457,6 +497,8 @@ async function startRecording() {
     }
 
     await getOffscreenDocument();
+    pendingMicStartedAt = Date.now();
+    pendingMicDurationMs = 0;
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'START_RECORDING', wsUrl: wsUrl.toString() });
     
     updateState({ 
@@ -479,14 +521,11 @@ async function startRecording() {
 
 async function stopRecording() {
   if (!state.isRecording) return;
-  
+
+  pendingMicDurationMs = pendingMicStartedAt ? Date.now() - pendingMicStartedAt : 0;
   chrome.runtime.sendMessage({ target: 'offscreen', type: 'STOP_RECORDING' });
   updateState({ isRecording: false, status: 'processing' });
-  
-  // Close offscreen document after a delay
-  setTimeout(() => {
-    chrome.offscreen.closeDocument().catch(() => {});
-  }, 2000);
+  scheduleOffscreenClose(15000);
 }
 
 async function handleToggleRecording() {
@@ -820,13 +859,29 @@ async function stopTabCapture(commandSeq = null) {
 // ============================================
 // DATA PROCESSING
 // ============================================
-async function processAudioData(audioData) {
+async function processAudioData(audioData, { durationMs = 0, byteLength = 0 } = {}) {
+  cancelScheduledOffscreenClose();
+  closeOffscreenIfIdle();
   try {
     console.log('[BG] Processing audio data...');
     const response = await fetch(audioData);
     const blob = await response.blob();
+    const usable = isUsableMicRecording({
+      durationMs: Number(durationMs) || pendingMicDurationMs || 5000,
+      byteLength: Number(byteLength) || blob.size,
+    });
+    if (!usable.ok) {
+      updateState({ status: 'idle', currentMemoId: null });
+      showNotification(
+        'Recording Error',
+        usable.reason === 'too_short'
+          ? 'Record at least 5 seconds.'
+          : 'The recording was empty. Check the microphone and try again.',
+      );
+      return;
+    }
 
-    // Pass the final transcript for faster processing
+    // Live STT is best-effort (Speechmatics quota). Empty transcript → backend batch STT.
     const transcript = state.finalTranscript || null;
     console.log('[BG] Uploading memo, transcript length:', transcript?.length || 0);
     
@@ -975,7 +1030,11 @@ function startCallStatusPoll(callSid) {
 }
 
 function snapshotLastCall(prev) {
-  const answered = Boolean(prev.answeredAt);
+  const outcome = snapshotCallOutcome({
+    callState: prev.state,
+    answeredAt: prev.answeredAt,
+  });
+  const answered = outcome === 'answered';
   const endedAt = Date.now();
   const lastCall = {
     callSid: prev.callSid || null,
@@ -985,15 +1044,21 @@ function snapshotLastCall(prev) {
     dealId: prev.dealId,
     answeredAt: prev.answeredAt || null,
     endedAt,
-    durationMs: answered ? endedAt - prev.answeredAt : 0,
+    durationMs: answered && prev.answeredAt ? endedAt - prev.answeredAt : 0,
     memoId: null,
     memoStatus: null,
     processing: answered,
-    outcome: answered ? 'answered' : 'no_answer',
+    outcome,
     errorMessage: prev.error || null,
   };
   updateState({ call: idleCall(prev.error), lastCall });
   if (answered && lastCall.callSid) startCallStatusPoll(lastCall.callSid);
+  if (state.context) {
+    fetchRecordingsIfNeeded(state.context, { force: true });
+    if (state.context.recordId) {
+      startCallWatch(state.context.recordId, state.context.objectType);
+    }
+  }
 }
 
 function isTabCapturing() {
@@ -1153,10 +1218,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'RECORDING_COMPLETE':
-      processAudioData(message.audioData);
+      processAudioData(message.audioData, {
+        durationMs: message.durationMs,
+        byteLength: message.byteLength,
+      });
       break;
 
     case 'RECORDING_ERROR':
+      cancelScheduledOffscreenClose();
+      closeOffscreenIfIdle();
       updateState({ isRecording: false, status: 'idle' });
       if (message.openSetup) {
         chrome.tabs.create({ url: chrome.runtime.getURL('setup.html') });
@@ -1247,7 +1317,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           error: message.error || null,
           to: nextState === CALL_STATES.IDLE ? null : prev.to,
           callSid: message.callSid || prev.callSid,
-          answeredAt: message.answeredAt || prev.answeredAt,
+          answeredAt: nextState === CALL_STATES.ACTIVE
+            ? (message.answeredAt || prev.answeredAt || Date.now())
+            : (message.answeredAt || prev.answeredAt),
           muted: message.muted != null ? Boolean(message.muted) : prev.muted,
         },
       });

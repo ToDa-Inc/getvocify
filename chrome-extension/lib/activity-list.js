@@ -2,7 +2,10 @@
  * Idle activity list: HubSpot calls + Vocify memos, inbox vs record page.
  */
 
-export const RECORDINGS_PAGE_SIZE = 5;
+import { lastCallAsOutbound } from './call-format.js';
+
+export const RECORDINGS_PAGE_SIZE = 1;
+export const RECORDINGS_EXPAND_SIZE = 5;
 
 export function isRecordPageContext(context) {
   return Boolean(
@@ -37,18 +40,26 @@ export function activityEmptyMessage(context, {
   recordingsCount = 0,
   memosCount = 0,
   loading = false,
+  itemCount = null,
+  authorLabel = null,
 } = {}) {
-  if (loading || recordingsCount > 0 || memosCount > 0) return null;
+  const listed = itemCount != null ? itemCount : recordingsCount + memosCount;
+  if (loading || listed > 0) return null;
+  if (authorLabel) return `No activity from ${authorLabel} yet.`;
   if (isRecordPageContext(context)) {
     return `No activity on this ${context.objectType} yet.`;
   }
   return 'No activity yet.';
 }
 
-export function nextVisibleCount(current, total, pageSize = RECORDINGS_PAGE_SIZE) {
+export function nextVisibleCount(current, total, pageSize = RECORDINGS_EXPAND_SIZE) {
   const from = Number(current);
-  const start = Number.isFinite(from) && from > 0 ? from : pageSize;
+  const start = Number.isFinite(from) && from > 0 ? from : RECORDINGS_PAGE_SIZE;
   return Math.min(Math.max(Number(total) || 0, 0), start + pageSize);
+}
+
+export function shouldPeekNextActivity(visibleCount, total) {
+  return visibleCount <= RECORDINGS_PAGE_SIZE && Number(total) > visibleCount;
 }
 
 export function isVocifyMemo(memo, callIds) {
@@ -76,7 +87,7 @@ function toSortMs(value) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = null, outboundCalls = [] } = {}) {
+export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = null, outboundCalls = [], lastCall = null } = {}) {
   const listed = (recordings || []).filter((r) => r && r.has_recording);
   const ids = callMemoIds instanceof Set
     ? callMemoIds
@@ -98,20 +109,37 @@ export function mergeActivityItems({ recordings = [], memos = [], callMemoIds = 
       memo: m,
     }));
 
+  const liveOutbound = lastCallAsOutbound(lastCall);
+  const mergedOutbound = extraOutbound(outboundCalls, liveOutbound);
   const outboundSkip = new Set([
     ...ids,
     ...(memos || []).map((m) => m?.id).filter(Boolean).map(String),
   ]);
-  const outbound = (outboundCalls || [])
+  const outbound = mergedOutbound
     .filter((c) => c && c.callSid && !(c.memoId && outboundSkip.has(String(c.memoId))))
     .map((c) => ({
       kind: 'outbound',
       id: c.callSid,
-      sortMs: toSortMs(c.startedAt || c.answeredAt),
+      sortMs: toSortMs(c.startedAt || c.answeredAt || c.endedAt),
       outbound: c,
     }));
 
   return [...calls, ...vocify, ...outbound].sort((a, b) => (b.sortMs || 0) - (a.sortMs || 0));
+}
+
+function extraOutbound(outboundCalls, liveOutbound) {
+  const listed = outboundCalls || [];
+  if (!liveOutbound?.callSid) return listed;
+  const existing = listed.find((c) => c?.callSid === liveOutbound.callSid);
+  const merged = existing
+    ? {
+        ...liveOutbound,
+        memoId: liveOutbound.memoId || existing.memoId || null,
+        memoStatus: liveOutbound.memoStatus || existing.memoStatus || null,
+        screeningOutcome: liveOutbound.screeningOutcome || existing.screeningOutcome || null,
+      }
+    : liveOutbound;
+  return [merged, ...listed.filter((c) => c?.callSid !== liveOutbound.callSid)];
 }
 
 function recordingStamp(state) {
@@ -127,6 +155,7 @@ function recordingStamp(state) {
  */
 export function uiChromeKey(state) {
   const ctx = state?.context || null;
+  const last = state?.lastCall;
   return [
     state?.status || '',
     state?.isRecording ? '1' : '0',
@@ -138,6 +167,10 @@ export function uiChromeKey(state) {
     ctx?.objectType || '',
     ctx?.recordId || '',
     ctx?.dealName || ctx?.contactName || ctx?.companyName || '',
+    state?.call?.state || '',
+    last?.callSid || '',
+    last?.processing ? '1' : '0',
+    last?.memoStatus || '',
   ].join('|');
 }
 
