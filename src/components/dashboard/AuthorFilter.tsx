@@ -5,6 +5,7 @@ import {
   activityFilterChips,
   shouldShowActivityAuthorFilter,
 } from "@/lib/activity-authors";
+import { cn } from "@/lib/utils";
 
 export function AuthorFilter({
   authors,
@@ -12,12 +13,14 @@ export function AuthorFilter({
   onChange,
   currentUserId,
   canViewCompany = true,
+  compact = false,
 }: {
   authors: ActivityAuthor[];
   value: string | null;
   onChange: (userId: string | null) => void;
   currentUserId?: string | null;
   canViewCompany?: boolean;
+  compact?: boolean;
 }) {
   if (!shouldShowActivityAuthorFilter(Boolean(canViewCompany), currentUserId)) {
     return null;
@@ -28,9 +31,15 @@ export function AuthorFilter({
       <span className={THEME_TOKENS.typography.capsLabel}>Show</span>
       <span className="relative inline-flex">
         <select
+          aria-label="Show activity"
           value={value ?? ""}
           onChange={(event) => onChange(event.target.value || null)}
-          className="h-10 min-w-[9rem] max-w-[14rem] appearance-none rounded-full border border-border/40 bg-secondary/5 pl-4 pr-10 text-sm text-foreground cursor-pointer focus:outline-none"
+          className={cn(
+            "appearance-none rounded-full border border-border/40 bg-secondary/5 text-foreground cursor-pointer focus:outline-none",
+            compact
+              ? "h-8 min-w-[7.5rem] max-w-[12rem] pl-3 pr-8 text-[13px]"
+              : "h-10 min-w-[9rem] max-w-[14rem] pl-4 pr-10 text-sm",
+          )}
         >
           {activityFilterChips(authors, currentUserId).map((chip) => (
             <option key={chip.id ?? "all"} value={chip.id ?? ""}>
@@ -38,7 +47,12 @@ export function AuthorFilter({
             </option>
           ))}
         </select>
-        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/40" />
+        <ChevronDown
+          className={cn(
+            "pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground/40",
+            compact ? "right-2 h-3.5 w-3.5" : "right-3 h-4 w-4",
+          )}
+        />
       </span>
     </label>
   );
