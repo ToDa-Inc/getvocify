@@ -537,7 +537,6 @@ async def _finalize_speechmatics_transcript(memo_id: str, transcript: str, job_i
             {
                 "status": "failed",
                 "transcript": cleaned,
-                "transcript_confidence": 0.95,
                 "processed_at": now,
                 "error_message": "User missing for extraction",
             }

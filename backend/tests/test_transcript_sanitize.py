@@ -5,6 +5,7 @@ import unittest
 from app.services.transcript_sanitize import (
     collapse_extra_speakers,
     extraction_complete_update,
+    is_two_party_source,
     raw_speaker_count,
     reconstruct_spelled_emails,
     should_refresh_display_transcript,
@@ -32,6 +33,14 @@ class DisplayTranscriptPolishTests(unittest.TestCase):
         self.assertEqual(payload["status"], "pending_review")
         self.assertEqual(payload["extraction"]["summary"], "note")
         self.assertIsNone(payload["processing_started_at"])
+
+
+class TwoPartySourceTests(unittest.TestCase):
+    def test_call_recordings_are_two_party(self):
+        self.assertTrue(is_two_party_source("hubspot_call"))
+        self.assertTrue(is_two_party_source("vocify_call"))
+        self.assertFalse(is_two_party_source("voice_memo"))
+        self.assertFalse(is_two_party_source(None))
 
 
 class TwoPartySpeakerCollapseTests(unittest.TestCase):

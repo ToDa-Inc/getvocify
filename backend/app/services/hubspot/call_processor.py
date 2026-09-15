@@ -30,7 +30,7 @@ from app.services.hubspot.calls import (
 from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
-from app.services.stt_batch import transcribe_bytes
+from app.services.stt_batch import transcribe_audio
 from app.services.transcript_sanitize import sanitize_user_transcript
 
 logger = logging.getLogger(__name__)
@@ -179,6 +179,8 @@ async def process_hubspot_call_background(
     access_token: str,
     call_id: str,
     supabase: Client,
+    audio_bytes: Optional[bytes] = None,
+    content_type: Optional[str] = None,
 ) -> None:
     """Download recording, transcribe with Deepgram, sanitize, start extraction."""
     from app.services.pipeline_lease import (
@@ -208,11 +210,17 @@ async def process_hubspot_call_background(
             raise RuntimeError("Call engagement not found")
         props = data.get("properties") or {}
         url = (props.get("hs_call_recording_url") or "").strip()
-        if not url:
-            raise RuntimeError("No recording URL on call")
-
         t_dl = time.perf_counter()
-        audio_bytes, content_type = await download_recording(url, access_token)
+        if not audio_bytes:
+            if not url:
+                raise RuntimeError("No recording URL on call")
+            audio_bytes, content_type = await download_recording(url, access_token)
+        from app.services.storage import StorageService
+
+        recording_path = await StorageService(supabase).upload_call_recording(
+            audio_bytes, user_id, f"hs_{call_id}"
+        )
+        update_memo_row(supabase, memo_id, {"recording_path": recording_path})
         dur = call_duration_seconds(props)
         if dur <= 0:
             dur = max(1.0, len(audio_bytes) / (32 * 1024))
@@ -230,13 +238,15 @@ async def process_hubspot_call_background(
 
         with pipeline_run(run_id=run_id, trigger="hubspot_process") as stages:
             record_stage("download", t_dl, bytes=len(audio_bytes))
-            transcript = await transcribe_bytes(
+            stt = await transcribe_audio(
                 audio_bytes,
                 content_type=content_type or "audio/mpeg",
                 user_id=user_id,
                 extra_terms=extra_terms,
                 diarization=True,
+                source="hubspot_call",
             )
+            transcript = stt.text
             memo_row = (
                 supabase.table("memos")
                 .select("id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,source,source_type")
@@ -267,6 +277,7 @@ async def process_hubspot_call_background(
             run_id=run_id,
             call_date=call_date,
             trigger="hubspot_process",
+            transcript_confidence=stt.confidence,
             extra_update={
                 "audio_duration": dur,
                 "error_message": None,
@@ -277,6 +288,8 @@ async def process_hubspot_call_background(
                     "raw_speaker_count": raw_speaker_count(transcript),
                     "call_date": call_date,
                     "diarized": True,
+                    "diarization": stt.diarization,
+                    "channels": stt.channels,
                 },
             },
         )

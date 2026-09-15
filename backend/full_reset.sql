@@ -293,6 +293,7 @@ CREATE TABLE memos (
   
   -- Optional: we now store transcript only, no audio storage (migration 004).
   audio_url TEXT DEFAULT '',
+  recording_path TEXT,
   audio_duration REAL,
   
   transcript TEXT,

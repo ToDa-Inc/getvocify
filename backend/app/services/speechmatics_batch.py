@@ -40,13 +40,16 @@ def batch_transcription_config(
     language: str,
     diarization: bool,
     vocab: Optional[list] = None,
+    channel: bool = False,
 ) -> dict:
     """Batch v2 job: Standard + pinned language + glossary. Not Enhanced, not bare auto."""
     transcription_config: dict = {
         "language": language,
         "operating_point": BATCH_OPERATING_POINT,
     }
-    if diarization:
+    if channel:
+        transcription_config["diarization"] = "channel"
+    elif diarization:
         transcription_config["diarization"] = "speaker"
         transcription_config["speaker_diarization_config"] = {
             "prefer_current_speaker": True,
@@ -101,6 +104,7 @@ class SpeechmaticsBatchService:
         notification_url: Optional[str] = None,
         extra_vocab: Optional[list] = None,
         language_identification_config: Optional[dict] = None,
+        channel: bool = False,
     ) -> str:
         """
         Create a Speechmatics transcription job and return the job_id.
@@ -127,6 +131,7 @@ class SpeechmaticsBatchService:
             language=language,
             diarization=diarization,
             vocab=vocab,
+            channel=channel,
         )
 
         config: dict = {"type": "transcription", "transcription_config": transcription_config}
@@ -229,6 +234,7 @@ class SpeechmaticsBatchService:
         notification_url: Optional[str] = None,
         extra_vocab: Optional[list] = None,
         language_identification_config: Optional[dict] = None,
+        channel: bool = False,
     ) -> dict:
         """Build kwargs for create_job from the common transcribe/submit params."""
         if audio_bytes is not None:
@@ -243,6 +249,7 @@ class SpeechmaticsBatchService:
                 notification_url=notification_url,
                 extra_vocab=extra_vocab,
                 language_identification_config=language_identification_config,
+                channel=channel,
             )
         elif audio_url:
             return dict(
@@ -253,6 +260,7 @@ class SpeechmaticsBatchService:
                 notification_url=notification_url,
                 extra_vocab=extra_vocab,
                 language_identification_config=language_identification_config,
+                channel=channel,
             )
         raise ValueError("Either audio_bytes or audio_url required")
 
@@ -267,6 +275,7 @@ class SpeechmaticsBatchService:
         notification_url: Optional[str] = None,
         extra_vocab: Optional[list] = None,
         language_identification_config: Optional[dict] = None,
+        channel: bool = False,
     ) -> str:
         """
         Create a job and return the job_id immediately.
@@ -283,6 +292,7 @@ class SpeechmaticsBatchService:
             notification_url,
             extra_vocab,
             language_identification_config,
+            channel,
         )
         return await self.create_job(**kwargs)
 
@@ -296,6 +306,7 @@ class SpeechmaticsBatchService:
         diarization: bool = False,
         extra_vocab: Optional[list] = None,
         language_identification_config: Optional[dict] = None,
+        channel: bool = False,
     ) -> str:
         """
         Create job, poll until done, return transcript text.
@@ -311,6 +322,7 @@ class SpeechmaticsBatchService:
             diarization,
             extra_vocab=extra_vocab,
             language_identification_config=language_identification_config,
+            channel=channel,
         )
         job_id = await self.create_job(**kwargs)
 

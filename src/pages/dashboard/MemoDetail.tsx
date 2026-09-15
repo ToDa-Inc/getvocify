@@ -227,11 +227,14 @@ const MemoDetail = () => {
   const extractionFailed = memo.status === "failed";
   const hasExtraction = !isProcessing && !extractionFailed && !!memo.extraction;
   const extraction = memo.extraction || {};
-  const isHubSpotCall =
-    memo.source === "hubspot_call" || Boolean(memo.hubspotEngagementId);
+  const isCallMemo =
+    memo.source === "hubspot_call" ||
+    memo.source === "vocify_call" ||
+    Boolean(memo.hubspotEngagementId);
   const canReTranscribe =
     isOwnMemo &&
-    isHubSpotCall &&
+    isCallMemo &&
+    Boolean(memo.audioUrl) &&
     memo.status !== "approved" &&
     !isProcessing;
   const previewRefreshKey = `${memo.status}:${memo.processedAt || ""}:${memo.transcript?.length || 0}`;

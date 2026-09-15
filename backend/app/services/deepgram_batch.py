@@ -32,6 +32,7 @@ def listen_query_params(
     language: str,
     keyterms: Iterable[str],
     diarization: bool,
+    multichannel: bool = False,
 ) -> list[tuple[str, str]]:
     """Nova-3 listen query. `diarize` + `utterances` only — `diarize_model` 400s with `diarize`."""
     params: list[tuple[str, str]] = [
@@ -40,7 +41,10 @@ def listen_query_params(
         ("punctuate", "true"),
         ("smart_format", "true"),
     ]
-    if diarization:
+    if multichannel:
+        params.append(("multichannel", "true"))
+        params.append(("utterances", "true"))
+    elif diarization:
         params.append(("diarize", "true"))
         params.append(("utterances", "true"))
     for term in keyterms:
@@ -49,28 +53,56 @@ def listen_query_params(
     return params
 
 
-def format_deepgram_transcript(payload: dict[str, Any]) -> str:
+def mean_utterance_confidence(payload: dict[str, Any]) -> Optional[float]:
+    utterances = (payload.get("results") or {}).get("utterances") or []
+    values: list[float] = []
+    for utt in utterances:
+        raw = utt.get("confidence")
+        if raw is None:
+            continue
+        try:
+            values.append(float(raw))
+        except (TypeError, ValueError):
+            continue
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def format_deepgram_transcript(
+    payload: dict[str, Any],
+    *,
+    multichannel: bool = False,
+) -> tuple[str, Optional[float]]:
     """Utterances → S1/S2 text. Fall back to the flat transcript."""
     results = payload.get("results") or {}
     utterances = results.get("utterances") or []
     if utterances:
-        lines: list[str] = []
+        rows: list[tuple[float, str]] = []
         for utt in utterances:
             text = str(utt.get("transcript") or "").strip()
             if not text:
                 continue
-            speaker = utt.get("speaker")
-            try:
-                idx = int(speaker) + 1
-            except (TypeError, ValueError):
-                idx = 1
-            lines.append(f"S{idx}: {text}")
-        if lines:
-            return "\n".join(lines)
+            if multichannel and utt.get("channel") is not None:
+                try:
+                    idx = int(utt["channel"]) + 1
+                except (TypeError, ValueError):
+                    idx = 1
+            else:
+                try:
+                    idx = int(utt.get("speaker")) + 1
+                except (TypeError, ValueError):
+                    idx = 1
+            start = float(utt.get("start") or 0.0)
+            rows.append((start, f"S{idx}: {text}"))
+        if multichannel:
+            rows.sort(key=lambda row: row[0])
+        if rows:
+            return "\n".join(line for _, line in rows), mean_utterance_confidence(payload)
 
     channels = results.get("channels") or [{}]
     alts = (channels[0].get("alternatives") or [{}])
-    return str(alts[0].get("transcript") or "").strip()
+    return str(alts[0].get("transcript") or "").strip(), mean_utterance_confidence(payload)
 
 
 class DeepgramBatchService:
@@ -86,7 +118,8 @@ class DeepgramBatchService:
         user_id: Optional[str] = None,
         extra_terms: Optional[Iterable[EntityTerm]] = None,
         diarization: bool = True,
-    ) -> str:
+        multichannel: bool = False,
+    ) -> tuple[str, Optional[float]]:
         if not self.api_key:
             raise RuntimeError("DEEPGRAM_API_KEY is not set")
         if not audio_bytes:
@@ -100,6 +133,7 @@ class DeepgramBatchService:
             language=lang,
             keyterms=keyterms,
             diarization=diarization,
+            multichannel=multichannel,
         )
         url = f"{LISTEN_URL}?{urlencode(params)}"
         headers = {
@@ -129,7 +163,7 @@ class DeepgramBatchService:
             err = data.get("err_msg") or data.get("error") or data
             raise RuntimeError(f"Deepgram listen failed ({response.status_code}): {err}")
 
-        text = format_deepgram_transcript(data)
+        text, confidence = format_deepgram_transcript(data, multichannel=multichannel)
         if not text:
             raise RuntimeError("Deepgram returned an empty transcript")
         request_id = ((data.get("metadata") or {}).get("request_id")) or ""
@@ -143,4 +177,4 @@ class DeepgramBatchService:
                 language=lang,
             ),
         )
-        return text
+        return text, confidence

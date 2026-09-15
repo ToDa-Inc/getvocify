@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 DISPLAY_TRANSCRIPT_STATUSES = frozenset(
     {"extracting", "pending_review", "pending_transcript"}
 )
+TWO_PARTY_SOURCES = frozenset({"hubspot_call", "vocify_call"})
+
+
+def is_two_party_source(source: Optional[str]) -> bool:
+    return (source or "").strip() in TWO_PARTY_SOURCES
 
 
 def should_refresh_display_transcript(status: Optional[str]) -> bool:
@@ -941,7 +946,7 @@ async def sanitize_user_transcript(
         values,
         extra_names=extra,
         spoken_language=spoken,
-        two_party=source == "hubspot_call",
+        two_party=is_two_party_source(source),
     )
     return cleaned
 
@@ -996,7 +1001,7 @@ async def polish_memo_transcript(
                 values,
                 extra_names=extra,
                 spoken_language=spoken,
-                two_party=source == "hubspot_call",
+                two_party=is_two_party_source(source),
             )
             persist_pipeline_meta(supabase, memo_id, stages)
         if not polished or polished == transcript:

@@ -21,6 +21,7 @@ from app.services.activity_scope import (
     resolve_list_user_ids,
 )
 from app.services.storage import StorageService
+from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
@@ -105,7 +106,12 @@ async def _curated_field_specs_for_primary_crm(
     return specs
 
 
-def _memo_from_row(memo_data: dict, author: Optional[dict] = None) -> Memo:
+def _memo_from_row(
+    memo_data: dict,
+    author: Optional[dict] = None,
+    *,
+    supabase: Optional[Client] = None,
+) -> Memo:
     """Build Memo from DB row, with defensive handling for malformed data."""
     extraction = memo_data.get("extraction")
     if extraction is not None and isinstance(extraction, dict):
@@ -120,7 +126,7 @@ def _memo_from_row(memo_data: dict, author: Optional[dict] = None) -> Memo:
             userId=memo_data["user_id"],
             authorName=(author or {}).get("name"),
             authorEmail=(author or {}).get("email"),
-            audioUrl=memo_data.get("audio_url") or "",
+            audioUrl=sign_memo_audio(memo_data, supabase) if supabase is not None else (memo_data.get("audio_url") or ""),
             audioDuration=memo_data["audio_duration"],
             status=memo_data["status"],
             transcript=memo_data.get("transcript"),
@@ -312,7 +318,7 @@ async def start_extraction_from_transcript(
     *,
     field_specs: Optional[list[dict]] = None,
     source_type: str = "voice_memo",
-    transcript_confidence: float = 0.95,
+    transcript_confidence: Optional[float] = None,
     extra_update: Optional[dict] = None,
     run_id: Optional[str] = None,
     call_date: Optional[str] = None,
@@ -330,11 +336,12 @@ async def start_extraction_from_transcript(
     update_payload = {
         "status": "extracting",
         "transcript": transcript,
-        "transcript_confidence": transcript_confidence,
         "processing_started_at": datetime.utcnow().isoformat(),
     }
     if extra_update:
         update_payload.update(extra_update)
+    if transcript_confidence is not None:
+        update_payload["transcript_confidence"] = transcript_confidence
 
     update_memo_row(supabase, memo_id, update_payload)
 
@@ -380,7 +387,7 @@ async def process_memo_async(
         update_memo_row,
     )
     from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
-    from app.services.stt_batch import transcribe_bytes
+    from app.services.stt_batch import transcribe_audio
     from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
     stages: list = []
@@ -404,12 +411,13 @@ async def process_memo_async(
         })
 
         with pipeline_run(run_id=run_id, trigger="upload") as stages:
-            transcript_raw = await transcribe_bytes(
+            stt = await transcribe_audio(
                 audio_bytes,
                 content_type=content_type,
                 user_id=user_id,
                 diarization=True,
             )
+            transcript_raw = stt.text
             transcript_text = await sanitize_user_transcript(
                 transcript_raw, user_id, supabase
             )
@@ -426,6 +434,7 @@ async def process_memo_async(
             source_type="voice_memo",
             run_id=run_id,
             trigger="upload",
+            transcript_confidence=stt.confidence,
             extra_update={
                 "transcript_raw": transcript_raw,
                 "transcript_stt_meta": {
@@ -510,7 +519,6 @@ async def upload_memo(
             "audio_duration": estimated_duration,
             "status": "extracting",
             "transcript": transcript,
-            "transcript_confidence": 1.0,
             "processing_started_at": datetime.utcnow().isoformat(),
         }).execute()
         
@@ -522,7 +530,6 @@ async def upload_memo(
             supabase,
             field_specs=field_specs,
             source_type="voice_memo",
-            transcript_confidence=1.0,
             extra_update={
                 "transcript_raw": transcript_raw,
                 "transcript_stt_meta": {
@@ -632,7 +639,6 @@ async def upload_transcript_only(
         "audio_duration": estimated_duration,
         "status": "extracting",
         "transcript": transcript,
-        "transcript_confidence": 1.0,
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
     }).execute()
@@ -645,7 +651,6 @@ async def upload_transcript_only(
         supabase,
         field_specs=field_specs,
         source_type=source_type,
-        transcript_confidence=1.0,
         extra_update={"transcript_raw": transcript_raw, "transcript_stt_meta": stt_meta},
     )
     
@@ -691,7 +696,6 @@ async def upload_transcript_and_extract(
         "audio_duration": estimated_duration,
         "status": "extracting",
         "transcript": transcript,
-        "transcript_confidence": 1.0,
         "processing_started_at": datetime.utcnow().isoformat(),
     }).execute()
 
@@ -707,7 +711,6 @@ async def upload_transcript_and_extract(
         supabase,
         field_specs=field_specs,
         source_type=source_type,
-        transcript_confidence=1.0,
         extra_update={"transcript_raw": transcript_raw, "transcript_stt_meta": stt_meta},
     )
 
@@ -930,7 +933,7 @@ async def get_memo(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Memo not found"
         )
-    return _memo_from_row(memo_data, authors.get(owner_id))
+    return _memo_from_row(memo_data, authors.get(owner_id), supabase=supabase)
 
 
 # Maps SyncResult.error_code (set in sync.py / salesforce_provider.py) to an HTTP
@@ -2003,12 +2006,7 @@ async def re_transcribe_memo(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """
-    Re-download a HubSpot call recording and run STT again.
-
-    Uses the user's current call-language settings. HubSpot recordings are
-    re-fetched from HubSpot; uploaded voice memos do not keep audio after STT.
-    """
+    """Re-run STT from the stored call recording (or re-fetch HubSpot if missing)."""
     memo_result = (
         supabase.table("memos")
         .select("*")
@@ -2026,13 +2024,12 @@ async def re_transcribe_memo(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot re-transcribe an approved memo. Reject it first if you need a new transcript.",
         )
-
-    call_id = (memo_data.get("hubspot_engagement_id") or "").strip()
-    source = (memo_data.get("source") or memo_data.get("source_type") or "").strip()
-    if not call_id or source != "hubspot_call":
+    if not can_retranscribe(
+        {**memo_data, "recording_path": recording_path_for_memo(memo_data, supabase)}
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Re-transcribe is only available for HubSpot call recordings.",
+            detail="Re-transcribe is only available for call recordings.",
         )
 
     if memo_data.get("status") in ("transcribing", "uploading", "extracting"):
@@ -2041,35 +2038,18 @@ async def re_transcribe_memo(
             detail="This memo is already being processed.",
         )
 
-    from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
-    from app.services.hubspot.call_processor import process_hubspot_call_background
-
-    conn_result = (
-        supabase.table("crm_connections")
-        .select("id, access_token, refresh_token, token_expires_at, status")
-        .eq("user_id", user_id)
-        .eq("provider", "hubspot")
-        .limit(1)
-        .execute()
-    )
-    rows = conn_result.data or []
-    if not rows or rows[0].get("status") != "connected":
+    source = (memo_data.get("source") or memo_data.get("source_type") or "").strip()
+    path = recording_path_for_memo(memo_data, supabase)
+    stored: Optional[bytes] = None
+    if path:
+        try:
+            stored = StorageService(supabase).download_call_recording(path)
+        except Exception:
+            stored = None
+    if source == "vocify_call" and not stored:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="HubSpot connection not found. Please connect your HubSpot account first.",
-        )
-    try:
-        connection = ensure_fresh_hubspot_connection(supabase, rows[0])
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
-        ) from e
-    access_token = (connection.get("access_token") or "").strip()
-    if not access_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="HubSpot access token is missing",
+            detail="Recording file not found.",
         )
 
     supabase.table("memos").update(
@@ -2084,14 +2064,69 @@ async def re_transcribe_memo(
         }
     ).eq("id", str(memo_id)).execute()
 
-    asyncio.create_task(
-        process_hubspot_call_background(
-            str(memo_id), user_id, access_token, call_id, supabase
+    if source == "vocify_call":
+        from app.services.telephony.call_processor import process_vocify_call_background
+
+        found = (
+            supabase.table("outbound_calls")
+            .select("carrier_call_id,recording_duration")
+            .eq("memo_id", str(memo_id))
+            .limit(1)
+            .execute()
         )
-    )
+        call = (found.data or [None])[0] or {}
+        call_sid = str(call.get("carrier_call_id") or "retranscribe")
+        duration = float(call.get("recording_duration") or memo_data.get("audio_duration") or 1.0)
+        asyncio.create_task(
+            process_vocify_call_background(
+                str(memo_id), user_id, call_sid, stored, duration, supabase
+            )
+        )
+    else:
+        from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
+        from app.services.hubspot.call_processor import process_hubspot_call_background
+
+        call_id = (memo_data.get("hubspot_engagement_id") or "").strip()
+        conn_result = (
+            supabase.table("crm_connections")
+            .select("id, access_token, refresh_token, token_expires_at, status")
+            .eq("user_id", user_id)
+            .eq("provider", "hubspot")
+            .limit(1)
+            .execute()
+        )
+        rows = conn_result.data or []
+        if not rows or rows[0].get("status") != "connected":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="HubSpot connection not found. Please connect your HubSpot account first.",
+            )
+        try:
+            connection = ensure_fresh_hubspot_connection(supabase, rows[0])
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"HubSpot authorization expired. Please reconnect HubSpot. ({e})",
+            ) from e
+        access_token = (connection.get("access_token") or "").strip()
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="HubSpot access token is missing",
+            )
+        asyncio.create_task(
+            process_hubspot_call_background(
+                str(memo_id),
+                user_id,
+                access_token,
+                call_id,
+                supabase,
+                audio_bytes=stored,
+            )
+        )
 
     updated_result = (
         supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
     )
-    return _memo_from_row(updated_result.data)
+    return _memo_from_row(updated_result.data, supabase=supabase)
 

@@ -25,10 +25,10 @@ from app.metrics import (
     record_transcription_duration,
 )
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
-from app.services.stt_batch import transcribe_bytes
+from app.services.stt_batch import transcribe_audio
 from app.services.telephony.call_screening import classify_call_outcome
 from app.services.telephony.telnyx_client import telnyx_rest
-from app.services.transcript_sanitize import sanitize_user_transcript
+from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,7 @@ async def initiate_vocify_call_memo(
         "audio_duration": float(call_row.get("recording_duration") or 0.0),
         "status": "transcribing",
         "source": "vocify_call",
+        "recording_path": (call_row.get("recording_path") or "").strip() or None,
         "hubspot_contact_id": call_row.get("hubspot_contact_id"),
         "hubspot_deal_id": call_row.get("hubspot_deal_id"),
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
@@ -184,12 +185,14 @@ async def process_vocify_call_background(
         # *inside* it too, not after it exits.
         with pipeline_run() as stages:
             stages.extend(pre_stages or [])
-            transcript = await transcribe_bytes(
+            stt = await transcribe_audio(
                 audio_bytes,
                 content_type="audio/wav",
                 user_id=user_id,
                 diarization=True,
+                source="vocify_call",
             )
+            transcript = stt.text
             memo_row = (
                 supabase.table("memos")
                 .select("id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
@@ -227,10 +230,20 @@ async def process_vocify_call_background(
                     cleaned,
                     supabase,
                     source_type="vocify_call",
+                    transcript_confidence=stt.confidence,
                     extra_update={
                         "audio_duration": duration,
                         "error_message": None,
                         "screening_outcome": screening_outcome,
+                        "transcript_raw": transcript,
+                        "transcript_stt_meta": {
+                            "provider": "deepgram",
+                            "model": "nova-3",
+                            "raw_speaker_count": raw_speaker_count(transcript),
+                            "diarized": True,
+                            "diarization": stt.diarization,
+                            "channels": stt.channels,
+                        },
                     },
                 )
             else:

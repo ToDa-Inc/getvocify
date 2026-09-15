@@ -25,6 +25,15 @@ class SpeechmaticsBatchConfigTest(unittest.TestCase):
         self.assertEqual(cfg["additional_vocab"], [{"content": "Vocify"}])
         self.assertNotIn("max_speakers", cfg)
 
+    def test_stereo_uses_channel_diarization(self):
+        cfg = batch_transcription_config(
+            language="es",
+            diarization=True,
+            channel=True,
+        )
+        self.assertEqual(cfg["diarization"], "channel")
+        self.assertNotIn("speaker_diarization_config", cfg)
+
 
 if __name__ == "__main__":
     unittest.main()

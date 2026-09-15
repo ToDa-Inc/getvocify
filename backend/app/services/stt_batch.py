@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 from app.config import settings
@@ -30,6 +31,29 @@ logger = logging.getLogger(__name__)
 
 _SNIPPET_CHARS = 1800
 _DETECT_TIMEOUT_SEC = 8.0
+
+
+@dataclass(frozen=True)
+class BatchTranscript:
+    text: str
+    confidence: Optional[float] = None
+    diarization: str = "speaker"
+    channels: int = 1
+
+
+def wav_channel_count(audio_bytes: bytes) -> int:
+    if not audio_bytes or len(audio_bytes) < 24:
+        return 1
+    if audio_bytes[:4] != b"RIFF" or audio_bytes[8:12] != b"WAVE":
+        return 1
+    n = int.from_bytes(audio_bytes[22:24], "little")
+    return n if n > 0 else 1
+
+
+def use_channel_stt(audio_bytes: bytes, *, source: str = "") -> bool:
+    if (source or "").strip() == "vocify_call":
+        return True
+    return wav_channel_count(audio_bytes) >= 2
 
 STT_LANGUAGE_LABELS = {
     "es": "Spanish",
@@ -137,14 +161,38 @@ async def transcribe_bytes(
     user_id: Optional[str] = None,
     extra_terms: Optional[Iterable[EntityTerm]] = None,
     diarization: bool = True,
+    source: str = "",
 ) -> str:
+    result = await transcribe_audio(
+        audio_bytes,
+        content_type=content_type,
+        language=language,
+        user_id=user_id,
+        extra_terms=extra_terms,
+        diarization=diarization,
+        source=source,
+    )
+    return result.text
+
+
+async def transcribe_audio(
+    audio_bytes: bytes,
+    *,
+    content_type: str = "audio/wav",
+    language: Optional[str] = None,
+    user_id: Optional[str] = None,
+    extra_terms: Optional[Iterable[EntityTerm]] = None,
+    diarization: bool = True,
+    source: str = "",
+) -> BatchTranscript:
     provider = (getattr(settings, "STT_PROVIDER", None) or "deepgram").strip().lower()
     profile_langs = resolve_profile_stt_languages(language, user_id=user_id)
     lang = resolve_batch_language(language, user_id=user_id)
     sm_lang, sm_lang_id = speechmatics_batch_language(profile_langs)
+    channel = use_channel_stt(audio_bytes, source=source)
     t0 = time.perf_counter()
     try:
-        text = await _transcribe_once(
+        result = await _transcribe_once(
             audio_bytes,
             content_type=content_type,
             provider=provider,
@@ -155,18 +203,18 @@ async def transcribe_bytes(
             extra_terms=extra_terms,
             diarization=diarization,
             t0=t0,
+            multichannel=channel,
         )
         used_lang = lang if provider != "speechmatics" else sm_lang
-        # Classify only if a selected language could not have been in this pass.
         if should_detect_stt_language(used_lang, profile_langs):
-            picked = await detect_stt_language(text, profile_langs)
+            picked = await detect_stt_language(result.text, profile_langs)
             if should_rerun_stt(used_lang, picked, profile_langs) and picked:
                 logger.info(
                     "STT re-pin %s → %s after language detect",
                     used_lang,
                     picked,
                 )
-                text = await _transcribe_once(
+                result = await _transcribe_once(
                     audio_bytes,
                     content_type=content_type,
                     provider=provider,
@@ -177,11 +225,32 @@ async def transcribe_bytes(
                     extra_terms=extra_terms,
                     diarization=diarization,
                     t0=time.perf_counter(),
+                    multichannel=channel,
                 )
                 used_lang = picked
         set_batch_stt_language(used_lang)
-        return text
+        return result
     except Exception as e:
+        if channel:
+            logger.warning("Channel STT failed, falling back to speaker: %s", e)
+            try:
+                result = await _transcribe_once(
+                    audio_bytes,
+                    content_type=content_type,
+                    provider=provider,
+                    lang=lang,
+                    sm_lang=sm_lang,
+                    sm_lang_id=sm_lang_id,
+                    user_id=user_id,
+                    extra_terms=extra_terms,
+                    diarization=True,
+                    t0=time.perf_counter(),
+                    multichannel=False,
+                )
+                set_batch_stt_language(lang if provider != "speechmatics" else sm_lang)
+                return result
+            except Exception:
+                pass
         record_stage(
             "stt",
             t0,
@@ -214,7 +283,8 @@ async def _transcribe_speechmatics(
     diarization: bool,
     t0: float,
     fallback_from: Optional[str] = None,
-) -> str:
+    multichannel: bool = False,
+) -> BatchTranscript:
     from app.services.speechmatics_batch import BATCH_OPERATING_POINT, SpeechmaticsBatchService
     from app.services.session_entities import format_terms_for_speechmatics
 
@@ -227,6 +297,7 @@ async def _transcribe_speechmatics(
         user_id=user_id,
         diarization=diarization,
         extra_vocab=extra_vocab,
+        channel=multichannel,
     )
     record_stage(
         "stt",
@@ -237,7 +308,11 @@ async def _transcribe_speechmatics(
         expected_languages=(sm_lang_id or {}).get("expected_languages"),
         fallback_from=fallback_from,
     )
-    return text
+    return BatchTranscript(
+        text=text,
+        diarization="channel" if multichannel else ("speaker" if diarization else "none"),
+        channels=2 if multichannel else 1,
+    )
 
 
 async def _transcribe_once(
@@ -252,7 +327,8 @@ async def _transcribe_once(
     extra_terms: Optional[Iterable[EntityTerm]],
     diarization: bool,
     t0: float,
-) -> str:
+    multichannel: bool = False,
+) -> BatchTranscript:
     if provider == "speechmatics":
         return await _transcribe_speechmatics(
             audio_bytes,
@@ -263,18 +339,20 @@ async def _transcribe_once(
             extra_terms=extra_terms,
             diarization=diarization,
             t0=t0,
+            multichannel=multichannel,
         )
 
     from app.services.deepgram_batch import DEEPGRAM_MODEL, DeepgramBatchService
 
     try:
-        text = await DeepgramBatchService().transcribe(
+        text, confidence = await DeepgramBatchService().transcribe(
             audio_bytes=audio_bytes,
             content_type=content_type,
             language=lang,
             user_id=user_id,
             extra_terms=extra_terms,
             diarization=diarization,
+            multichannel=multichannel,
         )
     except Exception as e:
         if not _should_fallback_to_speechmatics(e):
@@ -302,6 +380,7 @@ async def _transcribe_once(
             diarization=diarization,
             t0=time.perf_counter(),
             fallback_from="deepgram",
+            multichannel=multichannel,
         )
 
     record_stage(
@@ -311,4 +390,9 @@ async def _transcribe_once(
         model=DEEPGRAM_MODEL,
         language=lang,
     )
-    return text
+    return BatchTranscript(
+        text=text,
+        confidence=confidence,
+        diarization="channel" if multichannel else ("speaker" if diarization else "none"),
+        channels=2 if multichannel else 1,
+    )

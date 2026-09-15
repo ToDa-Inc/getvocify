@@ -101,6 +101,12 @@ class StorageService:
         )
         return path
 
+    def download_call_recording(self, path: str) -> bytes:
+        data = self.supabase.storage.from_(CALL_RECORDINGS_BUCKET).download(path)
+        if not data:
+            raise RuntimeError(f"empty recording {path}")
+        return data
+
     def signed_call_recording_url(self, path: str, expires_in: int = 3600) -> str:
         """Time-limited URL. Supabase Storage honours Range and returns 206,
         which HubSpot's player requires for seeking."""
