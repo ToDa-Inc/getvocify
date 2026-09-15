@@ -15,6 +15,8 @@ ConversationStateEnum = Literal[
     "waiting_add_fields",
     "waiting_crm_instruction",
     "waiting_deal_choice",
+    "waiting_retarget",
+    "waiting_typed_search",
 ]
 
 MessageDirection = Literal["inbound", "outbound"]

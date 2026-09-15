@@ -22,10 +22,21 @@ from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_
 from app.services.memo_approval import approve_memo_core
 from app.services.stt_batch import transcribe_bytes
 from app.services.storage import StorageService
+from app.services.preview_targets import resolve_preview_deal_selection
+from app.services.whatsapp.processor_actions import (
+    action_from_inbound,
+    copy_steps_from_extraction,
+    deal_options_from_search,
+    handle_retarget,
+    pick_id_from_choice,
+    preview_kwargs_for_pick,
+    prompt_typed_search,
+    send_action_card,
+)
 from app.services.whatsapp.webhook_parser import IncomingMessage
 from app.logging_config import log_domain, DOMAIN_WHATSAPP
 
-# Any client with send_text(to, text, **kwargs), send_interactive_buttons(to, body, buttons, **kwargs)
+# Any client with send_text / send_interactive_buttons / send_interactive_list.
 from typing import Any, Protocol
 
 
@@ -36,6 +47,10 @@ class MessagingClient(Protocol):
 
     async def send_interactive_buttons(
         self, to: str, body: str, buttons: list[dict], **kwargs: Any
+    ) -> None: ...
+
+    async def send_interactive_list(
+        self, to: str, body: str, button_text: str, sections: list[dict], **kwargs: Any
     ) -> None: ...
 
     async def download_media(self, msg: IncomingMessage) -> tuple[bytes, str]: ...
@@ -925,6 +940,8 @@ async def _build_preview_for_selection(
     selected_deal_id: Optional[str] = None,
     is_new_deal: bool = False,
     matched_deals: Optional[list[DealMatch]] = None,
+    skip_deal: bool = False,
+    preferred_contact_id: Optional[str] = None,
 ) -> tuple[Optional[ApprovalPreview], str, Optional[str], list[dict]]:
     try:
         (
@@ -952,7 +969,10 @@ async def _build_preview_for_selection(
         matches = await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id)
 
     identity = await provider.resolve_identity(
-        extraction, limit_deals=5, pipeline_id=pipeline_id
+        extraction,
+        limit_deals=5,
+        pipeline_id=pipeline_id,
+        preferred_contact_id=preferred_contact_id,
     )
     if identity is None:
         anchor = None
@@ -972,19 +992,28 @@ async def _build_preview_for_selection(
             merged.append(d)
         matches = merged[:5]
 
-    create_new = bool(is_new_deal)
-    if deal_id:
-        create_new = False
-    elif create_new:
-        pass
-    elif selected_contact and anchor and len(anchor.deal_matches) == 1:
-        deal_id = anchor.deal_matches[0].deal_id
-    elif selected_contact:
-        create_new = False
-    elif contact_candidates:
-        create_new = False
+    if skip_deal:
+        deal_id, create_new = resolve_preview_deal_selection(
+            deal_id=None,
+            create_new_deal=False,
+            has_selected_contact=selected_contact is not None,
+            has_contact_candidates=bool(contact_candidates),
+            skip_deal=True,
+        )
     else:
-        create_new = True
+        create_new = bool(is_new_deal)
+        if deal_id:
+            create_new = False
+        elif create_new:
+            pass
+        elif selected_contact and anchor and len(anchor.deal_matches) == 1:
+            deal_id = anchor.deal_matches[0].deal_id
+        elif selected_contact:
+            create_new = False
+        elif contact_candidates:
+            create_new = False
+        else:
+            create_new = True
 
     preview = await provider.build_preview(
         memo_id=UUID(str(memo_id)),
@@ -1034,7 +1063,10 @@ async def _send_preview_for_selection(
     extraction_data: Optional[dict] = None,
     matched_deals: Optional[list[DealMatch]] = None,
     selected_by_ai: bool = False,
+    skip_deal: bool = False,
+    contact_id: Optional[str] = None,
 ) -> None:
+    del selected_by_ai
     preview, crm_name, connection_id, option_rows = await _build_preview_for_selection(
         supabase,
         user_id,
@@ -1043,6 +1075,8 @@ async def _send_preview_for_selection(
         selected_deal_id=selected_deal_id,
         is_new_deal=is_new_deal,
         matched_deals=matched_deals,
+        skip_deal=skip_deal,
+        preferred_contact_id=contact_id,
     )
     if not preview:
         text = (
@@ -1060,31 +1094,38 @@ async def _send_preview_for_selection(
         await wa_client.send_text(msg.from_phone, text, **_client_kwargs(msg))
         return
 
+    if extraction_data is None and supabase is not None:
+        try:
+            extraction_data, _transcript = await _load_memo_extraction(supabase, memo_id, user_id)
+        except Exception:
+            extraction_data = None
+    next_steps, next_step_schedules = copy_steps_from_extraction(extraction_data)
+    contact = preview.selected_contact
     artifacts = {
         "crm_connected": True,
         "connection_id": connection_id,
         "crm_name": crm_name,
         "selected_deal_id": preview.selected_deal.deal_id if preview.selected_deal else selected_deal_id,
         "is_new_deal": bool(preview.is_new_deal),
-        "skip_deal": bool(preview.skip_deal),
-        "contact_id": preview.selected_contact.contact_id if preview.selected_contact else None,
-        "company_id": preview.selected_contact.company_id if preview.selected_contact else None,
+        "skip_deal": bool(skip_deal or preview.skip_deal),
+        "contact_id": contact.contact_id if contact else contact_id,
+        "company_id": contact.company_id if contact else None,
         "deal_options": option_rows,
     }
-    conv_svc.set_state(
-        conversation_id,
-        "waiting_approval",
-        pending_memo_id=memo_id,
-        pending_artifact_ids=artifacts,
+    if artifacts["skip_deal"]:
+        artifacts["selected_deal_id"] = None
+        artifacts["is_new_deal"] = False
+    await send_action_card(
+        wa_client=wa_client,
+        msg=msg,
+        preview=preview,
+        conv_svc=conv_svc,
+        conversation_id=conversation_id,
+        memo_id=memo_id,
+        artifacts=artifacts,
+        next_steps=next_steps,
+        next_step_schedules=next_step_schedules,
     )
-    text = _format_preview_message(preview, crm_name, selected_by_ai=selected_by_ai)
-    conv_svc.add_message(conversation_id, "outbound", text, "extraction_summary", {"memo_id": memo_id})
-    buttons = [
-        {"id": "1", "title": "Update CRM"},
-        {"id": "2", "title": "Choose deal"},
-        {"id": "3", "title": "Edit fields"},
-    ]
-    await wa_client.send_interactive_buttons(msg.from_phone, text, buttons, **_client_kwargs(msg))
 
 
 async def _approve_pending_memo(
@@ -1114,6 +1155,374 @@ async def _approve_pending_memo(
         await wa_client.send_text(msg.from_phone, done_msg, **_client_kwargs(msg))
     except ValueError as e:
         await wa_client.send_text(msg.from_phone, f"Could not update CRM: {e}", **_client_kwargs(msg))
+
+
+async def _reject_pending_memo(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    memo_id: str,
+) -> None:
+    supabase.table("memos").update({"status": "rejected"}).eq("id", memo_id).eq("user_id", user_id).execute()
+    conv_svc.set_state(conversation_id, "idle")
+    text = "Rejected. Send a new voice note when ready."
+    conv_svc.add_message(conversation_id, "outbound", text, "text")
+    await wa_client.send_text(msg.from_phone, text, **_client_kwargs(msg))
+
+
+async def _retarget_with_options(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    memo_id: str,
+    artifacts: Optional[dict] = None,
+    matches: Optional[list] = None,
+) -> None:
+    artifacts = dict(artifacts or {})
+    options = matches if matches is not None else artifacts.get("deal_options") or []
+    if not options:
+        extraction_data, _ = await _load_memo_extraction(supabase, memo_id, user_id)
+        extraction = MemoExtraction(**extraction_data)
+        found, _connection_id, _provider_name = await _find_candidate_deals(supabase, user_id, extraction)
+        options = [m.model_dump() for m in found]
+        artifacts["deal_options"] = options
+    await handle_retarget(
+        wa_client=wa_client,
+        msg=msg,
+        conv_svc=conv_svc,
+        conversation_id=conversation_id,
+        memo_id=memo_id,
+        artifacts=artifacts,
+        matches=options,
+    )
+
+
+async def _search_deals_for_retarget(supabase: Client, user_id: str, query: str) -> list[dict]:
+    try:
+        _provider, conn, config, *_rest = await _crm_context(supabase, user_id)
+    except AmbiguousPrimaryCRMError:
+        return []
+    if not conn or (conn.get("provider") or "").lower() != "hubspot":
+        return []
+    from app.services.hubspot.client import HubSpotClient
+    from app.services.hubspot.search import HubSpotSearchService
+
+    search = HubSpotSearchService(HubSpotClient(conn["access_token"]))
+    pipeline_id = config.default_pipeline_id if config else None
+    results = await search.search_deals_by_query(query, limit=10, pipeline_id=pipeline_id)
+    if not results and pipeline_id:
+        results = await search.search_deals_by_query(query, limit=10, pipeline_id=None)
+    return deal_options_from_search(results)
+
+
+async def _apply_preview_pick(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    memo_id: str,
+    artifacts: dict,
+    pick_kwargs: dict,
+) -> None:
+    matched = None
+    opts = (artifacts or {}).get("deal_options") or []
+    if pick_kwargs.get("selected_deal_id") and opts:
+        try:
+            matched = [DealMatch(**o) for o in opts]
+        except Exception:
+            matched = None
+    await _send_preview_for_selection(
+        supabase,
+        msg,
+        wa_client,
+        user_id,
+        conv_svc,
+        conversation_id,
+        memo_id,
+        selected_deal_id=pick_kwargs.get("selected_deal_id"),
+        is_new_deal=bool(pick_kwargs.get("is_new_deal", False)),
+        skip_deal=bool(pick_kwargs.get("skip_deal", False)),
+        contact_id=pick_kwargs.get("contact_id") or artifacts.get("contact_id"),
+        matched_deals=matched,
+    )
+
+
+async def _handle_waiting_retarget(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    state,
+) -> bool:
+    if not state.pending_memo_id:
+        return False
+    memo_id = str(state.pending_memo_id)
+    artifacts = state.pending_artifact_ids or {}
+    text = (msg.text or "").strip()
+    action = action_from_inbound(text)
+    if action == "type_name":
+        await prompt_typed_search(
+            wa_client=wa_client,
+            msg=msg,
+            conv_svc=conv_svc,
+            conversation_id=conversation_id,
+            memo_id=memo_id,
+            artifacts=artifacts,
+        )
+        return True
+    pick = preview_kwargs_for_pick(text)
+    if pick:
+        await _apply_preview_pick(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts, pick
+        )
+        return True
+    choice = _parse_deal_choice(text)
+    if choice is not None:
+        pick_id = pick_id_from_choice(choice, artifacts)
+        if pick_id:
+            if action_from_inbound(pick_id) == "type_name":
+                await prompt_typed_search(
+                    wa_client=wa_client,
+                    msg=msg,
+                    conv_svc=conv_svc,
+                    conversation_id=conversation_id,
+                    memo_id=memo_id,
+                    artifacts=artifacts,
+                )
+                return True
+            mapped = preview_kwargs_for_pick(pick_id)
+            if mapped:
+                await _apply_preview_pick(
+                    supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts, mapped
+                )
+                return True
+    await wa_client.send_text(msg.from_phone, "Elige un deal de la lista.", **_client_kwargs(msg))
+    return True
+
+
+async def _handle_waiting_typed_search(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    state,
+) -> bool:
+    if not state.pending_memo_id:
+        return False
+    query = (msg.text or "").strip()
+    if not query:
+        await wa_client.send_text(msg.from_phone, "Escribe el nombre del deal", **_client_kwargs(msg))
+        return True
+    options = await _search_deals_for_retarget(supabase, user_id, query)
+    artifacts = {**(state.pending_artifact_ids or {}), "deal_options": options}
+    await handle_retarget(
+        wa_client=wa_client,
+        msg=msg,
+        conv_svc=conv_svc,
+        conversation_id=conversation_id,
+        memo_id=str(state.pending_memo_id),
+        artifacts=artifacts,
+        matches=options,
+    )
+    return True
+
+
+async def _handle_waiting_approval(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    state,
+    intent_svc: IntentService,
+) -> bool:
+    if not state.pending_memo_id:
+        return False
+    memo_id = str(state.pending_memo_id)
+    artifacts = state.pending_artifact_ids or {}
+    text = (msg.text or "").strip()
+    action = action_from_inbound(text)
+
+    if action == "approve":
+        await _approve_pending_memo(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    if action == "keep":
+        await _reject_pending_memo(supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id)
+        return True
+    if action == "retarget":
+        await _retarget_with_options(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    if action == "type_name":
+        await prompt_typed_search(
+            wa_client=wa_client,
+            msg=msg,
+            conv_svc=conv_svc,
+            conversation_id=conversation_id,
+            memo_id=memo_id,
+            artifacts=artifacts,
+        )
+        return True
+    pick = preview_kwargs_for_pick(text)
+    if pick:
+        await _apply_preview_pick(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts, pick
+        )
+        return True
+
+    norm = _normalize(text)
+    choice = _parse_deal_choice(text)
+    if choice == 1 or norm in APPROVE_PATTERNS:
+        await _approve_pending_memo(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    if choice == 2:
+        extraction_data, _ = await _load_memo_extraction(supabase, memo_id, user_id)
+        extraction = MemoExtraction(**extraction_data)
+        matches, _connection_id, _provider_name = await _find_candidate_deals(supabase, user_id, extraction)
+        if not matches:
+            await wa_client.send_text(
+                msg.from_phone,
+                "I did not find matching deals. Reply *1* to create a new deal, or *3* to edit fields.",
+                **_client_kwargs(msg),
+            )
+            return True
+        numbered = _format_deal_choices(matches, extraction)
+        conv_svc.set_state(
+            conversation_id,
+            "waiting_deal_choice",
+            pending_memo_id=memo_id,
+            pending_artifact_ids={
+                "deal_options": [m.model_dump() for m in matches],
+                "new_deal_index": len(matches) + 1,
+            },
+        )
+        conv_svc.add_message(conversation_id, "outbound", numbered, "text", {"memo_id": memo_id})
+        await wa_client.send_text(msg.from_phone, numbered, **_client_kwargs(msg))
+        return True
+    if choice == 3 or norm in ADD_PATTERNS:
+        conv_svc.set_state(conversation_id, "waiting_add_fields", pending_memo_id=memo_id)
+        help_text = "Send the corrections as field/value lines:\namount: 50000\nclose date: 2026-06-15\nnext step: send proposal Friday"
+        conv_svc.add_message(conversation_id, "outbound", help_text, "text")
+        await wa_client.send_text(msg.from_phone, help_text, **_client_kwargs(msg))
+        return True
+    if norm in REJECT_PATTERNS or norm in {"choose", "choose deal", "change deal", "another deal", "select deal"}:
+        if norm in REJECT_PATTERNS:
+            await _reject_pending_memo(supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id)
+            return True
+        await _retarget_with_options(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+
+    edits = _parse_field_edits(text)
+    if edits:
+        if await _handle_waiting_add_fields(supabase, msg, wa_client, user_id, conv_svc, conversation_id, state):
+            return True
+
+    resolved = await intent_svc.resolve(
+        text=text,
+        state=state.state,
+        pending_memo_id=memo_id,
+        messages=conv_svc.get_last_messages(conversation_id, 10),
+    )
+    if resolved.intent == "approve":
+        await _approve_pending_memo(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    if resolved.intent == "keep":
+        await _reject_pending_memo(supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id)
+        return True
+    if resolved.intent == "change_deal":
+        await _retarget_with_options(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    if resolved.intent == "skip_deal":
+        await _apply_preview_pick(
+            supabase,
+            msg,
+            wa_client,
+            user_id,
+            conv_svc,
+            conversation_id,
+            memo_id,
+            artifacts,
+            {"skip_deal": True, "selected_deal_id": None, "is_new_deal": False},
+        )
+        return True
+    if resolved.intent == "search_deal":
+        query = (resolved.params or {}).get("q")
+        if query:
+            options = await _search_deals_for_retarget(supabase, user_id, query)
+            artifacts = {**artifacts, "deal_options": options}
+            await handle_retarget(
+                wa_client=wa_client,
+                msg=msg,
+                conv_svc=conv_svc,
+                conversation_id=conversation_id,
+                memo_id=memo_id,
+                artifacts=artifacts,
+                matches=options,
+            )
+        else:
+            await prompt_typed_search(
+                wa_client=wa_client,
+                msg=msg,
+                conv_svc=conv_svc,
+                conversation_id=conversation_id,
+                memo_id=memo_id,
+                artifacts=artifacts,
+            )
+        return True
+    if resolved.intent == "add_fields" and resolved.memo_id:
+        await _handle_intent_reply(supabase, msg, wa_client, user_id, conv_svc, conversation_id, resolved)
+        return True
+    if resolved.intent == "crm_update":
+        param_edits = _field_edits_from_params(resolved.params)
+        if param_edits:
+            extraction_data, _transcript = await _load_memo_extraction(supabase, memo_id, user_id)
+            field_specs = await get_field_specs(supabase, user_id)
+            updated = _apply_field_edits(extraction_data, param_edits, field_specs)
+            supabase.table("memos").update({"extraction": updated}).eq("id", memo_id).eq("user_id", user_id).execute()
+            await _send_preview_for_selection(
+                supabase,
+                msg,
+                wa_client,
+                user_id,
+                conv_svc,
+                conversation_id,
+                memo_id,
+                selected_deal_id=artifacts.get("selected_deal_id"),
+                is_new_deal=bool(artifacts.get("is_new_deal", False)),
+                skip_deal=bool(artifacts.get("skip_deal", False)),
+                extraction_data=updated,
+            )
+            return True
+    await wa_client.send_text(
+        msg.from_phone,
+        "I did not understand that. Reply *1* to update CRM, *2* to choose another deal, or *3* to edit fields.",
+        **_client_kwargs(msg),
+    )
+    return True
 
 
 async def _handle_deal_choice(
@@ -1211,6 +1620,7 @@ async def _handle_waiting_add_fields(
         str(state.pending_memo_id),
         selected_deal_id=artifacts.get("selected_deal_id"),
         is_new_deal=bool(artifacts.get("is_new_deal", False)),
+        skip_deal=bool(artifacts.get("skip_deal", False)),
         extraction_data=updated,
     )
     return True
@@ -1297,98 +1707,23 @@ async def process_whatsapp_message(
             if await _handle_deal_choice(supabase, msg, wa_client, user_id, conv_svc, conv.id, state):
                 return
 
+        if state.state == "waiting_retarget":
+            if await _handle_waiting_retarget(supabase, msg, wa_client, user_id, conv_svc, conv.id, state):
+                return
+
+        if state.state == "waiting_typed_search":
+            if await _handle_waiting_typed_search(supabase, msg, wa_client, user_id, conv_svc, conv.id, state):
+                return
+
         if state.state == "waiting_add_fields":
             if await _handle_waiting_add_fields(supabase, msg, wa_client, user_id, conv_svc, conv.id, state):
                 return
 
         if state.state == "waiting_approval" and state.pending_memo_id:
-            norm = _normalize(msg.text or "")
-            artifacts = state.pending_artifact_ids or {}
-            choice = _parse_deal_choice(msg.text or "")
-            if choice == 1 or norm in APPROVE_PATTERNS:
-                await _approve_pending_memo(
-                    supabase, msg, wa_client, user_id, conv_svc, conv.id,
-                    str(state.pending_memo_id), artifacts,
-                )
+            if await _handle_waiting_approval(
+                supabase, msg, wa_client, user_id, conv_svc, conv.id, state, intent_svc
+            ):
                 return
-            if choice == 2 or norm in {"choose", "choose deal", "change deal", "another deal", "select deal"}:
-                extraction_data, _ = await _load_memo_extraction(supabase, str(state.pending_memo_id), user_id)
-                extraction = MemoExtraction(**extraction_data)
-                matches, _connection_id, _provider_name = await _find_candidate_deals(supabase, user_id, extraction)
-                if not matches:
-                    await wa_client.send_text(msg.from_phone, "I did not find matching deals. Reply *1* to create a new deal, or *3* to edit fields.", **_client_kwargs(msg))
-                    return
-                text = _format_deal_choices(matches, extraction)
-                conv_svc.set_state(
-                    conv.id,
-                    "waiting_deal_choice",
-                    pending_memo_id=str(state.pending_memo_id),
-                    pending_artifact_ids={
-                        "deal_options": [m.model_dump() for m in matches],
-                        "new_deal_index": len(matches) + 1,
-                    },
-                )
-                conv_svc.add_message(conv.id, "outbound", text, "text", {"memo_id": str(state.pending_memo_id)})
-                await wa_client.send_text(msg.from_phone, text, **_client_kwargs(msg))
-                return
-            if choice == 3 or norm in ADD_PATTERNS:
-                conv_svc.set_state(conv.id, "waiting_add_fields", pending_memo_id=str(state.pending_memo_id))
-                text = "Send the corrections as field/value lines:\namount: 50000\nclose date: 2026-06-15\nnext step: send proposal Friday"
-                conv_svc.add_message(conv.id, "outbound", text, "text")
-                await wa_client.send_text(msg.from_phone, text, **_client_kwargs(msg))
-                return
-            if norm in REJECT_PATTERNS:
-                supabase.table("memos").update({"status": "rejected"}).eq("id", str(state.pending_memo_id)).eq("user_id", user_id).execute()
-                conv_svc.set_state(conv.id, "idle")
-                await wa_client.send_text(msg.from_phone, "Rejected. Send a new voice note when ready.", **_client_kwargs(msg))
-                return
-
-            edits = _parse_field_edits(msg.text or "")
-            if edits:
-                if await _handle_waiting_add_fields(supabase, msg, wa_client, user_id, conv_svc, conv.id, state):
-                    return
-
-            resolved = await intent_svc.resolve(
-                text=(msg.text or "").strip(),
-                state=state.state,
-                pending_memo_id=str(state.pending_memo_id),
-                messages=conv_svc.get_last_messages(conv.id, 10),
-            )
-            if resolved.intent in ("approve", "add_fields", "reject") and resolved.memo_id:
-                if resolved.intent == "approve":
-                    await _approve_pending_memo(
-                        supabase, msg, wa_client, user_id, conv_svc, conv.id,
-                        str(state.pending_memo_id), artifacts,
-                    )
-                else:
-                    await _handle_intent_reply(supabase, msg, wa_client, user_id, conv_svc, conv.id, resolved)
-                return
-            if resolved.intent == "crm_update":
-                param_edits = _field_edits_from_params(resolved.params)
-                if param_edits:
-                    extraction_data, _transcript = await _load_memo_extraction(supabase, str(state.pending_memo_id), user_id)
-                    field_specs = await get_field_specs(supabase, user_id)
-                    updated = _apply_field_edits(extraction_data, param_edits, field_specs)
-                    supabase.table("memos").update({"extraction": updated}).eq("id", str(state.pending_memo_id)).eq("user_id", user_id).execute()
-                    await _send_preview_for_selection(
-                        supabase,
-                        msg,
-                        wa_client,
-                        user_id,
-                        conv_svc,
-                        conv.id,
-                        str(state.pending_memo_id),
-                        selected_deal_id=artifacts.get("selected_deal_id"),
-                        is_new_deal=bool(artifacts.get("is_new_deal", False)),
-                        extraction_data=updated,
-                    )
-                    return
-            await wa_client.send_text(
-                msg.from_phone,
-                "I did not understand that. Reply *1* to update CRM, *2* to choose another deal, or *3* to edit fields.",
-                **_client_kwargs(msg),
-            )
-            return
 
         norm = _normalize(msg.text or "")
         if norm in APPROVE_PATTERNS or norm in ADD_PATTERNS or norm in REJECT_PATTERNS:
