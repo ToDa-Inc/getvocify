@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from typing import Any
+
+_WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 IDENTITY_NOISE = frozenset(
     {
@@ -131,22 +135,116 @@ def _group_updates(updates: list[Any], skip_deal: bool) -> list[tuple[str, list[
     ]
 
 
-def _format_tasks(next_steps: list[str] | None) -> str:
-    steps = [_norm(step) for step in (next_steps or []) if _norm(step)]
-    if not steps:
+def _iso_date_or_null(value: Any) -> str | None:
+    raw = _norm(value)
+    if re.match(r"^\d{4}-\d{2}-\d{2}", raw):
+        return raw[:10]
+    return None
+
+
+def format_task_due_label(iso_date: Any, today: str | None = None) -> str:
+    """Port of chrome-extension/lib/review-insights.js formatTaskDueLabel."""
+    day = _iso_date_or_null(iso_date)
+    if not day:
         return ""
-    lines = "\n".join(f"· {step}" for step in steps)
-    return f"Tareas\n{lines}"
+    today_iso = _iso_date_or_null(today)
+    if today_iso and day == today_iso:
+        return "Hoy"
+    try:
+        parsed = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return ""
+    return f"{_WEEKDAY_LABELS[parsed.weekday()]} {parsed.day}"
+
+
+def task_rows_from_preview(
+    proposed_updates: list[Any] | None = None,
+    next_steps: list[str] | None = None,
+    next_step_schedules: list[str] | None = None,
+    due_dates_by_index: list[str] | None = None,
+) -> list[dict[str, str | None]]:
+    """Port of chrome-extension/lib/review-insights.js taskRowsFromPreview."""
+    preview_tasks = [
+        update
+        for update in (proposed_updates or [])
+        if _field_name(update).startswith("next_step_task_")
+    ]
+
+    def due_for_index(index: int) -> str | None:
+        candidates: list[Any] = []
+        if due_dates_by_index and index < len(due_dates_by_index):
+            candidates.append(due_dates_by_index[index])
+        if index < len(preview_tasks):
+            candidates.append(_get(preview_tasks[index], "due_date"))
+        if next_step_schedules and index < len(next_step_schedules):
+            candidates.append(next_step_schedules[index])
+        for candidate in candidates:
+            due = _iso_date_or_null(candidate)
+            if due:
+                return due
+        return None
+
+    steps = [_norm(step) for step in (next_steps or []) if _norm(step)]
+    if steps:
+        rows: list[dict[str, str | None]] = []
+        for index, step in enumerate(steps):
+            task_text = ""
+            if index < len(preview_tasks):
+                task_text = _norm(_get(preview_tasks[index], "new_value"))
+            rows.append({"text": task_text or step, "due_date": due_for_index(index)})
+        return rows
+
+    return [
+        {
+            "text": _norm(_get(update, "new_value")),
+            "due_date": due_for_index(index),
+        }
+        for index, update in enumerate(preview_tasks)
+        if _norm(_get(update, "new_value"))
+    ]
+
+
+def _format_tasks(
+    task_rows: list[dict[str, str | None]],
+    today: str | None = None,
+) -> str:
+    if not task_rows:
+        return ""
+    lines: list[str] = []
+    for row in task_rows:
+        text = _norm(row.get("text"))
+        if not text:
+            continue
+        due_label = format_task_due_label(row.get("due_date"), today=today)
+        if due_label:
+            lines.append(f"· {text} · {due_label}")
+        else:
+            lines.append(f"· {text}")
+    if not lines:
+        return ""
+    return f"Tareas\n" + "\n".join(lines)
 
 
 def _count_label(count: int, singular: str, plural: str) -> str:
     return singular if count == 1 else plural
 
 
-def briefing_text(preview: Any, next_steps: list[str] | None = None) -> str:
+def briefing_text(
+    preview: Any,
+    next_steps: list[str] | None = None,
+    next_step_schedules: list[str] | None = None,
+    due_dates_by_index: list[str] | None = None,
+    today: str | None = None,
+) -> str:
     parts = [_target_line(preview)]
 
-    tasks = _format_tasks(next_steps)
+    task_rows = task_rows_from_preview(
+        proposed_updates=_get(preview, "proposed_updates") or [],
+        next_steps=next_steps,
+        next_step_schedules=next_step_schedules,
+        due_dates_by_index=due_dates_by_index,
+    )
+    tasks = _format_tasks(task_rows, today=today)
     if tasks:
         parts.append(tasks)
 
