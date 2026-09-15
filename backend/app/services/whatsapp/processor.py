@@ -1816,37 +1816,6 @@ async def process_whatsapp_message(
         await wa_client.send_text(msg.from_phone, fallback, **_client_kwargs(msg))
         return
 
-    top_match = _high_confidence_match(matches)
-    if top_match:
-        await _send_preview_for_selection(
-            supabase,
-            msg,
-            wa_client,
-            user_id,
-            conv_svc,
-            conv.id,
-            memo_id,
-            selected_deal_id=top_match.deal_id,
-            matched_deals=matches,
-            selected_by_ai=True,
-        )
-        return
-
-    if matches:
-        choice_msg = _format_deal_choices(matches, extraction)
-        conv_svc.set_state(
-            conv.id,
-            "waiting_deal_choice",
-            pending_memo_id=memo_id,
-            pending_artifact_ids={
-                "deal_options": [m.model_dump() for m in matches],
-                "new_deal_index": len(matches) + 1,
-            },
-        )
-        conv_svc.add_message(conv.id, "outbound", choice_msg, "extraction_summary", {"memo_id": memo_id})
-        await wa_client.send_text(msg.from_phone, choice_msg, **_client_kwargs(msg))
-        return
-
     await _send_preview_for_selection(
         supabase,
         msg,
@@ -1855,7 +1824,8 @@ async def process_whatsapp_message(
         conv_svc,
         conv.id,
         memo_id,
-        is_new_deal=True,
+        skip_deal=True,
+        matched_deals=matches,
     )
 
 
