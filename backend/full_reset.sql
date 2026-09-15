@@ -390,7 +390,9 @@ CREATE TABLE conversations (
       'waiting_approval',
       'waiting_add_fields',
       'waiting_crm_instruction',
-      'waiting_deal_choice'
+      'waiting_deal_choice',
+      'waiting_retarget',
+      'waiting_typed_search'
     )
   ),
   pending_memo_id UUID REFERENCES memos(id) ON DELETE SET NULL,

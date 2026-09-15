@@ -1389,15 +1389,14 @@ async def _handle_waiting_approval(
         return True
 
     norm = _normalize(text)
-    choice = _parse_deal_choice(text)
-    if choice == 1 or norm in APPROVE_PATTERNS:
-        await _approve_pending_memo(
-            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
-        )
-        return True
-    action_id = choice_to_action(choice) if choice else None
-    if action_id:
-        mapped = action_from_inbound(action_id)
+    if re.fullmatch(r"[123]", text.strip()):
+        action_id = choice_to_action(int(text.strip()))
+        mapped = action_from_inbound(action_id) if action_id else None
+        if mapped == "approve":
+            await _approve_pending_memo(
+                supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+            )
+            return True
         if mapped == "keep":
             await _reject_pending_memo(supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id)
             return True
@@ -1406,6 +1405,11 @@ async def _handle_waiting_approval(
                 supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
             )
             return True
+    if norm in APPROVE_PATTERNS:
+        await _approve_pending_memo(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
     if norm in ADD_PATTERNS:
         conv_svc.set_state(conversation_id, "waiting_add_fields", pending_memo_id=memo_id)
         help_text = "Send the corrections as field/value lines:\namount: 50000\nclose date: 2026-06-15\nnext step: send proposal Friday"

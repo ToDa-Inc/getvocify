@@ -17,7 +17,7 @@ APPROVE_PATTERNS = frozenset({
     "confirm", "confirmed", "do it", "do it.", "proceed", "correcto", "correct",
 })
 ADD_PATTERNS = frozenset({
-    "2", "add", "edit", "add fields", "edit fields", "añadir", "editar",
+    "add", "edit", "add fields", "edit fields", "añadir", "editar",
     "change", "modify", "add field", "edit field",
 })
 REJECT_PATTERNS = frozenset({
@@ -42,7 +42,7 @@ _SEARCH_DEAL_REMAINDER = re.compile(r"\b(?:deal|oportunidad)\s+(.+)$")
 class ResolvedIntent:
     """Parsed intent from user message."""
 
-    intent: str  # approve | keep | add_fields | skip_deal | change_deal | search_deal | unclear
+    intent: str  # approve | keep | add_fields | skip_deal | change_deal | search_deal | crm_update | unclear
     memo_id: Optional[str] = None
     params: Optional[dict] = None  # For crm_update: property, value, etc.
     confidence: float = 1.0
@@ -193,14 +193,15 @@ class IntentService:
                 f"{m.get('direction', '?')}: {m.get('content', '')[:100]}" for m in messages[-10:]
             )
             system = """You analyze WhatsApp replies in a voice-memo-to-CRM workflow.
-The user received an extraction summary and can approve, keep CRM as-is, add/edit fields, skip or change the deal, or search for a deal by name.
-Reply with JSON only: {"intent": "approve"|"keep"|"add_fields"|"skip_deal"|"change_deal"|"search_deal"|"unclear", "memo_id": "uuid or null", "params": {}, "confidence": 0.0-1.0}
+The user received an extraction summary and can approve, keep CRM as-is, add/edit fields, apply a field update, skip or change the deal, or search for a deal by name.
+Reply with JSON only: {"intent": "approve"|"keep"|"add_fields"|"skip_deal"|"change_deal"|"search_deal"|"crm_update"|"unclear", "memo_id": "uuid or null", "params": {}, "confidence": 0.0-1.0}
 - approve: user wants to approve the extraction and push to CRM
-- keep: user wants to keep CRM as-is (no update), same as "no actualizar"
+- keep: user wants to keep CRM as-is (no update), same as "no actualizar"; this is the reject synonym
 - add_fields: user wants to add or edit fields before approving
 - skip_deal: user wants contact-only preview without a deal
 - change_deal: user wants to pick a different deal
 - search_deal: user names a deal to search for; put the query in params.q
+- crm_update: free-text field edit (e.g. "pon el amount a 50k"); set params to {"property": "<field>", "value": "<new>"} or {field: value}
 - unclear: cannot determine intent
 Current state: """ + (state or "idle")
             if pending_memo_id:

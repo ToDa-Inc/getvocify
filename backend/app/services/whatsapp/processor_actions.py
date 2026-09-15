@@ -157,28 +157,32 @@ async def send_action_card(
     candidates = preview.contact_candidates or []
     if candidates and not preview.selected_contact:
         rows = _contact_list_rows(candidates)
+        sections = [{"title": "Contacto", "rows": rows}]
+        pick_ids = [row["id"] for row in rows]
+        next_artifacts = {**(artifacts or {}), "retarget_picks": pick_ids}
         conv_svc.set_state(
             conversation_id,
             "waiting_retarget",
             pending_memo_id=memo_id,
-            pending_artifact_ids=artifacts,
+            pending_artifact_ids=next_artifacts,
         )
         conv_svc.add_message(
             conversation_id, "outbound", CONTACT_PROMPT, "text", {"memo_id": memo_id}
         )
-        if rows:
+        send_list = getattr(wa_client, "send_interactive_list", None)
+        if send_list is not None:
             try:
-                await wa_client.send_interactive_list(
+                await send_list(
                     msg.from_phone,
                     CONTACT_PROMPT,
                     "Contactos",
-                    [{"title": "Contacto", "rows": rows}],
+                    sections,
                     **kw,
                 )
                 return
             except Exception:
                 pass
-        await wa_client.send_text(msg.from_phone, CONTACT_PROMPT, **kw)
+        await wa_client.send_text(msg.from_phone, numbered_retarget_text(sections), **kw)
         return
 
     briefing = briefing_text(
