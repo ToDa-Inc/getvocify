@@ -13,7 +13,7 @@ import {
   type ReactNode 
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getTokenExpiryMs } from '@/lib/auth-session';
+import { getTokenExpiryMs, isAccessTokenFresh } from '@/lib/auth-session';
 import { api, ApiError } from '@/shared/lib/api-client';
 import { authApi, authKeys } from './api';
 import type { 
@@ -88,7 +88,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const { data: user, isLoading, refetch } = useQuery({
     queryKey: authKeys.me(),
-    queryFn: authApi.me,
+    queryFn: async () => {
+      const token = getStoredToken();
+      if (token && !isAccessTokenFresh(token)) {
+        await api.refreshSession();
+      }
+      return authApi.me();
+    },
     retry: (failureCount, error) => {
       if (error instanceof ApiError && error.status === 401) return false;
       return failureCount < 2;

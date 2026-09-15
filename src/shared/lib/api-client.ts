@@ -17,6 +17,25 @@ import {
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
 const REFRESH_KEY = 'vocify_refresh';
 const REFRESH_LOCK = 'vocify-auth-refresh';
+const REQUEST_TIMEOUT_MS = 20_000;
+
+function requestSignal(existing?: AbortSignal | null): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  if (existing && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([existing, timeout]);
+  }
+  return timeout;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    ((error as { name: string }).name === 'AbortError' ||
+      (error as { name: string }).name === 'TimeoutError')
+  );
+}
 
 function shouldAttemptRefreshForEndpoint(endpoint: string): boolean {
   if (endpoint.startsWith("/admin")) return false;
@@ -181,6 +200,7 @@ class ApiClient {
         const res = await fetch(`${API_BASE}/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: requestSignal(),
           body: JSON.stringify({
             refresh_token: refreshToken,
             ...(current ? { access_token: current } : {}),
@@ -233,13 +253,26 @@ class ApiClient {
     const url = `${API_BASE}${endpoint}`;
     const token = this.getAuthToken();
 
+    const { signal: userSignal, ...rest } = options;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers,
+      ...rest.headers,
     };
 
-    const response = await fetch(url, { ...options, headers });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...rest,
+        headers,
+        signal: requestSignal(userSignal),
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw new ApiError(0, { detail: 'Request timed out' }, 'Request timed out');
+      }
+      throw error;
+    }
 
     if (
       response.status === 401 &&

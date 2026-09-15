@@ -154,13 +154,20 @@ async function request(endpoint, options = {}) {
     );
   }
 
+  const { signal: userSignal, ...rest } = options;
   const headers = {
     'Content-Type': 'application/json',
     ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
-    ...options.headers,
+    ...rest.headers,
   };
 
-  let response = await fetch(url, { ...options, headers });
+  const timeout = AbortSignal.timeout(20_000);
+  const signal =
+    userSignal && typeof AbortSignal.any === 'function'
+      ? AbortSignal.any([userSignal, timeout])
+      : timeout;
+
+  let response = await fetch(url, { ...rest, headers, signal });
 
   // Retry with a new Vocify JWT only when THIS request failed auth — not when
   // HubSpot/Salesforce OAuth needs a reconnect (those used to 401 and log us out).
