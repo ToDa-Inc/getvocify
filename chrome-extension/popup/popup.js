@@ -4038,11 +4038,14 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
   }
 });
 
-document.getElementById('logout-button')?.addEventListener('click', async () => {
+async function signOutOfVocify() {
   enterLoggedOut();
   await api.clearTokens();
   chrome.runtime.sendMessage({ type: 'LOGOUT' }).catch(() => {});
-});
+}
+
+document.getElementById('logout-button')?.addEventListener('click', signOutOfVocify);
+document.getElementById('loading-error-logout')?.addEventListener('click', signOutOfVocify);
 
 // ============================================
 // INIT

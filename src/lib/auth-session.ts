@@ -7,6 +7,24 @@ export function shouldClearAuthOnRefreshStatus(status: number): boolean {
   return status === 401;
 }
 
+/** /auth/me 404 = JWT ok, no Vocify profile. 401 = session dead. */
+export function shouldClearAuthOnMeStatus(status: number): boolean {
+  return status === 401 || status === 404;
+}
+
+export type SessionGateView = "loading" | "login" | "restore-failed" | "ok";
+
+export function sessionGateView(args: {
+  isLoading: boolean;
+  hasStoredSession: boolean;
+  isAuthenticated: boolean;
+}): SessionGateView {
+  if (args.isLoading) return "loading";
+  if (!args.hasStoredSession) return "login";
+  if (!args.isAuthenticated) return "restore-failed";
+  return "ok";
+}
+
 export function getTokenExpiryMs(token: string): number | null {
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));

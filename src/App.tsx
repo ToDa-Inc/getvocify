@@ -43,6 +43,7 @@ import { AuthProvider, useAuth } from "@/features/auth";
 import { Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { isLandingDomain, isLandingPath, APP_URL } from "@/lib/app-url";
+import { sessionGateView } from "@/lib/auth-session";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 
 /** Redirects getvocify.com/login, /dashboard, etc. → app.getvocify.com */
@@ -67,9 +68,10 @@ const LandingDomainRedirect = () => {
 };
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isLoading, hasStoredSession, restoreSession } = useAuth();
-  
-  if (isLoading) {
+  const { isAuthenticated, isLoading, hasStoredSession, restoreSession, logout } = useAuth();
+  const gate = sessionGateView({ isLoading, hasStoredSession, isAuthenticated });
+
+  if (gate === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-cream">
         <VocifyLoader size="md" />
@@ -77,11 +79,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  if (!hasStoredSession) {
+  if (gate === "login") {
     return <Navigate to="/login" replace />;
   }
 
-  if (!isAuthenticated) {
+  if (gate === "restore-failed") {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-cream px-6">
         <VocifyLoader size="md" label="Restoring your session" />
@@ -91,6 +93,17 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
           onClick={() => restoreSession()}
         >
           Try again
+        </button>
+        <button
+          type="button"
+          data-testid="session-sign-out"
+          className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:underline"
+          onClick={async () => {
+            await logout();
+            window.location.replace("/login");
+          }}
+        >
+          Sign out
         </button>
       </div>
     );
@@ -165,6 +178,7 @@ const App = () => (
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />
               <Route path="usage" element={<Navigate to="/dashboard/settings/usage" replace />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

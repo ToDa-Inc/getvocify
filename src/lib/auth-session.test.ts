@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   createRefreshGate,
   isAccessTokenFresh,
+  sessionGateView,
+  shouldClearAuthOnMeStatus,
   shouldClearAuthOnRefreshStatus,
 } from "./auth-session.ts";
 
@@ -18,6 +20,24 @@ describe("shouldClearAuthOnRefreshStatus", () => {
     assert.equal(shouldClearAuthOnRefreshStatus(429), false);
     assert.equal(shouldClearAuthOnRefreshStatus(500), false);
     assert.equal(shouldClearAuthOnRefreshStatus(0), false);
+  });
+});
+
+describe("shouldClearAuthOnMeStatus", () => {
+  it("clears a stored session when /auth/me says the user is gone", () => {
+    assert.equal(shouldClearAuthOnMeStatus(401), true);
+    assert.equal(shouldClearAuthOnMeStatus(404), true);
+    assert.equal(shouldClearAuthOnMeStatus(503), false);
+    assert.equal(shouldClearAuthOnMeStatus(500), false);
+  });
+});
+
+describe("sessionGateView", () => {
+  it("keeps a broken stored session on an escape screen, not a spinner loop", () => {
+    assert.equal(sessionGateView({ isLoading: true, hasStoredSession: true, isAuthenticated: false }), "loading");
+    assert.equal(sessionGateView({ isLoading: false, hasStoredSession: false, isAuthenticated: false }), "login");
+    assert.equal(sessionGateView({ isLoading: false, hasStoredSession: true, isAuthenticated: false }), "restore-failed");
+    assert.equal(sessionGateView({ isLoading: false, hasStoredSession: true, isAuthenticated: true }), "ok");
   });
 });
 

@@ -38,6 +38,17 @@ describe('isAuthFailure', () => {
     assert.equal(isAuthFailure({ status: 500, message: 'Server error' }), false);
   });
 
+  it('treats a missing Vocify profile as signed out', () => {
+    assert.equal(isAuthFailure({
+      status: 404,
+      data: { detail: 'User profile not found' },
+    }), true);
+    assert.equal(screenForInitFailure({
+      status: 404,
+      data: { detail: 'User profile not found' },
+    }, { hasToken: true }), 'login');
+  });
+
   it('does not treat HubSpot reconnect as a Vocify logout', () => {
     const hubspot401 = {
       status: 401,

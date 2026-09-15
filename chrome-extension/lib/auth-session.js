@@ -32,6 +32,7 @@ export function isAuthFailure(error) {
   const status = Number(error.status);
   const text = errorText(error);
   if (status === 401) return true;
+  if (status === 404 && /user profile not found/i.test(text)) return true;
   return /session expired|unauthorized|missing authorization|not signed in|please sign in/i.test(text);
 }
 

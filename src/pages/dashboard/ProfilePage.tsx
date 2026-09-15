@@ -276,7 +276,7 @@ const ProfilePage = () => {
           className="w-full rounded-full px-8 h-12 border-border/40 text-muted-foreground hover:text-destructive hover:border-destructive/30 hover:bg-destructive/5 transition-colors"
           onClick={async () => {
             await logout();
-            navigate("/");
+            navigate("/login", { replace: true });
           }}
         >
           <LogOut className="h-4 w-4 mr-2" />

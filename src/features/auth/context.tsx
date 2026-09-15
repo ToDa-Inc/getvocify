@@ -13,7 +13,7 @@ import {
   type ReactNode 
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getTokenExpiryMs, isAccessTokenFresh } from '@/lib/auth-session';
+import { getTokenExpiryMs, isAccessTokenFresh, shouldClearAuthOnMeStatus } from '@/lib/auth-session';
 import { api, ApiError } from '@/shared/lib/api-client';
 import { authApi, authKeys } from './api';
 import type { 
@@ -93,10 +93,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (token && !isAccessTokenFresh(token)) {
         await api.refreshSession();
       }
-      return authApi.me();
+      try {
+        return await authApi.me();
+      } catch (error) {
+        if (error instanceof ApiError && shouldClearAuthOnMeStatus(error.status)) {
+          setHasStoredSession(false);
+          api.clearAllAuth();
+        }
+        throw error;
+      }
     },
     retry: (failureCount, error) => {
-      if (error instanceof ApiError && error.status === 401) return false;
+      if (error instanceof ApiError && shouldClearAuthOnMeStatus(error.status)) return false;
       return failureCount < 2;
     },
     staleTime: Infinity,

@@ -35,7 +35,7 @@ const DashboardLayout = () => {
   const [dialerOpen, setDialerOpen] = useState(false);
   const [callState, setCallState] = useState<CallState>(CALL_STATES.IDLE);
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const impersonating = !!getImpersonation();
   const dialerLive = isInCall(callState);
   const dialerActive = dialerOpen || dialerLive;
@@ -182,6 +182,18 @@ const DashboardLayout = () => {
                 {user?.companyName || "Vocify"}
               </p>
             </div>
+
+            <button
+              type="button"
+              data-testid="session-sign-out"
+              className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
+              onClick={async () => {
+                await logout();
+                window.location.replace("/login");
+              }}
+            >
+              Log out
+            </button>
 
             <Link
               to={impersonating ? "#" : "/dashboard/profile"}

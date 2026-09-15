@@ -12,7 +12,7 @@ const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, hasStoredSession, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -96,6 +96,19 @@ const LoginPage = () => {
                 Sign Up
               </Link>
             </p>
+            {hasStoredSession ? (
+              <button
+                type="button"
+                data-testid="session-sign-out"
+                className="mt-4 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:underline"
+                onClick={async () => {
+                  await logout();
+                  window.location.replace("/login");
+                }}
+              >
+                Sign out of saved session
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
