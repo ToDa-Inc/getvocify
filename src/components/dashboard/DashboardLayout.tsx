@@ -10,8 +10,10 @@ import {
   X,
   Headphones,
   Phone,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import Logo from "@/components/Logo";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
@@ -183,17 +185,17 @@ const DashboardLayout = () => {
               </p>
             </div>
 
-            <button
-              type="button"
-              data-testid="session-sign-out"
-              className="text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
-              onClick={async () => {
-                await logout();
-                window.location.replace("/login");
-              }}
-            >
-              Log out
-            </button>
+            <span data-testid="session-sign-out">
+              <IconAction
+                label="Log out"
+                tone="danger"
+                onClick={() => {
+                  void logout().then(() => window.location.replace("/login"));
+                }}
+              >
+                <LogOut className="h-4 w-4" />
+              </IconAction>
+            </span>
 
             <Link
               to={impersonating ? "#" : "/dashboard/profile"}
