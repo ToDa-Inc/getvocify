@@ -17,13 +17,17 @@ from app.logging_config import DOMAIN_TRANSCRIPTION, log_domain
 from app.services.session_entities import (
     EntityTerm,
     deepgram_keyterms_for_job,
+    normalize_stt_languages,
     resolve_batch_language,
+    stt_first_pass_covers,
 )
 
 logger = logging.getLogger(__name__)
 
 LISTEN_URL = "https://api.deepgram.com/v1/listen"
 DEEPGRAM_MODEL = "nova-3"
+# Enough speech for LID; not a second full-file transcribe.
+DETECT_PREFIX_BYTES = 2_500_000
 
 
 def listen_query_params(
@@ -51,6 +55,37 @@ def listen_query_params(
         if term:
             params.append(("keyterm", str(term)))
     return params
+
+
+def detect_query_params(*, model: str, languages: list[str]) -> list[tuple[str, str]]:
+    """Restrict Deepgram LID to the user's selected codes. No language= pin."""
+    params: list[tuple[str, str]] = [("model", model)]
+    for code in normalize_stt_languages(languages):
+        params.append(("detect_language", code))
+    return params
+
+
+def language_from_deepgram_detect(
+    payload: dict[str, Any],
+    allowed: list[str],
+    *,
+    first_lang: str = "",
+) -> Optional[str]:
+    """Pick a profile language from Deepgram channel LID. Prefer one the first pass missed."""
+    allowed_set = set(normalize_stt_languages(allowed))
+    found: list[str] = []
+    for channel in (payload.get("results") or {}).get("channels") or []:
+        raw = str(channel.get("detected_language") or "").strip().lower()
+        code = raw.split("-")[0]
+        if code in allowed_set:
+            found.append(code)
+    if not found:
+        return None
+    if first_lang:
+        uncovered = [code for code in found if not stt_first_pass_covers(first_lang, code)]
+        if uncovered:
+            return uncovered[0]
+    return found[0]
 
 
 def mean_utterance_confidence(payload: dict[str, Any]) -> Optional[float]:
@@ -178,3 +213,56 @@ class DeepgramBatchService:
             ),
         )
         return text, confidence
+
+    async def detect_language(
+        self,
+        audio_bytes: bytes,
+        *,
+        content_type: str = "audio/wav",
+        languages: list[str],
+        first_lang: str = "",
+    ) -> Optional[str]:
+        """Audio LID restricted to `languages`. Prefix only. Nova-3, then Nova-2 if 400."""
+        if not self.api_key:
+            raise RuntimeError("DEEPGRAM_API_KEY is not set")
+        langs = normalize_stt_languages(languages)
+        if len(langs) <= 1:
+            return langs[0] if langs else None
+        if not audio_bytes:
+            return None
+        prefix = audio_bytes[: min(len(audio_bytes), DETECT_PREFIX_BYTES)]
+        last_error: Optional[Exception] = None
+        for model in (DEEPGRAM_MODEL, "nova-2"):
+            params = detect_query_params(model=model, languages=langs)
+            url = f"{LISTEN_URL}?{urlencode(params)}"
+            headers = {
+                "Authorization": f"Token {self.api_key}",
+                "Content-Type": content_type or "application/octet-stream",
+            }
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as http:
+                    response = await http.post(url, headers=headers, content=prefix)
+                data = response.json()
+            except Exception as e:
+                last_error = e
+                continue
+            if response.status_code >= 400:
+                last_error = RuntimeError(
+                    f"Deepgram detect failed ({response.status_code}): "
+                    f"{data.get('err_msg') or data.get('error') or data}"
+                )
+                if response.status_code == 400:
+                    continue
+                raise last_error
+            picked = language_from_deepgram_detect(data, langs, first_lang=first_lang)
+            logger.info(
+                "Deepgram language detect allowed=%s first=%s picked=%s model=%s",
+                langs,
+                first_lang or None,
+                picked,
+                model,
+            )
+            return picked
+        if last_error:
+            logger.warning("Deepgram language detect skipped: %s", last_error)
+        return None

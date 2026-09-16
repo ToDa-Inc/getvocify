@@ -67,8 +67,7 @@ STT_LANGUAGE_LABELS = {
 
 _DETECT_SYSTEM = (
     "You pick the spoken language of a sales-call ASR transcript. "
-    "ASR may have used the wrong language, so Catalan can look like broken Spanish, "
-    "French like Spanish, etc. Reply JSON only."
+    "ASR may have used the wrong language. Reply JSON only."
 )
 
 
@@ -102,24 +101,41 @@ def _detect_user_prompt(snippet: str, allowed: list[str]) -> str:
     options = ", ".join(
         f"{code} ({STT_LANGUAGE_LABELS.get(code, code)})" for code in allowed
     )
-    hints = []
-    if "ca" in allowed and "es" in allowed:
-        hints.append(
-            "Catalan mis-heard as Spanish still counts as ca "
-            "(vosaltres, tens, vacances, trucadas←trucades)."
-        )
-    hint_block = ("\n".join(hints) + "\n") if hints else ""
     return (
         f"Allowed languages (pick exactly one): {options}\n"
-        f"{hint_block}"
-        "If mixed, pick the dominant one.\n"
+        "ASR may have used the wrong language. If mixed, pick the dominant one.\n"
         'Reply {"language": "<code>"}.\n\n'
         f"TRANSCRIPT:\n{snippet}\n"
     )
 
 
+async def detect_audio_language(
+    audio_bytes: bytes,
+    allowed: list[str],
+    *,
+    content_type: str = "audio/wav",
+    first_lang: str = "",
+) -> Optional[str]:
+    """Vendor LID on a prefix, restricted to the user's selected languages."""
+    allowed = normalize_stt_languages(allowed)
+    if len(allowed) <= 1:
+        return allowed[0] if allowed else None
+    try:
+        from app.services.deepgram_batch import DeepgramBatchService
+
+        return await DeepgramBatchService().detect_language(
+            audio_bytes,
+            content_type=content_type,
+            languages=allowed,
+            first_lang=first_lang,
+        )
+    except Exception as e:
+        logger.warning("STT audio language detect skipped: %s", e)
+        return None
+
+
 async def detect_stt_language(transcript: str, allowed: list[str]) -> Optional[str]:
-    """flash-lite: pick one of the user's selected STT languages. Skip if only one."""
+    """flash-lite fallback: pick one of the user's selected STT languages."""
     allowed = normalize_stt_languages(allowed)
     if len(allowed) <= 1:
         return allowed[0] if allowed else None
@@ -207,7 +223,12 @@ async def transcribe_audio(
         )
         used_lang = lang if provider != "speechmatics" else sm_lang
         if should_detect_stt_language(used_lang, profile_langs):
-            picked = await detect_stt_language(result.text, profile_langs)
+            picked = await detect_audio_language(
+                audio_bytes,
+                profile_langs,
+                content_type=content_type,
+                first_lang=used_lang,
+            )
             if should_rerun_stt(used_lang, picked, profile_langs) and picked:
                 logger.info(
                     "STT re-pin %s → %s after language detect",

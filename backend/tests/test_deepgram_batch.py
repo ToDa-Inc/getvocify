@@ -1,5 +1,7 @@
 from app.services.deepgram_batch import (
+    detect_query_params,
     format_deepgram_transcript,
+    language_from_deepgram_detect,
     listen_query_params,
     mean_utterance_confidence,
 )
@@ -65,6 +67,30 @@ def test_speaker_formatter_still_uses_speaker_index():
 
 def test_confidence_missing_is_none():
     assert mean_utterance_confidence({"results": {"utterances": [{"transcript": "x"}]}}) is None
+
+
+def test_detect_query_restricts_to_profile_languages():
+    params = detect_query_params(model="nova-3", languages=["es", "ca"])
+    assert params == [
+        ("model", "nova-3"),
+        ("detect_language", "es"),
+        ("detect_language", "ca"),
+    ]
+    assert not any(key == "language" for key, _ in params)
+
+
+def test_detect_payload_stays_inside_allowed_and_prefers_uncovered():
+    payload = {
+        "results": {
+            "channels": [
+                {"detected_language": "es"},
+                {"detected_language": "ca-ES"},
+            ]
+        }
+    }
+    assert language_from_deepgram_detect(payload, ["es", "ca"], first_lang="es") == "ca"
+    assert language_from_deepgram_detect(payload, ["es"], first_lang="es") == "es"
+    assert language_from_deepgram_detect({"results": {"channels": [{"detected_language": "fr"}]}}, ["es", "ca"]) is None
 
 
 def pytest_approx_mean(values):
