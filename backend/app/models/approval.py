@@ -51,6 +51,10 @@ class ProposedUpdate(BaseModel):
         None,
         description="YYYY-MM-DD due date for HubSpot task rows",
     )
+    already_applied: bool = Field(
+        False,
+        description="True when this field was already written and is shown for correction",
+    )
 
 
 class AvailableField(BaseModel):

@@ -28,6 +28,7 @@ from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
 from app.services.memo_approval import approve_memo_core, CRMSyncError
 from app.services.preview_targets import resolve_preview_deal_selection
+from app.services.hubspot.preview import replay_written_fields
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
@@ -216,6 +217,7 @@ async def extract_memo_async(
         from app.services.session_entities import load_stt_profile
         from app.services.transcript_sanitize import (
             extraction_complete_update,
+            is_two_party_source,
             prepare_transcript_for_extraction,
         )
 
@@ -252,7 +254,7 @@ async def extract_memo_async(
                 glossary,
                 existing_values,
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
-                two_party=source_type == "hubspot_call",
+                two_party=is_two_party_source(source_type),
             )
             extraction = await extraction_service.extract(
                 transcript,
@@ -1347,6 +1349,7 @@ async def get_approval_preview(
             selected_contact=selected_contact,
             contact_candidates=contact_candidates,
             create_new_deal=create_new,
+            include_unchanged=replay_written_fields(memo_data.get("status")),
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1505,6 +1508,7 @@ async def post_approval_preview(
             selected_contact=selected_contact,
             contact_candidates=contact_candidates,
             create_new_deal=create_new,
+            include_unchanged=replay_written_fields(memo_data.get("status")),
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1929,6 +1933,7 @@ async def re_extract_memo(
     from app.services.session_entities import load_stt_profile
     from app.services.transcript_sanitize import (
         extraction_complete_update,
+        is_two_party_source,
         prepare_transcript_for_extraction,
         schedule_transcript_polish,
     )
@@ -1949,7 +1954,7 @@ async def re_extract_memo(
                 glossary,
                 existing_values,
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
-                two_party=source_type == "hubspot_call",
+                two_party=is_two_party_source(source_type),
             )
             extraction_service = ExtractionService()
             extraction = await extraction_service.extract(

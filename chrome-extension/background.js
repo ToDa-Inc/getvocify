@@ -6,7 +6,12 @@
 
 import { api } from './lib/api.js';
 import { CALL_STATES, canStartCall, normalizeDialTarget } from './lib/dialer.js';
-import { snapshotCallOutcome, applyCallPoll, isCarrierHangupError } from './lib/call-format.js';
+import {
+  snapshotCallOutcome,
+  applyCallPoll,
+  isCallPollTerminal,
+  isCarrierHangupError,
+} from './lib/call-format.js';
 import { isUsableMicRecording } from './lib/media-stream.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
 import { parseHubSpotUrl } from './lib/hubspot-parser.js';
@@ -1009,13 +1014,13 @@ function startCallStatusPoll(callSid) {
     }
     try {
       const call = await api.getCall(callSid);
-      const next = applyCallPoll(state.lastCall, call);
+      const pollOpts = { autoSync: Boolean(state.autoSyncHubspotCalls) };
+      const next = applyCallPoll(state.lastCall, call, pollOpts);
       if (!next) return;
-      const terminal = call.status === 'logged' || call.status === 'failed'
-        || ['approved', 'rejected', 'failed'].includes(call.memoStatus)
-        || ['busy', 'no_answer', 'canceled', 'failed'].includes(next.disposition);
       updateState({ lastCall: next });
-      if (terminal) clearCallStatusPoll();
+      if (isCallPollTerminal({ ...call, disposition: next.disposition }, pollOpts)) {
+        clearCallStatusPoll();
+      }
     } catch (_) { /* 404 until the webhook inserts; keep polling */ }
   };
   tick();
@@ -1064,7 +1069,7 @@ function isTabCapturing() {
   );
 }
 
-async function startCallFlow({ to, callerId }) {
+async function startCallFlow({ to, callerId, ringbackPrimed }) {
   const gate = canStartCall({
     isRecording: state.isRecording,
     isTabCapturing: isTabCapturing(),
@@ -1075,11 +1080,17 @@ async function startCallFlow({ to, callerId }) {
   const target = normalizeDialTarget(to);
   if (!target) return { ok: false, error: 'Número de teléfono no válido.' };
 
+  await getOffscreenDocument();
+  if (!ringbackPrimed) {
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'START_RINGBACK' });
+  }
+
   let token;
   let provider;
   try {
     ({ token, provider } = await api.createVoiceToken());
   } catch (e) {
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'STOP_RINGBACK' });
     return { ok: false, error: 'No se pudo obtener el token de llamada.' };
   }
   if (!provider) {
@@ -1088,7 +1099,6 @@ async function startCallFlow({ to, callerId }) {
     } catch (_) { /* offscreen defaults to Twilio */ }
   }
 
-  await getOffscreenDocument();
   const context = state.context || {};
   const contactId = context.contactId || null;
   const dealId = context.objectType === 'deal' ? context.recordId : null;
@@ -1102,6 +1112,7 @@ async function startCallFlow({ to, callerId }) {
     contactId,
     dealId,
     provider,
+    skipLocalRingback: Boolean(ringbackPrimed),
   });
 
   updateState({

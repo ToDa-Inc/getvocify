@@ -47,6 +47,16 @@ export function normalizeDialTarget(raw, defaultCountryCode = '34') {
   return E164.test(value) ? value : null;
 }
 
+export async function fetchVoiceTokenAfterRingback(startRingback, fetchToken) {
+  const stop = startRingback();
+  try {
+    return { token: await fetchToken(), stop };
+  } catch (error) {
+    stop();
+    throw error;
+  }
+}
+
 export function canStartCall({ isRecording, isTabCapturing, callState } = {}) {
   if (isRecording) {
     return { ok: false, reason: 'Para la nota de voz antes de llamar.' };

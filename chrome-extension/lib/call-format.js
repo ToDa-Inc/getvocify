@@ -144,6 +144,37 @@ export function memoBusyLabel(status) {
   return null;
 }
 
+const MEMO_IN_FLIGHT = new Set([
+  'uploading',
+  'transcribing',
+  'extracting',
+  'pending_transcript',
+]);
+
+/**
+ * HubSpot can mark outbound_calls.logged while the memo is still extracting.
+ * Stop only when the memo is no longer in flight (and, if auto-sync is on,
+ * after pending_review has been approved or screening skipped the write).
+ */
+export function isCallPollTerminal(call = {}, { autoSync = false } = {}) {
+  const disposition = call.callDisposition || call.disposition || null;
+  const memoStatus = call.memoStatus || null;
+  if (MEMO_IN_FLIGHT.has(memoStatus)) return false;
+  if (call.status === 'recorded') return false;
+  if (call.memoId && !memoStatus) return false;
+  if (
+    autoSync
+    && memoStatus === 'pending_review'
+    && !isScreenedOut(call.screeningOutcome)
+  ) {
+    return false;
+  }
+  if (call.status === 'failed') return true;
+  if (['approved', 'rejected', 'failed'].includes(memoStatus)) return true;
+  if (['busy', 'no_answer', 'canceled', 'failed'].includes(disposition)) return true;
+  return call.status === 'logged';
+}
+
 /**
  * Activity chrome for a Vocify outbound call. Uses memo status, not call.status.
  * dialing is not transcription.
@@ -259,15 +290,13 @@ export function lastCallAsOutbound(lastCall) {
   };
 }
 
-export function applyCallPoll(lastCall, call) {
+export function applyCallPoll(lastCall, call, { autoSync = false } = {}) {
   if (!lastCall) return lastCall;
   const disposition = call.callDisposition || lastCall.disposition || null;
   const hangupNoise = isCarrierHangupError(lastCall.errorMessage);
   const apiError = call.errorMessage || null;
   const errorMessage = apiError || (hangupNoise ? null : lastCall.errorMessage || null);
-  const terminal = call.status === 'logged' || call.status === 'failed'
-    || ['approved', 'rejected', 'failed'].includes(call.memoStatus)
-    || ['busy', 'no_answer', 'canceled', 'failed'].includes(disposition);
+  const terminal = isCallPollTerminal({ ...call, disposition }, { autoSync });
   return {
     ...lastCall,
     memoId: call.memoId || lastCall.memoId || null,

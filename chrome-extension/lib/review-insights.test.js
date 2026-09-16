@@ -28,6 +28,39 @@ describe('visibleCrmUpdates', () => {
     assert.equal(out[0].field_name, 'jobtitle');
   });
 
+  it('keeps already-applied fields after HubSpot write', () => {
+    const out = visibleCrmUpdates([
+      {
+        object_type: 'contacts',
+        field_name: 'hs_lead_status',
+        new_value: 'OPEN',
+        current_value: 'OPEN',
+        already_applied: true,
+      },
+      {
+        object_type: 'contacts',
+        field_name: 'hubspot_owner_id',
+        new_value: '99',
+        current_value: '99',
+        already_applied: true,
+      },
+    ]);
+    assert.equal(out.length, 2);
+    assert.deepEqual(out.map((u) => u.field_name), ['hs_lead_status', 'hubspot_owner_id']);
+  });
+
+  it('still hides an unchanged field that this memo did not write', () => {
+    const out = visibleCrmUpdates([
+      {
+        object_type: 'contacts',
+        field_name: 'hs_lead_status',
+        new_value: 'OPEN',
+        current_value: 'OPEN',
+      },
+    ]);
+    assert.equal(out.length, 0);
+  });
+
   it('returns empty when the call only had a note and tasks', () => {
     assert.equal(visibleCrmUpdates([]).length, 0);
   });
@@ -89,6 +122,15 @@ describe('crm field rows', () => {
         current_value: 'Sales Director',
       }),
       'override',
+    );
+    assert.equal(
+      crmFieldTone({
+        field_name: 'hs_lead_status',
+        new_value: 'OPEN',
+        current_value: 'OPEN',
+        already_applied: true,
+      }),
+      'written',
     );
   });
 

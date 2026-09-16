@@ -16,6 +16,7 @@ import {
   snapshotCallOutcome,
   lastCallAsOutbound,
   applyCallPoll,
+  isCallPollTerminal,
   dispositionMessage,
   isCarrierHangupError,
 } from './call-format.js';
@@ -603,5 +604,91 @@ describe('applyCallPoll', () => {
     assert.equal(next.disposition, 'busy');
     assert.equal(next.errorMessage, null);
     assert.equal(next.processing, false);
+  });
+
+  it('keeps polling when HubSpot logs the call before extraction finishes', () => {
+    const next = applyCallPoll(
+      { callSid: 'CA399', outcome: 'answered', processing: true },
+      {
+        status: 'logged',
+        memoId: 'ff4731b4',
+        memoStatus: 'extracting',
+        callDisposition: 'connected',
+      },
+    );
+    assert.equal(next.processing, true);
+    assert.equal(
+      isCallPollTerminal({
+        status: 'logged',
+        memoId: 'ff4731b4',
+        memoStatus: 'extracting',
+        callDisposition: 'connected',
+      }),
+      false,
+    );
+    assert.equal(
+      isCallPollTerminal({
+        status: 'logged',
+        memoId: 'ff4731b4',
+        memoStatus: 'pending_transcript',
+        callDisposition: 'connected',
+      }),
+      false,
+    );
+    assert.equal(
+      isCallPollTerminal({
+        status: 'logged',
+        memoId: 'ff4731b4',
+        memoStatus: 'pending_review',
+        callDisposition: 'connected',
+      }),
+      true,
+    );
+  });
+
+  it('stops a logged call with no memo, and a missed disposition', () => {
+    assert.equal(
+      isCallPollTerminal({ status: 'logged', memoId: null, memoStatus: null }),
+      true,
+    );
+    assert.equal(
+      isCallPollTerminal({
+        status: 'logged',
+        memoId: 'm1',
+        memoStatus: 'extracting',
+        callDisposition: 'busy',
+      }),
+      false,
+    );
+    assert.equal(
+      isCallPollTerminal({
+        status: 'logged',
+        memoId: null,
+        memoStatus: null,
+        callDisposition: 'no_answer',
+      }),
+      true,
+    );
+  });
+
+  it('keeps polling pending_review only while auto-sync may still write', () => {
+    const reviewing = {
+      status: 'logged',
+      memoId: 'm1',
+      memoStatus: 'pending_review',
+      callDisposition: 'connected',
+    };
+    assert.equal(isCallPollTerminal(reviewing, { autoSync: true }), false);
+    assert.equal(
+      isCallPollTerminal(
+        { ...reviewing, screeningOutcome: 'voicemail' },
+        { autoSync: true },
+      ),
+      true,
+    );
+    assert.equal(
+      isCallPollTerminal({ ...reviewing, memoStatus: 'approved' }, { autoSync: true }),
+      true,
+    );
   });
 });

@@ -45,7 +45,7 @@ export function visibleCrmUpdates(updates) {
     if (isInsightsField(u.field_name)) return false;
     if (u.object_type === 'task') return false;
     if (!norm(u.new_value) && !u.userAdded) return false;
-    if (valuesMatch(u)) return false;
+    if (valuesMatch(u) && !u.already_applied) return false;
     return true;
   });
 }
@@ -90,6 +90,7 @@ export function crmFieldWasLabel(update) {
 }
 
 export function crmFieldTone(update) {
+  if (update?.already_applied) return 'written';
   return crmFieldWasLabel(update) ? 'override' : 'new';
 }
 

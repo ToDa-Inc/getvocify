@@ -1446,6 +1446,10 @@ body {
   background: #fef2f2;
   border-color: rgba(239, 68, 68, 0.22);
 }
+.crm-field-row.is-written {
+  background: #f8f6f2;
+  border-color: rgba(120, 113, 108, 0.22);
+}
 .crm-field-label {
   flex: 0 0 108px;
   min-width: 0;
@@ -1507,6 +1511,10 @@ body {
 .crm-field-row.is-override .crm-field-input,
 .crm-field-row.is-override .custom-select-trigger {
   color: #dc2626;
+}
+.crm-field-row.is-written .crm-field-input,
+.crm-field-row.is-written .custom-select-trigger {
+  color: #57534e;
 }
 .crm-field-select {
   flex: 1;

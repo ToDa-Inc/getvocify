@@ -66,6 +66,7 @@ class CRMPreviewProtocol(Protocol):
         selected_contact: Optional[Any] = None,
         contact_candidates: Optional[Any] = None,
         create_new_deal: bool = False,
+        include_unchanged: bool = False,
     ) -> ApprovalPreview: ...
 
 

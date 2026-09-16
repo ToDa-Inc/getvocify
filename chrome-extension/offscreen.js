@@ -8,6 +8,7 @@
  */
 
 import { CALL_STATES } from './lib/dialer.js';
+import { startLocalRingback as playLocalRingback } from './lib/local-ringback.js';
 import { isCarrierHangupError } from './lib/call-format.js';
 import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMediaConstraints } from './lib/tab-capture.js';
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
@@ -458,14 +459,16 @@ function ensureTelnyxRemote() {
     }));
 }
 
-async function startCall({ token, to, callerId, contactId, dealId, provider }) {
+async function startCall({ token, to, callerId, contactId, dealId, provider, skipLocalRingback }) {
   if (provider === 'telnyx') {
-    return startTelnyxCall({ token, to, callerId, contactId, dealId });
+    return startTelnyxCall({ token, to, callerId, contactId, dealId, skipLocalRingback });
   }
+  stopLocalRingback();
   return startTwilioCall({ token, to, callerId, contactId, dealId });
 }
 
-async function startTelnyxCall({ token, to, callerId, contactId, dealId }) {
+async function startTelnyxCall({ token, to, callerId, contactId, dealId, skipLocalRingback }) {
+  if (!skipLocalRingback) ensureLocalRingback();
   try {
     const TelnyxRTC = globalThis.TelnyxWebRTC?.TelnyxRTC;
     if (!TelnyxRTC) throw new Error('Telnyx WebRTC SDK no cargado');
@@ -500,8 +503,7 @@ async function startTelnyxCall({ token, to, callerId, contactId, dealId }) {
     reportCallState(CALL_STATES.CONNECTING);
     telnyxMuted = false;
     activeCallProvider = 'telnyx';
-    stopLocalRingback();
-    startLocalRingback();
+    if (!skipLocalRingback) ensureLocalRingback();
 
     const remote = ensureTelnyxRemote();
     watchRemoteAudio(remote, () => {
@@ -624,20 +626,13 @@ function watchRemoteAudio(remote, onAudio) {
   hook();
 }
 
+function ensureLocalRingback() {
+  if (stopRingbackFn) return;
+  stopRingbackFn = playLocalRingback();
+}
+
 function startLocalRingback() {
-  const audio = new Audio(
-    (globalThis.chrome?.runtime?.getURL?.('call-ringback.wav')) || 'call-ringback.wav',
-  );
-  audio.loop = true;
-  void audio.play().catch(() => {});
-  const timer = setTimeout(() => stopLocalRingback(), 35_000);
-  stopRingbackFn = () => {
-    clearTimeout(timer);
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
-    stopRingbackFn = null;
-  };
+  ensureLocalRingback();
 }
 
 function stopLocalRingback() {
@@ -750,6 +745,12 @@ chrome.runtime.onMessage.addListener((message) => {
     case 'STOP_RECORDING':
     case 'STOP_TAB_CAPTURE':
       stopRecording(message.minEpoch);
+      break;
+    case 'START_RINGBACK':
+      startLocalRingback();
+      break;
+    case 'STOP_RINGBACK':
+      stopLocalRingback();
       break;
     case 'START_CALL':
       startCall(message);

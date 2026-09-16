@@ -2,8 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CALL_STATES } from "./dial-target.ts";
 import {
+  fetchVoiceTokenAfterRingback,
   mapTelnyxCallState,
   ringbackTimedOut,
+  startLocalRingback,
   TELNYX_RINGBACK_SRC,
   TELNYX_RING_TIMEOUT_MS,
   telnyxHangupMessage,
@@ -112,6 +114,70 @@ describe("telnyxHangupMessage", () => {
   it("returns null for a normal hangup", () => {
     assert.equal(telnyxHangupMessage({ sipCode: 200, causeCode: 16 }), null);
     assert.equal(telnyxHangupMessage(null), null);
+  });
+});
+
+describe("fetchVoiceTokenAfterRingback", () => {
+  it("starts the tone before the token request settles", async () => {
+    const order: string[] = [];
+    let release!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    const done = fetchVoiceTokenAfterRingback(
+      () => {
+        order.push("ring");
+        return () => {
+          order.push("stop");
+        };
+      },
+      () => {
+        order.push("token");
+        return pending;
+      },
+    );
+    assert.deepEqual(order, ["ring", "token"]);
+    release("jwt");
+    const { token } = await done;
+    assert.equal(token, "jwt");
+  });
+
+  it("stops the tone if the token fetch fails", async () => {
+    const order: string[] = [];
+    await assert.rejects(
+      fetchVoiceTokenAfterRingback(
+        () => {
+          order.push("ring");
+          return () => {
+            order.push("stop");
+          };
+        },
+        async () => {
+          throw new Error("no token");
+        },
+      ),
+      /no token/,
+    );
+    assert.deepEqual(order, ["ring", "stop"]);
+  });
+});
+
+describe("startLocalRingback", () => {
+  it("calls play in the same turn", () => {
+    let played = false;
+    const fake = {
+      loop: false,
+      play() {
+        played = true;
+        return Promise.resolve();
+      },
+      pause() {},
+      removeAttribute() {},
+      load() {},
+    };
+    const stop = startLocalRingback("/x.wav", 35_000, () => fake as HTMLAudioElement);
+    assert.equal(played, true);
+    stop();
   });
 });
 

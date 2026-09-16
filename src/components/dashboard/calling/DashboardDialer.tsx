@@ -16,11 +16,13 @@ import {
   dispositionMessage,
   isCarrierHangupError,
   mapTelnyxCallState,
+  fetchVoiceTokenAfterRingback,
   startLocalRingback,
   TELNYX_RING_TIMEOUT_MS,
   telnyxHangupMessage,
   telnyxNewCallOptions,
   telnyxRtcClientOptions,
+  watchRemoteAudio,
   voiceClientFromToken,
   type VoiceClient,
 } from "@/lib/dial-session";
@@ -117,6 +119,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const telnyxClientRef = useRef<{ disconnect?: () => void } | null>(null);
   const telnyxCallRef = useRef<TelnyxCall | null>(null);
   const stopRingbackRef = useRef<(() => void) | null>(null);
+  const stopRemoteWatchRef = useRef<(() => void) | null>(null);
   const voiceClientRef = useRef<VoiceClient>("twilio");
   const hangupRef = useRef<() => void>(() => {});
   const callSidRef = useRef<string | null>(null);
@@ -265,6 +268,8 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const stopRingback = () => {
     stopRingbackRef.current?.();
     stopRingbackRef.current = null;
+    stopRemoteWatchRef.current?.();
+    stopRemoteWatchRef.current = null;
   };
 
   const hangup = () => {
@@ -337,6 +342,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       remoteElement: remote,
     });
     telnyxCallRef.current = call;
+    stopRemoteWatchRef.current = watchRemoteAudio(remote, () => {
+      stopRingback();
+    });
 
     client.on("telnyx.notification", (notification: TelnyxNotification) => {
       if (notification?.type !== "callUpdate" || !notification.call) return;
@@ -419,13 +427,18 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     try {
       setSelected(target);
       setState(CALL_STATES.CONNECTING);
-      const { token, provider } = await callsApi.createToken();
-      if (voiceClientFromToken(provider) === "telnyx") {
-        stopRingbackRef.current = startLocalRingback();
-        await startTelnyxCall(token, target);
+      const { token: session, stop } = await fetchVoiceTokenAfterRingback(
+        startLocalRingback,
+        () => callsApi.createToken(),
+      );
+      stopRingbackRef.current = stop;
+      const { token, provider } = session;
+      if (voiceClientFromToken(provider) !== "telnyx") {
+        stopRingback();
+        await startTwilioCall(token, target);
         return;
       }
-      await startTwilioCall(token, target);
+      await startTelnyxCall(token, target);
     } catch (err) {
       stopRingback();
       setState(CALL_STATES.IDLE);

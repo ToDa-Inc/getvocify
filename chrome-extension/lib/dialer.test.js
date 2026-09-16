@@ -6,6 +6,7 @@ import {
   canMute,
   canSendDigits,
   canStartCall,
+  fetchVoiceTokenAfterRingback,
   normalizeDialTarget,
 } from './dialer.js';
 
@@ -94,6 +95,30 @@ describe('callButtonLabel', () => {
 
   it('falls back to Llamar for an unknown state', () => {
     assert.equal(callButtonLabel('bogus'), 'Llamar');
+  });
+});
+
+describe('fetchVoiceTokenAfterRingback', () => {
+  it('starts the tone before the token request settles', async () => {
+    const order = [];
+    let release;
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    const done = fetchVoiceTokenAfterRingback(
+      () => {
+        order.push('ring');
+        return () => order.push('stop');
+      },
+      () => {
+        order.push('token');
+        return pending;
+      },
+    );
+    assert.deepEqual(order, ['ring', 'token']);
+    release('jwt');
+    const { token } = await done;
+    assert.equal(token, 'jwt');
   });
 });
 

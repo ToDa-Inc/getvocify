@@ -36,6 +36,33 @@ def _format_value_for_display(value: Any) -> str:
     return str(value)
 
 
+def replay_written_fields(memo_status: Optional[str]) -> bool:
+    """Approved memos must still show the fields that were written."""
+    return (memo_status or "") == "approved"
+
+
+def include_extracted_field(
+    *,
+    new_display: str,
+    current_display: str,
+    include_unchanged: bool,
+) -> bool:
+    if not new_display:
+        return False
+    if current_display != new_display:
+        return True
+    return include_unchanged
+
+
+def preview_field_already_applied(
+    *,
+    current_display: str,
+    new_display: str,
+    include_unchanged: bool,
+) -> bool:
+    return bool(include_unchanged and new_display and current_display == new_display)
+
+
 def proposed_new_company(
     *,
     has_existing_company: bool,
@@ -107,6 +134,7 @@ class HubSpotPreviewService:
         selected_contact: Optional[ContactMatch] = None,
         contact_candidates: Optional[list[ContactMatch]] = None,
         create_new_deal: bool = False,
+        include_unchanged: bool = False,
     ) -> ApprovalPreview:
         """
         Build a preview from the same allowlist, stage-resolution, and validation
@@ -427,14 +455,21 @@ class HubSpotPreviewService:
                     if field_name == "description" and current_value:
                         merged_desc = merge_description(current_value, new_value)
                         if merged_desc is None:
-                            continue
-                        new_display = merged_desc
+                            if not include_unchanged:
+                                continue
+                            new_display = _display_value(field_name, current_value)
+                        else:
+                            new_display = merged_desc
                     else:
                         new_display = _display_value(field_name, new_value)
 
                     current_display = _display_value(field_name, current_value)
 
-                    if current_display != new_display:
+                    if include_extracted_field(
+                        new_display=new_display,
+                        current_display=current_display,
+                        include_unchanged=include_unchanged,
+                    ):
                         spec = field_specs_map.get(field_name, {})
                         label = field_labels.get(field_name, field_name.replace("_", " ").title())
                         confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
@@ -447,6 +482,11 @@ class HubSpotPreviewService:
                             field_type=spec.get("type"),
                             options=spec.get("options"),
                             object_type="deals",
+                            already_applied=preview_field_already_applied(
+                                current_display=current_display,
+                                new_display=new_display,
+                                include_unchanged=include_unchanged,
+                            ),
                         ))
 
         # Contact identity + allowlisted contact properties
@@ -500,7 +540,11 @@ class HubSpotPreviewService:
             if not new_display:
                 continue
             current_display = _display_value(field_name, current_contact_props.get(field_name))
-            if has_existing_contact and current_display == new_display:
+            if has_existing_contact and not include_extracted_field(
+                new_display=new_display,
+                current_display=current_display,
+                include_unchanged=include_unchanged,
+            ):
                 continue
             key = f"contacts:{field_name}"
             spec = field_specs_map.get(key, {})
@@ -514,6 +558,11 @@ class HubSpotPreviewService:
                 field_type=spec.get("type"),
                 options=spec.get("options"),
                 object_type="contacts",
+                already_applied=has_existing_contact and preview_field_already_applied(
+                    current_display=current_display,
+                    new_display=new_display,
+                    include_unchanged=include_unchanged,
+                ),
             ))
 
         has_existing_company = bool(current_company_props) or bool(
@@ -560,7 +609,11 @@ class HubSpotPreviewService:
                 if not new_display:
                     continue
                 current_display = _display_value(field_name, current_company_props.get(field_name))
-                if has_existing_company and current_display == new_display:
+                if has_existing_company and not include_extracted_field(
+                    new_display=new_display,
+                    current_display=current_display,
+                    include_unchanged=include_unchanged,
+                ):
                     continue
                 key = f"companies:{field_name}"
                 spec = field_specs_map.get(key, {})
@@ -574,6 +627,11 @@ class HubSpotPreviewService:
                     field_type=spec.get("type"),
                     options=spec.get("options"),
                     object_type="companies",
+                    already_applied=has_existing_company and preview_field_already_applied(
+                        current_display=current_display,
+                        new_display=new_display,
+                        include_unchanged=include_unchanged,
+                    ),
                 ))
 
         # Line items (create proposals) — deal-scoped

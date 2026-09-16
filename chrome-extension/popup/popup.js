@@ -96,6 +96,7 @@ import {
   shouldShowActivityAuthorFilter,
 } from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
+import { startLocalRingback } from '../lib/local-ringback.js';
 import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta } from '../lib/call-format.js';
 
 function paintCallMuteButton(muted, enabled) {
@@ -3243,6 +3244,9 @@ function renderCallSection() {
   const verified = verifiedCallerIds();
   const ctx = lastBgState?.context || {};
   const call = lastBgState?.call || { state: CALL_STATES.IDLE };
+  if (call.state === CALL_STATES.IDLE || call.state === CALL_STATES.ENDING) {
+    stopPrimedRingback();
+  }
   const lastCall = lastBgState?.lastCall || null;
   const mode = dialerPanelMode({
     contactPhone: ctx.contactPhone,
@@ -3345,6 +3349,7 @@ function renderCallSection() {
     const timer = document.getElementById('call-timer');
     if (timer) timer.hidden = call.state !== CALL_STATES.ACTIVE;
     if (call.state === CALL_STATES.ACTIVE && call.answeredAt) {
+      stopPrimedRingback();
       startCallTimer(call.answeredAt);
     } else {
       stopCallTimer();
@@ -3398,6 +3403,13 @@ function renderPostCallCard(lastCall) {
   }
 }
 
+let stopPopupRingback = null;
+
+function stopPrimedRingback() {
+  stopPopupRingback?.();
+  stopPopupRingback = null;
+}
+
 async function startOutboundCall(raw) {
   const target = normalizeDialTarget(raw);
   const status = document.getElementById('call-status');
@@ -3410,17 +3422,23 @@ async function startOutboundCall(raw) {
     return;
   }
 
+  stopPrimedRingback();
+  stopPopupRingback = startLocalRingback();
   const result = await chrome.runtime.sendMessage({
     type: 'START_CALL',
     to: target,
     callerId: defaultVerifiedCallerId()?.phoneNumber,
+    ringbackPrimed: true,
   });
-  if (!result?.ok && status) {
-    const section = document.getElementById('call-section');
-    if (section) section.hidden = false;
-    status.hidden = false;
-    status.textContent = result?.error || 'No se pudo iniciar la llamada.';
-    status.classList.remove('call-status-muted');
+  if (!result?.ok) {
+    stopPrimedRingback();
+    if (status) {
+      const section = document.getElementById('call-section');
+      if (section) section.hidden = false;
+      status.hidden = false;
+      status.textContent = result?.error || 'No se pudo iniciar la llamada.';
+      status.classList.remove('call-status-muted');
+    }
   }
 }
 

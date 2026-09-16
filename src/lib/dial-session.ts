@@ -42,23 +42,40 @@ export function telnyxRtcClientOptions(token: string, ringbackFile = TELNYX_RING
   return { login_token: token, ringbackFile };
 }
 
+export async function fetchVoiceTokenAfterRingback<T>(
+  startRingback: () => () => void,
+  fetchToken: () => Promise<T>,
+): Promise<{ token: T; stop: () => void }> {
+  const stop = startRingback();
+  try {
+    return { token: await fetchToken(), stop };
+  } catch (error) {
+    stop();
+    throw error;
+  }
+}
+
 export function startLocalRingback(
   src = TELNYX_RINGBACK_SRC,
   maxMs = TELNYX_RING_TIMEOUT_MS,
+  createAudio: (url: string) => HTMLAudioElement = (url) => new Audio(url),
 ): () => void {
-  const audio = new Audio(src);
+  const audio = createAudio(src);
   audio.loop = true;
-  void audio.play().catch(() => {
-    /* autoplay can still lose if the click gesture already settled */
-  });
-  let timer = 0;
+  const played = audio.play();
+  if (played && typeof played.catch === "function") {
+    void played.catch((err) => {
+      console.warn("vocify ringback play failed", err);
+    });
+  }
+  let timer: ReturnType<typeof setTimeout> | 0 = 0;
   const stop = () => {
-    window.clearTimeout(timer);
+    clearTimeout(timer);
     audio.pause();
     audio.removeAttribute("src");
     audio.load();
   };
-  timer = window.setTimeout(stop, maxMs);
+  timer = setTimeout(stop, maxMs);
   return stop;
 }
 
