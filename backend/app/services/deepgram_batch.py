@@ -30,6 +30,23 @@ DEEPGRAM_MODEL = "nova-3"
 DETECT_PREFIX_BYTES = 2_500_000
 
 
+def detect_audio_windows(audio_bytes: bytes, window: int = DETECT_PREFIX_BYTES) -> list[bytes]:
+    """Start / mid / end slices so greeting language cannot hide the rest of the call."""
+    data = audio_bytes or b""
+    if not data:
+        return []
+    if len(data) <= window:
+        return [data]
+    mid = (len(data) - window) // 2
+    end = len(data) - window
+    out: list[bytes] = []
+    for start in (0, mid, end):
+        chunk = data[start : start + window]
+        if chunk not in out:
+            out.append(chunk)
+    return out
+
+
 def listen_query_params(
     *,
     model: str,
@@ -230,39 +247,53 @@ class DeepgramBatchService:
             return langs[0] if langs else None
         if not audio_bytes:
             return None
-        prefix = audio_bytes[: min(len(audio_bytes), DETECT_PREFIX_BYTES)]
         last_error: Optional[Exception] = None
-        for model in (DEEPGRAM_MODEL, "nova-2"):
-            params = detect_query_params(model=model, languages=langs)
-            url = f"{LISTEN_URL}?{urlencode(params)}"
-            headers = {
-                "Authorization": f"Token {self.api_key}",
-                "Content-Type": content_type or "application/octet-stream",
-            }
-            try:
-                async with httpx.AsyncClient(timeout=60.0) as http:
-                    response = await http.post(url, headers=headers, content=prefix)
-                data = response.json()
-            except Exception as e:
-                last_error = e
-                continue
-            if response.status_code >= 400:
-                last_error = RuntimeError(
-                    f"Deepgram detect failed ({response.status_code}): "
-                    f"{data.get('err_msg') or data.get('error') or data}"
-                )
-                if response.status_code == 400:
+        found: list[str] = []
+        for chunk in detect_audio_windows(audio_bytes):
+            picked = None
+            for model in (DEEPGRAM_MODEL, "nova-2"):
+                params = detect_query_params(model=model, languages=langs)
+                url = f"{LISTEN_URL}?{urlencode(params)}"
+                headers = {
+                    "Authorization": f"Token {self.api_key}",
+                    "Content-Type": content_type or "application/octet-stream",
+                }
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as http:
+                        response = await http.post(url, headers=headers, content=chunk)
+                    data = response.json()
+                except Exception as e:
+                    last_error = e
                     continue
-                raise last_error
-            picked = language_from_deepgram_detect(data, langs, first_lang=first_lang)
+                if response.status_code >= 400:
+                    last_error = RuntimeError(
+                        f"Deepgram detect failed ({response.status_code}): "
+                        f"{data.get('err_msg') or data.get('error') or data}"
+                    )
+                    if response.status_code == 400:
+                        continue
+                    raise last_error
+                picked = language_from_deepgram_detect(data, langs, first_lang=first_lang)
+                break
+            if picked:
+                found.append(picked)
+                if first_lang and not stt_first_pass_covers(first_lang, picked):
+                    logger.info(
+                        "Deepgram language detect allowed=%s first=%s picked=%s (uncovered window)",
+                        langs,
+                        first_lang or None,
+                        picked,
+                    )
+                    return picked
+        if found:
             logger.info(
-                "Deepgram language detect allowed=%s first=%s picked=%s model=%s",
+                "Deepgram language detect allowed=%s first=%s picked=%s windows=%s",
                 langs,
                 first_lang or None,
-                picked,
-                model,
+                found[0],
+                found,
             )
-            return picked
+            return found[0]
         if last_error:
             logger.warning("Deepgram language detect skipped: %s", last_error)
         return None

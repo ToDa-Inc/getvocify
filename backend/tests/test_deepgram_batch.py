@@ -1,4 +1,5 @@
 from app.services.deepgram_batch import (
+    detect_audio_windows,
     detect_query_params,
     format_deepgram_transcript,
     language_from_deepgram_detect,
@@ -77,6 +78,13 @@ def test_detect_query_restricts_to_profile_languages():
         ("detect_language", "ca"),
     ]
     assert not any(key == "language" for key, _ in params)
+
+
+def test_detect_windows_cover_start_mid_end_without_dupes():
+    blob = bytes(range(10))
+    assert detect_audio_windows(blob, window=4) == [blob[:4], blob[3:7], blob[6:10]]
+    assert detect_audio_windows(b"hi", window=8) == [b"hi"]
+    assert detect_audio_windows(b"", window=8) == []
 
 
 def test_detect_payload_stays_inside_allowed_and_prefers_uncovered():
