@@ -8,6 +8,8 @@ import type { MemoStatus } from '@/features/memos/types';
 export interface CrmCallRecording {
   call_id: string;
   title: string;
+  to_number?: string | null;
+  from_number?: string | null;
   timestamp_ms?: number | null;
   timestamp?: string | null;
   duration_ms?: number;

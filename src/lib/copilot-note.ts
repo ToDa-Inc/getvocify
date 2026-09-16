@@ -119,3 +119,36 @@ export function memoListSubtitle(memo: { extraction?: { contactName?: string | n
   if (contact && company && company.toLowerCase() !== contact.toLowerCase()) return company;
   return "";
 }
+
+const GENERIC_RECORDING_TITLE = /^(call|llamada vocify)$/i;
+
+export function isGenericRecordingTitle(title?: string | null): boolean {
+  const trimmed = (title || "").trim();
+  return !trimmed || GENERIC_RECORDING_TITLE.test(trimmed);
+}
+
+export function recordingListTitle(
+  recording: {
+    title?: string | null;
+    to_number?: string | null;
+    from_number?: string | null;
+  },
+  memo?: Parameters<typeof memoListTitle>[0] | null,
+  formatPhone?: (e164: string) => string,
+): string {
+  const hubspotTitle = (recording.title || "").trim();
+  if (hubspotTitle && !isGenericRecordingTitle(hubspotTitle)) {
+    return hubspotTitle;
+  }
+  if (memo) {
+    const fromMemo = memoListTitle(memo);
+    if (fromMemo && fromMemo !== "Untitled conversation") {
+      return fromMemo;
+    }
+  }
+  const phone = (recording.to_number || recording.from_number || "").trim();
+  if (phone) {
+    return formatPhone ? formatPhone(phone) || phone : phone;
+  }
+  return hubspotTitle || "Call";
+}

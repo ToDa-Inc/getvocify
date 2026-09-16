@@ -1,4 +1,8 @@
-from app.services.hubspot.calls import parse_call_summary, parse_hubspot_timestamp_ms
+from app.services.hubspot.calls import (
+    parse_call_summary,
+    parse_hubspot_timestamp_ms,
+    recording_display_title,
+)
 
 
 def test_parse_hubspot_timestamp_ms_from_epoch_ms():
@@ -47,3 +51,25 @@ def test_parse_call_summary_includes_owner():
         },
     })
     assert summary["hubspot_owner_id"] == "111"
+
+
+def test_parse_call_summary_includes_phone_numbers():
+    summary = parse_call_summary({
+        "id": "790",
+        "properties": {
+            "hs_call_recording_url": "https://example.com/rec.mp3",
+            "hs_call_to_number": "+34600000000",
+            "hs_call_from_number": "+34900000000",
+        },
+    })
+    assert summary["to_number"] == "+34600000000"
+    assert summary["from_number"] == "+34900000000"
+
+
+def test_recording_display_title_prefers_memo_contact_over_generic_hubspot_title():
+    title = recording_display_title(
+        "Llamada Vocify",
+        extraction={"contactName": "Bimal Melwani"},
+        to_number="+34600000000",
+    )
+    assert title == "Bimal Melwani"

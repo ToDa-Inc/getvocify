@@ -428,6 +428,11 @@ async def log_missed_call_activity(
         owner_id = await _hubspot_owner_id_for_caller(
             supabase, row["user_id"], client, conn_row
         )
+        call_title = await _hubspot_call_title(
+            client,
+            row.get("hubspot_contact_id"),
+            row.get("to_number") or "",
+        )
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)
             .isoformat()
@@ -439,7 +444,7 @@ async def log_missed_call_activity(
             external_account_id=hubspot_hub_id,
             app_id=str(settings.HUBSPOT_APP_ID or ""),
             owner_id=owner_id,
-            title="Llamada Vocify",
+            title=call_title,
             body=hubspot_call_body_for_disposition(disposition),
             call_status=hubspot_call_status_for_disposition(disposition),
             disposition=disposition,
@@ -472,6 +477,32 @@ async def log_missed_call_activity(
         )
     finally:
         record_hubspot_log_duration(time.perf_counter() - t0)
+
+
+async def _hubspot_call_title(
+    client: Any,
+    contact_id: Optional[str],
+    to_number: str,
+) -> str:
+    if contact_id:
+        try:
+            data = await client.get(
+                f"/crm/v3/objects/contacts/{contact_id}",
+                params={"properties": "firstname,lastname"},
+            )
+            props = (data or {}).get("properties") or {}
+            name = f"{props.get('firstname') or ''} {props.get('lastname') or ''}".strip()
+            if name:
+                return f"Llamada con {name}"
+        except Exception:
+            logger.debug(
+                "HubSpot contact name lookup failed for call title",
+                exc_info=True,
+            )
+    phone = (to_number or "").strip()
+    if phone:
+        return phone
+    return "Llamada Vocify"
 
 
 async def log_call_engagement(
@@ -532,6 +563,11 @@ async def log_call_engagement(
         owner_id = await _hubspot_owner_id_for_caller(
             supabase, row["user_id"], client, conn_row
         )
+        call_title = await _hubspot_call_title(
+            client,
+            row.get("hubspot_contact_id"),
+            row.get("to_number") or "",
+        )
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)
             .isoformat()
@@ -543,7 +579,7 @@ async def log_call_engagement(
             external_account_id=hubspot_hub_id,
             app_id=str(settings.HUBSPOT_APP_ID or ""),
             owner_id=owner_id,
-            title="Llamada Vocify",
+            title=call_title,
             body=hubspot_call_body_for_disposition(screening_outcome),
             call_status=hubspot_call_status_for_disposition(screening_outcome),
             disposition=screening_outcome,

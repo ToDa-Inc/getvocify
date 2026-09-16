@@ -66,6 +66,7 @@ from app.services.hubspot.calls import (
     get_call_engagement,
     list_recent_recordings,
     list_recordings_for_record,
+    recording_display_title,
 )
 from app.services.hubspot.call_processor import enqueue_hubspot_call_process
 from supabase import Client
@@ -154,7 +155,7 @@ def _join_memo_state(
         return recordings
     q = (
         supabase.table("memos")
-        .select("id, status, hubspot_engagement_id, user_id")
+        .select("id, status, hubspot_engagement_id, user_id, extraction")
         .in_("hubspot_engagement_id", call_ids)
     )
     ids = [uid for uid in (user_ids or [user_id]) if uid]
@@ -190,7 +191,7 @@ def _join_memo_state(
         if pending:
             memo_res = (
                 supabase.table("memos")
-                .select("id, status, hubspot_engagement_id, user_id")
+                .select("id, status, hubspot_engagement_id, user_id, extraction")
                 .in_("id", list(pending.values()))
                 .execute()
             )
@@ -207,6 +208,12 @@ def _join_memo_state(
         m = by_call.get(rec["call_id"])
         out.append({
             **rec,
+            "title": recording_display_title(
+                rec.get("title"),
+                extraction=m.get("extraction") if m else None,
+                to_number=rec.get("to_number"),
+                from_number=rec.get("from_number"),
+            ),
             "memo_id": str(m["id"]) if m else None,
             "memo_status": m.get("status") if m else None,
             "memo_user_id": str(m["user_id"]) if m and m.get("user_id") else None,

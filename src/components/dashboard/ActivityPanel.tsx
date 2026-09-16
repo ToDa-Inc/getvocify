@@ -27,7 +27,7 @@ import {
   type ActivityItem,
 } from "@/lib/activity-feed";
 import { callDurationSeconds, formatCallDuration } from "@/lib/call-duration";
-import { memoListTitle } from "@/lib/copilot-note";
+import { memoListTitle, recordingListTitle } from "@/lib/copilot-note";
 import { formatRecordedAt } from "@/lib/memo-dates";
 import {
   getMemoStatusPill,
@@ -35,6 +35,7 @@ import {
   recordingTimestamp,
   recordingsNeedPoll,
 } from "@/lib/recordings";
+import { formatCallerIdDisplay } from "@/lib/dial-target";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -82,6 +83,7 @@ function ActivityRow({
   showAuthors,
   busyCallId,
   onRecordingAction,
+  linkedMemo,
 }: {
   item: ActivityItem;
   peek?: boolean;
@@ -89,6 +91,7 @@ function ActivityRow({
   showAuthors: boolean;
   busyCallId: string | null;
   onRecordingAction: (recording: CrmCallRecording) => void;
+  linkedMemo?: Memo | null;
 }) {
   const navigate = useNavigate();
   const isRecording = item.kind === "recording";
@@ -113,7 +116,7 @@ function ActivityRow({
     ? authorChipLabel(recording?.author_name, recording?.author_user_id, currentUserId)
     : authorChipLabel(memo?.authorName, memo?.userId, currentUserId);
   const title = isRecording
-    ? recording?.title || "Call"
+    ? recordingListTitle(recording!, linkedMemo, formatCallerIdDisplay)
     : memoListTitle(memo);
   const dateStr = isRecording
     ? formatRecordedAt(recordingTimestamp(recording!))
@@ -268,6 +271,11 @@ export function ActivityPanel() {
     () => mergeActivityItems({ recordings, memos: memos as Memo[] }),
     [recordings, memos],
   );
+  const memosById = useMemo(() => {
+    const map = new Map<string, Memo>();
+    for (const memo of memos) map.set(memo.id, memo);
+    return map;
+  }, [memos]);
   const shown = items.slice(0, visibleCount);
   const peek = shouldPeekNextActivity(visibleCount, items.length)
     ? items[visibleCount]
@@ -360,6 +368,11 @@ export function ActivityPanel() {
                 showAuthors={canViewCompany}
                 busyCallId={busyCallId}
                 onRecordingAction={handleRecordingAction}
+                linkedMemo={
+                  item.kind === "recording"
+                    ? memosById.get(item.recording.memo_id || "")
+                    : null
+                }
               />
             ))}
             {peek ? (
@@ -370,6 +383,11 @@ export function ActivityPanel() {
                 showAuthors={canViewCompany}
                 busyCallId={null}
                 onRecordingAction={handleRecordingAction}
+                linkedMemo={
+                  peek.kind === "recording"
+                    ? memosById.get(peek.recording.memo_id || "")
+                    : null
+                }
               />
             ) : null}
           </div>

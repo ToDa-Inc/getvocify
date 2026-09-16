@@ -28,6 +28,44 @@ CALL_PROPERTIES = (
 MAX_RECORDINGS_PER_RECORD = 20
 RECENT_RECORDINGS_LIMIT = 20
 
+GENERIC_RECORDING_TITLES = frozenset({"call", "llamada vocify"})
+
+
+def is_generic_recording_title(title: Optional[str]) -> bool:
+    normalized = (title or "").strip().lower()
+    return not normalized or normalized in GENERIC_RECORDING_TITLES
+
+
+def memo_title_from_extraction(extraction: Any) -> Optional[str]:
+    if not isinstance(extraction, dict):
+        return None
+    contact = (
+        extraction.get("contactName") or extraction.get("contact_name") or ""
+    ).strip()
+    company = (
+        extraction.get("companyName") or extraction.get("company_name") or ""
+    ).strip()
+    return contact or company or None
+
+
+def recording_display_title(
+    title: Optional[str],
+    *,
+    extraction: Any = None,
+    to_number: Optional[str] = None,
+    from_number: Optional[str] = None,
+) -> str:
+    hubspot = (title or "").strip()
+    if hubspot and not is_generic_recording_title(hubspot):
+        return hubspot
+    from_memo = memo_title_from_extraction(extraction)
+    if from_memo:
+        return from_memo
+    phone = (to_number or from_number or "").strip()
+    if phone:
+        return phone
+    return hubspot or "Call"
+
 
 def call_duration_ms(props: dict) -> int:
     """Raw HubSpot hs_call_duration (milliseconds)."""
@@ -84,6 +122,8 @@ def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
     if ts_ms is None:
         ts_ms = parse_hubspot_timestamp_ms(props.get("hs_createdate"))
     title = (props.get("hs_call_title") or "").strip() or "Call"
+    to_number = (props.get("hs_call_to_number") or "").strip() or None
+    from_number = (props.get("hs_call_from_number") or "").strip() or None
     timestamp_iso = None
     if ts_ms:
         timestamp_iso = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).isoformat()
@@ -91,6 +131,8 @@ def parse_call_summary(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "call_id": str(data.get("id")),
         "title": title,
+        "to_number": to_number,
+        "from_number": from_number,
         "timestamp_ms": ts_ms,
         "timestamp": timestamp_iso,
         "duration_ms": call_duration_ms(props),
