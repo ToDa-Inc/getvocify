@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
-import { authorChipLabel } from "@/lib/activity-authors";
+import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
@@ -222,10 +222,12 @@ const MemoDetail = () => {
   }
 
   const isOwnMemo = !memo.userId || memo.userId === user?.id;
+  const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const authorName = authorChipLabel(memo.authorName, memo.userId, user?.id);
   const isProcessing = ["uploading", "transcribing", "extracting", "pending_transcript"].includes(memo.status);
   const extractionFailed = memo.status === "failed";
   const hasExtraction = !isProcessing && !extractionFailed && !!memo.extraction;
+  const canSeeReview = hasExtraction && (isOwnMemo || canViewCompany);
   const extraction = memo.extraction || {};
   const isCallMemo =
     memo.source === "hubspot_call" ||
@@ -249,10 +251,10 @@ const MemoDetail = () => {
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn} text-center`}>
         <Link
           to="/dashboard/memos"
-          className="inline-flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60 hover:text-beige mb-12 transition-colors group"
+          aria-label="Back to memos"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground/60 hover:text-beige hover:bg-beige/10 mb-12 transition-colors"
         >
-          <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
-          Back to Memos
+          <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-16 relative overflow-hidden group`}>
           <div className="absolute inset-0 bg-gradient-to-br from-success/10 to-transparent" />
@@ -298,13 +300,13 @@ const MemoDetail = () => {
 
   return (
     <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
-      <Link
-        to="/dashboard/memos"
-        className="inline-flex items-center gap-2 text-[10px] font-medium text-muted-foreground/60 hover:text-beige mb-10 transition-colors group"
-      >
-        <ArrowLeft className="h-3 w-3 group-hover:-translate-x-1 transition-transform" />
-        Back to Memos
-      </Link>
+        <Link
+          to="/dashboard/memos"
+          aria-label="Back to memos"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground/60 hover:text-beige hover:bg-beige/10 mb-10 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
 
       <div className={V_PATTERNS.dashboardHeader}>
         <h1 className={THEME_TOKENS.typography.pageTitle}>
@@ -326,7 +328,7 @@ const MemoDetail = () => {
             : extractionFailed
               ? "Extraction failed. Re-extract to continue."
               : !isOwnMemo
-                ? `Recorded by ${memo.authorName || "a teammate"}. Review only.`
+                ? `Recorded by ${memo.authorName || "a teammate"}. Review and sync to CRM.`
               : memo.status === "approved"
                 ? attachedContact
                   ? `Already written to CRM for ${attachedContact}${attachedDeal ? ` · ${attachedDeal}` : ""}. Open later to check or correct.`
@@ -371,11 +373,11 @@ const MemoDetail = () => {
         </div>
       )}
 
-      <div className={`grid gap-8 ${hasExtraction ? "lg:grid-cols-5 items-start" : ""}`}>
+      <div className={`grid gap-8 ${canSeeReview ? "lg:grid-cols-5 items-start" : ""}`}>
         {/* Left: Transcript (full width when pending/extracting, col-span-2 when has extraction) */}
         <div
           className={
-            hasExtraction
+            canSeeReview
               ? "lg:col-span-2 sticky top-20 max-h-[calc(100vh-6rem)] flex flex-col gap-4 self-start overflow-y-auto pr-1 scrollbar-thin"
               : "space-y-6"
           }
@@ -411,7 +413,7 @@ const MemoDetail = () => {
             </div>
           )}
 
-          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${hasExtraction ? "flex-1 min-h-0" : ""}`}>
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${canSeeReview ? "flex-1 min-h-0" : ""}`}>
             <div className="flex items-center justify-between gap-3 mb-6 shrink-0">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
               <div className="flex items-center gap-2">
@@ -446,7 +448,7 @@ const MemoDetail = () => {
                 transcript={memo.transcript}
                 contactName={reviewContactName || extraction.contactName}
                 className={
-                  hasExtraction
+                  canSeeReview
                     ? (memo.audioUrl
                         ? "max-h-[calc(100vh-22rem)] overflow-y-auto pr-2 scrollbar-thin"
                         : "max-h-[calc(100vh-16rem)] overflow-y-auto pr-2 scrollbar-thin")
@@ -462,7 +464,7 @@ const MemoDetail = () => {
         </div>
 
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
-        {hasExtraction && isOwnMemo && (
+        {canSeeReview && (
           <div className="lg:col-span-3 min-w-0">
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
@@ -477,17 +479,6 @@ const MemoDetail = () => {
                 onSuccess={handleSyncSuccess}
                 onContactName={setReviewContactName}
               />
-            </div>
-          </div>
-        )}
-
-        {/* Full-width extracting spinner when no extraction yet */}
-        {hasExtraction && !isOwnMemo && (
-          <div className="lg:col-span-3 min-w-0">
-            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8`}>
-              <p className={THEME_TOKENS.typography.body}>
-                This call belongs to {memo.authorName || "a teammate"}. You can read the transcript; only they can sync it.
-              </p>
             </div>
           </div>
         )}

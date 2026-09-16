@@ -19,6 +19,7 @@ import {
   isCallPollTerminal,
   dispositionMessage,
   isCarrierHangupError,
+  isVoiceSdkGeneralError,
 } from './call-format.js';
 
 describe('formatCallDuration', () => {
@@ -322,6 +323,35 @@ describe('postCallNotice', () => {
     );
   });
 
+  it('hides raw 31000 until DialCallStatus lands', () => {
+    assert.deepEqual(
+      postCallNotice({
+        outcome: 'no_answer',
+        errorMessage: 'UnknownError (31000): General Error',
+      }),
+      { visible: false, text: '' }
+    );
+  });
+
+  it('maps 31000 through DialCallStatus, including failed', () => {
+    assert.deepEqual(
+      postCallNotice({
+        outcome: 'no_answer',
+        disposition: 'no_answer',
+        errorMessage: 'UnknownError (31000): General Error',
+      }),
+      { visible: true, text: 'Sin respuesta' }
+    );
+    assert.deepEqual(
+      postCallNotice({
+        outcome: 'no_answer',
+        disposition: 'failed',
+        errorMessage: 'UnknownError (31000): General Error',
+      }),
+      { visible: true, text: 'Llamada fallida' }
+    );
+  });
+
   it('keeps the TwiML application-error copy when the Voice URL never succeeded', () => {
     assert.deepEqual(
       postCallNotice({
@@ -341,6 +371,15 @@ describe('isCarrierHangupError', () => {
     assert.equal(isCarrierHangupError('31005 ConnectionError: Error sent from Gateway in HANGUP'), true);
     assert.equal(isCarrierHangupError({ code: 31005, message: 'Connection error' }), true);
     assert.equal(isCarrierHangupError('Application error'), false);
+    assert.equal(isCarrierHangupError('UnknownError (31000): General Error'), false);
+  });
+});
+
+describe('isVoiceSdkGeneralError', () => {
+  it('matches Voice JS SDK UnknownError 31000', () => {
+    assert.equal(isVoiceSdkGeneralError('UnknownError (31000): General Error'), true);
+    assert.equal(isVoiceSdkGeneralError({ code: 31000 }), true);
+    assert.equal(isVoiceSdkGeneralError('31005 ConnectionError: Error sent from Gateway in HANGUP'), false);
   });
 });
 
@@ -604,6 +643,32 @@ describe('applyCallPoll', () => {
     assert.equal(next.disposition, 'busy');
     assert.equal(next.errorMessage, null);
     assert.equal(next.processing, false);
+  });
+
+  it('replaces SDK 31000 with DialCallStatus, including failed', () => {
+    const missed = applyCallPoll(
+      {
+        callSid: 'CA1',
+        outcome: 'no_answer',
+        errorMessage: 'UnknownError (31000): General Error',
+        processing: false,
+      },
+      { callDisposition: 'no_answer', status: 'logged', errorMessage: null },
+    );
+    assert.equal(missed.disposition, 'no_answer');
+    assert.equal(missed.errorMessage, null);
+    const failed = applyCallPoll(
+      {
+        callSid: 'CA2',
+        outcome: 'no_answer',
+        errorMessage: 'UnknownError (31000): General Error',
+        processing: false,
+      },
+      { callDisposition: 'failed', status: 'logged', errorMessage: null },
+    );
+    assert.equal(failed.disposition, 'failed');
+    assert.equal(failed.errorMessage, null);
+    assert.deepEqual(postCallNotice(failed), { visible: true, text: 'Llamada fallida' });
   });
 
   it('keeps polling when HubSpot logs the call before extraction finishes', () => {

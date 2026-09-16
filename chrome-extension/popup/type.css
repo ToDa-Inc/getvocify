@@ -107,11 +107,65 @@
   text-overflow: ellipsis;
 }
 
+.icon-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--foreground);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.icon-back:hover {
+  border-color: var(--beige);
+  color: var(--beige-dark);
+}
+
+.header-with-back {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.transcript-modal-header .icon-back {
+  margin-bottom: 10px;
+}
+
+.activity-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.activity-return-record {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--beige);
+  cursor: pointer;
+}
+
+.activity-return-record:hover {
+  color: var(--beige-dark);
+}
+
 .activity-author-filter {
   display: none;
   align-items: center;
   gap: 8px;
-  margin: 0 0 10px;
+  margin: 0;
 }
 
 .activity-author-select-label {

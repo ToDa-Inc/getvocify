@@ -1504,6 +1504,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(e => sendResponse({ error: e.message }));
       return true;
 
+    case 'GET_INBOX_RECORDINGS':
+      api.get('/crm/hubspot/recordings?limit=20')
+        .then((items) => sendResponse(Array.isArray(items) ? items : []))
+        .catch((e) => sendResponse({ error: e.message }));
+      return true;
+
     case 'GET_RECENT_MEMOS': {
       const params = new URLSearchParams();
       if (message.dealId) params.set('hubspot_deal_id', String(message.dealId));

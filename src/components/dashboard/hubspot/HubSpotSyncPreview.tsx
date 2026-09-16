@@ -49,6 +49,9 @@ interface HubSpotSyncPreviewProps {
   callSummary?: string | null;
   /** Memo already synced (manual Approve or skip-Approve write). */
   alreadyWritten?: boolean;
+  /** Owner/admin viewing a teammate memo — show fields and note, do not sync. */
+  readOnly?: boolean;
+  reviewAuthorName?: string | null;
   onSuccess: (data: any) => void;
   onContactName?: (name: string | null) => void;
 }
@@ -114,6 +117,8 @@ export const HubSpotSyncPreview = ({
   previewRefreshKey = "default",
   callSummary = "",
   alreadyWritten = false,
+  readOnly = false,
+  reviewAuthorName = null,
   onContactName,
 }: HubSpotSyncPreviewProps) => {
   const { user } = useAuth();
@@ -556,7 +561,7 @@ export const HubSpotSyncPreview = ({
   const contactCandidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
   const fallbackName = String(fallbackContactName || "").trim();
   const displayContactName = selectedContact?.name || selectedContact?.email || fallbackName;
-  const showContactPicker = contactPickerOpen || !displayContactName;
+  const showContactPicker = !readOnly && (contactPickerOpen || !displayContactName);
   const needsContactDecision = !selectedContact && contactCandidates.length > 0 && !displayContactName;
   const skipDeal = !!preview?.skip_deal || isSkipDealRequested;
   const dealMatch = preview?.selected_deal;
@@ -591,6 +596,7 @@ export const HubSpotSyncPreview = ({
   };
 
   const handleSync = async () => {
+    if (readOnly) return;
     setSyncing(true);
     try {
       const extraction = await buildExtractionForSync();
@@ -674,6 +680,7 @@ export const HubSpotSyncPreview = ({
             Processing may have failed or is still in progress. If you have a transcript, try Re-extract to run the AI
             extraction again.
           </p>
+          {!readOnly ? (
           <Button
             onClick={handleReExtract}
             disabled={reExtracting}
@@ -683,6 +690,7 @@ export const HubSpotSyncPreview = ({
             {reExtracting ? <VocifySpinner size={16} className="mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             {reExtracting ? "Re-extracting..." : "Re-extract"}
           </Button>
+          ) : null}
         </div>
       </div>
     );
@@ -708,7 +716,7 @@ export const HubSpotSyncPreview = ({
             <User className="h-4 w-4 text-beige" />
             <h5 className={THEME_TOKENS.typography.capsLabel}>Contact</h5>
           </div>
-          {displayContactName && !contactPickerOpen && (
+          {displayContactName && !contactPickerOpen && !readOnly && (
             <Button
               variant="ghost"
               size="sm"
@@ -878,7 +886,7 @@ export const HubSpotSyncPreview = ({
               {displayContactName ? "Deal Target (optional)" : "Deal Target"}
             </h5>
           </div>
-          {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
+          {!readOnly && !dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
             <Button
               variant="ghost"
               size="sm"
@@ -892,7 +900,7 @@ export const HubSpotSyncPreview = ({
         </div>
 
         {/* Deal Picker Drawer (Search + Matched Deals + Create New + Contact Only) */}
-        {(dealPickerOpen || (needsDealDecision && !dealDecisionMade)) && (
+        {!readOnly && (dealPickerOpen || (needsDealDecision && !dealDecisionMade)) && (
           <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/30 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-medium text-foreground">
@@ -1113,7 +1121,7 @@ export const HubSpotSyncPreview = ({
             <h5 className={THEME_TOKENS.typography.sectionRail}>Fields</h5>
             {isSwitchingTarget && <VocifySpinner size={13} className="text-beige" />}
           </div>
-          {availableFields.length > 0 && !loading && (
+          {availableFields.length > 0 && !loading && !readOnly && (
             <Button
               variant="ghost"
               size="sm"
@@ -1277,7 +1285,7 @@ export const HubSpotSyncPreview = ({
                       )}
                     </div>
 
-                    {canEditRow && !isEditing && (
+                    {canEditRow && !isEditing && !readOnly && (
                       <div className="flex items-center gap-1 shrink-0 pt-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
                         <Button
                           variant="ghost"
@@ -1307,6 +1315,12 @@ export const HubSpotSyncPreview = ({
 
       {/* 5. SYNC ACTION BUTTON */}
       <div className="pt-4 border-t border-border/40">
+        {readOnly ? (
+          <p className={THEME_TOKENS.typography.body}>
+            This call belongs to {reviewAuthorName || "a teammate"}. You can read the note and fields; only they can sync it.
+          </p>
+        ) : (
+          <>
         <Button
           variant="hero"
           onClick={handleSync}
@@ -1338,6 +1352,8 @@ export const HubSpotSyncPreview = ({
             Calls, notes, and tasks log in HubSpot as {loggedAs}. Existing contact owners stay put.
           </p>
         ) : null}
+          </>
+        )}
       </div>
     </div>
   );

@@ -14,6 +14,9 @@
     <!-- 1. RECORD SCREEN (Idle/Recording) -->
     <div id="screen-record" class="screen" style="display: none;">
       <div class="header">
+        <button type="button" id="header-idle-back" class="icon-back" style="display: none;" aria-label="All activity">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+        </button>
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
         <div class="header-context">
           <p id="record-header-kicker" class="header-kicker"></p>
@@ -114,13 +117,16 @@
       </div>
 
       <div id="record-activity" class="record-activity" style="display: none;">
-        <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;">Activity</p>
-        <div id="activity-author-filter" class="activity-author-filter" style="display: none;">
-          <span class="activity-author-select-label">Show</span>
-          <div id="activity-author-select-shell" class="activity-author-select-shell">
-            <button type="button" id="activity-author-trigger" class="activity-author-trigger" aria-haspopup="listbox" aria-expanded="false">Mine</button>
-            <span class="activity-author-chevron" aria-hidden="true">▾</span>
-            <div id="activity-author-dropdown" class="activity-author-dropdown" role="listbox"></div>
+        <div class="activity-toolbar">
+          <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;">Activity</p>
+          <button type="button" id="activity-return-record" class="activity-return-record" style="display: none;">This contact</button>
+          <div id="activity-author-filter" class="activity-author-filter" style="display: none;">
+            <span class="activity-author-select-label">Show</span>
+            <div id="activity-author-select-shell" class="activity-author-select-shell">
+              <button type="button" id="activity-author-trigger" class="activity-author-trigger" aria-haspopup="listbox" aria-expanded="false">Mine</button>
+              <span class="activity-author-chevron" aria-hidden="true">▾</span>
+              <div id="activity-author-dropdown" class="activity-author-dropdown" role="listbox"></div>
+            </div>
           </div>
         </div>
         <div id="recordings-section" class="recordings-section" style="display: none;">
@@ -149,7 +155,10 @@
 
     <!-- 2. PROCESSING SCREEN (transcribing OR extracting - text updated dynamically) -->
     <div id="screen-processing" class="screen" style="display: none;">
-      <div class="header">
+      <div class="header header-with-back">
+        <button type="button" id="processing-header-back" class="icon-back" aria-label="Back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+        </button>
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo">
         <p class="subtitle" id="processing-subtitle">Working</p>
       </div>
@@ -159,13 +168,16 @@
         </div>
         <h2 class="title-large" id="processing-title">Extracting fields</h2>
         <p class="body-muted processing-message-live" id="processing-message">Filling in the fields…</p>
-        <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="margin-top: 20px;">Back</button>
+        <button type="button" id="processing-cancel-button" class="btn btn-secondary" style="display: none;">Back</button>
       </div>
     </div>
 
     <!-- 3. REVIEW SCREEN - Single flow: Deal + Proposed Changes + Transcript -->
     <div id="screen-review" class="screen" style="display: none;">
       <div class="header-review">
+        <button type="button" id="review-header-back" class="icon-back" aria-label="Back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+        </button>
         <img src="../icons/logo_transparent.png" alt="Vocify" class="logo-small">
         <div class="header-review-text">
           <p class="subtitle" id="review-step-label">Review</p>
@@ -185,6 +197,9 @@
       <div id="pending-transcript-section" class="transcript-modal" style="display: none;">
         <div class="transcript-modal-sheet">
           <div class="transcript-modal-header">
+            <button type="button" id="review-discard-btn" class="icon-back" aria-label="Back">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+            </button>
             <p class="transcript-modal-kicker">Step 1 of 2</p>
             <h2 class="transcript-modal-title">Review transcript</h2>
             <p id="transcript-timing" class="transcript-timing" style="display: none;"></p>
@@ -199,7 +214,6 @@
           <textarea id="transcript-content" class="transcript-content-sr" aria-hidden="true" tabindex="-1"></textarea>
 
           <div class="transcript-modal-footer">
-            <button id="review-discard-btn" class="btn btn-secondary" type="button">Discard</button>
             <button id="review-confirm-transcript-btn" class="btn btn-primary" type="button">Extract &amp; Continue</button>
           </div>
         </div>
@@ -237,7 +251,7 @@
             <button id="btn-change-deal" class="text-btn">Choose deal</button>
           </div>
           <div id="use-page-record-option" class="use-current-deal-option" style="display: none;">
-            <p class="use-page-record-hint">This review stays on the record you started. Discard or sync to finish, or move it.</p>
+            <p class="use-page-record-hint">This review stays on the record you started. Back or sync to finish, or move it.</p>
             <button type="button" id="btn-use-page-record" class="btn-use-current-deal">Use record on this page</button>
           </div>
           <div id="deal-decision-box" class="deal-decision-box" style="display: none;">
@@ -298,8 +312,8 @@
       </div>
 
       <div class="actions-fixed" id="review-actions" style="display: none;">
-        <div id="review-proposed-actions" class="review-step-actions review-step-actions-row">
-          <button id="discard-button" class="btn btn-secondary">Discard</button>
+        <div id="review-proposed-actions" class="review-step-actions">
+          <button id="discard-button" class="btn btn-secondary" style="display: none;">Back</button>
           <button id="approve-sync-button" class="btn btn-primary">Confirm & Update CRM</button>
         </div>
       </div>

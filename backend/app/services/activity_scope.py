@@ -104,6 +104,27 @@ def memo_readable_by(
     return bool(can_view_company_activity(viewer_role) and same_company)
 
 
+def readable_memo_or_none(
+    memo_data: Optional[dict],
+    *,
+    viewer_id: str,
+    viewer_role: Optional[str],
+    member_ids: list[str],
+) -> Optional[dict]:
+    """Return the memo row when the viewer may read it; else None."""
+    if not memo_data:
+        return None
+    owner_id = str(memo_data.get("user_id") or "")
+    if not memo_readable_by(
+        viewer_id=viewer_id,
+        owner_user_id=owner_id,
+        viewer_role=viewer_role,
+        same_company=owner_id in set(member_ids),
+    ):
+        return None
+    return memo_data
+
+
 def invert_hubspot_owners(meta: Optional[dict]) -> dict[str, str]:
     """HubSpot owner id → Vocify user id from connection metadata."""
     owners = (meta or {}).get("hubspot_owners")

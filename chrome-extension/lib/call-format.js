@@ -131,6 +131,16 @@ export function isCarrierHangupError(error) {
   return /\b31005\b/.test(text) || /error sent from gateway in hangup/i.test(text);
 }
 
+/**
+ * Voice JS SDK maps a gateway HANGUP `{code:31000,message:General Error}` to
+ * UnknownError. Same string for Dial timeout and for PSTN `failed` (e.g. 13227).
+ * Hide the raw SDK copy; map from DialCallStatus instead.
+ */
+export function isVoiceSdkGeneralError(error) {
+  if (error && typeof error === 'object' && Number(error.code) === 31000) return true;
+  return /\b31000\b/.test(String(error || ''));
+}
+
 /** Same busy copy as HubSpot rows (`src/lib/recordings.ts`) and memo rows. */
 function isScreenedOut(outcome) {
   const value = String(outcome || '').trim();
@@ -318,6 +328,9 @@ export function postCallNotice(lastCall) {
   const error = String(lastCall.errorMessage || '');
   if (isCarrierHangupError(error)) {
     return { visible: true, text: 'Sin respuesta' };
+  }
+  if (isVoiceSdkGeneralError(error)) {
+    return { visible: false, text: '' };
   }
   if (/application error/i.test(error)) {
     return { visible: true, text: 'Twilio no alcanzó el servidor' };

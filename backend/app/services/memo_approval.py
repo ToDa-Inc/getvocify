@@ -20,6 +20,11 @@ from app.services.crm_providers import (
 )
 from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
+from app.services.activity_scope import (
+    company_user_ids,
+    load_viewer_scope,
+    readable_memo_or_none,
+)
 from app.services.hubspot.types import SyncResult
 
 logger = logging.getLogger(__name__)
@@ -52,18 +57,17 @@ async def approve_memo_core(
     Approve memo and sync to CRM (if connected).
     Idempotent: returns existing result if already approved with same extraction.
     """
-    memo_result = (
-        supabase.table("memos")
-        .select("*")
-        .eq("id", memo_id)
-        .eq("user_id", user_id)
-        .single()
-        .execute()
+    memo_result = supabase.table("memos").select("*").eq("id", memo_id).execute()
+    rows = memo_result.data or []
+    membership, members, _authors = load_viewer_scope(supabase, user_id)
+    memo_data = readable_memo_or_none(
+        rows[0] if rows else None,
+        viewer_id=user_id,
+        viewer_role=membership.role if membership else None,
+        member_ids=company_user_ids(members),
     )
-    if not memo_result.data:
+    if not memo_data:
         raise ValueError("Memo not found")
-
-    memo_data = memo_result.data
     extraction_data = (
         payload.extraction.model_dump() if payload and payload.extraction
         else memo_data.get("extraction")

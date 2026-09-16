@@ -6,6 +6,7 @@ from app.services.activity_scope import (
     can_view_company_activity,
     invert_hubspot_owners,
     memo_readable_by,
+    readable_memo_or_none,
     resolve_list_user_ids,
     should_apply_author_recording_filter,
     visible_recordings_for_viewer,
@@ -96,6 +97,28 @@ def test_memo_readable_by_owner_same_company():
         viewer_role="member",
         same_company=True,
     )
+
+
+def test_readable_memo_or_none_lets_admin_read_teammate_row():
+    row = {"id": "m1", "user_id": "rep"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="owner",
+        viewer_role="admin",
+        member_ids=["owner", "rep"],
+    ) is row
+    assert readable_memo_or_none(
+        row,
+        viewer_id="other-admin",
+        viewer_role="admin",
+        member_ids=["other-admin", "other-rep"],
+    ) is None
+    assert readable_memo_or_none(
+        row,
+        viewer_id="rep-b",
+        viewer_role="member",
+        member_ids=["rep", "rep-b"],
+    ) is None
 
 
 def test_invert_hubspot_owners_ignores_legacy_key():

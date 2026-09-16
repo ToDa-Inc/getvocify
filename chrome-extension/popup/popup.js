@@ -76,6 +76,10 @@ import {
   nextVisibleCount,
   shouldFetchVocifyMemos,
   shouldShowActivityKicker,
+  activityListContext,
+  shouldShowActivityInboxBack,
+  shouldShowReturnToRecord,
+  thisRecordScopeLabel,
   activityListKey,
   liveCopyKey,
   nextPaintMode,
@@ -212,6 +216,9 @@ let lastLiveCopyKey = null;
 let lastActivityListKey = null;
 let recordingsVisibleCount = RECORDINGS_PAGE_SIZE;
 let lastRecordingsScopeKey = null;
+let activityInboxOverride = false;
+let inboxRecordingsCache = [];
+let inboxRecordingsLoaded = false;
 
 function getRecentMemosScope(context) {
   if (context?.objectType === 'deal' && context?.recordId) {
@@ -249,6 +256,9 @@ function enterLoggedOut() {
   currentUser = null;
   companyAuthors = [];
   activityAuthorFilter = '';
+  activityInboxOverride = false;
+  inboxRecordingsCache = [];
+  inboxRecordingsLoaded = false;
   stopIdleContextPoll();
   stopTranscriptPolishPoll();
   stopSessionHeartbeat();
@@ -565,6 +575,10 @@ function setIdleListsHidden() {
   if (kicker) kicker.style.display = 'none';
   if (showMore) showMore.style.display = 'none';
   if (filter) filter.style.display = 'none';
+  const inboxBack = document.getElementById('header-idle-back');
+  const returnRecord = document.getElementById('activity-return-record');
+  if (inboxBack) inboxBack.style.display = 'none';
+  if (returnRecord) returnRecord.style.display = 'none';
 }
 
 function activityAuthorChipsStamp(chips) {
@@ -653,13 +667,17 @@ function renderActivityAuthorFilter(visible) {
   syncActivityAuthorFilterLabel(chips);
 }
 
+function listActivityContext(state) {
+  return activityListContext(state?.context, activityInboxOverride);
+}
+
 function filteredActivityItems(state) {
   return filterActivityByAuthor(
     mergeActivityItems({
-      recordings: state?.recordings || [],
+      recordings: activityInboxOverride ? inboxRecordingsCache : (state?.recordings || []),
       memos: recentMemosCache,
-      outboundCalls: outboundCallsCache,
-      lastCall: state?.lastCall || null,
+      outboundCalls: activityInboxOverride ? [] : outboundCallsCache,
+      lastCall: activityInboxOverride ? null : (state?.lastCall || null),
     }),
     activityAuthorFilter || null,
   );
@@ -692,9 +710,12 @@ function syncActivityEmptyState(state) {
     return;
   }
   const items = filteredActivityItems(state);
-  const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
-  const loading = Boolean(state.recordingsLoading || memosLoading);
-  const msg = activityEmptyMessage(state.context, {
+  const listContext = listActivityContext(state);
+  const memosLoading = shouldFetchVocifyMemos(listContext) && !recentMemosLoaded;
+  const loading = Boolean(
+    (activityInboxOverride ? !inboxRecordingsLoaded : state.recordingsLoading) || memosLoading,
+  );
+  const msg = activityEmptyMessage(listContext, {
     itemCount: items.length,
     loading,
     authorLabel: selectedActivityAuthorLabel(),
@@ -718,7 +739,66 @@ function syncRecordActivityVisibility() {
   const recOn = rec && rec.style.display !== 'none';
   const emptyOn = empty && empty.style.display !== 'none';
   const filterOn = filter && filter.style.display !== 'none';
-  wrap.style.display = recOn || emptyOn || filterOn ? 'block' : 'none';
+  const returnRecord = document.getElementById('activity-return-record');
+  const scopeOn = returnRecord && returnRecord.style.display !== 'none';
+  wrap.style.display = recOn || emptyOn || filterOn || scopeOn ? 'block' : 'none';
+}
+
+function renderActivityScopeControls(pageContext) {
+  const backBtn = document.getElementById('header-idle-back');
+  const returnBtn = document.getElementById('activity-return-record');
+  if (backBtn) {
+    backBtn.style.display = shouldShowActivityInboxBack(pageContext, activityInboxOverride)
+      ? 'inline-flex'
+      : 'none';
+  }
+  if (returnBtn) {
+    const show = shouldShowReturnToRecord(pageContext, activityInboxOverride);
+    returnBtn.style.display = show ? '' : 'none';
+    if (show) returnBtn.textContent = thisRecordScopeLabel(pageContext);
+  }
+}
+
+async function loadInboxRecordings() {
+  inboxRecordingsLoaded = false;
+  try {
+    const items = await chrome.runtime.sendMessage({ type: 'GET_INBOX_RECORDINGS' });
+    inboxRecordingsCache = Array.isArray(items) ? items : [];
+  } catch (e) {
+    inboxRecordingsCache = [];
+    console.error('[Popup] Failed to load inbox recordings:', e);
+  }
+  inboxRecordingsLoaded = true;
+  if (lastBgState) renderRecordingsSection(lastBgState);
+}
+
+function setActivityInboxOverride(on) {
+  const next = Boolean(on);
+  if (next === activityInboxOverride) return;
+  activityInboxOverride = next;
+  lastActivityListKey = null;
+  recordingsVisibleCount = RECORDINGS_PAGE_SIZE;
+  recentMemosLoaded = false;
+  recentMemosCache = [];
+  outboundCallsCache = [];
+  recentMemosScopeKey = null;
+  recentMemosFetchGen += 1;
+  if (next) {
+    inboxRecordingsCache = [];
+    inboxRecordingsLoaded = false;
+    loadInboxRecordings();
+  }
+  if (!lastBgState) return;
+  const listContext = listActivityContext(lastBgState);
+  const scope = getRecentMemosScope(listContext);
+  recentMemosScopeKey = scope.key;
+  if (!scope.skip && shouldFetchVocifyMemos(listContext)) {
+    loadRecentMemos(scope);
+  } else {
+    recentMemosLoaded = true;
+  }
+  if (!next) loadOutboundCalls(lastBgState.context);
+  renderRecordingsSection(lastBgState);
 }
 
 function getRecordDisplayName(context) {
@@ -959,21 +1039,30 @@ function renderRecordingsSection(state) {
 
   const items = filteredActivityItems(state);
   const idle = state.status === 'idle';
-  const memosLoading = shouldFetchVocifyMemos(state.context) && !recentMemosLoaded;
-  const loading = Boolean(state.recordingsLoading || memosLoading);
+  const listContext = listActivityContext(state);
+  const memosLoading = shouldFetchVocifyMemos(listContext) && !recentMemosLoaded;
+  const loading = Boolean(
+    (activityInboxOverride ? !inboxRecordingsLoaded : state.recordingsLoading) || memosLoading,
+  );
   const showFilter = idle && shouldShowActivityAuthorFilter(currentUser);
   const scopeKey = recordingsScopeKey(state.context);
   if (scopeKey !== lastRecordingsScopeKey) {
     lastRecordingsScopeKey = scopeKey;
     recordingsVisibleCount = RECORDINGS_PAGE_SIZE;
     lastActivityListKey = null;
+    if (activityInboxOverride) {
+      activityInboxOverride = false;
+      inboxRecordingsCache = [];
+      inboxRecordingsLoaded = false;
+    }
   }
+  renderActivityScopeControls(state.context);
 
   section.style.display = idle && (items.length > 0 || loading || showFilter) ? 'block' : 'none';
   if (watchRow) watchRow.style.display = 'none';
   if (kicker) {
     kicker.textContent = activityKickerLabel();
-    kicker.style.display = idle && shouldShowActivityKicker(state.context, {
+    kicker.style.display = idle && shouldShowActivityKicker(listContext, {
       itemCount: items.length,
       loading,
     }) ? 'block' : 'none';
@@ -1014,6 +1103,8 @@ function renderRecordingsSection(state) {
     visibleCount: recordingsVisibleCount,
     memosLoading,
     authorFilter: activityAuthorFilter,
+    inboxOverride: activityInboxOverride,
+    inboxStamp: inboxRecordingsCache.map((r) => `${r?.call_id || ''}:${r?.memo_id || ''}:${r?.memo_status || ''}`).join(','),
   });
   if (showMoreBtn) {
     showMoreBtn.style.display = items.length > recordingsVisibleCount ? '' : 'none';
@@ -1350,7 +1441,8 @@ function renderState(state) {
       syncPageRecordScope(state.context);
       renderListenButton(state);
       renderCopilotCard(state);
-      const scope = getRecentMemosScope(state.context);
+      const listContext = listActivityContext(state);
+      const scope = getRecentMemosScope(listContext);
       const scopeChanged = scope.key !== recentMemosScopeKey;
       if (scopeChanged) {
         recentMemosScopeKey = scope.key;
@@ -1359,12 +1451,12 @@ function renderState(state) {
         outboundCallsCache = [];
         recentMemosFetchGen += 1;
       }
-      if (scope.skip || !shouldFetchVocifyMemos(state.context)) {
+      if (scope.skip || !shouldFetchVocifyMemos(listContext)) {
         recentMemosLoaded = true;
         recentMemosCache = [];
       }
       renderRecordingsSection(state);
-      if (!scope.skip && shouldFetchVocifyMemos(state.context) && (lastRenderedStatus !== 'idle' || !recentMemosLoaded || scopeChanged)) {
+      if (!scope.skip && shouldFetchVocifyMemos(listContext) && (lastRenderedStatus !== 'idle' || !recentMemosLoaded || scopeChanged)) {
         loadRecentMemos(scope);
       }
       startIdleContextPoll();
@@ -1502,7 +1594,7 @@ function applyReviewLayout(mode, message = '') {
       ? (message || 'Could not load this review.')
       : (message || 'Opening review…');
   }
-  if (loadingBack) loadingBack.style.display = mode === 'error' ? '' : 'none';
+  if (loadingBack) loadingBack.style.display = 'none';
 
   if (stepLabel) {
     if (mode === 'pending_transcript') stepLabel.textContent = 'Review transcript';
@@ -1998,7 +2090,7 @@ async function loadRecentMemos(scope) {
   const resolved = scope || getRecentMemosScope(null);
   const gen = ++recentMemosFetchGen;
 
-  if (resolved.skip || !shouldFetchVocifyMemos(lastBgState?.context)) {
+  if (resolved.skip || !shouldFetchVocifyMemos(listActivityContext(lastBgState))) {
     recentMemosLoaded = true;
     recentMemosCache = [];
     if (lastBgState) renderRecordingsSection(lastBgState);
@@ -3778,22 +3870,31 @@ document.getElementById('copilot-note-view')?.addEventListener('blur', () => {
   renderCopilotNoteView({ force: true });
 });
 
-document.getElementById('processing-cancel-button')?.addEventListener('click', () => {
+function leaveReviewToIdle() {
+  chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
+}
+
+function leaveProcessingToIdle() {
   chrome.runtime.sendMessage({
     type: 'SET_STATE',
     state: { status: 'idle' },
   });
-});
-document.getElementById('review-loading-back')?.addEventListener('click', () => {
-  chrome.runtime.sendMessage({
-    type: 'SET_STATE',
-    state: { status: 'idle' },
-  });
-});
+}
+
+document.getElementById('processing-cancel-button')?.addEventListener('click', leaveProcessingToIdle);
+document.getElementById('processing-header-back')?.addEventListener('click', leaveProcessingToIdle);
+document.getElementById('review-loading-back')?.addEventListener('click', leaveReviewToIdle);
 
 document.getElementById('recordings-stop-watch')?.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'STOP_CALL_WATCH' });
   chrome.runtime.sendMessage({ type: 'GET_STATE' }).then((s) => renderState(s));
+});
+document.getElementById('header-idle-back')?.addEventListener('click', () => {
+  setActivityInboxOverride(true);
+});
+document.getElementById('review-header-back')?.addEventListener('click', leaveReviewToIdle);
+document.getElementById('activity-return-record')?.addEventListener('click', () => {
+  setActivityInboxOverride(false);
 });
 document.getElementById('recordings-show-more')?.addEventListener('click', () => {
   const total = mergeActivityItems({
@@ -3807,9 +3908,7 @@ document.getElementById('recordings-show-more')?.addEventListener('click', () =>
 });
 
 // Discard button (step 2)
-document.getElementById('discard-button')?.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
-});
+document.getElementById('discard-button')?.addEventListener('click', leaveReviewToIdle);
 
 // Review - confirm transcript (Extract & Continue)
 document.getElementById('review-confirm-transcript-btn')?.addEventListener('click', async function () {
@@ -3897,9 +3996,7 @@ document.getElementById('review-confirm-transcript-btn')?.addEventListener('clic
 });
 
 // Discard from pending transcript
-document.getElementById('review-discard-btn')?.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'DISCARD_MEMO' });
-});
+document.getElementById('review-discard-btn')?.addEventListener('click', leaveReviewToIdle);
 
 // Retry extraction
 document.getElementById('retry-extraction-btn')?.addEventListener('click', async function () {

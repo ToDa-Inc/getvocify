@@ -13,6 +13,10 @@ import {
   nextVisibleCount,
   shouldFetchVocifyMemos,
   shouldShowActivityKicker,
+  activityListContext,
+  shouldShowActivityInboxBack,
+  shouldShowReturnToRecord,
+  thisRecordScopeLabel,
   idleScreenKey,
   shouldSkipIdlePaint,
   uiChromeKey,
@@ -91,6 +95,21 @@ describe('activityEmptyMessage', () => {
       activityEmptyMessage(null, { itemCount: 0, authorLabel: 'you' }),
       'No activity from you yet.',
     );
+  });
+});
+
+describe('activity inbox override', () => {
+  const contact = { objectType: 'contact', recordId: 'C1' };
+
+  it('treats an override as inbox without changing the HubSpot page', () => {
+    assert.equal(activityListContext(contact, true), null);
+    assert.deepEqual(activityListContext(contact, false), contact);
+    assert.equal(shouldShowActivityInboxBack(contact, false), true);
+    assert.equal(shouldShowActivityInboxBack(contact, true), false);
+    assert.equal(shouldShowReturnToRecord(contact, true), true);
+    assert.equal(shouldShowReturnToRecord(null, true), false);
+    assert.equal(thisRecordScopeLabel(contact), 'This contact');
+    assert.equal(thisRecordScopeLabel({ objectType: 'deal', recordId: 'D1' }), 'This deal');
   });
 });
 

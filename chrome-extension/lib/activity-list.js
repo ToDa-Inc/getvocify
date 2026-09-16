@@ -13,6 +13,26 @@ export function isRecordPageContext(context) {
   );
 }
 
+/** Pin the activity list to inbox while the HubSpot tab stays on a record. */
+export function activityListContext(pageContext, inboxOverride) {
+  return inboxOverride ? null : pageContext || null;
+}
+
+export function shouldShowActivityInboxBack(pageContext, inboxOverride) {
+  return isRecordPageContext(pageContext) && !inboxOverride;
+}
+
+export function shouldShowReturnToRecord(pageContext, inboxOverride) {
+  return isRecordPageContext(pageContext) && Boolean(inboxOverride);
+}
+
+export function thisRecordScopeLabel(context) {
+  if (!isRecordPageContext(context)) return 'This record';
+  if (context.objectType === 'deal') return 'This deal';
+  if (context.objectType === 'company') return 'This company';
+  return 'This contact';
+}
+
 /** Company memos have no hubspot_company_id column — skip unscoped global memos. */
 export function shouldFetchVocifyMemos(context) {
   if (context?.objectType === 'company' && context.recordId) return false;
@@ -204,10 +224,12 @@ export function activityListKey(state, {
   memosLoading = false,
   outboundStamp = '',
   authorFilter = '',
+  inboxOverride = false,
+  inboxStamp = '',
 } = {}) {
-  const recs = recordingStamp(state);
+  const recs = inboxOverride ? inboxStamp : recordingStamp(state);
   const emptyList = !recs && !memoStamp && !outboundStamp;
-  const loading = Boolean(state?.recordingsLoading || memosLoading);
+  const loading = Boolean((inboxOverride ? false : state?.recordingsLoading) || memosLoading);
   return [
     recs,
     memoStamp,
@@ -215,6 +237,7 @@ export function activityListKey(state, {
     String(visibleCount || 5),
     emptyList && loading ? '1' : '0',
     authorFilter || '',
+    inboxOverride ? 'inbox' : '',
   ].join('|');
 }
 

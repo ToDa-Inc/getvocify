@@ -18,6 +18,7 @@ from app.services.activity_scope import (
     company_user_ids,
     load_viewer_scope,
     memo_readable_by,
+    readable_memo_or_none,
     resolve_list_user_ids,
 )
 from app.services.storage import StorageService
@@ -53,6 +54,24 @@ _DEAL_STAGE_INFERENCE_HINT = (
     "Only set this if the conversation clearly implies a stage; return null rather "
     "than guessing."
 )
+
+
+def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict:
+    result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
+    rows = result.data or []
+    membership, members, _authors = load_viewer_scope(supabase, user_id)
+    memo_data = readable_memo_or_none(
+        rows[0] if rows else None,
+        viewer_id=user_id,
+        viewer_role=membership.role if membership else None,
+        member_ids=company_user_ids(members),
+    )
+    if not memo_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    return memo_data
 
 
 async def _curated_field_specs_for_primary_crm(
@@ -983,17 +1002,8 @@ async def approve_memo(
     3. Push to CRM (create/update deal, contact, etc.)
     4. Create CRM update records for audit trail
     """
-    # Get memo
-    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
-    
-    if not memo_result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found"
-        )
-    
-    memo_data = memo_result.data
-    
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
+
     # Use provided extraction (if edited) or stored extraction
     if payload and payload.extraction:
         extraction_data = payload.extraction.model_dump()
@@ -1228,16 +1238,8 @@ async def get_approval_preview(
     if contact_id == "":
         contact_id = None
 
-    # Get memo
-    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
-    
-    if not memo_result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found",
-        )
-    
-    memo_data = memo_result.data
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
+
     if not deal_id and not create_new_deal:
         deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
     if not contact_id:
@@ -1415,11 +1417,7 @@ async def post_approval_preview(
     if contact_id == "":
         contact_id = None
 
-    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
-    if not memo_result.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo not found")
-
-    memo_data = memo_result.data
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
     if not deal_id and not create_new_deal:
         deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
     if not contact_id:
