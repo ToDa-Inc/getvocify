@@ -3,7 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CRMConfiguration } from "@/lib/api/crm";
-import { DEFAULT_PIPEDRIVE_CONFIG, loadPipedriveSetup } from "@/lib/api/pipedrive-setup";
+import {
+  DEFAULT_PIPEDRIVE_CONFIG,
+  loadPipedriveSetup,
+  type PipedriveObjectTab,
+} from "@/lib/api/pipedrive-setup";
 import { toast } from "sonner";
 import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, RefreshCw } from "lucide-react";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
@@ -16,7 +20,19 @@ interface PipedriveConfigurationProps {
   readOnly?: boolean;
 }
 
-const RECOMMENDED_FIELDS = ["title", "value", "currency", "expected_close_date", "stage_id"];
+type ObjectTab = PipedriveObjectTab;
+
+const OBJECT_TABS: { id: ObjectTab; label: string; configKey: keyof CRMConfiguration }[] = [
+  { id: "deals", label: "Deals", configKey: "allowed_deal_fields" },
+  { id: "contacts", label: "People", configKey: "allowed_contact_fields" },
+  { id: "companies", label: "Organizations", configKey: "allowed_company_fields" },
+];
+
+const RECOMMENDED_BY_OBJECT: Record<ObjectTab, string[]> = {
+  deals: ["title", "value", "currency", "expected_close_date", "stage_id"],
+  contacts: ["name", "emails", "phones"],
+  companies: ["name"],
+};
 
 export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveConfigurationProps) => {
   const queryClient = useQueryClient();
@@ -27,6 +43,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
   });
 
   const [draft, setDraft] = useState<CRMConfiguration | null>(null);
+  const [activeTab, setActiveTab] = useState<ObjectTab>("deals");
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -34,7 +51,11 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
 
   const config = draft ?? data?.config ?? DEFAULT_PIPEDRIVE_CONFIG;
   const pipelines = data?.pipelines ?? [];
-  const dealSchema = data?.dealSchema ?? null;
+  const schemas = data?.schemas ?? {};
+  const activeConfigKey = OBJECT_TABS.find((t) => t.id === activeTab)!.configKey;
+  const selectedFields = (config[activeConfigKey] as string[]) || [];
+  const activeSchema = schemas[activeTab];
+  const recommended = RECOMMENDED_BY_OBJECT[activeTab];
 
   const setConfig = (updater: CRMConfiguration | ((prev: CRMConfiguration) => CRMConfiguration)) => {
     setDraft((prev) => {
@@ -75,17 +96,17 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
   };
 
   const filteredProperties = useMemo(() => {
-    if (!dealSchema) return [];
-    return dealSchema.properties.filter((p) => {
+    if (!activeSchema) return [];
+    return activeSchema.properties.filter((p) => {
       const matchesSearch =
         p.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.name.toLowerCase().includes(searchQuery.toLowerCase());
       if (searchQuery) return matchesSearch;
-      const isRecommended = RECOMMENDED_FIELDS.includes(p.name);
-      const isSelected = config.allowed_deal_fields.includes(p.name);
+      const isRecommended = recommended.includes(p.name);
+      const isSelected = selectedFields.includes(p.name);
       return showAllFields || isRecommended || isSelected;
     });
-  }, [dealSchema, searchQuery, showAllFields, config.allowed_deal_fields]);
+  }, [activeSchema, searchQuery, showAllFields, recommended, selectedFields]);
 
   if (isLoading) {
     return (
@@ -199,12 +220,36 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             </Button>
           )}
         </div>
+        <div className="flex flex-wrap gap-2">
+          {OBJECT_TABS.map((tab) => {
+            const count = ((config[tab.configKey] as string[]) || []).length;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setSearchQuery("");
+                  setShowAllFields(false);
+                }}
+                className={`px-3 py-1.5 rounded-full text-[12px] border transition-all ${
+                  activeTab === tab.id
+                    ? "bg-beige/15 border-beige/40 text-beige"
+                    : "bg-secondary/5 border-border/30 text-muted-foreground hover:border-border/50"
+                }`}
+              >
+                {tab.label}
+                <span className="ml-2 opacity-50">{count}</span>
+              </button>
+            );
+          })}
+        </div>
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
               <Input
-                placeholder="Search deal fields..."
+                placeholder={`Search ${OBJECT_TABS.find((t) => t.id === activeTab)?.label.toLowerCase()} fields...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="bg-secondary/5 border-border/40 rounded-full pl-11 pr-6 h-11 font-medium"
@@ -219,7 +264,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                   showAllFields ? "bg-beige/10 border-beige/30 text-beige" : ""
                 }`}
               >
-                {showAllFields ? "Show Recommended Only" : `Show All Fields (${dealSchema?.properties.length})`}
+                {showAllFields ? "Show Recommended Only" : `Show All Fields (${activeSchema?.properties.length ?? 0})`}
               </Button>
             )}
           </div>
@@ -227,7 +272,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             <div className="flex items-center gap-2 mb-4">
               <Info className="h-3 w-3 text-muted-foreground/40" />
               <p className="text-[10px] text-muted-foreground font-medium italic">
-                Pipedrive field keys (e.g. title, value, stage_id) are sent to your account.
+                Pipedrive field keys (title, name, emails) are sent to your account.
               </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -238,29 +283,29 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                     type="button"
                     onClick={() => {
                       if (readOnly) return;
-                      const active = config.allowed_deal_fields.includes(prop.name);
+                      const active = selectedFields.includes(prop.name);
                       setConfig((prev) => ({
                         ...prev,
-                        allowed_deal_fields: active
-                          ? prev.allowed_deal_fields.filter((f) => f !== prop.name)
-                          : [...prev.allowed_deal_fields, prop.name],
+                        [activeConfigKey]: active
+                          ? selectedFields.filter((f) => f !== prop.name)
+                          : [...selectedFields, prop.name],
                       }));
                     }}
                     className={`flex items-center justify-between px-4 py-3 rounded-2xl border transition-all text-left group ${
-                      config.allowed_deal_fields.includes(prop.name)
+                      selectedFields.includes(prop.name)
                         ? "bg-beige/10 border-beige/30 text-beige"
                         : "bg-white/50 border-border/20 text-muted-foreground hover:border-border/40"
                     }`}
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-[10px] font-bold truncate">{prop.label}</span>
-                      {RECOMMENDED_FIELDS.includes(prop.name) && (
+                      {recommended.includes(prop.name) && (
                         <span className="text-[8px] font-black uppercase tracking-tighter opacity-30 group-hover:opacity-60">
                           Recommended
                         </span>
                       )}
                     </div>
-                    {config.allowed_deal_fields.includes(prop.name) && <Check className="h-3 w-3 shrink-0 ml-2" />}
+                    {selectedFields.includes(prop.name) && <Check className="h-3 w-3 shrink-0 ml-2" />}
                   </button>
                 ))
               ) : (

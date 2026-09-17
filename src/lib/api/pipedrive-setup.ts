@@ -1,8 +1,10 @@
 import { crmApi, type CRMConfiguration, type CRMSchema, type Pipeline } from "@/lib/api/crm";
 
+export type PipedriveObjectTab = "deals" | "contacts" | "companies";
+
 export type PipedriveSetup = {
   pipelines: Pipeline[];
-  dealSchema: CRMSchema | null;
+  schemas: Partial<Record<PipedriveObjectTab, CRMSchema>>;
   config: CRMConfiguration;
 };
 
@@ -21,9 +23,12 @@ export const DEFAULT_PIPEDRIVE_CONFIG: CRMConfiguration = {
 };
 
 export async function loadPipedriveSetup(refresh = false): Promise<PipedriveSetup> {
-  const [pipelines, schemaData, currentConfig] = await Promise.all([
+  const opts = refresh ? { refresh: true } : undefined;
+  const [pipelines, dealSchema, contactSchema, companySchema, currentConfig] = await Promise.all([
     crmApi.getPipedrivePipelines(),
-    crmApi.getPipedriveSchema("deals", refresh ? { refresh: true } : undefined),
+    crmApi.getPipedriveSchema("deals", opts),
+    crmApi.getPipedriveSchema("contacts", opts).catch(() => null),
+    crmApi.getPipedriveSchema("companies", opts).catch(() => null),
     crmApi.getPipedriveConfiguration(),
   ]);
 
@@ -42,7 +47,11 @@ export async function loadPipedriveSetup(refresh = false): Promise<PipedriveSetu
 
   return {
     pipelines,
-    dealSchema: schemaData,
+    schemas: {
+      deals: dealSchema,
+      ...(contactSchema ? { contacts: contactSchema } : {}),
+      ...(companySchema ? { companies: companySchema } : {}),
+    },
     config,
   };
 }

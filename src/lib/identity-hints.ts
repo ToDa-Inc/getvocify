@@ -1,3 +1,7 @@
+/** Same Vocify email as the CRM user — assignment depends on this match. */
+export const CRM_EMAIL_MATCH_HINT =
+  "Use the same email as your CRM user (HubSpot, Salesforce, or Pipedrive) so calls, contacts, tasks, and deals assign to you.";
+
 /** Same Vocify email as HubSpot owner — assignment depends on this match. */
 export const HUBSPOT_EMAIL_MATCH_HINT =
   "Use the same email as your HubSpot user so calls, contacts, tasks, and deals assign to you.";

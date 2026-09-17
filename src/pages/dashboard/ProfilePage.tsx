@@ -9,7 +9,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { useAuth } from "@/features/auth";
 import { authApi, authKeys } from "@/features/auth/api";
 import { getUserInitials } from "@/features/auth/types";
-import { HUBSPOT_EMAIL_MATCH_HINT, WHATSAPP_PHONE_HINT } from "@/lib/identity-hints";
+import { CRM_EMAIL_MATCH_HINT, WHATSAPP_PHONE_HINT } from "@/lib/identity-hints";
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
@@ -232,7 +232,7 @@ const ProfilePage = () => {
               className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold opacity-50"
             />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {HUBSPOT_EMAIL_MATCH_HINT} Email is set at signup and cannot be changed here.
+              {CRM_EMAIL_MATCH_HINT} Email is set at signup and cannot be changed here.
             </p>
           </div>
           <div className="sm:col-span-2 space-y-2">
