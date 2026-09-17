@@ -65,6 +65,7 @@ export const crmKeys = {
   preferences: () => [...crmKeys.all, "preferences"] as const,
   hubspotSetup: () => [...crmKeys.all, "hubspot", "setup"] as const,
   salesforceSetup: () => [...crmKeys.all, "salesforce", "setup"] as const,
+  pipedriveSetup: () => [...crmKeys.all, "pipedrive", "setup"] as const,
 };
 
 export const crmApi = {
@@ -102,7 +103,13 @@ export const crmApi = {
     if (target.provider === "salesforce") {
       return api.get<any[]>(`/crm/salesforce/search/opportunities?q=${encodeURIComponent(query)}`);
     }
-    return api.get<any[]>(`/crm/hubspot/search/deals?q=${encodeURIComponent(query)}`);
+    if (target.provider === "pipedrive") {
+      return api.get<any[]>(`/crm/pipedrive/search/deals?q=${encodeURIComponent(query)}`);
+    }
+    if (target.provider === "hubspot") {
+      return api.get<any[]>(`/crm/hubspot/search/deals?q=${encodeURIComponent(query)}`);
+    }
+    throw new ApiError(400, { detail: "Unsupported CRM provider." }, "Unsupported CRM provider.");
   },
 
   /** OAuth: Get HubSpot authorize URL, then redirect user there */
@@ -137,6 +144,40 @@ export const crmApi = {
 
   async getSalesforceStages(): Promise<{ id: string; label: string; display_order?: number }[]> {
     return api.get("/crm/salesforce/stages");
+  },
+
+  async getPipedriveAuthorizeUrl(): Promise<{ redirect_url: string }> {
+    return api.get<{ redirect_url: string }>("/crm/pipedrive/authorize");
+  },
+
+  async disconnectPipedrive() {
+    return api.delete("/crm/pipedrive/disconnect");
+  },
+
+  async getPipedriveConfiguration() {
+    try {
+      return await api.get<CRMConfiguration>("/crm/pipedrive/configuration");
+    } catch (error: any) {
+      if (error.status === 404) return null;
+      throw error;
+    }
+  },
+
+  async savePipedriveConfiguration(config: CRMConfiguration) {
+    return api.post("/crm/pipedrive/configure", config);
+  },
+
+  async getPipedriveSchema(objectType: "deals" | "contacts" | "companies" = "deals") {
+    return api.get<CRMSchema>(`/crm/pipedrive/schema?object_type=${objectType}`);
+  },
+
+  async getPipedrivePipelines() {
+    return api.get<Pipeline[]>("/crm/pipedrive/pipelines");
+  },
+
+  async getPipedriveStages(pipelineId?: string): Promise<{ id: string; label: string; display_order?: number }[]> {
+    const qs = pipelineId ? `?pipeline_id=${encodeURIComponent(pipelineId)}` : "";
+    return api.get(`/crm/pipedrive/stages${qs}`);
   },
 
   async connectHubSpot(accessToken: string) {
@@ -178,6 +219,18 @@ export const crmApi = {
   },
 
   async searchContacts(query: string) {
+    try {
+      const prefs = await this.getCrmPreferences();
+      const { connections } = await this.listConnections();
+      const ok = (connections || []).filter((c) => c.status === "connected");
+      let target = ok.find((c) => c.id === prefs.primary_crm_connection_id);
+      if (!target && ok.length === 1) target = ok[0];
+      if (target?.provider === "pipedrive") {
+        return api.get<any[]>(`/crm/pipedrive/search/persons?q=${encodeURIComponent(query)}`);
+      }
+    } catch {
+      // HubSpot-only search must keep working if prefs/connections fail
+    }
     return api.get<any[]>(`/crm/hubspot/search/contacts?q=${encodeURIComponent(query)}`);
   },
 

@@ -74,7 +74,7 @@ export const CRM_PROVIDERS = {
     name: 'Pipedrive',
     logo: '/integrations/pipedrive.svg',
     description: 'Connect your Pipedrive CRM to sync deals',
-    comingSoon: true,
+    comingSoon: false,
   },
 } as const;
 

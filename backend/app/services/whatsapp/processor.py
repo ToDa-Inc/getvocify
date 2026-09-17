@@ -203,6 +203,8 @@ def _crm_display_name(provider: Optional[str]) -> str:
         return "Salesforce"
     if p == "hubspot":
         return "HubSpot"
+    if p == "pipedrive":
+        return "Pipedrive"
     return "CRM"
 
 

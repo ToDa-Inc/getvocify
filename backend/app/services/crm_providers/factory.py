@@ -25,4 +25,8 @@ def build_crm_provider(supabase: Client, connection: dict[str, Any]) -> Union[Hu
         from app.services.crm_providers.salesforce_provider import SalesforceCRMProvider
 
         return SalesforceCRMProvider(supabase, connection)
+    if provider == "pipedrive":
+        from app.services.crm_providers.pipedrive_provider import PipedriveCRMProvider
+
+        return PipedriveCRMProvider(supabase, connection)
     raise UnsupportedCRMProviderError(provider)
