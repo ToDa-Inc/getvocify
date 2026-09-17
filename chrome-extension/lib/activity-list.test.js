@@ -114,14 +114,9 @@ describe('activity inbox override', () => {
 });
 
 describe('shouldShowActivityKicker', () => {
-  it('is only for inbox when there is activity or a pending fetch', () => {
-    assert.equal(shouldShowActivityKicker(null, { itemCount: 1 }), true);
-    assert.equal(shouldShowActivityKicker(null, { loading: true }), true);
-    assert.equal(shouldShowActivityKicker(null, {}), false);
-    assert.equal(
-      shouldShowActivityKicker({ objectType: 'deal', recordId: 'D1' }, { itemCount: 3 }),
-      false
-    );
+  it('stays off — the list and Mine pill already say what this is', () => {
+    assert.equal(shouldShowActivityKicker(), false);
+    assert.equal(shouldShowActivityKicker(null, { itemCount: 1 }), false);
   });
 });
 
@@ -245,21 +240,21 @@ describe('mergeActivityItems', () => {
 });
 
 describe('nextVisibleCount', () => {
-  it('starts at one row, then adds a page up to the fetched total', () => {
-    assert.equal(RECORDINGS_PAGE_SIZE, 1);
+  it('starts at two rows, then adds a page up to the fetched total', () => {
+    assert.equal(RECORDINGS_PAGE_SIZE, 2);
     assert.equal(RECORDINGS_EXPAND_SIZE, 5);
-    assert.equal(nextVisibleCount(1, 20), 6);
-    assert.equal(nextVisibleCount(6, 20), 11);
-    assert.equal(nextVisibleCount(16, 20), 20);
+    assert.equal(nextVisibleCount(2, 20), 7);
+    assert.equal(nextVisibleCount(7, 20), 12);
+    assert.equal(nextVisibleCount(17, 20), 20);
     assert.equal(nextVisibleCount(20, 20), 20);
   });
 });
 
 describe('shouldPeekNextActivity', () => {
-  it('peeks the next row only while the list is still collapsed', () => {
-    assert.equal(shouldPeekNextActivity(1, 4), true);
-    assert.equal(shouldPeekNextActivity(1, 1), false);
-    assert.equal(shouldPeekNextActivity(6, 20), false);
+  it('peeks the third row only while the list is still collapsed', () => {
+    assert.equal(shouldPeekNextActivity(2, 4), true);
+    assert.equal(shouldPeekNextActivity(2, 2), false);
+    assert.equal(shouldPeekNextActivity(7, 20), false);
   });
 });
 

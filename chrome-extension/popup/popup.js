@@ -69,13 +69,11 @@ import {
   RECORDINGS_PAGE_SIZE,
   shouldPeekNextActivity,
   activityEmptyMessage,
-  activityKickerLabel,
   isRecordPageContext,
   memoListFromResponse,
   mergeActivityItems,
   nextVisibleCount,
   shouldFetchVocifyMemos,
-  shouldShowActivityKicker,
   activityListContext,
   shouldShowActivityInboxBack,
   shouldShowReturnToRecord,
@@ -97,6 +95,7 @@ import {
   canViewCompanyActivity,
   defaultActivityAuthorFilter,
   filterActivityByAuthor,
+  listAuthorChip,
   shouldShowActivityAuthorFilter,
 } from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
@@ -133,7 +132,6 @@ const screens = {
 const recordButton = document.getElementById('record-button');
 const liveTranscriptText = document.getElementById('live-transcript-text');
 const liveTranscriptContainer = document.getElementById('live-transcript-container');
-const shortcutBox = document.getElementById('shortcut-box');
 const dealSearchInput = document.getElementById('deal-search-input');
 const searchResultsBox = document.getElementById('search-results');
 const contactSearchInput = document.getElementById('contact-search-input');
@@ -520,20 +518,6 @@ const WATCH_STATUS_COPY = {
   new_recording: 'New recording',
 };
 
-function isMacPlatform() {
-  const platform = navigator.userAgentData?.platform || navigator.platform || '';
-  return /mac/i.test(platform);
-}
-
-function fillShortcutHint() {
-  const el = document.getElementById('shortcut-box');
-  if (!el || el.dataset.filled === '1') return;
-  el.dataset.filled = '1';
-  el.innerHTML = isMacPlatform()
-    ? '<kbd class="kbd">⌥</kbd><kbd class="kbd">⇧</kbd><kbd class="kbd">V</kbd>'
-    : '<kbd class="kbd">Alt</kbd><kbd class="kbd">Shift</kbd><kbd class="kbd">V</kbd>';
-}
-
 function getRecordTypeLabel(context) {
   if (!context?.recordId) return '';
   if (context.objectType === 'deal') return 'Deal';
@@ -683,6 +667,11 @@ function filteredActivityItems(state) {
   );
 }
 
+function activityRowAuthor(item) {
+  if (!canViewCompanyActivity(currentUser)) return null;
+  return listAuthorChip(authorChipLabel(item, currentUser?.id), activityAuthorFilter, currentUser?.id);
+}
+
 function selectedActivityAuthorLabel() {
   if (!activityAuthorFilter) return null;
   const chips = activityFilterChips(companyAuthors, currentUser?.id);
@@ -747,16 +736,18 @@ function syncRecordActivityVisibility() {
 function renderActivityScopeControls(pageContext) {
   const backBtn = document.getElementById('header-idle-back');
   const returnBtn = document.getElementById('activity-return-record');
+  const toolbar = document.querySelector('#record-activity .activity-toolbar');
+  const showReturn = shouldShowReturnToRecord(pageContext, activityInboxOverride);
   if (backBtn) {
     backBtn.style.display = shouldShowActivityInboxBack(pageContext, activityInboxOverride)
       ? 'inline-flex'
       : 'none';
   }
   if (returnBtn) {
-    const show = shouldShowReturnToRecord(pageContext, activityInboxOverride);
-    returnBtn.style.display = show ? '' : 'none';
-    if (show) returnBtn.textContent = thisRecordScopeLabel(pageContext);
+    returnBtn.style.display = showReturn ? '' : 'none';
+    if (showReturn) returnBtn.textContent = thisRecordScopeLabel(pageContext);
   }
+  if (toolbar) toolbar.classList.toggle('is-split', showReturn);
 }
 
 async function loadInboxRecordings() {
@@ -882,12 +873,9 @@ function appendCallActivityRow(listEl, rec) {
   const durStr = formatCallDuration(callDurationSeconds(rec));
   const meta = [dateStr, durStr].filter(Boolean).join(' · ');
   const title = rec.title || 'Call';
-  const author = canViewCompanyActivity(currentUser)
-    ? authorChipLabel(rec, currentUser?.id)
-    : null;
+  const author = activityRowAuthor(rec);
   row.innerHTML = `
     <div class="recording-row-main">
-      <span class="activity-kind">Call</span>
       <span class="recording-row-title">${escapeHtml(title)}</span>
       ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
@@ -930,12 +918,9 @@ function appendOutboundActivityRow(listEl, call) {
   } else if (outboundChrome.kind === 'redial') {
     actionHtml = `<button type="button" class="btn-recording-action" data-outbound-redial="${escapeHtml(outboundChrome.to)}" data-from="${escapeHtml(outboundChrome.from || '')}">${escapeHtml(outboundChrome.label)}</button>`;
   }
-  const author = canViewCompanyActivity(currentUser)
-    ? authorChipLabel(call, currentUser?.id)
-    : null;
+  const author = activityRowAuthor(call);
   row.innerHTML = `
     <div class="recording-row-main">
-      <span class="activity-kind">Call</span>
       <span class="recording-row-title">${escapeHtml(call.to || 'Call')}</span>
       ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
@@ -997,12 +982,9 @@ function appendMemoActivityRow(listEl, memo) {
   const title = memoListTitle(memo);
   const subtitle = memoListSubtitle(memo);
   const meta = [dateStr, subtitle].filter(Boolean).join(' · ');
-  const author = canViewCompanyActivity(currentUser)
-    ? authorChipLabel(memo, currentUser?.id)
-    : null;
+  const author = activityRowAuthor(memo);
   row.innerHTML = `
     <div class="recording-row-main">
-      <span class="activity-kind">Memo</span>
       <span class="recording-row-title">${escapeHtml(title)}</span>
       ${author ? `<span class="activity-author">${escapeHtml(author)}</span>` : ''}
       ${meta ? `<span class="recording-row-meta">${escapeHtml(meta)}</span>` : ''}
@@ -1061,13 +1043,15 @@ function renderRecordingsSection(state) {
   section.style.display = idle && (items.length > 0 || loading || showFilter) ? 'block' : 'none';
   if (watchRow) watchRow.style.display = 'none';
   if (kicker) {
-    kicker.textContent = activityKickerLabel();
-    kicker.style.display = idle && shouldShowActivityKicker(listContext, {
-      itemCount: items.length,
-      loading,
-    }) ? 'block' : 'none';
+    kicker.textContent = '';
+    kicker.style.display = 'none';
   }
   renderActivityAuthorFilter(showFilter);
+  const toolbar = document.querySelector('#record-activity .activity-toolbar');
+  const returnOn = document.getElementById('activity-return-record')?.style.display !== 'none';
+  const filterEl = document.getElementById('activity-author-filter');
+  const filterOn = filterEl && filterEl.style.display !== 'none';
+  if (toolbar) toolbar.style.display = (returnOn || filterOn) ? 'flex' : 'none';
   if (!idle) {
     if (showMoreBtn) showMoreBtn.style.display = 'none';
     return;
@@ -1116,6 +1100,8 @@ function renderRecordingsSection(state) {
   lastActivityListKey = listKey;
 
   if (!items.length) {
+    listEl.classList.remove('is-collapsed');
+    section.classList.remove('is-collapsed');
     listEl.innerHTML = loading
       ? '<div class="live-loader live-loader--inline" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
       : '';
@@ -1129,6 +1115,7 @@ function renderRecordingsSection(state) {
     ? items[recordingsVisibleCount]
     : null;
   listEl.classList.toggle('is-collapsed', Boolean(peek));
+  section.classList.toggle('is-collapsed', Boolean(peek));
   listEl.innerHTML = '';
   visible.forEach((item) => {
     if (item.kind === 'call') appendCallActivityRow(listEl, item.recording);
@@ -1336,7 +1323,6 @@ function renderState(state) {
   const pasteToggle = document.getElementById('paste-transcript-toggle');
   const mainActions = document.querySelector('.main-actions');
   const idleTools = document.querySelector('.idle-tools');
-  const shortcutBox = document.getElementById('shortcut-box');
 
   if (pasteSection) pasteSection.style.display = 'none';
   if (mainActions) mainActions.style.display = 'flex';
@@ -1349,7 +1335,6 @@ function renderState(state) {
     document.getElementById('record-status-label').textContent = 'Recording';
     liveTranscriptContainer.style.display = 'block';
     if (idleTools) idleTools.style.display = 'none';
-    if (shortcutBox) shortcutBox.style.display = 'none';
     setIdleListsHidden();
     if (pasteToggle) pasteToggle.style.display = 'none';
     if (pasteSection) pasteSection.style.display = 'none';
@@ -1383,7 +1368,6 @@ function renderState(state) {
       idleTools.style.display = 'grid';
       idleTools.style.gridTemplateColumns = '1fr';
     }
-    if (shortcutBox) shortcutBox.style.display = 'none';
     setIdleListsHidden();
     if (pasteToggle) pasteToggle.style.display = 'none';
     if (pasteSection) pasteSection.style.display = 'none';
@@ -1416,12 +1400,10 @@ function renderState(state) {
         if (pm) pm.textContent = 'Filling in the fields…';
       }
       
-      fillShortcutHint();
       if (idleTools) {
         idleTools.style.display = 'grid';
         idleTools.style.gridTemplateColumns = '';
       }
-      if (shortcutBox) shortcutBox.style.display = '';
       if (pasteToggle) pasteToggle.style.display = '';
       if (mainActions) mainActions.style.display = 'flex';
       if (pasteSection) pasteSection.style.display = 'none';
@@ -3616,12 +3598,10 @@ document.addEventListener('visibilitychange', () => {
 document.getElementById('paste-transcript-toggle')?.addEventListener('click', () => {
   const section = document.getElementById('paste-transcript-section');
   const mainActions = document.querySelector('.main-actions');
-  const shortcutBox = document.getElementById('shortcut-box');
 
   if (section) {
     section.style.display = 'block';
     if (mainActions) mainActions.style.display = 'none';
-    if (shortcutBox) shortcutBox.style.display = 'none';
     setIdleListsHidden();
     document.getElementById('paste-transcript-input')?.focus();
   }

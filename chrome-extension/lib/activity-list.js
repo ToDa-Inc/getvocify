@@ -4,7 +4,7 @@
 
 import { lastCallAsOutbound } from './call-format.js';
 
-export const RECORDINGS_PAGE_SIZE = 1;
+export const RECORDINGS_PAGE_SIZE = 2;
 export const RECORDINGS_EXPAND_SIZE = 5;
 
 export function isRecordPageContext(context) {
@@ -43,9 +43,8 @@ export function activityKickerLabel() {
   return 'Activity';
 }
 
-export function shouldShowActivityKicker(context, { itemCount = 0, loading = false } = {}) {
-  if (isRecordPageContext(context)) return false;
-  return Boolean(itemCount > 0 || loading);
+export function shouldShowActivityKicker() {
+  return false;
 }
 
 /** @deprecated use shouldShowActivityKicker */

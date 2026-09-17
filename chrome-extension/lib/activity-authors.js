@@ -19,6 +19,15 @@ export function authorChipLabel(item, currentUserId) {
   return name ? String(name) : null;
 }
 
+/** Mine already means you — do not stamp You on every row. */
+export function listAuthorChip(label, authorFilter, currentUserId) {
+  if (!label) return null;
+  if (authorFilter && currentUserId && String(authorFilter) === String(currentUserId) && label === 'You') {
+    return null;
+  }
+  return label;
+}
+
 export function activityItemAuthorId(item) {
   if (!item) return '';
   if (item.kind === 'call') {

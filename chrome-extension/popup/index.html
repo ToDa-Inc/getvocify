@@ -54,7 +54,6 @@
             </button>
           </p>
         </div>
-        <p id="shortcut-box" class="shortcut-hint" data-tip="Open Vocify from anywhere in Chrome"></p>
       </div>
 
       <div id="deal-context-badge" class="deal-context-badge" style="display: none;"></div>
@@ -118,12 +117,11 @@
 
       <div id="record-activity" class="record-activity" style="display: none;">
         <div class="activity-toolbar">
-          <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;">Activity</p>
+          <p id="recordings-inbox-kicker" class="activity-kicker" style="display: none;"></p>
           <button type="button" id="activity-return-record" class="activity-return-record" style="display: none;">This contact</button>
           <div id="activity-author-filter" class="activity-author-filter" style="display: none;">
-            <span class="activity-author-select-label">Show</span>
             <div id="activity-author-select-shell" class="activity-author-select-shell">
-              <button type="button" id="activity-author-trigger" class="activity-author-trigger" aria-haspopup="listbox" aria-expanded="false">Mine</button>
+              <button type="button" id="activity-author-trigger" class="activity-author-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="Whose activity">Mine</button>
               <span class="activity-author-chevron" aria-hidden="true">▾</span>
               <div id="activity-author-dropdown" class="activity-author-dropdown" role="listbox"></div>
             </div>
@@ -147,8 +145,12 @@
           <span id="user-name"></span>
         </div>
         <div class="footer-links">
-          <button id="open-dashboard-settings" type="button" class="logout-link">Settings</button>
-          <button id="logout-button" class="logout-link">Log out</button>
+          <button id="open-dashboard-settings" type="button" class="footer-icon" aria-label="Settings" data-tip="Settings" data-tip-align="end">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+          <button id="logout-button" type="button" class="footer-icon footer-icon-danger" aria-label="Log out" data-tip="Log out" data-tip-align="end">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" x2="9" y1="12" y2="12"></line></svg>
+          </button>
         </div>
       </div>
     </div>

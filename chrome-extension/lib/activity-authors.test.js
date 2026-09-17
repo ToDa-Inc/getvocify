@@ -4,6 +4,7 @@ import {
   activityFilterChips,
   activityItemAuthorId,
   authorChipLabel,
+  listAuthorChip,
   authorsFromMembers,
   canViewCompanyActivity,
   defaultActivityAuthorFilter,
@@ -21,6 +22,12 @@ describe('activity authors', () => {
   it('labels the current user as You', () => {
     assert.equal(authorChipLabel({ authorName: 'Ada', userId: 'u1' }, 'u1'), 'You');
     assert.equal(authorChipLabel({ author_name: 'Ada', author_user_id: 'u2' }, 'u1'), 'Ada');
+  });
+
+  it('hides You on Mine — the filter already said that', () => {
+    assert.equal(listAuthorChip('You', 'u1', 'u1'), null);
+    assert.equal(listAuthorChip('Ada', 'u1', 'u1'), 'Ada');
+    assert.equal(listAuthorChip('You', '', 'u1'), 'You');
   });
 
   it('filters merged activity by author', () => {
