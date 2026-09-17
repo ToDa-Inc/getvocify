@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Mic, ArrowRight } from "lucide-react";
-import { HUBSPOT_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
+import { CRM_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const SignupPage = () => {
@@ -69,7 +69,7 @@ const SignupPage = () => {
                 className="h-12 bg-secondary/5 border-border/40 focus:border-beige"
               />
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {HUBSPOT_EMAIL_MATCH_HINT}
+                {CRM_EMAIL_MATCH_HINT}
               </p>
             </div>
             <div className="space-y-2">

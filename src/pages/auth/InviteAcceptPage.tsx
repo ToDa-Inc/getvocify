@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { useAuth } from "@/features/auth";
 import { companyApi } from "@/features/company/api";
-import { HUBSPOT_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
+import { CRM_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const InviteAcceptPage = () => {
@@ -59,7 +59,7 @@ const InviteAcceptPage = () => {
             {preview.email} · {preview.role}
           </p>
           <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-            {HUBSPOT_EMAIL_MATCH_HINT}
+            {CRM_EMAIL_MATCH_HINT}
           </p>
         </div>
         <Input placeholder="Your name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
