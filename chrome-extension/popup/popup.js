@@ -100,7 +100,7 @@ import {
 } from '../lib/activity-authors.js';
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
 import { startLocalRingback } from '../lib/local-ringback.js';
-import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta } from '../lib/call-format.js';
+import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta, userFacingCallError } from '../lib/call-format.js';
 
 function paintCallMuteButton(muted, enabled) {
   const muteBtn = document.getElementById('call-mute');
@@ -3498,19 +3498,32 @@ async function startOutboundCall(raw) {
 
   stopPrimedRingback();
   stopPopupRingback = startLocalRingback();
-  const result = await chrome.runtime.sendMessage({
-    type: 'START_CALL',
-    to: target,
-    callerId: defaultVerifiedCallerId()?.phoneNumber,
-    ringbackPrimed: true,
-  });
+  let result;
+  try {
+    result = await chrome.runtime.sendMessage({
+      type: 'START_CALL',
+      to: target,
+      callerId: defaultVerifiedCallerId()?.phoneNumber,
+      ringbackPrimed: true,
+    });
+  } catch (err) {
+    stopPrimedRingback();
+    if (status) {
+      const section = document.getElementById('call-section');
+      if (section) section.hidden = false;
+      status.hidden = false;
+      status.textContent = userFacingCallError(err) || 'Vocify se reinició. Pulsa Llamar otra vez.';
+      status.classList.remove('call-status-muted');
+    }
+    return;
+  }
   if (!result?.ok) {
     stopPrimedRingback();
     if (status) {
       const section = document.getElementById('call-section');
       if (section) section.hidden = false;
       status.hidden = false;
-      status.textContent = result?.error || 'No se pudo iniciar la llamada.';
+      status.textContent = userFacingCallError(result?.error) || result?.error || 'No se pudo iniciar la llamada.';
       status.classList.remove('call-status-muted');
     }
   }

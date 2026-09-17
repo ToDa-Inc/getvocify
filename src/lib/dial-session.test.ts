@@ -15,6 +15,11 @@ import {
   voiceClientFromToken,
   dispositionMessage,
   isCarrierHangupError,
+  isVoiceSdkGeneralError,
+  isVoiceAccessTokenError,
+  userFacingCallError,
+  CALL_ERROR_TOKEN_STALE,
+  CALL_ERROR_EXTENSION_RESTARTED,
 } from "./dial-session.ts";
 
 describe("voiceClientFromToken", () => {
@@ -100,6 +105,40 @@ describe("isCarrierHangupError", () => {
     );
     assert.equal(isCarrierHangupError({ code: 31005 }), true);
     assert.equal(isCarrierHangupError("Application error"), false);
+  });
+
+  it("does not treat 31000 as 31005 — geo-permission failures also arrive as 31000", () => {
+    assert.equal(isCarrierHangupError("UnknownError (31000): General Error"), false);
+    assert.equal(isCarrierHangupError({ code: 31000 }), false);
+  });
+});
+
+describe("userFacingCallError", () => {
+  it("rewrites Twilio AccessTokenExpired instead of showing the SDK string", () => {
+    assert.equal(isVoiceAccessTokenError({ code: 20104, message: "AccessTokenExpired" }), true);
+    assert.equal(
+      userFacingCallError({ code: 20104, message: "AccessTokenExpired" }),
+      CALL_ERROR_TOKEN_STALE,
+    );
+    assert.equal(
+      userFacingCallError("worker service not working"),
+      CALL_ERROR_EXTENSION_RESTARTED,
+    );
+  });
+});
+
+describe("isVoiceSdkGeneralError", () => {
+  it("matches Voice JS SDK UnknownError 31000", () => {
+    assert.equal(isVoiceSdkGeneralError("UnknownError (31000): General Error"), true);
+    assert.equal(isVoiceSdkGeneralError({ code: 31000, message: "General Error" }), true);
+  });
+
+  it("does not match a TwiML miss or 31005 hangup wrap", () => {
+    assert.equal(isVoiceSdkGeneralError("Application error"), false);
+    assert.equal(
+      isVoiceSdkGeneralError("31005 ConnectionError: Error sent from Gateway in HANGUP"),
+      false,
+    );
   });
 });
 

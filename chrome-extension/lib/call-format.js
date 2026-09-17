@@ -141,6 +141,67 @@ export function isVoiceSdkGeneralError(error) {
   return /\b31000\b/.test(String(error || ''));
 }
 
+const VOICE_TOKEN_CODES = new Set([20101, 20104, 20105, 31204, 31205]);
+
+function errorText(error) {
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  return String(error.message || error.data?.detail || error);
+}
+
+/** Twilio Voice JWT dead or not yet valid — minting a new one + new Device fixes it. */
+export function isVoiceAccessTokenError(error) {
+  const code = error && typeof error === 'object' ? Number(error.code) : NaN;
+  if (VOICE_TOKEN_CODES.has(code)) return true;
+  const text = errorText(error);
+  return (
+    /\b(20101|20104|20105|31204|31205)\b/.test(text)
+    || /access.?token/i.test(text)
+    || /jwt token (expired|invalid)/i.test(text)
+  );
+}
+
+/** Chrome killed the extension service worker or the offscreen page. Reload / second click recovers. */
+export function isExtensionRuntimeError(error) {
+  const text = errorText(error);
+  return (
+    /receiving end does not exist/i.test(text)
+    || /message port closed/i.test(text)
+    || /extension context invalidated/i.test(text)
+    || /service worker/i.test(text)
+    || /worker service/i.test(text)
+  );
+}
+
+export function isVocifySessionError(error) {
+  if (error && typeof error === 'object' && Number(error.status) === 401) return true;
+  return /session expired|invalid or expired session|please sign in/i.test(errorText(error));
+}
+
+export const CALL_ERROR_TOKEN_STALE = 'La sesión de llamada caducó. Pulsa Llamar otra vez.';
+export const CALL_ERROR_EXTENSION_RESTARTED = 'Vocify se reinició. Pulsa Llamar otra vez.';
+export const CALL_ERROR_SESSION = 'Tu sesión de Vocify caducó. Recarga la extensión.';
+export const CALL_ERROR_START = 'No se pudo iniciar la llamada.';
+export const CALL_ERROR_TOKEN_FETCH = 'No se pudo obtener el token de llamada.';
+
+/** Hide Twilio/Chrome jargon. 31005/31000 stay null — DialCallStatus owns that copy. */
+export function userFacingCallError(error, fallback = CALL_ERROR_START) {
+  if (isCarrierHangupError(error) || isVoiceSdkGeneralError(error)) return null;
+  if (isVocifySessionError(error)) return CALL_ERROR_SESSION;
+  if (isExtensionRuntimeError(error)) return CALL_ERROR_EXTENSION_RESTARTED;
+  if (isVoiceAccessTokenError(error)) return CALL_ERROR_TOKEN_STALE;
+  const text = errorText(error).trim();
+  if (!text) return fallback;
+  if (/twilio/i.test(text)) return fallback;
+  return text;
+}
+
+export function userFacingCallSetupError(error) {
+  if (isVocifySessionError(error)) return CALL_ERROR_SESSION;
+  if (isExtensionRuntimeError(error)) return CALL_ERROR_EXTENSION_RESTARTED;
+  return CALL_ERROR_TOKEN_FETCH;
+}
+
 /** Same busy copy as HubSpot rows (`src/lib/recordings.ts`) and memo rows. */
 function isScreenedOut(outcome) {
   const value = String(outcome || '').trim();

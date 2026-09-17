@@ -20,6 +20,14 @@ import {
   dispositionMessage,
   isCarrierHangupError,
   isVoiceSdkGeneralError,
+  isVoiceAccessTokenError,
+  isExtensionRuntimeError,
+  userFacingCallError,
+  userFacingCallSetupError,
+  CALL_ERROR_TOKEN_STALE,
+  CALL_ERROR_EXTENSION_RESTARTED,
+  CALL_ERROR_SESSION,
+  CALL_ERROR_TOKEN_FETCH,
 } from './call-format.js';
 
 describe('formatCallDuration', () => {
@@ -259,6 +267,42 @@ describe('contactCallHint', () => {
       text: '',
       action: null,
     });
+  });
+});
+
+describe('userFacingCallError', () => {
+  it('rewrites Twilio AccessTokenExpired instead of showing the SDK string', () => {
+    assert.equal(isVoiceAccessTokenError({ code: 20104, message: 'AccessTokenExpired' }), true);
+    assert.equal(
+      userFacingCallError({ code: 20104, message: 'AccessTokenExpired' }),
+      CALL_ERROR_TOKEN_STALE,
+    );
+    assert.equal(
+      userFacingCallError('31205 JWTTokenExpired: Access Token expired'),
+      CALL_ERROR_TOKEN_STALE,
+    );
+  });
+
+  it('rewrites a dead Chrome service worker as retry, not a Twilio outage', () => {
+    assert.equal(
+      isExtensionRuntimeError('Could not establish connection. Receiving end does not exist.'),
+      true,
+    );
+    assert.equal(
+      userFacingCallError('worker service not working'),
+      CALL_ERROR_EXTENSION_RESTARTED,
+    );
+  });
+
+  it('tells the user to reload when the Vocify session JWT is dead', () => {
+    assert.equal(userFacingCallError({ status: 401, message: 'Session expired' }), CALL_ERROR_SESSION);
+    assert.equal(userFacingCallSetupError({ status: 401 }), CALL_ERROR_SESSION);
+    assert.equal(userFacingCallSetupError(new Error('network')), CALL_ERROR_TOKEN_FETCH);
+  });
+
+  it('keeps 31005 / 31000 silent so DialCallStatus can own the copy', () => {
+    assert.equal(userFacingCallError({ code: 31005 }), null);
+    assert.equal(userFacingCallError({ code: 31000, message: 'General Error' }), null);
   });
 });
 

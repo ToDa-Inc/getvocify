@@ -11,6 +11,8 @@ import {
   applyCallPoll,
   isCallPollTerminal,
   isCarrierHangupError,
+  userFacingCallError,
+  userFacingCallSetupError,
 } from './lib/call-format.js';
 import { isUsableMicRecording } from './lib/media-stream.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
@@ -1091,7 +1093,7 @@ async function startCallFlow({ to, callerId, ringbackPrimed }) {
     ({ token, provider } = await api.createVoiceToken());
   } catch (e) {
     chrome.runtime.sendMessage({ target: 'offscreen', type: 'STOP_RINGBACK' });
-    return { ok: false, error: 'No se pudo obtener el token de llamada.' };
+    return { ok: false, error: userFacingCallSetupError(e) };
   }
   if (!provider) {
     try {
@@ -1375,7 +1377,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             provider,
           });
         })
-        .catch(() => {});
+        .catch(() => {
+          chrome.runtime.sendMessage({
+            target: 'offscreen',
+            type: 'DESTROY_VOICE_DEVICE',
+          });
+        });
       break;
 
     case 'DISMISS_LAST_CALL':

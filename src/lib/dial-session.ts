@@ -170,6 +170,74 @@ export function isCarrierHangupError(error: unknown): boolean {
   const text = String(error || "");
   return /\b31005\b/.test(text) || /error sent from gateway in hangup/i.test(text);
 }
+
+/**
+ * Voice JS SDK maps a gateway HANGUP `{code:31000,message:General Error}` to
+ * UnknownError. Same string for Dial timeout and for PSTN `failed` (e.g. 13227).
+ * Hide the raw SDK copy; map from DialCallStatus instead.
+ */
+export function isVoiceSdkGeneralError(error: unknown): boolean {
+  if (error && typeof error === "object" && Number((error as { code?: number }).code) === 31000) {
+    return true;
+  }
+  return /\b31000\b/.test(String(error || ""));
+}
+
+const VOICE_TOKEN_CODES = new Set([20101, 20104, 20105, 31204, 31205]);
+
+function errorText(error: unknown): string {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  const err = error as { message?: string; data?: { detail?: string } };
+  return String(err.message || err.data?.detail || error);
+}
+
+/** Twilio Voice JWT dead or not yet valid — minting a new one + new Device fixes it. */
+export function isVoiceAccessTokenError(error: unknown): boolean {
+  const code = error && typeof error === "object" ? Number((error as { code?: number }).code) : NaN;
+  if (VOICE_TOKEN_CODES.has(code)) return true;
+  const text = errorText(error);
+  return (
+    /\b(20101|20104|20105|31204|31205)\b/.test(text)
+    || /access.?token/i.test(text)
+    || /jwt token (expired|invalid)/i.test(text)
+  );
+}
+
+export function isExtensionRuntimeError(error: unknown): boolean {
+  const text = errorText(error);
+  return (
+    /receiving end does not exist/i.test(text)
+    || /message port closed/i.test(text)
+    || /extension context invalidated/i.test(text)
+    || /service worker/i.test(text)
+    || /worker service/i.test(text)
+  );
+}
+
+export function isVocifySessionError(error: unknown): boolean {
+  if (error && typeof error === "object" && Number((error as { status?: number }).status) === 401) {
+    return true;
+  }
+  return /session expired|invalid or expired session|please sign in/i.test(errorText(error));
+}
+
+export const CALL_ERROR_TOKEN_STALE = "La sesión de llamada caducó. Pulsa Llamar otra vez.";
+export const CALL_ERROR_EXTENSION_RESTARTED = "Vocify se reinició. Pulsa Llamar otra vez.";
+export const CALL_ERROR_SESSION = "Tu sesión de Vocify caducó. Recarga la extensión.";
+export const CALL_ERROR_START = "No se pudo iniciar la llamada.";
+
+export function userFacingCallError(error: unknown, fallback = CALL_ERROR_START): string | null {
+  if (isCarrierHangupError(error) || isVoiceSdkGeneralError(error)) return null;
+  if (isVocifySessionError(error)) return CALL_ERROR_SESSION;
+  if (isExtensionRuntimeError(error)) return CALL_ERROR_EXTENSION_RESTARTED;
+  if (isVoiceAccessTokenError(error)) return CALL_ERROR_TOKEN_STALE;
+  const text = errorText(error).trim();
+  if (!text) return fallback;
+  if (/twilio/i.test(text)) return fallback;
+  return text;
+}
+
 export function telnyxHangupMessage(call: {
   sipCode?: number | string | null;
   sipReason?: string | null;

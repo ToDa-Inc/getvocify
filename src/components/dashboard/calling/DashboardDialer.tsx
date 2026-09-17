@@ -15,6 +15,9 @@ import { crmApi } from "@/lib/api/crm";
 import {
   dispositionMessage,
   isCarrierHangupError,
+  isVoiceAccessTokenError,
+  isVoiceSdkGeneralError,
+  userFacingCallError,
   mapTelnyxCallState,
   fetchVoiceTokenAfterRingback,
   startLocalRingback,
@@ -248,7 +251,18 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     return () => window.clearTimeout(timer);
   }, [query, state]);
 
-  const ensureDevice = async (token: string) => {
+  const destroyDevice = () => {
+    const device = deviceRef.current;
+    deviceRef.current = null;
+    try {
+      device?.destroy();
+    } catch {
+      /* already gone */
+    }
+  };
+
+  const ensureDevice = async (token: string, { forceNew = false } = {}) => {
+    if (forceNew) destroyDevice();
     if (deviceRef.current) {
       deviceRef.current.updateToken(token);
       return deviceRef.current;
@@ -257,8 +271,16 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
     });
     device.on("error", (err) => {
-      if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) return;
-      setError(err?.message || "Error de Twilio");
+      if (
+        isCarrierHangupError(err) ||
+        isCarrierHangupError(err?.message) ||
+        isVoiceSdkGeneralError(err) ||
+        isVoiceSdkGeneralError(err?.message)
+      ) {
+        return;
+      }
+      if (isVoiceAccessTokenError(err)) destroyDevice();
+      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
       setState(CALL_STATES.IDLE);
     });
     deviceRef.current = device;
@@ -373,14 +395,23 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
   const startTwilioCall = async (token: string, target: SelectedTarget) => {
     voiceClientRef.current = "twilio";
-    const device = await ensureDevice(token);
-    const call = await device.connect({
-      params: {
-        To: target.phone,
-        CallerId: from,
-        ContactId: target.contactId || "",
-      },
-    });
+    const connect = async (forceNew = false) => {
+      const device = await ensureDevice(token, { forceNew });
+      return device.connect({
+        params: {
+          To: target.phone,
+          CallerId: from,
+          ContactId: target.contactId || "",
+        },
+      });
+    };
+    let call;
+    try {
+      call = await connect();
+    } catch (err) {
+      if (!isVoiceAccessTokenError(err)) throw err;
+      call = await connect(true);
+    }
     callRef.current = call;
     const rememberSid = () => {
       const sid = call.parameters?.CallSid;
@@ -408,7 +439,12 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         hangup();
         return;
       }
-      setError(err?.message || "Error de llamada");
+      if (isVoiceSdkGeneralError(err) || isVoiceSdkGeneralError(err?.message)) {
+        hangup();
+        return;
+      }
+      if (isVoiceAccessTokenError(err)) destroyDevice();
+      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
       pendingMissRef.current = false;
       hangup();
     });
@@ -443,7 +479,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       stopRingback();
       setState(CALL_STATES.IDLE);
       pendingMissRef.current = false;
-      const message = err instanceof Error ? err.message : "No se pudo iniciar la llamada";
+      const message = userFacingCallError(err) || "No se pudo iniciar la llamada.";
       setError(message);
       toast.error(message);
     }

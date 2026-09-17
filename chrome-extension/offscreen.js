@@ -9,7 +9,12 @@
 
 import { CALL_STATES } from './lib/dialer.js';
 import { startLocalRingback as playLocalRingback } from './lib/local-ringback.js';
-import { isCarrierHangupError } from './lib/call-format.js';
+import {
+  isCarrierHangupError,
+  isVoiceAccessTokenError,
+  isVoiceSdkGeneralError,
+  userFacingCallError,
+} from './lib/call-format.js';
 import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMediaConstraints } from './lib/tab-capture.js';
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
 import { api } from './lib/api.js';
@@ -327,12 +332,8 @@ async function startTabCapture(streamId, wsUrl, epoch) {
   }
 }
 
-function twilioErrorText(err, fallback = 'Error de llamada') {
-  if (!err) return fallback;
-  if (isCarrierHangupError(err)) return null;
-  const code = err.code != null ? String(err.code) : '';
-  const msg = err.message || fallback;
-  return code && !msg.includes(code) ? `${code} ${msg}` : msg;
+function twilioErrorText(err, fallback = 'No se pudo iniciar la llamada.') {
+  return userFacingCallError(err, fallback);
 }
 
 function reportCallState(state, error, extra) {
@@ -345,24 +346,44 @@ function reportCallState(state, error, extra) {
   });
 }
 
+function destroyTwilioDevice() {
+  const device = twilioDevice;
+  twilioDevice = null;
+  if (!device) return;
+  try {
+    device.destroy();
+  } catch (_) { /* already gone */ }
+}
+
 function attachDeviceListeners(device) {
   device.on('error', (err) => {
-    if (isCarrierHangupError(err) || isCarrierHangupError(twilioErrorText(err, ''))) {
+    if (
+      isCarrierHangupError(err)
+      || isCarrierHangupError(twilioErrorText(err, ''))
+      || isVoiceSdkGeneralError(err)
+      || isVoiceSdkGeneralError(err?.message)
+    ) {
       return;
     }
     activeCall = null;
-    reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'Error de dispositivo'));
-    try {
-      device.destroy();
-    } catch (_) { /* already gone */ }
-    if (twilioDevice === device) twilioDevice = null;
+    activeCallProvider = null;
+    if (isVoiceAccessTokenError(err) && twilioDevice === device) {
+      destroyTwilioDevice();
+    } else {
+      try {
+        device.destroy();
+      } catch (_) { /* already gone */ }
+      if (twilioDevice === device) twilioDevice = null;
+    }
+    reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'No se pudo iniciar la llamada.'));
   });
   device.on('tokenWillExpire', () => {
     chrome.runtime.sendMessage({ type: 'CALL_TOKEN_REFRESH_REQUEST' });
   });
 }
 
-function ensureDevice(token) {
+function ensureDevice(token, { forceNew = false } = {}) {
+  if (forceNew) destroyTwilioDevice();
   if (twilioDevice) {
     twilioDevice.updateToken(token);
     return twilioDevice;
@@ -533,57 +554,71 @@ async function startTelnyxCall({ token, to, callerId, contactId, dealId, skipLoc
   }
 }
 
-async function startTwilioCall({ token, to, callerId, contactId, dealId }) {
-  try {
-    if (!globalThis.Twilio?.Device) {
-      throw new Error('Twilio Voice SDK no cargado');
-    }
-    const device = ensureDevice(token);
-    activeCallProvider = 'twilio';
+async function connectTwilioDevice({ token, to, callerId, contactId, dealId, forceNew = false }) {
+  if (!globalThis.Twilio?.Device) {
+    throw new Error('Twilio Voice SDK no cargado');
+  }
+  const device = ensureDevice(token, { forceNew });
+  activeCallProvider = 'twilio';
 
-    reportCallState(CALL_STATES.CONNECTING);
+  reportCallState(CALL_STATES.CONNECTING);
 
-    // `To` and `CallerId` reach the TwiML App's Voice URL as POST params.
-    // CallerId is only a preference — the backend authorizes it.
-    activeCall = await device.connect({
-      params: {
-        To: to,
-        CallerId: callerId,
-        ContactId: contactId || '',
-        DealId: dealId || '',
-      },
-    });
+  // `To` and `CallerId` reach the TwiML App's Voice URL as POST params.
+  // CallerId is only a preference — the backend authorizes it.
+  activeCall = await device.connect({
+    params: {
+      To: to,
+      CallerId: callerId,
+      ContactId: contactId || '',
+      DealId: dealId || '',
+    },
+  });
 
-    const callSid = activeCall.parameters?.CallSid || null;
-    reportCallState(CALL_STATES.CONNECTING, null, { callSid });
+  const callSid = activeCall.parameters?.CallSid || null;
+  reportCallState(CALL_STATES.CONNECTING, null, { callSid });
 
-    activeCall.on('ringing', () => reportCallState(CALL_STATES.RINGING, null, { callSid }));
-    activeCall.on('accept', () => {
-      reportCallState(CALL_STATES.ACTIVE, null, {
-        callSid: activeCall?.parameters?.CallSid || callSid,
-        answeredAt: Date.now(),
-        muted: Boolean(activeCall?.isMuted?.()),
-      });
+  activeCall.on('ringing', () => reportCallState(CALL_STATES.RINGING, null, { callSid }));
+  activeCall.on('accept', () => {
+    reportCallState(CALL_STATES.ACTIVE, null, {
+      callSid: activeCall?.parameters?.CallSid || callSid,
+      answeredAt: Date.now(),
+      muted: Boolean(activeCall?.isMuted?.()),
     });
-    activeCall.on('disconnect', () => {
-      activeCall = null;
-      activeCallProvider = null;
-      reportCallState(CALL_STATES.IDLE);
-    });
-    activeCall.on('cancel', () => {
-      activeCall = null;
-      activeCallProvider = null;
-      reportCallState(CALL_STATES.IDLE);
-    });
-    activeCall.on('error', (err) => {
-      activeCall = null;
-      activeCallProvider = null;
-      reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'Error de llamada'));
-    });
-  } catch (error) {
+  });
+  activeCall.on('disconnect', () => {
     activeCall = null;
     activeCallProvider = null;
-    reportCallState(CALL_STATES.IDLE, error.message || 'No se pudo iniciar la llamada');
+    reportCallState(CALL_STATES.IDLE);
+  });
+  activeCall.on('cancel', () => {
+    activeCall = null;
+    activeCallProvider = null;
+    reportCallState(CALL_STATES.IDLE);
+  });
+  activeCall.on('error', (err) => {
+    activeCall = null;
+    activeCallProvider = null;
+    if (isVoiceAccessTokenError(err)) destroyTwilioDevice();
+    reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'No se pudo iniciar la llamada.'));
+  });
+}
+
+async function startTwilioCall({ token, to, callerId, contactId, dealId }) {
+  try {
+    await connectTwilioDevice({ token, to, callerId, contactId, dealId });
+  } catch (error) {
+    if (isVoiceAccessTokenError(error)) {
+      try {
+        await connectTwilioDevice({ token, to, callerId, contactId, dealId, forceNew: true });
+        return;
+      } catch (retryErr) {
+        error = retryErr;
+      }
+    }
+    activeCall = null;
+    activeCallProvider = null;
+    if (isVoiceAccessTokenError(error)) destroyTwilioDevice();
+    reportCallState(CALL_STATES.IDLE, twilioErrorText(error, error.message || 'No se pudo iniciar la llamada.'));
   }
 }
 
@@ -766,6 +801,9 @@ chrome.runtime.onMessage.addListener((message) => {
       break;
     case 'UPDATE_TOKEN':
       updateToken(message.token, message.provider);
+      break;
+    case 'DESTROY_VOICE_DEVICE':
+      destroyTwilioDevice();
       break;
   }
 });
