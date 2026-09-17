@@ -13,8 +13,7 @@ import type { ID, ISODateString, Nullable } from '@/shared/types/common';
 /**
  * Supported CRM providers
  * 
- * Note: Only HubSpot is implemented for MVP.
- * Salesforce and Pipedrive are planned for future releases.
+ * HubSpot, Salesforce, and Pipedrive are live in Settings.
  */
 export type CRMProvider = 'hubspot' | 'salesforce' | 'pipedrive';
 
@@ -74,8 +73,14 @@ export const CRM_PROVIDER_CONFIGS: Record<CRMProvider, CRMProviderConfig> = {
     name: 'Pipedrive',
     logo: '/integrations/pipedrive.svg',
     description: 'Connect your Pipedrive CRM to sync deals',
-    available: false,
-    scopes: [],
+    available: true,
+    scopes: [
+      'deals:full',
+      'contacts:full',
+      'activities:full',
+      'search:read',
+      'users:read',
+    ],
   },
 };
 

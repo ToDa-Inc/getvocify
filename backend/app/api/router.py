@@ -8,6 +8,7 @@ from app.api import (
     memos,
     crm,
     crm_salesforce,
+    crm_pipedrive,
     transcription,
     auth,
     glossary,
@@ -34,6 +35,7 @@ api_router.include_router(crm.router)
 api_router.include_router(calls.router)
 api_router.include_router(hubspot_recordings.router)
 api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")
+api_router.include_router(crm_pipedrive.router, prefix="/api/v1/crm")
 api_router.include_router(transcription.router)
 api_router.include_router(glossary.router)
 api_router.include_router(webhooks.router, prefix="/webhooks")

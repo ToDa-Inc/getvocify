@@ -1,0 +1,477 @@
+"""Pipedrive OAuth, schema, configuration (mounted under /api/v1/crm)."""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta
+from typing import Any, Optional
+from urllib.parse import quote_plus, urlparse
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
+from supabase import Client
+
+from app.config import settings
+from app.deps import get_supabase, get_user_id
+from app.models.approval import ContactMatch, DealMatch
+from app.models.crm_config import CRMConfigurationRequest, CRMConfigurationResponse, StageOption
+from app.models.hubspot import TestConnectionResponse
+from app.models.pipedrive_crm import PipedriveConnectionOut
+from app.services.company_scope import require_company_id, require_crm_connection, require_crm_write_access
+from app.services.crm_config import CRMConfigurationService
+from app.services.hubspot.types import CRMSchema, HubSpotPipeline, HubSpotPipelineStage, HubSpotProperty, PropertyOption
+from app.services.pipedrive.client import PipedriveClient
+from app.services.pipedrive.oauth import (
+    build_authorize_url,
+    decode_state,
+    exchange_code_for_tokens,
+    pipedrive_oauth_enabled,
+)
+from app.services.pipedrive.schema import PipedriveSchemaService
+from app.services.pipedrive.search import PipedriveSearchService, primary_email, primary_phone
+from app.services.pipedrive.validation import PipedriveValidationService
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/pipedrive", tags=["crm", "pipedrive"])
+
+
+def _get_pipedrive_connection_row(supabase: Client, user_id: str) -> dict[str, Any]:
+    row = require_crm_connection(supabase, user_id, "pipedrive", detail="Pipedrive connection not found")
+    if row.get("status") != "connected":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pipedrive connection not found")
+    return row
+
+
+def _pd_client_from_row(row: dict[str, Any], supabase: Client) -> PipedriveClient:
+    meta = row.get("metadata") or {}
+    api_domain = meta.get("api_domain") or ""
+    if not api_domain:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pipedrive connection missing api_domain",
+        )
+    expires_raw = row.get("token_expires_at")
+    expires_at = None
+    if expires_raw:
+        try:
+            expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
+        except Exception:
+            pass
+    return PipedriveClient(
+        api_domain=api_domain,
+        access_token=row["access_token"],
+        refresh_token=row.get("refresh_token"),
+        connection_id=str(row["id"]),
+        supabase=supabase,
+        token_expires_at=expires_at,
+    )
+
+
+@router.get("/authorize")
+async def pipedrive_authorize(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    require_crm_write_access(supabase, user_id)
+    if not pipedrive_oauth_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pipedrive OAuth not configured.",
+        )
+    try:
+        user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
+        if not user_profile.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "no rows" in str(e).lower() or "PGRST116" in str(e):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+        raise
+    try:
+        return {"redirect_url": build_authorize_url(user_id)}
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+
+
+@router.get("/callback")
+async def pipedrive_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+    supabase: Client = Depends(get_supabase),
+):
+    frontend_url = settings.FRONTEND_URL.rstrip("/")
+    ok = f"{frontend_url}/dashboard/integrations?pipedrive=connected"
+    bad = f"{frontend_url}/dashboard/integrations?pipedrive=error"
+
+    if error:
+        q = f"error={quote_plus(error)}"
+        if error_description:
+            q += f"&error_description={quote_plus(error_description)}"
+        return RedirectResponse(url=f"{bad}&{q}", status_code=302)
+    if not code or not state:
+        return RedirectResponse(url=f"{bad}&error=missing_params", status_code=302)
+    user_id = decode_state(state)
+    if not user_id:
+        return RedirectResponse(url=f"{bad}&error=invalid_state", status_code=302)
+    try:
+        token_data = await exchange_code_for_tokens(code)
+    except Exception as e:
+        logger.exception("Pipedrive OAuth token exchange failed: %s", e)
+        return RedirectResponse(url=f"{bad}&error=token_exchange_failed", status_code=302)
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    api_domain = (token_data.get("api_domain") or "").rstrip("/")
+    if not access_token or not api_domain:
+        return RedirectResponse(url=f"{bad}&error=no_token", status_code=302)
+
+    expires_at = None
+    if token_data.get("expires_in") is not None:
+        expires_at = (datetime.utcnow() + timedelta(seconds=int(token_data["expires_in"]))).isoformat()
+
+    client = PipedriveClient(
+        api_domain=api_domain,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        connection_id=None,
+        supabase=None,
+    )
+    validation = await PipedriveValidationService(client).validate()
+    if not validation.valid:
+        logger.warning("Pipedrive post-OAuth validation failed: %s", validation.error)
+        return RedirectResponse(url=f"{bad}&error=validation_failed", status_code=302)
+
+    me = validation.user or {}
+    host = urlparse(api_domain).hostname or ""
+    company_domain = me.get("company_domain")
+    if not company_domain and host.endswith(".pipedrive.com"):
+        company_domain = host.split(".")[0]
+
+    company_id = require_company_id(supabase, user_id)
+    connection_data = {
+        "user_id": user_id,
+        "company_id": company_id,
+        "provider": "pipedrive",
+        "status": "connected",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_expires_at": expires_at,
+        "metadata": {
+            "api_domain": api_domain,
+            "company_domain": company_domain,
+            "pipedrive_user_id": me.get("id"),
+            "pipedrive_company_id": me.get("company_id"),
+            "user_email": me.get("email"),
+            "user_name": me.get("name"),
+            "scope": token_data.get("scope"),
+        },
+    }
+    try:
+        supabase.table("crm_connections").upsert(connection_data, on_conflict="company_id,provider").execute()
+    except Exception as e:
+        logger.exception("Pipedrive OAuth save to crm_connections failed: %s", e)
+        return RedirectResponse(url=f"{bad}&error=save_failed", status_code=302)
+
+    return RedirectResponse(url=ok, status_code=302)
+
+
+@router.delete("/disconnect")
+async def pipedrive_disconnect(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    company_id = require_crm_write_access(supabase, user_id)
+    existing = (
+        supabase.table("crm_connections")
+        .select("id")
+        .eq("company_id", company_id)
+        .eq("provider", "pipedrive")
+        .limit(1)
+        .execute()
+    )
+    pd_id = existing.data[0]["id"] if existing.data else None
+    supabase.table("crm_connections").delete().eq("company_id", company_id).eq("provider", "pipedrive").execute()
+    if pd_id:
+        comp = (
+            supabase.table("companies")
+            .select("primary_crm_connection_id")
+            .eq("id", company_id)
+            .maybe_single()
+            .execute()
+        )
+        pid = (comp.data or {}).get("primary_crm_connection_id") if comp and comp.data else None
+        if pid and str(pid) == str(pd_id):
+            supabase.table("companies").update({"primary_crm_connection_id": None}).eq("id", company_id).execute()
+    return {"success": True}
+
+
+@router.get("/connection", response_model=PipedriveConnectionOut)
+async def get_pipedrive_connection(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    return PipedriveConnectionOut(
+        id=UUID(row["id"]),
+        user_id=UUID(row["user_id"]),
+        provider=row["provider"],
+        status=row["status"],
+        metadata=row.get("metadata") or {},
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+@router.post("/test", response_model=TestConnectionResponse)
+async def test_pipedrive(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    try:
+        row = _get_pipedrive_connection_row(supabase, user_id)
+        client = _pd_client_from_row(row, supabase)
+        v = await PipedriveValidationService(client).validate()
+        return TestConnectionResponse(
+            valid=v.valid,
+            portal_id=str((v.user or {}).get("company_id") or "") or None,
+            scopes_ok=v.valid,
+            error=v.error,
+            error_code="VALIDATION_FAILED" if not v.valid else None,
+        )
+    except HTTPException as e:
+        return TestConnectionResponse(valid=False, error=e.detail, error_code="NOT_CONNECTED")
+
+
+@router.get("/pipelines", response_model=list[HubSpotPipeline])
+async def pipedrive_pipelines(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    client = _pd_client_from_row(row, supabase)
+    schema = PipedriveSchemaService(client, supabase, str(row["id"]))
+    pipelines = await schema.list_pipelines()
+    stages = await schema.list_stages()
+    by_pipe: dict[str, list[HubSpotPipelineStage]] = {}
+    for s in stages:
+        pid = str(s.get("pipeline_id") or "")
+        by_pipe.setdefault(pid, []).append(
+            HubSpotPipelineStage(
+                id=str(s.get("id")),
+                label=s.get("name") or str(s.get("id")),
+                displayOrder=int(s.get("order_nr") or 0),
+            )
+        )
+    return [
+        HubSpotPipeline(
+            id=str(p.get("id")),
+            label=p.get("name") or str(p.get("id")),
+            displayOrder=int(p.get("order_nr") or 0),
+            stages=by_pipe.get(str(p.get("id")), []),
+        )
+        for p in pipelines
+    ]
+
+
+@router.get("/stages", response_model=list[StageOption])
+async def pipedrive_stages(
+    pipeline_id: Optional[str] = None,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    client = _pd_client_from_row(row, supabase)
+    schema = PipedriveSchemaService(client, supabase, str(row["id"]))
+    stages = await schema.list_stages(pipeline_id)
+    return [
+        StageOption(
+            id=str(s.get("id")),
+            label=s.get("name") or str(s.get("id")),
+            display_order=int(s.get("order_nr") or 0),
+        )
+        for s in stages
+    ]
+
+
+def _fields_to_properties(fields: list[dict[str, Any]]) -> list[HubSpotProperty]:
+    props: list[HubSpotProperty] = []
+    for f in fields:
+        key = f.get("key")
+        if not key:
+            continue
+        opts = []
+        for o in f.get("options") or []:
+            if not isinstance(o, dict):
+                continue
+            opts.append(
+                PropertyOption(
+                    label=o.get("label") or str(o.get("id") or ""),
+                    value=str(o.get("id") if o.get("id") is not None else o.get("label") or ""),
+                    hidden=False,
+                )
+            )
+        props.append(
+            HubSpotProperty(
+                name=str(key),
+                label=f.get("name") or str(key),
+                type=f.get("field_type") or "string",
+                fieldType="text",
+                options=opts,
+                readOnlyValue=bool(f.get("edit_flag") is False),
+            )
+        )
+    return props
+
+
+@router.get("/schema", response_model=CRMSchema)
+async def pipedrive_schema(
+    object_type: str = Query("deals"),
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    if object_type not in ("deals", "contacts", "companies"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="object_type must be deals|contacts|companies")
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    client = _pd_client_from_row(row, supabase)
+    schema_svc = PipedriveSchemaService(client, supabase, str(row["id"]))
+    fields = await schema_svc.list_fields(object_type)
+    pipelines: list[HubSpotPipeline] = []
+    if object_type == "deals":
+        raw_p = await schema_svc.list_pipelines()
+        raw_s = await schema_svc.list_stages()
+        by_pipe: dict[str, list[HubSpotPipelineStage]] = {}
+        for s in raw_s:
+            pid = str(s.get("pipeline_id") or "")
+            by_pipe.setdefault(pid, []).append(
+                HubSpotPipelineStage(
+                    id=str(s.get("id")),
+                    label=s.get("name") or str(s.get("id")),
+                    displayOrder=int(s.get("order_nr") or 0),
+                )
+            )
+        pipelines = [
+            HubSpotPipeline(
+                id=str(p.get("id")),
+                label=p.get("name") or str(p.get("id")),
+                displayOrder=int(p.get("order_nr") or 0),
+                stages=by_pipe.get(str(p.get("id")), []),
+            )
+            for p in raw_p
+        ]
+    return CRMSchema(object_type=object_type, properties=_fields_to_properties(fields), pipelines=pipelines)
+
+
+@router.get("/configuration", response_model=CRMConfigurationResponse)
+async def get_pipedrive_configuration(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    svc = CRMConfigurationService(supabase)
+    config = await svc.get_configuration(user_id, provider="pipedrive")
+    if not config:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM not configured.")
+    return config
+
+
+@router.post("/configure", response_model=CRMConfigurationResponse)
+async def configure_pipedrive(
+    request: CRMConfigurationRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    require_crm_write_access(supabase, user_id)
+    try:
+        user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
+        if not user_profile.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "no rows" in str(e).lower() or "PGRST116" in str(e):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+        raise
+
+    conn = (
+        supabase.table("crm_connections")
+        .select("id")
+        .eq("company_id", require_company_id(supabase, user_id))
+        .eq("provider", "pipedrive")
+        .eq("status", "connected")
+        .limit(1)
+        .execute()
+    )
+    if not conn.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pipedrive not connected")
+    connection_id = conn.data[0]["id"]
+
+    svc = CRMConfigurationService(supabase)
+    config = await svc.save_configuration(user_id, connection_id, request)
+    return config
+
+
+@router.get("/search/deals", response_model=list[DealMatch])
+async def search_pipedrive_deals(
+    q: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    client = _pd_client_from_row(row, supabase)
+    records = await PipedriveSearchService(client).search_deals(q, limit=10)
+    return [
+        DealMatch(
+            deal_id=str(rec["id"]),
+            deal_name=rec.get("title") or "Deal",
+            amount=str(rec["value"]) if rec.get("value") is not None else None,
+            stage=str(rec.get("stage_id")) if rec.get("stage_id") is not None else None,
+            last_updated=str(rec.get("update_time") or rec.get("updated_at") or ""),
+            match_confidence=1.0,
+            match_reason="Manual Search",
+        )
+        for rec in records
+        if rec.get("id") is not None
+    ]
+
+
+@router.get("/search/persons", response_model=list[ContactMatch])
+async def search_pipedrive_persons(
+    q: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    client = _pd_client_from_row(row, supabase)
+    records = await PipedriveSearchService(client).search_persons(q, limit=10)
+    return [
+        ContactMatch(
+            contact_id=str(rec["id"]),
+            name=rec.get("name"),
+            email=primary_email(rec) or "",
+            phone=primary_phone(rec),
+            match_confidence=1.0,
+            match_reason="Manual Search",
+        )
+        for rec in records
+        if rec.get("id") is not None
+    ]
+
+
+@router.get("/search/organizations")
+async def search_pipedrive_organizations(
+    q: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    row = _get_pipedrive_connection_row(supabase, user_id)
+    client = _pd_client_from_row(row, supabase)
+    records = await PipedriveSearchService(client).search_organizations(q, limit=10)
+    return [
+        {"id": str(rec["id"]), "name": rec.get("name")}
+        for rec in records
+        if rec.get("id") is not None
+    ]

@@ -16,27 +16,44 @@ import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConf
 import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
 import { SalesforceConfiguration } from "@/components/dashboard/salesforce/SalesforceConfiguration";
 import { SalesforceConnection } from "@/components/dashboard/salesforce/SalesforceConnection";
+import { PipedriveConfiguration } from "@/components/dashboard/pipedrive/PipedriveConfiguration";
+import { PipedriveConnection } from "@/components/dashboard/pipedrive/PipedriveConnection";
 
-const LIVE = [
+type LiveCrmId = "hubspot" | "salesforce" | "pipedrive";
+
+const CRM_LABEL: Record<LiveCrmId, string> = {
+  hubspot: "HubSpot",
+  salesforce: "Salesforce",
+  pipedrive: "Pipedrive",
+};
+
+const LIVE: { id: LiveCrmId; name: string; description: string; logo: string }[] = [
   {
-    id: "hubspot" as const,
+    id: "hubspot",
     name: "HubSpot",
     description: "Deals, contacts, and call activities",
     logo: "https://cdn.worldvectorlogo.com/logos/hubspot.svg",
   },
   {
-    id: "salesforce" as const,
+    id: "salesforce",
     name: "Salesforce",
     description: "Opportunities and contacts",
     logo: "https://cdn.worldvectorlogo.com/logos/salesforce-2.svg",
+  },
+  {
+    id: "pipedrive",
+    name: "Pipedrive",
+    description: "Deals, people, and organizations",
+    logo: "https://cdn.worldvectorlogo.com/logos/pipedrive.svg",
   },
 ];
 
 function oauthErrorMessage(params: URLSearchParams): string | null {
   const hubspot = params.get("hubspot");
   const salesforce = params.get("salesforce");
+  const pipedrive = params.get("pipedrive");
   const error = params.get("error");
-  if (!(hubspot === "error" || salesforce === "error" || error)) return null;
+  if (!(hubspot === "error" || salesforce === "error" || pipedrive === "error" || error)) return null;
 
   const errDesc = params.get("error_description");
   const decoded = errDesc ? decodeURIComponent(errDesc.replace(/\+/g, " ")) : "";
@@ -52,7 +69,24 @@ function oauthErrorMessage(params: URLSearchParams): string | null {
     OAUTH_EC_APP_NOT_FOUND: "Salesforce does not recognize this OAuth app.",
   };
 
+  const pdErrors: Record<string, string> = {
+    missing_params: "Pipedrive did not return authorization. Try again.",
+    invalid_state: "Session expired. Please try connecting again.",
+    token_exchange_failed:
+      "Could not complete Pipedrive login. Check that the Callback URL matches PIPEDRIVE_REDIRECT_URI.",
+    no_token: "Pipedrive did not return tokens. Confirm the Marketplace app scopes.",
+    validation_failed: "Pipedrive login worked but API access failed.",
+    save_failed: "Could not save the connection.",
+    user_denied: "Pipedrive authorization was cancelled.",
+  };
+
   if (error === "invalid_state") return sfErrors.invalid_state;
+  if (pipedrive === "error") {
+    if (error && pdErrors[error]) return pdErrors[error];
+    if (decoded) return `Pipedrive: ${decoded}`;
+    if (error && error !== "error") return `Failed to connect Pipedrive (${error}).`;
+    return "Failed to connect Pipedrive.";
+  }
   if (salesforce === "error") {
     if (error && sfErrors[error]) return sfErrors[error];
     if (decoded.toLowerCase().includes("not installed")) {
@@ -70,8 +104,8 @@ const SettingsPage = () => {
   const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [connectId, setConnectId] = useState<"hubspot" | "salesforce" | null>(null);
-  const [disconnectId, setDisconnectId] = useState<"hubspot" | "salesforce" | null>(null);
+  const [connectId, setConnectId] = useState<LiveCrmId | null>(null);
+  const [disconnectId, setDisconnectId] = useState<LiveCrmId | null>(null);
 
   const { data: connections = [], isLoading: connectionsLoading } = useQuery({
     queryKey: crmKeys.connections(),
@@ -91,6 +125,8 @@ const SettingsPage = () => {
   const primaryConnectionId = prefs?.primary_crm_connection_id ?? null;
   const hubspot = connections.find((c) => c.provider === "hubspot");
   const salesforce = connections.find((c) => c.provider === "salesforce");
+  const pipedrive = connections.find((c) => c.provider === "pipedrive");
+  const byProvider = { hubspot, salesforce, pipedrive };
 
   const refreshCrm = () => {
     queryClient.invalidateQueries({ queryKey: crmKeys.all });
@@ -100,6 +136,7 @@ const SettingsPage = () => {
   useEffect(() => {
     const hubspotStatus = searchParams.get("hubspot");
     const salesforceStatus = searchParams.get("salesforce");
+    const pipedriveStatus = searchParams.get("pipedrive");
     if (hubspotStatus === "connected") {
       toast.success("HubSpot connected");
       setSearchParams({}, { replace: true });
@@ -108,6 +145,12 @@ const SettingsPage = () => {
     }
     if (salesforceStatus === "connected") {
       toast.success("Salesforce connected");
+      setSearchParams({}, { replace: true });
+      refreshCrm();
+      return;
+    }
+    if (pipedriveStatus === "connected") {
+      toast.success("Pipedrive connected");
       setSearchParams({}, { replace: true });
       refreshCrm();
       return;
@@ -130,12 +173,13 @@ const SettingsPage = () => {
   });
 
   const disconnectMutation = useMutation({
-    mutationFn: async (id: "hubspot" | "salesforce") => {
+    mutationFn: async (id: LiveCrmId) => {
       if (id === "hubspot") await crmApi.disconnectHubSpot();
-      else await crmApi.disconnectSalesforce();
+      else if (id === "salesforce") await crmApi.disconnectSalesforce();
+      else await crmApi.disconnectPipedrive();
     },
     onSuccess: (_, id) => {
-      toast.success(`Disconnected from ${id === "hubspot" ? "HubSpot" : "Salesforce"}`);
+      toast.success(`Disconnected from ${CRM_LABEL[id]}`);
       setDisconnectId(null);
       refreshCrm();
     },
@@ -182,7 +226,7 @@ const SettingsPage = () => {
             <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
               {connections.map((c) => {
                 const selected = primaryConnectionId === c.id;
-                const label = c.provider === "hubspot" ? "HubSpot" : "Salesforce";
+                const label = CRM_LABEL[c.provider as LiveCrmId] ?? c.provider;
                 return (
                   <button
                     key={c.id}
@@ -204,8 +248,8 @@ const SettingsPage = () => {
 
         <div className="divide-y divide-border/40">
           {LIVE.map((item) => {
-            const connected = item.id === "hubspot" ? Boolean(hubspot) : Boolean(salesforce);
-            const connection = item.id === "hubspot" ? hubspot : salesforce;
+            const connection = byProvider[item.id];
+            const connected = Boolean(connection);
             const isPrimary =
               Boolean(connection) &&
               connections.length > 1 &&
@@ -297,20 +341,39 @@ const SettingsPage = () => {
         </div>
       )}
 
+      {pipedrive && (
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
+          <div className="mb-6">
+            <h2 className={THEME_TOKENS.typography.sectionTitle}>Pipedrive fields</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {canManage
+                ? "Default pipeline and stage, fields AI may fill, and whether Vocify writes after processing — or waits for Approve."
+                : "Workspace field mapping. Ask an admin to change it."}
+            </p>
+          </div>
+          <PipedriveConfiguration readOnly={!canManage} />
+        </div>
+      )}
+
       <Dialog open={connectId !== null} onOpenChange={(open) => !open && setConnectId(null)}>
         <DialogContent className={`${THEME_TOKENS.radius.container} max-w-lg border-border/70 bg-card p-6 md:p-8`}>
           <DialogHeader>
             <DialogTitle className={THEME_TOKENS.typography.sectionTitle}>
-              Connect {connectId === "salesforce" ? "Salesforce" : "HubSpot"}
+              Connect {connectId ? CRM_LABEL[connectId] : ""}
             </DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              {connectId === "salesforce"
-                ? "You will be redirected to Salesforce to authorize API access."
-                : "You will be redirected to HubSpot to authorize access."}
+              You will be redirected to {connectId ? CRM_LABEL[connectId] : "the CRM"} to authorize API access.
             </DialogDescription>
           </DialogHeader>
           {connectId === "salesforce" ? (
             <SalesforceConnection
+              onConnected={() => {
+                setConnectId(null);
+                refreshCrm();
+              }}
+            />
+          ) : connectId === "pipedrive" ? (
+            <PipedriveConnection
               onConnected={() => {
                 setConnectId(null);
                 refreshCrm();
@@ -330,7 +393,7 @@ const SettingsPage = () => {
       <ConfirmAction
         open={disconnectId !== null}
         onOpenChange={(open) => !open && setDisconnectId(null)}
-        title={`Disconnect ${disconnectId === "salesforce" ? "Salesforce" : "HubSpot"}?`}
+        title={`Disconnect ${disconnectId ? CRM_LABEL[disconnectId] : "CRM"}?`}
         description="Saved field mapping and sync history for this CRM will be removed."
         confirmLabel="Disconnect"
         pending={disconnectMutation.isPending}

@@ -97,6 +97,52 @@ async def _hubspot_properties(
         return {}
 
 
+async def _pipedrive_existing(
+    conn: dict[str, Any],
+    memo_data: dict,
+    field_specs: Optional[list[dict]] = None,
+) -> dict[str, dict[str, Any]]:
+    deal_id = memo_data.get("matched_deal_id")
+    if not deal_id:
+        return {}
+    names = _spec_names_by_object(field_specs)
+    keys = names.get("deals") or []
+    meta = conn.get("metadata") or {}
+    api_domain = meta.get("api_domain")
+    if not api_domain or not conn.get("access_token"):
+        return {}
+    try:
+        from datetime import datetime
+
+        from app.services.pipedrive.client import PipedriveClient
+        from app.services.pipedrive.search import PipedriveSearchService
+
+        expires_at = None
+        if conn.get("token_expires_at"):
+            try:
+                expires_at = datetime.fromisoformat(str(conn["token_expires_at"]).replace("Z", "+00:00"))
+            except Exception:
+                pass
+        client = PipedriveClient(
+            api_domain=api_domain,
+            access_token=conn["access_token"],
+            refresh_token=conn.get("refresh_token"),
+            token_expires_at=expires_at,
+        )
+        deal = await PipedriveSearchService(client).get_deal(str(deal_id))
+        if not deal:
+            return {}
+        if keys:
+            deal = {k: deal[k] for k in keys if k in deal and deal[k] not in (None, "")}
+        return {"deals": deal} if deal else {}
+    except Exception as e:
+        logger.warning(
+            "Could not load existing Pipedrive deal",
+            extra=log_domain(DOMAIN_EXTRACTION, "existing_crm_load_failed", object_type="deals", error=str(e)),
+        )
+        return {}
+
+
 async def load_existing_crm_values(
     supabase: Client,
     user_id: str,
@@ -113,7 +159,12 @@ async def load_existing_crm_values(
         _provider, conn = await get_memo_crm_or_none_with_hubspot_refresh(supabase, user_id)
     except Exception:
         return {}
-    if not conn or conn.get("provider") != "hubspot":
+    if not conn:
+        return {}
+    provider = (conn.get("provider") or "").lower()
+    if provider == "pipedrive":
+        return await _pipedrive_existing(conn, memo_data, field_specs)
+    if provider != "hubspot":
         return {}
 
     names = _spec_names_by_object(field_specs)
