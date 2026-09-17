@@ -25,6 +25,9 @@ function labelsFromDealUrl(dealUrl: string | undefined | null): {
   if (u.includes("hubspot.com")) {
     return { crmName: "HubSpot", viewInCrm: "View in HubSpot" };
   }
+  if (u.includes("pipedrive.com")) {
+    return { crmName: "Pipedrive", viewInCrm: "View in Pipedrive" };
+  }
   if (
     u.includes("/lightning/r/opportunity") ||
     u.includes(".salesforce.com") ||
@@ -34,6 +37,32 @@ function labelsFromDealUrl(dealUrl: string | undefined | null): {
     return { crmName: "Salesforce", viewInCrm: "View in Salesforce" };
   }
   return { crmName: "your CRM", viewInCrm: "View in CRM" };
+}
+
+function pipedriveCompanyDomain(meta: { company_domain?: string; api_domain?: string } | null | undefined): string | null {
+  const fromMeta = (meta?.company_domain || "").trim();
+  if (fromMeta) return fromMeta;
+  const raw = (meta?.api_domain || "").trim();
+  if (!raw) return null;
+  try {
+    const host = new URL(raw.includes("://") ? raw : `https://${raw}`).hostname.toLowerCase();
+    if (!host.endsWith(".pipedrive.com")) return null;
+    const sub = host.split(".")[0];
+    if (["api", "oauth", "www", "developers", "app"].includes(sub)) return null;
+    return sub;
+  } catch {
+    return null;
+  }
+}
+
+function pipedriveRecordUrl(
+  domain: string | null,
+  kind: "deal" | "person",
+  recordId: string | null | undefined,
+): string | null {
+  const id = String(recordId || "").trim();
+  if (!domain || !id) return null;
+  return `https://${domain}.pipedrive.com/${kind === "person" ? "person" : "deal"}/${id}`;
 }
 
 const MemoDetail = () => {
@@ -49,6 +78,7 @@ const MemoDetail = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [syncResult, setSyncResult] = useState<any>(null);
+  const [crmViewUrl, setCrmViewUrl] = useState<string | null>(null);
   const [isReExtracting, setIsReExtracting] = useState(false);
   const [isReTranscribing, setIsReTranscribing] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
@@ -92,6 +122,7 @@ const MemoDetail = () => {
     let cancelled = false;
     setMemo(null);
     setSyncResult(null);
+    setCrmViewUrl(null);
     setReviewContactName(null);
     setError(null);
     const load = async () => {
@@ -146,6 +177,39 @@ const MemoDetail = () => {
   };
 
   const handleSyncSuccess = (result: any) => setSyncResult(result);
+
+  useEffect(() => {
+    const fromResult = syncResult?.deal_url || syncResult?.contact_url || null;
+    if (fromResult) {
+      setCrmViewUrl(fromResult);
+      return;
+    }
+    const dealId = syncResult?.deal_id || memo?.hubspotDealId || memo?.hubspot_deal_id;
+    const contactId = syncResult?.contact_id || memo?.hubspotContactId || memo?.hubspot_contact_id;
+    if (!dealId && !contactId) return;
+    let cancelled = false;
+    api
+      .get<{ metadata?: { company_domain?: string; api_domain?: string } }>("/crm/pipedrive/connection")
+      .then((conn) => {
+        if (cancelled) return;
+        const domain = pipedriveCompanyDomain(conn?.metadata);
+        setCrmViewUrl(
+          pipedriveRecordUrl(domain, "deal", dealId) || pipedriveRecordUrl(domain, "person", contactId),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setCrmViewUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    syncResult,
+    memo?.hubspotDealId,
+    memo?.hubspot_deal_id,
+    memo?.hubspotContactId,
+    memo?.hubspot_contact_id,
+  ]);
 
   const handleReExtract = async () => {
     if (!id) return;
@@ -246,7 +310,8 @@ const MemoDetail = () => {
   const attachedDeal = syncResult?.deal_name || extraction.companyName || extraction.company_name;
 
   if (syncResult) {
-    const { crmName, viewInCrm } = labelsFromDealUrl(syncResult.deal_url);
+    const viewUrl = syncResult.deal_url || syncResult.contact_url || crmViewUrl;
+    const { crmName, viewInCrm } = labelsFromDealUrl(viewUrl);
     return (
       <div className={`max-w-2xl mx-auto ${THEME_TOKENS.motion.fadeIn} text-center`}>
         <Link
@@ -280,9 +345,9 @@ const MemoDetail = () => {
               {crmName === "HubSpot" ? ` Logged as ${loggedAs}.` : ""}
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              {syncResult.deal_url ? (
+              {viewUrl ? (
                 <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:opacity-90 transition-opacity">
-                  <a href={syncResult.deal_url} target="_blank" rel="noopener noreferrer">
+                  <a href={viewUrl} target="_blank" rel="noopener noreferrer">
                     <ExternalLink className="h-4 w-4 mr-2" />
                     {viewInCrm}
                   </a>
@@ -466,6 +531,16 @@ const MemoDetail = () => {
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
         {canSeeReview && (
           <div className="lg:col-span-3 min-w-0">
+            {memo.status === "approved" && crmViewUrl ? (
+              <div className="mb-4 flex justify-end">
+                <Button variant="outline" asChild className="rounded-full">
+                  <a href={crmViewUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    {labelsFromDealUrl(crmViewUrl).viewInCrm}
+                  </a>
+                </Button>
+              </div>
+            ) : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
                 key={id || ""}

@@ -84,3 +84,7 @@ class PipedriveSearchService:
     async def deals_for_person(self, person_id: str, *, limit: int = 5) -> list[dict[str, Any]]:
         raw = unwrap_data(await self.client.get("/deals", params={"person_id": person_id, "limit": limit}))
         return raw if isinstance(raw, list) else []
+
+    async def persons_for_org(self, org_id: str, *, limit: int = 5) -> list[dict[str, Any]]:
+        raw = unwrap_data(await self.client.get("/persons", params={"org_id": org_id, "limit": limit}))
+        return raw if isinstance(raw, list) else []

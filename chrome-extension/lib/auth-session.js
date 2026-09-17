@@ -19,9 +19,9 @@ export function isCrmReconnectError(error) {
   if (!error) return false;
   const status = Number(error.status);
   if (status === 409) {
-    return /hubspot|salesforce|reconnect/i.test(errorText(error));
+    return /hubspot|salesforce|pipedrive|reconnect/i.test(errorText(error));
   }
-  return /hubspot authorization expired|reconnect hubspot|could not refresh hubspot|salesforce authorization expired|reconnect salesforce/i.test(
+  return /hubspot authorization expired|reconnect hubspot|could not refresh hubspot|salesforce authorization expired|reconnect salesforce|pipedrive authorization expired|reconnect pipedrive|could not refresh pipedrive/i.test(
     errorText(error),
   );
 }
