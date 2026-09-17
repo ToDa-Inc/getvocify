@@ -208,6 +208,7 @@ class SyncResult(BaseModel):
     deal_id: Optional[str] = None
     deal_name: Optional[str] = None
     deal_url: Optional[str] = None
+    contact_url: Optional[str] = None
     error: Optional[str] = None
     error_code: Optional[str] = None
     # MINOR degradation: call_outcome was requested and the guaranteed

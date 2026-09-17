@@ -30,7 +30,11 @@ from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
 from .call_outcome import CallOutcomeContext, apply_call_outcome
-from .account_info import build_deal_record_url, resolve_account_context
+from .account_info import (
+    build_contact_record_url,
+    build_deal_record_url,
+    resolve_account_context,
+)
 
 # When updating an existing deal (e.g. from extension on a known HubSpot deal page),
 # never overwrite these fields - they belong to the deal context, not the memo.
@@ -1722,21 +1726,20 @@ class HubSpotSyncService:
                 ),
             )
             
-            # Generate deal URL for frontend (deal_name set during create/update)
-            if deal_id:
-                if not result.deal_name:
-                    try:
-                        deal_obj = await self.deals.get(deal_id, properties=["dealname"])
-                        result.deal_name = (deal_obj.properties or {}).get("dealname") or "Deal"
-                    except Exception:
-                        result.deal_name = extraction.companyName or "Deal"
+            # Generate CRM record URLs for frontend / WhatsApp
+            if deal_id and not result.deal_name:
+                try:
+                    deal_obj = await self.deals.get(deal_id, properties=["dealname"])
+                    result.deal_name = (deal_obj.properties or {}).get("dealname") or "Deal"
+                except Exception:
+                    result.deal_name = extraction.companyName or "Deal"
 
+            if deal_id or result.contact_id:
                 portal_id = None
                 region = "na1"
                 ui_domain = None
                 metadata = {}
-                
-                # Try connection metadata first
+
                 if self.supabase:
                     conn = self.supabase.table("crm_connections").select("metadata").eq("id", str(connection_id)).single().execute()
                     if conn.data:
@@ -1744,8 +1747,7 @@ class HubSpotSyncService:
                         portal_id = metadata.get("portal_id")
                         region = metadata.get("region", "na1")
                         ui_domain = metadata.get("ui_domain")
-                
-                # Refresh from HubSpot when portal/ui domain not cached (OAuth tokens lack pat-eu1 prefix)
+
                 if not portal_id or not ui_domain:
                     try:
                         account_ctx = await resolve_account_context(self.client)
@@ -1767,11 +1769,18 @@ class HubSpotSyncService:
                             }).eq("id", str(connection_id)).execute()
                     except Exception:
                         pass
-                
-                if portal_id:
+
+                if portal_id and deal_id:
                     result.deal_url = build_deal_record_url(
                         portal_id,
                         deal_id,
+                        ui_domain=ui_domain,
+                        region=region or "na1",
+                    )
+                if portal_id and result.contact_id:
+                    result.contact_url = build_contact_record_url(
+                        portal_id,
+                        result.contact_id,
                         ui_domain=ui_domain,
                         region=region or "na1",
                     )

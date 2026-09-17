@@ -23,7 +23,12 @@ from app.services.memo_approval import approve_memo_core
 from app.services.stt_batch import transcribe_bytes
 from app.services.storage import StorageService
 from app.services.preview_targets import resolve_preview_deal_selection
-from app.services.whatsapp.actions import choice_to_action
+from app.services.crm_copilot.loop import run_copilot_turn
+from app.services.crm_copilot.prompts import build_system_prompt
+from app.services.crm_copilot.route import should_handle_with_copilot
+from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, execute_tool
+from app.services.llm.client import LLMClient
+from app.services.whatsapp.actions import choice_to_action, copilot_confirm_buttons
 from app.services.whatsapp.processor_actions import (
     action_from_inbound,
     copy_steps_from_extraction,
@@ -34,6 +39,7 @@ from app.services.whatsapp.processor_actions import (
     prompt_typed_search,
     send_action_card,
 )
+from app.services.whatsapp.split import split_text
 from app.services.whatsapp.webhook_parser import IncomingMessage
 from app.logging_config import log_domain, DOMAIN_WHATSAPP
 
@@ -574,10 +580,13 @@ def _format_preview_message(
 
 def _format_done_message(result: Any, crm_name: str) -> str:
     deal_url = getattr(result, "deal_url", None)
+    contact_url = getattr(result, "contact_url", None)
     deal_name = getattr(result, "deal_name", None)
     if deal_url:
         title = f"Done. Updated *{deal_name or 'the deal'}* in {crm_name}."
         return f"{title}\n\n{deal_url}"
+    if contact_url:
+        return f"Done. Updated the contact in {crm_name}.\n\n{contact_url}"
     if getattr(result, "status", None) == "approved":
         return "Done. I saved this memo, but no connected CRM was available to update."
     return f"Done. {crm_name} has been updated."
@@ -1643,6 +1652,137 @@ async def _handle_waiting_add_fields(
     return True
 
 
+def _copilot_confirm_from_text(text: str) -> Optional[bool]:
+    action = action_from_inbound(text)
+    if not action:
+        n = _parse_deal_choice(text)
+        mapped = choice_to_action(n) if n else None
+        action = action_from_inbound(mapped or "")
+    if action == "approve":
+        return True
+    if action == "keep":
+        return False
+    return None
+
+
+def _copilot_selected_choice(text: str, copilot: dict) -> Optional[str]:
+    choices = copilot.get("choices") or []
+    if not choices:
+        return None
+    raw = (text or "").strip()
+    if raw.startswith("pick:"):
+        return raw
+    n = _parse_deal_choice(raw)
+    if n and 1 <= n <= len(choices):
+        return str(choices[n - 1].get("id") or "")
+    return None
+
+
+async def _emit_copilot_turn(
+    wa_client: MessagingClient,
+    msg: IncomingMessage,
+    conv_svc: ConversationService,
+    conversation_id,
+    result,
+) -> None:
+    kw = _client_kwargs(msg)
+    copilot = (result.artifacts or {}).get("copilot") or {}
+    memo_id = copilot.get("memo_id")
+    conv_svc.set_state(
+        conversation_id,
+        result.state,
+        pending_memo_id=memo_id,
+        pending_artifact_ids=result.artifacts,
+    )
+    conv_svc.add_message(conversation_id, "outbound", result.text or "", "text")
+    if result.kind == "choices":
+        sections = result.list_sections or []
+        send_list = getattr(wa_client, "send_interactive_list", None)
+        if send_list is not None:
+            try:
+                await send_list(msg.from_phone, result.text or "Which one?", "Opciones", sections, **kw)
+                return
+            except Exception:
+                pass
+        lines = [result.text or "Which one?"]
+        n = 1
+        for section in sections:
+            for row in section.get("rows") or []:
+                lines.append(f"{n}. {row.get('title') or row.get('id')}")
+                n += 1
+        await wa_client.send_text(msg.from_phone, "\n".join(lines), **kw)
+        return
+    if result.kind == "confirm":
+        for part in split_text(result.text or ""):
+            await wa_client.send_text(msg.from_phone, part, **kw)
+        await wa_client.send_interactive_buttons(
+            msg.from_phone,
+            "Actualizar or No actualizar.",
+            copilot_confirm_buttons(),
+            **kw,
+        )
+        return
+    for part in split_text(result.text or ""):
+        await wa_client.send_text(msg.from_phone, part, **kw)
+
+
+async def _run_crm_copilot(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conv,
+    state,
+    transcript: str,
+    audio_url: Optional[str],
+) -> None:
+    artifacts = dict((state.pending_artifact_ids if state else None) or {})
+    copilot = artifacts.get("copilot") or {}
+    text = (transcript or "").strip()
+    confirm = None
+    selected = None
+    if copilot.get("pending_tool"):
+        confirm = _copilot_confirm_from_text(text)
+    elif copilot.get("choices"):
+        selected = _copilot_selected_choice(text, copilot)
+
+    async def extract_memo(dump: str):
+        return await _extract_and_create_memo(
+            supabase,
+            user_id,
+            dump,
+            msg.message_id,
+            audio_url,
+            str(conv.id) if conv else None,
+        )
+
+    result = await run_copilot_turn(
+        text,
+        artifacts=artifacts,
+        llm=LLMClient(),
+        execute=execute_tool,
+        tools=OPENAI_TOOLS,
+        system=build_system_prompt(artifacts),
+        confirm=confirm,
+        selected_choice=selected,
+        ctx=CopilotContext(
+            supabase=supabase,
+            user_id=user_id,
+            artifacts=artifacts,
+            message_id=msg.message_id,
+            conversation_id=str(conv.id) if conv else None,
+            audio_url=audio_url,
+            extract_memo=extract_memo,
+        ),
+    )
+    if conv:
+        await _emit_copilot_turn(wa_client, msg, conv_svc, conv.id, result)
+        return
+    for part in split_text(result.text or ""):
+        await wa_client.send_text(msg.from_phone, part, **_client_kwargs(msg))
+
+
 async def process_whatsapp_message(
     supabase: Client,
     msg: IncomingMessage,
@@ -1718,6 +1858,31 @@ async def process_whatsapp_message(
                 return
             await wa_client.send_text(msg.from_phone, "No pending extraction. Send a voice memo to get started.", **_client_kwargs(msg))
             return
+
+    if should_handle_with_copilot(state):
+        audio_url = None
+        if msg.type == "audio" and msg.audio_id:
+            transcript, audio_url = await _transcribe_audio(supabase, wa_client, msg, user_id)
+            if not transcript:
+                await wa_client.send_text(
+                    msg.from_phone,
+                    "Sorry, I couldn't transcribe the audio. Please try again or send a text message.",
+                    **_client_kwargs(msg),
+                )
+                return
+        elif msg.type == "text":
+            transcript = msg.text or ""
+        else:
+            await wa_client.send_text(
+                msg.from_phone,
+                "I only process voice notes and text. Please send one of those.",
+                **_client_kwargs(msg),
+            )
+            return
+        await _run_crm_copilot(
+            supabase, msg, wa_client, user_id, conv_svc, conv, state, transcript, audio_url
+        )
+        return
 
     if msg.type == "text" and conv and state:
         if state.state == "waiting_deal_choice":

@@ -1,7 +1,9 @@
 """OpenRouter LLM provider."""
 
+import json
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Optional
 
 import httpx
@@ -23,6 +25,29 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_TIMEOUT = 45.0
 MAX_RETRIES = 2
 PROVIDER_NAME = "openrouter"
+
+
+@dataclass
+class ChatToolsResult:
+    content: Optional[str]
+    tool_calls: list = field(default_factory=list)
+    raw_message: dict = field(default_factory=dict)
+
+
+def parse_tool_calls(message: dict) -> list[dict]:
+    out: list[dict] = []
+    for tc in message.get("tool_calls") or []:
+        fn = tc.get("function") or {}
+        args = fn.get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except json.JSONDecodeError:
+                args = {"_raw": args}
+        if not isinstance(args, dict):
+            args = {"value": args}
+        out.append({"id": str(tc.get("id") or ""), "name": str(fn.get("name") or ""), "arguments": args})
+    return out
 
 
 def openrouter_call_meta(data: dict, *, requested_model: str) -> dict:
@@ -60,7 +85,7 @@ class OpenRouterProvider(BaseLLMProvider):
     def compliance_info(self) -> dict:
         return get_compliance_info(PROVIDER_NAME)
 
-    async def chat(
+    async def _complete(
         self,
         messages: list[dict],
         *,
@@ -69,7 +94,10 @@ class OpenRouterProvider(BaseLLMProvider):
         response_format: Optional[dict] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
-    ) -> str:
+        tools: Optional[list] = None,
+        extra: Optional[dict] = None,
+        allow_empty_content: bool = False,
+    ) -> dict:
         api_key = self.api_key
         if not api_key or not str(api_key).strip():
             raise Exception(
@@ -84,6 +112,10 @@ class OpenRouterProvider(BaseLLMProvider):
         }
         if response_format:
             payload["response_format"] = response_format
+        if tools:
+            payload["tools"] = tools
+        if extra:
+            payload.update(extra)
 
         last_error: Optional[Exception] = None
         use_response_format = response_format
@@ -141,8 +173,9 @@ class OpenRouterProvider(BaseLLMProvider):
                         continue
                     resp.raise_for_status()
                     data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
-                    if content is None:
+                    message = data["choices"][0]["message"]
+                    content = message.get("content")
+                    if content is None and not allow_empty_content:
                         raise ValueError("Empty model response")
                     elapsed_ms = (time.perf_counter() - t0) * 1000
                     self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
@@ -161,16 +194,7 @@ class OpenRouterProvider(BaseLLMProvider):
                             content_len=len(content) if content else 0,
                         ),
                     )
-                    if logger.isEnabledFor(logging.DEBUG) and content:
-                        logger.debug(
-                            "LLM response preview",
-                            extra=log_domain(
-                                DOMAIN_LLM,
-                                "content_preview",
-                                content_preview=content[:100] if content else "",
-                            ),
-                        )
-                    return content
+                    return message
             except (httpx.HTTPStatusError, httpx.RequestError, KeyError) as e:
                 last_error = e
                 if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
@@ -220,6 +244,56 @@ class OpenRouterProvider(BaseLLMProvider):
         elif isinstance(last_error, httpx.RequestError):
             err_msg = err_msg or f"{type(last_error).__name__} (network/timeout?)"
         raise Exception(f"LLM request failed: {err_msg}") from last_error
+
+    async def chat(
+        self,
+        messages: list[dict],
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        response_format: Optional[dict] = None,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+    ) -> str:
+        message = await self._complete(
+            messages,
+            model=model,
+            temperature=temperature,
+            response_format=response_format,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+        content = message.get("content")
+        if content is None:
+            raise ValueError("Empty model response")
+        return content
+
+    async def chat_tools(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+        extra: Optional[dict] = None,
+    ) -> ChatToolsResult:
+        message = await self._complete(
+            messages,
+            model=model,
+            temperature=temperature,
+            timeout=timeout,
+            max_retries=max_retries,
+            tools=tools,
+            extra=extra,
+            allow_empty_content=True,
+        )
+        return ChatToolsResult(
+            content=message.get("content"),
+            tool_calls=parse_tool_calls(message),
+            raw_message=message,
+        )
 
     async def chat_json(
         self,

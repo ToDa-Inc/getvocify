@@ -17,6 +17,11 @@ PRIMARY_BUTTONS: list[dict[str, str]] = [
     {"id": ACT_RETARGET, "title": "Cambiar deal"},
 ]
 
+COPILOT_CONFIRM_BUTTONS: list[dict[str, str]] = [
+    {"id": ACT_APPROVE, "title": "Actualizar"},
+    {"id": ACT_KEEP, "title": "No actualizar"},
+]
+
 _CHOICE_TO_ACTION: dict[int, str] = {
     1: ACT_APPROVE,
     2: ACT_KEEP,
@@ -26,6 +31,10 @@ _CHOICE_TO_ACTION: dict[int, str] = {
 
 def primary_buttons() -> list[dict[str, str]]:
     return PRIMARY_BUTTONS
+
+
+def copilot_confirm_buttons() -> list[dict[str, str]]:
+    return COPILOT_CONFIRM_BUTTONS
 
 
 def choice_to_action(choice: int) -> str | None:

@@ -27,14 +27,12 @@ def infer_region_from_token(access_token: str) -> str:
     return "na1"
 
 
-def build_deal_record_url(
-    portal_id: str,
-    deal_id: str,
-    *,
-    ui_domain: Optional[str] = None,
-    region: str = "na1",
-) -> str:
-    """Build HubSpot deal record URL using account uiDomain when available."""
+OBJECT_TYPE_CONTACT = "0-1"
+OBJECT_TYPE_COMPANY = "0-2"
+OBJECT_TYPE_DEAL = "0-3"
+
+
+def _record_host(*, ui_domain: Optional[str] = None, region: str = "na1") -> str:
     host = (ui_domain or "").strip().rstrip("/")
     if host.startswith("https://"):
         host = host[8:]
@@ -43,7 +41,56 @@ def build_deal_record_url(
     if not host:
         region_prefix = f"-{region}" if region and region != "na1" else ""
         host = f"app{region_prefix}.hubspot.com"
-    return f"https://{host}/contacts/{portal_id}/record/0-3/{deal_id}"
+    return host
+
+
+def build_record_url(
+    portal_id: str,
+    record_id: str,
+    object_type_id: str,
+    *,
+    ui_domain: Optional[str] = None,
+    region: str = "na1",
+) -> str:
+    host = _record_host(ui_domain=ui_domain, region=region)
+    return f"https://{host}/contacts/{portal_id}/record/{object_type_id}/{record_id}"
+
+
+def build_deal_record_url(
+    portal_id: str,
+    deal_id: str,
+    *,
+    ui_domain: Optional[str] = None,
+    region: str = "na1",
+) -> str:
+    """Build HubSpot deal record URL using account uiDomain when available."""
+    return build_record_url(
+        portal_id, deal_id, OBJECT_TYPE_DEAL, ui_domain=ui_domain, region=region
+    )
+
+
+def build_contact_record_url(
+    portal_id: str,
+    contact_id: str,
+    *,
+    ui_domain: Optional[str] = None,
+    region: str = "na1",
+) -> str:
+    return build_record_url(
+        portal_id, contact_id, OBJECT_TYPE_CONTACT, ui_domain=ui_domain, region=region
+    )
+
+
+def build_company_record_url(
+    portal_id: str,
+    company_id: str,
+    *,
+    ui_domain: Optional[str] = None,
+    region: str = "na1",
+) -> str:
+    return build_record_url(
+        portal_id, company_id, OBJECT_TYPE_COMPANY, ui_domain=ui_domain, region=region
+    )
 
 
 async def resolve_account_context(client: HubSpotClient) -> HubSpotAccountContext:
