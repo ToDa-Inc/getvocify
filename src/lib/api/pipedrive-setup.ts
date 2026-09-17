@@ -20,10 +20,10 @@ export const DEFAULT_PIPEDRIVE_CONFIG: CRMConfiguration = {
   auto_sync_hubspot_calls: false,
 };
 
-export async function loadPipedriveSetup(): Promise<PipedriveSetup> {
+export async function loadPipedriveSetup(refresh = false): Promise<PipedriveSetup> {
   const [pipelines, schemaData, currentConfig] = await Promise.all([
     crmApi.getPipedrivePipelines(),
-    crmApi.getPipedriveSchema("deals"),
+    crmApi.getPipedriveSchema("deals", refresh ? { refresh: true } : undefined),
     crmApi.getPipedriveConfiguration(),
   ]);
 
