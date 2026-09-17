@@ -965,8 +965,8 @@ async def _build_preview_for_selection(
     effective_extraction = extraction_data or stored_extraction
     extraction = MemoExtraction(**effective_extraction)
     deal_id = None if is_new_deal else selected_deal_id
-    matches = matched_deals or []
-    if not deal_id and not is_new_deal:
+    matches = list(matched_deals or [])
+    if not skip_deal and not deal_id and not is_new_deal and not matches:
         matches = await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id)
 
     identity = await provider.resolve_identity(
@@ -993,28 +993,14 @@ async def _build_preview_for_selection(
             merged.append(d)
         matches = merged[:5]
 
-    if skip_deal:
-        deal_id, create_new = resolve_preview_deal_selection(
-            deal_id=None,
-            create_new_deal=False,
-            has_selected_contact=selected_contact is not None,
-            has_contact_candidates=bool(contact_candidates),
-            skip_deal=True,
-        )
-    else:
-        create_new = bool(is_new_deal)
-        if deal_id:
-            create_new = False
-        elif create_new:
-            pass
-        elif selected_contact and anchor and len(anchor.deal_matches) == 1:
-            deal_id = anchor.deal_matches[0].deal_id
-        elif selected_contact:
-            create_new = False
-        elif contact_candidates:
-            create_new = False
-        else:
-            create_new = True
+    deal_id, create_new = resolve_preview_deal_selection(
+        deal_id=deal_id,
+        create_new_deal=bool(is_new_deal),
+        has_selected_contact=selected_contact is not None,
+        has_contact_candidates=bool(contact_candidates),
+        linked_deal_count=len(anchor.deal_matches) if anchor else 0,
+        skip_deal=skip_deal,
+    )
 
     preview = await provider.build_preview(
         memo_id=UUID(str(memo_id)),
@@ -1168,11 +1154,40 @@ async def _reject_pending_memo(
     conversation_id,
     memo_id: str,
 ) -> None:
-    supabase.table("memos").update({"status": "rejected"}).eq("id", memo_id).eq("user_id", user_id).execute()
+    supabase.table("memos").update({"status": "rejected"}).eq("id", memo_id).eq("user_id", user_id).eq("status", "pending").execute()
     conv_svc.set_state(conversation_id, "idle")
     text = "Rejected. Send a new voice note when ready."
     conv_svc.add_message(conversation_id, "outbound", text, "text")
     await wa_client.send_text(msg.from_phone, text, **_client_kwargs(msg))
+
+
+async def _dispatch_primary_inbound(
+    supabase: Client,
+    msg: IncomingMessage,
+    wa_client: MessagingClient,
+    user_id: str,
+    conv_svc: ConversationService,
+    conversation_id,
+    memo_id: str,
+    artifacts: dict,
+    text: str,
+) -> bool:
+    """Honor leftover Actualizar / No actualizar / Cambiar deal taps in any card state."""
+    action = action_from_inbound(text)
+    if action == "approve":
+        await _approve_pending_memo(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    if action == "keep":
+        await _reject_pending_memo(supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id)
+        return True
+    if action == "retarget":
+        await _retarget_with_options(
+            supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts
+        )
+        return True
+    return False
 
 
 async def _retarget_with_options(
@@ -1271,6 +1286,10 @@ async def _handle_waiting_retarget(
     memo_id = str(state.pending_memo_id)
     artifacts = state.pending_artifact_ids or {}
     text = (msg.text or "").strip()
+    if await _dispatch_primary_inbound(
+        supabase, msg, wa_client, user_id, conv_svc, conversation_id, memo_id, artifacts, text
+    ):
+        return True
     action = action_from_inbound(text)
     if action == "type_name":
         await prompt_typed_search(
@@ -1324,6 +1343,11 @@ async def _handle_waiting_typed_search(
     if not state.pending_memo_id:
         return False
     query = (msg.text or "").strip()
+    artifacts = state.pending_artifact_ids or {}
+    if await _dispatch_primary_inbound(
+        supabase, msg, wa_client, user_id, conv_svc, conversation_id, str(state.pending_memo_id), artifacts, query
+    ):
+        return True
     if not query:
         await wa_client.send_text(msg.from_phone, "Escribe el nombre del deal", **_client_kwargs(msg))
         return True

@@ -485,3 +485,185 @@ async def test_ambiguous_contact_numbered_fallback_without_list(monkeypatch):
     assert "1. Ana López" in texts[-1]
     assert "2. Bob" in texts[-1]
     assert not any(c[0] == "list" for c in sent)
+
+
+async def _run_waiting_state(monkeypatch, state_name: str, text: str) -> dict:
+    from app.services.whatsapp.processor import WhatsAppAccount, process_whatsapp_message
+
+    calls: list[str] = []
+    searches: list[str] = []
+
+    async def fake_approve(*a, **k):
+        calls.append("approve")
+
+    async def fake_reject(*a, **k):
+        calls.append("keep")
+
+    async def fake_retarget(*a, **k):
+        calls.append("retarget")
+
+    async def fake_search(supabase, user_id, query):
+        searches.append(query)
+        return []
+
+    monkeypatch.setattr("app.services.whatsapp.processor._approve_pending_memo", fake_approve)
+    monkeypatch.setattr("app.services.whatsapp.processor._reject_pending_memo", fake_reject)
+    monkeypatch.setattr("app.services.whatsapp.processor._retarget_with_options", fake_retarget)
+    monkeypatch.setattr("app.services.whatsapp.processor._search_deals_for_retarget", fake_search)
+
+    now = datetime.now(timezone.utc)
+    conversation = Conversation(
+        id=uuid4(),
+        chat_id="phone:34600111222",
+        account_id="meta",
+        user_id=uuid4(),
+        channel="whatsapp",
+        created_at=now,
+        updated_at=now,
+    )
+    state = ConversationState(
+        conversation_id=conversation.id,
+        state=state_name,
+        pending_memo_id=uuid4(),
+        pending_artifact_ids={"skip_deal": True, "deal_options": []},
+        updated_at=now,
+    )
+    conv_svc = _ApprovalConv(conversation, state)
+
+    async def fake_account(*a, **k):
+        return WhatsAppAccount(
+            user_id="user-1",
+            profile={"id": "user-1"},
+            crm_connection={"id": "conn-1", "provider": "hubspot", "status": "connected"},
+        )
+
+    monkeypatch.setattr("app.services.whatsapp.processor.resolve_whatsapp_account", fake_account)
+    monkeypatch.setattr("app.services.whatsapp.processor.ConversationService", lambda *a, **k: conv_svc)
+
+    msg = IncomingMessage(
+        message_id="wamid.state",
+        from_phone="34600111222",
+        timestamp="1",
+        type="text",
+        text=text,
+    )
+    await process_whatsapp_message(None, msg, FakeWA([]))
+    return {"calls": calls, "searches": searches}
+
+
+@pytest.mark.asyncio
+async def test_waiting_retarget_leftover_approve_keep(monkeypatch):
+    from app.services.whatsapp.actions import ACT_APPROVE, ACT_KEEP
+
+    assert (await _run_waiting_state(monkeypatch, "waiting_retarget", ACT_APPROVE))["calls"] == ["approve"]
+    assert (await _run_waiting_state(monkeypatch, "waiting_retarget", ACT_KEEP))["calls"] == ["keep"]
+
+
+@pytest.mark.asyncio
+async def test_waiting_typed_search_leftover_approve_does_not_search(monkeypatch):
+    from app.services.whatsapp.actions import ACT_APPROVE
+
+    result = await _run_waiting_state(monkeypatch, "waiting_typed_search", ACT_APPROVE)
+    assert result["calls"] == ["approve"]
+    assert result["searches"] == []
+
+
+@pytest.mark.asyncio
+async def test_build_preview_does_not_auto_attach_unique_linked_deal(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.memo import MemoExtraction
+    from app.services.hubspot.contact_identity import ContactAnchor, IdentityResolution
+    from app.services.whatsapp.processor import _build_preview_for_selection
+
+    captured = {}
+    searches = {"n": 0}
+
+    class FakeProvider:
+        async def find_matching_deals(self, *a, **k):
+            searches["n"] += 1
+            return []
+
+        async def resolve_identity(self, *a, **k):
+            return IdentityResolution(
+                selected=ContactAnchor(
+                    contact_id="c1",
+                    email="ana@acme.test",
+                    name="Ana",
+                    deal_matches=[_deal(deal_id="only-deal")],
+                )
+            )
+
+        async def build_preview(self, **k):
+            captured.update(k)
+            return _contact_preview()
+
+    async def fake_ctx(*a, **k):
+        return (
+            FakeProvider(),
+            {"id": "conn-1", "provider": "hubspot"},
+            SimpleNamespace(default_stage_name=None, default_pipeline_id=None, default_stage_id=None),
+            ["dealname"],
+            ["firstname"],
+            ["name"],
+            [],
+            None,
+        )
+
+    async def fake_load(*a, **k):
+        return MemoExtraction(contactName="Ana", companyName="Acme").model_dump(), "note"
+
+    monkeypatch.setattr("app.services.whatsapp.processor._crm_context", fake_ctx)
+    monkeypatch.setattr("app.services.whatsapp.processor._load_memo_extraction", fake_load)
+
+    await _build_preview_for_selection(
+        None,
+        "user-1",
+        str(uuid4()),
+        skip_deal=False,
+    )
+    assert captured.get("selected_deal_id") is None
+    assert captured.get("skip_deal") is False
+    assert captured.get("create_new_deal") is False
+
+
+@pytest.mark.asyncio
+async def test_skip_deal_preview_does_not_search_deals(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.memo import MemoExtraction
+    from app.services.whatsapp.processor import _build_preview_for_selection
+
+    searches = {"n": 0}
+
+    class FakeProvider:
+        async def find_matching_deals(self, *a, **k):
+            searches["n"] += 1
+            return [_deal()]
+
+        async def resolve_identity(self, *a, **k):
+            return None
+
+        async def build_preview(self, **k):
+            return _contact_preview()
+
+    async def fake_ctx(*a, **k):
+        return (
+            FakeProvider(),
+            {"id": "conn-1", "provider": "hubspot"},
+            SimpleNamespace(default_stage_name=None, default_pipeline_id=None, default_stage_id=None),
+            ["dealname"],
+            ["firstname"],
+            ["name"],
+            [],
+            None,
+        )
+
+    async def fake_load(*a, **k):
+        return MemoExtraction(contactName="Ana").model_dump(), "note"
+
+    monkeypatch.setattr("app.services.whatsapp.processor._crm_context", fake_ctx)
+    monkeypatch.setattr("app.services.whatsapp.processor._load_memo_extraction", fake_load)
+
+    await _build_preview_for_selection(None, "user-1", str(uuid4()), skip_deal=True)
+    assert searches["n"] == 0
