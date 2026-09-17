@@ -5,7 +5,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CRMConfiguration } from "@/lib/api/crm";
 import { DEFAULT_PIPEDRIVE_CONFIG, loadPipedriveSetup } from "@/lib/api/pipedrive-setup";
 import { toast } from "sonner";
-import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
+import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, RefreshCw } from "lucide-react";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
 
   const [draft, setDraft] = useState<CRMConfiguration | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
 
@@ -40,6 +41,20 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
       const current = prev ?? data?.config ?? DEFAULT_PIPEDRIVE_CONFIG;
       return typeof updater === "function" ? updater(current) : updater;
     });
+  };
+
+  const handleRefreshFields = async () => {
+    setIsRefreshing(true);
+    try {
+      const next = await loadPipedriveSetup(true);
+      queryClient.setQueryData(crmKeys.pipedriveSetup(), next);
+      setDraft(null);
+      toast.success("Pipedrive fields updated. Enable new properties below, then Save.");
+    } catch {
+      toast.error("Could not refresh Pipedrive fields");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleSave = async () => {
@@ -169,6 +184,20 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
           <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
             Editable fields
           </h4>
+          {!readOnly && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRefreshFields}
+              disabled={isRefreshing || isLoading}
+              title="Pull the latest Pipedrive fields and pipelines"
+              className="rounded-full h-8 px-3 text-[12px] border-border/50 text-beige shrink-0"
+            >
+              {isRefreshing ? <VocifySpinner size={12} /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+              Refresh
+            </Button>
+          )}
         </div>
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

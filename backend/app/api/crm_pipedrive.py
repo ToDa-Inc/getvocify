@@ -28,7 +28,7 @@ from app.services.pipedrive.oauth import (
     exchange_code_for_tokens,
     pipedrive_oauth_enabled,
 )
-from app.services.pipedrive.schema import PipedriveSchemaService
+from app.services.pipedrive.schema import PipedriveSchemaService, expand_schema_fields, field_key, field_label
 from app.services.pipedrive.search import PipedriveSearchService, primary_email, primary_phone
 from app.services.pipedrive.validation import PipedriveValidationService
 
@@ -301,7 +301,7 @@ async def pipedrive_stages(
 def _fields_to_properties(fields: list[dict[str, Any]]) -> list[HubSpotProperty]:
     props: list[HubSpotProperty] = []
     for f in fields:
-        key = f.get("key")
+        key = field_key(f)
         if not key:
             continue
         opts = []
@@ -315,14 +315,16 @@ def _fields_to_properties(fields: list[dict[str, Any]]) -> list[HubSpotProperty]
                     hidden=False,
                 )
             )
+        writable = f.get("is_writable")
+        read_only = writable is False if writable is not None else bool(f.get("edit_flag") is False)
         props.append(
             HubSpotProperty(
-                name=str(key),
-                label=f.get("name") or str(key),
+                name=key,
+                label=field_label(f),
                 type=f.get("field_type") or "string",
                 fieldType="text",
                 options=opts,
-                readOnlyValue=bool(f.get("edit_flag") is False),
+                readOnlyValue=read_only,
             )
         )
     return props
@@ -331,6 +333,7 @@ def _fields_to_properties(fields: list[dict[str, Any]]) -> list[HubSpotProperty]
 @router.get("/schema", response_model=CRMSchema)
 async def pipedrive_schema(
     object_type: str = Query("deals"),
+    refresh: bool = False,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -339,7 +342,7 @@ async def pipedrive_schema(
     row = _get_pipedrive_connection_row(supabase, user_id)
     client = _pd_client_from_row(row, supabase)
     schema_svc = PipedriveSchemaService(client, supabase, str(row["id"]))
-    fields = await schema_svc.list_fields(object_type)
+    fields = expand_schema_fields(await schema_svc.list_fields(object_type, use_cache=not refresh))
     pipelines: list[HubSpotPipeline] = []
     if object_type == "deals":
         raw_p = await schema_svc.list_pipelines()

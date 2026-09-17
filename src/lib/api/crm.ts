@@ -167,8 +167,13 @@ export const crmApi = {
     return api.post("/crm/pipedrive/configure", config);
   },
 
-  async getPipedriveSchema(objectType: "deals" | "contacts" | "companies" = "deals") {
-    return api.get<CRMSchema>(`/crm/pipedrive/schema?object_type=${objectType}`);
+  async getPipedriveSchema(
+    objectType: "deals" | "contacts" | "companies" = "deals",
+    opts?: { refresh?: boolean },
+  ) {
+    const params = new URLSearchParams({ object_type: objectType });
+    if (opts?.refresh) params.set("refresh", "true");
+    return api.get<CRMSchema>(`/crm/pipedrive/schema?${params}`);
   },
 
   async getPipedrivePipelines() {
