@@ -237,7 +237,8 @@ class ConversationService:
             data["pending_artifact_ids"] = pending_artifact_ids
         if state == "idle":
             data["pending_memo_id"] = None
-            data["pending_artifact_ids"] = None
+            if pending_artifact_ids is None:
+                data["pending_artifact_ids"] = None
 
         try:
             self.supabase.table("conversations").update(data).eq(

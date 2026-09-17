@@ -66,3 +66,26 @@ class LLMClient:
             timeout=timeout,
             max_retries=max_retries,
         )
+
+    async def chat_tools(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        provider: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+        extra: Optional[dict] = None,
+    ):
+        return await self.router.chat_tools(
+            messages,
+            tools=tools,
+            model=model or self._override_model,
+            temperature=temperature,
+            provider=provider,
+            timeout=timeout,
+            max_retries=max_retries,
+            extra=extra,
+        )

@@ -119,3 +119,31 @@ class LLMRouter:
             timeout=timeout,
             max_retries=max_retries,
         )
+
+    async def chat_tools(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        provider: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+        extra: Optional[dict] = None,
+    ):
+        active = self._active_provider(provider)
+        fn = getattr(active, "chat_tools", None)
+        if fn is None:
+            raise ValueError(
+                f"LLM provider '{getattr(active, 'provider_name', provider)}' does not support tool calls"
+            )
+        return await fn(
+            messages,
+            tools=tools,
+            model=model or self._default_model,
+            temperature=temperature,
+            timeout=timeout,
+            max_retries=max_retries,
+            extra=extra,
+        )

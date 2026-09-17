@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # Note: gemini-3.6-flash has mandatory reasoning (~4s TTFT) — too slow for live coaching.
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
     COPILOT_MODEL: str = "google/gemini-3.5-flash-lite"
+    # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
+    CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
+    CRM_COPILOT_MAX_ROUNDS: int = 8
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
     TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"

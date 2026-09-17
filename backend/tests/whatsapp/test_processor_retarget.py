@@ -212,11 +212,32 @@ class _ExtractConv(FakeConv):
         return False
 
 
-async def _run_extract_path(monkeypatch, matches: list[DealMatch], sent: list) -> dict:
+@pytest.mark.asyncio
+async def test_idle_text_uses_copilot_not_extract(monkeypatch):
+    from app.services.crm_copilot.loop import CopilotTurnResult
     from app.services.whatsapp.processor import WhatsAppAccount, process_whatsapp_message
 
-    captured: dict = {}
-    memo_id = str(uuid4())
+    sent = []
+    extracted = []
+
+    async def fake_account(*a, **k):
+        return WhatsAppAccount(
+            user_id="user-1",
+            profile={"id": "user-1", "company_name": "Vocify"},
+            crm_connection={"id": "conn-1", "provider": "hubspot", "status": "connected"},
+        )
+
+    async def fake_extract(*a, **k):
+        extracted.append(True)
+        return None, None
+
+    async def fake_turn(user_text, **k):
+        return CopilotTurnResult(
+            kind="text",
+            text=f"looked up without extract: {user_text[:20]}",
+            artifacts={"copilot": {"last_contact_url": "https://hs/c1"}},
+        )
+
     now = datetime.now(timezone.utc)
     conversation = Conversation(
         id=uuid4(),
@@ -228,89 +249,25 @@ async def _run_extract_path(monkeypatch, matches: list[DealMatch], sent: list) -
         updated_at=now,
     )
     conv_svc = _ExtractConv(conversation)
-    extraction = MemoExtraction(
-        companyName="Acme",
-        contactName="Ana",
-        summary="Visited Ana at Acme about the renewal today",
-    )
-
-    async def fake_account(*a, **k):
-        return WhatsAppAccount(
-            user_id="user-1",
-            profile={"id": "user-1", "company_name": "Vocify"},
-            crm_connection={"id": "conn-1", "provider": "hubspot", "status": "connected"},
-        )
-
-    async def fake_extract(*a, **k):
-        return memo_id, extraction
-
-    async def fake_find(*a, **k):
-        return matches, "conn-1", "hubspot"
-
-    async def fake_build(*a, **k):
-        captured["build"] = k
-        return _contact_preview(), "HubSpot", "conn-1", [m.model_dump() for m in matches]
-
     monkeypatch.setattr("app.services.whatsapp.processor.resolve_whatsapp_account", fake_account)
     monkeypatch.setattr("app.services.whatsapp.processor.ConversationService", lambda *a, **k: conv_svc)
     monkeypatch.setattr("app.services.whatsapp.processor._extract_and_create_memo", fake_extract)
-    monkeypatch.setattr("app.services.whatsapp.processor._find_candidate_deals", fake_find)
-    monkeypatch.setattr("app.services.whatsapp.processor._build_preview_for_selection", fake_build)
+    monkeypatch.setattr("app.services.whatsapp.processor.run_copilot_turn", fake_turn)
 
     msg = IncomingMessage(
         message_id="wamid.extract",
         from_phone="34600111222",
         timestamp="1",
         type="text",
-        text="Visited Ana at Acme about the renewal today",
+        text="dónde está el link de Marc Boixet",
     )
     await process_whatsapp_message(None, msg, FakeWA(sent))
-    captured["conv"] = conv_svc
-    captured["memo_id"] = memo_id
-    return captured
-
-
-@pytest.mark.asyncio
-async def test_extract_path_does_not_send_numbered_deal_list_first(monkeypatch):
-    sent = []
-    captured = await _run_extract_path(
-        monkeypatch,
-        [
-            _deal(deal_id="d1", deal_name="Acme Renewal", match_confidence=0.8),
-            _deal(deal_id="d2", deal_name="Acme New", match_confidence=0.75),
-        ],
-        sent,
-    )
-    interactives = [c for c in sent if c[0] in ("buttons", "list")]
-    assert interactives, f"expected action card, got {sent}"
-    assert interactives[0][0] == "buttons"
-    assert ACT_APPROVE in interactives[0][2]
-    assert all(c[0] != "list" for c in sent)
-    assert all(
-        c[0] != "text" or "Choose where this update should go" not in c[1]
-        for c in sent
-    )
-    assert captured["build"].get("skip_deal") is True
-    assert not captured["build"].get("selected_deal_id")
-    states = captured["conv"].states
-    assert states
-    assert states[-1]["state"] != "waiting_deal_choice"
-
-
-@pytest.mark.asyncio
-async def test_extract_path_does_not_auto_apply_high_confidence_deal(monkeypatch):
-    sent = []
-    captured = await _run_extract_path(
-        monkeypatch,
-        [_deal(deal_id="d1", match_confidence=0.99)],
-        sent,
-    )
-    interactives = [c for c in sent if c[0] in ("buttons", "list")]
-    assert interactives
-    assert interactives[0][0] == "buttons"
-    assert ACT_APPROVE in interactives[0][2]
-    assert captured["build"].get("skip_deal") is True
-    assert not captured["build"].get("selected_deal_id")
+    assert not extracted
+    assert sent
+    assert sent[0][0] == "text"
+    assert "looked up without extract" in sent[0][1]
+    assert conv_svc.states[-1]["state"] == "idle"
+    assert conv_svc.states[-1]["pending_artifact_ids"]["copilot"]["last_contact_url"] == "https://hs/c1"
 
 
 class FakeWANoList:
