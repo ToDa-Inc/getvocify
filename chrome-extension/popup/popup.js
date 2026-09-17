@@ -29,7 +29,9 @@ import {
   shouldWriteCallNote,
   shouldPollMemo,
 } from '../lib/review-screen.js';
+import { crmDisplayName } from '../lib/crm-page.js';
 import { buildHubSpotUrl } from '../lib/hubspot-parser.js';
+import { buildPipedriveUrl } from '../lib/pipedrive-parser.js';
 import {
   buildApproveExtraction,
   canEditOrRemoveProposedField,
@@ -1605,6 +1607,9 @@ async function enrichPageAssociations(context) {
           companyName: fetched.companyName,
           companyId: context.recordId,
           contactId: fetched.contactId,
+          contactName: fetched.contactName,
+          contactEmail: fetched.contactEmail,
+          contactPhone: fetched.contactPhone,
           companyContacts: fetched.contacts || [],
         };
       }
@@ -1625,6 +1630,7 @@ async function enrichPageAssociations(context) {
           contactId: fetched.contactId,
           contactName: fetched.contactName,
           contactEmail: fetched.contactEmail,
+          contactPhone: fetched.contactPhone,
           dealContacts: fetched.contacts || [],
         };
       }
@@ -1860,7 +1866,7 @@ async function applyReviewPresentation(presentation, { memoId, context, memo = n
       const dealNameEl = document.getElementById('target-deal-name');
       const dealReasonEl = document.getElementById('target-deal-reason');
       if (dealNameEl) dealNameEl.textContent = context.dealName || 'Deal on this page';
-      if (dealReasonEl) dealReasonEl.textContent = 'This HubSpot deal';
+      if (dealReasonEl) dealReasonEl.textContent = `This ${crmDisplayName(context.provider)} deal`;
     }
     renderContactTarget({ selected_contact: null, contact_candidates: [] });
     renderReviewRecordName(context, lastPreviewData);
@@ -2015,10 +2021,11 @@ function showUsePageRecordOption(liveContext) {
   const alreadyOnPage = liveKey && liveKey === lockedKey;
   opt.style.display = alreadyOnPage ? 'none' : 'block';
   const name = getRecordDisplayName(liveContext);
+  const crm = crmDisplayName(liveContext.provider);
   const labels = {
-    deal: name ? `Use ${name} instead` : 'Use this HubSpot deal instead',
-    contact: name ? `Use ${name} instead` : 'Use this HubSpot contact instead',
-    company: name ? `Use ${name} instead` : 'Use this HubSpot company instead',
+    deal: name ? `Use ${name} instead` : `Use this ${crm} deal instead`,
+    contact: name ? `Use ${name} instead` : `Use this ${crm} contact instead`,
+    company: name ? `Use ${name} instead` : `Use this ${crm} company instead`,
   };
   btn.textContent = labels[type] || 'Use record on this page';
 }
@@ -3106,12 +3113,13 @@ function renderSuccess(result) {
   const dealName = result?.deal_name;
   const ctx = lastBgState?.context;
 
+  const crmName = crmDisplayName(result?.deal_url || result?.contact_url || ctx?.provider);
   if (dealName && contactName) {
-    msg.textContent = `Updated ${dealName} and ${contactName} in HubSpot.`;
+    msg.textContent = `Updated ${dealName} and ${contactName} in ${crmName}.`;
   } else if (dealName) {
-    msg.textContent = `Updated ${dealName} in HubSpot.`;
+    msg.textContent = `Updated ${dealName} in ${crmName}.`;
   } else if (contactName) {
-    msg.textContent = `Updated ${contactName} in HubSpot.`;
+    msg.textContent = `Updated ${contactName} in ${crmName}.`;
   } else {
     msg.textContent = 'CRM updated successfully.';
   }
@@ -3128,6 +3136,19 @@ function renderSuccess(result) {
   if (result?.deal_url) {
     btn.href = result.deal_url;
     btn.style.display = 'block';
+  } else if (result?.contact_url) {
+    btn.href = result.contact_url;
+    btn.style.display = 'block';
+  } else if (ctx?.provider === 'pipedrive' && ctx.companyDomain) {
+    const objectType = result?.deal_id ? 'deal' : result?.contact_id ? 'contact' : ctx.objectType;
+    const recordId = result?.deal_id || result?.contact_id || ctx.recordId;
+    const href = buildPipedriveUrl({ companyDomain: ctx.companyDomain, objectType, recordId });
+    if (href) {
+      btn.href = href;
+      btn.style.display = 'block';
+    } else {
+      btn.style.display = 'none';
+    }
   } else if (ctx?.hubId && result?.contact_id) {
     btn.href = buildHubSpotUrl({
       region: ctx.region,
@@ -3147,6 +3168,7 @@ function renderSuccess(result) {
   } else {
     btn.style.display = 'none';
   }
+  btn.textContent = `View in ${crmName}`;
 
   // outcome_failed is CRITICAL: for Lost, the reason note itself (the one
   // guaranteed record - see call_outcome.py) wasn't saved anywhere - unlike
@@ -4045,6 +4067,9 @@ document.getElementById('btn-use-page-record')?.addEventListener('click', async 
           companyName: fetched.companyName,
           companyId: ctx.recordId,
           contactId: fetched.contactId,
+          contactName: fetched.contactName,
+          contactEmail: fetched.contactEmail,
+          contactPhone: fetched.contactPhone,
           companyContacts: fetched.contacts || [],
         };
         lastBgState = { ...(lastBgState || state), context: companyCtx };

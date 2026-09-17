@@ -18,6 +18,7 @@ class _FakeClient:
         self.posts = []
         self.patches = []
         self.connection_id = "c1"
+        self.api_domain = "https://acme.pipedrive.com"
 
     async def get(self, path, *, version="v2", params=None):
         if path == "/activityTypes":
@@ -70,6 +71,8 @@ async def test_skip_deal_writes_person_and_note_not_deal():
     )
     assert result.success is True
     assert result.deal_id is None
+    assert result.deal_url is None
+    assert result.contact_url == "https://acme.pipedrive.com/person/20"
     paths = [p[0] for p in client.posts]
     assert "/deals" not in paths
     assert "/persons" in paths
@@ -94,7 +97,7 @@ async def test_new_deal_requires_stage():
 
 
 @pytest.mark.asyncio
-async def test_new_deal_creates_with_stage_and_omits_deal_url():
+async def test_new_deal_creates_with_stage_and_deal_url():
     svc, client = _svc()
     result = await svc.sync_memo(
         memo_id=uuid4(),
@@ -110,7 +113,7 @@ async def test_new_deal_creates_with_stage_and_omits_deal_url():
     )
     assert result.success is True
     assert result.deal_id == "30"
-    assert result.deal_url is None
+    assert result.deal_url == "https://acme.pipedrive.com/deal/30"
     deal_post = next(p for p in client.posts if p[0] == "/deals")
     assert deal_post[1]["title"] == "Acme"
     assert deal_post[1]["stage_id"] == 5

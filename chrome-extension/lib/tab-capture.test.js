@@ -206,6 +206,14 @@ describe('listenFailureReason', () => {
     );
   });
 
+  it('classifies Pipedrive company tabs like HubSpot for tab capture', () => {
+    assert.equal(classifyTabCaptureUrl('https://vocify2.pipedrive.com/deal/1').kind, 'pipedrive');
+    assert.equal(
+      listenFailureReason({ streamId: null, pageUrl: 'https://vocify2.pipedrive.com/deal/1' }),
+      'no_stream_id'
+    );
+  });
+
   it('keeps HubSpot missing-stream as no_stream_id so the user retries on that tab', () => {
     assert.equal(classifyTabCaptureUrl('https://app.hubspot.com/contacts/123/deal/9').kind, 'hubspot');
     assert.equal(

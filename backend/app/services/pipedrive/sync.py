@@ -21,6 +21,7 @@ from .activities import PipedriveActivityService
 from .client import PipedriveClient, unwrap_data
 from .exceptions import PipedriveError
 from .notes import PipedriveNoteService, format_note_content
+from .record_urls import build_pipedrive_record_url, company_domain_from_api_domain
 from .schema import PipedriveSchemaService
 from .search import PipedriveSearchService, primary_email
 
@@ -233,6 +234,11 @@ class PipedriveSyncService:
             result.success = True
             result.company_id = org_id
             result.contact_id = person_id
+            domain = company_domain_from_api_domain(getattr(self.client, "api_domain", None))
+            if domain and deal_id:
+                result.deal_url = build_pipedrive_record_url(domain, "deal", deal_id)
+            if domain and person_id:
+                result.contact_url = build_pipedrive_record_url(domain, "person", person_id)
             record_sync_duration(time.perf_counter() - t0, "success")
             return result
         except PipedriveError as e:

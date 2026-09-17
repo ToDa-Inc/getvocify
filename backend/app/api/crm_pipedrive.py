@@ -29,8 +29,10 @@ from app.services.pipedrive.oauth import (
     pipedrive_oauth_enabled,
 )
 from app.services.pipedrive.schema import PipedriveSchemaService, expand_schema_fields, field_key, field_label
+from app.services.pipedrive.page_context import assoc_id, contact_from_person, deal_raw_extraction, person_names
 from app.services.pipedrive.search import PipedriveSearchService, primary_email, primary_phone
 from app.services.pipedrive.validation import PipedriveValidationService
+from app.services.session_entities import load_stt_profile, vocab_for_hubspot_context
 
 logger = logging.getLogger(__name__)
 
@@ -478,3 +480,208 @@ async def search_pipedrive_organizations(
         for rec in records
         if rec.get("id") is not None
     ]
+
+
+def _session_vocab(
+    supabase: Client,
+    user_id: str,
+    *,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    company_name: Optional[str] = None,
+    deal_name: Optional[str] = None,
+    extra_names: Optional[list] = None,
+) -> list[str]:
+    profile = load_stt_profile(supabase, user_id)
+    return vocab_for_hubspot_context(
+        first_name=first_name,
+        last_name=last_name,
+        company_name=company_name,
+        deal_name=deal_name,
+        extra_names=extra_names,
+        caller_name=profile.get("full_name"),
+        seller_company=profile.get("company_name"),
+    )
+
+
+@router.get("/deals/{deal_id}/context")
+async def get_pipedrive_deal_context(
+    deal_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    empty = {
+        "companyName": None,
+        "companyId": None,
+        "contactName": None,
+        "contactEmail": None,
+        "contactPhone": None,
+        "contactId": None,
+        "contacts": [],
+        "raw_extraction": {},
+        "sessionVocab": [],
+        "dealId": deal_id,
+    }
+    try:
+        row = _get_pipedrive_connection_row(supabase, user_id)
+        search = PipedriveSearchService(_pd_client_from_row(row, supabase))
+        deal = await search.get_deal(deal_id)
+        if not deal:
+            return empty
+        person_id = assoc_id(deal.get("person_id"))
+        org_id = assoc_id(deal.get("org_id"))
+        person: dict = {}
+        org: dict = {}
+        if person_id:
+            try:
+                person = await search.get_person(person_id)
+            except Exception:
+                person = {}
+        if org_id:
+            try:
+                org = await search.get_organization(org_id)
+            except Exception:
+                org = {}
+        company_name = (org.get("name") if org else None) or (
+            (deal.get("org_id") or {}).get("name") if isinstance(deal.get("org_id"), dict) else None
+        )
+        contact = contact_from_person(person, company_id=org_id, company_name=company_name) if person else None
+        contacts = [contact] if contact else []
+        first, last, _ = person_names(person) if person else ("", "", None)
+        raw = deal_raw_extraction(deal)
+        return {
+            "companyName": company_name,
+            "companyId": org_id,
+            "contactName": (contact or {}).get("name"),
+            "contactEmail": (contact or {}).get("email"),
+            "contactPhone": (contact or {}).get("phone"),
+            "contactId": (contact or {}).get("contact_id"),
+            "contacts": contacts,
+            "raw_extraction": raw,
+            "sessionVocab": _session_vocab(
+                supabase,
+                user_id,
+                first_name=first,
+                last_name=last,
+                company_name=company_name,
+                deal_name=raw.get("dealname"),
+                extra_names=[c.get("name") for c in contacts[:4]],
+            ),
+            "dealId": deal_id,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        return empty
+
+
+@router.get("/persons/{person_id}/context")
+async def get_pipedrive_person_context(
+    person_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    empty = {
+        "contactId": person_id,
+        "contactName": None,
+        "contactEmail": None,
+        "contactPhone": None,
+        "companyId": None,
+        "companyName": None,
+        "sessionVocab": [],
+    }
+    try:
+        row = _get_pipedrive_connection_row(supabase, user_id)
+        search = PipedriveSearchService(_pd_client_from_row(row, supabase))
+        person = await search.get_person(person_id)
+        if not person:
+            return empty
+        org_id = assoc_id(person.get("org_id"))
+        company_name = None
+        if org_id:
+            try:
+                org = await search.get_organization(org_id)
+                company_name = org.get("name")
+            except Exception:
+                company_name = None
+        if not company_name:
+            org = person.get("org_id")
+            company_name = org.get("name") if isinstance(org, dict) else person.get("org_name")
+        first, last, name = person_names(person)
+        return {
+            "contactId": person_id,
+            "contactName": name,
+            "contactEmail": primary_email(person) or None,
+            "contactPhone": primary_phone(person),
+            "companyId": org_id,
+            "companyName": company_name,
+            "sessionVocab": _session_vocab(
+                supabase, user_id, first_name=first, last_name=last, company_name=company_name
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        return empty
+
+
+@router.get("/organizations/{org_id}/context")
+async def get_pipedrive_org_context(
+    org_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    empty = {
+        "companyId": org_id,
+        "companyName": None,
+        "contactId": None,
+        "contactName": None,
+        "contactEmail": None,
+        "contactPhone": None,
+        "contacts": [],
+        "sessionVocab": [],
+    }
+    try:
+        row = _get_pipedrive_connection_row(supabase, user_id)
+        search = PipedriveSearchService(_pd_client_from_row(row, supabase))
+        org = await search.get_organization(org_id)
+        if not org:
+            return empty
+        company_name = org.get("name")
+        contacts: list[dict] = []
+        try:
+            for person in await search.persons_for_org(org_id, limit=5):
+                c = contact_from_person(person, company_id=org_id, company_name=company_name)
+                if c:
+                    contacts.append(c)
+        except Exception:
+            contacts = []
+        primary = contacts[0] if len(contacts) == 1 else None
+        first = last = ""
+        if primary:
+            src = next((p for p in contacts if p.get("contact_id") == primary["contact_id"]), None)
+            if src and src.get("name"):
+                parts = str(src["name"]).split(None, 1)
+                first = parts[0]
+                last = parts[1] if len(parts) > 1 else ""
+        return {
+            "companyId": org_id,
+            "companyName": company_name,
+            "contactId": (primary or {}).get("contact_id"),
+            "contactName": (primary or {}).get("name"),
+            "contactEmail": (primary or {}).get("email"),
+            "contactPhone": (primary or {}).get("phone"),
+            "contacts": contacts,
+            "sessionVocab": _session_vocab(
+                supabase,
+                user_id,
+                first_name=first,
+                last_name=last,
+                company_name=company_name,
+                extra_names=[c.get("name") for c in contacts[:4]],
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        return empty

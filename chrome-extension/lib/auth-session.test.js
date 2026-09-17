@@ -61,6 +61,15 @@ describe('isAuthFailure', () => {
     assert.equal(screenForInitFailure(hubspot401, { hasToken: true }), 'unknown');
   });
 
+  it('does not treat Pipedrive reconnect as a Vocify logout', () => {
+    const pipedrive401 = {
+      status: 401,
+      data: { detail: 'Pipedrive authorization expired. Please reconnect Pipedrive.' },
+    };
+    assert.equal(isCrmReconnectError(pipedrive401), true);
+    assert.equal(isAuthFailure(pipedrive401), false);
+  });
+
   it('does not treat HubSpot 409 as a Vocify logout', () => {
     const hubspot409 = {
       status: 409,

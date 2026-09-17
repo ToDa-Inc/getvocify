@@ -16,7 +16,13 @@ import {
 } from './lib/call-format.js';
 import { isUsableMicRecording } from './lib/media-stream.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
-import { parseHubSpotUrl } from './lib/hubspot-parser.js';
+import {
+  crmConfigPath,
+  crmContextPath,
+  crmSearchPath,
+  parseCrmPageUrl,
+  providerFromConnections,
+} from './lib/crm-page.js';
 import { pickContextTab } from './lib/review-targets.js';
 import {
   hydrateFromIdentityCache,
@@ -140,6 +146,27 @@ function persistIdentityCache() {
   } catch (_) { /* session storage may be unavailable */ }
 }
 
+let cachedCrmProvider = null;
+
+async function resolveCrmProvider({ tabUrl, context } = {}) {
+  const fromPage = (context || parseCrmPageUrl(tabUrl))?.provider;
+  if (fromPage) {
+    cachedCrmProvider = fromPage;
+    return fromPage;
+  }
+  if (cachedCrmProvider) return cachedCrmProvider;
+  try {
+    const [prefs, conns] = await Promise.all([
+      api.get('/crm/preferences'),
+      api.get('/crm/connections'),
+    ]);
+    cachedCrmProvider = providerFromConnections(prefs, conns?.connections);
+    return cachedCrmProvider;
+  } catch (_) {
+    return 'hubspot';
+  }
+}
+
 /**
  * Side panel / service worker have no "current window". Prefer the last HubSpot
  * tab we saw, then the last focused window — otherwise contact pages look like
@@ -167,8 +194,11 @@ async function getContextTab() {
   }
 
   try {
-    const hubspotTabs = await chrome.tabs.query({ active: true, url: ['https://*.hubspot.com/*'] });
-    candidates.push(...hubspotTabs);
+    const crmTabs = await chrome.tabs.query({
+      active: true,
+      url: ['https://*.hubspot.com/*', 'https://*.pipedrive.com/*'],
+    });
+    candidates.push(...crmTabs);
   } catch (_) { /* host permission may be missing */ }
 
   const seen = new Set();
@@ -329,7 +359,7 @@ function clearMemoPoll() {
  * Refresh HubSpot recordings for the record in the address bar.
  * Does not change status, start capture, or open a memo — the list is the UI.
  */
-function startCallWatch(recordId, recordType) {
+function startCallWatch(recordId, recordType, provider) {
   if (!recordId) return;
   if (callWatchingRecordId === recordId && callWatchTimerId != null) return;
   clearCallWatch();
@@ -344,7 +374,7 @@ function startCallWatch(recordId, recordType) {
     callWatchTimerId = null;
     if (callWatchingRecordId !== recordId) return;
     fetchRecordingsIfNeeded(
-      { objectType: callWatchingRecordType, recordId: callWatchingRecordId },
+      { objectType: callWatchingRecordType, recordId: callWatchingRecordId, provider },
       { force: true }
     );
     scheduleNext(20000);
@@ -421,11 +451,11 @@ async function getOffscreenDocument({ recreate = false } = {}) {
 // RECORDING CONTROLS
 // ============================================
 async function loadPageSessionContext(tab, user) {
-  const context = tab?.url ? parseHubSpotUrl(tab.url) : null;
+  const context = tab?.url ? parseCrmPageUrl(tab.url) : null;
   let pageVocab = [];
   let enriched = context;
   if (context?.objectType === 'deal' && context?.recordId) {
-    const dealCtx = await api.get(`/crm/hubspot/deals/${context.recordId}/context`);
+    const dealCtx = await api.get(crmContextPath(context.provider, 'deal', context.recordId));
     pageVocab = Array.isArray(dealCtx?.sessionVocab) ? dealCtx.sessionVocab : [];
     enriched = {
       ...context,
@@ -439,7 +469,7 @@ async function loadPageSessionContext(tab, user) {
       dealContacts: Array.isArray(dealCtx?.contacts) ? dealCtx.contacts : [],
     };
   } else if (context?.objectType === 'contact' && context?.recordId) {
-    const contactCtx = await api.get(`/crm/hubspot/contacts/${context.recordId}/context`);
+    const contactCtx = await api.get(crmContextPath(context.provider, 'contact', context.recordId));
     pageVocab = Array.isArray(contactCtx?.sessionVocab) ? contactCtx.sessionVocab : [];
     enriched = {
       ...context,
@@ -451,7 +481,7 @@ async function loadPageSessionContext(tab, user) {
       companyId: contactCtx?.companyId || null,
     };
   } else if (context?.objectType === 'company' && context?.recordId) {
-    const companyCtx = await api.get(`/crm/hubspot/companies/${context.recordId}/context`);
+    const companyCtx = await api.get(crmContextPath(context.provider, 'company', context.recordId));
     pageVocab = Array.isArray(companyCtx?.sessionVocab) ? companyCtx.sessionVocab : [];
     enriched = {
       ...context,
@@ -482,7 +512,7 @@ async function startRecording() {
   try {
     const tab = await getContextTab();
     rememberTab(tab);
-    const context = tab?.url ? parseHubSpotUrl(tab.url) : null;
+    const context = tab?.url ? parseCrmPageUrl(tab.url) : null;
 
     // Build WebSocket URL with user_id for glossary (same pattern as dashboard useRealtimeTranscription)
     const apiBase = await api.getApiBase();
@@ -815,7 +845,7 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
   const tab = await getCaptureTab(tabId);
   rememberTab(tab);
   prefetchCopilotWsBits(tab);
-  const context = tab?.url ? parseHubSpotUrl(tab.url) : state.context;
+  const context = tab?.url ? parseCrmPageUrl(tab.url) : state.context;
 
   updateState({
     isCopilotListening: false,
@@ -1058,7 +1088,7 @@ function snapshotLastCall(prev) {
   if (state.context) {
     fetchRecordingsIfNeeded(state.context, { force: true });
     if (state.context.recordId) {
-      startCallWatch(state.context.recordId, state.context.objectType);
+      startCallWatch(state.context.recordId, state.context.objectType, state.context.provider);
     }
   }
 }
@@ -1173,6 +1203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'LOGOUT':
       cachedCopilotUserId = '';
       cachedSessionVocab = [];
+      cachedCrmProvider = null;
       recordingsKey = null;
       recordingsInFlightKey = null;
       recordingsFetchGen += 1;
@@ -1189,7 +1220,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (newState.status === 'review' && newState.currentMemoId) {
         getContextTab().then((tab) => {
           rememberTab(tab);
-          const ctx = tab?.url ? parseHubSpotUrl(tab.url) : null;
+          const ctx = tab?.url ? parseCrmPageUrl(tab.url) : null;
           newState.context = planPageContextUpdate(state.context, ctx).context;
           updateState(newState);
         }).catch(() => updateState(newState));
@@ -1422,7 +1453,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // API Proxies (for popup)
     case 'SEARCH_DEALS':
       console.log('[BG] Searching deals for query:', message.query);
-      api.get(`/crm/hubspot/search/deals?q=${encodeURIComponent(message.query)}`)
+      resolveCrmProvider({ context: state.context }).then((provider) =>
+        api.get(crmSearchPath(provider, 'deals', message.query))
+      )
         .then(results => {
           console.log('[BG] Search results from API:', results?.length || 0);
           sendResponse(results);
@@ -1434,7 +1467,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; // Keep channel open for async response
 
     case 'SEARCH_CONTACTS':
-      api.get(`/crm/hubspot/search/contacts?q=${encodeURIComponent(message.query || '')}`)
+      resolveCrmProvider({ context: state.context }).then((provider) =>
+        api.get(crmSearchPath(provider, 'contacts', message.query || ''))
+      )
         .then((results) => sendResponse(results))
         .catch((e) => sendResponse({ error: (e && e.data && e.data.detail) || e.message }));
       return true;
@@ -1488,25 +1523,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'GET_DEAL_CONTEXT':
-      api.get(`/crm/hubspot/deals/${message.dealId}/context`)
+      resolveCrmProvider({ context: state.context }).then((provider) =>
+        api.get(crmContextPath(provider, 'deal', message.dealId))
+      )
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;
 
     case 'GET_CONTACT_CONTEXT':
-      api.get(`/crm/hubspot/contacts/${message.contactId}/context`)
+      resolveCrmProvider({ context: state.context }).then((provider) =>
+        api.get(crmContextPath(provider, 'contact', message.contactId))
+      )
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;
 
     case 'GET_COMPANY_CONTEXT':
-      api.get(`/crm/hubspot/companies/${message.companyId}/context`)
+      resolveCrmProvider({ context: state.context }).then((provider) =>
+        api.get(crmContextPath(provider, 'company', message.companyId))
+      )
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;
 
     case 'GET_CRM_CONFIG':
-      api.get('/crm/hubspot/configuration')
+      resolveCrmProvider({ context: state.context }).then((provider) =>
+        api.get(crmConfigPath(provider))
+      )
         .then(sendResponse)
         .catch(e => sendResponse({ error: e.message }));
       return true;
@@ -1663,7 +1706,7 @@ async function enrichPageContext(ctx) {
     if (!accessToken) return ctx;
 
     if (ctx.objectType === 'contact') {
-      const contactCtx = await api.get(`/crm/hubspot/contacts/${ctx.recordId}/context`);
+      const contactCtx = await api.get(crmContextPath(ctx.provider, 'contact', ctx.recordId));
       return {
         ...ctx,
         contactName: contactCtx?.contactName || ctx.contactName || null,
@@ -1676,7 +1719,7 @@ async function enrichPageContext(ctx) {
       };
     }
     if (ctx.objectType === 'deal') {
-      const dealCtx = await api.get(`/crm/hubspot/deals/${ctx.recordId}/context`);
+      const dealCtx = await api.get(crmContextPath(ctx.provider, 'deal', ctx.recordId));
       return {
         ...ctx,
         dealName: dealCtx?.raw_extraction?.dealname || ctx.dealName || null,
@@ -1691,7 +1734,7 @@ async function enrichPageContext(ctx) {
       };
     }
     if (ctx.objectType === 'company') {
-      const companyCtx = await api.get(`/crm/hubspot/companies/${ctx.recordId}/context`);
+      const companyCtx = await api.get(crmContextPath(ctx.provider, 'company', ctx.recordId));
       return {
         ...ctx,
         companyName: companyCtx?.companyName || ctx.companyName || null,
@@ -1773,6 +1816,10 @@ function recordingsEndpoint(ctx) {
 }
 
 function fetchRecordingsIfNeeded(ctx, { force = false } = {}) {
+  if (ctx?.provider === 'pipedrive') {
+    updateState({ recordings: [], recordingsLoading: false, recordingsError: null });
+    return;
+  }
   const endpoint = recordingsEndpoint(ctx);
   const key = recordingsScopeKey(ctx);
   const plan = planRecordingsFetch({
@@ -1861,7 +1908,7 @@ function reevaluateTabContext(tabId, url) {
 }
 
 function reevaluateTabContextAuthenticated(tabId, url) {
-  const ctx = parseHubSpotUrl(url);
+  const ctx = parseCrmPageUrl(url);
   const activityTypes = ['deal', 'contact', 'company'];
   const recordType = ctx?.objectType;
   const recordId = activityTypes.includes(recordType) ? ctx.recordId : null;
@@ -1878,7 +1925,7 @@ function reevaluateTabContextAuthenticated(tabId, url) {
 
   applyContextAsync(ctx);
   if (flowBusy) return;
-  if (recordId) startCallWatch(recordId, recordType);
+  if (recordId) startCallWatch(recordId, recordType, ctx.provider);
   else clearCallWatch();
 }
 

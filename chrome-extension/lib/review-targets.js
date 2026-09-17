@@ -170,9 +170,9 @@ export function pickContextTab(tabs, { lastActiveTabId = null } = {}) {
     const last = list.find((t) => t.id === lastActiveTabId);
     if (last) return last;
   }
-  const activeHubSpot = list.find(
-    (t) => t.active && t.url && /hubspot\.com/i.test(String(t.url))
+  const activeCrm = list.find(
+    (t) => t.active && t.url && /(hubspot\.com|pipedrive\.com)/i.test(String(t.url))
   );
-  if (activeHubSpot) return activeHubSpot;
+  if (activeCrm) return activeCrm;
   return list.find((t) => t.active) || null;
 }

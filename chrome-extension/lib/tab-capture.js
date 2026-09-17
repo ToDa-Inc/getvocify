@@ -143,6 +143,7 @@ export function classifyTabCaptureUrl(url) {
     return { kind: 'unknown' };
   }
   if (host === 'hubspot.com' || host.endsWith('.hubspot.com')) return { kind: 'hubspot' };
+  if (host === 'pipedrive.com' || host.endsWith('.pipedrive.com')) return { kind: 'pipedrive' };
   if (
     host === 'meet.google.com' ||
     host === 'zoom.us' ||
