@@ -60,6 +60,37 @@ def resolve_sync_connection_for_company(
     raise AmbiguousPrimaryCRMError()
 
 
+def _hubspot_row(rows: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    for row in rows:
+        if (row.get("provider") or "").lower() == "hubspot":
+            return row
+    return None
+
+
+def resolve_sync_connection_prefer_hubspot(
+    supabase: Client, user_id: str
+) -> Optional[dict[str, Any]]:
+    """WhatsApp copilot: if several CRMs are connected, use HubSpot instead of blocking."""
+    company_id = get_company_id_for_user(supabase, user_id)
+    if not company_id:
+        return None
+    try:
+        return resolve_sync_connection_for_company(supabase, company_id)
+    except AmbiguousPrimaryCRMError:
+        connected = (
+            supabase.table("crm_connections")
+            .select("*")
+            .eq("company_id", company_id)
+            .eq("status", "connected")
+            .execute()
+        )
+        rows = connected.data or []
+        picked = _hubspot_row(rows)
+        if picked:
+            return picked
+        raise
+
+
 def resolve_sync_connection(supabase: Client, user_id: str) -> Optional[dict[str, Any]]:
     """Resolve CRM connection for the user's company workspace."""
     company_id = get_company_id_for_user(supabase, user_id)

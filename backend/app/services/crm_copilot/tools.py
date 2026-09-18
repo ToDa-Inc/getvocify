@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -13,7 +15,7 @@ from app.services.hubspot.account_info import (
     build_contact_record_url,
     build_deal_record_url,
 )
-from app.services.whatsapp.copy import briefing_text
+from app.services.whatsapp.copy import briefing_text, visible_crm_updates
 
 WRITE_TOOLS = {
     "apply_write",
@@ -38,8 +40,14 @@ def _fn(name: str, description: str, properties: dict, required: Optional[list] 
 OPENAI_TOOLS = [
     _fn("load_skill", "Load a skill body.", {"name": {"type": "string"}}, ["name"]),
     _fn("remember", "Store a durable seller fact.", {"text": {"type": "string"}}, ["text"]),
+    _fn("reset_session", "Wipe WhatsApp working memory and last contact. Use when they want a fresh start.", {}),
     _fn("search_contacts", "Search HubSpot contacts.", {"query": {"type": "string"}}, ["query"]),
-    _fn("get_contact", "Get a contact by id, including HubSpot URL.", {"contact_id": {"type": "string"}}, ["contact_id"]),
+    _fn("get_contact", "Get a contact by id with fields, notes, deals, tasks.", {"contact_id": {"type": "string"}}, ["contact_id"]),
+    _fn(
+        "inspect_record",
+        "Read the HubSpot record in focus (fields, notes, deals, tasks, recent calls). Call before answering what happened / notes / follow-ups.",
+        {"contact_id": {"type": "string"}, "deal_id": {"type": "string"}},
+    ),
     _fn("search_companies", "Search companies by name.", {"query": {"type": "string"}}, ["query"]),
     _fn("get_company", "Get a company by id.", {"company_id": {"type": "string"}}, ["company_id"]),
     _fn("search_deals", "Search deals by name.", {"query": {"type": "string"}}, ["query"]),
@@ -53,6 +61,11 @@ OPENAI_TOOLS = [
     _fn(
         "list_tasks",
         "List tasks for a contact or deal.",
+        {"contact_id": {"type": "string"}, "deal_id": {"type": "string"}},
+    ),
+    _fn(
+        "list_notes",
+        "List HubSpot notes on a contact or deal. Use when they ask if there are notes.",
         {"contact_id": {"type": "string"}, "deal_id": {"type": "string"}},
     ),
     _fn(
@@ -214,18 +227,77 @@ class HubSpotBundle:
         return str(md.get("portal_id") or ""), md.get("ui_domain"), md.get("region") or "na1"
 
 
+FOCUS_KEYS = (
+    "last_contact_id",
+    "last_contact_url",
+    "last_company_id",
+    "last_deal_id",
+    "last_deal_url",
+    "last_preview_text",
+    "pending_tool",
+    "pending_args",
+    "pending_id",
+    "memo_id",
+    "choices",
+    "focus_at",
+    "extraction",
+)
+FOCUS_TTL_SECONDS = 2 * 60 * 60
+CONTACT_READ_PROPERTIES = [
+    "email",
+    "firstname",
+    "lastname",
+    "phone",
+    "mobilephone",
+    "jobtitle",
+    "company",
+    "website",
+    "city",
+    "country",
+    "lifecyclestage",
+    "hs_lead_status",
+    "hubspot_owner_id",
+    "notes_last_contacted",
+    "hs_last_sales_activity_timestamp",
+    "createdate",
+    "lastmodifieddate",
+]
+_FIELD_SKIP = {"firstname", "lastname", "email", "phone", "mobilephone", "jobtitle"}
+_FIELD_SKIP_PREFIX = ("hs_analytics", "hs_predictive", "hs_social", "hs_content", "hs_email_opt")
+
+
 def _copilot_dict(ctx: Optional[CopilotContext]) -> dict:
     if ctx is None:
         return {}
     return ctx.artifacts.setdefault("copilot", {})
 
 
+def clear_focus(copilot: dict) -> None:
+    for key in FOCUS_KEYS:
+        copilot.pop(key, None)
+
+
+def expire_stale_focus(copilot: dict, now: Optional[datetime] = None) -> None:
+    raw = copilot.get("focus_at")
+    if not raw:
+        return
+    try:
+        then = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    if (now - then).total_seconds() >= FOCUS_TTL_SECONDS:
+        clear_focus(copilot)
+
+
 def _bundle(ctx: CopilotContext) -> HubSpotBundle:
     if ctx.hs is not None:
         return ctx.hs
-    from app.services.crm_providers import build_crm_provider, resolve_sync_connection
+    from app.services.crm_providers import build_crm_provider, resolve_sync_connection_prefer_hubspot
 
-    conn = resolve_sync_connection(ctx.supabase, ctx.user_id)
+    conn = resolve_sync_connection_prefer_hubspot(ctx.supabase, ctx.user_id)
     if not conn:
         raise ValueError("No CRM connected")
     if (conn.get("provider") or "").lower() != "hubspot":
@@ -299,6 +371,108 @@ def _deal_brief(obj: Any, hs: HubSpotBundle) -> dict:
     }
 
 
+def _filled_fields(props: dict, skip: Optional[set] = None) -> dict:
+    if skip is None:
+        skip = _FIELD_SKIP
+    out = {}
+    for key, val in (props or {}).items():
+        if not val or key in skip:
+            continue
+        if any(key.startswith(prefix) for prefix in _FIELD_SKIP_PREFIX):
+            continue
+        out[key] = val
+    return out
+
+
+def _task_brief(task: Any) -> dict:
+    if not isinstance(task, dict):
+        return {"id": str(task)}
+    due = task.get("due_date") or task.get("due")
+    return {
+        "id": task.get("id"),
+        "subject": task.get("subject") or task.get("hs_task_subject"),
+        "due": due.isoformat() if hasattr(due, "isoformat") else due,
+    }
+
+
+async def _safe(coro, fallback):
+    try:
+        return await coro
+    except Exception:
+        return fallback
+
+
+async def _associated_deals(contact_id: str, hs: HubSpotBundle) -> list:
+    ids = await hs.associations.get_associations("contacts", contact_id, "deals")
+    deals = []
+    for deal_id in ids[:8]:
+        try:
+            deals.append(_deal_brief(await hs.deals.get(deal_id), hs))
+        except Exception:
+            deals.append({"id": deal_id, "deal_id": deal_id})
+    return deals
+
+
+async def _associated_company(contact_id: str, hs: HubSpotBundle) -> Optional[dict]:
+    ids = await hs.associations.get_associations("contacts", contact_id, "companies")
+    if not ids:
+        return None
+    try:
+        return _company_brief(await hs.companies.get(ids[0]), hs)
+    except Exception:
+        return {"id": ids[0], "company_id": ids[0]}
+
+
+async def _list_engagements(hs: HubSpotBundle, from_type: str, from_id: str, to_type: str) -> list:
+    spec = {
+        "calls": ("hs_call_title", "hs_call_body", "hs_timestamp"),
+        "emails": ("hs_email_subject", "hs_email_text", "hs_timestamp"),
+        "meetings": ("hs_meeting_title", "hs_meeting_body", "hs_timestamp"),
+    }.get(to_type)
+    if not spec:
+        return []
+    title_key, body_key, ts_key = spec
+    ids = await hs.associations.get_associations(from_type, from_id, to_type)
+    rows = []
+    for oid in ids[:6]:
+        try:
+            row = await hs.client.get(
+                f"/crm/v3/objects/{to_type}/{oid}",
+                params={"properties": ",".join(spec)},
+            )
+        except Exception:
+            continue
+        props = (row or {}).get("properties") or {}
+        title = str(props.get(title_key) or "").strip()
+        body = _plain_note_body(str(props.get(body_key) or ""))
+        if not title and not body:
+            continue
+        rows.append({"id": str((row or {}).get("id") or oid), "title": title, "body": body, "timestamp": props.get(ts_key)})
+    return rows
+
+
+async def _hydrate_contact(contact_id: str, hs: HubSpotBundle, obj: Any = None) -> dict:
+    if obj is None:
+        obj = await hs.contacts.get(contact_id, properties=CONTACT_READ_PROPERTIES)
+    brief = _contact_brief(obj, hs)
+    brief["fields"] = _filled_fields(_props(obj))
+    notes, deals, tasks, company, calls = await asyncio.gather(
+        _list_notes({"contact_id": contact_id}, hs),
+        _safe(_associated_deals(contact_id, hs), []),
+        _safe(hs.tasks.list_tasks_for_contact(contact_id), []),
+        _safe(_associated_company(contact_id, hs), None),
+        _safe(_list_engagements(hs, "contacts", contact_id, "calls"), []),
+    )
+    brief["notes"] = notes.get("notes") if isinstance(notes, dict) else []
+    brief["deals"] = deals
+    brief["tasks"] = [_task_brief(t) for t in (tasks or [])]
+    if company:
+        brief["company"] = company
+    if calls:
+        brief["calls"] = calls
+    return brief
+
+
 async def execute_tool(name: str, args: dict, ctx: Any) -> dict:
     args = args or {}
     try:
@@ -323,6 +497,10 @@ async def _execute(name: str, args: dict, ctx: Any) -> dict:
         memory.append(text[:500])
         copilot["memory"] = memory[-40:]
         return {"ok": True}
+    if name == "reset_session":
+        if ctx is not None:
+            ctx.artifacts["copilot"] = {"messages": []}
+        return {"ok": True, "reset": True}
     if name == "offer_user_choices":
         return {"ok": True, "paused": True}
 
@@ -331,18 +509,41 @@ async def _execute(name: str, args: dict, ctx: Any) -> dict:
     hs = _bundle(ctx)
 
     if name == "search_contacts":
+        copilot = _copilot_dict(ctx)
+        clear_focus(copilot)
         hits = await hs.search.search_contacts_by_query(str(args.get("query") or ""), limit=8)
+        if len(hits) == 1:
+            return {"contacts": [await _hydrate_contact(_oid(hits[0]), hs)]}
         return {"contacts": [_contact_brief(c, hs) for c in hits]}
     if name == "get_contact":
-        obj = await hs.contacts.get(str(args["contact_id"]))
-        return _contact_brief(obj, hs)
+        return await _hydrate_contact(str(args["contact_id"]), hs)
+    if name == "inspect_record":
+        copilot = _copilot_dict(ctx)
+        contact_id = args.get("contact_id") or copilot.get("last_contact_id")
+        deal_id = args.get("deal_id") or copilot.get("last_deal_id")
+        if contact_id:
+            return await _hydrate_contact(str(contact_id), hs)
+        if deal_id:
+            notes = await _list_notes({"deal_id": str(deal_id)}, hs)
+            obj = await hs.deals.get(str(deal_id))
+            brief = _deal_brief(obj, hs)
+            brief["fields"] = _filled_fields(_props(obj), skip=set())
+            brief["notes"] = notes.get("notes") if isinstance(notes, dict) else []
+            try:
+                brief["tasks"] = [_task_brief(t) for t in await hs.tasks.list_tasks_for_deal(str(deal_id))]
+            except Exception:
+                brief["tasks"] = []
+            return brief
+        return {"ok": False, "error": "no contact or deal in focus"}
     if name == "search_companies":
+        clear_focus(_copilot_dict(ctx))
         hits = await hs.search.find_companies_by_name(str(args.get("query") or ""), limit=8)
         return {"companies": [_company_brief(c, hs) for c in hits]}
     if name == "get_company":
         obj = await hs.companies.get(str(args["company_id"]))
         return _company_brief(obj, hs)
     if name == "search_deals":
+        clear_focus(_copilot_dict(ctx))
         rows = await hs.search.search_deals_by_query(str(args.get("query") or ""), limit=8)
         return {"deals": [_deal_brief(r, hs) for r in rows]}
     if name == "get_deal":
@@ -365,6 +566,8 @@ async def _execute(name: str, args: dict, ctx: Any) -> dict:
         else:
             return {"ok": False, "error": "contact_id or deal_id required"}
         return {"tasks": tasks}
+    if name == "list_notes":
+        return await _list_notes(args, hs)
     if name == "extract_sales_update":
         return await _extract_sales_update(str(args.get("transcript") or ""), ctx)
     if name == "preview_write":
@@ -436,14 +639,30 @@ async def _preview_write(args: dict, ctx: CopilotContext, hs: HubSpotBundle) -> 
         skip_deal=bool(skip_deal),
         selected_contact=selected,
     )
-    # memo_id on ApprovalPreview is UUID
+    visible = visible_crm_updates(getattr(preview, "proposed_updates", None) or [])
+    if not visible:
+        summary = (extraction.summary or "").strip()
+        copilot.pop("last_preview_text", None)
+        copilot["has_field_updates"] = False
+        if payload_memo := str(getattr(preview, "memo_id", None) or memo_id):
+            copilot["memo_id"] = payload_memo
+        return {
+            "ok": False,
+            "error": "no_field_updates",
+            "has_field_updates": False,
+            "memo_id": copilot.get("memo_id"),
+            "summary": summary[:800],
+            "hint": "No CRM fields to change. create_note with the summary on the contact.",
+        }
     text = briefing_text(preview)
     copilot["last_preview_text"] = text[:1500]
+    copilot["has_field_updates"] = True
     copilot["memo_id"] = str(getattr(preview, "memo_id", None) or memo_id)
     return {
         "ok": True,
         "memo_id": copilot["memo_id"],
         "preview_text": text,
+        "has_field_updates": True,
         "skip_deal": bool(skip_deal),
         "contact_id": contact_id,
         "deal_id": None if skip_deal else deal_id,
@@ -520,3 +739,37 @@ async def _create_task(args: dict, hs: HubSpotBundle) -> dict:
         body=args.get("body"),
     )
     return {"ok": bool(task_id), "task_id": task_id}
+
+
+def _plain_note_body(raw: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", raw or "")
+    return " ".join(text.split())[:400]
+
+
+async def _list_notes(args: dict, hs: HubSpotBundle) -> dict:
+    if args.get("deal_id"):
+        object_type, object_id = "deals", str(args["deal_id"])
+    elif args.get("contact_id"):
+        object_type, object_id = "contacts", str(args["contact_id"])
+    else:
+        return {"ok": False, "error": "contact_id or deal_id required"}
+    ids = await hs.associations.get_associations(object_type, object_id, "notes")
+    notes = []
+    for note_id in ids[:8]:
+        try:
+            row = await hs.client.get(
+                f"/crm/v3/objects/notes/{note_id}",
+                params={"properties": "hs_note_body,hs_timestamp"},
+            )
+        except Exception:
+            notes.append({"id": note_id})
+            continue
+        props = (row or {}).get("properties") or {}
+        notes.append(
+            {
+                "id": str((row or {}).get("id") or note_id),
+                "body": _plain_note_body(str(props.get("hs_note_body") or "")),
+                "timestamp": props.get("hs_timestamp"),
+            }
+        )
+    return {"ok": True, "notes": notes, "count": len(ids)}
