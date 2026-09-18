@@ -74,6 +74,8 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             or "/re-transcribe" in path
             or "/webhooks" in path
             or path == "/metrics"
+            or path == "/health"
+            or path == "/"
         ):
             return await call_next(request)
         

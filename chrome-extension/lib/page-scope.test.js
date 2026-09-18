@@ -6,6 +6,7 @@ import {
   identityCacheToEntries,
   keepReviewSessionContext,
   mergePageContext,
+  planContextEnrich,
   planPageContextUpdate,
   recordScopeKey,
   recordingsScopeKey,
@@ -100,6 +101,22 @@ describe('planPageContextUpdate', () => {
   it('does not keep rebroadcasting the inbox', () => {
     assert.equal(planPageContextUpdate(null, null).skipBroadcast, true);
     assert.equal(planPageContextUpdate({ objectType: 'deal' }, { hubId: '1' }).skipBroadcast, true);
+  });
+});
+
+describe('planContextEnrich', () => {
+  it('skips when already enriched or in flight for this record', () => {
+    assert.equal(planContextEnrich({ scopeKey: 'contact:1', enrichedKey: 'contact:1' }).action, 'skip');
+    assert.equal(planContextEnrich({
+      scopeKey: 'contact:1',
+      enrichedKey: null,
+      inFlightKey: 'contact:1',
+    }).action, 'skip');
+  });
+
+  it('fetches once when the URL record has no names yet', () => {
+    assert.equal(planContextEnrich({ scopeKey: 'contact:1' }).action, 'fetch');
+    assert.equal(planContextEnrich({}).action, 'skip');
   });
 });
 

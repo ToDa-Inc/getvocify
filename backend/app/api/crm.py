@@ -69,7 +69,11 @@ from app.services.hubspot.calls import (
     recording_display_title,
 )
 from app.services.hubspot.call_processor import enqueue_hubspot_call_process
+from app.services.request_coalesce import CoalesceCache
 from supabase import Client
+
+
+_CONTEXT_CACHE = CoalesceCache(ttl_seconds=30)
 
 
 router = APIRouter(prefix="/api/v1/crm", tags=["crm"])
@@ -461,6 +465,14 @@ async def get_contact_context_for_extension(
         "companyName": None,
         "sessionVocab": [],
     }
+
+    async def _load():
+        return await _load_contact_context(contact_id, supabase, user_id, empty)
+
+    return await _CONTEXT_CACHE.get_or_set(f"hs:contact:{user_id}:{contact_id}", _load)
+
+
+async def _load_contact_context(contact_id: str, supabase: Client, user_id: str, empty: dict) -> dict:
     try:
         client = get_hubspot_client_from_connection(user_id, supabase)
         search_service = HubSpotSearchService(client)
@@ -534,6 +546,14 @@ async def get_company_context_for_extension(
         "contacts": [],
         "sessionVocab": [],
     }
+
+    async def _load():
+        return await _load_company_context(company_id, supabase, user_id, empty)
+
+    return await _CONTEXT_CACHE.get_or_set(f"hs:company:{user_id}:{company_id}", _load)
+
+
+async def _load_company_context(company_id: str, supabase: Client, user_id: str, empty: dict) -> dict:
     try:
         client = get_hubspot_client_from_connection(user_id, supabase)
         search_service = HubSpotSearchService(client)
@@ -1352,6 +1372,13 @@ async def get_deal_context_for_prefill(
     Get deal context (deal + company + contact) for pre-filling extraction form.
     Used when user records from extension while on a HubSpot deal page.
     """
+    async def _load():
+        return await _load_deal_context(deal_id, supabase, user_id)
+
+    return await _CONTEXT_CACHE.get_or_set(f"hs:deal:{user_id}:{deal_id}", _load)
+
+
+async def _load_deal_context(deal_id: str, supabase: Client, user_id: str) -> dict:
     try:
         user_profile = supabase.table("user_profiles").select("id").eq("id", user_id).single().execute()
         if not user_profile.data:

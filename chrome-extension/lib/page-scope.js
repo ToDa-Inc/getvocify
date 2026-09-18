@@ -79,6 +79,14 @@ export function planPageContextUpdate(prev, next) {
   };
 }
 
+/** HubSpot /context is slow. Never stack a second fetch for the same record. */
+export function planContextEnrich({ scopeKey, enrichedKey, inFlightKey } = {}) {
+  if (!scopeKey) return { action: 'skip' };
+  if (inFlightKey === scopeKey) return { action: 'skip' };
+  if (enrichedKey === scopeKey) return { action: 'skip' };
+  return { action: 'fetch' };
+}
+
 const IDENTITY_FIELDS = [
   'dealName',
   'contactName',

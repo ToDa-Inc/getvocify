@@ -28,6 +28,7 @@ import {
   hydrateFromIdentityCache,
   identityCacheFromEntries,
   identityCacheToEntries,
+  planContextEnrich,
   planPageContextUpdate,
   recordScopeKey,
   recordingsScopeKey,
@@ -123,6 +124,8 @@ let lastActiveTabId = null;
 let recordingsKey = null;
 /** Scope of the in-flight recordings request, or null. */
 let recordingsInFlightKey = null;
+/** Scope of the in-flight /context enrich, or null. */
+let enrichInFlightKey = null;
 let recordingsFetchGen = 0;
 /** Last URL we applied per tab — HubSpot SPA often updates url without changeInfo.url */
 const lastSeenUrlByTab = new Map();
@@ -1181,21 +1184,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'GET_STATE': {
       (async () => {
         const { accessToken } = await api.getTokens().catch(() => ({ accessToken: null }));
-        const payload = () => ({ ...state, authenticated: Boolean(accessToken) });
-        if (!accessToken) {
-          sendResponse(payload());
-          return;
-        }
-        const flowBusy =
-          state.isRecording ||
-          state.isCopilotListening ||
-          state.status === 'copilot';
-        if (!flowBusy) {
-          try {
-            await refreshContextFromActiveTab();
-          } catch (_) { /* keep last state */ }
-        }
-        sendResponse(payload());
+        sendResponse({ ...state, authenticated: Boolean(accessToken) });
       })();
       return true;
     }
@@ -1779,9 +1768,7 @@ function applyContextAsync(ctx) {
 
   if (skipBroadcast) {
     fetchRecordingsIfNeeded(context);
-    if (key && context._enrichedKey !== key) {
-      enrichPageContext(context).then(applyEnrichedIfCurrent);
-    }
+    startContextEnrichIfNeeded(context);
     return;
   }
 
@@ -1798,8 +1785,23 @@ function applyContextAsync(ctx) {
     lastCall: replaceLists ? null : state.lastCall,
   });
   fetchRecordingsIfNeeded(context);
-  if (!key) return;
-  enrichPageContext(context).then(applyEnrichedIfCurrent);
+  startContextEnrichIfNeeded(context);
+}
+
+function startContextEnrichIfNeeded(context) {
+  const key = recordScopeKey(context);
+  const plan = planContextEnrich({
+    scopeKey: key,
+    enrichedKey: context?._enrichedKey,
+    inFlightKey: enrichInFlightKey,
+  });
+  if (plan.action !== 'fetch') return;
+  enrichInFlightKey = key;
+  enrichPageContext(context)
+    .then(applyEnrichedIfCurrent)
+    .finally(() => {
+      if (enrichInFlightKey === key) enrichInFlightKey = null;
+    });
 }
 
 function recordingsEndpoint(ctx) {
