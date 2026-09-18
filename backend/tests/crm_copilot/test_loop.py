@@ -142,6 +142,26 @@ async def test_offer_choices_pauses_list():
 
 
 @pytest.mark.asyncio
+async def test_reset_command_clears_session_without_llm():
+    async def execute(name, args, ctx):
+        raise AssertionError("reset must not call tools")
+
+    llm = ScriptedLLM([])
+    result = await run_copilot_turn(
+        "nueva conversación",
+        artifacts={"copilot": {"last_contact_id": "c1", "messages": [{"role": "user", "content": "old"}]}},
+        llm=llm,
+        execute=execute,
+        tools=OPENAI_TOOLS,
+        system="test",
+    )
+    assert result.kind == "text"
+    assert result.state == "idle"
+    assert result.artifacts["copilot"] == {"messages": []}
+    assert "Sesión nueva" in result.text
+
+
+@pytest.mark.asyncio
 async def test_confirm_true_executes_pending_write():
     executed = []
 
@@ -169,3 +189,42 @@ async def test_confirm_true_executes_pending_write():
     assert executed[0][0] == "apply_write"
     assert result.kind == "text"
     assert "https://hs/c1" in result.text
+
+
+@pytest.mark.asyncio
+async def test_hollow_apply_write_confirms_note_instead():
+    async def execute(name, args, ctx):
+        raise AssertionError(f"must not execute {name} before confirm")
+
+    llm = ScriptedLLM(
+        [
+            ToolMsg(
+                tool_calls=[
+                    {
+                        "id": "1",
+                        "name": "apply_write",
+                        "arguments": {"memo_id": "m1", "skip_deal": True},
+                    }
+                ]
+            )
+        ]
+    )
+    result = await run_copilot_turn(
+        "Les encaja la solución para comerciales de calle",
+        artifacts={
+            "copilot": {
+                "last_contact_id": "864833868997",
+                "last_preview_text": "Contacto\nSolo contacto",
+                "extraction": {"summary": "Les encaja la solución para sus comerciales de calle."},
+            }
+        },
+        llm=llm,
+        execute=execute,
+        tools=OPENAI_TOOLS,
+        system="test",
+    )
+    assert result.kind == "confirm"
+    assert result.artifacts["copilot"]["pending_tool"] == "create_note"
+    assert "Les encaja" in result.text
+    assert "Solo contacto" not in result.text
+    assert "Actualizar or No actualizar" not in result.text

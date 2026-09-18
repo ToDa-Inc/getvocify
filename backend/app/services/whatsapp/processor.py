@@ -15,7 +15,12 @@ from app.models.approval import ApprovalPreview, DealMatch
 from app.models.memo import MemoExtraction, ApproveMemoRequest
 from app.services.conversation import ConversationService, IntentService
 from app.services.conversation.intent import APPROVE_PATTERNS, ADD_PATTERNS, REJECT_PATTERNS, _normalize
-from app.services.crm_providers import AmbiguousPrimaryCRMError, build_crm_provider, resolve_sync_connection
+from app.services.crm_providers import (
+    AmbiguousPrimaryCRMError,
+    build_crm_provider,
+    resolve_sync_connection,
+    resolve_sync_connection_prefer_hubspot,
+)
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
@@ -795,7 +800,7 @@ async def resolve_whatsapp_account(supabase: Client, phone: str) -> Optional[Wha
         )
 
     try:
-        conn = resolve_sync_connection(supabase, user_id)
+        conn = resolve_sync_connection_prefer_hubspot(supabase, user_id)
     except AmbiguousPrimaryCRMError:
         return WhatsAppAccount(
             user_id=user_id,
@@ -1654,6 +1659,25 @@ async def _handle_waiting_add_fields(
     return True
 
 
+def _norm_copilot_transcript(text: str) -> str:
+    raw = (text or "").strip()
+    if raw.lower().startswith("[voice]"):
+        raw = raw[7:].strip()
+    return " ".join(raw.lower().split())
+
+
+def _duplicate_voice_transcript(copilot: dict, text: str) -> bool:
+    needle = _norm_copilot_transcript(text)
+    if not needle:
+        return False
+    prior = [
+        _norm_copilot_transcript(str(m.get("content") or ""))
+        for m in (copilot.get("messages") or [])
+        if m.get("role") == "user"
+    ]
+    return needle in prior[-4:]
+
+
 def _copilot_confirm_from_text(text: str) -> Optional[bool]:
     action = action_from_inbound(text)
     if not action:
@@ -1715,11 +1739,10 @@ async def _emit_copilot_turn(
         await wa_client.send_text(msg.from_phone, "\n".join(lines), **kw)
         return
     if result.kind == "confirm":
-        for part in split_text(result.text or ""):
-            await wa_client.send_text(msg.from_phone, part, **kw)
+        body = (result.text or "Confirmar escritura en HubSpot.")[:1024]
         await wa_client.send_interactive_buttons(
             msg.from_phone,
-            "Actualizar or No actualizar.",
+            body,
             copilot_confirm_buttons(),
             **kw,
         )
@@ -1738,6 +1761,7 @@ async def _run_crm_copilot(
     state,
     transcript: str,
     audio_url: Optional[str],
+    source: str = "text",
 ) -> None:
     artifacts = dict((state.pending_artifact_ids if state else None) or {})
     copilot = artifacts.get("copilot") or {}
@@ -1748,6 +1772,19 @@ async def _run_crm_copilot(
         confirm = _copilot_confirm_from_text(text)
     elif copilot.get("choices"):
         selected = _copilot_selected_choice(text, copilot)
+    if source == "voice" and confirm is None and selected is None:
+        if copilot.get("pending_tool"):
+            logger.info(
+                "WhatsApp voice ignored while copilot confirm pending",
+                extra=log_domain(DOMAIN_WHATSAPP, "voice_ignored_pending_confirm", message_id=msg.message_id),
+            )
+            return
+        if _duplicate_voice_transcript(copilot, text):
+            logger.info(
+                "WhatsApp duplicate voice transcript skipped",
+                extra=log_domain(DOMAIN_WHATSAPP, "duplicate_voice_transcript", message_id=msg.message_id),
+            )
+            return
 
     async def extract_memo(dump: str):
         return await _extract_and_create_memo(
@@ -1831,6 +1868,21 @@ async def process_whatsapp_message(
     conv = _get_or_create_session(conv_svc, msg, user_id)
     state = None
     if conv:
+        recent = conv_svc.get_last_messages(conv.id, limit=20)
+        if any(
+            (row.get("metadata") or {}).get("provider_message_id") == msg.message_id
+            for row in recent
+        ):
+            logger.info(
+                "WhatsApp duplicate inbound skipped",
+                extra=log_domain(
+                    DOMAIN_WHATSAPP,
+                    "duplicate_inbound",
+                    message_id=msg.message_id,
+                    from_phone=msg.from_phone,
+                ),
+            )
+            return
         inbound_text = msg.text or msg.button_title or msg.button_id or ""
         conv_svc.add_message(conv.id, "inbound", inbound_text, "text", _metadata_for_message(msg))
         state = conv_svc.get_state(conv.id)
@@ -1882,7 +1934,16 @@ async def process_whatsapp_message(
             )
             return
         await _run_crm_copilot(
-            supabase, msg, wa_client, user_id, conv_svc, conv, state, transcript, audio_url
+            supabase,
+            msg,
+            wa_client,
+            user_id,
+            conv_svc,
+            conv,
+            state,
+            transcript,
+            audio_url,
+            source="voice" if msg.type == "audio" else "text",
         )
         return
 
