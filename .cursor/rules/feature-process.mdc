@@ -1,0 +1,20 @@
+---
+description: Proceso obligatorio de features de Vocify (6 etapas). Aplica a cualquier trabajo de implementación de features del MASTER_PLAN.
+alwaysApply: true
+---
+
+# Proceso de features Vocify
+
+Toda feature del plan maestro (`docs/features/MASTER_PLAN.md`) sigue 6 etapas: teardown → spec → design → build → QA → ship.
+
+## Reglas para el agente
+
+1. **Nunca implementes una feature sin su spec.** Si el usuario pide implementar algo y no existe `docs/features/<ID>/spec.md` + `design.md`, PARA y dilo. Ofrece crear el scaffolding primero (`/new-feature`).
+2. **El spec es el contrato.** Ante ambigüedad, el spec manda sobre la conversación. Si el spec no cubre el caso, propón actualizar el spec, no improvises.
+3. **Prompts LLM = código.** Viven en `backend/app/prompts/`, versionados, nunca inline en el código. Cada prompt tiene evals en `backend/evals/<ID>/`. Si modificas un prompt, corre sus evals y reporta el resultado antes de dar por terminado.
+4. **Lógica determinista → test primero.** Escribe el test que falla, luego la implementación.
+5. **Toda feature nueva va detrás de feature flag** (patrón existente del repo). Sin flag, no hay merge.
+6. **Migraciones reversibles siempre.**
+7. **El modelo `Interaction` es el centro.** Cualquier dato capturado (llamada, meeting, visita, nota de voz) se persiste como Interaction y pasa por el pipeline común. No crees caminos paralelos de procesamiento.
+8. **Edge cases del spec = tests.** Cada fila de la tabla de edge cases del spec debe tener su test o eval correspondiente. Si falta alguno, señálalo.
+9. Al terminar una feature, propón la actualización del estado en `docs/features/MASTER_PLAN.md`.
