@@ -63,6 +63,7 @@ PRD corto (1–2 páginas máx) usando `docs/features/_TEMPLATE/spec.md`:
 - Self-review con checklist antes de merge (lint, types, tests, evals, migración reversible, feature flag).
 
 ### Etapa 5 · QA de cirujano (1–2 días)
+- **Verificación Reticle (frontend):** todo cambio con superficie de UI se verifica con un flow de Reticle antes de darse por hecho (`reticle_act_and_wait` con veredicto real, no `no-fault`). Los flows guardados de cada feature llevan `intent` y quedan como regresión permanente: la feature #1 sigue verificándose cuando construimos la #13.
 - **Dogfooding**: los 2 founders usan la feature con SUS llamadas reales durante ≥2 días.
 - **Design partners**: 2–3 clientes beta asignados a cada feature (rotar entre los 16) la prueban con flag activado. Feedback estructurado, no "¿qué te parece?".
 - La métrica de calidad del spec debe alcanzar su umbral ANTES de GA. Si no llega, se itera (prompts → evals → repeat), no se shipea.

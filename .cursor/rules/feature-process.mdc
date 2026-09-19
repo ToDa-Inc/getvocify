@@ -17,4 +17,5 @@ Toda feature del plan maestro (`docs/features/MASTER_PLAN.md`) sigue 6 etapas: t
 6. **Migraciones reversibles siempre.**
 7. **El modelo `Interaction` es el centro.** Cualquier dato capturado (llamada, meeting, visita, nota de voz) se persiste como Interaction y pasa por el pipeline común. No crees caminos paralelos de procesamiento.
 8. **Edge cases del spec = tests.** Cada fila de la tabla de edge cases del spec debe tener su test o eval correspondiente. Si falta alguno, señálalo.
-9. Al terminar una feature, propón la actualización del estado en `docs/features/MASTER_PLAN.md`.
+9. **Verificación Reticle en features con UI.** Antes de dar por terminado un cambio visible en la app, sigue la rule de Reticle del repo: guarda un flow con `intent` describiendo el job-to-be-done del spec, y consigue un veredicto real (`verified: pass`) — `unknown`/`no-fault` no cuentan.
+10. Al terminar una feature, propón la actualización del estado en `docs/features/MASTER_PLAN.md`.
