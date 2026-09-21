@@ -23,7 +23,8 @@ from app.services.transcript_turns import (
 )
 
 logger = logging.getLogger(__name__)
-from app.services.llm import LLMClient
+import asyncio
+from app.services.llm import JevClient, LLMClient
 from typing import Any, Optional
 
 
@@ -410,8 +411,13 @@ def build_extraction_prompt(
 class ExtractionService:
     """Service for extracting structured CRM data from transcripts via LLM."""
 
-    def __init__(self) -> None:
-        self.llm = LLMClient()
+    def __init__(
+        self,
+        llm_client: Optional[LLMClient] = None,
+        jev_client: Optional[JevClient] = None,
+    ) -> None:
+        self.llm = llm_client or LLMClient()
+        self.jev = jev_client or JevClient()
     
     def _build_prompt(
         self,
@@ -787,7 +793,44 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             from app.services.pipeline_meta import record_stage, snapshot_prompts
 
             t0 = time.perf_counter()
-            extracted = await self.llm.chat_json(messages, temperature=0.0)
+            use_jev = (
+                getattr(settings, "USE_JEV_CLASSIFIER", True)
+                and getattr(self, "jev", None) is not None
+                and self.jev.is_available
+            )
+            candidate_enums = [
+                s
+                for s in (field_specs or [])
+                if s.get("type") in ("enumeration", "checkbox", "radio", "select")
+                and s.get("name")
+                and classify_fill_policy(s) not in {"strategy", "identity"}
+            ]
+
+            jev_applied = False
+            if use_jev and candidate_enums:
+                gemini_coro = self.llm.chat_json(messages, temperature=0.0)
+                jev_coro = self.jev.classify_enums(transcript, candidate_enums)
+                res_gemini, res_jev = await asyncio.gather(
+                    gemini_coro, jev_coro, return_exceptions=True
+                )
+                if isinstance(res_gemini, Exception):
+                    raise res_gemini
+                extracted = res_gemini
+                if isinstance(res_jev, dict) and res_jev:
+                    extracted = apply_enumeration_patch(
+                        extracted, res_jev, candidate_enums
+                    )
+                    jev_applied = True
+                    logger.info(
+                        "Jev enumeration classification applied",
+                        extra=log_domain(
+                            DOMAIN_EXTRACTION,
+                            "jev_enum_applied",
+                            fields=list(res_jev.keys()),
+                        ),
+                    )
+            else:
+                extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
             extracted = apply_fill_policies(extracted, field_specs, existing_values)
@@ -923,6 +966,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 prompt_tokens=call_meta.get("prompt_tokens"),
                 completion_tokens=call_meta.get("completion_tokens"),
                 total_tokens=call_meta.get("total_tokens"),
+                jev_applied=jev_applied,
                 prompts=snapshot_prompts(messages),
                 includes=["summary", "crm_fields", "next_steps"],
                 note="One JSON call: CRM note (summary), fields to update, and next steps.",

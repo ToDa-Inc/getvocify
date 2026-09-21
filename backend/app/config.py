@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # After file STT, pick one of the user's selected languages. Lite is enough.
     STT_LANGUAGE_DETECT_MODEL: str = "google/gemini-3.5-flash-lite"
 
+    # Fast System One structured classification (CRM enums, language triage)
+    USE_JEV_CLASSIFIER: bool = True
+    JEV_MODEL: str = "typesafe/jev-1.13"
+    JEV_TIMEOUT_SEC: float = 4.0
+
     # Vertex AI (enterprise path: ISO 27001 + SOC 2, Madrid region)
     GOOGLE_CLOUD_PROJECT: str = "pro-sylph-501508-g5"
     GOOGLE_CLOUD_LOCATION: str = "europe-southwest1"

@@ -143,6 +143,18 @@ async def detect_stt_language(transcript: str, allowed: list[str]) -> Optional[s
     if len(snippet) < 40:
         return None
     snippet = snippet[:_SNIPPET_CHARS]
+    if getattr(settings, "USE_JEV_CLASSIFIER", True):
+        try:
+            from app.services.llm.jev import JevClient
+
+            jev = JevClient()
+            if jev.is_available:
+                picked = await jev.detect_language(snippet, allowed)
+                if picked:
+                    logger.info("STT language detect (jev) allowed=%s picked=%s", allowed, picked)
+                    return picked
+        except Exception as e:
+            logger.warning("Jev STT language detect skipped: %s", e)
     try:
         from app.services.llm import LLMClient
 
