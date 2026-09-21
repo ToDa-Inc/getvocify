@@ -19,8 +19,10 @@ from app.services.session_entities import (
 from app.services.stt_batch import (
     _should_fallback_to_speechmatics,
     language_code_from_payload,
+    pick_language_by_confidence,
     should_detect_stt_language,
     should_rerun_stt,
+    uncovered_stt_languages,
 )
 
 
@@ -73,6 +75,18 @@ class NormalizeSttLanguagesTest(unittest.TestCase):
         self.assertTrue(
             should_detect_stt_language(deepgram_language_code(["ca", "es"]), ["ca", "es"])
         )
+
+    def test_uncovered_langs_are_profile_codes_first_pass_missed(self):
+        self.assertEqual(uncovered_stt_languages("es", ["es", "ca"]), ["ca"])
+        self.assertEqual(uncovered_stt_languages("ca", ["ca", "es"]), ["es"])
+        self.assertEqual(uncovered_stt_languages("multi", ["es", "en"]), [])
+        self.assertEqual(uncovered_stt_languages("es", ["es"]), [])
+
+    def test_window_confidence_keeps_first_unless_another_scores_higher(self):
+        self.assertEqual(pick_language_by_confidence([("es", 0.87), ("ca", 0.98)]), "ca")
+        self.assertEqual(pick_language_by_confidence([("es", 0.90), ("ca", 0.90)]), "es")
+        self.assertEqual(pick_language_by_confidence([("es", 0.90), ("ca", None)]), "es")
+        self.assertIsNone(pick_language_by_confidence([]))
 
     def test_explicit_request_beats_profile(self):
         self.assertEqual(resolve_batch_language("en"), "en")

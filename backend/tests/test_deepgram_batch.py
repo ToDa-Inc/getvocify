@@ -70,6 +70,18 @@ def test_confidence_missing_is_none():
     assert mean_utterance_confidence({"results": {"utterances": [{"transcript": "x"}]}}) is None
 
 
+def test_format_falls_back_to_alternative_confidence():
+    text, conf = format_deepgram_transcript(
+        {
+            "results": {
+                "channels": [{"alternatives": [{"transcript": "Hola", "confidence": 0.91}]}]
+            }
+        }
+    )
+    assert text == "Hola"
+    assert conf == 0.91
+
+
 def test_detect_query_restricts_to_profile_languages():
     params = detect_query_params(model="nova-3", languages=["es", "ca"])
     assert params == [
@@ -85,6 +97,36 @@ def test_detect_windows_cover_start_mid_end_without_dupes():
     assert detect_audio_windows(blob, window=4) == [blob[:4], blob[3:7], blob[6:10]]
     assert detect_audio_windows(b"hi", window=8) == [b"hi"]
     assert detect_audio_windows(b"", window=8) == []
+
+
+def _pcm_wav(pcm: bytes, channels: int = 1) -> bytes:
+    byte_rate = 8000 * channels * 2
+    block = channels * 2
+    return (
+        b"RIFF"
+        + (36 + len(pcm)).to_bytes(4, "little")
+        + b"WAVE"
+        + b"fmt "
+        + (16).to_bytes(4, "little")
+        + (1).to_bytes(2, "little")
+        + channels.to_bytes(2, "little")
+        + (8000).to_bytes(4, "little")
+        + byte_rate.to_bytes(4, "little")
+        + block.to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+        + b"data"
+        + len(pcm).to_bytes(4, "little")
+        + pcm
+    )
+
+
+def test_wav_windows_keep_a_decodable_header():
+    pcm = bytes(range(200))
+    wav = _pcm_wav(pcm)
+    windows = detect_audio_windows(wav, window=40)
+    assert len(windows) == 3
+    assert all(chunk.startswith(b"RIFF") and chunk[8:12] == b"WAVE" for chunk in windows)
+    assert windows[0] != windows[1]
 
 
 def test_detect_payload_stays_inside_allowed_and_prefers_uncovered():

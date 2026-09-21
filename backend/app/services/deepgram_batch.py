@@ -30,16 +30,68 @@ DEEPGRAM_MODEL = "nova-3"
 DETECT_PREFIX_BYTES = 2_500_000
 
 
+def _wav_data_region(audio: bytes) -> tuple[bytes, int, int, int] | None:
+    """fmt payload, data offset, data length, frame size. None if not a WAVE file."""
+    if len(audio) < 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        return None
+    offset = 12
+    fmt = b""
+    while offset + 8 <= len(audio):
+        cid = audio[offset : offset + 4]
+        size = int.from_bytes(audio[offset + 4 : offset + 8], "little")
+        payload = offset + 8
+        if cid == b"fmt ":
+            fmt = audio[payload : payload + min(size, 16)]
+        elif cid == b"data":
+            if len(fmt) < 16:
+                return None
+            channels = int.from_bytes(fmt[2:4], "little") or 1
+            bits = int.from_bytes(fmt[14:16], "little") or 16
+            frame = max(1, channels * bits // 8)
+            return fmt, payload, min(size, len(audio) - payload), frame
+        offset = payload + size + (size & 1)
+    return None
+
+
+def _wav_from_pcm(fmt: bytes, pcm: bytes) -> bytes:
+    return (
+        b"RIFF"
+        + (36 + len(pcm)).to_bytes(4, "little")
+        + b"WAVE"
+        + b"fmt "
+        + (16).to_bytes(4, "little")
+        + fmt[:16]
+        + b"data"
+        + len(pcm).to_bytes(4, "little")
+        + pcm
+    )
+
+
 def detect_audio_windows(audio_bytes: bytes, window: int = DETECT_PREFIX_BYTES) -> list[bytes]:
-    """Start / mid / end slices so greeting language cannot hide the rest of the call."""
+    """Start / mid / end slices. WAVE mid/end keep a valid header so the vendor can decode them."""
     data = audio_bytes or b""
     if not data:
         return []
+    wav = _wav_data_region(data)
+    if wav:
+        fmt, data_off, data_len, frame = wav
+        pcm = data[data_off : data_off + data_len]
+        if len(pcm) <= window:
+            return [data]
+        win = max(frame, window - (window % frame))
+        mid = ((len(pcm) - win) // 2) // frame * frame
+        end = (len(pcm) - win) // frame * frame
+        out: list[bytes] = []
+        for start in (0, mid, end):
+            chunk = _wav_from_pcm(fmt, pcm[start : start + win])
+            if chunk not in out:
+                out.append(chunk)
+        return out
     if len(data) <= window:
         return [data]
     mid = (len(data) - window) // 2
     end = len(data) - window
-    out: list[bytes] = []
+    out = []
     for start in (0, mid, end):
         chunk = data[start : start + window]
         if chunk not in out:
@@ -105,6 +157,17 @@ def language_from_deepgram_detect(
     return found[0]
 
 
+def alternative_confidence(payload: dict[str, Any]) -> Optional[float]:
+    channels = (payload.get("results") or {}).get("channels") or [{}]
+    raw = ((channels[0].get("alternatives") or [{}])[0] or {}).get("confidence")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def mean_utterance_confidence(payload: dict[str, Any]) -> Optional[float]:
     utterances = (payload.get("results") or {}).get("utterances") or []
     values: list[float] = []
@@ -150,11 +213,17 @@ def format_deepgram_transcript(
         if multichannel:
             rows.sort(key=lambda row: row[0])
         if rows:
-            return "\n".join(line for _, line in rows), mean_utterance_confidence(payload)
+            return (
+                "\n".join(line for _, line in rows),
+                mean_utterance_confidence(payload) or alternative_confidence(payload),
+            )
 
     channels = results.get("channels") or [{}]
     alts = (channels[0].get("alternatives") or [{}])
-    return str(alts[0].get("transcript") or "").strip(), mean_utterance_confidence(payload)
+    return (
+        str(alts[0].get("transcript") or "").strip(),
+        mean_utterance_confidence(payload) or alternative_confidence(payload),
+    )
 
 
 class DeepgramBatchService:
@@ -239,7 +308,7 @@ class DeepgramBatchService:
         languages: list[str],
         first_lang: str = "",
     ) -> Optional[str]:
-        """Audio LID restricted to `languages`. Prefix only. Nova-3, then Nova-2 if 400."""
+        """Audio LID restricted to `languages`. Start/mid/end windows. Nova-3, then Nova-2 if 400."""
         if not self.api_key:
             raise RuntimeError("DEEPGRAM_API_KEY is not set")
         langs = normalize_stt_languages(languages)

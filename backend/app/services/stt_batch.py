@@ -97,6 +97,69 @@ def should_rerun_stt(first_lang: str, picked: Optional[str], allowed: list[str])
     return not stt_first_pass_covers(first_lang, picked)
 
 
+def uncovered_stt_languages(first_lang: str, allowed: list[str]) -> list[str]:
+    """Profile languages the first STT pin could not have produced."""
+    return [
+        code
+        for code in normalize_stt_languages(allowed)
+        if not stt_first_pass_covers(first_lang, code)
+    ]
+
+
+def pick_language_by_confidence(
+    scored: list[tuple[str, Optional[float]]],
+) -> Optional[str]:
+    """Keep the first candidate unless another scores strictly higher."""
+    winner: Optional[str] = None
+    best = -1.0
+    for code, raw in scored:
+        if not code:
+            continue
+        score = -1.0 if raw is None else raw
+        if winner is None or score > best:
+            winner, best = code, score
+    return winner
+
+
+async def detect_language_by_window_confidence(
+    audio_bytes: bytes,
+    candidates: list[str],
+    *,
+    content_type: str = "audio/wav",
+) -> Optional[str]:
+    """Pin each uncovered-capable language on the mid window; pick the higher confidence."""
+    codes = [str(code).strip().lower() for code in candidates if str(code).strip()]
+    if len(codes) <= 1:
+        return codes[0] if codes else None
+    try:
+        from app.services.deepgram_batch import DeepgramBatchService, detect_audio_windows
+
+        windows = detect_audio_windows(audio_bytes)
+        if not windows:
+            return codes[0]
+        chunk = windows[len(windows) // 2]
+        svc = DeepgramBatchService()
+        scored: list[tuple[str, Optional[float]]] = []
+        for code in codes:
+            try:
+                _text, conf = await svc.transcribe(
+                    chunk,
+                    content_type=content_type,
+                    language=code,
+                    diarization=False,
+                )
+            except Exception as e:
+                logger.warning("STT window score skipped for %s: %s", code, e)
+                conf = None
+            scored.append((code, conf))
+        picked = pick_language_by_confidence(scored)
+        logger.info("STT window language score %s picked=%s", scored, picked)
+        return picked
+    except Exception as e:
+        logger.warning("STT window language score skipped: %s", e)
+        return None
+
+
 def _detect_user_prompt(snippet: str, allowed: list[str]) -> str:
     options = ", ".join(
         f"{code} ({STT_LANGUAGE_LABELS.get(code, code)})" for code in allowed
@@ -241,6 +304,14 @@ async def transcribe_audio(
                 content_type=content_type,
                 first_lang=used_lang,
             )
+            if not should_rerun_stt(used_lang, picked, profile_langs):
+                uncovered = uncovered_stt_languages(used_lang, profile_langs)
+                if uncovered:
+                    picked = await detect_language_by_window_confidence(
+                        audio_bytes,
+                        [used_lang, *uncovered],
+                        content_type=content_type,
+                    )
             if should_rerun_stt(used_lang, picked, profile_langs) and picked:
                 logger.info(
                     "STT re-pin %s → %s after language detect",
