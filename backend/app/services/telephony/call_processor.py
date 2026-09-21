@@ -349,6 +349,55 @@ def _company_hubspot_connection(supabase: Client, user_id: str) -> Optional[dict
     return get_crm_connection(supabase, user_id, "hubspot")
 
 
+async def _resolve_hubspot_portal_id(
+    client: Any,
+    supabase: Client,
+    conn_row: Optional[dict],
+) -> Optional[str]:
+    """Retrieve portal_id from connection metadata, or resolve live via HubSpot API and persist."""
+    if not conn_row:
+        return None
+    metadata = dict(conn_row.get("metadata") or {})
+    portal_id = metadata.get("portal_id")
+    if portal_id:
+        return str(portal_id)
+
+    from app.services.hubspot.account_info import resolve_account_context
+
+    try:
+        account_ctx = await resolve_account_context(client)
+        if account_ctx and account_ctx.portal_id:
+            portal_id = str(account_ctx.portal_id)
+            updated_meta = {**metadata, "portal_id": portal_id}
+            if account_ctx.region and not metadata.get("region"):
+                updated_meta["region"] = account_ctx.region
+            if account_ctx.ui_domain and not metadata.get("ui_domain"):
+                updated_meta["ui_domain"] = account_ctx.ui_domain
+
+            conn_id = conn_row.get("id")
+            if conn_id and supabase is not None:
+                try:
+                    supabase.table("crm_connections").update(
+                        {"metadata": updated_meta}
+                    ).eq("id", str(conn_id)).execute()
+                    conn_row["metadata"] = updated_meta
+                    logger.info(
+                        "Resolved and cached missing portal_id %s for connection %s",
+                        portal_id,
+                        conn_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Could not persist resolved portal_id to connection %s",
+                        conn_id,
+                        exc_info=True,
+                    )
+            return portal_id
+    except Exception:
+        logger.warning("Could not resolve portal_id from HubSpot API", exc_info=True)
+    return None
+
+
 async def _hubspot_owner_id_for_caller(
     supabase: Client,
     user_id: str,
@@ -410,8 +459,11 @@ async def log_missed_call_activity(
             return
 
         conn_row = _company_hubspot_connection(supabase, row["user_id"])
-        metadata = (conn_row or {}).get("metadata") or {}
-        portal_id = metadata.get("portal_id")
+        if not conn_row:
+            return
+
+        client = get_hubspot_client_from_connection(row["user_id"], supabase)
+        portal_id = await _resolve_hubspot_portal_id(client, supabase, conn_row)
         if not portal_id:
             logger.warning(
                 "HubSpot missed-call logging skipped for %s: no portal_id",
@@ -424,7 +476,6 @@ async def log_missed_call_activity(
             {"hubspot_hub_id": hubspot_hub_id}
         ).eq("carrier_call_id", call_sid).execute()
 
-        client = get_hubspot_client_from_connection(row["user_id"], supabase)
         owner_id = await _hubspot_owner_id_for_caller(
             supabase, row["user_id"], client, conn_row
         )
@@ -545,8 +596,11 @@ async def log_call_engagement(
             return
 
         conn_row = _company_hubspot_connection(supabase, row["user_id"])
-        metadata = (conn_row or {}).get("metadata") or {}
-        portal_id = metadata.get("portal_id")
+        if not conn_row:
+            return
+
+        client = get_hubspot_client_from_connection(row["user_id"], supabase)
+        portal_id = await _resolve_hubspot_portal_id(client, supabase, conn_row)
         if not portal_id:
             logger.warning(
                 "HubSpot call logging skipped for %s: no portal_id in connection metadata",
@@ -559,7 +613,6 @@ async def log_call_engagement(
             {"hubspot_hub_id": hubspot_hub_id}
         ).eq("carrier_call_id", call_sid).execute()
 
-        client = get_hubspot_client_from_connection(row["user_id"], supabase)
         owner_id = await _hubspot_owner_id_for_caller(
             supabase, row["user_id"], client, conn_row
         )

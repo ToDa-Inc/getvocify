@@ -404,3 +404,118 @@ class TestLogCallEngagement:
             asyncio.run(log_call_engagement(supabase, "CAxxx", 12.0))
 
         assert any(u.get("hubspot_engagement_id") == "519000" for u in updates)
+
+    def test_resolves_and_caches_missing_portal_id(self):
+        import asyncio
+        from types import SimpleNamespace
+        from app.services.hubspot.account_info import HubSpotAccountContext
+        from app.services.telephony.call_processor import log_call_engagement
+
+        row = {
+            "user_id": "u1",
+            "to_number": "+34600000000",
+            "from_number": "+34900000000",
+            "hubspot_contact_id": "755",
+            "hubspot_deal_id": None,
+            "hubspot_engagement_id": None,
+        }
+        supabase = MagicMock()
+        table = MagicMock()
+        supabase.table.return_value = table
+        table.select.return_value = table
+        table.update.return_value = table
+        table.eq.return_value = table
+        table.limit.return_value = table
+        table.execute.return_value = SimpleNamespace(data=[row])
+
+        updates = []
+        table.update.side_effect = lambda payload: updates.append(payload) or table
+
+        conn_row = {"id": "conn-1", "metadata": {}}
+
+        with patch(
+            "app.services.telephony.call_processor._company_hubspot_connection",
+            return_value=conn_row,
+        ), patch(
+            "app.api.crm.get_hubspot_client_from_connection", return_value=MagicMock()
+        ), patch(
+            "app.services.hubspot.account_info.resolve_account_context",
+            new=AsyncMock(return_value=HubSpotAccountContext(portal_id="999888", region="eu1")),
+        ), patch(
+            "app.services.telephony.call_processor._hubspot_owner_id_for_caller",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.telephony.call_processor.settings"
+        ) as settings, patch(
+            "app.services.hubspot.call_log.log_call_to_hubspot",
+            new=AsyncMock(return_value="519001"),
+        ), patch(
+            "app.services.hubspot.call_log.mark_recording_ready",
+            new=AsyncMock(return_value=None),
+        ):
+            settings.HUBSPOT_APP_ID = "app-1"
+            asyncio.run(log_call_engagement(supabase, "CAxxx", 10.0))
+
+        # Must have updated outbound_calls with resolved portal_id and logged engagement
+        assert any(u.get("hubspot_hub_id") == "999888" for u in updates)
+        assert any(u.get("hubspot_engagement_id") == "519001" for u in updates)
+        # Must have persisted updated metadata to crm_connections
+        assert any(u.get("metadata", {}).get("portal_id") == "999888" for u in updates)
+
+
+class TestMissedCallLogging:
+    def test_resolves_and_caches_missing_portal_id_on_missed_call(self):
+        import asyncio
+        from types import SimpleNamespace
+        from app.services.hubspot.account_info import HubSpotAccountContext
+        from app.services.telephony.call_processor import log_missed_call_activity
+
+        row = {
+            "user_id": "u1",
+            "carrier_call_id": "CA-no-answer",
+            "to_number": "+34686985664",
+            "from_number": "+34648739267",
+            "hubspot_contact_id": "864833756353",
+            "hubspot_deal_id": None,
+            "hubspot_engagement_id": None,
+            "memo_id": None,
+            "status": "dialing",
+        }
+        supabase = MagicMock()
+        table = MagicMock()
+        supabase.table.return_value = table
+        table.select.return_value = table
+        table.update.return_value = table
+        table.eq.return_value = table
+        table.limit.return_value = table
+        table.execute.return_value = SimpleNamespace(data=[row])
+
+        updates = []
+        table.update.side_effect = lambda payload: updates.append(payload) or table
+
+        conn_row = {"id": "conn-1", "metadata": {}}
+
+        with patch(
+            "app.services.telephony.call_processor._company_hubspot_connection",
+            return_value=conn_row,
+        ), patch(
+            "app.api.crm.get_hubspot_client_from_connection", return_value=MagicMock()
+        ), patch(
+            "app.services.hubspot.account_info.resolve_account_context",
+            new=AsyncMock(return_value=HubSpotAccountContext(portal_id="147506535", region="eu1")),
+        ), patch(
+            "app.services.telephony.call_processor._hubspot_owner_id_for_caller",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.telephony.call_processor.settings"
+        ) as settings, patch(
+            "app.services.hubspot.call_log.log_call_to_hubspot",
+            new=AsyncMock(return_value="520001"),
+        ):
+            settings.HUBSPOT_APP_ID = "app-1"
+            asyncio.run(log_missed_call_activity(supabase, "CA-no-answer", "no-answer"))
+
+        assert any(u.get("hubspot_hub_id") == "147506535" for u in updates)
+        assert any(u.get("hubspot_engagement_id") == "520001" for u in updates)
+        assert any(u.get("metadata", {}).get("portal_id") == "147506535" for u in updates)
+
