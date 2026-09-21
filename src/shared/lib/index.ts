@@ -2,7 +2,7 @@
  * Shared lib barrel export
  */
 
-export { api, ApiError } from './api-client';
+export { api, ApiError, errorDetail } from './api-client';
 export * from './constants';
 
 

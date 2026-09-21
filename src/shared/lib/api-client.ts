@@ -101,6 +101,20 @@ export class ApiError extends Error {
 }
 
 /**
+ * Extract a human-readable message from an unknown caught error.
+ * Prefers ApiError's `data.detail`, then `Error.message`, then the fallback.
+ */
+export function errorDetail(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    const detail = (error.data as { detail?: unknown } | null | undefined)?.detail;
+    if (typeof detail === 'string' && detail) return detail;
+    if (error.message) return error.message;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
+/**
  * API Client singleton
  * 
  * Usage:

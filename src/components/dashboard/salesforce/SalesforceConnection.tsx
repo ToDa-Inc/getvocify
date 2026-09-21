@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api/crm";
+import { errorDetail } from "@/shared/lib";
 import { toast } from "sonner";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 
@@ -16,10 +17,9 @@ export const SalesforceConnection = ({ onConnected }: SalesforceConnectionProps)
     try {
       const { redirect_url } = await crmApi.getSalesforceAuthorizeUrl();
       window.location.href = redirect_url;
-    } catch (error: any) {
+    } catch (error: unknown) {
       setIsLoading(false);
-      const msg = error?.data?.detail ?? error.message ?? "Failed to connect Salesforce";
-      toast.error(msg);
+      toast.error(errorDetail(error, "Failed to connect Salesforce"));
     }
   };
 

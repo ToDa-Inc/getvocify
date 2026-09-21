@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { errorDetail } from "@/shared/lib";
 import { Mic, ArrowRight } from "lucide-react";
 import { CRM_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -26,8 +27,8 @@ const SignupPage = () => {
       await signup({ fullName, email, password, companyName });
       toast.success("Account created successfully!");
       navigate("/dashboard");
-    } catch (error: any) {
-      toast.error(error.data?.detail || "Signup failed. Please try again.");
+    } catch (error: unknown) {
+      toast.error(errorDetail(error, "Signup failed. Please try again."));
     } finally {
       setIsLoading(false);
     }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api/crm";
+import { errorDetail } from "@/shared/lib";
 import { toast } from "sonner";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 
@@ -16,10 +17,9 @@ export const PipedriveConnection = ({ onConnected }: PipedriveConnectionProps) =
     try {
       const { redirect_url } = await crmApi.getPipedriveAuthorizeUrl();
       window.location.href = redirect_url;
-    } catch (error: any) {
+    } catch (error: unknown) {
       setIsLoading(false);
-      const msg = error?.data?.detail ?? error.message ?? "Failed to connect Pipedrive";
-      toast.error(msg);
+      toast.error(errorDetail(error, "Failed to connect Pipedrive"));
     }
   };
 

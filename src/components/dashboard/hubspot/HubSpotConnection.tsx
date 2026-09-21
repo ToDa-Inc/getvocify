@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api/crm";
+import { errorDetail } from "@/shared/lib";
 import { toast } from "sonner";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { HUBSPOT_CONNECT_EMAIL_HINT } from "@/lib/identity-hints";
@@ -17,10 +18,9 @@ export const HubSpotConnection = ({ onConnected }: HubSpotConnectionProps) => {
     try {
       const { redirect_url } = await crmApi.getHubSpotAuthorizeUrl();
       window.location.href = redirect_url;
-    } catch (error: any) {
+    } catch (error: unknown) {
       setIsLoading(false);
-      const msg = error?.data?.detail ?? error.message ?? "Failed to connect HubSpot";
-      toast.error(msg);
+      toast.error(errorDetail(error, "Failed to connect HubSpot"));
     }
   };
 
