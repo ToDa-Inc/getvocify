@@ -80,7 +80,28 @@ def test_two_connections_and_a_closed_deal_stay_apart():
     assert [row["id"] for row in ranked] == ["crm-A:42:open", "crm-B:42:open"]
 
 
+def test_a_future_agreed_call_is_shown_without_an_invite_to_call_sooner():
+    ranked = rank_candidates(
+        [{
+            "connection_id": "crm-A",
+            "contact_id": "3",
+            "coverage": "complete",
+            "scheduled_at": "2026-09-30T10:00:00Z",
+            "pain_confirmed": True,
+            "pain_at": "2026-09-20T10:00:00Z",
+        }],
+        NOW,
+    )
+    assert ranked[0]["next_action"] is None
+    assert ranked[0]["reason"] == "Llamada acordada; no llamar antes"
+
+
 def test_empty_states_are_distinct():
-    assert empty_priority_copy(connected=False, coverage="complete")["title"] == "Conecta tu CRM"
-    assert empty_priority_copy(connected=True, coverage="complete")["title"] == "No hay contactos prioritarios ahora"
+    disconnected = empty_priority_copy(connected=False, coverage="complete", role="member")
+    assert disconnected["title"] == "Conecta tu CRM para ver a quién contactar"
+    assert disconnected["action"] is None
+    assert empty_priority_copy(connected=False, coverage="complete", role="owner")["action"] == "Conectar CRM"
+    assert empty_priority_copy(connected=True, coverage="complete")["title"].startswith("No hay contactos prioritarios ahora")
     assert empty_priority_copy(connected=True, coverage="partial")["title"] == "Falta parte del historial"
+    member = empty_priority_copy(connected=True, coverage="complete", role="member", assigned=False)
+    assert member["action"] == "Revisa tu asignación con el administrador"

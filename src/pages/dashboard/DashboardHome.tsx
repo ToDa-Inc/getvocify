@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
 import { ActivityPanel } from "@/components/dashboard/ActivityPanel";
+import { ContactPriorities } from "@/features/today/components/ContactPriorities";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
@@ -23,6 +24,7 @@ const DashboardHome = () => {
         onComplete={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
       />
 
+      <ContactPriorities />
       <ActivityPanel />
     </div>
   );
