@@ -3,6 +3,10 @@ import { useCallback, useMemo } from "react";
 import { meetingProposalView, renderMeetingProposal } from "@shared/ui/meeting-proposal.js";
 import { renderToString } from "@shared/ui/html.js";
 import { api } from "@/shared/lib/api-client";
+import {
+  meetingProposalReadErrorView,
+  meetingProposalReviewSurface,
+} from "@/lib/meeting-proposal-review";
 
 type MeetingProposal = Record<string, unknown> & {
   proposal_id?: string;
@@ -50,7 +54,21 @@ export function MeetingProposalReview({
 
   const proposal =
     reconcileMutation.data?.proposal ?? mutation.data?.proposal ?? query.data?.proposal ?? null;
-  const view = meetingProposalView(proposal, { surface: "review", extractionPending });
+  const surface = meetingProposalReviewSurface({
+    extractionPending,
+    queryFetchStatus: query.fetchStatus,
+    queryIsPending: query.isPending,
+    queryIsError: query.isError,
+    proposal,
+  });
+  const view =
+    surface.kind === "pending"
+      ? meetingProposalView(null, { surface: "review", extractionPending: true })
+      : surface.kind === "read-error"
+        ? meetingProposalReadErrorView()
+        : surface.kind === "hidden"
+          ? { visible: false as const }
+          : meetingProposalView(proposal, { surface: "review", extractionPending: false });
 
   const markup = useMemo(() => {
     if (!view.visible) return "";
