@@ -40,9 +40,9 @@ export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }
   return (
     <section aria-labelledby="contact-priorities-title" className="space-y-3">
       <h2 id="contact-priorities-title" className={THEME_TOKENS.typography.pageTitle}>
-        A quién contactar
+        {copy.contactPrioritiesTitle}
       </h2>
-      {surface.kind === "loading" ? <p>Leyendo el CRM…</p> : null}
+      {surface.kind === "loading" ? <p>{copy.contactPrioritiesLoading}</p> : null}
       {surface.kind === "error" ? (
         <p role="alert">{productText(surface.title, copy)}</p>
       ) : null}
@@ -65,7 +65,7 @@ export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }
       {surface.kind === "list" ? (
         <ul className="space-y-3">
           {surface.note ? <p>{productText(surface.note, copy)}</p> : null}
-          {surface.stale ? <p>Mostrando la última lectura.</p> : null}
+          {surface.stale ? <p>{copy.contactPrioritiesStale}</p> : null}
           {surface.items.map((item) => (
             <li key={item.id} className="rounded-lg border p-4">
               <p>{productText(item.reason, copy)}</p>

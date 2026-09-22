@@ -223,6 +223,7 @@ def build_today_view(
     now: datetime,
     coverage: dict,
     generated_at: str,
+    lang: str = "es",
 ) -> dict:
     linked, loose = attach_manual(signals, manual_tasks)
     cards, folded = rank_cards(linked, now=now) if linked else ([], 0)
@@ -234,7 +235,7 @@ def build_today_view(
             "dedupe_key": card.primary.dedupe_key,
             "contact_id": card.primary.contact_id,
             "connection_id": card.primary.connection_id,
-            "reason": reason(card.primary),
+            "reason": reason(card.primary, lang=lang),
             "remote_id": payload.get("remote_id"),
             "origins": payload.get("origins") or ["detected"],
             "supporting": [item.type for item in card.supporting],

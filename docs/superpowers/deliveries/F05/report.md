@@ -1,6 +1,6 @@
 # Informe F05
 
-Estado: el motor puro de señales está en `feat/vocify-v1`. No está cerrada. Copy de inicio (Hoy): claves o frases del catálogo EN/ES vía `t.product`, sin literales en el motor.
+Estado: el motor puro de señales está en `feat/vocify-v1`. No está cerrada. Copy de inicio (Hoy): claves o frases del catálogo EN/ES vía `t.product`, sin literales en el motor. `GET /today` pasa `Accept-Language` a `reason()`; prioridades en pantalla usan el mismo catálogo.
 
 ## Entregado
 

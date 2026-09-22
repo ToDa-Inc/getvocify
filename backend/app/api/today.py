@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 
 from app.deps import get_membership, get_supabase
@@ -137,7 +137,12 @@ def _intelligence(rows: list[dict]) -> str:
 
 
 @router.get("/today")
-async def get_today(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
+async def get_today(
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+    accept_language: str | None = Header(default=None, alias="Accept-Language"),
+):
+    lang = "en" if (accept_language or "").lower().startswith("en") else "es"
     stored = (
         supabase.table("action_signals")
         .select("*")
@@ -162,6 +167,7 @@ async def get_today(membership: Membership = Depends(get_membership), supabase=D
         now=now,
         coverage={"intelligence": _intelligence(visible), "crm_tasks": task_coverage},
         generated_at=now.isoformat(),
+        lang=lang,
     )
 
 

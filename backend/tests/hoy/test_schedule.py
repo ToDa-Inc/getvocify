@@ -39,6 +39,7 @@ from app.services.hoy.scheduler import (
 )
 from app.services.coaching import brief_preferences as brief_preferences_mod
 from app.services.coaching.brief_preferences import write_preference
+from app.services.hoy.reasons import reason
 from app.services.hoy.signals import Signal
 
 MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "043_action_signals.sql"
@@ -368,6 +369,32 @@ def test_the_token_request_hits_hubspot_search_without_printing_the_token():
     tasks, coverage = collect_open_tasks("hubspot", lambda _request: page, connection_id="crm-A")
     assert tasks == []
     assert coverage == "complete"
+
+
+def test_get_today_reason_follows_accept_language():
+    STORE.rows = [{
+        "company_id": "co-1",
+        "user_id": "user-a",
+        "status": "pending",
+        "type": "going_cold",
+        "contact_id": "42",
+        "deal_id": None,
+        "memo_id": "memo-1",
+        "connection_id": "crm-A",
+        "dedupe_key": "cold:42",
+        "coverage": "complete",
+        "payload": {"interest": "high", "days_silent": 12},
+    }]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        client = _today_client()
+        spanish = client.get("/api/v1/today").json()
+        english = client.get("/api/v1/today", headers={"Accept-Language": "en"}).json()
+    finally:
+        today_api.set_today_tasks(None)
+    signal = _cold()
+    assert spanish["items"][0]["reason"] == reason(signal, lang="es")
+    assert english["items"][0]["reason"] == reason(signal, lang="en")
 
 
 def test_today_keeps_a_pending_card_when_crm_tasks_were_not_read():
