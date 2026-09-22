@@ -1,6 +1,6 @@
 # Informe F02
 
-Estado: código de C03 en la rama `feat/vocify-v1`. No está cerrada: falta el recorrido real con un CRM y aplicar la migración `038` en la base.
+Estado: código de C03 en la rama `feat/vocify-v1`. El esquema ya está aplicado.
 
 ## Entregado
 

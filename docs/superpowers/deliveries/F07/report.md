@@ -1,6 +1,6 @@
 # Informe F07
 
-Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. Detener la grabación llama a `POST /ask/transcribe`, deja el texto en el cuadro y no crea un memo. El silencio no se envía. El micrófono no se probó en el navegador. La migración `041` no está aplicada en una base compartida.
+Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno puede guardar si la lectura del CRM fue completa, parcial o prohibida, y la pantalla usa una frase distinta en cada caso. Falta cerrar el panel contra el loop real del copiloto.
 
 ## Entregado
 
@@ -14,9 +14,10 @@ Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. Detener la grabaci�
 | Pasados 30 s la espera no reenvía; reabrir lee el mismo turno y no desplaza la lectura | `b91e725` | `src/lib/ask-turn.test.ts` |
 | La voz se puede cancelar o editar; no se envía sola y no crea un memo | `8f4d3c0` | `src/lib/ask-voice.test.ts` |
 | Transcribir la pregunta devuelve texto y `memo_id` null; el silencio queda vacío | `a0ac152` | `tests/crm_copilot/test_ask_http.py` |
-| Conversación vacía, sin resultados y lectura parcial del CRM no comparten la misma frase | este commit | `src/lib/ask-situation.test.ts` |
+| Conversación vacía, sin resultados y lectura parcial del CRM no comparten la misma frase | `40835da` | `src/lib/ask-situation.test.ts` |
+| Un turno con lectura prohibida no se guarda como consulta sin resultados | este commit | `tests/crm_copilot/test_ask_http.py` |
 
 ## No verificado
 
 - Sin pasar por el arranque, los tests HTTP siguen usando memoria.
-- El micrófono no se recorrió en el navegador. La pantalla sí distingue la conversación vacía; una consulta sin resultados y una lectura parcial tienen frase propia, pero el turno aún no trae esa cobertura.
+- Si el turno trae cobertura, la pantalla usa la frase de permiso, de lectura parcial o de sin resultados.

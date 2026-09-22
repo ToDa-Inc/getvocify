@@ -1,6 +1,6 @@
 # Informe F08
 
-Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Una captura conserva la versión con la que empezó aunque después se publique otra. La migración `040` no está aplicada en una base compartida. Reticle no recorrió Settings.
+Estado: C06 en `feat/vocify-v1`. El esquema ya está aplicado. Una captura conserva la versión con la que empezó aunque después se publique otra.
 
 ## Entregado
 

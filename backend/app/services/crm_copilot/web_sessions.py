@@ -92,3 +92,11 @@ def confirm_operation(
     if operation.get("applied"):
         return {**operation, "replayed": True}
     return {**operation, "applied": True, "status": "succeeded", "replayed": False}
+
+
+def attach_read(turn: dict, envelope: dict) -> dict:
+    """A finished read keeps its coverage. Forbidden is not an empty result."""
+    coverage = envelope.get("coverage")
+    items = envelope.get("items") or []
+    count = len(items) if coverage == "complete" else 0
+    return {**turn, "status": "completed", "coverage": coverage, "item_count": count}

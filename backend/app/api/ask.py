@@ -14,6 +14,7 @@ from app.services.crm_copilot.web_sessions import (
     TurnConflict,
     UncertainOperation,
     accept_turn,
+    attach_read,
     confirm_operation,
 )
 
@@ -23,6 +24,12 @@ _TURNS: dict[tuple[str, str, str], dict] = {}
 _OPERATIONS: dict[tuple[str, str, str], dict] = {}
 _store = None
 _transcriber = None
+_reader = None
+
+
+def set_ask_reader(reader) -> None:
+    global _reader
+    _reader = reader
 
 
 def set_ask_transcriber(transcriber) -> None:
@@ -60,6 +67,8 @@ def _public(turn: dict) -> dict:
         "status": turn["status"],
         "client_turn_id": turn["client_turn_id"],
         "text": turn["text"],
+        "coverage": turn.get("coverage"),
+        "item_count": turn.get("item_count"),
     }
 
 
@@ -77,6 +86,8 @@ async def post_turn(
             client_turn_id=body.client_turn_id,
             text=body.text,
         )
+        if not turn.get("replayed"):
+            turn = await _finish(turn, body.text)
         code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
         return JSONResponse(status_code=code, content=_public(turn))
     scoped: dict = {
@@ -90,6 +101,8 @@ async def post_turn(
         client_turn_id=body.client_turn_id,
         text=body.text,
     )
+    if not turn.get("replayed"):
+        turn = await _finish(turn, body.text)
     _TURNS[(membership.user_id, conversation_id, body.client_turn_id)] = {
         **turn,
         "user_id": membership.user_id,
@@ -97,6 +110,17 @@ async def post_turn(
     }
     code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
     return JSONResponse(status_code=code, content=_public(turn))
+
+
+async def _finish(turn: dict, text: str) -> dict:
+    if _reader is None:
+        return turn
+    envelope = _reader(text)
+    if asyncio.iscoroutine(envelope):
+        envelope = await envelope
+    if not envelope:
+        return turn
+    return attach_read(turn, envelope)
 
 
 @router.get("/conversations/{conversation_id}/turns/{turn_id}")

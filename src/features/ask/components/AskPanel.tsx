@@ -8,6 +8,14 @@ const STORAGE_KEY = "vocify-ask-turn";
 
 type StoredTurn = { conversationId: string; turnId: string };
 
+type AskTurnBody = {
+  turn_id: string;
+  status: AskSnapshot["status"];
+  text: string;
+  coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
+  item_count?: number;
+};
+
 function readStored(): StoredTurn | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -18,7 +26,7 @@ function readStored(): StoredTurn | null {
 }
 
 export default function AskPanel() {
-  const [draft, setDraft] = useState("");
+  const [read, setRead] = useState<{ coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null; items?: number }>({});
   const [view, setView] = useState<AskView>(emptyAsk());
   const [conversationId] = useState("conv-1");
 
@@ -27,7 +35,7 @@ export default function AskPanel() {
     if (!stored) return;
     let cancelled = false;
     api
-      .get<AskSnapshot & { turn_id: string; text: string; status: AskSnapshot["status"] }>(
+      .get<AskTurnBody>(
         `/ask/conversations/${stored.conversationId}/turns/${stored.turnId}`,
       )
       .then((turn) => {
@@ -37,6 +45,7 @@ export default function AskPanel() {
           status: turn.status,
           text: turn.text,
         }));
+        setRead({ coverage: turn.coverage, items: turn.item_count });
       })
       .catch(() => undefined);
     return () => {
@@ -50,7 +59,7 @@ export default function AskPanel() {
     }
     const timer = window.setInterval(() => {
       api
-        .get<{ turn_id: string; status: AskSnapshot["status"]; text: string }>(
+        .get<AskTurnBody>(
           `/ask/conversations/${conversationId}/turns/${view.turnId}`,
         )
         .then((turn) => {
@@ -62,6 +71,7 @@ export default function AskPanel() {
               false,
             ),
           );
+          setRead({ coverage: turn.coverage, items: turn.item_count });
         })
         .catch(() => {
           setView((current) => noteTick(current, 2000, null, false));
@@ -73,7 +83,13 @@ export default function AskPanel() {
   async function send() {
     const text = draft.trim();
     if (!text || view.turnId) return;
-    const turn = await api.post<{ turn_id: string; status: AskSnapshot["status"]; text: string }>(
+    const turn = await api.post<{
+      turn_id: string;
+      status: AskSnapshot["status"];
+      text: string;
+      coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
+      item_count?: number;
+    }>(
       `/ask/conversations/${conversationId}/turns`,
       { client_turn_id: crypto.randomUUID(), text },
     );
@@ -83,13 +99,18 @@ export default function AskPanel() {
       text: turn.text,
     });
     setView(next);
+    setRead({ coverage: turn.coverage, items: turn.item_count });
     if (next.turnId) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));
     }
     setDraft("");
   }
 
-  const situation = askSituation({ hasTurns: Boolean(view.turnId) });
+  const situation = askSituation({
+    hasTurns: Boolean(view.turnId),
+    coverage: read.coverage,
+    items: read.items,
+  });
 
   return (
     <section className="mx-auto max-w-xl px-4 py-8">

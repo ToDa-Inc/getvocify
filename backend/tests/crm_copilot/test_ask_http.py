@@ -29,6 +29,7 @@ def setup_function():
     ask_api._OPERATIONS.clear()
     ask_api.set_ask_store(None)
     ask_api.set_ask_transcriber(None)
+    ask_api.set_ask_reader(None)
 
 
 def test_a_stored_turn_replays_the_same_id_for_the_callers_company():
@@ -149,6 +150,45 @@ def test_confirming_another_contact_writes_nothing_and_a_repeat_does_not_apply_t
         "/api/v1/ask/conversations/conv-1/operations/op-1/confirm",
         json={"revision": 3, "contact_id": "contact-a"},
     ).status_code == 404
+
+
+def test_a_forbidden_read_is_not_the_same_as_no_results():
+    def forbidden(_text: str) -> dict:
+        return {"items": [], "coverage": "forbidden", "reason": "email_scope_missing"}
+
+    def empty(_text: str) -> dict:
+        return {"items": [], "coverage": "complete"}
+
+    ask_api.set_ask_reader(forbidden)
+    try:
+        client = _client("user-a")
+        denied = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-forbid", "text": "¿Qué correos hay?"},
+        )
+        assert denied.status_code == 200
+        assert denied.json()["coverage"] == "forbidden"
+        assert denied.json()["item_count"] == 0
+        fetched = client.get(
+            f"/api/v1/ask/conversations/conv-1/turns/{denied.json()['turn_id']}"
+        )
+        assert fetched.json()["coverage"] == "forbidden"
+    finally:
+        ask_api.set_ask_reader(None)
+
+    ask_api.set_ask_reader(empty)
+    try:
+        client = _client("user-a")
+        none = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-empty", "text": "¿Qué correos hay?"},
+        )
+        assert none.status_code == 200
+        assert none.json()["coverage"] == "complete"
+        assert none.json()["item_count"] == 0
+        assert none.json()["turn_id"] != denied.json()["turn_id"]
+    finally:
+        ask_api.set_ask_reader(None)
 
 
 def test_voice_transcription_returns_text_and_creates_no_memo():
