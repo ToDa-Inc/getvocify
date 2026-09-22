@@ -142,20 +142,28 @@ def database_bindings(supabase, sources_for=None):
             .eq("id", str(memo.get("id")))
             .execute()
         )
-        _store_patterns(supabase, memo, extraction, payload)
+        patterns = _store_patterns(supabase, memo, extraction, payload)
+        from app.services.coaching.score_assembly import attach_score_to_job_payload
         from app.services.coaching.score_jobs import store_coaching_from_job_payload
 
-        store_coaching_from_job_payload(supabase, memo, payload)
+        coaching_payload = attach_score_to_job_payload(
+            memo,
+            payload,
+            extraction=extraction,
+            patterns=patterns,
+            crm_outcome=memo.get("crm_outcome"),
+        )
+        store_coaching_from_job_payload(supabase, memo, coaching_payload)
 
     return claim, load_memo, publish, sources, store
 
 
-def _store_patterns(supabase, memo: dict, extraction: dict, payload: dict) -> None:
+def _store_patterns(supabase, memo: dict, extraction: dict, payload: dict) -> list[dict]:
     from app.services.intelligence.patterns import project_patterns
 
     memo_id = str(memo.get("id") or "")
     if not memo_id:
-        return
+        return []
     revision = str((payload or {}).get("input_revision") or memo.get("input_revision") or "")
     try:
         stored = (
@@ -173,8 +181,9 @@ def _store_patterns(supabase, memo: dict, extraction: dict, payload: dict) -> No
         for row in rows:
             if str(row.get("pattern_id") or "").startswith("objection:"):
                 supabase.table("interaction_patterns").upsert(row).execute()
+        return rows
     except Exception:
-        return
+        return []
 
 
 def make_database_tick(supabase, classify, sources_for=None):
