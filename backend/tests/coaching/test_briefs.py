@@ -8,7 +8,7 @@ os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-briefs-32b+")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-briefs-32b+")
 
 from app.services.coaching.briefs import absent_brief, aggregate_brief, materialize_brief
-from app.services.coaching.scoring import store_memo_score
+from app.services.coaching.scoring import publish_memo_score, store_memo_score
 
 PATTERNS = [{
     "input_revision": "rev-4",
@@ -146,11 +146,12 @@ def test_materialize_voicemail_screening_is_skipped():
 
 
 class _TableQuery:
-    def __init__(self, store: dict, name: str):
+    def __init__(self, store: dict, name: str, *, fail_upsert: bool = False):
         self.store = store
         self.name = name
         self.filters: list[tuple[str, str]] = []
         self._payload = None
+        self.fail_upsert = fail_upsert
 
     def select(self, *_args, **_kwargs):
         return self
@@ -166,6 +167,8 @@ class _TableQuery:
     def execute(self):
         rows = list(self.store.get(self.name) or [])
         if self._payload is not None:
+            if self.fail_upsert and self.name == "post_interaction_briefs":
+                raise RuntimeError("brief upsert failed")
             key = (self._payload["memo_id"], self._payload["input_revision"])
             rows = [row for row in rows if (row["memo_id"], row["input_revision"]) != key]
             rows.append(dict(self._payload))
@@ -177,11 +180,93 @@ class _TableQuery:
 
 
 class _SupabaseStub:
-    def __init__(self):
+    def __init__(self, *, fail_brief_upsert: bool = False):
         self.tables: dict[str, list] = {"memo_scores": [], "post_interaction_briefs": []}
+        self.fail_brief_upsert = fail_brief_upsert
 
     def table(self, name: str):
-        return _TableQuery(self.tables, name)
+        return _TableQuery(
+            self.tables,
+            name,
+            fail_upsert=self.fail_brief_upsert and name == "post_interaction_briefs",
+        )
+
+
+def test_publish_memo_score_materializes_one_brief_for_the_same_revision():
+    supabase = _SupabaseStub()
+    score = {
+        "input_revision": "rev-4",
+        "status": "ready",
+        "value": 8,
+        "playbook_version_id": "pv-1",
+        "strengths": [],
+        "improvements": [],
+    }
+    patterns = [{"input_revision": "rev-4", "superseded": False, "evidence_refs": ["ev-1"]}]
+    assert publish_memo_score(
+        supabase,
+        memo_id="memo-1",
+        input_revision="rev-4",
+        revision_seq=4,
+        score=score,
+        patterns=patterns,
+    )
+    assert publish_memo_score(
+        supabase,
+        memo_id="memo-1",
+        input_revision="rev-4",
+        revision_seq=4,
+        score=score,
+        patterns=patterns,
+    ) is False
+    briefs = supabase.tables["post_interaction_briefs"]
+    assert len(briefs) == 1
+    assert len(supabase.tables["memo_scores"]) == 1
+
+
+def test_publish_memo_score_voicemail_screening_skips_brief():
+    supabase = _SupabaseStub()
+    score = {
+        "input_revision": "rev-4",
+        "status": "ready",
+        "value": 7,
+        "strengths": ["No debe copiarse"],
+        "improvements": [],
+    }
+    assert publish_memo_score(
+        supabase,
+        memo_id="memo-1",
+        input_revision="rev-4",
+        revision_seq=4,
+        score=score,
+        screening="voicemail",
+        patterns=[{"input_revision": "rev-4", "superseded": False, "evidence_refs": ["ev-1"]}],
+    )
+    brief = supabase.tables["post_interaction_briefs"][0]
+    assert brief["status"] == "skipped"
+    assert brief["body"]["strength"] is None
+
+
+def test_publish_memo_score_keeps_score_when_brief_write_fails():
+    supabase = _SupabaseStub(fail_brief_upsert=True)
+    score = {
+        "input_revision": "rev-4",
+        "status": "ready",
+        "value": 8,
+        "playbook_version_id": "pv-1",
+        "strengths": [],
+        "improvements": [],
+    }
+    assert publish_memo_score(
+        supabase,
+        memo_id="memo-1",
+        input_revision="rev-4",
+        revision_seq=4,
+        score=score,
+    )
+    assert len(supabase.tables["memo_scores"]) == 1
+    assert supabase.tables["memo_scores"][0]["score"]["value"] == 8
+    assert supabase.tables["post_interaction_briefs"] == []
 
 
 def test_store_memo_score_upserts_brief_for_the_same_revision():

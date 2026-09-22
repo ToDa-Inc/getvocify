@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from app.services.coaching.brief_preferences import publish_if_newer
 from app.services.coaching.briefs import materialize_brief
 from app.services.coaching.metrics import compute_adherence
 
 PROMPT_VERSION = "scoring_v1"
+logger = logging.getLogger(__name__)
 
 
 def assemble_score(
@@ -96,7 +98,7 @@ def _text(value) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def store_memo_score(
+def publish_memo_score(
     supabase,
     *,
     memo_id: str,
@@ -109,27 +111,88 @@ def store_memo_score(
     job_error: bool = False,
     audio_available: bool = False,
 ) -> bool:
-    """Write memo_scores for this revision, then upsert post_interaction_briefs from aggregate_brief."""
+    """Production score publish: persist memo_scores, then materialize post_interaction_briefs."""
     if not _upsert_score_if_newer(supabase, memo_id, input_revision, revision_seq, score):
         return False
-    brief = materialize_brief(
-        screening=screening,
-        score=score,
-        patterns=list(patterns or []),
-        playbook_present=playbook_present,
-        job_error=job_error,
-        input_revision=input_revision,
-        audio_available=audio_available,
-    )
-    _upsert_brief_if_newer(
+    store_memo_score(
         supabase,
         memo_id=memo_id,
         input_revision=input_revision,
         revision_seq=revision_seq,
-        status=brief["status"],
-        body=brief["body"],
+        score=score,
+        screening=screening,
+        patterns=patterns,
+        playbook_present=playbook_present,
+        job_error=job_error,
+        audio_available=audio_available,
+        score_already_persisted=True,
     )
     return True
+
+
+def store_memo_score(
+    supabase,
+    *,
+    memo_id: str,
+    input_revision: str,
+    revision_seq: int,
+    score: dict,
+    screening: str | None = None,
+    patterns: list[dict] | None = None,
+    playbook_present: bool = True,
+    job_error: bool = False,
+    audio_available: bool = False,
+    score_already_persisted: bool = False,
+) -> bool:
+    """Upsert memo_scores unless already written, then upsert post_interaction_briefs from aggregate_brief."""
+    if score_already_persisted:
+        if not _score_revision_at_least(supabase, memo_id, input_revision, revision_seq):
+            return False
+    elif not _upsert_score_if_newer(supabase, memo_id, input_revision, revision_seq, score):
+        return False
+    try:
+        brief = materialize_brief(
+            screening=screening,
+            score=score,
+            patterns=list(patterns or []),
+            playbook_present=playbook_present,
+            job_error=job_error,
+            input_revision=input_revision,
+            audio_available=audio_available,
+        )
+        _upsert_brief_if_newer(
+            supabase,
+            memo_id=memo_id,
+            input_revision=input_revision,
+            revision_seq=revision_seq,
+            status=brief["status"],
+            body=brief["body"],
+        )
+    except Exception:
+        logger.exception(
+            "post_interaction_brief persist failed",
+            extra={"memo_id": memo_id, "input_revision": input_revision},
+        )
+    return True
+
+
+def _score_revision_at_least(
+    supabase,
+    memo_id: str,
+    input_revision: str,
+    revision_seq: int,
+) -> bool:
+    stored = (
+        supabase.table("memo_scores")
+        .select("revision_seq")
+        .eq("memo_id", memo_id)
+        .eq("input_revision", input_revision)
+        .execute()
+    )
+    rows = list(getattr(stored, "data", None) or [])
+    if not rows:
+        return False
+    return int(rows[0].get("revision_seq") or 0) >= int(revision_seq)
 
 
 def _upsert_score_if_newer(supabase, memo_id: str, input_revision: str, revision_seq: int, score: dict) -> bool:

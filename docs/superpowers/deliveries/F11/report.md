@@ -19,7 +19,7 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 
 | GET brief aplica la preferencia de destaque sin tocar status ni secciones; `not_started` no inventa `highlight` | `tests/coaching/test_brief_http.py` |
 
-| Tras guardar score, `store_memo_score` materializa fila en `post_interaction_briefs` vía `aggregate_brief` (buzón `skipped`) | `tests/coaching/test_briefs.py` |
+| Tras guardar score, `publish_memo_score` materializa fila en `post_interaction_briefs` vía `store_memo_score` (buzón `skipped`; misma revisión no duplica fila) | `tests/coaching/test_briefs.py` |
 
 ## No verificado
 
