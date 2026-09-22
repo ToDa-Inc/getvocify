@@ -296,6 +296,11 @@ async def extract_memo_async(
             ),
         )
         schedule_followup(supabase, memo_id)
+        from app.services.intelligence.worker import record_enqueue
+        record_enqueue(
+            supabase,
+            {"id": memo_id, "user_id": user_id, "extraction": extraction.model_dump()},
+        )
         persist_pipeline_meta(
             supabase,
             memo_id,
@@ -2017,6 +2022,11 @@ async def re_extract_memo(
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
     schedule_followup(supabase, str(memo_id))
+    from app.services.intelligence.worker import record_enqueue
+    record_enqueue(
+        supabase,
+        {"id": str(memo_id), "user_id": user_id, "extraction": extraction.model_dump()},
+    )
     release_pipeline_run(supabase, str(memo_id), run_id)
 
     updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()

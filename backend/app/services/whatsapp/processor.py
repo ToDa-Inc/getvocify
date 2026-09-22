@@ -2220,6 +2220,15 @@ async def _extract_and_create_memo(
         update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
         schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
         schedule_followup(supabase, str(memo_id))
+        from app.services.intelligence.worker import record_enqueue
+        record_enqueue(
+            supabase,
+            {
+                "id": str(memo_id),
+                "user_id": user_id,
+                "extraction": extraction.model_dump() if hasattr(extraction, "model_dump") else extraction,
+            },
+        )
         logger.info(
             "✅ Memo created",
             extra=log_domain(DOMAIN_WHATSAPP, "memo_created", memo_id=memo_id, whatsapp_message_id=whatsapp_message_id),
