@@ -53,3 +53,13 @@ def interpret_memo(
         evidence=evidence,
     )
     return intelligence, True
+
+
+def drain_once(memo: dict, claim, publish, classify: Classify, sources: dict[str, str]) -> Optional[dict]:
+    """Claim one job, reuse or build intelligence, then publish. No claim means nothing ran."""
+    claimed = claim()
+    if not claimed:
+        return None
+    intelligence, created = interpret_memo(memo, classify, sources)
+    outcome = publish(claimed["run_id"], intelligence.model_dump())
+    return {"created": created, "outcome": outcome, "input_revision": intelligence.input_revision}

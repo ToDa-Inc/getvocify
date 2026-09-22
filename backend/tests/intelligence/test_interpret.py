@@ -7,7 +7,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-intelligence-32")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-intelligence-32")
 
-from app.services.intelligence.interpret import interpret_memo
+from app.services.intelligence.interpret import drain_once, interpret_memo
 
 MEMO = {
     "id": "memo-1",
@@ -68,3 +68,28 @@ def test_identical_retry_reuses_intelligence_without_classifying_again():
     assert second.input_revision == first.input_revision
     assert second.meeting.agreed is True
     assert calls["n"] == 1
+
+
+def test_drain_publishes_once_when_the_second_claim_is_empty():
+    calls = {"n": 0}
+    claims = [{"run_id": "run-1"}]
+
+    def claim():
+        return claims.pop(0) if claims else None
+
+    published = []
+
+    def publish(run_id, payload):
+        published.append(run_id)
+        return "success"
+
+    def classify(_memo):
+        calls["n"] += 1
+        return {"status": "unavailable", "answers": {}}
+
+    first = drain_once(MEMO, claim, publish, classify, SOURCES)
+    assert first["outcome"] == "success"
+    second = drain_once(MEMO, claim, publish, classify, SOURCES)
+    assert second is None
+    assert calls["n"] == 1
+    assert published == ["run-1"]
