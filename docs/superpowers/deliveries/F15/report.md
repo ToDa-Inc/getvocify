@@ -21,5 +21,5 @@ No se inventa un estado anterior si no hay historia.
 ## No verificado
 
 - La página está en `/dashboard/insights`. No se recorrió en el navegador. La gestión de miembros sigue en Ajustes.
-- La actividad del periodo no llega a esa página; la página ya no pinta intentos en cero cuando la actividad no llegó. La política de base de datos no está en la migración.
+- La actividad del periodo llega en `GET /team/adherence` (`attempts`, `connected`, `meetings`); la página ya no pinta intentos en cero cuando esos campos faltan. La política de base de datos no está en la migración.
 - `get_team_metrics` rechaza a un miembro antes de armar cifras. El texto no amplía el filtro. No está comprobado el recorrido de WhatsApp de punta a punta.

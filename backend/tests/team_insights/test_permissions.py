@@ -33,6 +33,7 @@ def test_a_member_is_denied_before_any_metric_is_built():
     response = TestClient(app).get("/api/v1/team/adherence")
     assert response.status_code == 403
     assert "met_steps" not in response.text
+    assert "attempts" not in response.text
     assert "0.2" not in response.text
 
 

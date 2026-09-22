@@ -7,7 +7,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-team-agg-32")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-team-agg-32")
 
-from app.services.team_insights.aggregate import team_adherence
+from app.services.team_insights.aggregate import activity_counts, team_adherence
 
 
 def _part(met: int, missed: int) -> dict:
@@ -32,3 +32,23 @@ def test_without_a_playbook_there_is_no_invented_performance():
     assert metrics["adherence"] is None
     assert metrics["coverage"] is None
     assert metrics["conclusion"] is None
+
+
+def test_voicemail_and_connected_activity_reach_adherence_json():
+    rows = [
+        {"screening": "voicemail"},
+        {"screening": "voicemail"},
+        {"screening": "connected", "meeting_agreed": True},
+    ]
+    assert activity_counts(rows) == {"attempts": 3, "connected": 1, "meetings": 1}
+    metrics = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=False,
+        sample_size=0,
+        activity_rows=rows,
+    )
+    assert metrics["attempts"] == 3
+    assert metrics["connected"] == 1
+    assert metrics["meetings"] == 1
+    assert metrics["adherence"] is None

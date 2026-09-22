@@ -16,7 +16,16 @@ export default function TeamInsightsPage() {
   const allowed = role === "owner" || role === "admin";
   const query = useQuery({
     queryKey: ["team-adherence", filters],
-    queryFn: () => api.get<{ adherence: number | null; met_steps: number; applicable_steps: number; coverage: number | null }>("/team/adherence"),
+    queryFn: () =>
+      api.get<{
+        adherence: number | null;
+        met_steps: number;
+        applicable_steps: number;
+        coverage: number | null;
+        attempts?: number;
+        connected?: number;
+        meetings?: number;
+      }>("/team/adherence"),
     enabled: allowed,
     retry: false,
   });
@@ -30,9 +39,9 @@ export default function TeamInsightsPage() {
   }
   const metrics: TeamMetrics | null = query.data
     ? {
-        attempts: null,
-        connected: null,
-        meetings: null,
+        attempts: typeof query.data.attempts === "number" ? query.data.attempts : null,
+        connected: typeof query.data.connected === "number" ? query.data.connected : null,
+        meetings: typeof query.data.meetings === "number" ? query.data.meetings : null,
         won: null,
         lost: null,
         unresolvedWins: 0,
