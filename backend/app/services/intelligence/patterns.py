@@ -77,6 +77,56 @@ def frequency(rows: list[dict]) -> int:
     return sum(1 for row in rows if not row.get("superseded"))
 
 
+def project_patterns(existing: list[dict], *, memo_id: str, input_revision: str, extraction: dict) -> list[dict]:
+    """A new extraction replaces the objections it owns. Another pattern id stays."""
+    incoming = patterns_from_extraction(memo_id=memo_id, input_revision=input_revision, extraction=extraction or {})
+    owned = [row for row in existing if str(row.get("pattern_id") or "").startswith("objection:")]
+    other = [row for row in existing if not str(row.get("pattern_id") or "").startswith("objection:")]
+    if not incoming:
+        owned = [{**row, "superseded": True} for row in owned]
+    else:
+        owned = apply_projection(owned, incoming)
+    return other + owned
+
+
+def patterns_from_extraction(*, memo_id: str, input_revision: str, extraction: dict) -> list[dict]:
+    rows = []
+    seen = set()
+    for item in extraction.get("objections") or []:
+        if isinstance(item, str):
+            text = item.strip()
+            commercial = True
+            category = "other"
+            resolution = None
+            response = None
+            pattern_id = None
+        elif isinstance(item, dict):
+            text = str(item.get("text") or "").strip()
+            commercial = item.get("commercial_objection")
+            category = item.get("category") or "other"
+            resolution = item.get("resolution")
+            response = item.get("response")
+            pattern_id = item.get("pattern_id")
+        else:
+            continue
+        if not text:
+            continue
+        pattern_id = pattern_id or "objection:" + " ".join(text.lower().split())[:80]
+        if pattern_id in seen:
+            continue
+        seen.add(pattern_id)
+        rows.append(pattern_from_situation(
+            pattern_id=pattern_id,
+            memo_id=memo_id,
+            input_revision=input_revision,
+            category=category,
+            commercial_objection=commercial,
+            resolution=resolution,
+            response=response,
+        ))
+    return rows
+
+
 def objection_view(*, notes: list[dict], patterns: list[dict], readable: bool) -> dict:
     """A failed read is not an empty analysis. A superseded row is not a current objection."""
     if not readable:

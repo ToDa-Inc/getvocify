@@ -142,8 +142,36 @@ def database_bindings(supabase, sources_for=None):
             .eq("id", str(memo.get("id")))
             .execute()
         )
+        _store_patterns(supabase, memo, extraction, payload)
 
     return claim, load_memo, publish, sources, store
+
+
+def _store_patterns(supabase, memo: dict, extraction: dict, payload: dict) -> None:
+    from app.services.intelligence.patterns import project_patterns
+
+    memo_id = str(memo.get("id") or "")
+    if not memo_id:
+        return
+    revision = str((payload or {}).get("input_revision") or memo.get("input_revision") or "")
+    try:
+        stored = (
+            supabase.table("interaction_patterns")
+            .select("*")
+            .eq("memo_id", memo_id)
+            .execute()
+        )
+        rows = project_patterns(
+            list(getattr(stored, "data", None) or []),
+            memo_id=memo_id,
+            input_revision=revision,
+            extraction=extraction if isinstance(extraction, dict) else {},
+        )
+        for row in rows:
+            if str(row.get("pattern_id") or "").startswith("objection:"):
+                supabase.table("interaction_patterns").upsert(row).execute()
+    except Exception:
+        return
 
 
 def make_database_tick(supabase, classify, sources_for=None):

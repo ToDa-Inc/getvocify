@@ -22,6 +22,7 @@ from app.services.intelligence.patterns import (
     attribute_evidence,
     frequency,
     pattern_from_situation,
+    project_patterns,
     supersede_statement,
 )
 
@@ -29,7 +30,22 @@ MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "044_interactio
 MEMO = "44444444-4444-4444-4444-444444444444"
 
 
-def test_driving_without_a_commercial_objection_is_an_obstacle():
+def test_an_extraction_projects_objections_and_a_later_one_replaces_them():
+    first = project_patterns(
+        [{"pattern_id": "human-1", "memo_id": "memo-1", "input_revision": "rev-0", "superseded": False}],
+        memo_id="memo-1",
+        input_revision="rev-1",
+        extraction={"objections": ["Está caro", {"text": "Falta parking", "commercial_objection": False}]},
+    )
+    owned = [row for row in first if str(row["pattern_id"]).startswith("objection:")]
+    assert frequency(owned) == 2
+    assert next(row for row in owned if row["pattern_id"] == "objection:está caro")["kind"] == "objection"
+    assert next(row for row in owned if "parking" in row["pattern_id"])["kind"] == "obstacle"
+    assert next(row for row in first if row["pattern_id"] == "human-1")["superseded"] is False
+
+    second = project_patterns(first, memo_id="memo-1", input_revision="rev-2", extraction={"objections": []})
+    assert frequency([row for row in second if str(row["pattern_id"]).startswith("objection:")]) == 0
+    assert next(row for row in second if row["pattern_id"] == "human-1")["superseded"] is False
     pattern = pattern_from_situation(
         pattern_id="pat-drive",
         memo_id="memo-1",
