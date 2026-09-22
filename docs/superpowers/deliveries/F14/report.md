@@ -10,7 +10,6 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 | 16:00 corregido y confirmado por ambos queda en las 17:00 de Madrid (15:00 UTC), con la evidencia de la corrección | el mismo archivo |
 | «A las cinco» sin contexto queda ambiguo, no 17:00. La hora duplicada del cambio de horario pide revisión | el mismo archivo |
 | Migración `046`: una propuesta ambigua se guarda con `starts_at` vacío | Postgres aislado, 5 passed |
-
 | Repetir la aprobación crea una actividad; un timeout se reconcilia antes de otro alta; sin mapeo de etapa no se cambia el deal | `tests/meetings/test_writes.py` 3 passed, Postgres aislado |
 
 ## No verificado
