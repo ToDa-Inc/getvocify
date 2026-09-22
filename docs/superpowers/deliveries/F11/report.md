@@ -11,7 +11,9 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 | Sin playbook: `unavailable` y no se copia un consejo genérico. Error de job: `failed`, no se queda en `pending` | el mismo archivo |
 | Un score de otra revisión no se mezcla con los patrones vigentes | el mismo archivo, 4 passed |
 
+| Cambiar el destaque no borra un resumen listo; aplazar 30 minutos no retrasa el trabajo; una revisión vieja no pisa la nueva | `tests/coaching/test_brief_preferences.py` 3 passed; migración `047` |
+
 ## No verificado
 
-- No hay migración `047`, ni preferencia de destaque, ni el bloque en el memo.
-- El resumen no se encola cuando cambian el score, los patrones o la reunión.
+- La preferencia no está en Ajustes y el resumen no está en el memo.
+- El trabajo no se encola todavía desde el score, los patrones o la reunión: la función existe y deduplica, pero nadie la llama.
