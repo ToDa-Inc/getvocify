@@ -103,13 +103,12 @@ function abortCopilotSuggest() {
 async function requestCopilotSuggest(latestTurn) {
   const token = localStorage.getItem(STORAGE.token);
   if (!listening || !token || !shouldRequestCopilotSuggest(latestTurn)) return;
-  markCopilotSuggestRequested(latestTurn);
   abortCopilotSuggest();
   const controller = new AbortController();
   copilotSuggestAbort = controller;
   const transcriptWindow = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
   try {
-    await streamCopilotSuggest(fetch, {
+    const result = await streamCopilotSuggest(fetch, {
       apiBase: apiBase(),
       token,
       body: {
@@ -124,6 +123,7 @@ async function requestCopilotSuggest(latestTurn) {
       },
       signal: controller.signal,
     });
+    if (result?.ok) markCopilotSuggestRequested(latestTurn);
   } catch {
     /* ignore aborted / network errors during live listen */
   } finally {

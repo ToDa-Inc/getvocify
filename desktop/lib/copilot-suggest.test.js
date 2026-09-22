@@ -2,7 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createCopilotSuggestIngester,
+  markCopilotSuggestRequested,
+  resetCopilotSuggestRequestDedupe,
   shouldFetchCopilotSuggest,
+  shouldRequestCopilotSuggest,
 } from './copilot-suggest.js';
 import { liveAssistPayloadFromSuggestEvent } from './live-assist-overlay.js';
 
@@ -14,6 +17,17 @@ describe('shouldFetchCopilotSuggest', () => {
     assert.equal(shouldFetchCopilotSuggest('hola', '  hola  '), false);
     assert.equal(shouldFetchCopilotSuggest('', 'nueva línea'), true);
     assert.equal(shouldFetchCopilotSuggest('antes', 'después'), true);
+  });
+
+  it('dedupes only after a successful mark; failed lines stay eligible', () => {
+    resetCopilotSuggestRequestDedupe();
+    assert.equal(shouldRequestCopilotSuggest('hola'), true);
+    assert.equal(shouldRequestCopilotSuggest('hola'), true);
+    markCopilotSuggestRequested('hola');
+    assert.equal(shouldRequestCopilotSuggest('hola'), false);
+    assert.equal(shouldRequestCopilotSuggest('otra'), true);
+    resetCopilotSuggestRequestDedupe();
+    assert.equal(shouldRequestCopilotSuggest('hola'), true);
   });
 });
 
