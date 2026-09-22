@@ -29,12 +29,19 @@ def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries():
     failed = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "failed"}]
     assert due_report_sends(at_cutoff, [PERSON], failed) == [PERSON]
 
+    uncertain = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "uncertain"}]
+    assert due_report_sends(at_cutoff, [PERSON], uncertain) == []
+
     calls: list[dict] = []
 
     def send(person: dict) -> None:
         calls.append(person)
 
     run_due_reports(at_cutoff, [PERSON], already_sent, send)
+    assert calls == []
+
+    calls.clear()
+    run_due_reports(at_cutoff, [PERSON], uncertain, send)
     assert calls == []
 
     calls.clear()
