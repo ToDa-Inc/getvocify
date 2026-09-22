@@ -67,6 +67,23 @@ def remember_operation(user_id: str, conversation_id: str, operation: dict) -> N
     _OPERATIONS[(user_id, conversation_id, operation["operation_id"])] = dict(operation)
 
 
+def _stage_confirmation(turn: dict, user_id: str, conversation_id: str) -> None:
+    confirmation = turn.get("confirmation") or None
+    if not confirmation:
+        return
+    remember_operation(
+        user_id,
+        conversation_id,
+        {
+            "operation_id": confirmation["operation_id"],
+            "revision": confirmation["revision"],
+            "contact_id": confirmation["contact_id"],
+            "applied": False,
+            "status": "proposed",
+        },
+    )
+
+
 def _public(turn: dict) -> dict:
     return {
         "conversation_id": turn["conversation_id"],
@@ -97,6 +114,7 @@ async def post_turn(
         )
         if not turn.get("replayed"):
             turn = await _finish(turn, body.text)
+            _stage_confirmation(turn, membership.user_id, conversation_id)
         code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
         return JSONResponse(status_code=code, content=_public(turn))
     scoped: dict = {
@@ -112,6 +130,7 @@ async def post_turn(
     )
     if not turn.get("replayed"):
         turn = await _finish(turn, body.text)
+        _stage_confirmation(turn, membership.user_id, conversation_id)
     _TURNS[(membership.user_id, conversation_id, body.client_turn_id)] = {
         **turn,
         "user_id": membership.user_id,

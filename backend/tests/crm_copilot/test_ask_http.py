@@ -269,6 +269,41 @@ def test_the_web_turn_runs_the_loop_once_and_keeps_an_empty_read():
         ask_api.set_ask_loop(None)
 
 
+def test_a_proposed_confirmation_can_be_confirmed_for_that_contact_only():
+    async def loop(_text: str) -> dict:
+        return {
+            "text": "¿Creo la nota?",
+            "confirmation": {
+                "operation_id": "op-9",
+                "revision": 2,
+                "contact_id": "contact-a",
+            },
+        }
+
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        created = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-confirm", "text": "anota esto"},
+        )
+        assert created.status_code == 200
+        assert created.json()["confirmation"]["contact_id"] == "contact-a"
+        wrong = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-9/confirm",
+            json={"revision": 2, "contact_id": "contact-b"},
+        )
+        assert wrong.status_code == 409
+        right = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-9/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert right.status_code == 200
+        assert right.json()["applied"] is True
+    finally:
+        ask_api.set_ask_loop(None)
+
+
 def test_a_failed_loop_leaves_the_turn_pending():
     async def loop(_text: str):
         return None
