@@ -19,9 +19,10 @@ MEMO_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 class _TableQuery:
-    def __init__(self, store: dict, name: str):
+    def __init__(self, store: dict, name: str, *, fail_patterns_upsert: bool = False):
         self.store = store
         self.name = name
+        self.fail_patterns_upsert = fail_patterns_upsert
         self.filters: list[tuple[str, str]] = []
         self._payload = None
         self._limit = None
@@ -53,12 +54,18 @@ class _TableQuery:
         rows = list(self.store.get(self.name) or [])
         if self._payload is not None:
             payload = self._payload
+            if getattr(self, "_upsert", False) and self.fail_patterns_upsert:
+                raise RuntimeError("patterns down")
             if getattr(self, "_upsert", False) and isinstance(payload, dict):
-                key = (payload.get("memo_id"), payload.get("input_revision"))
+                if self.name == "interaction_patterns":
+                    key = (payload.get("memo_id"), payload.get("pattern_id"))
+                else:
+                    key = (payload.get("memo_id"), payload.get("input_revision"))
                 rows = [
                     row
                     for row in rows
-                    if (row.get("memo_id"), row.get("input_revision")) != key
+                    if (row.get("memo_id"), row.get("pattern_id" if self.name == "interaction_patterns" else "input_revision"))
+                    != key
                 ]
                 rows.append(dict(payload))
             elif isinstance(payload, list):
@@ -76,7 +83,13 @@ class _TableQuery:
 
 
 class _SupabaseStub:
-    def __init__(self, *, fail_score: bool = False, fail_meeting: bool = False):
+    def __init__(
+        self,
+        *,
+        fail_score: bool = False,
+        fail_meeting: bool = False,
+        fail_patterns: bool = False,
+    ):
         self.tables: dict[str, list] = {
             "memos": [],
             "memo_scores": [],
@@ -86,13 +99,18 @@ class _SupabaseStub:
         }
         self.fail_score = fail_score
         self.fail_meeting = fail_meeting
+        self.fail_patterns = fail_patterns
 
     def table(self, name: str):
         if self.fail_score and name == "memo_scores":
             raise RuntimeError("score down")
         if self.fail_meeting and name == "meeting_proposals":
             raise RuntimeError("meeting down")
-        return _TableQuery(self.tables, name)
+        return _TableQuery(
+            self.tables,
+            name,
+            fail_patterns_upsert=self.fail_patterns and name == "interaction_patterns",
+        )
 
 
 def _memo(**overrides):
@@ -266,3 +284,57 @@ def test_score_and_meeting_failures_do_not_raise():
     memo = _memo()
     extraction = _scoreable_extraction(summary="Quedamos el jueves a las 11")
     run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+
+
+def test_hooks_project_string_objection_as_commercial():
+    supabase = _SupabaseStub()
+    memo = _memo()
+    extraction = {"summary": "Objeción de precio", "objections": ["Está caro"]}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    rows = [r for r in supabase.tables["interaction_patterns"] if not r.get("superseded")]
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "objection"
+    assert str(rows[0]["pattern_id"]).startswith("objection:")
+
+
+def test_hooks_project_dict_with_commercial_false_as_obstacle():
+    supabase = _SupabaseStub()
+    memo = _memo()
+    extraction = {
+        "summary": "Visita",
+        "objections": [{"text": "Falta parking", "commercial_objection": False}],
+    }
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    rows = [r for r in supabase.tables["interaction_patterns"] if not r.get("superseded")]
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "obstacle"
+
+
+def test_hooks_empty_objections_supersede_objection_rows_only():
+    supabase = _SupabaseStub()
+    memo = _memo()
+    first = {"summary": "Una", "objections": ["Está caro"]}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=first)
+    supabase.tables["interaction_patterns"].append(
+        {
+            "pattern_id": "human-1",
+            "memo_id": MEMO_ID,
+            "input_revision": "rev-note",
+            "kind": "unknown",
+            "superseded": False,
+        }
+    )
+    second = {"summary": "Sin objeciones", "objections": []}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=second)
+    active = [r for r in supabase.tables["interaction_patterns"] if not r.get("superseded")]
+    assert not any(str(r.get("pattern_id", "")).startswith("objection:") for r in active)
+    assert any(r.get("pattern_id") == "human-1" for r in active)
+
+
+def test_pattern_failure_does_not_block_score_or_meeting():
+    supabase = _SupabaseStub(fail_patterns=True)
+    memo = _memo()
+    extraction = _scoreable_extraction(summary="Quedamos el martes a las 16:00")
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    assert len(supabase.tables["memo_scores"]) == 1
+    assert len(supabase.tables["meeting_proposals"]) == 1

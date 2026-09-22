@@ -62,6 +62,22 @@ def _meeting_phrase_from_extraction(extraction: dict) -> str | None:
     return blob.strip() or None
 
 
+def _store_patterns_from_extraction(
+    supabase,
+    memo: dict,
+    extraction: dict,
+    input_revision: str,
+) -> list[dict]:
+    from app.services.intelligence.worker import _store_patterns
+
+    return _store_patterns(
+        supabase,
+        memo,
+        extraction,
+        {"input_revision": input_revision},
+    )
+
+
 def _load_patterns(supabase, memo_id: str) -> list[dict]:
     try:
         stored = supabase.table("interaction_patterns").select("*").eq("memo_id", memo_id).execute()
@@ -204,5 +220,17 @@ def run_post_extraction_hooks(
     except Exception:
         logger.exception(
             "post-extraction meeting proposal failed",
+            extra={"memo_id": memo_id, "input_revision": input_revision},
+        )
+    try:
+        _store_patterns_from_extraction(
+            supabase,
+            memo,
+            extraction,
+            input_revision,
+        )
+    except Exception:
+        logger.exception(
+            "post-extraction pattern projection failed",
             extra={"memo_id": memo_id, "input_revision": input_revision},
         )

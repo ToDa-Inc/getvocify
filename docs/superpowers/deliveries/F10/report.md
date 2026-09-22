@@ -14,6 +14,7 @@ Estado: la nota humana se guarda antes de tener memo. No está cerrada.
 | `InteractionObjections` y `CoachingScore` renderizan todo el copy visible desde `product-catalog.ts` (EN/ES vía `t.product`) | revisión de componentes |
 | La nota en la extensión guarda el `offset_ms` del audio en revisión cuando hay reproducción | `shared/ui/note.test.js` |
 | F03 | Suspendida en `docs/superpowers/deliveries/F03/report.md`. No hay código de preparación. |
+| Tras guardar extracción, objeciones → patrones; vacío supersede solo `objection:`; fallo no revierte score/reunión | `tests/memos/test_post_extraction_hooks.py` 16 passed |
 
 ## No verificado
 
