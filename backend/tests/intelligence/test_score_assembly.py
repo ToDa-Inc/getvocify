@@ -93,3 +93,20 @@ def test_missing_playbook_is_unavailable():
     assert score["status"] == "unavailable"
     assert score["value"] is None
     assert score["reason"] == "missing_playbook"
+
+
+def test_met_without_evidence_does_not_publish_a_mark():
+    extraction = {
+        **EXTRACTION,
+        "intelligence": {
+            **EXTRACTION["intelligence"],
+            "playbook_observations": [
+                {"step_id": "handle_price", "status": "met", "evidence_refs": []},
+            ],
+        },
+    }
+    score = build_score_from_extraction(extraction=extraction, memo=MEMO, input_revision="rev-4")
+    assert score is not None
+    assert score["value"] is None
+    assert score["met_steps"] == 0
+    assert score["unknown_steps"] == 1

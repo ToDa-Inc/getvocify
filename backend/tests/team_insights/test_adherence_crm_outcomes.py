@@ -222,6 +222,39 @@ def test_loader_attaches_observations_for_adherence():
     assert body["unresolved_wins"] == 0
 
 
+def test_late_crm_outcome_updates_reporting_without_touching_score_parts():
+    parts = [
+        {
+            "met_steps": 2,
+            "missed_steps": 1,
+            "unknown_steps": 0,
+            "not_applicable_steps": 0,
+            "observed_at": _WEEK.isoformat(),
+        }
+    ]
+    before = team_adherence(role="admin", parts=parts, playbook_present=True, sample_size=1, outcome_observations=[])
+    after = team_adherence(
+        role="admin",
+        parts=parts,
+        playbook_present=True,
+        sample_size=1,
+        outcome_observations=[
+            _observation(
+                connection_id="crm-A",
+                deal_id="deal-1",
+                status="won",
+                observed_at="2026-09-22T12:00:00Z",
+                owner_user_id=USER_A,
+            ),
+        ],
+    )
+    assert before["adherence"] == after["adherence"]
+    assert before["met_steps"] == after["met_steps"]
+    assert before["crm_coverage"] == "unavailable"
+    assert after["crm_coverage"] == "partial"
+    assert after["won"] == 1
+
+
 def test_loader_observation_failure_stays_unavailable():
     store = _Supabase(
         {

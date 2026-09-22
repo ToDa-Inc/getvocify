@@ -160,25 +160,25 @@ El bloque usa estados explícitos: «Evaluando la interacción», «Falta config
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Cada observación tiene evidencia.
+- [x] Cada observación tiene evidencia.
 
-- [ ] Una llamada fácil no gana por defecto frente a una objeción bien trabajada.
+- [x] Una llamada fácil no gana por defecto frente a una objeción bien trabajada.
 
-- [ ] Sin playbook aparece «Falta configurar el proceso», no una nota genérica.
+- [x] Sin playbook aparece «Falta configurar el proceso», no una nota genérica.
 
-- [ ] Sin evidencia suficiente no se muestra un cero ficticio.
+- [x] Sin evidencia suficiente no se muestra un cero ficticio.
 
-- [ ] La adherencia coincide con sus numerador y denominador.
+- [x] La adherencia coincide con sus numerador y denominador.
 
-- [ ] Se examina con conversaciones generadas para desarrollo en `backend/evals/F09/`: llamadas y meetings, con error de transcripción, ambigüedad y objeción trabajada. No viven en el producto ni sustituyen el playbook de cada empresa. Ver [decisiones](./00-decisiones.md).
+- [x] Se examina con conversaciones generadas para desarrollo en `backend/evals/F09/`: llamadas y meetings, con error de transcripción, ambigüedad y objeción trabajada. No viven en el producto ni sustituyen el playbook de cada empresa. Ver [decisiones](./00-decisiones.md).
 
-- [ ] El texto principal contiene acciones concretas y evita consejos genéricos.
+- [x] El texto principal contiene acciones concretas y evita consejos genéricos.
 
-- [ ] Con idéntica evidencia y rúbrica, cambiar solo el resultado externo del deal no cambia `value` ni adherencia; la evaluación de IA incluye el par «meeting conseguido fácilmente / objeción bien trabajada» sin premio automático por agenda.
+- [x] Con idéntica evidencia y rúbrica, cambiar solo el resultado externo del deal no cambia `value` ni adherencia; la evaluación de IA incluye el par «meeting conseguido fácilmente / objeción bien trabajada» sin premio automático por agenda.
 
-- [ ] Empresa sin playbook, conversación sin datos, playbook contradictorio y transcripción parcial producen estados distintos. Ninguno inventa nota cero, criterios cumplidos ni denominadores.
+- [x] Empresa sin playbook, conversación sin datos, playbook contradictorio y transcripción parcial producen estados distintos. Ninguno inventa nota cero, criterios cumplidos ni denominadores.
 
-- [ ] Un resultado CRM posterior actualiza el contexto de reporting sin sobrescribir el score ni su versión de playbook.
+- [x] Un resultado CRM posterior actualiza el contexto de reporting sin sobrescribir el score ni su versión de playbook.
 
 ### Riesgos / edge cases conocidos
 

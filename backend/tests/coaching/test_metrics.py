@@ -32,6 +32,13 @@ def test_all_unknown_or_nothing_applicable_leaves_adherence_empty():
     assert compute_adherence([])["adherence"] is None
 
 
+def test_adherence_is_met_steps_over_applicable_steps():
+    metrics = compute_adherence(["met", "missed", "unknown"])
+    assert metrics["met_steps"] == 1
+    assert metrics["applicable_steps"] == 2
+    assert metrics["adherence"] == metrics["met_steps"] / metrics["applicable_steps"]
+
+
 def test_teams_are_pooled_by_counts_not_by_averaging_percentages():
     strong = compute_adherence(["met"])
     uneven = compute_adherence(["met", "missed", "missed", "missed"])

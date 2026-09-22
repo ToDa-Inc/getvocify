@@ -63,6 +63,50 @@ def test_an_easy_meeting_does_not_outrank_a_handled_objection():
     assert _score(easy, crm_outcome="lost")["value"] == easy_score["value"]
 
 
+def test_edge_states_stay_distinct_without_a_fictitious_zero():
+    cases = {case["id"]: case for case in _load()}
+    missing = assemble_score(
+        playbook=None,
+        criteria_statuses=["met"],
+        evidence_refs=["ev-1"],
+        cited_refs=["ev-1"],
+        proposed_value=8,
+        crm_outcome="won",
+        input_revision="x",
+        playbook_version_id=None,
+    )
+    contradictory = assemble_score(
+        playbook={"id": "pb", "ambiguous": True},
+        criteria_statuses=["met", "unknown"],
+        evidence_refs=["ev-1"],
+        cited_refs=["ev-1"],
+        proposed_value=8,
+        crm_outcome=None,
+        input_revision="x",
+        playbook_version_id="pb-1",
+    )
+    silence = _score(cases["c17"])
+    partial = assemble_score(
+        playbook=PLAYBOOK,
+        criteria_statuses=["met"],
+        evidence_refs=["ev-1"],
+        cited_refs=["ev-missing"],
+        proposed_value=7,
+        crm_outcome=None,
+        input_revision="c15",
+        playbook_version_id="pb-1",
+    )
+    assert missing["reason"] == "missing_playbook"
+    assert contradictory["reason"] == "ambiguous_playbook"
+    assert silence["reason"] == "insufficient_evidence"
+    assert partial["reason"] == "uncited_evidence"
+    assert len({missing["reason"], contradictory["reason"], silence["reason"], partial["reason"]}) == 4
+    for outcome in (missing, contradictory, silence, partial):
+        assert outcome["value"] is None
+        if outcome["applicable_steps"] == 0:
+            assert outcome["adherence"] is None
+
+
 def test_ambiguity_and_silence_do_not_invent_a_mark():
     cases = {case["id"]: case for case in _load()}
     ambiguous = _score(cases["c09"])

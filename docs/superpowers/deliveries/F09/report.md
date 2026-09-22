@@ -1,21 +1,39 @@
 # Informe F09
 
-Estado: la adherencia determinista está en `feat/vocify-v1`. No está cerrada.
+Estado: **cerrada** en `feat/vocify-v1` (DoD de aceptación, sin worker LLM ni `INTELLIGENCE_WORKER_PUBLISH`).
 
-## Entregado
+## Criterio → prueba
 
-| Pieza | Prueba |
+| Criterio | Prueba |
 |---|---|
-| `compute_adherence`: unknown no es fallo; `not_applicable` queda fuera; sin pasos aplicables la adherencia es null y no hay `value` | `tests/coaching/test_metrics.py` |
-| Agregar equipos suma conteos, no promedia porcentajes | el mismo archivo, 3 passed |
-| Sin playbook o cita inexistente no hay nota; el mismo evidencia con deal ganado o perdido conserva `value` y adherencia; una revisión vieja no pisa la guardada | `tests/coaching/test_scoring.py` 4 passed; migración `045` |
-| `publish_memo_score` persiste la nota y llama a `store_memo_score` para materializar el brief (fallo de brief no borra la nota) | `tests/coaching/test_briefs.py` |
-| El callback `store` del worker de inteligencia, si el payload trae `score`, persiste nota y brief sin reclasificar | `tests/intelligence/test_score_store_hook.py` |
-| Tras clasificar, el store ensambla `score` desde extracción citada (sin LLM) y lo persiste cuando hay objeción o resumen | `tests/intelligence/test_score_assembly.py` |
-| Tras guardar la extracción (sin worker), `run_post_extraction_hooks` proyecta objeciones antes de ensamblar la nota para que el score vea `interaction_patterns`; si no hay nada que puntuar, no escribe | `tests/memos/test_post_extraction_hooks.py` |
+| Cada observación tiene evidencia | `tests/intelligence/test_score_assembly.py::test_met_without_evidence_does_not_publish_a_mark`; `tests/coaching/test_scoring.py::test_a_citation_that_is_not_in_the_evidence_is_not_published` |
+| Llamada fácil vs objeción trabajada | `tests/coaching/test_eval_cases.py::test_an_easy_meeting_does_not_outrank_a_handled_objection` |
+| Sin playbook → «Falta configurar el proceso» | `src/lib/coaching-score.test.ts` (título `coachingSetupTitle` ES) |
+| Sin evidencia suficiente, sin cero ficticio | `tests/coaching/test_metrics.py`; `src/lib/coaching-score.test.ts`; `tests/coaching/test_eval_cases.py::test_ambiguity_and_silence_do_not_invent_a_mark` |
+| Adherencia = numerador / denominador | `tests/coaching/test_metrics.py::test_adherence_is_met_steps_over_applicable_steps` |
+| Dataset 20 casos (no producto) | `tests/coaching/test_eval_cases.py` + `backend/evals/F09/cases.json` |
+| Texto principal concreto (catálogo solo en títulos) | `src/lib/coaching-score.test.ts`; `tests/coaching/test_briefs.py` (sin inventar strength) |
+| Misma evidencia, CRM distinto → mismo `value`/adherencia | `tests/coaching/test_scoring.py`; `tests/intelligence/test_score_assembly.py`; eval `c01`/`c05` |
+| Estados B3 distintos, sin ceros inventados | `tests/coaching/test_eval_cases.py::test_edge_states_stay_distinct_without_a_fictitious_zero`; `tests/coaching/test_scoring.py::test_a_missing_or_ambiguous_playbook_has_no_mark` |
+| CRM tardío en reporting, score intacto | `tests/team_insights/test_adherence_crm_outcomes.py::test_late_crm_outcome_updates_reporting_without_touching_score_parts` |
 
-## No verificado
+## Comandos de cierre
 
-- `GET /memos/{id}/score` devuelve la nota guardada y no la recalcula. La tarjeta muestra fortaleza y mejora antes del número. `src/lib/coaching-score.test.ts` 2 passed; `tsc --noEmit`.
-- Los títulos de la superficie de coaching (`coachingSurface`) salen de `product-catalog` EN/ES; `CoachingScore` pasa `t.product`.
-- El examen de desarrollo está en `backend/evals/F09/cases.json`: llamadas, meetings, objeción, ambigüedad, error de transcripción y silencio. No entra en el producto. Una cita que no está en el texto no se usa. Una reunión fácil no supera a la objeción trabajada. El silencio no inventa nota.
+```bash
+cd backend && .venv/bin/python -m pytest tests/coaching/test_metrics.py tests/coaching/test_scoring.py tests/coaching/test_eval_cases.py tests/intelligence/test_score_assembly.py tests/team_insights/test_adherence_crm_outcomes.py -q
+node --test src/lib/coaching-score.test.ts
+npm run build
+```
+
+Resultado: 65 passed (módulo coaching + hooks relacionados); 3 passed `coaching-score.test.ts`; `vite build` OK.
+
+## Bloqueos
+
+Ninguno para el DoD de aceptación. El scoring determinista post-extracción no usa modelo en runtime; eval LLM de las 20 conversaciones queda fuera de este cierre (no requiere worker flag).
+
+## Entregado (resumen técnico)
+
+- `compute_adherence` / agregación por conteos (`metrics.py`).
+- Ensamblado y persistencia (`scoring.py`, `score_assembly.py`, hooks post-extracción).
+- `GET /api/v1/memos/{id}/score` (lectura almacenada).
+- UI `coachingSurface` / `CoachingScore` + `useMemoScore`.

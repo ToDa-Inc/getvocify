@@ -27,6 +27,31 @@ describe("coaching surface", () => {
     }
   });
 
+  it("uses catalog copy only for titles, not for strength or improvement lines", () => {
+    for (const copy of [productCatalog.ES, productCatalog.EN]) {
+      const surface = coachingSurface(
+        {
+          status: "ready",
+          value: 7,
+          reason: null,
+          adherence: 0.7,
+          coverage: 1,
+          strengths: ["Nombró el precio"],
+          improvements: ["No cerró el siguiente paso"],
+        },
+        copy,
+        "member",
+      );
+      assert.equal(surface.kind, "scored");
+      if (surface.kind === "scored") {
+        assert.equal(surface.strengths[0], "Nombró el precio");
+        assert.equal(surface.improvements[0], "No cerró el siguiente paso");
+        assert.notEqual(surface.strengths[0], copy.coachingSetupTitle);
+        assert.notEqual(surface.strengths[0], copy.coachingUnscoredTitle);
+      }
+    }
+  });
+
   it("does not show a zero when the score is empty", () => {
     for (const copy of [productCatalog.ES, productCatalog.EN]) {
       const partial = coachingSurface({

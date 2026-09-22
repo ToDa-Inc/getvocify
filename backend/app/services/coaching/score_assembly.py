@@ -63,7 +63,8 @@ def _cited_refs(intelligence: dict, patterns: list[dict] | None, input_revision:
     return refs
 
 
-def _criteria_statuses(intelligence: dict) -> list[str]:
+def _criteria_statuses(intelligence: dict, *, evidence_ids: list[str]) -> list[str]:
+    known = set(evidence_ids)
     statuses: list[str] = []
     for obs in intelligence.get("playbook_observations") or []:
         if not isinstance(obs, dict):
@@ -71,6 +72,10 @@ def _criteria_statuses(intelligence: dict) -> list[str]:
         status = str(obs.get("status") or "unknown").strip()
         if status not in _STATUS:
             status = "unknown"
+        if status in {"met", "missed"}:
+            refs = [str(ref or "").strip() for ref in (obs.get("evidence_refs") or []) if str(ref or "").strip()]
+            if not refs or not any(ref in known for ref in refs):
+                status = "unknown"
         statuses.append(status)
     return statuses
 
@@ -121,8 +126,8 @@ def build_score_from_extraction(
         screening = memo.get("screening_outcome")
     playbook_version_id = _playbook_version_id(intelligence, memo)
     playbook = _playbook_for_assembly(memo, playbook_version_id)
-    criteria_statuses = _criteria_statuses(intelligence)
     evidence_refs = _evidence_ids(intelligence)
+    criteria_statuses = _criteria_statuses(intelligence, evidence_ids=evidence_refs)
     cited_refs = _cited_refs(intelligence, patterns, revision)
     proposed_value = _proposed_value(criteria_statuses, screening=screening)
     score = assemble_score(
