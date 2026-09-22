@@ -308,6 +308,7 @@ async def _periodic_memo_recovery():
                 bindings.load_people,
                 bindings.load_existing,
                 bindings.sender,
+                bindings.persist_delivery,
             )
         except Exception as e:
             logger.exception(

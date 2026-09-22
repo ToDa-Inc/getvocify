@@ -28,6 +28,26 @@ def send_report_email(report: dict, sender, *, existing: dict | None = None) -> 
     return deliver_report(report=report, channel="email", existing=existing, sender=sender, allowed=True)
 
 
+def persist_report_delivery(
+    supabase,
+    *,
+    idempotency_key: str,
+    report_id: str,
+    channel: str,
+    delivery_status: str,
+) -> None:
+    """Upsert one row in report_deliveries (survives process restarts)."""
+    supabase.table("report_deliveries").upsert(
+        {
+            "idempotency_key": idempotency_key,
+            "report_id": report_id,
+            "channel": channel,
+            "delivery_status": delivery_status,
+        },
+        on_conflict="idempotency_key",
+    ).execute()
+
+
 def deliver_report(*, report: dict, channel: str, existing: dict | None, sender, allowed: bool) -> dict:
     key = f"{report['id']}:r{report['revision']}:{channel}"
     notification = {"report_id": report["id"], "kept": True}

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.config import settings
+from app.services.reporting.delivery import persist_report_delivery
 from app.services.reporting.due_sends import MADRID
 from app.services.reporting.resend_sender import report_resend_sender
 
@@ -16,6 +17,7 @@ class ReportEmailTickBindings:
     load_people: Callable[[], list[dict]]
     load_existing: Callable[[], list[dict]]
     sender: Any | None
+    persist_delivery: Callable[[dict, dict], None] | None
 
 
 def report_email_tick_bindings(supabase) -> ReportEmailTickBindings:
@@ -24,6 +26,7 @@ def report_email_tick_bindings(supabase) -> ReportEmailTickBindings:
         load_people=lambda: _load_daily_report_people(supabase),
         load_existing=lambda: _load_report_delivery_existing(supabase),
         sender=_build_sender(supabase),
+        persist_delivery=lambda result, person: _persist_delivery_row(supabase, result, person),
     )
 
 
@@ -33,44 +36,30 @@ def _build_sender(supabase):
     from app.integrations.resend_client import ResendClient
 
     client = ResendClient()
-    return _ReportIdSender(client, supabase)
+    return _ReportIdSender(client)
 
 
 class _ReportIdSender:
     """Routes each idempotency key to a per-recipient Resend sender."""
 
-    def __init__(self, resend_client, supabase):
+    def __init__(self, resend_client):
         self._client = resend_client
-        self._supabase = supabase
         self._by_report: dict[str, Any] = {}
+        self._email_by_report: dict[str, str] = {}
+
+    def set_recipients(self, people: list[dict]) -> None:
+        self._email_by_report = {
+            str(person["report_id"]): str(person["email"]).strip()
+            for person in people
+            if person.get("email") and str(person["email"]).strip()
+        }
 
     def _sender_for(self, report_id: str):
         if report_id in self._by_report:
             return self._by_report[report_id]
-        row = (
-            self._supabase.table("reports")
-            .select("id,user_id")
-            .eq("id", report_id)
-            .limit(1)
-            .execute()
-        )
-        rows = row.data or []
-        if not rows:
-            raise RuntimeError(f"report {report_id} missing for delivery")
-        user_id = rows[0]["user_id"]
-        profile = (
-            self._supabase.table("user_profiles")
-            .select("id")
-            .eq("id", user_id)
-            .limit(1)
-            .execute()
-        )
-        if not profile.data:
-            raise RuntimeError(f"profile missing for report recipient {user_id}")
-        auth = self._supabase.auth.admin.get_user_by_id(str(user_id))
-        email = getattr(getattr(auth, "user", None), "email", None) if auth else None
+        email = self._email_by_report.get(report_id)
         if not email:
-            raise RuntimeError(f"email missing for report recipient {user_id}")
+            return None
         wrapped = report_resend_sender(
             self._client,
             to=email,
@@ -78,20 +67,23 @@ class _ReportIdSender:
             html="<p>Consulta el informe en Vocify.</p>",
         )
         if wrapped is None:
-            raise RuntimeError("report_resend_sender unavailable")
+            return None
         self._by_report[report_id] = wrapped
         return wrapped
 
     def send(self, key: str) -> None:
         report_id = key.split(":", 1)[0]
-        self._sender_for(report_id).send(key)
+        sender = self._sender_for(report_id)
+        if sender is None:
+            return
+        sender.send(key)
 
     def reconcile(self, key: str):
         report_id = key.split(":", 1)[0]
-        try:
-            return self._sender_for(report_id).reconcile(key)
-        except RuntimeError:
+        sender = self._sender_for(report_id)
+        if sender is None:
             return None
+        return sender.reconcile(key)
 
 
 def _load_daily_report_people(supabase) -> list[dict]:
@@ -115,18 +107,56 @@ def _load_daily_report_people(supabase) -> list[dict]:
         .execute()
     )
     tz_by_user = {row["user_id"]: row.get("timezone") or MADRID for row in (prefs.data or [])}
+    email_by_user = _emails_for_user_ids(supabase, user_ids)
     people: list[dict] = []
     for row in rows:
-        people.append(
-            {
-                "user_id": row["user_id"],
-                "company_id": row["company_id"],
-                "timezone": tz_by_user.get(row["user_id"], MADRID),
-                "report_id": row["id"],
-                "revision": row.get("revision") or 1,
-            }
-        )
+        uid = row["user_id"]
+        person = {
+            "user_id": uid,
+            "company_id": row["company_id"],
+            "timezone": tz_by_user.get(uid, MADRID),
+            "report_id": row["id"],
+            "revision": row.get("revision") or 1,
+        }
+        email = email_by_user.get(str(uid)) or email_by_user.get(uid)
+        if email:
+            person["email"] = email
+        people.append(person)
     return people
+
+
+def _emails_for_user_ids(supabase, user_ids: list) -> dict[str, str]:
+    if not user_ids:
+        return {}
+    try:
+        result = (
+            supabase.postgrest.schema("auth")
+            .from_("users")
+            .select("id,email")
+            .in_("id", [str(uid) for uid in user_ids])
+            .execute()
+        )
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for row in result.data or []:
+        email = (row.get("email") or "").strip()
+        if email:
+            out[str(row["id"])] = email
+    return out
+
+
+def _persist_delivery_row(supabase, result: dict, person: dict) -> None:
+    key = result.get("idempotency_key")
+    if not key:
+        return
+    persist_report_delivery(
+        supabase,
+        idempotency_key=key,
+        report_id=str(person["report_id"]),
+        channel="email",
+        delivery_status=str(result.get("delivery_status") or "sent"),
+    )
 
 
 def _load_report_delivery_existing(supabase) -> list[dict]:

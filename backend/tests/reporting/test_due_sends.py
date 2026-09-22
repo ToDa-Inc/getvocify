@@ -18,6 +18,7 @@ PERSON = {
     "timezone": MADRID,
     "report_id": "report-daily-1",
     "revision": 1,
+    "email": "rep@example.com",
 }
 
 

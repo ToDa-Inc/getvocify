@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.reporting.delivery import period_bounds, send_report_email
@@ -12,24 +12,14 @@ SEND_CUTOFF_HOUR = 18
 MADRID = "Europe/Madrid"
 
 logger = logging.getLogger(__name__)
-_last_madrid_report_tick_date: date | None = None
 
 
-def reset_report_tick_guard() -> None:
-    """Tests only: allow another tick the same Madrid local date."""
-    global _last_madrid_report_tick_date
-    _last_madrid_report_tick_date = None
-
-
-def tick_due_report_emails(now: datetime, load_people, load_existing, sender) -> None:
+def tick_due_report_emails(now: datetime, load_people, load_existing, sender, persist_delivery=None) -> None:
     """Load candidates and deliveries, then run due sends. Load errors are swallowed."""
-    global _last_madrid_report_tick_date
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     madrid_now = now.astimezone(ZoneInfo(MADRID))
     if madrid_now.hour < SEND_CUTOFF_HOUR:
-        return
-    if _last_madrid_report_tick_date == madrid_now.date():
         return
     try:
         people = load_people()
@@ -43,8 +33,9 @@ def tick_due_report_emails(now: datetime, load_people, load_existing, sender) ->
         return
     if sender is None:
         return
-    _last_madrid_report_tick_date = madrid_now.date()
-    run_due_report_emails(now, people, existing, sender)
+    if hasattr(sender, "set_recipients"):
+        sender.set_recipients(people)
+    run_due_report_emails(now, people, existing, sender, persist_delivery=persist_delivery)
 
 
 def _local_hour(now: datetime, tz_name: str) -> tuple[int, int]:
@@ -100,13 +91,32 @@ def _delivery_for_period(user_id: str, period_start: str, existing: list[dict]) 
     return None
 
 
-def run_due_report_emails(now: datetime, people: list[dict], existing: list[dict], sender) -> None:
+def run_due_report_emails(
+    now: datetime,
+    people: list[dict],
+    existing: list[dict],
+    sender,
+    *,
+    persist_delivery=None,
+) -> None:
     """Call send_report_email once per due person; skips sent/uncertain for the local period."""
     for person in due_report_sends(now, people, existing):
+        if not (person.get("email") or "").strip():
+            continue
         period_start = _period_start_iso(now, person["timezone"])
         prior = _delivery_for_period(person["user_id"], period_start, existing)
         report = {"id": person["report_id"], "revision": person["revision"]}
-        send_report_email(report, sender, existing=prior)
+        result = send_report_email(report, sender, existing=prior)
+        if result.get("sent") and persist_delivery is not None:
+            persist_delivery(result, person)
+            existing.append(
+                {
+                    "user_id": person["user_id"],
+                    "period_start": period_start,
+                    "delivery_status": result.get("delivery_status"),
+                    "idempotency_key": result.get("idempotency_key"),
+                }
+            )
 
 
 def run_due_reports(now: datetime, people: list[dict], existing: list[dict], send) -> None:
