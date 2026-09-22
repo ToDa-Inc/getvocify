@@ -30,9 +30,9 @@ export default function TeamInsightsPage() {
   }
   const metrics: TeamMetrics | null = query.data
     ? {
-        attempts: 0,
-        connected: 0,
-        meetings: 0,
+        attempts: null,
+        connected: null,
+        meetings: null,
         won: null,
         lost: null,
         unresolvedWins: 0,

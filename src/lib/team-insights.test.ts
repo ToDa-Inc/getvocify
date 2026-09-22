@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { repsByName, teamInsightsView, winsForFilter } from "./team-insights.ts";
+import { activityLabel, repsByName, teamInsightsView, winsForFilter } from "./team-insights.ts";
 
 const reps = [
   { userId: "b", name: "Carlos" },
@@ -21,6 +21,11 @@ const metrics = {
 };
 
 describe("team insights", () => {
+  it("labels missing activity as unavailable and real zero as zero", () => {
+    assert.equal(activityLabel(null), "No disponible");
+    assert.equal(activityLabel(0), "0");
+  });
+
   it("orders reps by name and keeps an unresolved win out of one person's count", () => {
     assert.deepEqual(repsByName(reps).map((rep) => rep.name), ["Ana", "Carlos"]);
     const deals = [

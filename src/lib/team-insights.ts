@@ -12,9 +12,9 @@ export type TeamDeal = {
 };
 
 export type TeamMetrics = {
-  attempts: number;
-  connected: number;
-  meetings: number;
+  attempts: number | null;
+  connected: number | null;
+  meetings: number | null;
   won: number | null;
   lost: number | null;
   unresolvedWins: number;
@@ -23,6 +23,10 @@ export type TeamMetrics = {
   applicable: number;
   coverageCrm: "complete" | "partial" | "unavailable";
 };
+
+export function activityLabel(value: number | null): string {
+  return value === null ? "No disponible" : String(value);
+}
 
 export function repsByName(reps: TeamRep[]): TeamRep[] {
   return [...reps].sort((a, b) => a.name.localeCompare(b.name, "es"));
