@@ -23,7 +23,7 @@ def set_worker_tick(tick) -> None:
     _worker_tick = tick
 
 
-def run_claimed(claim, load_memo, publish, classify, sources_for) -> Optional[dict]:
+def run_claimed(claim, load_memo, publish, classify, sources_for, store=None) -> Optional[dict]:
     """Claim, then publish only when the memo is loaded. An empty claim does not classify."""
     claimed = claim()
     if not claimed:
@@ -34,7 +34,10 @@ def run_claimed(claim, load_memo, publish, classify, sources_for) -> Optional[di
     from app.services.intelligence.interpret import interpret_memo
 
     intelligence, created = interpret_memo(memo, classify, sources_for(memo))
-    outcome = publish(claimed["job_id"], claimed["run_id"], intelligence.model_dump())
+    dumped = intelligence.model_dump()
+    if store is not None:
+        store(memo, dumped)
+    outcome = publish(claimed["job_id"], claimed["run_id"], dumped)
     return {
         "created": created,
         "outcome": outcome,
@@ -43,7 +46,7 @@ def run_claimed(claim, load_memo, publish, classify, sources_for) -> Optional[di
     }
 
 
-async def run_claimed_awaiting(claim, load_memo, publish, classify, sources_for) -> Optional[dict]:
+async def run_claimed_awaiting(claim, load_memo, publish, classify, sources_for, store=None) -> Optional[dict]:
     """Same as run_claimed, after awaiting an async classifier."""
     claimed = claim()
     if not claimed:
@@ -57,7 +60,10 @@ async def run_claimed_awaiting(claim, load_memo, publish, classify, sources_for)
     from app.services.intelligence.interpret import interpret_memo
 
     intelligence, created = interpret_memo(memo, lambda _memo: result, sources_for(memo))
-    outcome = publish(claimed["job_id"], claimed["run_id"], intelligence.model_dump())
+    dumped = intelligence.model_dump()
+    if store is not None:
+        store(memo, dumped)
+    outcome = publish(claimed["job_id"], claimed["run_id"], dumped)
     return {
         "created": created,
         "outcome": outcome,
@@ -102,15 +108,26 @@ def database_bindings(supabase, sources_for=None):
             return sources_for(memo)
         return {"transcript": memo.get("transcript") or ""}
 
-    return claim, load_memo, publish, sources
+    def store(memo, payload):
+        from app.services.intelligence.interpret import extraction_with_intelligence
+
+        extraction = extraction_with_intelligence(memo.get("extraction"), payload)
+        (
+            supabase.table("memos")
+            .update({"extraction": extraction})
+            .eq("id", str(memo.get("id")))
+            .execute()
+        )
+
+    return claim, load_memo, publish, sources, store
 
 
 def make_database_tick(supabase, classify, sources_for=None):
     """Build one pass over claim_memo_job. No row means no classify and no publish."""
-    claim, load_memo, publish, sources = database_bindings(supabase, sources_for)
+    claim, load_memo, publish, sources, store = database_bindings(supabase, sources_for)
 
     def tick():
-        return run_claimed(claim, load_memo, publish, classify, sources)
+        return run_claimed(claim, load_memo, publish, classify, sources, store)
 
     return tick
 
@@ -136,8 +153,8 @@ def install_intelligence_tick(classify=None) -> None:
     async def tick():
         if classify is None and not (settings.OPENROUTER_API_KEY or "").strip():
             return None
-        claim, load_memo, publish, sources = database_bindings(get_supabase())
-        return await run_claimed_awaiting(claim, load_memo, publish, chosen, sources)
+        claim, load_memo, publish, sources, store = database_bindings(get_supabase())
+        return await run_claimed_awaiting(claim, load_memo, publish, chosen, sources, store)
 
     set_worker_tick(tick)
 
@@ -146,6 +163,9 @@ def revision_for_memo(memo: dict) -> str:
     extraction = memo.get("extraction") or {}
     if hasattr(extraction, "model_dump"):
         extraction = extraction.model_dump()
+    extraction = {
+        key: value for key, value in dict(extraction).items() if key != "intelligence"
+    }
     return input_revision(
         schema="c04.v1",
         extraction_revision=json.dumps(extraction, sort_keys=True, default=str, ensure_ascii=False),

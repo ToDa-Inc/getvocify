@@ -240,3 +240,87 @@ def test_an_async_classifier_publishes_the_claimed_job():
     ))
     assert outcome["published"] is True
     assert published == [("job-1", "run-1", "unavailable")]
+
+
+def test_stored_intelligence_keeps_the_revision_and_a_failed_write_does_not_publish():
+    from app.services.intelligence.interpret import extraction_with_intelligence
+    from app.services.intelligence.worker import run_claimed
+
+    payload = {"version": 1, "status": "unavailable", "pain_confirmed": None}
+    merged = extraction_with_intelligence(MEMO["extraction"], payload)
+    assert merged["summary"] == "Quiere el caso"
+    assert merged["intelligence"]["pain_confirmed"] is None
+    updated = {**MEMO, "extraction": merged}
+    assert revision_for_memo(updated) == revision_for_memo(MEMO)
+    job = enqueue_plan(MEMO, [])
+    assert sweep_missing([updated], [job]) == []
+
+    published = []
+
+    def explode(_memo, _payload):
+        raise RuntimeError("down")
+
+    try:
+        run_claimed(
+            lambda: {"job_id": "job-1", "run_id": "run-1", "memo_id": "memo-1"},
+            lambda _memo_id: MEMO,
+            lambda *_args: published.append(_args),
+            lambda _memo: {"status": "unavailable", "answers": {}},
+            lambda _memo: {},
+            explode,
+        )
+    except RuntimeError:
+        pass
+    assert published == []
+
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+        def execute(self):
+            return self
+
+    class Client:
+        def __init__(self, publish_data):
+            self.publish_data = publish_data
+            self.updates = []
+
+        def rpc(self, name, _params):
+            if name == "claim_memo_job":
+                return Result([{
+                    "job_id": "job-1",
+                    "claimed_run_id": "run-1",
+                    "claimed_memo_id": "memo-1",
+                    "claimed_revision": "rev",
+                }])
+            return Result(self.publish_data)
+
+        def table(self, _name):
+            client = self
+
+            class Table:
+                def select(self, *_args, **_kwargs):
+                    return self
+
+                def eq(self, *_args, **_kwargs):
+                    return self
+
+                def limit(self, *_args, **_kwargs):
+                    return self
+
+                def update(self, row):
+                    client.updates.append(row)
+                    return self
+
+                def execute(self):
+                    return Result([MEMO])
+
+            return Table()
+
+    from app.services.intelligence.worker import make_database_tick
+
+    client = Client("success")
+    outcome = make_database_tick(client, lambda _memo: {"status": "unavailable", "answers": {}})()
+    assert outcome["outcome"] == "success"
+    assert client.updates[0]["extraction"]["summary"] == "Quiere el caso"
+    assert client.updates[0]["extraction"]["intelligence"]["pain_confirmed"] is None

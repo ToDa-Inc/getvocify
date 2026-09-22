@@ -11,6 +11,15 @@ from app.services.llm.jev_schemas import INTELLIGENCE_QUESTIONS, evidence_state
 Classify = Callable[[dict], dict]
 
 
+def extraction_with_intelligence(extraction, intelligence: dict) -> dict:
+    """Keep the extraction and attach C04. The attached block is not part of the input revision."""
+    if hasattr(extraction, "model_dump"):
+        extraction = extraction.model_dump()
+    merged = dict(extraction or {})
+    merged["intelligence"] = intelligence
+    return merged
+
+
 async def classify_memo(memo: dict, client) -> dict:
     """Ask Jev about this memo. Silence stays unknown, and a late quote is still in the state."""
     excerpts = [
