@@ -12,6 +12,7 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 | Migración `046`: una propuesta ambigua se guarda con `starts_at` vacío | Postgres aislado, 5 passed |
 | Repetir la aprobación crea una actividad; un timeout se reconcilia antes de otro alta; sin mapeo de etapa no se cambia el deal | `tests/meetings/test_writes.py` 3 passed, Postgres aislado |
 | La revisión no inventa fecha mientras extrae, no ofrece guardar sin acuerdo, no dice guardada si el CRM está incierto, y no se muestra en la llamada | `shared/ui/meeting-proposal.test.js` 3 passed |
+| Aceptar u omitir la propuesta en revisión llama a `POST …/meeting-proposal/accept`, escribe en CRM solo con token y no repite el alta remoto | `tests/meetings/test_accept_http.py` |
 
 ## No verificado
 
