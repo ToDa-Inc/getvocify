@@ -33,7 +33,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Tras confirmar, el texto de seguimiento del loop queda guardado en el turno; un repetido o un fallo no lo cambia | este commit | `tests/crm_copilot/test_ask_http.py` |
 | Tras confirmar en la web, el panel muestra el texto del loop y un fallo deja el botón | commits previos | `src/lib/ask-confirm.test.ts` |
 | Cancelar la confirmación pendiente quita el botón sin llamar al confirm ni cambiar la respuesta | commits previos | `src/lib/ask-confirm.test.ts` |
-| Cancelar la operación guardada devuelve 409 al confirm y no llama al loop; repetir cancel está bien | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Cancelar la operación guardada devuelve 409 al confirm y no llama al loop; repetir cancel está bien | commits previos | `tests/crm_copilot/test_ask_http.py` |
+| Cancelar guarda `cancelled` en el turno; tras reinicio el confirm sigue en 409 sin loop | este commit | `tests/crm_copilot/test_ask_http.py` |
 
 ## No verificado
 

@@ -608,6 +608,79 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
         ask_api.set_ask_loop(None)
 
 
+def test_cancel_with_empty_memory_blocks_confirm_after_restart():
+    from app.services.crm_copilot.web_sessions import _encode_completed_body, _turn_from_row
+
+    calls = []
+
+    async def loop(_text: str, confirm=None):
+        calls.append(confirm)
+        return {"text": "no debería llamarse"}
+
+    row = {
+        "id": "turn-1",
+        "user_id": "user-a",
+        "conversation_id": "conv-1",
+        "client_turn_id": "web-1",
+        "status": "completed",
+        "body": _encode_completed_body(
+            {
+                "status": "completed",
+                "text": "¿Creo la nota?",
+                "confirmation": {
+                    "operation_id": "op-store-cancel",
+                    "revision": 2,
+                    "contact_id": "contact-a",
+                },
+            }
+        ),
+    }
+
+    class Store:
+        def get_turn_by_operation(self, *, user_id, conversation_id, operation_id):
+            if user_id != row["user_id"] or conversation_id != row["conversation_id"]:
+                return None
+            turn = _turn_from_row(row)
+            if (turn.get("confirmation") or {}).get("operation_id") != operation_id:
+                return None
+            return turn
+
+        def persist_turn(self, *, user_id, conversation_id, turn_id, turn):
+            if user_id != row["user_id"] or turn_id != row["id"]:
+                return
+            row["body"] = _encode_completed_body(turn)
+
+    ask_api._OPERATIONS.clear()
+    ask_api.set_ask_store(Store())
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        stranger = _client("user-b")
+        assert stranger.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store-cancel/cancel",
+        ).status_code == 404
+        assert "cancelled" not in (_turn_from_row(row).get("confirmation") or {})
+        cancelled = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store-cancel/cancel",
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+        assert (_turn_from_row(row).get("confirmation") or {}).get("cancelled") is True
+        assert _turn_from_row(row)["text"] == "¿Creo la nota?"
+        assert calls == []
+        ask_api._OPERATIONS.clear()
+        blocked = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store-cancel/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert blocked.status_code == 409
+        assert calls == []
+        assert _turn_from_row(row)["text"] == "¿Creo la nota?"
+    finally:
+        ask_api.set_ask_store(None)
+        ask_api.set_ask_loop(None)
+
+
 def test_a_failed_loop_leaves_the_turn_pending():
     async def loop(_text: str):
         return None

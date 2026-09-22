@@ -237,6 +237,25 @@ async def cancel_ask_operation(
     except TurnConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     key = (membership.user_id, conversation_id, operation_id)
+    if (
+        _store is not None
+        and result.get("status") == "cancelled"
+        and not result.get("replayed")
+    ):
+        stored = _store.get_turn_by_operation(
+            user_id=membership.user_id,
+            conversation_id=conversation_id,
+            operation_id=operation_id,
+        )
+        if stored and stored.get("confirmation"):
+            confirmation = {**stored["confirmation"], "cancelled": True}
+            updated = {**stored, "status": "completed", "confirmation": confirmation}
+            _store.persist_turn(
+                user_id=membership.user_id,
+                conversation_id=conversation_id,
+                turn_id=stored["turn_id"],
+                turn=updated,
+            )
     _OPERATIONS[key] = result
     return result
 
