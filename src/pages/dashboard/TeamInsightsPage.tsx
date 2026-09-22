@@ -62,8 +62,8 @@ export default function TeamInsightsPage() {
   if (allowed && (query.isLoading || query.isError)) {
     return (
       <main className="max-w-5xl mx-auto space-y-8 p-6">
-        <h1>Equipo</h1>
-        <p>{query.isError ? "No se pudo leer el equipo" : "Leyendo…"}</p>
+        <h1>{t.product.teamTitle}</h1>
+        <p>{query.isError ? t.product.teamReadFailed : t.product.teamLoading}</p>
       </main>
     );
   }
@@ -92,6 +92,7 @@ export default function TeamInsightsPage() {
     filters,
     reps,
     metrics: query.isSuccess ? metrics : null,
+    copy: t.product,
   });
   const motionKeys = Object.keys(motionsQuery.data?.motions ?? {}).sort((a, b) =>
     a.localeCompare(b, "es"),
@@ -99,13 +100,13 @@ export default function TeamInsightsPage() {
 
   return (
     <main className="max-w-5xl mx-auto space-y-8 p-6">
-      <h1>Equipo</h1>
+      <h1>{t.product.teamTitle}</h1>
       {view.kind === "denied" ? <p>{view.title}</p> : null}
       {view.kind === "new" ? <p>{view.title}</p> : null}
       {allowed ? (
         <div className="flex flex-wrap gap-4">
           <label>
-            Comercial{" "}
+            {t.product.teamFilterRep}{" "}
             <select
               value={filters.userId ?? ""}
               onChange={(event) =>
@@ -115,7 +116,7 @@ export default function TeamInsightsPage() {
                 }))
               }
             >
-              <option value="">Todo el equipo</option>
+              <option value="">{t.product.teamFilterAllReps}</option>
               {reps.map((rep) => (
                 <option key={rep.userId} value={rep.userId}>
                   {rep.name}
@@ -124,7 +125,7 @@ export default function TeamInsightsPage() {
             </select>
           </label>
           <label>
-            Tipología{" "}
+            {t.product.teamFilterMotion}{" "}
             <select
               value={filters.motion ?? ""}
               onChange={(event) =>
@@ -134,7 +135,7 @@ export default function TeamInsightsPage() {
                 }))
               }
             >
-              <option value="">Toda tipología</option>
+              <option value="">{t.product.teamFilterAllMotions}</option>
               {motionKeys.map((key) => (
                 <option key={key} value={key}>
                   {motionLabel(key, t.product.motions)}
@@ -147,7 +148,7 @@ export default function TeamInsightsPage() {
       {view.kind === "empty" ? (
         <div>
           <p>{view.title}</p>
-          <button type="button" onClick={() => setFilters(EMPTY_FILTERS)}>Restablecer filtros</button>
+          <button type="button" onClick={() => setFilters(EMPTY_FILTERS)}>{t.product.teamResetFilters}</button>
         </div>
       ) : null}
       {view.kind === "ready" && view.metrics ? (

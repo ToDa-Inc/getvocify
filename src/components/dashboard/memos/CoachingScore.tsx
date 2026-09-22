@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
 import { coachingSurface } from "@/lib/coaching-score";
 import { useMemoScore } from "@/features/coaching/hooks/useMemoScore";
+import { useLanguage } from "@/lib/i18n";
 
 export function CoachingScore({ memoId }: { memoId: string }) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const { user } = useAuth();
   const query = useMemoScore(memoId);
   if (!query.data) return null;
@@ -30,14 +32,14 @@ export function CoachingScore({ memoId }: { memoId: string }) {
       {surface.kind === "unscored" ? (
         <div>
           <p>{surface.title}</p>
-          {surface.strengths.map((item) => <p key={item}>Fortaleza: {item}</p>)}
-          {surface.improvements.map((item) => <p key={item}>Mejora: {item}</p>)}
+          {surface.strengths.map((item) => <p key={item}>{t.product.coachingStrength}: {item}</p>)}
+          {surface.improvements.map((item) => <p key={item}>{t.product.coachingImprovement}: {item}</p>)}
         </div>
       ) : null}
       {surface.kind === "scored" ? (
         <div>
-          {surface.strengths.map((item) => <p key={item}>Fortaleza: {item}</p>)}
-          {surface.improvements.map((item) => <p key={item}>Mejora: {item}</p>)}
+          {surface.strengths.map((item) => <p key={item}>{t.product.coachingStrength}: {item}</p>)}
+          {surface.improvements.map((item) => <p key={item}>{t.product.coachingImprovement}: {item}</p>)}
           {surface.crmOutcome ? <p>Resultado en el CRM: {surface.crmOutcome}</p> : null}
           <details>
             <summary>Ver criterios y nota</summary>

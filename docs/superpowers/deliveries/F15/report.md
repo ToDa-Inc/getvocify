@@ -21,6 +21,7 @@ No se inventa un estado anterior si no hay historia.
 | Los nombres van por orden alfabético. Un filtro vacío no es un cero. Sin cobertura, la tasa de cierres no se calcula. Un miembro no ve cifras | `src/lib/team-insights.test.ts` 2 passed; `tsc --noEmit` |
 
 | Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan; claves estables (`price`, …) y solo semana Madrid (`observed_at`/`created_at`); etiquetas de equipo y memo salen del catálogo EN/ES | `tests/team_insights/test_objections.py` |
+| Textos de equipo, resumen post-interacción y objeciones en memo salen de `product-catalog.ts` (EN/ES vía `t.product`); libs reciben el catálogo como argumento | `src/lib/team-insights.test.ts`, `src/lib/post-brief.test.ts`, `src/lib/interaction-objections.test.ts` |
 | La página de equipo lista nombres ES de categoría o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
 | Objeciones por recuento (barra + número) y adherencia con barra met/applicable cuando hay datos | `src/lib/team-insights.test.ts` |
 

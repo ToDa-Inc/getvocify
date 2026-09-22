@@ -1,5 +1,7 @@
 /** Team insights. Names are alphabetical. A meeting is not a win, and an empty filter is not a zero. */
 
+import type { ProductTranslations } from "./product-catalog";
+
 export type TeamRep = { userId: string; name: string };
 
 export type TeamFilters = { period: string; motion: string | null; userId: string | null };
@@ -40,10 +42,9 @@ export function visibleObjectionCategories(
 export function objectionCategoriesEmptyMessage(
   categories: ObjectionCategory[],
   catalog: ObjectionCatalog,
+  emptyWeek: string,
 ): string | null {
-  return visibleObjectionCategories(categories, catalog).length === 0
-    ? "No hay objeciones esta semana."
-    : null;
+  return visibleObjectionCategories(categories, catalog).length === 0 ? emptyWeek : null;
 }
 
 export type TeamMetrics = {
@@ -59,6 +60,14 @@ export type TeamMetrics = {
   coverageCrm: "complete" | "partial" | "unavailable";
   sampleLimited: boolean;
 };
+
+export type TeamInsightsCopy = Pick<
+  ProductTranslations,
+  | "teamDenied"
+  | "teamNewPanel"
+  | "teamNoDataForFilters"
+  | "teamUnresolvedAttribution"
+>;
 
 /** CRM win-loss coverage comes only from explicit crm_coverage on the payload. */
 export function teamCrmCoverage(crmCoverage: unknown): TeamMetrics["coverageCrm"] {
@@ -104,6 +113,7 @@ export function teamInsightsView(input: {
   filters: TeamFilters;
   reps: TeamRep[];
   metrics: TeamMetrics | null;
+  copy: TeamInsightsCopy;
 }): {
   kind: "denied" | "new" | "empty" | "ready";
   title?: string;
@@ -114,28 +124,37 @@ export function teamInsightsView(input: {
   metrics: TeamMetrics | null;
 } {
   const reps = repsByName(input.reps);
+  const { copy } = input;
   if (input.role !== "owner" && input.role !== "admin") {
-    return { kind: "denied", title: "No puedes ver el equipo", reps: [], winRate: null, partialCrmWarning: false, unresolvedLabel: "Sin atribución resuelta", metrics: null };
+    return {
+      kind: "denied",
+      title: copy.teamDenied,
+      reps: [],
+      winRate: null,
+      partialCrmWarning: false,
+      unresolvedLabel: copy.teamUnresolvedAttribution,
+      metrics: null,
+    };
   }
   if (input.companyEmpty) {
     return {
       kind: "new",
-      title: "El panel se completará con las interacciones de tu equipo",
+      title: copy.teamNewPanel,
       reps,
       winRate: null,
       partialCrmWarning: false,
-      unresolvedLabel: "Sin atribución resuelta",
+      unresolvedLabel: copy.teamUnresolvedAttribution,
       metrics: null,
     };
   }
   if (!input.metrics) {
     return {
       kind: "empty",
-      title: "No hay datos para estos filtros",
+      title: copy.teamNoDataForFilters,
       reps,
       winRate: null,
       partialCrmWarning: false,
-      unresolvedLabel: "Sin atribución resuelta",
+      unresolvedLabel: copy.teamUnresolvedAttribution,
       metrics: null,
     };
   }
@@ -148,7 +167,7 @@ export function teamInsightsView(input: {
     reps,
     winRate,
     partialCrmWarning: input.metrics.coverageCrm !== "complete",
-    unresolvedLabel: "Sin atribución resuelta",
+    unresolvedLabel: copy.teamUnresolvedAttribution,
     metrics: input.metrics,
   };
 }

@@ -11,7 +11,7 @@ export function PostInteractionBrief({
 }) {
   const { t } = useLanguage();
   const query = usePostInteractionBrief(memoId);
-  const surface = query.data ? briefSurface(query.data) : null;
+  const surface = query.data ? briefSurface(query.data, t.product) : null;
   const title = query.isError
     ? t.product.briefReadFailed
     : surface?.title ?? t.product.briefNotReady;
@@ -21,9 +21,9 @@ export function PostInteractionBrief({
       {!surface ? null : (
         <>
           {surface.highlightNote ? <p>{surface.highlightNote}</p> : null}
-          {surface.waiting ? <p>Preparando…</p> : null}
-          {surface.strength ? <p>Fortaleza: {surface.strength}</p> : null}
-          {surface.improvement ? <p>Mejora: {surface.improvement}</p> : null}
+          {surface.waiting ? <p>{t.product.briefPreparing}</p> : null}
+          {surface.strength ? <p>{t.product.coachingStrength}: {surface.strength}</p> : null}
+          {surface.improvement ? <p>{t.product.coachingImprovement}: {surface.improvement}</p> : null}
           {surface.sections.map((section) => (
             <div key={section.evidence_refs.join("-")} className="space-y-1">
               {section.quote ? <p>{section.quote}</p> : null}

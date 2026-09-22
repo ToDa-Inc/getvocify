@@ -7,12 +7,13 @@ import {
 
 export function ObjectionBreakdown({ categories }: { categories: ObjectionCategory[] }) {
   const { t } = useLanguage();
-  const emptyMessage = objectionCategoriesEmptyMessage(categories, t.product.objections);
-  const visible = visibleObjectionCategories(categories, t.product.objections);
+  const p = t.product;
+  const emptyMessage = objectionCategoriesEmptyMessage(categories, p.objections, p.teamObjectionsEmptyWeek);
+  const visible = visibleObjectionCategories(categories, p.objections);
   const maxCount = visible.reduce((max, item) => Math.max(max, item.count), 0);
   return (
     <section aria-labelledby="team-objections">
-      <h2 id="team-objections">Objeciones</h2>
+      <h2 id="team-objections">{p.teamHeadingObjections}</h2>
       {emptyMessage ? (
         <p>{emptyMessage}</p>
       ) : (

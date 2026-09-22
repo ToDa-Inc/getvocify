@@ -51,11 +51,18 @@ export type ReviewNote = {
   turn_id?: string | null;
 };
 
+export type ObjectionReviewCopy = Pick<
+  ProductTranslations,
+  "objectionsNoneDetected" | "objectionsPartialAnalysis" | "noteLabel"
+>;
+
+export type NoteFieldCopy = Pick<ProductTranslations, "noteSaving" | "noteSaved" | "noteSaveFailed">;
+
 export type ObjectionReview = {
   title: string | null;
   claimNone: boolean;
   patterns: ReviewPattern[];
-  notes: Array<ReviewNote & { playable: boolean; label: "Nota" }>;
+  notes: Array<ReviewNote & { playable: boolean; label: string }>;
 };
 
 export function objectionReview(input: {
@@ -63,19 +70,20 @@ export function objectionReview(input: {
   patterns: ReviewPattern[];
   notes: ReviewNote[];
   canPlaySpan: boolean;
+  copy: ObjectionReviewCopy;
 }): ObjectionReview {
   const notes = input.notes.map((note) => ({
     ...note,
-    label: "Nota" as const,
+    label: input.copy.noteLabel,
     playable: Boolean(input.canPlaySpan && note.turn_id),
   }));
   const objections = input.patterns.filter((pattern) => pattern.kind === "objection");
   if (input.coverage === "complete" && objections.length === 0 && notes.length === 0 && input.patterns.length === 0) {
-    return { title: "No se detectaron objeciones.", claimNone: true, patterns: [], notes: [] };
+    return { title: input.copy.objectionsNoneDetected, claimNone: true, patterns: [], notes: [] };
   }
   if (input.coverage !== "complete") {
     return {
-      title: "Falta parte del análisis. No se puede afirmar que no hubo objeciones.",
+      title: input.copy.objectionsPartialAnalysis,
       claimNone: false,
       patterns: input.patterns,
       notes,
@@ -89,9 +97,9 @@ export function mergeNotes(stored: ReviewNote[], added: ReviewNote[]): ReviewNot
   return [...stored, ...added.filter((note) => !ids.has(note.annotation_id))];
 }
 
-export function noteFieldLabel(status: "idle" | "syncing" | "saved" | "error"): string | null {
-  if (status === "syncing") return "Guardando…";
-  if (status === "saved") return "Nota guardada";
-  if (status === "error") return "No se pudo guardar la nota";
+export function noteFieldLabel(status: "idle" | "syncing" | "saved" | "error", copy: NoteFieldCopy): string | null {
+  if (status === "syncing") return copy.noteSaving;
+  if (status === "saved") return copy.noteSaved;
+  if (status === "error") return copy.noteSaveFailed;
   return null;
 }

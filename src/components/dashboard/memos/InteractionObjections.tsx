@@ -41,8 +41,9 @@ export function InteractionObjections({
     patterns: query.data?.patterns ?? [],
     notes,
     canPlaySpan,
+    copy: t.product,
   });
-  const label = noteFieldLabel(status);
+  const label = noteFieldLabel(status, t.product);
 
   async function save() {
     const body = text.trim();

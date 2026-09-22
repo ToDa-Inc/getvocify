@@ -49,17 +49,25 @@ describe("team insights", () => {
   });
 
   it("labels stable keys through the catalog and keeps legacy Spanish names", () => {
-    const catalog = productCatalog.ES.objections;
-    assert.equal(objectionCategoriesEmptyMessage([], catalog), "No hay objeciones esta semana.");
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 0 }], catalog), "No hay objeciones esta semana.");
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2 }], catalog), null);
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1 }], catalog), null);
+    const es = productCatalog.ES;
+    const en = productCatalog.EN;
+    assert.equal(objectionCategoriesEmptyMessage([], es.objections, es.teamObjectionsEmptyWeek), es.teamObjectionsEmptyWeek);
+    assert.equal(
+      objectionCategoriesEmptyMessage([{ name: "Precio", count: 0 }], es.objections, es.teamObjectionsEmptyWeek),
+      es.teamObjectionsEmptyWeek,
+    );
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2 }], es.objections, es.teamObjectionsEmptyWeek), null);
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1 }], es.objections, es.teamObjectionsEmptyWeek), null);
+    assert.equal(
+      objectionCategoriesEmptyMessage([], en.objections, en.teamObjectionsEmptyWeek),
+      en.teamObjectionsEmptyWeek,
+    );
     assert.deepEqual(visibleObjectionCategories([
       { name: "timing", count: 2 },
       { name: "price", count: 5 },
       { name: "Plazo", count: 2 },
       { name: "authority", count: 0 },
-    ], catalog), [
+    ], es.objections), [
       { name: "Precio", count: 5 },
       { name: "Plazo", count: 2 },
       { name: "Plazo", count: 2 },
@@ -68,7 +76,7 @@ describe("team insights", () => {
       { name: "price", count: 2 },
       { name: "timing", count: 2 },
       { name: "trust", count: 3 },
-    ], productCatalog.EN.objections), [
+    ], en.objections), [
       { name: "Trust", count: 3 },
       { name: "Price", count: 2 },
       { name: "Timing", count: 2 },
@@ -87,17 +95,50 @@ describe("team insights", () => {
   });
 
   it("does not turn an empty filter or a missing close into a zero rate", () => {
-    const empty = teamInsightsView({ role: "admin", companyEmpty: false, filters: { period: "week", motion: null, userId: "a" }, reps, metrics: null });
+    const es = productCatalog.ES;
+    const en = productCatalog.EN;
+    const empty = teamInsightsView({
+      role: "admin",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: "a" },
+      reps,
+      metrics: null,
+      copy: es,
+    });
     assert.equal(empty.kind, "empty");
-    assert.equal(empty.title, "No hay datos para estos filtros");
-    const partial = teamInsightsView({ role: "owner", companyEmpty: false, filters: { period: "week", motion: null, userId: null }, reps, metrics });
+    assert.equal(empty.title, es.teamNoDataForFilters);
+    const partial = teamInsightsView({
+      role: "owner",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics,
+      copy: es,
+    });
     assert.equal(partial.kind, "ready");
     assert.equal(partial.winRate, null);
     assert.equal(partial.partialCrmWarning, true);
     assert.equal(partial.metrics?.meetings, 1);
     assert.equal(partial.metrics?.won, null);
-    const member = teamInsightsView({ role: "member", companyEmpty: false, filters: { period: "week", motion: null, userId: null }, reps, metrics });
+    const member = teamInsightsView({
+      role: "member",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics,
+      copy: es,
+    });
     assert.equal(member.kind, "denied");
+    assert.equal(member.title, es.teamDenied);
     assert.equal(member.metrics, null);
+    const deniedEn = teamInsightsView({
+      role: "member",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics,
+      copy: en,
+    });
+    assert.equal(deniedEn.title, en.teamDenied);
   });
 });
