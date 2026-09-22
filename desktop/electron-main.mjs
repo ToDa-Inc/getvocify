@@ -331,7 +331,8 @@ ipcMain.handle('overlay:hide', () => {
 });
 
 ipcMain.handle('shell:open-external', (_event, url) => {
-  if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
+  if (typeof url !== 'string' || !/^(https?:\/\/|mailto:)/i.test(url)) return { ok: false };
+  shell.openExternal(url);
   return { ok: true };
 });
 

@@ -3,6 +3,8 @@ import { backendLabel } from '../lib/capture-labels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../lib/listen-policy.js';
 import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
+import './shared/ui/components/v-followup.js';
+import { composeTarget } from './shared/ui/compose.js';
 import { dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { humanizeSaasError } from '../lib/saas.js';
 import { listenPermissionGate, permissionAction, permissionCopy, PERMISSION } from '../lib/permissions.js';
@@ -519,6 +521,54 @@ function renderReview() {
   }
 }
 
+const followupEl = document.getElementById('review-followup');
+let followupTimer = null;
+
+async function loadFollowup(memoId, token, attempt = 0) {
+  clearTimeout(followupTimer);
+  if (reviewContext?.memoId !== memoId) return;
+  let view;
+  try {
+    view = await request(`/memos/${memoId}/followup`, { token });
+  } catch {
+    followupEl.hidden = true;
+    return;
+  }
+  if (reviewContext?.memoId !== memoId) return;
+  followupEl.hidden = view.status === 'unavailable';
+  followupEl.data = view;
+  if (view.status === 'generating' && attempt < 25) {
+    followupTimer = setTimeout(() => loadFollowup(memoId, token, attempt + 1), 1500);
+  }
+}
+
+followupEl.addEventListener('v-action', async (event) => {
+  const { action, value, element } = event.detail;
+  const memoId = reviewContext?.memoId;
+  const view = element.data;
+  if (!memoId || !view) return;
+  const token = localStorage.getItem(STORAGE.token);
+  const { subject, body } = element.value;
+  const record = (payload) => request(`/memos/${memoId}/followup`, { method: 'POST', token, body: payload });
+  try {
+    if (action === 'copy') {
+      await navigator.clipboard.writeText(body);
+      await record({ action: 'copied', channel: 'email', subject, body });
+      return;
+    }
+    const channel = value === 'whatsapp' ? 'whatsapp' : 'email';
+    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
+    const url = target.ok ? target.url : target.fallback;
+    if (!url) return;
+    if (!target.ok) await navigator.clipboard.writeText(body);
+    const opened = await window.vocifyDesktop.shell.openExternal(url);
+    if (!opened?.ok) return;
+    element.data = await record({ action: 'sent', channel, subject, body });
+  } catch (err) {
+    showError(reviewError, err.message || 'Follow-up failed');
+  }
+});
+
 async function openReview(memoId) {
   showScreen('review');
   document.getElementById('review-status').textContent = 'Extracting CRM fields…';
@@ -553,6 +603,7 @@ async function openReview(memoId) {
     nextSteps: notes.nextSteps,
   };
   document.getElementById('review-status').textContent = 'Review notes and fields, then approve.';
+  loadFollowup(memoId, token);
   renderReview();
 }
 
