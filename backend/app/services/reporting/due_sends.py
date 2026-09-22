@@ -138,7 +138,7 @@ def run_due_report_emails(
                     "period_start": period_start,
                     "delivery_status": status,
                     "idempotency_key": result.get("idempotency_key"),
-                    "last_attempt_at": attempt_at.isoformat(),
+                    "created_at": attempt_at.isoformat(),
                 }
             )
 

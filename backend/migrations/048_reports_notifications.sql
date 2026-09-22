@@ -19,8 +19,7 @@ CREATE TABLE IF NOT EXISTS report_deliveries (
   report_id TEXT NOT NULL,
   channel TEXT NOT NULL,
   delivery_status TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_attempt_at TIMESTAMPTZ
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS report_notifications (

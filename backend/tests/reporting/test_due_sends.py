@@ -53,7 +53,7 @@ def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries_once_p
             "user_id": PERSON["user_id"],
             "period_start": ps,
             "delivery_status": "failed",
-            "last_attempt_at": fail_at_1810.isoformat(),
+            "created_at": fail_at_1810.isoformat(),
         }
     ]
     tick_same_day_1820 = datetime(2026, 9, 22, 16, 20, tzinfo=timezone.utc)

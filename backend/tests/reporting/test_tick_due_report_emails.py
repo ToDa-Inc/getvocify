@@ -115,7 +115,7 @@ def test_tick_persists_sent_and_second_tick_does_not_resend():
             report_id=person["report_id"],
             channel="email",
             delivery_status=result["delivery_status"],
-            last_attempt_at=now,
+            attempt_at=now,
         )
 
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)
@@ -148,7 +148,7 @@ def test_tick_persists_failed_same_local_day_does_not_retry_next_day_does():
             report_id=person["report_id"],
             channel="email",
             delivery_status=result["delivery_status"],
-            last_attempt_at=now,
+            attempt_at=now,
         )
 
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)
@@ -184,7 +184,7 @@ def test_tick_persists_uncertain_and_second_tick_does_not_resend():
             report_id=person["report_id"],
             channel="email",
             delivery_status=result["delivery_status"],
-            last_attempt_at=now,
+            attempt_at=now,
         )
 
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)

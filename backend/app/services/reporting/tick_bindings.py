@@ -156,14 +156,14 @@ def _persist_delivery_row(supabase, result: dict, person: dict, *, now: datetime
         report_id=str(person["report_id"]),
         channel="email",
         delivery_status=str(result.get("delivery_status") or "sent"),
-        last_attempt_at=now,
+        attempt_at=now,
     )
 
 
 def _load_report_delivery_existing(supabase) -> list[dict]:
     stored = (
         supabase.table("report_deliveries")
-        .select("idempotency_key,report_id,delivery_status,channel,created_at,last_attempt_at")
+        .select("idempotency_key,report_id,delivery_status,channel,created_at")
         .eq("channel", "email")
         .execute()
     )
@@ -193,7 +193,6 @@ def _load_report_delivery_existing(supabase) -> list[dict]:
                 "delivery_status": delivery.get("delivery_status"),
                 "idempotency_key": delivery.get("idempotency_key"),
                 "created_at": delivery.get("created_at"),
-                "last_attempt_at": delivery.get("last_attempt_at"),
             }
         )
     return existing
