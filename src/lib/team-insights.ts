@@ -180,9 +180,12 @@ export function teamInsightsView(input: {
     };
   }
   const known = (input.metrics.won ?? 0) + (input.metrics.lost ?? 0);
-  const winRate = input.metrics.coverageCrm === "complete" && known > 0 && input.metrics.won !== null
-    ? input.metrics.won / known
-    : null;
+  const winRate =
+    input.metrics.sampleLimited
+      ? null
+      : input.metrics.coverageCrm === "complete" && known > 0 && input.metrics.won !== null
+        ? input.metrics.won / known
+        : null;
   return {
     kind: "ready",
     reps,

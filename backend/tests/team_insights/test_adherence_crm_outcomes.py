@@ -9,6 +9,7 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-team-crm-32")
 
 from datetime import datetime, timezone
 
+from app.services.reporting.daily_snapshot import _outcomes_for_snapshot
 from app.services.team_insights.aggregate import load_team_adherence_inputs, team_adherence
 from app.services.team_insights.outcomes import adherence_crm_outcomes
 
@@ -104,6 +105,41 @@ def _minimal_store(observations: list[dict] | None = None) -> _Supabase:
         "team_outcome_observations": observations if observations is not None else [],
     }
     return _Supabase(tables)
+
+
+def test_scheduled_report_outcomes_match_team_crm_helper():
+    history = [
+        _observation(
+            connection_id="crm-A",
+            deal_id="deal-1",
+            status="won",
+            observed_at="2026-09-22T12:00:00Z",
+            owner_user_id=USER_A,
+            attribution="assigned",
+        ),
+        _observation(
+            connection_id="crm-A",
+            deal_id="deal-2",
+            status="lost",
+            observed_at="2026-09-22T12:00:00Z",
+            owner_user_id=USER_A,
+            attribution="assigned",
+        ),
+    ]
+    crm = adherence_crm_outcomes(history, user_id=USER_A)
+    report_outcomes = _outcomes_for_snapshot(history, user_id=USER_A)
+    assert report_outcomes == {"coverage": crm["crm_coverage"]}
+    team_body = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=False,
+        sample_size=0,
+        outcome_observations=history,
+        outcome_user_id=USER_A,
+    )
+    assert team_body["won"] == crm["won"]
+    assert team_body["lost"] == crm["lost"]
+    assert team_body["crm_coverage"] == crm["crm_coverage"]
 
 
 def test_no_observations_means_unavailable_not_zero():

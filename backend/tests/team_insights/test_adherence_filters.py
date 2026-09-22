@@ -144,6 +144,14 @@ def test_without_filter_both_reps_count():
     assert body["attempts"] == 2
 
 
+def test_activity_counts_trace_to_company_memos():
+    store = _store()
+    store.tables["memos"] = [_memo("memo-a", USER_A, "discovery")]
+    inputs = load_team_adherence_inputs(store, COMPANY)
+    body = team_adherence(role="admin", **inputs)
+    assert body["attempts"] == 1
+
+
 def test_user_filter_excludes_the_other_rep():
     inputs = load_team_adherence_inputs(_store(), COMPANY, user_id=USER_A)
     body = team_adherence(role="admin", **inputs)

@@ -18,24 +18,37 @@ export function ObjectionBreakdown({ categories }: { categories: ObjectionCatego
       {emptyMessage ? (
         <p>{emptyMessage}</p>
       ) : (
-        <ul className="space-y-3">
-          {visible.map((item) => (
-            <li key={item.name} className="space-y-1">
-              <div className="flex justify-between gap-4 text-sm">
-                <span>{item.name}</span>
-                <span>
-                  {item.count} {objectionResolutionCountsText(item, p)}
-                </span>
-              </div>
-              <div className="relative h-4 w-full overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full bg-primary"
-                  style={{ width: maxCount > 0 ? `${(item.count / maxCount) * 100}%` : "0%" }}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-3">
+            {visible.map((item) => (
+              <li key={item.name} className="space-y-1">
+                <div className="flex justify-between gap-4 text-sm">
+                  <span>{item.name}</span>
+                  <span>
+                    {item.count} {objectionResolutionCountsText(item, p)}
+                  </span>
+                </div>
+                <div className="relative h-4 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full bg-primary"
+                    style={{ width: maxCount > 0 ? `${(item.count / maxCount) * 100}%` : "0%" }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+          <table>
+            <tbody>
+              {visible.map((item) => (
+                <tr key={`table-${item.name}`}>
+                  <th scope="row">{item.name}</th>
+                  <td>{item.count}</td>
+                  <td>{objectionResolutionCountsText(item, p)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </section>
   );

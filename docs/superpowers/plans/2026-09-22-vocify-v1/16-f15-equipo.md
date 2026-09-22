@@ -179,29 +179,29 @@ Cuando el periodo carece de tamaño suficiente para conclusiones, mostrar recuen
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Cada métrica se puede rastrear a interacciones o registros CRM.
+- [x] Cada métrica se puede rastrear a interacciones o registros CRM.
 
-- [ ] Las llamadas conectadas no incluyen buzones ni simples intentos.
+- [x] Las llamadas conectadas no incluyen buzones ni simples intentos.
 
-- [ ] Meeting booked no incrementa ventas ganadas.
+- [x] Meeting booked no incrementa ventas ganadas.
 
-- [ ] Adherencia y cobertura coinciden con sus datos de origen.
+- [x] Adherencia y cobertura coinciden con sus datos de origen.
 
-- [ ] Un miembro obtiene rechazo aunque invoque directamente los endpoints.
+- [x] Un miembro obtiene rechazo aunque invoque directamente los endpoints.
 
-- [ ] El manager chat no puede ampliar su ámbito por instrucciones del usuario.
+- [x] El manager chat no puede ampliar su ámbito por instrucciones del usuario.
 
-- [ ] Los reportes programados reutilizan la misma agregación.
+- [x] Los reportes programados reutilizan la misma agregación.
 
-- [ ] Con pocas muestras se muestra la limitación y se evita una conclusión categórica.
+- [x] Con pocas muestras se muestra la limitación y se evita una conclusión categórica.
 
-- [ ] No aparecen scorecards comparativas, leaderboards ni widgets generados por chat.
+- [x] No aparecen scorecards comparativas, leaderboards ni widgets generados por chat.
 
 - [ ] Cada bloque usa el tratamiento visual definido y tabla accesible equivalente; filtros, gráficos, detalle y chat comparten alcance y cobertura.
 
-- [ ] Un deal con múltiples contactos/responsables cuenta una vez en el total; si no hay responsable principal inequívoco queda sin atribución individual. Subtotales más «Sin atribución resuelta» reconciliados con el total.
+- [x] Un deal con múltiples contactos/responsables cuenta una vez en el total; si no hay responsable principal inequívoco queda sin atribución individual. Subtotales más «Sin atribución resuelta» reconciliados con el total.
 
-- [ ] Empresa nueva, filtros vacíos, playbook ausente y lectura CRM parcial se distinguen visualmente; no muestran tasas cero ficticias ni conclusiones win-loss sin denominador.
+- [x] Empresa nueva, filtros vacíos, playbook ausente y lectura CRM parcial se distinguen visualmente; no muestran tasas cero ficticias ni conclusiones win-loss sin denominador.
 
 ### Riesgos / edge cases conocidos
 

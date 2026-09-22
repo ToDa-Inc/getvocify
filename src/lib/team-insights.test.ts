@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { productCatalog } from "./product-catalog.ts";
 import {
   activityLabel,
@@ -32,7 +35,31 @@ const metrics = {
   sampleLimited: false,
 };
 
+const teamUiRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+
 describe("team insights", () => {
+  it("team metric blocks expose an accessible table", () => {
+    for (const file of [
+      "TeamOverview.tsx",
+      "AdherenceBreakdown.tsx",
+      "ObjectionBreakdown.tsx",
+      "OutcomeBreakdown.tsx",
+    ]) {
+      const src = readFileSync(join(teamUiRoot, "features/team-insights/components", file), "utf8");
+      assert.match(src, /<table>/);
+    }
+  });
+
+  it("team dashboard sources omit leaderboard and scorecard widgets", () => {
+    const page = readFileSync(join(teamUiRoot, "pages/dashboard/TeamInsightsPage.tsx"), "utf8");
+    const features = readFileSync(
+      join(teamUiRoot, "features/team-insights/components/TeamOverview.tsx"),
+      "utf8",
+    );
+    assert.equal(/\bleaderboard\b/i.test(page + features), false);
+    assert.equal(/scorecard/i.test(page + features), false);
+  });
+
   it("labels missing activity as unavailable and real zero as zero", () => {
     assert.equal(activityLabel(null, productCatalog.ES.unavailable), "No disponible");
     assert.equal(activityLabel(null, productCatalog.EN.unavailable), "Not available");
@@ -97,6 +124,41 @@ describe("team insights", () => {
   it("detects an empty scoped adherence payload", () => {
     assert.equal(teamAdherenceHasData({ attempts: 0, met_steps: 0, objection_categories: [] }), false);
     assert.equal(teamAdherenceHasData({ attempts: 1, met_steps: 0 }), true);
+  });
+
+  it("sample limited keeps win rate inconclusive", () => {
+    const es = productCatalog.ES;
+    const view = teamInsightsView({
+      role: "admin",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics: {
+        ...metrics,
+        coverageCrm: "complete",
+        won: 3,
+        lost: 1,
+        sampleLimited: true,
+      },
+      copy: es,
+    });
+    assert.equal(view.kind, "ready");
+    assert.equal(view.winRate, null);
+  });
+
+  it("new company onboarding is distinct from zero performance", () => {
+    const es = productCatalog.ES;
+    const view = teamInsightsView({
+      role: "admin",
+      companyEmpty: true,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics: null,
+      copy: es,
+    });
+    assert.equal(view.kind, "new");
+    assert.equal(view.title, es.teamNewPanel);
+    assert.equal(view.metrics, null);
   });
 
   it("does not turn an empty filter or a missing close into a zero rate", () => {

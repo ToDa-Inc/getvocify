@@ -47,6 +47,29 @@ def test_without_a_playbook_there_is_no_invented_performance():
     assert metrics["conclusion"] is None
 
 
+def test_meeting_agreed_does_not_increment_crm_won():
+    rows = [
+        {
+            "screening": "connected",
+            "meeting_agreed": True,
+            "observed_at": "2026-09-22T11:00:00Z",
+        },
+    ]
+    metrics = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=False,
+        sample_size=0,
+        activity_rows=rows,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+        outcome_observations=[],
+    )
+    assert metrics["meetings"] == 1
+    assert metrics["won"] is None
+    assert metrics["lost"] is None
+
+
 def test_voicemail_and_connected_activity_reach_adherence_json():
     rows = [
         {"screening": "voicemail", "observed_at": "2026-09-22T09:00:00Z"},
