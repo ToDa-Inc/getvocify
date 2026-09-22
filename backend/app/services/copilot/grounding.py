@@ -89,11 +89,27 @@ def _strip_advice(suggestion: dict[str, Any]) -> dict[str, Any]:
     return cleaned
 
 
+def _ref_is_grounded(
+    ref: str,
+    *,
+    allowed: frozenset[str],
+    latest_turn: str,
+    snapshot_present: bool,
+) -> bool:
+    if ref in allowed:
+        return True
+    if not snapshot_present:
+        return False
+    turn = latest_turn or ""
+    return len(ref) >= 12 and ref in turn
+
+
 def finalize_suggest_result(
     *,
     call_mode: str,
     suggestion: dict[str, Any],
     grounding: Optional[SuggestGrounding] = None,
+    latest_turn: str = "",
 ) -> dict[str, Any]:
     """
     Attach playbook_ready / evidence_refs to a suggest result.
@@ -121,7 +137,17 @@ def finalize_suggest_result(
         }
 
     allowed = grounding.evidence_ids
-    evidence_refs = [ref for ref in cited if ref in allowed]
+    snapshot_present = bool(grounding.playbook_snapshot)
+    evidence_refs = [
+        ref
+        for ref in cited
+        if _ref_is_grounded(
+            ref,
+            allowed=allowed,
+            latest_turn=latest_turn,
+            snapshot_present=snapshot_present,
+        )
+    ]
     used_playbook = bool(grounding.playbook_version_id and grounding.playbook_snapshot)
     playbook_ready = used_playbook and bool(evidence_refs)
 

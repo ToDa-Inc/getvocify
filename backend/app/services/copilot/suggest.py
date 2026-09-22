@@ -75,6 +75,7 @@ async def stream_objection_suggestion(
                 language=language,
                 call_mode=call_mode,
                 speaker_role=speaker_role,
+                playbook_snapshot=grounding.playbook_snapshot if grounding else None,
             ),
         },
     ]
@@ -117,6 +118,7 @@ async def stream_objection_suggestion(
                         t0=t0,
                         call_mode=call_mode,
                         grounding=grounding,
+                        latest_turn=latest_turn,
                     ):
                         yield event
                     return
@@ -157,6 +159,7 @@ async def stream_objection_suggestion(
             call_mode=call_mode,
             suggestion=suggestion,
             grounding=grounding,
+            latest_turn=latest_turn,
         )
         yield {
             "type": "result",
@@ -178,6 +181,7 @@ async def _fallback_non_stream(
     t0: float,
     call_mode: str,
     grounding: Optional[SuggestGrounding] = None,
+    latest_turn: str = "",
 ) -> AsyncIterator[dict[str, Any]]:
     import time
 
@@ -208,6 +212,7 @@ async def _fallback_non_stream(
         call_mode=call_mode,
         suggestion=suggestion,
         grounding=grounding,
+        latest_turn=latest_turn,
     )
     yield {
         "type": "result",

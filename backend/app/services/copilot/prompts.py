@@ -1,5 +1,13 @@
 """System prompts for the live objection-handling copilot."""
 
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Optional
+
+_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
+PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v1.md").read_text(encoding="utf-8")
+
 SYSTEM_PROMPT = """You are Vocify Call Copilot — a silent real-time sales coach for cold / outbound phone calls.
 
 CONTEXT OF USE
@@ -46,6 +54,18 @@ Return ONLY valid JSON with this exact shape:
 """
 
 
+def _published_entry_ids(snapshot: dict[str, Any]) -> list[str]:
+    entries = snapshot.get("entries") or []
+    ids: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = str(entry.get("entry_id") or "").strip()
+        if entry_id:
+            ids.append(entry_id)
+    return ids
+
+
 def build_user_prompt(
     *,
     transcript_window: str,
@@ -54,6 +74,7 @@ def build_user_prompt(
     language: str,
     call_mode: str,
     speaker_role: str = "unknown",
+    playbook_snapshot: Optional[dict[str, Any]] = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -64,7 +85,7 @@ def build_user_prompt(
         "rep": "This turn is attributed to the REP. Keep coaching light; do not invent a prospect objection.",
         "unknown": "Speaker unknown — treat as prospect unless the wording is clearly the rep.",
     }[role]
-    return f"""CALL MODE: {call_mode}
+    base = f"""CALL MODE: {call_mode}
 PREFERRED LANGUAGE HINT: {language}
 SPEAKER ROLE: {role}
 SPEAKER HINT: {role_hint}
@@ -79,3 +100,12 @@ LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
 
 Coach the rep NOW. JSON only."""
+
+    if playbook_snapshot:
+        entry_ids = _published_entry_ids(playbook_snapshot)
+        suffix = PLAYBOOK_USER_SUFFIX.replace(
+            "{{entry_ids}}",
+            ", ".join(entry_ids) if entry_ids else "(none)",
+        )
+        return f"{base}\n\n{suffix.strip()}"
+    return base

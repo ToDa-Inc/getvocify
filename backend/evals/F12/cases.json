@@ -1,0 +1,90 @@
+[
+  {
+    "id": "f12_turn_quote_ready",
+    "kind": "finalize",
+    "call_mode": "meeting",
+    "latest_turn": "Them: Está caro comparado con lo que pago ahora.",
+    "grounding": {
+      "interaction_kind": "meeting",
+      "playbook_version_id": "pv-2",
+      "evidence_ids": [],
+      "playbook_snapshot": {
+        "playbook_id": "pb-1",
+        "version_id": "pv-2",
+        "sales_motion_key": "discovery",
+        "steps": [],
+        "entries": [
+          {"entry_id": "entry-2", "category": "price", "guidance": "Preguntar coste actual"}
+        ]
+      }
+    },
+    "suggestion": {
+      "say_this": "¿Qué coste tiene mantener el proceso actual?",
+      "evidence_refs": ["Está caro comparado"],
+      "source_id": "entry-2"
+    },
+    "expect_playbook_ready": true,
+    "expect_evidence_refs": ["Está caro comparado"]
+  },
+  {
+    "id": "f12_quote_not_in_turn",
+    "kind": "finalize",
+    "call_mode": "meeting",
+    "latest_turn": "Them: Llámame la semana que viene.",
+    "grounding": {
+      "interaction_kind": "meeting",
+      "playbook_version_id": "pv-2",
+      "evidence_ids": [],
+      "playbook_snapshot": {
+        "playbook_id": "pb-1",
+        "version_id": "pv-2",
+        "entries": [{"entry_id": "entry-2", "category": "price", "guidance": "Preguntar coste actual"}]
+      }
+    },
+    "suggestion": {
+      "say_this": "Pitch harder now.",
+      "evidence_refs": ["Está caro comparado"],
+      "source_id": "entry-2"
+    },
+    "expect_playbook_ready": false,
+    "expect_evidence_refs": []
+  },
+  {
+    "id": "f12_speakerphone_not_ready",
+    "kind": "finalize",
+    "call_mode": "speakerphone",
+    "latest_turn": "Them: Está caro comparado con lo que pago ahora.",
+    "grounding": {
+      "interaction_kind": "call",
+      "playbook_version_id": "pv-2",
+      "evidence_ids": [],
+      "playbook_snapshot": {
+        "playbook_id": "pb-1",
+        "version_id": "pv-2",
+        "entries": [{"entry_id": "entry-2", "category": "price", "guidance": "Preguntar coste actual"}]
+      }
+    },
+    "suggestion": {
+      "say_this": "Cold call script",
+      "evidence_refs": ["Está caro comparado"],
+      "source_id": "entry-2"
+    },
+    "expect_playbook_ready": false,
+    "expect_evidence_refs": []
+  },
+  {
+    "id": "f12_two_motions_not_finalize",
+    "kind": "load_grounding",
+    "note": "Two published playbooks → load_company_suggest_grounding returns None; finalize is not involved.",
+    "call_mode": "meeting",
+    "latest_turn": "Them: Está caro comparado con lo que pago ahora.",
+    "grounding": null,
+    "suggestion": {
+      "say_this": "Should stay silent",
+      "evidence_refs": ["Está caro comparado"],
+      "source_id": "entry-2"
+    },
+    "expect_playbook_ready": false,
+    "expect_evidence_refs": []
+  }
+]

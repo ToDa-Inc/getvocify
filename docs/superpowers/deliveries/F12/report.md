@@ -19,6 +19,7 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 | Escritorio: al escuchar, `listenSession.contactId` copia el `recordId` solo en página HubSpot de contacto; deal o sin registro queda null | `desktop/lib/listen-policy.test.js` |
 | Backend: `contact_id` opcional en `/copilot/suggest` se normaliza en `SuggestContext` sin inventar contacto; `speakerphone` sigue siendo llamada y `meeting` reunión | `backend/tests/copilot/test_suggest_contact_context.py` |
 | Backend: sin `capture_id`, `/copilot/suggest` usa el playbook publicado solo si la empresa tiene exactamente uno; con `capture_id` manda el memo | `backend/tests/copilot/test_load_suggest_grounding.py` |
+| Backend: `finalize_suggest_result` acepta citas del último turno cuando hay snapshot de playbook (evidencia memo vacía) | `backend/tests/copilot/test_finalize_eval_cases.py` |
 
 ## No verificado
 
