@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { productCatalog, type ProductTranslations } from './product-catalog';
+import { setApiRequestLanguage, type ApiRequestLanguage } from '@/shared/lib/api-request-language';
 
 export type Language = 'EN' | 'ES';
 
@@ -386,6 +387,10 @@ export { translations };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
+function apiLanguageFromAppLanguage(lang: Language): ApiRequestLanguage {
+  return lang === 'EN' ? 'en' : 'es';
+}
+
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<Language>('ES');
 
@@ -394,8 +399,10 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
     const path = window.location.pathname;
     if (path.startsWith('/en')) {
       setLanguage('EN');
+      setApiRequestLanguage('en');
     } else {
       setLanguage('ES');
+      setApiRequestLanguage('es');
     }
   }, []);
 
@@ -403,6 +410,7 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const handleSetLanguage = (lang: Language) => {
     setLanguage(lang);
+    setApiRequestLanguage(apiLanguageFromAppLanguage(lang));
     // Update URL without full refresh
     const newPath = lang === 'EN' ? '/en' : '/';
     window.history.pushState({}, '', newPath);
