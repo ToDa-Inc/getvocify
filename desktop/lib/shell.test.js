@@ -1,8 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  assistOverlayFields,
   dashboardOrigin,
   overlayBounds,
+  overlayShellState,
   overlaySnippet,
   shouldQuitOnLastWindow,
   trayMenuTemplate,
@@ -51,5 +53,37 @@ describe('desktop shell', () => {
       'You: hello',
     );
     assert.equal(overlaySnippet({ finalTranscript: '', interimTranscript: '' }), 'Listening to the call…');
+  });
+
+  it('forwards meeting assist to the overlay without inventing a card', () => {
+    const overlay = overlayShellState({
+      listening: true,
+      lastLine: 'You: hello',
+      kind: 'meeting',
+      playbookReady: true,
+      evidenceRefs: ['ev-1'],
+      card: { text: 'Pregunta el precio' },
+    });
+    assert.equal(overlay.kind, 'meeting');
+    assert.deepEqual(overlay.evidenceRefs, ['ev-1']);
+    assert.equal(overlay.card.text, 'Pregunta el precio');
+    assert.equal(overlay.lastLine, 'You: hello');
+  });
+
+  it('keeps call kind and empty evidence on the overlay', () => {
+    const overlay = overlayShellState({
+      listening: true,
+      lastLine: 'Them: hi',
+      kind: 'call',
+      evidenceRefs: [],
+    });
+    assert.equal(overlay.kind, 'call');
+    assert.deepEqual(overlay.evidenceRefs, []);
+    assert.equal(overlay.card, undefined);
+  });
+
+  it('defaults missing evidence to an empty list for shell setState', () => {
+    assert.deepEqual(assistOverlayFields({}).evidenceRefs, []);
+    assert.deepEqual(assistOverlayFields({ kind: 'meeting' }).evidenceRefs, []);
   });
 });

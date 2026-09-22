@@ -20,6 +20,7 @@ import { CaptureStore } from './lib/capture-store.js';
 import {
   dashboardMemosUrl,
   overlayBounds,
+  overlayShellState,
   shouldQuitOnLastWindow,
   trayMenuTemplate,
   WINDOW_SIZE,
@@ -312,9 +313,21 @@ ipcMain.handle('permissions:open', async (_event, type) => {
   return permissionSnapshot();
 });
 
-ipcMain.on('shell:state', (_event, state) => {
+function applyShellStatePatch(state) {
   shellState = { ...shellState, ...state };
-  overlayWindow?.webContents.send('overlay:state', shellState);
+  for (const key of ['kind', 'playbookReady', 'assistEnabled', 'card']) {
+    if (Object.prototype.hasOwnProperty.call(state, key) && state[key] == null) {
+      delete shellState[key];
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(state, 'evidenceRefs')) {
+    shellState.evidenceRefs = Array.isArray(state.evidenceRefs) ? state.evidenceRefs : [];
+  }
+}
+
+ipcMain.on('shell:state', (_event, state) => {
+  applyShellStatePatch(state);
+  overlayWindow?.webContents.send('overlay:state', overlayShellState(shellState));
   rebuildTrayMenu();
 });
 

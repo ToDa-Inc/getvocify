@@ -5,7 +5,7 @@ import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../li
 import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
-import { dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
+import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { humanizeSaasError } from '../lib/saas.js';
 import { listenPermissionGate, permissionAction, permissionCopy, PERMISSION } from '../lib/permissions.js';
 import { pickMicConstraints } from '../lib/mic-devices.js';
@@ -66,6 +66,18 @@ let timerTick = null;
 let permissionPoll = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
 let reviewContext = null;
+/** Live-assist slice forwarded to the overlay pill (copilot session fills this). */
+export const liveAssistOverlay = { evidenceRefs: [] };
+
+function resetLiveAssistOverlay() {
+  Object.assign(liveAssistOverlay, {
+    kind: null,
+    playbookReady: null,
+    assistEnabled: null,
+    evidenceRefs: [],
+    card: null,
+  });
+}
 
 function apiBase() {
   return (localStorage.getItem(STORAGE.api) || document.getElementById('api-base').value || PROD_API)
@@ -98,6 +110,7 @@ function notifyShell() {
     backend: currentBackend,
     email,
     apiBase: apiBase(),
+    ...assistOverlayFields(liveAssistOverlay),
   });
 }
 
@@ -292,6 +305,7 @@ function hookPcm(ctx, stream, onPcm) {
 }
 
 function stopCapture() {
+  resetLiveAssistOverlay();
   listening = false;
   processors.forEach((p) => {
     try { p.disconnect(); } catch { /* ignore */ }

@@ -54,3 +54,51 @@ export function overlaySnippet(state = {}) {
   const parts = finalTranscript.split(/(?=(?:You|Them): )/).filter(Boolean);
   return (parts[parts.length - 1] || finalTranscript).trim();
 }
+
+/** Fields the overlay pill needs for live assist; never fabricates card text. */
+export function assistOverlayFields(assist = {}) {
+  const out = {
+    evidenceRefs: Array.isArray(assist.evidenceRefs) ? [...assist.evidenceRefs] : [],
+  };
+  if (assist.kind === 'call' || assist.kind === 'meeting') {
+    out.kind = assist.kind;
+  } else if (Object.prototype.hasOwnProperty.call(assist, 'kind')) {
+    out.kind = null;
+  }
+  if (typeof assist.playbookReady === 'boolean') {
+    out.playbookReady = assist.playbookReady;
+  } else if (Object.prototype.hasOwnProperty.call(assist, 'playbookReady')) {
+    out.playbookReady = null;
+  }
+  if (assist.assistEnabled !== undefined) {
+    out.assistEnabled = assist.assistEnabled;
+  } else if (Object.prototype.hasOwnProperty.call(assist, 'assistEnabled')) {
+    out.assistEnabled = null;
+  }
+  if (assist.card != null && typeof assist.card === 'object') {
+    out.card = assist.card;
+  } else if (Object.prototype.hasOwnProperty.call(assist, 'card')) {
+    out.card = null;
+  }
+  return out;
+}
+
+export function overlayShellState(state = {}) {
+  const lastLine =
+    state.lastLine != null && String(state.lastLine).length
+      ? String(state.lastLine)
+      : overlaySnippet(state);
+  const overlay = {
+    listening: Boolean(state.listening),
+    lastLine,
+  };
+  const assist = assistOverlayFields(state);
+  if (assist.kind != null) overlay.kind = assist.kind;
+  if (typeof assist.playbookReady === 'boolean') overlay.playbookReady = assist.playbookReady;
+  if (assist.assistEnabled !== undefined && assist.assistEnabled !== null) {
+    overlay.assistEnabled = assist.assistEnabled;
+  }
+  overlay.evidenceRefs = assist.evidenceRefs;
+  if (assist.card != null) overlay.card = assist.card;
+  return overlay;
+}
