@@ -11,8 +11,9 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 | «A las cinco» sin contexto queda ambiguo, no 17:00. La hora duplicada del cambio de horario pide revisión | el mismo archivo |
 | Migración `046`: una propuesta ambigua se guarda con `starts_at` vacío | Postgres aislado, 5 passed |
 | Repetir la aprobación crea una actividad; un timeout se reconcilia antes de otro alta; sin mapeo de etapa no se cambia el deal | `tests/meetings/test_writes.py` 3 passed, Postgres aislado |
+| La revisión no inventa fecha mientras extrae, no ofrece guardar sin acuerdo, no dice guardada si el CRM está incierto, y no se muestra en la llamada | `shared/ui/meeting-proposal.test.js` 3 passed |
 
 ## No verificado
 
 - HubSpot y Pipedrive no reciben la llamada real: el escritor está inyectado.
-- No está en la pantalla de revisión.
+- La revisión web monta el bloque, pero todavía no carga la propuesta del memo. No se recorrió en el navegador. La extensión y el escritorio tienen la copia del componente, sin conectarla al marcador.

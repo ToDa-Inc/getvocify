@@ -10,6 +10,7 @@ import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPr
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
+import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
@@ -552,6 +553,12 @@ const MemoDetail = () => {
                 notes={[]}
                 canPlaySpan={false}
                 offsetMs={Math.round(currentTime * 1000)}
+              />
+            ) : null}
+            {isOwnMemo && id ? (
+              <MeetingProposalReview
+                proposal={null}
+                extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
               />
             ) : null}
             {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
