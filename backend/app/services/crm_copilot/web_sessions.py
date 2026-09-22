@@ -159,6 +159,18 @@ def accept_turn(store: dict, *, conversation_id: str, client_turn_id: str, text:
     return turn
 
 
+def cancel_operation(
+    operation: dict,
+    *,
+    operation_id: str,
+) -> dict:
+    if operation.get("operation_id") != operation_id:
+        raise TurnConflict("operación distinta")
+    if operation.get("status") == "cancelled":
+        return {**operation, "replayed": True}
+    return {**operation, "status": "cancelled", "replayed": False}
+
+
 def confirm_operation(
     operation: dict,
     *,
@@ -166,6 +178,8 @@ def confirm_operation(
     revision: int,
     contact_id: str,
 ) -> dict:
+    if operation.get("status") == "cancelled":
+        raise TurnConflict("operación cancelada")
     if operation.get("status") == "uncertain":
         raise UncertainOperation("reconciliar antes de repetir")
     if operation.get("operation_id") != operation_id or operation.get("revision") != revision:

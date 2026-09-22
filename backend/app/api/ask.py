@@ -16,6 +16,7 @@ from app.services.crm_copilot.web_sessions import (
     accept_turn,
     attach_read,
     bind_ask_actor,
+    cancel_operation,
     confirm_operation,
     proposed_operation_from_turn,
     public_answer,
@@ -208,6 +209,38 @@ async def get_turn(
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Turno no encontrado")
 
 
+def _load_operation(user_id: str, conversation_id: str, operation_id: str) -> dict | None:
+    key = (user_id, conversation_id, operation_id)
+    operation = _OPERATIONS.get(key)
+    if not operation and _store is not None:
+        turn = _store.get_turn_by_operation(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            operation_id=operation_id,
+        )
+        if turn:
+            operation = proposed_operation_from_turn(turn, operation_id)
+    return operation
+
+
+@router.post("/conversations/{conversation_id}/operations/{operation_id}/cancel")
+async def cancel_ask_operation(
+    conversation_id: str,
+    operation_id: str,
+    membership: Membership = Depends(get_membership),
+):
+    operation = _load_operation(membership.user_id, conversation_id, operation_id)
+    if not operation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operación no encontrada")
+    try:
+        result = cancel_operation(operation, operation_id=operation_id)
+    except TurnConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    key = (membership.user_id, conversation_id, operation_id)
+    _OPERATIONS[key] = result
+    return result
+
+
 @router.post("/conversations/{conversation_id}/operations/{operation_id}/confirm")
 async def confirm_ask_operation(
     conversation_id: str,
@@ -216,15 +249,7 @@ async def confirm_ask_operation(
     membership: Membership = Depends(get_membership),
 ):
     key = (membership.user_id, conversation_id, operation_id)
-    operation = _OPERATIONS.get(key)
-    if not operation and _store is not None:
-        turn = _store.get_turn_by_operation(
-            user_id=membership.user_id,
-            conversation_id=conversation_id,
-            operation_id=operation_id,
-        )
-        if turn:
-            operation = proposed_operation_from_turn(turn, operation_id)
+    operation = _load_operation(membership.user_id, conversation_id, operation_id)
     if not operation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operación no encontrada")
     try:

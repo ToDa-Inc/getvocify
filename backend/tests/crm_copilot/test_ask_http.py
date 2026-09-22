@@ -158,6 +158,53 @@ def test_confirming_another_contact_writes_nothing_and_a_repeat_does_not_apply_t
     ).status_code == 404
 
 
+def test_cancelled_operation_cannot_be_confirmed_and_a_second_cancel_is_fine():
+    from app.api.ask import remember_operation
+
+    loop_calls = []
+
+    async def loop(_text: str, confirm=None):
+        loop_calls.append(confirm)
+        return {"text": "no debería llamarse"}
+
+    ask_api.set_ask_loop(loop)
+    remember_operation(
+        "user-a",
+        "conv-1",
+        {
+            "operation_id": "op-cancel",
+            "revision": 2,
+            "contact_id": "contact-a",
+            "applied": False,
+            "status": "proposed",
+        },
+    )
+    try:
+        client = _client("user-a")
+        first = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-cancel/cancel",
+        )
+        second = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-cancel/cancel",
+        )
+        blocked = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-cancel/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert first.status_code == 200
+        assert first.json()["status"] == "cancelled"
+        assert second.status_code == 200
+        assert blocked.status_code == 409
+        assert loop_calls == []
+        assert ask_api._OPERATIONS[("user-a", "conv-1", "op-cancel")]["status"] == "cancelled"
+        stranger = _client("user-b")
+        assert stranger.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-cancel/cancel",
+        ).status_code == 404
+    finally:
+        ask_api.set_ask_loop(None)
+
+
 def test_a_forbidden_read_is_not_the_same_as_no_results():
     def forbidden(_text: str) -> dict:
         return {"items": [], "coverage": "forbidden", "reason": "email_scope_missing"}

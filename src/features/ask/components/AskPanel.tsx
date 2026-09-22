@@ -146,9 +146,16 @@ export default function AskPanel() {
     }
   }
 
-  function cancelPending() {
+  async function cancelPending() {
     if (!pendingConfirm) return;
-    applyConfirmOutcome(cancelConfirm());
+    try {
+      await api.post(
+        `/ask/conversations/${conversationId}/operations/${pendingConfirm.operationId}/cancel`,
+      );
+      applyConfirmOutcome(cancelConfirm());
+    } catch {
+      /* deja el botón si falla */
+    }
   }
 
   const situation = askSituation({
@@ -206,7 +213,9 @@ export default function AskPanel() {
             <button
               type="button"
               className="rounded-full border border-border px-3 py-1 text-sm"
-              onClick={cancelPending}
+              onClick={() => {
+                void cancelPending();
+              }}
             >
               {t.product.cancelAction}
             </button>
