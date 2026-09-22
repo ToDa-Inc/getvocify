@@ -244,6 +244,24 @@ async def confirm_ask_operation(
             follow = await follow
         if isinstance(follow, dict) and follow.get("text"):
             result = {**result, "text": follow["text"]}
+    if (
+        _store is not None
+        and result.get("applied")
+        and not result.get("replayed")
+    ):
+        stored = _store.get_turn_by_operation(
+            user_id=membership.user_id,
+            conversation_id=conversation_id,
+            operation_id=operation_id,
+        )
+        if stored and stored.get("confirmation"):
+            confirmation = {**stored["confirmation"], "applied": True}
+            _store.persist_turn(
+                user_id=membership.user_id,
+                conversation_id=conversation_id,
+                turn_id=stored["turn_id"],
+                turn={**stored, "status": "completed", "confirmation": confirmation},
+            )
     _OPERATIONS[key] = result
     return result
 

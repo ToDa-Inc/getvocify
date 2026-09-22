@@ -509,6 +509,11 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
                 return None
             return turn
 
+        def persist_turn(self, *, user_id, conversation_id, turn_id, turn):
+            if user_id != row["user_id"] or turn_id != row["id"]:
+                return
+            row["body"] = _encode_completed_body(turn)
+
     ask_api._OPERATIONS.clear()
     ask_api.set_ask_store(Store())
     ask_api.set_ask_loop(loop)
@@ -520,6 +525,7 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
         )
         assert wrong.status_code == 409
         assert calls == []
+        assert "applied" not in (_turn_from_row(row).get("confirmation") or {})
         first = client.post(
             "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
             json={"revision": 2, "contact_id": "contact-a"},
@@ -533,6 +539,15 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
             json={"revision": 2, "contact_id": "contact-a"},
         )
         assert repeat.json()["replayed"] is True
+        assert calls == [True]
+        assert (_turn_from_row(row).get("confirmation") or {}).get("applied") is True
+        ask_api._OPERATIONS.clear()
+        after_restart = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert after_restart.status_code == 200
+        assert after_restart.json()["replayed"] is True
         assert calls == [True]
         assert client.post(
             "/api/v1/ask/conversations/conv-1/operations/op-unknown/confirm",

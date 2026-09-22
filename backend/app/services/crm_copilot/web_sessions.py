@@ -132,12 +132,13 @@ def proposed_operation_from_turn(turn: dict, operation_id: str) -> dict | None:
     confirmation = turn.get("confirmation") or {}
     if confirmation.get("operation_id") != operation_id:
         return None
+    applied = bool(confirmation.get("applied"))
     return {
         "operation_id": confirmation["operation_id"],
         "revision": confirmation["revision"],
         "contact_id": confirmation["contact_id"],
-        "applied": False,
-        "status": "proposed",
+        "applied": applied,
+        "status": "succeeded" if applied else "proposed",
     }
 
 

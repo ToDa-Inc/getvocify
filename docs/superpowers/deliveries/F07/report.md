@@ -29,6 +29,7 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Con opciones visibles, Ask oculta el compositor; al elegir, envía el id y quita los botones | este commit | `src/lib/ask-choices.test.ts` |
 | Tras el loop, Supabase guarda la respuesta; repetir `client_turn_id` no vuelve a llamarlo y GET devuelve texto y opciones | este commit | `tests/crm_copilot/test_ask_http.py` |
 | Tras reinicio, confirm lee la propuesta del turno guardado; repetir no vuelve a escribir y otro contacto sigue en conflicto | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Un confirm aplicado guarda `applied` en el JSON del turno; otro reinicio repite sin llamar al loop | este commit | `tests/crm_copilot/test_ask_http.py` |
 
 ## No verificado
 
