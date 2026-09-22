@@ -1,4 +1,4 @@
-"""GET /contact-priorities. A missing CRM is not an empty complete list."""
+"""GET /contact-priorities. Rows are the cached context, not a separate snapshot."""
 
 from __future__ import annotations
 
@@ -8,16 +8,18 @@ from fastapi import APIRouter, Depends, Query
 
 from app.deps import get_membership
 from app.services.company import Membership
-from app.services.hoy.context import build_priority_page
+from app.services.hoy.context import build_priority_page, snapshot_from_rows
 
 router = APIRouter(prefix="/api/v1", tags=["contact-priorities"])
 
-# Keyed by company and user. The table in 042 is the durable shape; this process cache is what the route reads today.
-_SNAPSHOTS: dict[tuple[str, str], dict] = {}
+# company_id -> rows shaped like contact_priority_context. Tests fill this; a live reader can replace it.
+_ROWS: dict[str, list[dict]] = {}
+_CONNECTED: set[str] = set()
+_CLOCK = [datetime.now(timezone.utc)]
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return _CLOCK[0]
 
 
 @router.get("/contact-priorities")
@@ -26,9 +28,10 @@ async def list_contact_priorities(
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = None,
 ):
-    snapshot = _SNAPSHOTS.get((membership.company_id, membership.user_id))
-    if snapshot is None:
+    if membership.company_id not in _CONNECTED:
         snapshot = {"connected": False, "coverage": "unavailable", "candidates": []}
+    else:
+        snapshot = snapshot_from_rows(_ROWS.get(membership.company_id) or [], connected=True)
     return build_priority_page(
         snapshot=snapshot,
         user_id=membership.user_id,
