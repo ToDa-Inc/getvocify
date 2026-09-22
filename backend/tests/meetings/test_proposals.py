@@ -16,10 +16,22 @@ from pathlib import Path
 
 import pytest
 
-from app.services.meetings.proposals import build_proposal, insert_proposal_statement
+from app.services.meetings.proposals import build_proposal, insert_proposal_statement, latest_proposal
 from app.services.meetings.time_resolution import local_time_is_ambiguous
 
-MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "046_meeting_proposals.sql"
+def test_the_newest_proposal_is_the_one_on_the_memo_and_none_is_empty():
+    assert latest_proposal([]) is None
+    chosen = latest_proposal([
+        {"proposal_id": "old", "agreement": "agreed", "starts_at": "2026-09-22T15:00:00Z", "created_at": "2026-09-22T09:00:00Z", "decision": "pending", "crm_status": "not_requested", "timezone": "Europe/Madrid"},
+        {"proposal_id": "new", "agreement": "unknown", "starts_at": None, "created_at": "2026-09-22T11:00:00Z", "decision": "pending", "crm_status": "not_requested"},
+    ])
+    assert chosen["proposal_id"] == "new"
+    assert chosen["needs_review"] is True
+    agreed = latest_proposal([
+        {"proposal_id": "yes", "agreement": "agreed", "starts_at": "2026-09-29T15:00:00Z", "created_at": "2026-09-22T12:00:00Z", "timezone": "Europe/Madrid"},
+    ])
+    assert agreed["needs_review"] is False
+    assert agreed["starts_at"] == "2026-09-29T15:00:00Z"
 MEMO = "66666666-6666-6666-6666-666666666666"
 
 

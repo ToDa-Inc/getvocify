@@ -9,6 +9,24 @@ from app.services.meetings.time_resolution import resolve_phrase
 _TENTATIVE = ("podríamos vernos", "podriamos vernos", "a lo mejor nos vemos")
 
 
+def latest_proposal(rows: list[dict]) -> dict | None:
+    """The newest stored proposal. No row is not a meeting."""
+    if not rows:
+        return None
+    row = max(rows, key=lambda item: str(item.get("created_at") or item.get("input_revision") or ""))
+    agreed = row.get("agreement") == "agreed"
+    starts_at = row.get("starts_at")
+    return {
+        "proposal_id": row.get("proposal_id"),
+        "agreement": row.get("agreement"),
+        "starts_at": starts_at,
+        "timezone": row.get("timezone"),
+        "decision": row.get("decision") or "pending",
+        "crm_status": row.get("crm_status") or "not_requested",
+        "needs_review": not agreed or not starts_at,
+    }
+
+
 def infer_agreement(phrase: str) -> str:
     text = " ".join((phrase or "").lower().split())
     if any(cue in text for cue in _TENTATIVE):

@@ -559,7 +559,7 @@ const MemoDetail = () => {
             ) : null}
             {isOwnMemo && id ? (
               <MeetingProposalReview
-                proposal={null}
+                memoId={id}
                 extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
               />
             ) : null}

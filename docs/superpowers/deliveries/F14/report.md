@@ -15,5 +15,4 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 
 ## No verificado
 
-- HubSpot y Pipedrive no reciben la llamada real: el escritor está inyectado.
-- La revisión web monta el bloque, pero todavía no carga la propuesta del memo. No se recorrió en el navegador. La extensión y el escritorio tienen la copia del componente, sin conectarla al marcador.
+- La revisión del memo carga la propuesta guardada. Si no hay fila, no se ofrece guardar. HubSpot y Pipedrive siguen recibiendo la escritura por el adaptador inyectado.
