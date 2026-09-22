@@ -482,6 +482,19 @@ async def execute_tool(name: str, args: dict, ctx: Any) -> dict:
 
 
 async def _execute(name: str, args: dict, ctx: Any) -> dict:
+    if name == "get_team_metrics":
+        from app.services.team_insights.aggregate import TeamAccessError, authorized_scope
+
+        role = getattr(ctx, "role", None) or "member"
+        try:
+            scope = authorized_scope(
+                role=role,
+                requested_user_id=args.get("user_id"),
+                instruction=str(args.get("instruction") or ""),
+            )
+        except TeamAccessError:
+            return {"ok": False, "error": "forbidden"}
+        return {"ok": True, "scope": scope}
     if name == "load_skill":
         skill = str(args.get("name") or "")
         body = SKILL_BODIES.get(skill)

@@ -21,4 +21,5 @@ No se inventa un estado anterior si no hay historia.
 ## No verificado
 
 - La página está en `/dashboard/insights`. No se recorrió en el navegador. La gestión de miembros sigue en Ajustes.
-- La actividad del periodo no llega a esa página, así que no se pintan intentos en cero. La política de base de datos no está en la migración. El chat de WhatsApp no usa el filtro nuevo.
+- La actividad del periodo no llega a esa página, así que no se pintan intentos en cero. La política de base de datos no está en la migración.
+- `get_team_metrics` rechaza a un miembro antes de armar cifras. El texto no amplía el filtro. No está comprobado el recorrido de WhatsApp de punta a punta.
