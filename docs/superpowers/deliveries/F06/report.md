@@ -15,5 +15,5 @@ No hay migración nueva: usa `previous_status`, `last_action_request_id` y `undo
 
 ## No verificado
 
-- La tarjeta del inicio web descarta una señal con id y deja Deshacer mientras dura el plazo. El marcador no monta esa tarjeta.
+- La tarjeta del inicio web descarta una señal con id y deja Deshacer mientras dura el plazo. El marcador web en reposo muestra las mismas tarjetas Hoy.
 - F05 ya marca las 08:00 locales y el `GET` lee tareas abiertas de la conexión.

@@ -10,6 +10,7 @@ import {
   floatingDialerChrome,
   type CallState,
 } from "@/lib/dial-target";
+import { TodayDialerCards } from "@/features/today/components/TodayDialerCards";
 import { DashboardDialer } from "./DashboardDialer";
 
 type Props = {
@@ -88,14 +89,17 @@ export const FloatingDialer = ({
               Cargando…
             </p>
           ) : enabled ? (
-            <DashboardDialer
-              callerIds={config?.callerIds || []}
-              onRequestClose={() => onOpenChange(false)}
-              onLiveChange={(next) => {
-                setLive(next);
-                onCallStateChange?.(next.state);
-              }}
-            />
+            <>
+              <DashboardDialer
+                callerIds={config?.callerIds || []}
+                onRequestClose={() => onOpenChange(false)}
+                onLiveChange={(next) => {
+                  setLive(next);
+                  onCallStateChange?.(next.state);
+                }}
+              />
+              {live.state === CALL_STATES.IDLE ? <TodayDialerCards /> : null}
+            </>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
               Las llamadas no están configuradas.{" "}
