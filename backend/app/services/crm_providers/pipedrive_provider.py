@@ -19,6 +19,16 @@ from app.services.pipedrive.preview import PipedrivePreviewService
 from app.services.pipedrive.schema import PipedriveSchemaService
 from app.services.pipedrive.search import PipedriveSearchService
 from app.services.pipedrive.sync import PipedriveSyncService
+from app.services.crm_providers.coverage import read_contact_emails
+
+
+async def read_emails(fetch_ids, fetch_one, *, connection_id: str, observed_at: str) -> dict:
+    return await read_contact_emails(
+        fetch_ids,
+        fetch_one,
+        connection_id=connection_id,
+        observed_at=observed_at,
+    )
 
 
 def _parse_expires_at(raw: Any) -> Optional[datetime]:

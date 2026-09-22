@@ -27,6 +27,16 @@ from app.services.hubspot import (
     SyncResult,
 )
 from app.services.hubspot.call_outcome import compute_call_outcome_availability
+from app.services.crm_providers.coverage import read_contact_emails
+
+
+async def read_emails(fetch_ids, fetch_one, *, connection_id: str, observed_at: str) -> dict:
+    return await read_contact_emails(
+        fetch_ids,
+        fetch_one,
+        connection_id=connection_id,
+        observed_at=observed_at,
+    )
 
 
 class HubSpotCRMProvider:

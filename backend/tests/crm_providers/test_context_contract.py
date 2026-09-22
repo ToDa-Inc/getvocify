@@ -60,3 +60,28 @@ def test_a_foreign_object_is_denied_before_its_items_are_returned():
         connection_id="hs-1",
         object_type="email",
     )) is True
+
+
+@pytest.mark.asyncio
+async def test_a_scope_error_is_not_an_empty_inbox_on_either_crm():
+    from app.services.crm_providers.hubspot_provider import read_emails as hubspot_emails
+    from app.services.crm_providers.pipedrive_provider import read_emails as pipedrive_emails
+
+    class Denied(Exception):
+        status_code = 403
+
+        def __str__(self) -> str:
+            return "MISSING_SCOPES"
+
+    async def boom():
+        raise Denied()
+
+    envelopes = []
+    for reader, connection in ((hubspot_emails, "hs-1"), (pipedrive_emails, "pd-1")):
+        envelope = await reader(boom, None, connection_id=connection, observed_at=OBSERVED)
+        envelopes.append(envelope)
+        assert envelope["coverage"] == "forbidden"
+        assert envelope["items"] == []
+        assert means_no_activity(envelope) is False
+    assert envelopes[0]["coverage"] == envelopes[1]["coverage"]
+    assert envelopes[0]["reason"] == envelopes[1]["reason"] == "email_scope_missing"
