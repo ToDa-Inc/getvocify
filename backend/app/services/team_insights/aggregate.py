@@ -268,6 +268,7 @@ def team_adherence(
         )
     else:
         activity = {}
+    sample_limited = 1 <= effective_sample < 5
     if not playbook_present or effective_sample < 1:
         body = {
             "met_steps": 0,
@@ -276,6 +277,7 @@ def team_adherence(
             "adherence": None,
             "coverage": None,
             "conclusion": None,
+            "sample_limited": False,
         }
         body.update(activity)
         body["objection_categories"] = objection_counts(
@@ -296,6 +298,7 @@ def team_adherence(
         "adherence": metrics["adherence"],
         "coverage": metrics["coverage"],
         "conclusion": conclusion,
+        "sample_limited": sample_limited,
     }
     body.update(activity)
     body["objection_categories"] = objection_counts(

@@ -49,7 +49,15 @@ export type TeamMetrics = {
   met: number;
   applicable: number;
   coverageCrm: "complete" | "partial" | "unavailable";
+  sampleLimited: boolean;
 };
+
+/** CRM win-loss coverage comes only from explicit crm_coverage on the payload. */
+export function teamCrmCoverage(crmCoverage: unknown): TeamMetrics["coverageCrm"] {
+  if (crmCoverage === "complete") return "complete";
+  if (crmCoverage === "partial") return "partial";
+  return "unavailable";
+}
 
 /** Share of steps met when adherence is defined and applicable > 0; otherwise no bar. */
 export function adherenceBarRatio(metrics: Pick<TeamMetrics, "adherence" | "met" | "applicable">): number | null {

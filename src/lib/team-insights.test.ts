@@ -27,6 +27,7 @@ const metrics = {
   met: 2,
   applicable: 10,
   coverageCrm: "unavailable" as const,
+  sampleLimited: false,
 };
 
 describe("team insights", () => {

@@ -5,8 +5,10 @@ import { AdherenceBreakdown } from "@/features/team-insights/components/Adherenc
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
 import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
+import { motionLabel } from "@/lib/motion-label";
 import {
   teamAdherenceHasData,
+  teamCrmCoverage,
   teamInsightsView,
   type ObjectionCategory,
   type TeamFilters,
@@ -38,6 +40,8 @@ export default function TeamInsightsPage() {
         met_steps: number;
         applicable_steps: number;
         coverage: number | null;
+        crm_coverage?: "complete" | "partial";
+        sample_limited?: boolean;
         attempts?: number;
         connected?: number;
         meetings?: number;
@@ -76,7 +80,8 @@ export default function TeamInsightsPage() {
           adherence: query.data.adherence,
           met: query.data.met_steps,
           applicable: query.data.applicable_steps,
-          coverageCrm: query.data.coverage === null ? "unavailable" : "complete",
+          coverageCrm: teamCrmCoverage(query.data.crm_coverage),
+          sampleLimited: query.data.sample_limited === true,
         }
       : null;
   const view = teamInsightsView({
@@ -130,7 +135,7 @@ export default function TeamInsightsPage() {
               <option value="">Toda tipología</option>
               {motionKeys.map((key) => (
                 <option key={key} value={key}>
-                  {key}
+                  {motionLabel(key)}
                 </option>
               ))}
             </select>

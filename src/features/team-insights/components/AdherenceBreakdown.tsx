@@ -18,6 +18,9 @@ export function AdherenceBreakdown({ metrics }: { metrics: TeamMetrics }) {
           <tr><th>Evaluables</th><td>{metrics.applicable}</td></tr>
         </tbody>
       </table>
+      {metrics.sampleLimited ? (
+        <p>Con menos de cinco conversaciones no hay conclusión.</p>
+      ) : null}
     </section>
   );
 }

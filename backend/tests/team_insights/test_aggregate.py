@@ -101,6 +101,44 @@ def test_adherence_with_no_scores_in_week_is_null_not_zero():
     assert metrics["applicable_steps"] == 0
 
 
+def test_sample_limited_when_week_has_one_to_four_scored_conversations():
+    parts = [_part(1, 0, observed_at=f"2026-09-22T1{i}:00:00Z") for i in range(4)]
+    metrics = team_adherence(
+        role="admin",
+        parts=parts,
+        playbook_present=True,
+        sample_size=4,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["sample_limited"] is True
+    assert metrics["conclusion"] is None
+    assert metrics["met_steps"] == 4
+
+
+def test_sample_limited_false_with_zero_or_five_or_more_scored_in_week():
+    empty = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=True,
+        sample_size=0,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert empty["sample_limited"] is False
+
+    five = team_adherence(
+        role="admin",
+        parts=[_part(1, 0, observed_at=f"2026-09-22T1{i}:00:00Z") for i in range(5)],
+        playbook_present=True,
+        sample_size=5,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert five["sample_limited"] is False
+    assert five["met_steps"] == 5
+
+
 def test_activity_counts_ignore_out_of_week_and_missing_observed_at():
     rows = [
         {"screening": "connected", "observed_at": "2026-09-22T10:00:00Z"},

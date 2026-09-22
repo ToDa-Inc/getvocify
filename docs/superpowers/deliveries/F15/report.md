@@ -24,6 +24,10 @@ No se inventa un estado anterior si no hay historia.
 | La página de equipo lista nombres ES de categoría o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
 | Objeciones por recuento (barra + número) y adherencia con barra met/applicable cuando hay datos | `src/lib/team-insights.test.ts` |
 
+## Muestra pequeña y cobertura CRM (2026-09-22)
+
+`GET /team/adherence` expone `sample_limited` cuando la semana Madrid tiene entre una y cuatro conversaciones puntuadas (cero no cuenta como limitada); la página muestra «Con menos de cinco conversaciones no hay conclusión.» junto a los recuentos de adherencia. La cobertura de cierres CRM solo se infiere de `crm_coverage` (`complete`/`partial`), no del `coverage` de pasos del playbook. Pruebas: `tests/team_insights/test_aggregate.py` y `src/lib/motion-label.test.ts`.
+
 ## Filtros compartidos (2026-09-22)
 
 `GET /team/adherence` comparte `user_id` y `motion` entre actividad, adherencia y objeciones; sin parámetros mantiene el agregado de empresa. La respuesta incluye `reps` ordenados por nombre (`es`), la página `/dashboard/insights` expone Comercial y Tipología con los mismos query params, y un miembro sigue en 403 antes de cualquier cifra. Pruebas: `tests/team_insights/test_adherence_filters.py` y `src/lib/team-insights.test.ts`.

@@ -9,6 +9,7 @@ import {
   type MotionStatus,
   type PlaybookRole,
 } from "@/lib/playbook-setup";
+import { motionLabel } from "@/lib/motion-label";
 import { api } from "@/shared/lib/api-client";
 
 const MOTIONS = ["discovery", "qualification", "closing"] as const;
@@ -202,7 +203,7 @@ export default function PlaybooksSection() {
         {keys.map((key) => (
           <li key={key} className="rounded-xl border border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="capitalize">{key}</span>
+              <span>{motionLabel(key)}</span>
               <span className="text-sm text-muted-foreground">
                 {LABEL[motions[key] || "missing"]}
                 {versions[key] ? ` · versión ${versions[key]}` : ""}
