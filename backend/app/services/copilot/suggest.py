@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 
 from app.config import settings
+from app.services.copilot.context import SuggestContext
 from app.services.copilot.grounding import SuggestGrounding, finalize_suggest_result
 from app.services.copilot.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.llm.shared import extract_json
@@ -48,7 +49,9 @@ async def stream_objection_suggestion(
     speaker_role: str = "unknown",
     model: Optional[str] = None,
     grounding: Optional[SuggestGrounding] = None,
+    context: Optional[SuggestContext] = None,
 ) -> AsyncIterator[dict[str, Any]]:
+    del context  # threaded for grounding/session wiring; prompts unchanged without CRM load
     """
     Yields dict events:
       {"type": "token", "text": "..."}

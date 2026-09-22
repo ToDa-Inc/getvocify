@@ -12,6 +12,7 @@ from supabase import Client
 
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+from app.services.copilot.context import resolve_suggest_context
 from app.services.copilot.load_grounding import load_suggest_grounding
 from app.services.copilot.suggest import stream_objection_suggestion
 
@@ -26,6 +27,7 @@ class SuggestRequest(BaseModel):
     call_mode: Literal["speakerphone", "softphone", "meeting"] = "speakerphone"
     speaker_role: Literal["prospect", "rep", "unknown"] = "unknown"
     capture_id: Optional[str] = Field(default=None, max_length=128)
+    contact_id: Optional[str] = Field(default=None, max_length=128)
     request_id: Optional[str] = Field(default=None, max_length=128)
 
 
@@ -37,6 +39,10 @@ async def suggest_objection_handling(
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
 
+    context = resolve_suggest_context(
+        body.contact_id,
+        call_mode=body.call_mode,
+    )
     grounding = None
     if body.capture_id:
         grounding = load_suggest_grounding(
@@ -44,6 +50,7 @@ async def suggest_objection_handling(
             user_id=membership.user_id,
             company_id=membership.company_id,
             capture_id=body.capture_id,
+            context=context,
         )
 
     async def event_gen():
@@ -55,6 +62,7 @@ async def suggest_objection_handling(
             call_mode=body.call_mode,
             speaker_role=body.speaker_role,
             grounding=grounding,
+            context=context,
         ):
             if event.get("type") == "result":
                 if body.capture_id:

@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import HTTPException, status
 from supabase import Client
 
+from app.services.copilot.context import SuggestContext
 from app.services.copilot.grounding import SuggestGrounding, resolve_suggest_grounding
 from app.services.playbooks.versions import get_published_playbook
 
@@ -17,7 +18,9 @@ def load_suggest_grounding(
     user_id: str,
     company_id: str,
     capture_id: str,
+    context: Optional[SuggestContext] = None,
 ) -> Optional[SuggestGrounding]:
+    del context  # reserved for capture-scoped CRM context; contact_id stays on SuggestContext only
     result = (
         supabase.table("memos")
         .select("id,user_id,company_id,interaction_kind,playbook_version_id,sales_motion_key,extraction")
