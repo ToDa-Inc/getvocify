@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveAppLanguage } from './app-language.ts';
+import { appLanguageToPersistFromVisit, resolveAppLanguage } from './app-language.ts';
 
 describe('resolveAppLanguage', () => {
   it('stored en on /dashboard is EN', () => {
@@ -17,5 +17,15 @@ describe('resolveAppLanguage', () => {
 
   it('stored es on /en is ES', () => {
     assert.equal(resolveAppLanguage({ stored: 'es', path: '/en' }), 'ES');
+  });
+});
+
+describe('appLanguageToPersistFromVisit', () => {
+  it('path /en and stored null persists EN', () => {
+    assert.equal(appLanguageToPersistFromVisit({ stored: null, path: '/en' }), 'EN');
+  });
+
+  it('path /dashboard and stored null does not persist', () => {
+    assert.equal(appLanguageToPersistFromVisit({ stored: null, path: '/dashboard' }), null);
   });
 });

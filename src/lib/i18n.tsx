@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, ReactNode, useEffect } from
 import { productCatalog, type ProductTranslations } from './product-catalog';
 import { setApiRequestLanguage, type ApiRequestLanguage } from '@/shared/lib/api-request-language';
 import {
+  appLanguageToPersistFromVisit,
   publicPathForLanguage,
   readStoredAppLanguage,
   resolveAppLanguage,
@@ -403,10 +404,12 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   useEffect(() => {
     const path = window.location.pathname;
-    const resolved = resolveAppLanguage({
-      stored: readStoredAppLanguage(),
-      path,
-    });
+    const stored = readStoredAppLanguage();
+    const resolved = resolveAppLanguage({ stored, path });
+    const toPersist = appLanguageToPersistFromVisit({ stored, path });
+    if (toPersist) {
+      writeStoredAppLanguage(toPersist);
+    }
     setLanguage(resolved);
     setApiRequestLanguage(apiLanguageFromAppLanguage(resolved));
   }, []);

@@ -19,6 +19,20 @@ export function writeStoredAppLanguage(lang: AppLanguage): void {
   localStorage.setItem(VOCIFY_LANG_KEY, lang === 'EN' ? 'en' : 'es');
 }
 
+/** When nothing is stored yet, infer persistence from the visit path (not the default locale). */
+export function appLanguageToPersistFromVisit(input: {
+  stored: StoredAppLanguage | null;
+  path: string;
+}): AppLanguage | null {
+  if (input.stored !== null) {
+    return null;
+  }
+  if (input.path.startsWith('/en')) {
+    return 'EN';
+  }
+  return null;
+}
+
 export function resolveAppLanguage(input: {
   stored: StoredAppLanguage | null;
   path: string;
