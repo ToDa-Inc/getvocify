@@ -27,7 +27,8 @@ export function MeetingProposalReview({
   memoId: string;
   extractionPending?: boolean;
 }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const uiLang = language === "EN" ? "en" : "es";
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["meeting-proposal", memoId],
@@ -65,12 +66,12 @@ export function MeetingProposalReview({
   });
   const view =
     surface.kind === "pending"
-      ? meetingProposalView(null, { surface: "review", extractionPending: true })
+      ? meetingProposalView(null, { surface: "review", extractionPending: true, lang: uiLang })
       : surface.kind === "read-error"
         ? meetingProposalReadErrorView(t.product.meetingReadFailed)
         : surface.kind === "hidden"
           ? { visible: false as const }
-          : meetingProposalView(proposal, { surface: "review", extractionPending: false });
+          : meetingProposalView(proposal, { surface: "review", extractionPending: false, lang: uiLang });
 
   const markup = useMemo(() => {
     if (!view.visible) return "";

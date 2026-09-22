@@ -16,6 +16,7 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 | Aceptar u omitir la propuesta en revisión llama a `POST …/meeting-proposal/accept`, escribe en CRM solo con token y no repite el alta remoto | `tests/meetings/test_accept_http.py` |
 | Reconciliar con CRM incierto llama a `POST …/meeting-proposal/reconcile`, busca el id remoto y no vuelve a dar de alta la actividad | `tests/meetings/test_accept_http.py` |
 | La revisión del memo muestra «Comprobando próximos pasos» mientras carga el GET y «No se pudo leer la reunión» si falla, sin botones | `src/lib/meeting-proposal-review.test.ts` |
+| Títulos y botones de la propuesta de reunión en `shared/ui/i18n.js` (es/en); revisión web y `v-meeting-proposal` pasan `lang` | `shared/ui/meeting-proposal.test.js` |
 
 ## No verificado
 

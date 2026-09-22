@@ -43,6 +43,15 @@ const STRINGS = {
     desktopHearing:
       'Escuchando la reunión. La ventana flotante sigue encima.',
     desktopStopped: 'Parado.',
+    meetingChecking: 'Comprobando próximos pasos',
+    meetingOmitted: 'Reunión omitida',
+    meetingDetected: 'Reunión detectada',
+    meetingNotSaved: 'No se ha guardado en el CRM',
+    meetingSaved: 'Guardada en el CRM',
+    meetingPending: 'Pendiente de revisar',
+    meetingSave: 'Guardar reunión',
+    meetingOmit: 'Omitir',
+    meetingReconcile: 'Reconciliar',
   },
   en: {
     followupFor: (name) => `Follow-up for ${name}`,
@@ -86,6 +95,15 @@ const STRINGS = {
     desktopHearing:
       'Listening to the meeting. The floating window stays on top.',
     desktopStopped: 'Stopped.',
+    meetingChecking: 'Checking next steps',
+    meetingOmitted: 'Meeting skipped',
+    meetingDetected: 'Meeting detected',
+    meetingNotSaved: 'Not saved in the CRM',
+    meetingSaved: 'Saved in the CRM',
+    meetingPending: 'Pending review',
+    meetingSave: 'Save meeting',
+    meetingOmit: 'Skip',
+    meetingReconcile: 'Reconcile',
   },
 };
 
