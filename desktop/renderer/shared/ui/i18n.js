@@ -9,7 +9,7 @@ const STRINGS = {
     whatsapp: 'WhatsApp',
     copy: 'Copiar',
     addEmail: 'Sin email del contacto: cópialo o envíalo por WhatsApp.',
-    openedMail: 'Abierto en tu correo.',
+    openedMail: 'Abierto en el correo',
     openedWhatsapp: 'Abierto en WhatsApp.',
   },
   en: {

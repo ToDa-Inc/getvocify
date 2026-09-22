@@ -85,9 +85,13 @@ test('draft text from a transcript cannot inject markup', () => {
 test('sent state says what we know: it was opened, not that it was delivered', () => {
   const mail = renderToString(renderFollowup({ status: 'sent', channel: 'email', recipientName: 'Marina' }, 'es'));
   assert.match(mail, /is-sent/);
-  assert.match(mail, /role="status">Abierto en tu correo\./);
+  assert.match(mail, /role="status">Abierto en el correo/);
+  assert.doesNotMatch(mail, /enviado/i);
+  assert.doesNotMatch(mail, /delivered/i);
   const wa = renderToString(renderFollowup({ status: 'sent', channel: 'whatsapp' }, 'es'));
   assert.match(wa, /Abierto en WhatsApp\./);
+  assert.doesNotMatch(wa, /enviado/i);
+  assert.doesNotMatch(wa, /delivered/i);
 });
 
 test('unavailable renders nothing; English labels switch with lang', () => {

@@ -18,7 +18,6 @@ Estado: código de C03 en la rama `feat/vocify-v1`. El esquema ya está aplicado
 
 - No hay un memo real de HubSpot, desktop o WhatsApp recorrido de punta a punta.
 - Reticle no se ejecutó sobre `/dashboard/memos/:id`.
-- La migración `038` no se ha aplicado en producción ni en una base compartida.
 
 ## Contrato C03
 
