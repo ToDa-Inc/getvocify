@@ -26,6 +26,7 @@ def _client(user_id: str) -> TestClient:
 
 def setup_function():
     ask_api._TURNS.clear()
+    ask_api._OPERATIONS.clear()
     ask_api.set_ask_store(None)
 
 
@@ -106,3 +107,44 @@ def test_another_user_cannot_read_the_turn():
     stranger = _client("user-b")
     hidden = stranger.get(f"/api/v1/ask/conversations/conv-1/turns/{created.json()['turn_id']}")
     assert hidden.status_code == 404
+
+
+def test_confirming_another_contact_writes_nothing_and_a_repeat_does_not_apply_twice():
+    from app.api.ask import remember_operation
+
+    remember_operation(
+        "user-a",
+        "conv-1",
+        {
+            "operation_id": "op-1",
+            "revision": 3,
+            "contact_id": "contact-a",
+            "applied": False,
+            "status": "proposed",
+        },
+    )
+    client = _client("user-a")
+    wrong = client.post(
+        "/api/v1/ask/conversations/conv-1/operations/op-1/confirm",
+        json={"revision": 3, "contact_id": "contact-b"},
+    )
+    assert wrong.status_code == 409
+    assert ask_api._OPERATIONS[("user-a", "conv-1", "op-1")]["applied"] is False
+    first = client.post(
+        "/api/v1/ask/conversations/conv-1/operations/op-1/confirm",
+        json={"revision": 3, "contact_id": "contact-a"},
+    )
+    second = client.post(
+        "/api/v1/ask/conversations/conv-1/operations/op-1/confirm",
+        json={"revision": 3, "contact_id": "contact-a"},
+    )
+    assert first.status_code == 200
+    assert first.json()["status"] == "succeeded"
+    assert first.json()["applied"] is True
+    assert second.json()["replayed"] is True
+    assert second.json()["operation_id"] == "op-1"
+    stranger = _client("user-b")
+    assert stranger.post(
+        "/api/v1/ask/conversations/conv-1/operations/op-1/confirm",
+        json={"revision": 3, "contact_id": "contact-a"},
+    ).status_code == 404

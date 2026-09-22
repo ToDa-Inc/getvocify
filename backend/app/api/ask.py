@@ -8,11 +8,17 @@ from pydantic import BaseModel, Field
 
 from app.deps import get_membership
 from app.services.company import Membership
-from app.services.crm_copilot.web_sessions import accept_turn
+from app.services.crm_copilot.web_sessions import (
+    TurnConflict,
+    UncertainOperation,
+    accept_turn,
+    confirm_operation,
+)
 
 router = APIRouter(prefix="/api/v1/ask", tags=["ask"])
 
 _TURNS: dict[tuple[str, str, str], dict] = {}
+_OPERATIONS: dict[tuple[str, str, str], dict] = {}
 _store = None
 
 
@@ -24,6 +30,15 @@ def set_ask_store(store) -> None:
 class TurnRequest(BaseModel):
     client_turn_id: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=4000)
+
+
+class ConfirmRequest(BaseModel):
+    revision: int
+    contact_id: str = Field(min_length=1)
+
+
+def remember_operation(user_id: str, conversation_id: str, operation: dict) -> None:
+    _OPERATIONS[(user_id, conversation_id, operation["operation_id"])] = dict(operation)
 
 
 def _public(turn: dict) -> dict:
@@ -91,3 +106,29 @@ async def get_turn(
         if user_id == membership.user_id and conv == conversation_id and turn["turn_id"] == turn_id:
             return _public(turn)
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Turno no encontrado")
+
+
+@router.post("/conversations/{conversation_id}/operations/{operation_id}/confirm")
+async def confirm_ask_operation(
+    conversation_id: str,
+    operation_id: str,
+    body: ConfirmRequest,
+    membership: Membership = Depends(get_membership),
+):
+    key = (membership.user_id, conversation_id, operation_id)
+    operation = _OPERATIONS.get(key)
+    if not operation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operación no encontrada")
+    try:
+        result = confirm_operation(
+            operation,
+            operation_id=operation_id,
+            revision=body.revision,
+            contact_id=body.contact_id,
+        )
+    except TurnConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except UncertainOperation as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    _OPERATIONS[key] = result
+    return result
