@@ -9,6 +9,7 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 
 from app.config import settings
+from app.services.copilot.grounding import SuggestGrounding, finalize_suggest_result
 from app.services.copilot.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.services.llm.shared import extract_json
 
@@ -46,6 +47,7 @@ async def stream_objection_suggestion(
     call_mode: str = "speakerphone",
     speaker_role: str = "unknown",
     model: Optional[str] = None,
+    grounding: Optional[SuggestGrounding] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """
     Yields dict events:
@@ -110,6 +112,8 @@ async def stream_objection_suggestion(
                         model_used=model_used,
                         messages=messages,
                         t0=t0,
+                        call_mode=call_mode,
+                        grounding=grounding,
                     ):
                         yield event
                     return
@@ -146,11 +150,16 @@ async def stream_objection_suggestion(
 
         suggestion = _parse_suggestion(assembled)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        finalized = finalize_suggest_result(
+            call_mode=call_mode,
+            suggestion=suggestion,
+            grounding=grounding,
+        )
         yield {
             "type": "result",
-            "suggestion": suggestion,
             "model": model_used,
             "latency_ms": elapsed_ms,
+            **finalized,
         }
     except Exception as e:
         logger.exception("Copilot suggest failed")
@@ -164,6 +173,8 @@ async def _fallback_non_stream(
     model_used: str,
     messages: list[dict],
     t0: float,
+    call_mode: str,
+    grounding: Optional[SuggestGrounding] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     import time
 
@@ -190,11 +201,16 @@ async def _fallback_non_stream(
     if content:
         yield {"type": "token", "text": content}
     suggestion = _parse_suggestion(content)
+    finalized = finalize_suggest_result(
+        call_mode=call_mode,
+        suggestion=suggestion,
+        grounding=grounding,
+    )
     yield {
         "type": "result",
-        "suggestion": suggestion,
         "model": model_used,
         "latency_ms": int((time.perf_counter() - t0) * 1000),
+        **finalized,
     }
 
 
@@ -215,4 +231,17 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
         "why_it_works": str(parsed.get("why_it_works") or "").strip(),
         "next_question": str(parsed.get("next_question") or "").strip(),
         "dont_say": str(parsed.get("dont_say") or "").strip(),
+        "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),
+        "source_id": str(parsed.get("source_id") or "").strip() or None,
     }
+
+
+def _parse_evidence_refs(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    refs: list[str] = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text:
+            refs.append(text)
+    return refs

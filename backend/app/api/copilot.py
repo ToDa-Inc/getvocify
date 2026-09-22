@@ -8,8 +8,11 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from supabase import Client
 
-from app.deps import get_user_id
+from app.deps import get_membership, get_supabase
+from app.services.company import Membership
+from app.services.copilot.load_grounding import load_suggest_grounding
 from app.services.copilot.suggest import stream_objection_suggestion
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
@@ -22,14 +25,26 @@ class SuggestRequest(BaseModel):
     language: Literal["auto", "en", "es"] = "auto"
     call_mode: Literal["speakerphone", "softphone", "meeting"] = "speakerphone"
     speaker_role: Literal["prospect", "rep", "unknown"] = "unknown"
+    capture_id: Optional[str] = Field(default=None, max_length=128)
+    request_id: Optional[str] = Field(default=None, max_length=128)
 
 
 @router.post("/suggest")
 async def suggest_objection_handling(
     body: SuggestRequest,
-    _user_id: str = Depends(get_user_id),
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
+
+    grounding = None
+    if body.capture_id:
+        grounding = load_suggest_grounding(
+            supabase,
+            user_id=membership.user_id,
+            company_id=membership.company_id,
+            capture_id=body.capture_id,
+        )
 
     async def event_gen():
         async for event in stream_objection_suggestion(
@@ -39,7 +54,13 @@ async def suggest_objection_handling(
             language=body.language,
             call_mode=body.call_mode,
             speaker_role=body.speaker_role,
+            grounding=grounding,
         ):
+            if event.get("type") == "result":
+                if body.capture_id:
+                    event = {**event, "capture_id": body.capture_id}
+                if body.request_id:
+                    event = {**event, "request_id": body.request_id}
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         yield "data: {\"type\": \"done\"}\n\n"
 
