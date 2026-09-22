@@ -13,6 +13,12 @@ from app.services.crm_copilot.web_sessions import accept_turn
 router = APIRouter(prefix="/api/v1/ask", tags=["ask"])
 
 _TURNS: dict[tuple[str, str, str], dict] = {}
+_store = None
+
+
+def set_ask_store(store) -> None:
+    global _store
+    _store = store
 
 
 class TurnRequest(BaseModel):
@@ -36,6 +42,16 @@ async def post_turn(
     body: TurnRequest,
     membership: Membership = Depends(get_membership),
 ):
+    if _store is not None:
+        turn = _store.save_turn(
+            user_id=membership.user_id,
+            company_id=membership.company_id,
+            conversation_id=conversation_id,
+            client_turn_id=body.client_turn_id,
+            text=body.text,
+        )
+        code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
+        return JSONResponse(status_code=code, content=_public(turn))
     scoped: dict = {
         key[1:]: value
         for key, value in _TURNS.items()
@@ -62,6 +78,15 @@ async def get_turn(
     turn_id: str,
     membership: Membership = Depends(get_membership),
 ):
+    if _store is not None:
+        turn = _store.get_turn(
+            user_id=membership.user_id,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+        )
+        if not turn:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Turno no encontrado")
+        return _public(turn)
     for (user_id, conv, _client), turn in _TURNS.items():
         if user_id == membership.user_id and conv == conversation_id and turn["turn_id"] == turn_id:
             return _public(turn)

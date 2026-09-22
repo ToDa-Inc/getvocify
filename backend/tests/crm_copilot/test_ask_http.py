@@ -26,6 +26,60 @@ def _client(user_id: str) -> TestClient:
 
 def setup_function():
     ask_api._TURNS.clear()
+    ask_api.set_ask_store(None)
+
+
+def test_a_stored_turn_replays_the_same_id_for_the_callers_company():
+    class Store:
+        def __init__(self):
+            self.companies = []
+            self.saved = None
+
+        def save_turn(self, *, user_id, company_id, conversation_id, client_turn_id, text):
+            self.companies.append(company_id)
+            if self.saved is None:
+                self.saved = {
+                    "user_id": user_id,
+                    "conversation_id": conversation_id,
+                    "turn_id": "turn-db",
+                    "status": "pending",
+                    "client_turn_id": client_turn_id,
+                    "text": text,
+                }
+            return self.saved
+
+        def get_turn(self, *, user_id, conversation_id, turn_id):
+            if (
+                not self.saved
+                or self.saved["user_id"] != user_id
+                or self.saved["turn_id"] != turn_id
+                or self.saved["conversation_id"] != conversation_id
+            ):
+                return None
+            return self.saved
+
+    store = Store()
+    ask_api.set_ask_store(store)
+    try:
+        client = _client("user-a")
+        first = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-2", "text": "¿Qué sigue?"},
+        )
+        second = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-2", "text": "otra"},
+        )
+        assert first.status_code == 202
+        assert first.json()["turn_id"] == second.json()["turn_id"] == "turn-db"
+        assert second.json()["text"] == "¿Qué sigue?"
+        assert store.companies == ["co-1", "co-1"]
+        fetched = client.get("/api/v1/ask/conversations/conv-1/turns/turn-db")
+        assert fetched.status_code == 200
+        stranger = _client("user-b")
+        assert stranger.get("/api/v1/ask/conversations/conv-1/turns/turn-db").status_code == 404
+    finally:
+        ask_api.set_ask_store(None)
 
 
 def test_pending_turn_is_accepted_and_replay_keeps_the_same_id():

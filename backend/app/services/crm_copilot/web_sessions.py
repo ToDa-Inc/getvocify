@@ -11,6 +11,54 @@ class UncertainOperation(Exception):
     pass
 
 
+class SupabaseAskStore:
+    def __init__(self, supabase):
+        self.supabase = supabase
+
+    def save_turn(self, *, user_id, company_id, conversation_id, client_turn_id, text):
+        result = self.supabase.rpc(
+            "save_ask_turn",
+            {
+                "p_company": company_id,
+                "p_user": user_id,
+                "p_conversation": conversation_id,
+                "p_client_turn": client_turn_id,
+                "p_text": text,
+            },
+        ).execute()
+        rows = list(getattr(result, "data", None) or [])
+        row = rows[0] if rows else {}
+        return {
+            "conversation_id": conversation_id,
+            "turn_id": row.get("turn_id"),
+            "status": "pending",
+            "client_turn_id": client_turn_id,
+            "text": row.get("body") or text,
+        }
+
+    def get_turn(self, *, user_id, conversation_id, turn_id):
+        result = (
+            self.supabase.table("copilot_web_turns")
+            .select("id,conversation_id,client_turn_id,status,body,user_id")
+            .eq("id", turn_id)
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .limit(1)
+            .execute()
+        )
+        rows = list(getattr(result, "data", None) or [])
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "conversation_id": row.get("conversation_id"),
+            "turn_id": row.get("id"),
+            "status": row.get("status") or "pending",
+            "client_turn_id": row.get("client_turn_id"),
+            "text": row.get("body") or "",
+        }
+
+
 def accept_turn(store: dict, *, conversation_id: str, client_turn_id: str, text: str) -> dict:
     key = (conversation_id, client_turn_id)
     existing = store.get(key)

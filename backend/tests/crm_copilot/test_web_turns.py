@@ -52,3 +52,83 @@ def test_an_uncertain_remote_result_is_not_retried_blindly():
     with pytest.raises(UncertainOperation):
         confirm_operation(operation, operation_id="op-1", revision=3, contact_id="contact-a")
     assert operation["applied"] is False
+
+
+def test_a_repeated_ask_turn_is_one_row_and_another_user_is_separate():
+    import shutil
+    import socket
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    env = os.environ.copy()
+    env["LC_ALL"] = "C"
+    env["LANG"] = "C"
+    initdb = shutil.which("initdb")
+    postgres = shutil.which("postgres")
+    if not initdb or not postgres:
+        pytest.skip("No hay PostgreSQL aislado")
+    datadir = Path(tempfile.mkdtemp(prefix="vocify-ask-"))
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    subprocess.run(
+        [initdb, "-D", str(datadir), "--auth=trust", "--no-instructions", "-U", "vocify", "--encoding=UTF8", "--locale=C"],
+        check=True, env=env, capture_output=True,
+    )
+    log = open(datadir / "pg.log", "w")
+    proc = subprocess.Popen(
+        [postgres, "-D", str(datadir), "-p", str(port), "-h", "127.0.0.1", "-k", str(datadir)],
+        stdout=log, stderr=subprocess.STDOUT, env=env,
+    )
+    dsn = f"postgresql://vocify@127.0.0.1:{port}/postgres"
+    user = "11111111-1111-1111-1111-111111111111"
+    company = "22222222-2222-2222-2222-222222222222"
+    other = "33333333-3333-3333-3333-333333333333"
+
+    def psql(sql: str):
+        return subprocess.run(
+            ["psql", dsn, "-v", "ON_ERROR_STOP=1", "-tA", "-c", sql],
+            capture_output=True, text=True, env=env, check=False,
+        )
+
+    try:
+        for _ in range(40):
+            if psql("SELECT 1;").returncode == 0:
+                break
+        migration = Path(__file__).resolve().parents[2] / "migrations" / "041_copilot_web_sessions.sql"
+        applied = subprocess.run(
+            ["psql", dsn, "-v", "ON_ERROR_STOP=1", "-f", str(migration)],
+            capture_output=True, text=True, env=env, check=False,
+        )
+        assert applied.returncode == 0, applied.stderr
+        first = psql(
+            "SELECT turn_id || '|' || body || '|' || replayed::text FROM save_ask_turn("
+            f"'{company}', '{user}', 'conv-1', 'web-2', '¿Qué sigue?');"
+        )
+        assert first.returncode == 0, first.stderr
+        second = psql(
+            "SELECT turn_id || '|' || body || '|' || replayed::text FROM save_ask_turn("
+            f"'{company}', '{user}', 'conv-1', 'web-2', 'otra pregunta');"
+        )
+        assert second.returncode == 0, second.stderr
+        first_id, first_body, first_replayed = first.stdout.strip().split("|")
+        second_id, second_body, second_replayed = second.stdout.strip().split("|")
+        assert first_id == second_id
+        assert first_body == second_body == "¿Qué sigue?"
+        assert first_replayed == "false"
+        assert second_replayed == "true"
+        assert psql("SELECT count(*) FROM copilot_web_turns;").stdout.strip() == "1"
+        stranger = psql(
+            f"SELECT turn_id FROM save_ask_turn('{company}', '{other}', 'conv-1', 'web-2', 'privado');"
+        )
+        assert stranger.stdout.strip() != first_id
+        assert psql("SELECT count(*) FROM copilot_web_turns;").stdout.strip() == "2"
+        assert psql(
+            f"SELECT company_id::text FROM copilot_web_turns WHERE user_id = '{user}';"
+        ).stdout.strip() == company
+    finally:
+        proc.terminate()
+        proc.wait(timeout=8)
+        shutil.rmtree(datadir, ignore_errors=True)
