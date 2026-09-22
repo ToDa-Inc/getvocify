@@ -15,7 +15,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | La voz se puede cancelar o editar; no se envía sola y no crea un memo | `8f4d3c0` | `src/lib/ask-voice.test.ts` |
 | Transcribir la pregunta devuelve texto y `memo_id` null; el silencio queda vacío | `a0ac152` | `tests/crm_copilot/test_ask_http.py` |
 | Conversación vacía, sin resultados y lectura parcial del CRM no comparten la misma frase | `40835da` | `src/lib/ask-situation.test.ts` |
-| Un turno con lectura prohibida no se guarda como consulta sin resultados | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Un turno con lectura prohibida no se guarda como consulta sin resultados | `53f4821` | `tests/crm_copilot/test_ask_http.py` |
+| La pregunta web pasa por el loop una vez; el reintento no lo vuelve a llamar | este commit | `tests/crm_copilot/test_ask_http.py` |
 
 ## No verificado
 

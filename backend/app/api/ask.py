@@ -25,6 +25,12 @@ _OPERATIONS: dict[tuple[str, str, str], dict] = {}
 _store = None
 _transcriber = None
 _reader = None
+_loop = None
+
+
+def set_ask_loop(loop) -> None:
+    global _loop
+    _loop = loop
 
 
 def set_ask_reader(reader) -> None:
@@ -113,6 +119,20 @@ async def post_turn(
 
 
 async def _finish(turn: dict, text: str) -> dict:
+    if _loop is not None:
+        result = _loop(text)
+        if asyncio.iscoroutine(result):
+            result = await result
+        if hasattr(result, "text"):
+            answer = result.text
+            envelope = getattr(result, "envelope", None)
+        else:
+            answer = result.get("text") or turn["text"]
+            envelope = result.get("envelope")
+        updated = {**turn, "status": "completed", "text": answer}
+        if envelope:
+            updated = attach_read(updated, envelope)
+        return updated
     if _reader is None:
         return turn
     envelope = _reader(text)

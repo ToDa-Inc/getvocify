@@ -30,6 +30,7 @@ def setup_function():
     ask_api.set_ask_store(None)
     ask_api.set_ask_transcriber(None)
     ask_api.set_ask_reader(None)
+    ask_api.set_ask_loop(None)
 
 
 def test_a_stored_turn_replays_the_same_id_for_the_callers_company():
@@ -237,3 +238,32 @@ def test_voice_transcription_returns_text_and_creates_no_memo():
         assert silent.json()["memo_id"] is None
     finally:
         ask_api.set_ask_transcriber(None)
+
+
+def test_the_web_turn_runs_the_loop_once_and_keeps_an_empty_read():
+    calls = []
+
+    async def loop(text: str) -> dict:
+        calls.append(text)
+        return {"text": "Marina queda el jueves.", "envelope": {"items": [], "coverage": "complete"}}
+
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        first = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-loop", "text": "¿Qué sigue?"},
+        )
+        second = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-loop", "text": "otra"},
+        )
+        assert first.status_code == 200
+        assert first.json()["text"] == "Marina queda el jueves."
+        assert first.json()["coverage"] == "complete"
+        assert first.json()["item_count"] == 0
+        assert second.json()["text"] == "Marina queda el jueves."
+        assert second.json()["turn_id"] == first.json()["turn_id"]
+        assert calls == ["¿Qué sigue?"]
+    finally:
+        ask_api.set_ask_loop(None)
