@@ -73,6 +73,7 @@ import {
   setCachedPreview,
   setInflightPreview,
 } from './lib/preview-cache.js';
+import { liveAssistGateFromSuggestPayload } from './lib/live-assist-gate.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -653,6 +654,8 @@ function emptyCopilotUi() {
     copilotError: null,
     copilotLatencyMs: null,
     copilotTabTitle: null,
+    playbookReady: false,
+    evidenceRefs: [],
   };
 }
 
@@ -674,6 +677,8 @@ async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRol
     copilotLastTurn: latestTurn,
     copilotError: null,
     copilotLatencyMs: null,
+    playbookReady: false,
+    evidenceRefs: [],
   });
 
   const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
@@ -695,10 +700,13 @@ async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRol
         if (event.type === 'token') {
           updateState({ copilotRawStream: `${state.copilotRawStream || ''}${event.text}` });
         } else if (event.type === 'result') {
+          const { playbookReady, evidenceRefs } = liveAssistGateFromSuggestPayload(event);
           updateState({
             copilotSuggestion: event.suggestion,
             copilotIsLoading: false,
             copilotLatencyMs: event.latency_ms ?? null,
+            playbookReady,
+            evidenceRefs,
           });
         } else if (event.type === 'error') {
           updateState({ copilotError: event.message, copilotIsLoading: false });

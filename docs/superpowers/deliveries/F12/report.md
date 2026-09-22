@@ -10,6 +10,7 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 | Listen en pestaña CRM usa `callMode`/`liveAssistKind` para tratar la sesión como reunión aunque `kind` siga en `call` | el mismo archivo |
 | Un paso se marca por evidencia, no por el tiempo transcurrido | el mismo archivo |
 | Cambiar de reunión descarta la respuesta anterior. Un evento SSE partido no se lee hasta cerrar el frame | el mismo archivo, 3 passed |
+| Extensión: el background reenvía `playbook_ready` / `evidence_refs` del SSE al gate de `#copilot-card` | `chrome-extension/lib/live-assist-gate.test.js` |
 
 ## No verificado
 
