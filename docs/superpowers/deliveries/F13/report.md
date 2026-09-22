@@ -18,6 +18,8 @@ La ruta de producción `send_report_email` usa el adaptador Resend cuando el cal
 
 `run_due_report_emails` enlaza `due_report_sends` con `send_report_email`; el bucle periódico de `main` invoca `tick_due_report_emails` tras las 18:00 local de Madrid y persiste `sent`, `failed` y `uncertain` en `report_deliveries` (`sent` y `uncertain` no reenvían; `failed` como mucho una vez por día local según `created_at`, sin columna nueva) (`tests/reporting/test_due_sends.py`, `tests/reporting/test_tick_due_report_emails.py`, sin correo real verificado).
 
+Sin destinatario en el tick, `_ReportIdSender` falla y el intento queda `failed` (no `sent`); el reloj de reintento sigue siendo `created_at` — no hay `last_attempt_at`.
+
 ## No verificado
 
 - `GET /reports/{id}` devuelve la instantánea guardada. El informe de otra persona responde 404. Marcar la campana dos veces conserva la primera hora. La página está en `/dashboard/reports/:id`. No se recorrió en el navegador.

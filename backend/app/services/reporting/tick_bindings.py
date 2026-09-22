@@ -75,7 +75,7 @@ class _ReportIdSender:
         report_id = key.split(":", 1)[0]
         sender = self._sender_for(report_id)
         if sender is None:
-            return
+            raise RuntimeError(f"no recipient sender for report {report_id}")
         sender.send(key)
 
     def reconcile(self, key: str):
