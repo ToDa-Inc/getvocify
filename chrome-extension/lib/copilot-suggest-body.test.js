@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildCopilotSuggestRequestBody } from './copilot-suggest-body.js';
+import {
+  LEGACY_DEFAULT_PRODUCT_CONTEXT,
+  buildCopilotSuggestRequestBody,
+} from './copilot-suggest-body.js';
 
 const productContext = 'Product context';
 
@@ -62,5 +65,26 @@ describe('buildCopilotSuggestRequestBody', () => {
     });
     assert.ok(body);
     assert.equal(body.product_context, productContext);
+  });
+
+  it('omits product_context for legacy default pitch; keeps custom text', () => {
+    const legacyBody = buildCopilotSuggestRequestBody({
+      callMode: 'meeting',
+      latestTurn: 'hello',
+      transcriptWindow: 'They: hello',
+      productContext: LEGACY_DEFAULT_PRODUCT_CONTEXT,
+    });
+    assert.ok(legacyBody);
+    assert.equal('product_context' in legacyBody, false);
+
+    const custom = 'We sell analytics for field sales teams.';
+    const customBody = buildCopilotSuggestRequestBody({
+      callMode: 'meeting',
+      latestTurn: 'hello',
+      transcriptWindow: 'They: hello',
+      productContext: custom,
+    });
+    assert.ok(customBody);
+    assert.equal(customBody.product_context, custom);
   });
 });

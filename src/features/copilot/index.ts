@@ -4,7 +4,10 @@ export type {
   CallMode,
   SuggestRequest,
 } from "./types";
-export { PRODUCT_CONTEXT_STORAGE_KEY } from "./types";
+export {
+  PRODUCT_CONTEXT_STORAGE_KEY,
+  normalizeStoredProductContext,
+} from "./types";
 export { streamObjectionSuggestion } from "./api/suggest";
 export { useTurnDetector } from "./hooks/useTurnDetector";
 export type { SpeakerRole, TurnMeta } from "./hooks/useTurnDetector";

@@ -3,6 +3,25 @@
  * Live help is meetings only — non-meeting callMode yields null (no fetch).
  */
 
+/** Keep in sync with LEGACY_DEFAULT_PRODUCT_CONTEXT in src/features/copilot/types.ts */
+export const LEGACY_DEFAULT_PRODUCT_CONTEXT = `Product: Vocify — AI voice memos that extract CRM fields and sync to HubSpot after sales calls.
+Ideal customer: B2B sales teams / founders who hate typing notes into CRM after calls.
+Pain: Lost deal context, delayed CRM hygiene, reps avoid logging calls.
+Value: Speak after (or during) the call → structured fields → push to CRM in seconds.
+Proof angles: Speeds CRM updates, reduces forgotten follow-ups, keeps pipeline trustworthy.
+Tone: Direct, founder-to-founder, no fluff. Spanish or English OK.`;
+
+const LEGACY_DEFAULT_PRODUCT_CONTEXT_TRIMMED =
+  LEGACY_DEFAULT_PRODUCT_CONTEXT.trim();
+
+export function effectiveProductContext(raw) {
+  const trimmed = String(raw ?? '').trim();
+  if (!trimmed || trimmed === LEGACY_DEFAULT_PRODUCT_CONTEXT_TRIMMED) {
+    return '';
+  }
+  return trimmed;
+}
+
 export function buildCopilotSuggestRequestBody({
   callMode,
   context = null,
@@ -22,7 +41,7 @@ export function buildCopilotSuggestRequestBody({
       speakerRole === 'rep' || speakerRole === 'unknown' ? speakerRole : 'prospect',
   };
 
-  const trimmedProductContext = String(productContext ?? '').trim();
+  const trimmedProductContext = effectiveProductContext(productContext);
   if (trimmedProductContext) {
     body.product_context = trimmedProductContext;
   }

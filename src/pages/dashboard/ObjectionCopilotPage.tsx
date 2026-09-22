@@ -5,6 +5,7 @@ import { useRealtimeTranscription } from "@/features/recording";
 import {
   CopilotControls,
   PRODUCT_CONTEXT_STORAGE_KEY,
+  normalizeStoredProductContext,
   SuggestionCard,
   VoiceEnrollmentPanel,
   useObjectionSuggestions,
@@ -18,7 +19,9 @@ const ObjectionCopilotPage = () => {
   const { user } = useAuth();
   const [productContext, setProductContext] = useState(() => {
     try {
-      return localStorage.getItem(PRODUCT_CONTEXT_STORAGE_KEY) ?? "";
+      return normalizeStoredProductContext(
+        localStorage.getItem(PRODUCT_CONTEXT_STORAGE_KEY)
+      );
     } catch {
       return "";
     }
