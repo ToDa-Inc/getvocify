@@ -13,4 +13,4 @@ Estado: la adherencia determinista está en `feat/vocify-v1`. No está cerrada.
 ## No verificado
 
 - `GET /memos/{id}/score` devuelve la nota guardada y no la recalcula. La tarjeta muestra fortaleza y mejora antes del número. `src/lib/coaching-score.test.ts` 2 passed; `tsc --noEmit`.
-- No hay un conjunto de 20 conversaciones anotadas. No se inventa. El ensamblado no llama a un modelo. La pantalla no se recorrió en el navegador.
+- El examen de desarrollo está en `backend/evals/F09/cases.json`: llamadas, meetings, objeción, ambigüedad, error de transcripción y silencio. No entra en el producto. Una cita que no está en el texto no se usa. Una reunión fácil no supera a la objeción trabajada. El silencio no inventa nota.
