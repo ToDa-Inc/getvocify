@@ -321,8 +321,21 @@ CREATE TABLE memos (
   processing_started_at TIMESTAMPTZ,
 
   -- Origin + WhatsApp/HubSpot-call integration fields (migrations 009-011).
-  source TEXT DEFAULT 'web' CHECK (source IN ('web', 'voice_memo', 'whatsapp', 'unipile', 'hubspot_call')),
+  source TEXT DEFAULT 'web' CHECK (source IN ('web', 'voice_memo', 'whatsapp', 'unipile', 'hubspot_call', 'vocify_call', 'desktop')),
   source_type VARCHAR(50) DEFAULT 'voice_memo',
+  client_capture_id TEXT,
+  capture_started_at TIMESTAMPTZ,
+  interaction_kind TEXT CHECK (
+    interaction_kind IS NULL OR interaction_kind IN ('call', 'meeting', 'visit', 'voice_note')
+  ),
+  sales_motion_key TEXT,
+  playbook_version_id TEXT,
+  company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
+  capture_status TEXT CHECK (
+    capture_status IS NULL OR capture_status IN ('recording', 'upload_pending', 'processing', 'complete', 'failed')
+  ),
+  capture_content_fingerprint TEXT,
+  capture_input_revision INTEGER NOT NULL DEFAULT 0,
   whatsapp_message_id TEXT,
   conversation_id UUID,
   hubspot_engagement_id TEXT,
@@ -330,6 +343,11 @@ CREATE TABLE memos (
   hubspot_contact_id TEXT,
   speechmatics_job_id TEXT
 );
+
+-- F01.02 / migration 037: one client capture id per author.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
+  ON memos (user_id, client_capture_id)
+  WHERE client_capture_id IS NOT NULL;
 
 -- 6. CRM UPDATES (audit trail) - exists in production with no versioned
 -- CREATE TABLE anywhere; only ALTER TABLEs for it exist (migrations 003, 015).

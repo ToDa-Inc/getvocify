@@ -69,6 +69,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             "/transcription" in path
             or "/copilot" in path
             or "/memos/upload" in path
+            or "/captures" in path
             or "/upload-transcript" in path
             or "/re-extract" in path
             or "/re-transcribe" in path
