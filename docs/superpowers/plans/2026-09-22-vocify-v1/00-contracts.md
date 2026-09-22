@@ -33,7 +33,7 @@
 | C09 PriorityCandidate | F04 | Home y F05 |
 | C10 Touch/Signal/Card/TodayView | F05 | F06, F03, reporting |
 | C11 Acción/deshacer/cola | F06 | Web/extensión/desktop |
-| C12 PreparationBrief | F03, condicionado | Contacto extensión y secundarios |
+| C12 PreparationBrief | F03, formato mínimo | Contacto extensión y la misma lista en secundarios |
 | C13 Annotation/Pattern | F10 | F09, F11, F15 |
 | C14 ScoreView y métricas | F09 | F11, F13, F15 |
 | C15 MeetingProposal | F14 | Revisión, F11, F13, F15 |
@@ -148,11 +148,13 @@ La idempotencia se define por señal+request_id dentro del ámbito de usuario. U
 
 `queueReducer` de S conserva modos idle/queue/calling/review/done. Adaptación `call_ended` usa screeningOutcome además de memoId: buzón/no respuesta avanza aunque haya memo. Deshacer solo restaura señal; no revierte una llamada ni retira correo.
 
-## C12 — Preparación, todavía condicionada
+## C12 — Preparación, formato mínimo
 
-Rutas/formatos permanecen propuestos hasta aprobación expresa: GET `/briefs?connection_id=&contact_id=&deal_id=`. Campos: identidad completa, status ready/no_interactions/partial/unavailable, coverage, source_revision, blocks máximo4, crm_url permitido. Cada bloque incluye type/text/source_ref/observed_at.
+Aprobado el 22 sep 2026. GET `/briefs?connection_id=&contact_id=&deal_id=`. Campos: identidad, status `ready` / `no_conversation` / `nothing_pending` / `partial` / `unavailable`, coverage, source_revision, `lines` (0 a 3) y `crm_url` si existe. Cada línea: `type` (`last` / `pending` / `objection`), `text`, `source_ref`, `observed_at`. La respuesta del playbook va dentro de la línea `objection` solo cuando hay objeción abierta y regla publicada. No hay cuarta línea vacía.
 
-Primario: extensión en contacto HubSpot sin llamada activa; secundarios: tarjeta/marcador/home desktop. Captura/revisión activa prevalece sobre screen-contact. Respuesta de identidad antigua se descarta. No genera LLM ni dependencia de la cola.
+`no_conversation`: ninguna interacción Vocify. Texto fijo «Sin conversación todavía.» Una tarea CRM real puede añadir una línea con origen CRM. `nothing_pending`: hubo conversación y no quedó paso, dolor ni objeción. Una frase con la fecha. `partial` no se disfraza de `no_conversation`.
+
+Primario: extensión en contacto HubSpot sin llamada activa. Secundarios: la misma lista en dashboard y escritorio. Captura o revisión activa prevalece sobre `screen-contact`. Una respuesta de otro contacto se descarta. Sin modelo y sin tabla nueva.
 
 ## C13 — Notas y patrones
 

@@ -2,13 +2,13 @@
 
 > **Ejecución futura:** usar `executing-plans` dentro del subagente dedicado a esta entrega; la coordinación secuencial usa `subagent-driven-development`. Este documento es planificación, no una implementación ni una autorización para desplegar. Ninguna casilla de ejecución está completada.
 
-**Objetivo:** Precisar e implementar solo tras aprobación la preparación previa sobre contacto HubSpot como acceso principal.
+**Objetivo:** Mostrar, antes de llamar, solo los hechos que existen. Formato mínimo aprobado el 22 sep 2026 en [decisiones](./00-decisiones.md). Las cuatro filas fijas quedan retiradas.
 
 **Arquitectura:** Agregación de lectura sin LLM nuevo; componente shared único, hosts obtienen identidad y descartan respuestas obsoletas.
 
 **Stack:** FastAPI/Python, Supabase/PostgreSQL, React 18/TypeScript y módulos JS compartidos; Electron/extensión cuando figuren entre las superficies de esta entrega.
 
-**Posición:** 9 de 16. **Estado:** bloqueada para implementación hasta aprobar formato y ubicación.
+**Posición:** 9 de 16. **Estado:** aprobada en formato mínimo. Se puede implementar.
 
 **Navegación:** [plan maestro](/Users/danizal/getvocify/proposed_plan.md) · [contratos](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-contracts.md) · [integración y gates](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-integration-and-gates.md)
 
@@ -18,11 +18,11 @@
 
 | Tipo | Contrato de esta entrega |
 |---|---|
-| Recibe | C04 evidencia, C06 playbook, C08 contexto, C10 tarjetas; aprobación explícita de formato/ubicación. |
-| Produce | C12 PreparationBrief y v-brief; screen-contact con independencia de captura. |
+| Recibe | C04 evidencia, C06 playbook, C08 contexto, C10 tarjetas. El formato mínimo ya está aprobado. |
+| Produce | C12 PreparationBrief: cero a tres líneas con hecho. `screen-contact` no exige una captura activa. |
 | Dependencias de código | [F05](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/07-f05-hoy.md), [F08](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/04-f08-playbooks.md), [F07](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/05-f07-ask-vocify.md) |
 | Migración propia | Ninguna; cache por revisión, no tabla nueva. |
-| No le corresponde | No ejecutar ninguna tarea de UI/API hasta aprobación; no convertir en dependencia F06/F10. No nueva captura ni panel inyectado en HubSpot. |
+| No le corresponde | No es dependencia de F06 ni de F10. No nueva captura ni panel inyectado en HubSpot. No rellenar filas vacías ni llamar a un modelo para redactar el brief. |
 
 La posición en la cola no convierte todas las entregas anteriores en dependencias técnicas. Los contratos nombrados aquí deben existir y tener evidencia de aceptación antes de ejecutar tareas que los consuman. Una dependencia suspendida solo permite avanzar si la parte consumida ya está verificada y el coordinador lo documenta.
 
@@ -72,15 +72,15 @@ Este bloque conserva la especificación y los criterios aprobados para planifica
 
 **Fuente:** A §3; I §2.4 y §3.3; P §7.  
 
-**Prioridad:** V1, **propuesta pendiente de aprobación**.
+**Prioridad:** V1. **Formato mínimo aprobado el 22 sep 2026.**
 
 ### En una frase
 
-Antes de hablar con un contacto, el comercial puede revisar en segundos lo último que ocurrió y lo que quedó pendiente.
+Antes de llamar se ven como mucho tres hechos. Si no se ha hablado, o se habló y no quedó nada, una frase y se acaba.
 
 ### Por qué (first principles)
 
-Elimina la búsqueda previa en notas y tareas. Debe ser suficientemente breve para utilizarse antes de una llamada real.
+Tiene que caber antes de marcar. Una fila vacía o un consejo generado estorba.
 
 ### Qué ya existe (auditoría)
 
@@ -90,37 +90,27 @@ Elimina la búsqueda previa en notas y tareas. Debe ser suficientemente breve pa
 
 - Playbooks y contexto CRM.
 
-- El diseño anterior propone cuatro filas, pero has pedido mantenerlo sin aprobar.
+- El diseño de cuatro filas fijas quedó retirado. Manda [decisiones](./00-decisiones.md).
 
 ### Backend
-
-**Contrato propuesto, no autorizado para implementación:**
 
 - `/Users/danizal/getvocify/backend/app/services/briefs/preparation.py`.
 
 - `GET /api/v1/briefs?connection_id=&contact_id=&deal_id=`.
 
-- Devuelve hasta cuatro bloques:
+- Cero a tres líneas, solo con hecho: última conversación, un pendiente, una objeción abierta. El playbook solo entra en la objeción si hay regla publicada.
 
-  - Última vez.
+- Sin conversación: `no_conversation` y «Sin conversación todavía.» Una tarea CRM real puede sumar una línea marcada como CRM.
 
-  - Quedó pendiente.
+- Conversación sin paso, sin dolor confirmado y sin objeción: `nothing_pending` y «Última vez: {fecha}. No quedó nada pendiente.»
 
-  - Objeción abierta.
-
-  - Respuesta aplicable del playbook.
-
-- Cada bloque incluye referencia al memo, tarea o regla de origen.
-
-- Sin una nueva llamada al LLM: reutiliza resúmenes, evidencia y plantillas.
-
-- Sin nueva tabla; caché identificada por revisión de las fuentes.
+- Cada línea cita memo, tarea o regla. Sin modelo. Sin tabla nueva. Caché por revisión de las fuentes.
 
 **SOLID:** agregación de lectura independiente del scoring y del brief posterior.
 
 ### Frontend / Dashboard
 
-- **Propuesta de superficie primaria — A3:** `<v-brief>` en la extensión al abrirla sobre la página de un contacto de HubSpot, antes de iniciar la llamada y sin exigir una captura activa. Es el acceso principal a validar con Dani junto con el formato; dashboard, marcador y home desktop son accesos secundarios al mismo contenido.
+- `<v-brief>` en la extensión, sobre un contacto de HubSpot, antes de llamar y sin captura activa. Dashboard y escritorio muestran la misma lista.
 
 - `usePreparationBrief`.
 
@@ -128,11 +118,11 @@ Elimina la búsqueda previa en notas y tareas. Debe ser suficientemente breve pa
 
 - No añadir una página ni notificaciones de calendario.
 
-- Copy: «Quedó pendiente: enviar el caso de logística».
+- Copy solo cuando hay hecho. Ejemplo de pendiente: «Quedó pendiente: enviar el caso de logística».
 
-#### Entrada desde el contacto y estados propuestos
+#### Entrada desde el contacto
 
-Si Dani aprueba F03, añadir `screen-contact` en `/Users/danizal/getvocify/chrome-extension/popup/index.html` e integrar su selección en `popup.js`; gestionar la identidad activa mediante `background.js` y el parser CRM existente. La pantalla muestra nombre del contacto, procedencia, `<v-brief>` y la acción existente de llamada. No inyectar un nuevo panel en HubSpot ni crear otra captura para obtener contexto.
+Añadir `screen-contact` en el popup e integrarlo en `popup.js` y `background.js` con el parser CRM existente. Nombre del contacto, las líneas y la acción de llamada que ya existe. No inyectar un panel en HubSpot ni crear otra captura para leer el contexto. La altura sigue al texto.
 
 - Abrir la extensión sobre un contacto y sin sesión de llamada/revisión activa lleva a `screen-contact`. Iniciar llamada conserva los estados existentes. Una captura o revisión pendiente tiene prioridad y conserva su contacto de origen, aunque el usuario navegue por otra pestaña.
 - Cambiar de contacto cancela/descarta la lectura anterior y muestra carga del nuevo. La clave incluye usuario, empresa, conexión, contacto, deal y revisión; nunca reutilizar el brief de A mientras carga B. Un deal ambiguo exige selección contextual y no combina compromisos incompatibles.
@@ -140,30 +130,31 @@ Si Dani aprueba F03, añadir `screen-contact` en `/Users/danizal/getvocify/chrom
 
 | Información disponible | Qué se muestra |
 |---|---|
-| Interacciones Vocify con evidencia | Hasta cuatro filas del formato propuesto, con origen y fecha accesibles al ampliar. |
-| Contacto sin interacciones Vocify | «Sin interacciones registradas todavía». Mostrar solo datos/tareas de HubSpot que sí estén disponibles, etiquetados como CRM, y acción «Ver contacto en HubSpot». No inventar última conversación ni objeciones. |
-| Historial parcial o permiso insuficiente | «No pudimos cargar todo el contexto», con bloques verificables, fuente afectada y reintento. No sustituirlo por «sin interacciones». |
-| Lectura en curso | Reservar las cuatro filas; no mostrar datos del contacto anterior ni el vacío antes de terminar. |
+| Hechos con evidencia | Solo las líneas que existan, con origen y fecha al ampliar. |
+| Nunca se ha hablado | «Sin conversación todavía.» Más una tarea CRM si el CRM la tiene. |
+| Se habló y no quedó nada | «Última vez: {fecha}. No quedó nada pendiente.» |
+| Lectura parcial o sin permiso | «No se pudo cargar todo.» con las líneas verificadas y reintento. |
+| Cargando | Una línea de espera. No se enseña el contacto anterior ni huecos vacíos. |
 
-La API propuesta añade estado de cobertura y fecha de fuente al contrato de lectura ya descrito; no añade generación LLM ni una tabla de brief. Todo este bloque sigue condicionado a la aprobación de formato y ubicación: documentarlo no autoriza construirlo.
+Sin modelo y sin tabla nueva. Este formato ya está aprobado.
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Dani valida primero formato y ubicación.
+- [x] Formato mínimo y extensión sobre el contacto, aprobados el 22 sep 2026.
 
 - [ ] Ninguna afirmación carece de fuente.
 
 - [ ] Abrir el brief no genera análisis nuevo.
 
-- [ ] El contacto sin historial tiene un estado explícito.
+- [ ] El contacto nunca hablado y el que no dejó nada tienen frases distintas.
 
 - [ ] La precarga no muestra datos de un contacto anterior.
 
-- [ ] La lectura principal cabe en cuatro filas.
+- [ ] No se pintan filas vacías. Como máximo tres hechos, y la tarea CRM solo si no hay conversación.
 
-- [ ] Tras aprobación, abrir la extensión en un contacto HubSpot muestra el brief antes de llamar; dashboard y desktop reutilizan el contenido como accesos secundarios.
+- [ ] Abrir la extensión en un contacto HubSpot muestra eso antes de llamar. Dashboard y escritorio usan el mismo texto.
 
-- [ ] Sin historial Vocify se muestra el estado explícito y una acción CRM útil; una lectura incompleta no se presenta como ausencia de historial.
+- [ ] Una lectura incompleta no se presenta como «sin conversación».
 
 - [ ] Navegar entre contactos no mezcla datos y no desplaza una captura/revisión que siga activa sobre el contacto original.
 
@@ -178,7 +169,7 @@ Historial antiguo, varios deals del mismo contacto y contexto contradictorio. Ha
 | Crear condicionado | `/Users/danizal/getvocify/backend/app/services/briefs/preparation.py` | Agregación de lectura. |
 | Crear condicionado | `/Users/danizal/getvocify/backend/app/api/briefs.py` | GET briefs scoped. |
 | Crear condicionado | `/Users/danizal/getvocify/backend/tests/briefs/test_preparation.py` | Fuente, vacío y stale. |
-| Crear condicionado | `/Users/danizal/getvocify/shared/ui/components/brief.js` | Render cuatro filas. |
+| Crear | `/Users/danizal/getvocify/shared/ui/components/brief.js` | Lista de cero a tres hechos. Sin filas vacías. |
 | Crear condicionado | `/Users/danizal/getvocify/shared/ui/components/v-brief.js` | Elemento compartido. |
 | Crear condicionado | `/Users/danizal/getvocify/shared/ui/brief.test.js` | Render/identidad. |
 | Modificar condicionado | `/Users/danizal/getvocify/chrome-extension/popup/index.html` | screen-contact. |
@@ -196,7 +187,7 @@ Cada tarea termina con evidencia revisable. Los ejemplos de contrato y prueba fi
 
 **Archivos:** Spec/report de entrega F03; no código en este paso.
 
-**Interfaz y propiedad:** Aprobación debe incluir cuatro filas, extensión contacto primaria y secundarios. Decisión se referencia en reporte.
+**Interfaz y propiedad:** Formato mínimo ya aprobado. Extensión sobre el contacto. La misma lista en dashboard y escritorio. Decisión en `00-decisiones.md`.
 
 **Ejemplo concreto de contrato o prueba a incorporar:**
 
@@ -218,7 +209,7 @@ Sin decisión: tareas F03.02–F03.04 permanecen bloqueadas
 
 - [ ] Presentar propuesta concreta ya descrita y registrar decisión; el silencio no aprueba.
 
-- [ ] Si sigue bloqueada, preparar F10 y registrar independencia según maestro; no crear v-brief preventivamente.
+- [ ] Implementar la lectura mínima. F10 no espera a esta pantalla.
 
 - [ ] Resolver los edge cases nuevos encontrados con su prueba; si requieren decisión humana, aplicar el protocolo de bloqueos del plan maestro y conservar el criterio pendiente.
 
@@ -292,7 +283,7 @@ response B -> render brief B
 
 - [ ] Ejecutar `node --test shared/ui/brief.test.js` y confirmar fallo por la capacidad ausente; si falla por entorno, arreglar el entorno antes de atribuirlo a la feature.
 
-- [ ] Renderizar cuatro filas/skeleton/empty/partial con la misma altura inicial.
+- [ ] Renderizar solo las líneas con hecho. Carga de una línea. Vacío de nunca-hablado y vacío de «no quedó nada» con frases distintas.
 
 - [ ] Añadir screen-contact al controlador existente sin reemplazar auth/record/review states.
 

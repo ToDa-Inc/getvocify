@@ -170,7 +170,7 @@ El bloque usa estados explícitos: «Evaluando la interacción», «Falta config
 
 - [ ] La adherencia coincide con sus numerador y denominador.
 
-- [ ] Se evalúa con al menos 20 conversaciones anotadas por el equipo, incluyendo los casos anteriores.
+- [ ] Se examina con conversaciones generadas para desarrollo en `backend/evals/F09/`: llamadas y meetings, con error de transcripción, ambigüedad y objeción trabajada. No viven en el producto ni sustituyen el playbook de cada empresa. Ver [decisiones](./00-decisiones.md).
 
 - [ ] El texto principal contiene acciones concretas y evita consejos genéricos.
 
@@ -308,7 +308,7 @@ Resultado comercial -> contexto separado, no bonus
 |---|---|
 | Sin proceso | Falta configurar el proceso, CTA según rol. |
 | Partial | Observaciones respaldadas y cobertura, sin cero. |
-| 20 conversaciones anotadas | Incluye fácil, objeción trabajada, ambigua y sin evidencia. |
+| Conversaciones generadas | Llamada fácil, objeción trabajada, ambigua, error de transcripción y sin evidencia. No se hardcodean en runtime. |
 
 - [ ] Escribir estos casos en los archivos de prueba indicados; para persistencia/concurrencia usar también PostgreSQL aislado y transacciones reales, no demostrar atomicidad con un mock en memoria.
 

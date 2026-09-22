@@ -2,7 +2,7 @@
 
 [Plan maestro](/Users/danizal/getvocify/proposed_plan.md) · [Contratos](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-contracts.md) · [Integración y gates](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-integration-and-gates.md)
 
-**Estado:** solo planificación. El orden numérico de archivos es el orden acordado de ejecución, no el ID funcional. F03 sigue condicionado a aprobación; distribución F01 mantiene sus decisiones de negocio pendientes.
+**Estado:** en ejecución en `feat/vocify-v1`. Decisiones cerradas en [00-decisiones.md](./00-decisiones.md). F03 usa el formato mínimo. La firma de Apple queda fuera. El worker de inteligencia sigue apagado.
 
 Cada plan contiene la especificación funcional previa y su descomposición en tareas con archivos, interfaces, casos de prueba, acciones de implementación, comandos, gates y handoff. Leer un plan no autoriza a implementar otras features ni a redefinir contratos.
 
@@ -16,7 +16,7 @@ Cada plan contiene la especificación funcional previa y su descomposición en t
 | 6 | [F04 — Producir candidatos con motivo y cobertura, priorizando pain confirmado sin inventar contactos nunca llamados.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/06-f04-priorizacion.md) | C09 PriorityCandidate y GET /contact-priorities; caché con cobertura y mapeo de responsables. | 3 |
 | 7 | [F05 — Entregar Hoy como lista diaria persistente que reconcilia compromisos, enfriamiento y objeciones.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/07-f05-hoy.md) | C10 Touch/Signal/Card y TodayView; action_signals con versiones; scheduler diario y GET /today. | 4 |
 | 8 | [F06 — Convertir señales de Hoy en acciones recuperables y una cola de llamadas usable con teclado.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/08-f06-acciones-y-cola.md) | C11 resolve/undo con expected_version, undo_deadline y estado revisado; queueReducer y v-today-card. | 3 |
-| 9 | [F03 — Precisar e implementar solo tras aprobación la preparación previa sobre contacto HubSpot como acceso principal.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/09-f03-preparacion.md) | C12 PreparationBrief y v-brief; screen-contact con independencia de captura. | 4 |
+| 9 | [F03 — Antes de llamar, como mucho tres hechos. Sin conversación, o conversación que no dejó nada, una frase.](/Users/danizal/getvocify/.worktrees/vocify-v1/docs/superpowers/plans/2026-09-22-vocify-v1/09-f03-preparacion.md) | C12 PreparationBrief mínimo; screen-contact. | 4 |
 | 10 | [F10 — Conservar anotaciones humanas y hechos estructurados de objeción/respuesta con tiempo y procedencia.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/10-f10-objeciones-y-notas.md) | C13 Annotation/InteractionPattern; endpoints de notas y revisión; hechos consumibles por scoring/brief/equipo. | 3 |
 | 11 | [F09 — Evaluar proceso con evidencia, nota secundaria y adherencia matemáticamente explícita.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/11-f09-scoring.md) | C14 ScoreView, memos.score y GET /memos/{id}/score. | 3 |
 | 12 | [F14 — Convertir acuerdo de reunión en propuesta revisable y una escritura CRM idempotente.](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/12-f14-meeting-booked.md) | C15 MeetingProposal y operaciones CRM auditadas; KPI de acuerdo separado de close. | 3 |
