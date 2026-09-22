@@ -1,6 +1,6 @@
 # Informe F07
 
-Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. Hay una pantalla Preguntar en `/dashboard/ask`: si la respuesta tarda más de 30 s no reenvía la pregunta, y al reabrir consulta el mismo turno. No se recorrió en el navegador. No hay compositor de voz. La migración `041` no está aplicada en una base compartida.
+Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. La pregunta por voz se transcribe a texto editable y solo sale al pulsar Enviar; no crea un memo. No se recorrió el micrófono en el navegador. La migración `041` no está aplicada en una base compartida.
 
 ## Entregado
 
@@ -11,7 +11,8 @@ Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. Hay una pantalla Pr
 | Repetir el turno deja una fila y el texto original; otro usuario es otra fila | `66c4aec` | `tests/crm_copilot/test_web_turns.py` contra PostgreSQL |
 | Un 403 de alcance en HubSpot y en Pipedrive es `forbidden`, no una bandeja vacía | `cef950b` | `tests/crm_providers/test_context_contract.py` |
 | Confirmar otro contacto no aplica; repetir la misma operación no la aplica dos veces | `f9e0352` | `tests/crm_copilot/test_ask_http.py` |
-| Pasados 30 s la espera no reenvía; reabrir lee el mismo turno y no desplaza la lectura | este commit | `src/lib/ask-turn.test.ts` |
+| Pasados 30 s la espera no reenvía; reabrir lee el mismo turno y no desplaza la lectura | `b91e725` | `src/lib/ask-turn.test.ts` |
+| La voz se puede cancelar o editar; no se envía sola y no crea un memo | este commit | `src/lib/ask-voice.test.ts` |
 
 ## No verificado
 

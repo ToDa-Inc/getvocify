@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/shared/lib/api-client";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
+import VoiceComposer from "@/features/ask/components/VoiceComposer";
 
 const STORAGE_KEY = "vocify-ask-turn";
 
@@ -111,6 +112,7 @@ export default function AskPanel() {
           placeholder="Pregunta por un contacto"
           onChange={(event) => setDraft(event.target.value)}
         />
+        <VoiceComposer onText={(text) => setDraft(text)} />
         <button
           type="submit"
           className="rounded-full border border-border px-3 py-1 text-sm"
