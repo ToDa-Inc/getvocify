@@ -15,5 +15,5 @@ Estado: reglas C09 y el enlace a contactos del CRM cuando hay proveedor conocido
 ## No verificado
 
 - El `GET` selecciona `crm_connections` y `contact_priority_context` por `company_id`. Las pruebas usan un cliente falso con el mismo `select`/`eq`; no hay una base Supabase real detrás.
-- Los proveedores no usan el token de la conexión. `collect_assigned` recorre las páginas con un `fetch` inyectado: HubSpot `POST /crm/v3/objects/contacts/search` y Pipedrive `GET /persons` v2. Si el transporte falla, no sustituye la caché.
+- La lectura de contactos asignados usa el `access_token` de la conexión (`connection_assigned_fetch`); `collect_assigned` recorre HubSpot `POST /crm/v3/objects/contacts/search` y Pipedrive `GET /persons` v2. Si el transporte falla, no sustituye la caché.
 - «Abrir contactos en CRM» abre Pipedrive o HubSpot cuando hay portal. Sin portal, HubSpot no tiene enlace.

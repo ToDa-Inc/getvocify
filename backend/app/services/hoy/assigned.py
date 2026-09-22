@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
+import httpx
+
 from app.services.crm_providers.coverage import from_provider_error, read_envelope
+
+_HUBSPOT_BASE = "https://api.hubapi.com"
+_ASSIGNED_TIMEOUT = 30.0
 
 
 def parse_assigned_page(provider: str, payload: dict, *, connection_id: str, observed_at: str) -> dict:
@@ -10,8 +18,11 @@ def parse_assigned_page(provider: str, payload: dict, *, connection_id: str, obs
         raise ValueError(f"proveedor no soportado: {provider}")
     error_kind = payload.get("error_kind")
     if error_kind:
+        kind = str(error_kind)
+        if kind in {"401", "403"}:
+            kind = "email_scope_missing"
         envelope = from_provider_error(
-            str(error_kind),
+            kind,
             observed_at=observed_at,
             connection_id=connection_id,
             object_type="contact",
@@ -82,6 +93,64 @@ def _pipedrive(payload: dict, *, connection_id: str, observed_at: str) -> dict:
     )
     envelope["connection_id"] = connection_id
     return envelope
+
+
+def _assigned_url(provider: str, request: dict, *, api_domain: str | None) -> str:
+    path = request["path"]
+    if not path.startswith("/"):
+        path = f"/{path}"
+    if provider == "hubspot":
+        return f"{_HUBSPOT_BASE}{path}"
+    if provider == "pipedrive":
+        if not api_domain:
+            raise ValueError("Pipedrive connection missing api_domain in metadata")
+        version = request.get("version") or "v1"
+        return f"{api_domain.rstrip('/')}/api/{version}{path}"
+    raise ValueError(f"proveedor no soportado: {provider}")
+
+
+def connection_assigned_fetch(
+    connection: dict[str, Any],
+    *,
+    client: httpx.Client | None = None,
+) -> Callable[[dict], dict]:
+    """Build a fetch(request) that calls the CRM with the connection access_token."""
+    provider = str(connection.get("provider") or "").strip().lower()
+    if provider not in {"hubspot", "pipedrive"}:
+        raise ValueError(f"proveedor no soportado: {provider}")
+    token = str(connection.get("access_token") or "").strip()
+    meta = connection.get("metadata") or {}
+    api_domain = meta.get("api_domain") if isinstance(meta, dict) else None
+    http = client or httpx.Client(timeout=_ASSIGNED_TIMEOUT)
+
+    def fetch(request: dict) -> dict:
+        if not token:
+            return {"error_kind": "unavailable"}
+        if provider == "pipedrive" and not api_domain:
+            return {"error_kind": "unavailable"}
+        url = _assigned_url(provider, request, api_domain=str(api_domain) if api_domain else None)
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        method = str(request.get("method") or "GET").upper()
+        try:
+            if method == "POST":
+                headers["Content-Type"] = "application/json"
+                response = http.request(method, url, headers=headers, json=request.get("json"))
+            else:
+                response = http.request(method, url, headers=headers, params=request.get("params"))
+        except httpx.TimeoutException:
+            return {"error_kind": "timeout"}
+        except (httpx.ConnectError, httpx.NetworkError) as exc:
+            raise TimeoutError(str(exc)) from exc
+        if response.status_code in {401, 403}:
+            return {"error_kind": "403"}
+        response.raise_for_status()
+        body = response.json()
+        return body if isinstance(body, dict) else {"data": body}
+
+    return fetch
 
 
 def assigned_request(provider: str, cursor: str | None) -> dict:
