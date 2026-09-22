@@ -479,6 +479,18 @@ CREATE TABLE IF NOT EXISTS interaction_patterns (
   PRIMARY KEY (memo_id, pattern_id, input_revision)
 );
 
+CREATE TABLE IF NOT EXISTS memo_scores (
+  memo_id UUID NOT NULL,
+  input_revision TEXT NOT NULL,
+  revision_seq BIGINT NOT NULL,
+  playbook_version_id TEXT,
+  prompt_version TEXT NOT NULL DEFAULT 'scoring_v1',
+  model_version TEXT,
+  score JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memo_id, input_revision)
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)
