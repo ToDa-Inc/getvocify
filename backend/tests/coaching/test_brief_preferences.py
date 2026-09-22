@@ -17,6 +17,9 @@ from pathlib import Path
 
 import pytest
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 from app.services.coaching.brief_preferences import (
     apply_preference,
     enqueue_brief,
@@ -24,11 +27,108 @@ from app.services.coaching.brief_preferences import (
     normalize_preference,
     publish_brief_statement,
     publish_if_newer,
+    read_preference,
+    set_supabase,
+    write_preference,
 )
 
 MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "047_post_interaction_briefs.sql"
 MEMO = "77777777-7777-7777-7777-777777777777"
 READY_AT = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
+
+
+def setup_function():
+    from app.services.coaching import brief_preferences as mod
+
+    mod._STORE.clear()
+    set_supabase(None)
+
+
+class _FakeSupabaseTable:
+    def __init__(self, name: str, rows: dict[tuple, dict], upserts: list[dict]):
+        self._name = name
+        self._rows = rows
+        self._upserts = upserts
+        self._filters: dict[str, str] = {}
+
+    def select(self, _columns: str):
+        return self
+
+    def eq(self, column: str, value: str):
+        self._filters[column] = value
+        return self
+
+    def limit(self, _n: int):
+        return self
+
+    def upsert(self, payload: dict, on_conflict: str):
+        self._upserts.append({"payload": payload, "on_conflict": on_conflict})
+        key = (payload["user_id"],)
+        self._rows[key] = dict(payload)
+        return self
+
+    def execute(self):
+        if self._filters:
+            uid = self._filters.get("user_id")
+            row = self._rows.get((uid,)) if uid else None
+            return SimpleNamespace(data=[row] if row else [])
+        return SimpleNamespace(data=[])
+
+
+class _FakeSupabase:
+    def __init__(self):
+        self.rows: dict[tuple, dict] = {}
+        self.upserts: list[dict] = []
+
+    def table(self, name: str):
+        return _FakeSupabaseTable(name, self.rows, self.upserts)
+
+
+def test_supabase_persists_preference_and_upserts_once():
+    fake = _FakeSupabase()
+    set_supabase(fake)
+    user = "user-supabase-1"
+    saved = write_preference(
+        user,
+        {"highlight_mode": "deferred", "delay_minutes": 30, "timezone": "America/New_York"},
+    )
+    assert saved == {
+        "highlight_mode": "deferred",
+        "delay_minutes": 30,
+        "end_of_day": None,
+        "timezone": "America/New_York",
+    }
+    assert read_preference(user) == saved
+    write_preference(user, {"highlight_mode": "deferred", "delay_minutes": 45, "timezone": "America/New_York"})
+    assert len(fake.upserts) == 2
+    assert len(fake.rows) == 1
+    assert read_preference(user)["delay_minutes"] == 45
+
+
+def test_invalid_mode_still_raises_with_supabase():
+    fake = _FakeSupabase()
+    set_supabase(fake)
+    with pytest.raises(ValueError, match="modo de destaque desconocido"):
+        write_preference("user-bad", {"highlight_mode": "later_never"})
+    assert fake.upserts == []
+
+
+def test_supabase_read_failure_falls_back_to_memory():
+    fake = _FakeSupabase()
+    set_supabase(fake)
+    user = "user-fallback"
+    write_preference(user, {"highlight_mode": "immediate", "timezone": "Europe/Madrid"})
+    table = MagicMock()
+    table.select.return_value.eq.return_value.limit.return_value.execute.side_effect = RuntimeError("db down")
+    broken = MagicMock()
+    broken.table.return_value = table
+    set_supabase(broken)
+    assert read_preference(user) == {
+        "highlight_mode": "immediate",
+        "delay_minutes": None,
+        "end_of_day": None,
+        "timezone": "Europe/Madrid",
+    }
 
 
 def test_changing_the_preference_keeps_a_ready_brief():

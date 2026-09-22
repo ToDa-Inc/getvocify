@@ -12,6 +12,7 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 | Un score de otra revisión no se mezcla con los patrones vigentes | el mismo archivo, 4 passed |
 
 | Cambiar el destaque no borra un resumen listo; aplazar 30 minutos no retrasa el trabajo; una revisión vieja no pisa la nueva | `tests/coaching/test_brief_preferences.py` 3 passed; migración `047` |
+| Preferencias de destaque persisten en `brief_preferences` (upsert por `user_id`); lectura fallida cae a memoria sin 500 | `tests/coaching/test_brief_preferences.py` |
 
 | El resumen parcial y el listo comparten revisión; sin audio la cita sigue y no hay reproducción; un fallo no inventa secciones | `src/lib/post-brief.test.ts` 3 passed; `tsc --noEmit` |
 | Reproducir tramo busca el audio del memo en el offset de la evidencia | `src/lib/post-brief.test.ts` |

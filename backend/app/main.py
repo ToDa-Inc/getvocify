@@ -360,9 +360,13 @@ async def startup_event():
     from app.api.ask import set_ask_loop, set_ask_store
     from app.services.playbooks.store import SupabasePlaybookStore
     from app.services.crm_copilot.web_sessions import SupabaseAskStore, live_ask_loop
-    set_playbook_store(SupabasePlaybookStore(get_supabase()))
-    set_ask_store(SupabaseAskStore(get_supabase()))
+    supabase = get_supabase()
+    set_playbook_store(SupabasePlaybookStore(supabase))
+    set_ask_store(SupabaseAskStore(supabase))
     set_ask_loop(live_ask_loop)
+    from app.services.coaching.brief_preferences import set_supabase as set_brief_preference_supabase
+
+    set_brief_preference_supabase(supabase)
     from app.api.annotations import set_annotation_store
     from app.services.intelligence.annotations import SupabaseAnnotationStore
     set_annotation_store(SupabaseAnnotationStore(get_supabase()))

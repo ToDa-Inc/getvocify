@@ -3,28 +3,81 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 _MODES = {"immediate", "deferred", "end_of_day"}
 _STORE: dict[str, dict] = {}
+_supabase: Any | None = None
+logger = logging.getLogger(__name__)
+
+
+def set_supabase(client: Any | None) -> None:
+    global _supabase
+    _supabase = client
 
 
 def default_preference() -> dict:
     return normalize_preference({})
 
 
-def read_preference(user_id: str) -> dict:
+def _read_from_memory(user_id: str) -> dict:
     raw = _STORE.get(user_id)
     if raw is None:
         return default_preference()
     return normalize_preference(raw)
 
 
+def read_preference(user_id: str) -> dict:
+    if _supabase is not None:
+        try:
+            response = (
+                _supabase.table("brief_preferences")
+                .select("highlight_mode,delay_minutes,end_of_day,timezone")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = response.data or []
+            if rows:
+                return normalize_preference(_row_to_raw(rows[0]))
+        except Exception:
+            logger.exception("brief_preferences read failed for user %s", user_id)
+            return _read_from_memory(user_id)
+        return default_preference()
+    return _read_from_memory(user_id)
+
+
 def write_preference(user_id: str, raw: dict) -> dict:
     normalized = normalize_preference(raw)
     _STORE[user_id] = normalized
+    if _supabase is not None:
+        payload = {
+            "user_id": user_id,
+            "highlight_mode": normalized["highlight_mode"],
+            "delay_minutes": normalized["delay_minutes"],
+            "end_of_day": normalized["end_of_day"],
+            "timezone": normalized["timezone"],
+        }
+        _supabase.table("brief_preferences").upsert(payload, on_conflict="user_id").execute()
     return normalized
+
+
+def _row_to_raw(row: dict) -> dict:
+    end_of_day = row.get("end_of_day")
+    if end_of_day is not None:
+        text = str(end_of_day)
+        parts = text.split(":")
+        if len(parts) >= 2:
+            end_of_day = f"{parts[0]}:{parts[1]}"
+    return {
+        "highlight_mode": row.get("highlight_mode"),
+        "delay_minutes": row.get("delay_minutes"),
+        "end_of_day": end_of_day,
+        "timezone": row.get("timezone"),
+    }
 
 
 def normalize_preference(raw: dict) -> dict:
