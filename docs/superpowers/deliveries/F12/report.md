@@ -9,4 +9,5 @@ Extensión meeting listen: ayuda desactivada al inicio (sin `/copilot/suggest` h
 Extensión popup: la línea «Say this» usa `pillDecision` (4 s / 10 s / 60 s, rep oculta); nuevo listen reinicia el reloj; suggest sigue bloqueado con ayuda off.
 Extensión popup live: copy estático en español («Transcribiendo…», «Di esto», «Esperando a que termine de hablar…») en el bloque de transcript/copilot antes del paint JS.
 Extensión popup listen: el paint JS ya no pisa el HTML con estados en inglés («Empezando a escuchar…», «Escuchando esta pestaña…», «Ayuda en esta reunión…»); `listenUiModel` en `tab-capture.js` alinea botón y línea de estado.
+Desktop companion listen: ventana principal y overlay flotante en español («Parar y revisar», «Escuchando»/«En reposo», «Escuchando la reunión…», «Parar»); `overlaySnippet` y `overlay.js` ya no pisan el HTML en inglés.
 Extensión popup listen: `listenUiModel` idle/error en español («Escuchar pestaña», «Grabar», «Sin escucha», «Listo para grabar»); starting/live sin cambios.

@@ -96,7 +96,7 @@ function paintOverlay(state) {
   }
 
   if (state?.lastLine) lineEl.textContent = state.lastLine;
-  labelEl.textContent = state?.listening ? 'Live' : 'Idle';
+  labelEl.textContent = state?.listening ? 'En vivo' : 'En reposo';
 }
 
 desktop()?.shell?.onOverlayState((state) => {

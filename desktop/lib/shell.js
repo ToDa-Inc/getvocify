@@ -68,7 +68,7 @@ export function overlaySnippet(state = {}) {
   const interim = String(state.interimTranscript || '').trim();
   if (interim) return interim;
   const finalTranscript = String(state.finalTranscript || '').trim();
-  if (!finalTranscript) return 'Listening to the call…';
+  if (!finalTranscript) return 'Escuchando la reunión…';
   const parts = finalTranscript.split(/(?=(?:You|Them): )/).filter(Boolean);
   return (parts[parts.length - 1] || finalTranscript).trim();
 }

@@ -434,7 +434,7 @@ function notifyShell() {
 function setLiveUi(on) {
   liveDot.classList.toggle('live', on);
   liveDot.classList.toggle('idle', !on);
-  liveLabel.textContent = on ? 'Listening' : 'Idle';
+  liveLabel.textContent = on ? 'Escuchando' : 'En reposo';
   if (on) {
     startedAt = Date.now();
     timerEl.textContent = '00:00';
@@ -754,7 +754,7 @@ async function startListen() {
   btnStop.disabled = false;
   setLiveUi(true);
   backendChip.textContent = backendLabel(currentBackend);
-  statusEl.textContent = `Hearing the meeting via ${backendLabel(currentBackend)}. Overlay stays on top.`;
+  statusEl.textContent = `Escuchando la reunión vía ${backendLabel(currentBackend)}. La ventana flotante sigue encima.`;
   desktop()?.shell?.showOverlay();
   paintHomeBrief();
   paintHomeHoy();
@@ -978,7 +978,7 @@ async function openReview(memoId) {
 async function stopAndSend() {
   const transcript = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
   stopCapture();
-  statusEl.textContent = 'Stopped.';
+  statusEl.textContent = 'Parado.';
   if (!transcript) {
     showError(listenError, 'Nothing transcribed. Try again with the call unmuted.');
     return;

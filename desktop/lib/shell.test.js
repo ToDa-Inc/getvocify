@@ -53,7 +53,7 @@ describe('desktop shell', () => {
       overlaySnippet({ finalTranscript: 'Them: hi', interimTranscript: 'You: hello' }),
       'You: hello',
     );
-    assert.equal(overlaySnippet({ finalTranscript: '', interimTranscript: '' }), 'Listening to the call…');
+    assert.equal(overlaySnippet({ finalTranscript: '', interimTranscript: '' }), 'Escuchando la reunión…');
   });
 
   it('forwards meeting assist to the overlay without inventing a card', () => {
