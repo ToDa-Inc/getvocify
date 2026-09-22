@@ -12,7 +12,7 @@ Estado: la adherencia determinista está en `feat/vocify-v1`. No está cerrada.
 | `publish_memo_score` persiste la nota y llama a `store_memo_score` para materializar el brief (fallo de brief no borra la nota) | `tests/coaching/test_briefs.py` |
 | El callback `store` del worker de inteligencia, si el payload trae `score`, persiste nota y brief sin reclasificar | `tests/intelligence/test_score_store_hook.py` |
 | Tras clasificar, el store ensambla `score` desde extracción citada (sin LLM) y lo persiste cuando hay objeción o resumen | `tests/intelligence/test_score_assembly.py` |
-| Tras guardar la extracción (sin worker), `run_post_extraction_hooks` publica nota y brief vía `publish_memo_score` cuando hay inputs; si no hay nada que puntuar, no escribe | `tests/memos/test_post_extraction_hooks.py` |
+| Tras guardar la extracción (sin worker), `run_post_extraction_hooks` proyecta objeciones antes de ensamblar la nota para que el score vea `interaction_patterns`; si no hay nada que puntuar, no escribe | `tests/memos/test_post_extraction_hooks.py` |
 
 ## No verificado
 

@@ -78,14 +78,6 @@ def _store_patterns_from_extraction(
     )
 
 
-def _load_patterns(supabase, memo_id: str) -> list[dict]:
-    try:
-        stored = supabase.table("interaction_patterns").select("*").eq("memo_id", memo_id).execute()
-        return list(getattr(stored, "data", None) or [])
-    except Exception:
-        return []
-
-
 def _proposal_exists(supabase, memo_id: str, input_revision: str) -> bool:
     try:
         stored = (
@@ -195,7 +187,20 @@ def run_post_extraction_hooks(
         memo = {"id": memo_id}
     memo = {**memo, "id": str(memo.get("id") or memo_id)}
     input_revision = resolve_input_revision(memo, extraction)
-    patterns = _load_patterns(supabase, memo_id)
+    patterns: list[dict] = []
+    try:
+        patterns = _store_patterns_from_extraction(
+            supabase,
+            memo,
+            extraction,
+            input_revision,
+        ) or []
+    except Exception:
+        logger.exception(
+            "post-extraction pattern projection failed",
+            extra={"memo_id": memo_id, "input_revision": input_revision},
+        )
+        patterns = []
     try:
         _maybe_publish_score(
             supabase,
@@ -220,17 +225,5 @@ def run_post_extraction_hooks(
     except Exception:
         logger.exception(
             "post-extraction meeting proposal failed",
-            extra={"memo_id": memo_id, "input_revision": input_revision},
-        )
-    try:
-        _store_patterns_from_extraction(
-            supabase,
-            memo,
-            extraction,
-            input_revision,
-        )
-    except Exception:
-        logger.exception(
-            "post-extraction pattern projection failed",
             extra={"memo_id": memo_id, "input_revision": input_revision},
         )

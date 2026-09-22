@@ -10,6 +10,8 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-memo-hooks-32")
 import hashlib
 import json
 
+from app.services.coaching.score_assembly import _cited_refs, build_score_from_extraction
+from app.services import memo_extraction_hooks
 from app.services.memo_extraction_hooks import (
     resolve_input_revision,
     run_post_extraction_hooks,
@@ -338,3 +340,70 @@ def test_pattern_failure_does_not_block_score_or_meeting():
     run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
     assert len(supabase.tables["memo_scores"]) == 1
     assert len(supabase.tables["meeting_proposals"]) == 1
+
+
+def test_score_receives_projected_objection_patterns(monkeypatch):
+    """Projected objection rows must be passed into score assembly before publish."""
+    captured: dict = {}
+
+    def recording_build(**kwargs):
+        captured["patterns"] = kwargs.get("patterns")
+        return build_score_from_extraction(**kwargs)
+
+    monkeypatch.setattr(memo_extraction_hooks, "build_score_from_extraction", recording_build)
+    supabase = _SupabaseStub()
+    memo = _memo()
+    extraction = {
+        "summary": "Objeción de precio",
+        "objections": ["Está caro"],
+        "intelligence": {
+            "version": 1,
+            "objections": [],
+            "playbook_observations": [
+                {
+                    "step_id": "handle_price",
+                    "playbook_version_id": "pv-1",
+                    "status": "met",
+                    "evidence_refs": ["ev-1"],
+                }
+            ],
+            "evidence": [
+                {
+                    "id": "ev-1",
+                    "source_type": "transcript",
+                    "source_id": MEMO_ID,
+                    "quote": "Hola",
+                },
+                {
+                    "id": "ev-obj",
+                    "source_type": "transcript",
+                    "source_id": MEMO_ID,
+                    "quote": "Está caro",
+                },
+            ],
+        },
+    }
+    revision = resolve_input_revision(memo, extraction)
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+
+    patterns = captured.get("patterns") or []
+    active = [p for p in patterns if not p.get("superseded")]
+    objection_rows = [p for p in active if str(p.get("pattern_id", "")).startswith("objection:")]
+    assert objection_rows, "score assembly must see projected objection patterns"
+    assert objection_rows[0]["input_revision"] == revision
+
+    intel = extraction["intelligence"]
+    pattern_with_evidence = {**objection_rows[0], "evidence_refs": ["ev-obj"]}
+    assert "ev-obj" not in _cited_refs(intel, [], revision)
+    assert "ev-obj" in _cited_refs(intel, [pattern_with_evidence], revision)
+    assert captured["patterns"] is not None
+    assert build_score_from_extraction(
+        extraction=extraction,
+        memo=memo,
+        input_revision=revision,
+        patterns=captured["patterns"],
+        crm_outcome=memo.get("crm_outcome"),
+        screening=memo.get("screening_outcome"),
+    ) is not None
+
+    assert len(supabase.tables["memo_scores"]) == 1
