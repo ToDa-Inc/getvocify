@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { prioritySurface } from "@/lib/contact-priorities";
+import { useLanguage } from "@/lib/i18n";
+import { productText } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 
@@ -14,6 +16,8 @@ function statusOf(error: unknown): number | null {
 
 export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const copy = t.product;
   const query = useContactPriorities();
   const surface = prioritySurface({
     data: query.data,
@@ -22,11 +26,11 @@ export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }
   });
 
   function runAction(action: string) {
-    if (action === "Reintentar") {
+    if (action === "retry") {
       void query.refetch();
       return;
     }
-    if (action === "Conectar CRM" || action === "Mapear responsables") {
+    if (action === "connect_crm" || action === "map_owners") {
       navigate("/dashboard/settings/integrations");
     }
   }
@@ -40,32 +44,32 @@ export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }
       </h2>
       {surface.kind === "loading" ? <p>Leyendo el CRM…</p> : null}
       {surface.kind === "error" ? (
-        <p role="alert">{surface.title}</p>
+        <p role="alert">{productText(surface.title, copy)}</p>
       ) : null}
       {surface.kind === "empty" ? (
         <div>
-          <p>{surface.title}</p>
-          {surface.action === "Abrir contactos en CRM" && surface.contactsUrl ? (
+          <p>{productText(surface.title, copy)}</p>
+          {surface.action === "open_contacts" && surface.contactsUrl ? (
             <a href={surface.contactsUrl} target="_blank" rel="noreferrer">
-              {surface.action}
+              {productText(surface.action, copy)}
             </a>
-          ) : surface.action === "Reintentar" || surface.action === "Conectar CRM" || surface.action === "Mapear responsables" ? (
+          ) : surface.action === "retry" || surface.action === "connect_crm" || surface.action === "map_owners" ? (
             <Button type="button" variant="outline" onClick={() => runAction(surface.action as string)}>
-              {surface.action}
+              {productText(surface.action, copy)}
             </Button>
           ) : surface.action ? (
-            <p>{surface.action}</p>
+            <p>{productText(surface.action, copy)}</p>
           ) : null}
         </div>
       ) : null}
       {surface.kind === "list" ? (
         <ul className="space-y-3">
-          {surface.note ? <p>{surface.note}</p> : null}
+          {surface.note ? <p>{productText(surface.note, copy)}</p> : null}
           {surface.stale ? <p>Mostrando la última lectura.</p> : null}
           {surface.items.map((item) => (
             <li key={item.id} className="rounded-lg border p-4">
-              <p>{item.reason}</p>
-              {item.next_action ? <p>{item.next_action}</p> : null}
+              <p>{productText(item.reason, copy)}</p>
+              {item.next_action ? <p>{productText(item.next_action, copy)}</p> : null}
             </li>
           ))}
         </ul>

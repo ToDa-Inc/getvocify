@@ -29,11 +29,11 @@ describe("priority surface", () => {
 
   it("uses the server empty copy instead of inventing one", () => {
     const surface = prioritySurface({
-      data: { items: [], coverage: "partial", title: "Falta parte del historial", action: "Reintentar", observed_at: null },
+      data: { items: [], coverage: "partial", title: "title_history_partial", action: "retry", observed_at: null },
       errorStatus: null,
       isLoading: false,
     });
     assert.equal(surface.kind, "empty");
-    if (surface.kind === "empty") assert.equal(surface.title, "Falta parte del historial");
+    if (surface.kind === "empty") assert.equal(surface.title, "title_history_partial");
   });
 });

@@ -1,6 +1,6 @@
 # Informe F04
 
-Estado: reglas C09 y el enlace a contactos del CRM cuando hay proveedor conocido. HubSpot sin portal no inventa una URL.
+Estado: reglas C09 y el enlace a contactos del CRM cuando hay proveedor conocido. HubSpot sin portal no inventa una URL. Copy de prioridades: claves estables en la API y catálogo EN/ES en la web.
 
 ## Entregado
 

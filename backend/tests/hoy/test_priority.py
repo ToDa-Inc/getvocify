@@ -39,7 +39,7 @@ def test_recent_pain_without_a_meeting_outranks_a_complete_never_called():
     )
     assert ranked[0]["id"] == "crm-A:42:deal-7"
     assert ranked[0]["tier"] == 1
-    assert ranked[0]["reason"] == "Confirmó el problema; falta acordar el siguiente paso"
+    assert ranked[0]["reason"] == "pain_agree_next_step"
     assert ranked[1]["never_called"] is True
 
 
@@ -65,7 +65,7 @@ def test_agreed_meeting_is_not_a_prospecting_call_and_incomplete_history_is_not_
     )
     assert all(row["contact_id"] != "9" for row in ranked)
     assert ranked[0]["never_called"] is False
-    assert ranked[0]["reason"] == "Falta parte del historial"
+    assert ranked[0]["reason"] == "history_partial"
 
 
 def test_two_connections_and_a_closed_deal_stay_apart():
@@ -93,18 +93,18 @@ def test_a_future_agreed_call_is_shown_without_an_invite_to_call_sooner():
         NOW,
     )
     assert ranked[0]["next_action"] is None
-    assert ranked[0]["reason"] == "Llamada acordada; no llamar antes"
+    assert ranked[0]["reason"] == "scheduled_no_early_call"
 
 
 def test_empty_states_are_distinct():
     disconnected = empty_priority_copy(connected=False, coverage="complete", role="member")
-    assert disconnected["title"] == "Conecta tu CRM para ver a quién contactar"
+    assert disconnected["title"] == "title_connect_crm"
     assert disconnected["action"] is None
-    assert empty_priority_copy(connected=False, coverage="complete", role="owner")["action"] == "Conectar CRM"
-    assert empty_priority_copy(connected=True, coverage="complete")["title"].startswith("No hay contactos prioritarios ahora")
+    assert empty_priority_copy(connected=False, coverage="complete", role="owner")["action"] == "connect_crm"
+    assert empty_priority_copy(connected=True, coverage="complete")["title"] == "title_none_now"
     assert empty_priority_copy(connected=True, coverage="complete", provider="pipedrive")["contacts_url"] == "https://app.pipedrive.com/persons"
     assert empty_priority_copy(connected=True, coverage="complete", provider="hubspot")["contacts_url"] is None
     assert empty_priority_copy(connected=True, coverage="complete", provider="hubspot", portal_id="99")["contacts_url"] == "https://app.hubspot.com/contacts/99/objects/0-1"
-    assert empty_priority_copy(connected=True, coverage="partial")["title"] == "Falta parte del historial"
+    assert empty_priority_copy(connected=True, coverage="partial")["title"] == "title_history_partial"
     member = empty_priority_copy(connected=True, coverage="complete", role="member", assigned=False)
-    assert member["action"] == "Revisa tu asignación con el administrador"
+    assert member["action"] == "review_assignment"

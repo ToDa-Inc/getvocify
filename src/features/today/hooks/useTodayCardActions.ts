@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useAuth } from "@/features/auth";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
+import { useLanguage } from "@/lib/i18n";
 import { cardsAfterDismiss, todaySurface, type TodayItem, type TodaySurface } from "@/lib/today";
 import { todayApi } from "../api";
 import { useToday } from "./useToday";
@@ -32,6 +33,7 @@ function getActedSnapshot() {
 
 export function useTodayCardActions() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const integrations = useIntegrations();
   const query = useToday();
   const acted = useSyncExternalStore(subscribeActed, getActedSnapshot, getActedSnapshot);
@@ -44,7 +46,7 @@ export function useTodayCardActions() {
     isLoading: waiting && !query.data,
     connected: integrations.isLoading ? true : connected,
     role: user?.company?.role ?? "member",
-  });
+  }, t.product);
 
   const listed =
     surface.kind === "list" ? cardsAfterDismiss(surface.items, acted, Date.now()) : [];

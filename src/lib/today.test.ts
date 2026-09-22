@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { productCatalog } from "./product-catalog.ts";
 import { todaySurface, cardsAfterDismiss, type TodayView, type TodayItem } from "./today.ts";
+
+const copy = productCatalog.ES;
 
 const emptyComplete: TodayView = {
   items: [],
@@ -28,24 +31,36 @@ const card: TodayView = {
 
 describe("today surface", () => {
   it("does not show an empty day before coverage arrives", () => {
-    const surface = todaySurface({ data: null, errorStatus: null, isLoading: true, connected: true, role: "member" });
+    const surface = todaySurface(
+      { data: null, errorStatus: null, isLoading: true, connected: true, role: "member" },
+      copy,
+    );
     assert.equal(surface.kind, "loading");
   });
 
   it("keeps a failed refetch from becoming nothing urgent", () => {
-    const failed = todaySurface({ data: null, errorStatus: 500, isLoading: false, connected: true, role: "member" });
+    const failed = todaySurface(
+      { data: null, errorStatus: 500, isLoading: false, connected: true, role: "member" },
+      copy,
+    );
     assert.equal(failed.kind, "error");
-    const stale = todaySurface({ data: card, errorStatus: 500, isLoading: false, connected: true, role: "member" });
+    const stale = todaySurface(
+      { data: card, errorStatus: 500, isLoading: false, connected: true, role: "member" },
+      copy,
+    );
     assert.equal(stale.kind, "list");
     if (stale.kind === "list") {
-      assert.equal(stale.note, "Información incompleta");
+      assert.equal(stale.note, copy.today_incomplete);
       assert.equal(stale.pulse, null);
       assert.equal(stale.items[0].reason.includes("interés"), true);
     }
   });
 
   it("uses the clear copy only when every source is complete and nothing is pending", () => {
-    const clear = todaySurface({ data: emptyComplete, errorStatus: null, isLoading: false, connected: true, role: "owner" });
+    const clear = todaySurface(
+      { data: emptyComplete, errorStatus: null, isLoading: false, connected: true, role: "owner" },
+      copy,
+    );
     assert.equal(clear.kind, "clear");
     const partial = todaySurface({
       data: { ...emptyComplete, pulse: null, coverage: { intelligence: "complete", crm_tasks: "partial" } },
@@ -53,24 +68,30 @@ describe("today surface", () => {
       isLoading: false,
       connected: true,
       role: "owner",
-    });
+    }, copy);
     assert.equal(partial.kind, "incomplete");
-    if (partial.kind === "incomplete") assert.equal(partial.title.includes("Nada urgente"), false);
+    if (partial.kind === "incomplete") assert.equal(partial.title, copy.today_incomplete);
   });
 
   it("tells a member to wait for an admin when the CRM is disconnected", () => {
-    const member = todaySurface({ data: null, errorStatus: null, isLoading: false, connected: false, role: "member" });
+    const member = todaySurface(
+      { data: null, errorStatus: null, isLoading: false, connected: false, role: "member" },
+      copy,
+    );
     assert.equal(member.kind, "connect");
     if (member.kind === "connect") assert.equal(member.action, null);
-    const owner = todaySurface({ data: null, errorStatus: null, isLoading: false, connected: false, role: "owner" });
-    if (owner.kind === "connect") assert.equal(owner.action, "Conectar CRM");
+    const owner = todaySurface(
+      { data: null, errorStatus: null, isLoading: false, connected: false, role: "owner" },
+      copy,
+    );
+    if (owner.kind === "connect") assert.equal(owner.action, copy.connect_crm);
     const fromApi = todaySurface({
       data: { ...emptyComplete, pulse: null, coverage: { intelligence: "unavailable", crm_tasks: "unavailable" } },
       errorStatus: null,
       isLoading: false,
       connected: false,
       role: "member",
-    });
+    }, copy);
     assert.equal(fromApi.kind, "connect");
   });
 });

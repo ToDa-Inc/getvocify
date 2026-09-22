@@ -50,7 +50,7 @@ export function prioritySurface(input: {
     };
   }
   if (input.errorStatus) {
-    return { kind: "error", title: "No se pudo actualizar la prioridad" };
+    return { kind: "error", title: "priority_update_failed" };
   }
   if (input.isLoading) return { kind: "loading" };
   return { kind: "loading" };

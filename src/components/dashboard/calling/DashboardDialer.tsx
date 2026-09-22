@@ -158,7 +158,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       return;
     }
     const timer = window.setTimeout(() => {
-      setOutcome("Sin respuesta");
+      setOutcome(callCopy.callNoAnswer);
       pendingMissRef.current = false;
       hangupRef.current();
     }, TELNYX_RING_TIMEOUT_MS);
@@ -355,7 +355,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       client.on("telnyx.error", (err: { message?: string }) => {
         if (settled) return;
         settled = true;
-        reject(new Error(err?.message || "Error de Telnyx"));
+        reject(new Error(err?.message || callCopy.dialTelnyxError));
       });
       client.connect();
     });
@@ -460,7 +460,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     setError(null);
     setOutcome(null);
     if (!from) {
-      toast.error("Verifica tu número antes de llamar");
+      toast.error(callCopy.dialVerifyBeforeCall);
       return;
     }
     callSidRef.current = null;
@@ -494,7 +494,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const callContact = (hit: ContactHit) => {
     const dest = dialTargetFromContact(hit);
     if (!dest) {
-      toast.error("Este contacto no tiene teléfono");
+      toast.error(callCopy.dialContactNoPhone);
       return;
     }
     void startCall({
@@ -539,7 +539,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       state === CALL_STATES.ACTIVE
         ? elapsed
         : state === CALL_STATES.IDLE
-          ? outcome || "Listo para llamar"
+          ? outcome || callCopy.dialReadyToCall
           : callButtonLabel(state);
 
     return (
@@ -563,7 +563,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
           {live ? (
             <button
               type="button"
-              aria-label={muted ? "Activar micrófono" : "Silenciar"}
+              aria-label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic}
               aria-pressed={muted}
               onClick={toggleMute}
               className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
@@ -632,9 +632,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
               onClick={() => onRequestClose?.()}
               className="text-beige hover:underline"
             >
-              Verifica tu número
+              {callCopy.dialVerifyNumber}
             </Link>{" "}
-            para llamar
+            {callCopy.dialToCallHint}
           </p>
         )}
 
@@ -657,7 +657,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
           autoComplete="off"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Nombre, email o teléfono"
+          placeholder={callCopy.dialSearchPlaceholder}
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             const first = hits.find((hit) => dialTargetFromContact(hit));
@@ -721,7 +721,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
                     {hit.name || hit.email || "Contacto"}
                   </span>
                   <span className="block truncate text-[11px] text-muted-foreground">
-                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : "Sin teléfono"]
+                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : callCopy.dialNoPhone]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
@@ -732,7 +732,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
         {!searching && query.trim().length >= 2 && hits.length === 0 && !typedNumber ? (
           <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-            {searchError || "Ningún contacto. Prueba otro nombre."}
+            {searchError || callCopy.dialNoContactsTryAnother}
           </p>
         ) : null}
 
@@ -754,9 +754,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             onClick={() => onRequestClose?.()}
             className="text-beige hover:underline"
           >
-            Verifica tu número
+            {callCopy.dialVerifyNumber}
           </Link>{" "}
-          para llamar
+          {callCopy.dialToCallHint}
         </p>
       )}
     </div>

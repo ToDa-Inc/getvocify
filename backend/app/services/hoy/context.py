@@ -48,7 +48,7 @@ def build_priority_page(
     page = ranked[:limit]
     next_cursor = page[-1]["id"] if len(ranked) > limit else None
     if page and coverage != "complete":
-        copy = {"title": "Falta parte del historial", "action": "Reintentar"}
+        copy = {"title": "title_history_partial", "action": "retry"}
     elif page:
         copy = {"title": None, "action": None}
     else:

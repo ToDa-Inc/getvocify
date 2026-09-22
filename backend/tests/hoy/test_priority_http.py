@@ -126,7 +126,7 @@ def test_no_connection_is_not_an_empty_complete_list():
     body = _client("user-a").get("/api/v1/contact-priorities").json()
     assert body["items"] == []
     assert body["coverage"] == "unavailable"
-    assert body["title"] == "Conecta tu CRM para ver a quién contactar"
+    assert body["title"] == "title_connect_crm"
 
 
 def test_rows_drive_empty_partial_and_the_personal_list():
@@ -137,8 +137,8 @@ def test_rows_drive_empty_partial_and_the_personal_list():
     )]
     empty = _client("user-a").get("/api/v1/contact-priorities").json()
     assert empty["items"] == []
-    assert empty["title"].startswith("No hay contactos prioritarios ahora")
-    assert empty["action"] == "Abrir contactos en CRM"
+    assert empty["title"] == "title_none_now"
+    assert empty["action"] == "open_contacts"
 
     STORE.tables["contact_priority_context"] = [_row(
         contact_id="8",
@@ -149,7 +149,7 @@ def test_rows_drive_empty_partial_and_the_personal_list():
     )]
     partial = _client("user-a").get("/api/v1/contact-priorities").json()
     assert partial["items"] == []
-    assert partial["title"] == "Falta parte del historial"
+    assert partial["title"] == "title_history_partial"
     assert partial["observed_at"] == "2026-09-22T09:00:00Z"
 
     STORE.tables["contact_priority_context"] = [
@@ -169,7 +169,7 @@ def test_rows_drive_empty_partial_and_the_personal_list():
     ]
     page = _client("user-a").get("/api/v1/contact-priorities").json()
     assert [row["contact_id"] for row in page["items"]] == ["42"]
-    assert page["items"][0]["reason"].startswith("Confirmó el problema")
+    assert page["items"][0]["reason"] == "pain_agree_next_step"
     assert "Tier" not in page["items"][0]["reason"]
 
 
@@ -224,7 +224,7 @@ def test_forbidden_fetch_is_not_an_empty_complete_list():
     body = _client("user-a").get("/api/v1/contact-priorities").json()
     assert body["items"] == []
     assert body["coverage"] == "forbidden"
-    assert body["title"] == "Falta parte del historial"
+    assert body["title"] == "title_history_partial"
     assert STORE.tables["contact_priority_context"] == []
 
 
@@ -248,4 +248,4 @@ def test_a_folded_unfinished_page_is_what_the_route_returns():
     assert body["items"][0]["contact_id"] == "42"
     assert body["items"][0]["never_called"] is False
     assert body["coverage"] == "partial"
-    assert body["title"] == "Falta parte del historial"
+    assert body["title"] == "title_history_partial"

@@ -29,16 +29,16 @@ def empty_priority_copy(
     portal_id: str | None = None,
 ) -> dict:
     if not connected:
-        action = "Conectar CRM" if role in ("owner", "admin") else None
-        return {"title": "Conecta tu CRM para ver a quién contactar", "action": action}
+        action = "connect_crm" if role in ("owner", "admin") else None
+        return {"title": "title_connect_crm", "action": action}
     if coverage != "complete":
-        return {"title": "Falta parte del historial", "action": "Reintentar"}
+        return {"title": "title_history_partial", "action": "retry"}
     if assigned is False:
-        action = "Mapear responsables" if role in ("owner", "admin") else "Revisa tu asignación con el administrador"
-        return {"title": "Todavía no hay contactos asignados para priorizar", "action": action}
+        action = "map_owners" if role in ("owner", "admin") else "review_assignment"
+        return {"title": "title_no_assigned", "action": action}
     return {
-        "title": "No hay contactos prioritarios ahora. Buen momento para prospectar",
-        "action": "Abrir contactos en CRM",
+        "title": "title_none_now",
+        "action": "open_contacts",
         "contacts_url": contacts_url(provider, portal_id),
     }
 
@@ -63,24 +63,24 @@ def rank_candidates(candidates: list[dict], now: datetime, recent_days: int = 14
         scheduled = _as_dt(raw.get("scheduled_at"))
         if scheduled and scheduled > now:
             tier = 4
-            reason = "Llamada acordada; no llamar antes"
+            reason = "scheduled_no_early_call"
             next_action = None
         elif recent_pain:
             tier = 1
-            reason = "Confirmó el problema; falta acordar el siguiente paso"
-            next_action = "Acordar el siguiente paso"
+            reason = "pain_agree_next_step"
+            next_action = "agree_next_step"
         elif never_called and coverage != "complete":
             tier = None
-            reason = "Falta parte del historial"
-            next_action = "Reintentar la lectura"
+            reason = "history_partial"
+            next_action = "retry_read"
         elif never_called:
             tier = 2
-            reason = "Sin llamadas registradas"
-            next_action = "Registrar la primera llamada"
+            reason = "no_calls_logged"
+            next_action = "log_first_call"
         else:
             tier = 3
-            reason = "Seguimiento pendiente"
-            next_action = "Retomar el contacto"
+            reason = "followup_pending"
+            next_action = "resume_contact"
         identity = candidate_id(raw["connection_id"], raw["contact_id"], raw.get("deal_id"))
         ranked.append({
             "id": identity,
