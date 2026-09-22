@@ -68,6 +68,13 @@
     },
     "dmg": {
       "title": "Vocify Companion",
+      "background": "build/dmg-background.png",
+      "icon": "build/icon.png",
+      "window": { "width": 540, "height": 380 },
+      "contents": [
+        { "x": 140, "y": 170, "type": "file" },
+        { "x": 400, "y": 170, "type": "link", "path": "/Applications" }
+      ],
       "artifactName": "Vocify-Companion-${version}.${ext}"
     },
     "publish": null
