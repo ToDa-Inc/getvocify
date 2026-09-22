@@ -416,6 +416,39 @@ CREATE TABLE IF NOT EXISTS contact_priority_context (
   PRIMARY KEY (company_id, connection_id, contact_id, deal_id)
 );
 
+CREATE TABLE IF NOT EXISTS action_signals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  connection_id TEXT NOT NULL DEFAULT '',
+  contact_id TEXT,
+  deal_id TEXT,
+  memo_id TEXT,
+  type TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'done', 'dismissed', 'snoozed', 'resolved')),
+  version INTEGER NOT NULL DEFAULT 1,
+  snoozed_until TIMESTAMPTZ,
+  previous_status TEXT,
+  last_action_request_id TEXT,
+  last_action_at TIMESTAMPTZ,
+  undo_deadline TIMESTAMPTZ,
+  coverage TEXT NOT NULL DEFAULT 'complete',
+  observed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (company_id, user_id, connection_id, dedupe_key)
+);
+
+CREATE TABLE IF NOT EXISTS hoy_daily_runs (
+  company_id UUID NOT NULL,
+  local_date DATE NOT NULL,
+  status TEXT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (company_id, local_date)
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)
