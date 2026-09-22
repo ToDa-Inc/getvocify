@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.coaching.metrics import aggregate_adherence
+from app.services.team_insights.objections import objection_counts
 
 _MADRID = ZoneInfo("Europe/Madrid")
 
@@ -119,6 +120,7 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
     """Memos and scores for the company. Empty lists when the read fails."""
     activity_rows: list[dict] = []
     parts: list[dict] = []
+    pattern_rows: list[dict] = []
     playbook_present = False
     try:
         memos = (
@@ -148,6 +150,13 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
                 )
                 if part is not None:
                     parts.append(part)
+            patterns = (
+                supabase.table("interaction_patterns")
+                .select("category,kind,superseded")
+                .in_("memo_id", memo_ids)
+                .execute()
+            )
+            pattern_rows = list(patterns.data or [])
         published = (
             supabase.table("playbooks")
             .select("id, playbook_versions!inner(status)")
@@ -167,6 +176,7 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
         "activity_rows": activity_rows,
         "activity_period_start": period_start,
         "activity_period_end": period_end,
+        "pattern_rows": pattern_rows,
     }
 
 
@@ -179,6 +189,7 @@ def team_adherence(
     activity_rows: list[dict] | None = None,
     activity_period_start: datetime | None = None,
     activity_period_end: datetime | None = None,
+    pattern_rows: list[dict] | None = None,
 ) -> dict:
     assert_team_reader(role)
     if activity_period_start is None or activity_period_end is None:
@@ -207,6 +218,7 @@ def team_adherence(
             "conclusion": None,
         }
         body.update(activity)
+        body["objection_categories"] = objection_counts(pattern_rows or [])
         return body
     metrics = aggregate_adherence(week_parts)
     conclusion = None
@@ -221,4 +233,5 @@ def team_adherence(
         "conclusion": conclusion,
     }
     body.update(activity)
+    body["objection_categories"] = objection_counts(pattern_rows or [])
     return body

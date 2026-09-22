@@ -34,6 +34,7 @@ def test_a_member_is_denied_before_any_metric_is_built():
     assert response.status_code == 403
     assert "met_steps" not in response.text
     assert "attempts" not in response.text
+    assert "objection_categories" not in response.text
     assert "0.2" not in response.text
 
 

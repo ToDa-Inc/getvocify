@@ -20,6 +20,8 @@ No se inventa un estado anterior si no hay historia.
 
 | Los nombres van por orden alfabético. Un filtro vacío no es un cero. Sin cobertura, la tasa de cierres no se calcula. Un miembro no ve cifras | `src/lib/team-insights.test.ts` 2 passed; `tsc --noEmit` |
 
+| Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan | `tests/team_insights/test_objections.py` 3 passed |
+
 ## No verificado
 
 - La página está en `/dashboard/insights`. No se recorrió en el navegador. La gestión de miembros sigue en Ajustes.

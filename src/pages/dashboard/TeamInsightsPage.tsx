@@ -25,6 +25,7 @@ export default function TeamInsightsPage() {
         attempts?: number;
         connected?: number;
         meetings?: number;
+        objection_categories?: Array<{ name: string; count: number }>;
       }>("/team/adherence"),
     enabled: allowed,
     retry: false,
@@ -73,7 +74,7 @@ export default function TeamInsightsPage() {
       {view.kind === "ready" && view.metrics ? (
         <>
           <AdherenceBreakdown metrics={view.metrics} />
-          <ObjectionBreakdown categories={[]} />
+          <ObjectionBreakdown categories={query.data?.objection_categories ?? []} />
           <OutcomeBreakdown
             metrics={view.metrics}
             winRate={view.winRate}
