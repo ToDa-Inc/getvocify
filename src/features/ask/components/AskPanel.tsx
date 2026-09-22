@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { api } from "@/shared/lib/api-client";
+import { api, ApiError } from "@/shared/lib/api-client";
+import { confirmErrorDetail, confirmResult, type AskConfirmBody } from "@/lib/ask-confirm";
+import { useLanguage } from "@/lib/i18n";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
 import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
@@ -29,6 +31,7 @@ function readStored(): StoredTurn | null {
 }
 
 export default function AskPanel() {
+  const { t } = useLanguage();
   const [draft, setDraft] = useState("");
   const [read, setRead] = useState<{ coverage?: AskTurnBody["coverage"]; items?: number }>({});
   const [turnChoices, setTurnChoices] = useState<AskChoice[]>([]);
@@ -117,6 +120,29 @@ export default function AskPanel() {
     setDraft("");
   }
 
+  async function confirmPending() {
+    if (!pendingConfirm) return;
+    try {
+      const body = await api.post<AskConfirmBody>(
+        `/ask/conversations/${conversationId}/operations/${pendingConfirm.operationId}/confirm`,
+        { revision: pendingConfirm.revision, contact_id: pendingConfirm.contactId },
+      );
+      const outcome = confirmResult(body);
+      if (outcome.clearPending) {
+        setPendingConfirm(null);
+        if (outcome.text) {
+          setView((current) => ({ ...current, text: outcome.text!, notice: null }));
+        }
+      }
+    } catch (error) {
+      const detail = error instanceof ApiError ? confirmErrorDetail(error.data) : null;
+      setView((current) => ({
+        ...current,
+        notice: detail ?? t.product.askConfirmFailed,
+      }));
+    }
+  }
+
   const situation = askSituation({
     hasTurns: Boolean(view.turnId),
     coverage: read.coverage,
@@ -159,10 +185,7 @@ export default function AskPanel() {
           type="button"
           className="mt-3 rounded-full border border-border px-3 py-1 text-sm"
           onClick={() => {
-            void api.post(
-              `/ask/conversations/${conversationId}/operations/${pendingConfirm.operationId}/confirm`,
-              { revision: pendingConfirm.revision, contact_id: pendingConfirm.contactId },
-            ).then(() => setPendingConfirm(null));
+            void confirmPending();
           }}
         >
           Confirmar para {pendingConfirm.contactId}

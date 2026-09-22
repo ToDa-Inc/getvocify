@@ -31,6 +31,7 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Tras reinicio, confirm lee la propuesta del turno guardado; repetir no vuelve a escribir y otro contacto sigue en conflicto | este commit | `tests/crm_copilot/test_ask_http.py` |
 | Un confirm aplicado guarda `applied` en el JSON del turno; otro reinicio repite sin llamar al loop | este commit | `tests/crm_copilot/test_ask_http.py` |
 | Tras confirmar, el texto de seguimiento del loop queda guardado en el turno; un repetido o un fallo no lo cambia | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Tras confirmar en la web, el panel muestra el texto del loop y un fallo deja el botón | este commit | `src/lib/ask-confirm.test.ts` |
 
 ## No verificado
 
