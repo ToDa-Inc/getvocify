@@ -18,6 +18,18 @@ CREATE TABLE IF NOT EXISTS playbook_versions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS playbook_imports (
+  id TEXT PRIMARY KEY,
+  company_id UUID,
+  playbook_id UUID,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
+  reason TEXT,
+  draft JSONB,
+  active_version_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE OR REPLACE FUNCTION publish_playbook_version(p_version UUID)
 RETURNS UUID
 LANGUAGE plpgsql
