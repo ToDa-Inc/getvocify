@@ -15,6 +15,7 @@ import {
   buildCopilotChecklistRequestBody,
   fetchCopilotChecklist,
 } from '../lib/copilot-checklist.js';
+import { memoMeetingChecklistView } from '../lib/memo-meeting-checklist.js';
 import {
   buildCopilotSuggestRequestBody,
   markCopilotSuggestRequested,
@@ -123,6 +124,7 @@ let permissionState = { platform: desktop()?.platform, microphone: 'never_reques
 let reviewContext = null;
 let copilotSuggestAbort = null;
 let copilotChecklistAbort = null;
+let reviewChecklistAbort = null;
 let liveAssistChecklist = null;
 /** Active listen session: callMode/contact only; never invent CRM ids here. */
 let listenSession = null;
@@ -299,9 +301,12 @@ function paintHomeHoy() {
     homeHoyEl.hidden = true;
     stopHomeHoyUndoClock();
   } else {
+    const t = strings(uiLang());
     for (const card of cards) {
       const wrap = document.createElement('div');
-      wrap.innerHTML = renderToString(renderTodayCard(card, { now: nowMs }));
+      wrap.innerHTML = renderToString(
+        renderTodayCard(card, { now: nowMs, dismiss: t.dismiss, undo: t.undo }),
+      );
       homeHoyEl.append(wrap.firstElementChild ?? wrap);
     }
     homeHoyEl.hidden = false;
@@ -836,6 +841,69 @@ async function startListen() {
   }
 }
 
+function reviewChecklistCopy() {
+  const lang = uiLang();
+  const t = strings(lang);
+  const progressTemplate = lang === 'es' ? '{met} de {applicable}' : '{met} of {applicable}';
+  return { progressTemplate, doneLabel: t.checklistDone };
+}
+
+function paintReviewChecklist(checklist) {
+  const el = document.getElementById('review-checklist');
+  if (!el) return;
+  const view = memoMeetingChecklistView(checklist, reviewChecklistCopy());
+  el.replaceChildren();
+  if (!view) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const summary = document.createElement('p');
+  summary.className = 'caps overlay-checklist-summary';
+  summary.textContent = view.progress;
+  el.appendChild(summary);
+  for (const step of view.steps) {
+    const row = document.createElement('p');
+    row.className = 'line overlay-checklist-step';
+    if (step.kind === 'met') {
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = step.label;
+      const doneSpan = document.createElement('span');
+      doneSpan.className = 'muted';
+      doneSpan.textContent = step.doneLabel;
+      row.append(labelSpan, document.createTextNode(' '), doneSpan);
+    } else {
+      row.textContent = step.label;
+    }
+    el.appendChild(row);
+  }
+}
+
+async function loadReviewChecklist(memoId, token) {
+  reviewChecklistAbort?.abort();
+  const controller = new AbortController();
+  reviewChecklistAbort = controller;
+  let checklist = null;
+  try {
+    const result = await fetchCopilotChecklist(fetch, {
+      apiBase: apiBase(),
+      token,
+      body: buildCopilotChecklistRequestBody({ session: { capture_id: memoId } }),
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted || reviewContext?.memoId !== memoId) return;
+    checklist = result.ok ? result.data : null;
+  } catch {
+    if (controller.signal.aborted || reviewContext?.memoId !== memoId) return;
+    checklist = null;
+  } finally {
+    if (reviewChecklistAbort === controller) reviewChecklistAbort = null;
+  }
+  if (reviewContext?.memoId !== memoId) return;
+  reviewContext.meetingChecklist = checklist;
+  paintReviewChecklist(checklist);
+}
+
 function renderReview() {
   const ctx = reviewContext;
   if (!ctx) return;
@@ -922,6 +990,7 @@ function renderReview() {
   if (!ctx.updates.length) {
     fieldsEl.innerHTML = '<p class="muted">No field updates extracted.</p>';
   }
+  paintReviewChecklist(ctx.meetingChecklist);
 }
 
 const followupEl = document.getElementById('review-followup');
@@ -1004,10 +1073,13 @@ async function openReview(memoId) {
     omittedKeys: [],
     summary: notes.summary,
     nextSteps: notes.nextSteps,
+    meetingChecklist: null,
   };
   document.getElementById('review-status').textContent = 'Review notes and fields, then approve.';
+  paintReviewChecklist(null);
   loadFollowup(memoId, token);
   renderReview();
+  void loadReviewChecklist(memoId, token);
 }
 
 async function stopAndSend() {
