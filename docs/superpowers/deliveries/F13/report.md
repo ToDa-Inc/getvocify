@@ -16,6 +16,8 @@ La fecha que cuenta es la de la captura, no la del trabajo que termina después.
 
 La ruta de producción `send_report_email` usa el adaptador Resend cuando el caller inyecta cliente Resend (sin envío real verificado en vivo).
 
+`due_report_sends` / `run_due_reports` deciden quién debe recibir el correo del día local tras las 18:00 y omiten periodos ya `sent` (reintento si `failed`); sin bucle en `main` ni envío en vivo aquí.
+
 ## No verificado
 
 - `GET /reports/{id}` devuelve la instantánea guardada. El informe de otra persona responde 404. Marcar la campana dos veces conserva la primera hora. La página está en `/dashboard/reports/:id`. No se recorrió en el navegador.
