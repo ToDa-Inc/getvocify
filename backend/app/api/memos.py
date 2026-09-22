@@ -296,6 +296,13 @@ async def extract_memo_async(
             ),
         )
         schedule_followup(supabase, memo_id)
+        from app.services.memo_extraction_hooks import run_post_extraction_hooks
+
+        run_post_extraction_hooks(
+            supabase,
+            memo_id=memo_id,
+            extraction=extraction.model_dump(),
+        )
         from app.services.intelligence.worker import record_enqueue
         record_enqueue(
             supabase,
@@ -2022,6 +2029,14 @@ async def re_extract_memo(
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
     schedule_followup(supabase, str(memo_id))
+    from app.services.memo_extraction_hooks import run_post_extraction_hooks
+
+    run_post_extraction_hooks(
+        supabase,
+        memo_id=str(memo_id),
+        extraction=extraction.model_dump(),
+        memo=memo_data,
+    )
     from app.services.intelligence.worker import record_enqueue
     record_enqueue(
         supabase,
