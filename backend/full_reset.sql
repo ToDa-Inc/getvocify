@@ -121,6 +121,7 @@ CREATE TABLE user_profiles (
   product_context TEXT DEFAULT '',
   stt_languages TEXT[] NOT NULL DEFAULT ARRAY['es'],
   company_id UUID,
+  writing_samples JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -339,6 +340,8 @@ CREATE TABLE memos (
   audio_status TEXT,
   capture_turns JSONB,
   transcript_complete BOOLEAN NOT NULL DEFAULT false,
+  followup JSONB,
+  followup_run_started_at TIMESTAMPTZ,
   whatsapp_message_id TEXT,
   conversation_id UUID,
   hubspot_engagement_id TEXT,

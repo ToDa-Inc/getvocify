@@ -262,3 +262,7 @@ above.
 ## 037 — memo capture context (F01.02)
 
 `backend/migrations/037_memo_capture_context.sql` adds capture identity on `memos` (no second Interaction table). `capture_id` is `memos.id`. `client_capture_id` is unique per `user_id`. `company_id` is the session workspace and is immutable. `capture_status` (`recording`, `upload_pending`, `processing`, `complete`, `failed`) is separate from `memos.status` and maps onto the existing pipeline enum. `source` gains `desktop` and keeps `vocify_call`.
+
+## 038 — follow-up draft (F02)
+
+`backend/migrations/038_memos_followup.sql` adds `memos.followup`, `memos.followup_run_started_at` and `user_profiles.writing_samples`. `sent` means the draft was handed to the mail client, not that delivery was confirmed.
