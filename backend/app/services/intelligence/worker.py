@@ -23,6 +23,84 @@ def set_worker_tick(tick) -> None:
     _worker_tick = tick
 
 
+def run_claimed(claim, load_memo, publish, classify, sources_for) -> Optional[dict]:
+    """Claim, then publish only when the memo is loaded. An empty claim does not classify."""
+    claimed = claim()
+    if not claimed:
+        return None
+    memo = load_memo(claimed["memo_id"])
+    if not memo:
+        return {"outcome": "missing_memo", "published": False}
+    from app.services.intelligence.interpret import interpret_memo
+
+    intelligence, created = interpret_memo(memo, classify, sources_for(memo))
+    outcome = publish(claimed["job_id"], claimed["run_id"], intelligence.model_dump())
+    return {
+        "created": created,
+        "outcome": outcome,
+        "published": True,
+        "input_revision": intelligence.input_revision,
+    }
+
+
+def make_database_tick(supabase, classify, sources_for=None):
+    """Build one pass over claim_memo_job. No row means no classify and no publish."""
+
+    def claim():
+        result = supabase.rpc(
+            "claim_memo_job",
+            {"p_kind": "intelligence", "p_lease_seconds": 120},
+        ).execute()
+        rows = list(getattr(result, "data", None) or [])
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "job_id": row.get("job_id"),
+            "run_id": row.get("claimed_run_id"),
+            "memo_id": str(row.get("claimed_memo_id")),
+            "input_revision": row.get("claimed_revision"),
+        }
+
+    def load_memo(memo_id: str):
+        result = supabase.table("memos").select("*").eq("id", memo_id).limit(1).execute()
+        rows = list(getattr(result, "data", None) or [])
+        return rows[0] if rows else None
+
+    def publish(job_id, run_id, payload):
+        result = supabase.rpc(
+            "publish_memo_job",
+            {"p_job_id": job_id, "p_run_id": run_id, "p_result": payload},
+        ).execute()
+        return getattr(result, "data", None)
+
+    def sources(memo):
+        if sources_for is not None:
+            return sources_for(memo)
+        return {"transcript": memo.get("transcript") or ""}
+
+    def tick():
+        return run_claimed(claim, load_memo, publish, classify, sources)
+
+    return tick
+
+
+def install_intelligence_tick(classify=None) -> None:
+    """Claim from Postgres only when a classifier is installed and publishing is enabled."""
+    from app.config import settings
+
+    if classify is None or not settings.INTELLIGENCE_WORKER_PUBLISH:
+        set_worker_tick(None)
+        return
+
+    from app.deps import get_supabase
+
+    def tick():
+        return make_database_tick(get_supabase(), classify)()
+
+    set_worker_tick(tick)
+
+
 def revision_for_memo(memo: dict) -> str:
     extraction = memo.get("extraction") or {}
     if hasattr(extraction, "model_dump"):

@@ -198,6 +198,7 @@ class Settings(BaseSettings):
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
     # Follow-up drafts. Off does not block extraction; sent means mail-client handoff.
     FOLLOWUP_ENABLED: bool = True
+    INTELLIGENCE_WORKER_PUBLISH: bool = False
     FOLLOWUP_MODEL: Optional[str] = None  # None = the LLM router's default model
 
     CALLING_PROVIDER: str = "twilio"

@@ -93,3 +93,111 @@ def test_an_empty_claim_inside_the_worker_does_not_classify():
 
     asyncio.run(scenario())
     assert calls["classify"] == 0
+
+
+def test_database_tick_does_not_classify_or_publish_without_a_job():
+    from app.services.intelligence.worker import install_intelligence_tick, make_database_tick
+
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+        def execute(self):
+            return self
+
+    class Client:
+        def __init__(self, rows):
+            self.rows = rows
+            self.rpc_names = []
+
+        def rpc(self, name, _params):
+            self.rpc_names.append(name)
+            return Result(self.rows)
+
+        def table(self, _name):
+            raise AssertionError("no memo read without a claim")
+
+    calls = {"classify": 0}
+
+    def classify(_memo):
+        calls["classify"] += 1
+        return {"answers": {}}
+
+    client = Client([])
+    assert make_database_tick(client, classify)() is None
+    assert client.rpc_names == ["claim_memo_job"]
+    assert calls["classify"] == 0
+    install_intelligence_tick()
+    from app.services.intelligence import worker as worker_mod
+    assert worker_mod._worker_tick is None
+
+
+def test_a_claimed_job_publishes_with_job_and_run_and_a_missing_memo_does_not():
+    from app.services.intelligence.worker import make_database_tick, run_claimed
+
+    published = []
+
+    def classify(_memo):
+        return {"status": "unavailable", "answers": {}}
+
+    missing = run_claimed(
+        lambda: {"job_id": "job-1", "run_id": "run-1", "memo_id": "memo-1"},
+        lambda _memo_id: None,
+        lambda *_args: published.append(_args),
+        classify,
+        lambda _memo: {},
+    )
+    assert missing == {"outcome": "missing_memo", "published": False}
+    assert published == []
+
+    outcome = run_claimed(
+        lambda: {"job_id": "job-1", "run_id": "run-1", "memo_id": "memo-1"},
+        lambda _memo_id: MEMO,
+        lambda job_id, run_id, payload: published.append((job_id, run_id, payload["status"])),
+        classify,
+        lambda _memo: {},
+    )
+    assert outcome["published"] is True
+    assert published == [("job-1", "run-1", "unavailable")]
+
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+        def execute(self):
+            return self
+
+    class Query:
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            return Result([])
+
+    class Client:
+        def __init__(self):
+            self.rpc_names = []
+
+        def rpc(self, name, _params):
+            self.rpc_names.append(name)
+            if name == "claim_memo_job":
+                return Result([{
+                    "job_id": "job-1",
+                    "claimed_run_id": "run-1",
+                    "claimed_memo_id": "memo-1",
+                    "claimed_revision": "rev",
+                }])
+            return Result("published")
+
+        def table(self, _name):
+            return Query()
+
+    client = Client()
+    assert make_database_tick(client, classify)()["published"] is False
+    assert client.rpc_names == ["claim_memo_job"]

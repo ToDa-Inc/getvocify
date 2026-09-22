@@ -354,7 +354,8 @@ async def startup_event():
 
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
     asyncio.create_task(_periodic_memo_recovery())
-    from app.services.intelligence.worker import start_worker
+    from app.services.intelligence.worker import install_intelligence_tick, start_worker
+    install_intelligence_tick()
     start_worker()
 
 
