@@ -121,13 +121,8 @@ def connection_assigned_fetch(
     token = str(connection.get("access_token") or "").strip()
     meta = connection.get("metadata") or {}
     api_domain = meta.get("api_domain") if isinstance(meta, dict) else None
-    http = client or httpx.Client(timeout=_ASSIGNED_TIMEOUT)
 
-    def fetch(request: dict) -> dict:
-        if not token:
-            return {"error_kind": "unavailable"}
-        if provider == "pipedrive" and not api_domain:
-            return {"error_kind": "unavailable"}
+    def _request(http: httpx.Client, request: dict) -> dict:
         url = _assigned_url(provider, request, api_domain=str(api_domain) if api_domain else None)
         headers = {
             "Authorization": f"Bearer {token}",
@@ -149,6 +144,19 @@ def connection_assigned_fetch(
         response.raise_for_status()
         body = response.json()
         return body if isinstance(body, dict) else {"data": body}
+
+    def fetch(request: dict) -> dict:
+        if not token:
+            return {"error_kind": "unavailable"}
+        if provider == "pipedrive" and not api_domain:
+            return {"error_kind": "unavailable"}
+        if client is not None:
+            return _request(client, request)
+        http = httpx.Client(timeout=_ASSIGNED_TIMEOUT)
+        try:
+            return _request(http, request)
+        finally:
+            http.close()
 
     return fetch
 

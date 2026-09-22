@@ -12,6 +12,7 @@ Estado: reglas C09 y el enlace a contactos del CRM cuando hay proveedor conocido
 | Migración `042_contact_priority_context.sql` | `3b6a687` | Tabla también en `full_reset.sql` |
 | Página incompleta de HubSpot o Pipedrive no es «nunca llamado»; email ambiguo no asigna; el mismo nombre no asigna; un fallo conserva la hora | este commit | `tests/hoy/test_priority_context.py` 4 passed, incluido Postgres aislado |
 | `GET /contact-priorities` con caché vacía y token CRM hace una lectura asignada; la segunda petición no vuelve al CRM; 403 no es lista completa vacía | este commit | `tests/hoy/test_priority_http.py` |
+| `connection_assigned_fetch` cierra el `httpx.Client` por defecto tras cada petición; el cliente inyectado no se cierra | este commit | `tests/hoy/test_assigned_fetch.py` |
 
 ## No verificado
 
