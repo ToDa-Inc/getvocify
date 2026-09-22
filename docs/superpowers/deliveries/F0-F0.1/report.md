@@ -13,7 +13,8 @@ Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: `INTE
 | Misma revisión no se interpreta dos veces | `acdb98e` | `tests/intelligence/test_interpret.py` |
 | Claim vacío no clasifica; memo ausente no publica; job y run van juntos a `publish_memo_job` | `9af9f3c` | `tests/intelligence/test_recovery.py` |
 | Silencio de Jev sigue en unknown y la cita tardía entra en el estado; sin clave el tick no reclama | `e87aa05` | `tests/intelligence/test_classification.py`, `tests/intelligence/test_recovery.py` |
-| La inteligencia queda en la extracción sin cambiar la revisión; un fallo al escribir no publica | este commit | `tests/intelligence/test_recovery.py` |
+| La inteligencia queda en la extracción sin cambiar la revisión; un fallo al escribir no publica | `366897e` | `tests/intelligence/test_recovery.py` |
+| Un fallo dobla la espera hasta 120 s; el log lleva kind, estado y revisión, no la transcripción; el reinicio vuelve a pasar | este commit | `tests/intelligence/test_recovery.py` |
 
 ## Siguiente
 

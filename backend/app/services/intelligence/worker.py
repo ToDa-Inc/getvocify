@@ -11,6 +11,30 @@ from app.services.intelligence.revisions import input_revision
 
 logger = logging.getLogger(__name__)
 
+BASE_WAIT_SECONDS = 30
+MAX_WAIT_SECONDS = 120
+
+
+def wait_after(failures: int) -> float:
+    """Base wait after a clean pass. Each failure doubles it, capped."""
+    if failures <= 0:
+        return BASE_WAIT_SECONDS
+    return min(BASE_WAIT_SECONDS * (2 ** failures), MAX_WAIT_SECONDS)
+
+
+def tick_fields(outcome: Optional[dict]) -> dict:
+    """Kind, status and revision only. The transcript never enters the log."""
+    if not outcome:
+        return {"kind": "intelligence", "status": "idle"}
+    status = outcome.get("outcome")
+    if status is None and outcome.get("published") is False:
+        status = "missing_memo"
+    return {
+        "kind": "intelligence",
+        "status": status or "unknown",
+        "input_revision": outcome.get("input_revision"),
+    }
+
 REGISTERED_KINDS = frozenset({"intelligence"})
 _worker_task: Optional[asyncio.Task] = None
 _worker_stop = asyncio.Event()
@@ -243,27 +267,44 @@ def record_enqueue(supabase: Any, memo: dict) -> Optional[dict]:
 
 
 async def _worker_loop() -> None:
+    failures = 0
     while not _worker_stop.is_set():
         tick = _worker_tick
+        failed = False
         if tick is not None:
             try:
                 outcome = tick()
                 if asyncio.iscoroutine(outcome):
-                    await outcome
-            except Exception:
-                logger.exception("intelligence tick failed")
+                    outcome = await outcome
+                if outcome:
+                    fields = tick_fields(outcome)
+                    logger.info(
+                        "intelligence tick kind=%s status=%s input_revision=%s",
+                        fields["kind"],
+                        fields["status"],
+                        fields.get("input_revision"),
+                        extra=fields,
+                    )
+            except Exception as exc:
+                failed = True
+                logger.error(
+                    "intelligence tick failed kind=intelligence status=failed error_type=%s",
+                    type(exc).__name__,
+                    extra={"kind": "intelligence", "status": "failed", "error_type": type(exc).__name__},
+                )
+        failures = failures + 1 if failed else 0
         try:
-            await asyncio.wait_for(_worker_stop.wait(), timeout=30)
+            await asyncio.wait_for(_worker_stop.wait(), timeout=wait_after(failures))
         except asyncio.TimeoutError:
             continue
 
 
 def start_worker() -> bool:
     """Start one loop. A second call while it is running does nothing."""
-    global _worker_task
+    global _worker_task, _worker_stop
     if _worker_task is not None and not _worker_task.done():
         return False
-    _worker_stop.clear()
+    _worker_stop = asyncio.Event()
     _worker_task = asyncio.get_running_loop().create_task(_worker_loop())
     return True
 

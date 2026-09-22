@@ -1,6 +1,7 @@
 """Recovery: a saved extraction without a job is enqueued once, on every path."""
 
 import asyncio
+import logging
 import os
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -93,6 +94,46 @@ def test_an_empty_claim_inside_the_worker_does_not_classify():
 
     asyncio.run(scenario())
     assert calls["classify"] == 0
+
+
+def test_a_failed_tick_backs_off_and_success_returns_to_the_base_wait():
+    from app.services.intelligence.worker import wait_after
+
+    assert wait_after(0) == 30
+    assert wait_after(1) == 60
+    assert wait_after(2) == 120
+    assert wait_after(6) == 120
+
+
+def test_restart_logs_kind_status_and_revision_without_the_transcript(caplog):
+    from app.services.intelligence.worker import set_worker_tick
+
+    transcript = "El seguimiento nos ocupa tres horas"
+    passes = {"n": 0}
+
+    def tick():
+        passes["n"] += 1
+        return {"outcome": "success", "input_revision": "rev-1", "transcript": transcript}
+
+    async def scenario():
+        set_worker_tick(tick)
+        try:
+            assert start_worker() is True
+            await asyncio.sleep(0.05)
+            await stop_worker()
+            after_stop = passes["n"]
+            assert start_worker() is True
+            await asyncio.sleep(0.05)
+            await stop_worker()
+            assert passes["n"] > after_stop
+        finally:
+            set_worker_tick(None)
+
+    with caplog.at_level(logging.INFO, logger="app.services.intelligence.worker"):
+        asyncio.run(scenario())
+    assert "rev-1" in caplog.text
+    assert "intelligence" in caplog.text
+    assert transcript not in caplog.text
 
 
 def test_database_tick_does_not_classify_or_publish_without_a_job():
