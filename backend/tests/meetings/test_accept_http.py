@@ -101,6 +101,7 @@ class _Supabase:
 class FakeWriter:
     def __init__(self):
         self.created: list[str] = []
+        self.reconcile_result: str | None = None
 
     def create(self, operation_key: str, proposal: dict) -> str:
         del proposal
@@ -108,7 +109,7 @@ class FakeWriter:
         return "act-fake-1"
 
     def reconcile(self, _operation_key: str):
-        return None
+        return self.reconcile_result
 
     def change_stage(self, _mapping: str) -> None:
         return None
@@ -120,6 +121,7 @@ STORE = _Supabase()
 
 def setup_function():
     WRITER.created.clear()
+    WRITER.reconcile_result = None
     STORE.tables = {
         "memos": [
             {
@@ -184,3 +186,50 @@ def test_omit_does_not_call_create():
     assert response.json()["crm_status"] == "not_requested"
     assert WRITER.created == []
     assert response.json()["proposal"]["decision"] == "omitted"
+
+
+def _seed_uncertain_write() -> str:
+    op_key = f"{MEMO}:meet-1:rev-1"
+    STORE.tables["meeting_proposals"] = [
+        {**PROPOSAL_ROW, "decision": "accepted", "crm_status": "uncertain", "remote_id": None}
+    ]
+    STORE.tables["meeting_writes"] = [
+        {
+            "operation_key": op_key,
+            "memo_id": MEMO,
+            "proposal_id": "meet-1",
+            "remote_id": None,
+            "crm_status": "uncertain",
+        }
+    ]
+    return op_key
+
+
+def test_reconcile_uncertain_finds_remote_id_without_create():
+    _seed_uncertain_write()
+    WRITER.reconcile_result = "act-recovered"
+    client = _client()
+    response = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/reconcile",
+        json={"proposal_id": "meet-1"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["crm_status"] == "succeeded"
+    assert body["remote_id"] == "act-recovered"
+    assert WRITER.created == []
+    assert STORE.tables["meeting_writes"][0]["remote_id"] == "act-recovered"
+
+
+def test_reconcile_uncertain_stays_uncertain_without_create():
+    _seed_uncertain_write()
+    client = _client()
+    response = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/reconcile",
+        json={"proposal_id": "meet-1"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["crm_status"] == "uncertain"
+    assert body["remote_id"] is None
+    assert WRITER.created == []

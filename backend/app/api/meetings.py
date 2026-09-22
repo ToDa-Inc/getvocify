@@ -1,13 +1,13 @@
-"""GET the stored meeting proposal. POST accept / omit / correct."""
+"""GET the stored meeting proposal. POST accept / omit / correct / reconcile."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.deps import get_membership, get_supabase
-from app.models.meetings import MeetingProposalAcceptRequest
+from app.models.meetings import MeetingProposalAcceptRequest, MeetingProposalReconcileRequest
 from app.services.company import Membership
-from app.services.meetings.accept import WriterFactory, accept_meeting_proposal
+from app.services.meetings.accept import WriterFactory, accept_meeting_proposal, reconcile_meeting_proposal
 from app.services.meetings.proposals import latest_proposal
 
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
@@ -61,5 +61,21 @@ async def accept_meeting_proposal_route(
         decision=payload.decision,
         proposal_id=payload.proposal_id,
         starts_at=payload.starts_at,
+        writer_factory=_WRITER_FACTORY,
+    )
+
+
+@router.post("/memos/{memo_id}/meeting-proposal/reconcile")
+async def reconcile_meeting_proposal_route(
+    memo_id: str,
+    payload: MeetingProposalReconcileRequest,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    return reconcile_meeting_proposal(
+        supabase,
+        company_id=membership.company_id,
+        memo_id=memo_id,
+        proposal_id=payload.proposal_id,
         writer_factory=_WRITER_FACTORY,
     )

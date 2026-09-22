@@ -36,6 +36,91 @@ def operation_key(*, memo_id: str, proposal_id: str, input_revision: str) -> str
     return f"{memo_id}:{proposal_id}:{input_revision}"
 
 
+def reconcile_meeting_proposal(
+    supabase,
+    *,
+    company_id: str,
+    memo_id: str,
+    proposal_id: str,
+    writer_factory: WriterFactory | None = None,
+) -> dict:
+    memo_rows = supabase.table("memos").select("id,company_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id").eq("id", memo_id).execute()
+    memo = (memo_rows.data or [None])[0]
+    if not memo or memo.get("company_id") != company_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+
+    proposal_rows = (
+        supabase.table("meeting_proposals")
+        .select("*")
+        .eq("memo_id", memo_id)
+        .execute()
+    ).data or []
+    matches = [row for row in proposal_rows if row.get("proposal_id") == proposal_id]
+    if not matches:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Propuesta no encontrada")
+    row = max(matches, key=lambda item: str(item.get("created_at") or item.get("input_revision") or ""))
+
+    op_key = operation_key(memo_id=memo_id, proposal_id=proposal_id, input_revision=str(row["input_revision"]))
+    write_rows = (
+        supabase.table("meeting_writes")
+        .select("*")
+        .eq("operation_key", op_key)
+        .limit(1)
+        .execute()
+    ).data or []
+    existing_write = write_rows[0] if write_rows else None
+
+    remote_id = (existing_write or row).get("remote_id")
+    crm_status = (existing_write or row).get("crm_status") or "not_requested"
+    replayed = False
+
+    if remote_id:
+        crm_status = "succeeded"
+        replayed = True
+    elif crm_status == "succeeded":
+        replayed = True
+    elif crm_status == "uncertain":
+        connection = _resolve_connection(supabase, company_id)
+        writer = _build_writer(writer_factory, connection, memo, row)
+        if writer is None:
+            crm_status = "uncertain"
+            remote_id = None
+        else:
+            found = writer.reconcile(op_key)
+            if found:
+                crm_status = "succeeded"
+                remote_id = found
+                replayed = True
+                _persist_write(
+                    supabase,
+                    operation_key=op_key,
+                    memo_id=memo_id,
+                    proposal_id=proposal_id,
+                    result={"crm_status": crm_status, "remote_id": remote_id, "stage_changed": False},
+                )
+            else:
+                crm_status = "uncertain"
+                remote_id = None
+
+    update = {"crm_status": crm_status, "remote_id": remote_id}
+    (
+        supabase.table("meeting_proposals")
+        .update(update)
+        .eq("memo_id", memo_id)
+        .eq("proposal_id", proposal_id)
+        .eq("input_revision", row["input_revision"])
+        .execute()
+    )
+
+    row = {**row, **update}
+    return {
+        "proposal": latest_proposal([row]),
+        "crm_status": crm_status,
+        "remote_id": remote_id,
+        "replayed": replayed,
+    }
+
+
 def accept_meeting_proposal(
     supabase,
     *,

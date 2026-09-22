@@ -29,15 +29,27 @@ export function MeetingProposalReview({
     enabled: !extractionPending,
   });
 
+  const applyProposal = useCallback(
+    (data: AcceptResponse) => {
+      queryClient.setQueryData(["meeting-proposal", memoId], { proposal: data.proposal });
+    },
+    [memoId, queryClient],
+  );
+
   const mutation = useMutation({
     mutationFn: (payload: { decision: "accept" | "omit" | "corrected"; proposal_id: string; starts_at?: string }) =>
       api.post<AcceptResponse>(`/memos/${memoId}/meeting-proposal/accept`, payload),
-    onSuccess: (data) => {
-      queryClient.setQueryData(["meeting-proposal", memoId], { proposal: data.proposal });
-    },
+    onSuccess: applyProposal,
   });
 
-  const proposal = mutation.data?.proposal ?? query.data?.proposal ?? null;
+  const reconcileMutation = useMutation({
+    mutationFn: (proposal_id: string) =>
+      api.post<AcceptResponse>(`/memos/${memoId}/meeting-proposal/reconcile`, { proposal_id }),
+    onSuccess: applyProposal,
+  });
+
+  const proposal =
+    reconcileMutation.data?.proposal ?? mutation.data?.proposal ?? query.data?.proposal ?? null;
   const view = meetingProposalView(proposal, { surface: "review", extractionPending });
 
   const markup = useMemo(() => {
@@ -49,16 +61,20 @@ export function MeetingProposalReview({
     (event: React.MouseEvent<HTMLDivElement>) => {
       const action = (event.target as HTMLElement).closest("[data-action]")?.getAttribute("data-action");
       const proposalId = proposal?.proposal_id;
-      if (!action || !proposalId || mutation.isPending) return;
+      if (!action || !proposalId || mutation.isPending || reconcileMutation.isPending) return;
       if (action === "accept") {
         mutation.mutate({ decision: "accept", proposal_id: String(proposalId) });
         return;
       }
       if (action === "omit") {
         mutation.mutate({ decision: "omit", proposal_id: String(proposalId) });
+        return;
+      }
+      if (action === "reconcile") {
+        reconcileMutation.mutate(String(proposalId));
       }
     },
-    [mutation, proposal?.proposal_id],
+    [mutation, reconcileMutation, proposal?.proposal_id],
   );
 
   if (!view.visible) return null;
