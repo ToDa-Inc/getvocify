@@ -60,3 +60,10 @@ export function latestTaggedTurnBody(finalTranscript) {
   if (!last) return '';
   return stripSpeakerPrefix(last).trim();
 }
+
+/** Role of a single tagged transcript line (overlay pill gating). */
+export function speakerRoleFromLastLine(lastLine) {
+  const line = String(lastLine ?? '').trim();
+  if (!line) return null;
+  return turnRoleFromPart(line);
+}

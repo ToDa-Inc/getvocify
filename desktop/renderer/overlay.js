@@ -2,6 +2,7 @@ import { overlayChecklistMarkup } from './shared/ui/copilot/checklist.js';
 import { initialPillState, pillDecision } from './shared/ui/copilot/pill.js';
 import { applyDataI18n, strings } from './shared/ui/i18n.js';
 import { renderToString } from './shared/ui/html.js';
+import { speakerRoleFromLastLine } from '../lib/transcript-turns.js';
 
 const lineEl = document.getElementById('overlay-line');
 const labelEl = document.getElementById('overlay-label');
@@ -22,13 +23,6 @@ let tickTimer = null;
 
 function desktop() {
   return window.vocifyDesktop;
-}
-
-function speakerRoleFromLastLine(lastLine) {
-  const line = String(lastLine ?? '').trim();
-  if (line.startsWith('You:')) return 'rep';
-  if (line.startsWith('Them:')) return 'prospect';
-  return null;
 }
 
 function resetPillState() {
