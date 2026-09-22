@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.config import settings
+from app.services.reporting.daily_snapshot import ensure_self_daily_reports_for_due_tick
 from app.services.reporting.delivery import persist_report_delivery
 from app.services.reporting.due_sends import MADRID
 from app.services.reporting.resend_sender import report_resend_sender
@@ -18,6 +19,7 @@ class ReportEmailTickBindings:
     load_existing: Callable[[], list[dict]]
     sender: Any | None
     persist_delivery: Callable[[dict, dict], None] | None
+    ensure_daily: Callable[[datetime], None] | None = None
 
 
 def report_email_tick_bindings(supabase) -> ReportEmailTickBindings:
@@ -27,6 +29,7 @@ def report_email_tick_bindings(supabase) -> ReportEmailTickBindings:
         load_existing=lambda: _load_report_delivery_existing(supabase),
         sender=_build_sender(supabase),
         persist_delivery=lambda result, person, now=None: _persist_delivery_row(supabase, result, person, now=now),
+        ensure_daily=lambda now: ensure_self_daily_reports_for_due_tick(supabase, now),
     )
 
 

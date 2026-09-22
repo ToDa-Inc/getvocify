@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -14,13 +15,26 @@ MADRID = "Europe/Madrid"
 logger = logging.getLogger(__name__)
 
 
-def tick_due_report_emails(now: datetime, load_people, load_existing, sender, persist_delivery=None) -> None:
+def tick_due_report_emails(
+    now: datetime,
+    load_people,
+    load_existing,
+    sender,
+    persist_delivery=None,
+    *,
+    ensure_daily: Callable[[datetime], None] | None = None,
+) -> None:
     """Load candidates and deliveries, then run due sends. Load errors are swallowed."""
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     madrid_now = now.astimezone(ZoneInfo(MADRID))
     if madrid_now.hour < SEND_CUTOFF_HOUR:
         return
+    if ensure_daily is not None:
+        try:
+            ensure_daily(now)
+        except Exception:
+            logger.exception("report tick: ensure_daily failed")
     try:
         people = load_people()
     except Exception:
