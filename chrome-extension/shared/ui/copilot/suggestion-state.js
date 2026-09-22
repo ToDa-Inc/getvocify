@@ -1,5 +1,17 @@
 // Live help is for meetings only. A step is done when evidence names it, not because time passed.
 
+export function overlayAssist(state) {
+  const decision = assistAllowed({
+    kind: state?.kind,
+    enabled: state?.assistEnabled,
+    playbookReady: state?.playbookReady,
+    evidenceRefs: state?.evidenceRefs,
+  });
+  if (!decision.show) return null;
+  const text = String(state?.card?.text || "").trim();
+  return text || null;
+}
+
 export function assistAllowed({ kind, enabled, playbookReady, evidenceRefs }) {
   if (kind !== "meeting") return { show: false, reason: "not_a_meeting" };
   if (enabled === false) return { show: false, reason: "disabled" };

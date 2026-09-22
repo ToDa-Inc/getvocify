@@ -12,5 +12,4 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 
 ## No verificado
 
-- El overlay del escritorio no usa este estado. No hay comprobación nativa con la ventana minimizada.
-- El detector de turnos de la beta no se ha sustituido por este módulo.
+- El overlay del escritorio muestra la ayuda solo en una reunión con playbook y evidencia. Una llamada se queda en la línea de transcripción. No hay comprobación nativa con la ventana minimizada.

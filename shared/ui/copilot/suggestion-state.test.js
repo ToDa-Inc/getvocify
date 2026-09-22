@@ -1,8 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { assistAllowed, pushSse, reduceSuggestion, stepStatus } from "./suggestion-state.js";
+import { assistAllowed, overlayAssist, pushSse, reduceSuggestion, stepStatus } from "./suggestion-state.js";
 
 describe("live meeting assist", () => {
+  it("shows meeting help on the overlay and keeps a call on the transcript line", () => {
+    assert.equal(overlayAssist({ kind: "call", playbookReady: true, evidenceRefs: ["ev-1"], card: { text: "Pregunta el precio" } }), null);
+    assert.equal(overlayAssist({ kind: "meeting", playbookReady: true, evidenceRefs: [], card: { text: "Pregunta el precio" } }), null);
+    assert.equal(overlayAssist({
+      kind: "meeting",
+      playbookReady: true,
+      evidenceRefs: ["ev-1"],
+      card: { text: "Pregunta el precio" },
+    }), "Pregunta el precio");
+  });
+
   it("stays hidden on a call and when there is nothing to ground a card", () => {
     assert.equal(assistAllowed({ kind: "call", enabled: true, playbookReady: true, evidenceRefs: ["ev-1"] }).reason, "not_a_meeting");
     assert.equal(assistAllowed({ kind: "meeting", enabled: false, playbookReady: true, evidenceRefs: ["ev-1"] }).show, false);
