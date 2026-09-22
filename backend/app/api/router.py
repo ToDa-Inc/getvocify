@@ -9,6 +9,7 @@ from app.api import (
     captures,
     followup,
     playbooks,
+    ask,
     crm,
     crm_salesforce,
     crm_pipedrive,
@@ -36,6 +37,7 @@ api_router.include_router(billing.router)
 api_router.include_router(memos.router)
 api_router.include_router(followup.router)
 api_router.include_router(playbooks.router)
+api_router.include_router(ask.router)
 api_router.include_router(captures.router)
 api_router.include_router(crm.router)
 api_router.include_router(calls.router)
