@@ -5,6 +5,7 @@ import {
   activityLabel,
   adherenceBarRatio,
   objectionCategoriesEmptyMessage,
+  objectionResolutionCountsText,
   repsByName,
   teamAdherenceHasData,
   teamInsightsView,
@@ -53,34 +54,38 @@ describe("team insights", () => {
     const en = productCatalog.EN;
     assert.equal(objectionCategoriesEmptyMessage([], es.objections, es.teamObjectionsEmptyWeek), es.teamObjectionsEmptyWeek);
     assert.equal(
-      objectionCategoriesEmptyMessage([{ name: "Precio", count: 0 }], es.objections, es.teamObjectionsEmptyWeek),
+      objectionCategoriesEmptyMessage([{ name: "Precio", count: 0, resolved: 0, open: 0, unknown: 0 }], es.objections, es.teamObjectionsEmptyWeek),
       es.teamObjectionsEmptyWeek,
     );
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2 }], es.objections, es.teamObjectionsEmptyWeek), null);
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1 }], es.objections, es.teamObjectionsEmptyWeek), null);
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2, resolved: 1, open: 1, unknown: 0 }], es.objections, es.teamObjectionsEmptyWeek), null);
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1, resolved: 0, open: 0, unknown: 1 }], es.objections, es.teamObjectionsEmptyWeek), null);
     assert.equal(
       objectionCategoriesEmptyMessage([], en.objections, en.teamObjectionsEmptyWeek),
       en.teamObjectionsEmptyWeek,
     );
     assert.deepEqual(visibleObjectionCategories([
-      { name: "timing", count: 2 },
-      { name: "price", count: 5 },
-      { name: "Plazo", count: 2 },
-      { name: "authority", count: 0 },
+      { name: "timing", count: 2, resolved: 0, open: 1, unknown: 1 },
+      { name: "price", count: 5, resolved: 2, open: 2, unknown: 1 },
+      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1 },
+      { name: "authority", count: 0, resolved: 0, open: 0, unknown: 0 },
     ], es.objections), [
-      { name: "Precio", count: 5 },
-      { name: "Plazo", count: 2 },
-      { name: "Plazo", count: 2 },
+      { name: "Precio", count: 5, resolved: 2, open: 2, unknown: 1 },
+      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1 },
+      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1 },
     ]);
     assert.deepEqual(visibleObjectionCategories([
-      { name: "price", count: 2 },
-      { name: "timing", count: 2 },
-      { name: "trust", count: 3 },
+      { name: "price", count: 2, resolved: 1, open: 0, unknown: 1 },
+      { name: "timing", count: 2, resolved: 0, open: 2, unknown: 0 },
+      { name: "trust", count: 3, resolved: 1, open: 1, unknown: 1 },
     ], en.objections), [
-      { name: "Trust", count: 3 },
-      { name: "Price", count: 2 },
-      { name: "Timing", count: 2 },
+      { name: "Trust", count: 3, resolved: 1, open: 1, unknown: 1 },
+      { name: "Price", count: 2, resolved: 1, open: 0, unknown: 1 },
+      { name: "Timing", count: 2, resolved: 0, open: 2, unknown: 0 },
     ]);
+    assert.equal(
+      objectionResolutionCountsText({ resolved: 1, open: 2, unknown: 0 }, es),
+      `${es.resolutionResolved} 1 ${es.resolutionOpen} 2 ${es.resolutionUnknown} 0`,
+    );
   });
 
   it("shows an adherence bar only when adherence and applicable steps exist", () => {

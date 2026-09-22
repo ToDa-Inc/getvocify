@@ -211,7 +211,7 @@ def load_team_adherence_inputs(
                     parts.append(part)
             patterns = (
                 supabase.table("interaction_patterns")
-                .select("category,kind,superseded,created_at")
+                .select("category,kind,resolution,superseded,created_at")
                 .in_("memo_id", memo_ids)
                 .execute()
             )

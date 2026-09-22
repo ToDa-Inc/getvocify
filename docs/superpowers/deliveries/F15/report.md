@@ -24,6 +24,7 @@ No se inventa un estado anterior si no hay historia.
 | Textos de equipo, resumen post-interacción y objeciones en memo salen de `product-catalog.ts` (EN/ES vía `t.product`); libs reciben el catálogo como argumento | `src/lib/team-insights.test.ts`, `src/lib/post-brief.test.ts`, `src/lib/interaction-objections.test.ts` |
 | La página de equipo lista nombres de categoría en el idioma de la app o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
 | Objeciones por recuento (barra + número) y adherencia con barra met/applicable cuando hay datos | `src/lib/team-insights.test.ts` |
+| Por categoría, `objection_counts` expone resueltas/abiertas/sin dato (sin inferir); la lista de equipo muestra esos tres junto al total | `tests/team_insights/test_objections.py`, `src/lib/team-insights.test.ts` |
 
 ## Muestra pequeña y cobertura CRM (2026-09-22)
 

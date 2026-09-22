@@ -13,7 +13,25 @@ export type TeamDeal = {
   ownerUserId: string | null;
 };
 
-export type ObjectionCategory = { name: string; count: number };
+export type ObjectionCategory = {
+  name: string;
+  count: number;
+  resolved: number;
+  open: number;
+  unknown: number;
+};
+
+export type ObjectionResolutionLabels = Pick<
+  ProductTranslations,
+  "resolutionResolved" | "resolutionOpen" | "resolutionUnknown"
+>;
+
+export function objectionResolutionCountsText(
+  item: Pick<ObjectionCategory, "resolved" | "open" | "unknown">,
+  labels: ObjectionResolutionLabels,
+): string {
+  return `${labels.resolutionResolved} ${item.resolved} ${labels.resolutionOpen} ${item.open} ${labels.resolutionUnknown} ${item.unknown}`;
+}
 
 export type ObjectionCatalog = Record<string, string>;
 
@@ -32,6 +50,9 @@ export function visibleObjectionCategories(
     .map((item) => ({
       name: objectionDisplayName(item.name, catalog),
       count: item.count,
+      resolved: item.resolved,
+      open: item.open,
+      unknown: item.unknown,
     }))
     .sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count;

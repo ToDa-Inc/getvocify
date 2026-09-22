@@ -24,12 +24,15 @@ def _row(
     superseded: bool = False,
     observed_at: str | None = _IN_WEEK,
     created_at: str | None = None,
+    resolution: str | None = None,
 ) -> dict:
     row: dict = {"category": category, "kind": kind, "superseded": superseded}
     if observed_at is not None:
         row["observed_at"] = observed_at
     if created_at is not None:
         row["created_at"] = created_at
+    if resolution is not None:
+        row["resolution"] = resolution
     return row
 
 
@@ -44,7 +47,9 @@ def test_superseded_and_obstacle_rows_do_not_count():
         _row(category="timing", kind="unknown"),
         _row(category="price"),
     ]
-    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [{"name": "price", "count": 1}]
+    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [
+        {"name": "price", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+    ]
 
 
 def test_categories_sort_by_count_then_name():
@@ -57,9 +62,9 @@ def test_categories_sort_by_count_then_name():
         _row(category="timing"),
     ]
     assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [
-        {"name": "timing", "count": 3},
-        {"name": "authority", "count": 2},
-        {"name": "price", "count": 1},
+        {"name": "timing", "count": 3, "resolved": 0, "open": 0, "unknown": 3},
+        {"name": "authority", "count": 2, "resolved": 0, "open": 0, "unknown": 2},
+        {"name": "price", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
     ]
 
 
@@ -80,11 +85,11 @@ def test_objection_keys_stay_stable():
         "not_a_real_key",
     }
     assert result == [
-        {"name": "competitor", "count": 1},
-        {"name": "not_a_real_key", "count": 1},
-        {"name": "other", "count": 1},
-        {"name": "status_quo", "count": 1},
-        {"name": "trust", "count": 1},
+        {"name": "competitor", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+        {"name": "not_a_real_key", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+        {"name": "other", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+        {"name": "status_quo", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+        {"name": "trust", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
     ]
 
 
@@ -94,9 +99,25 @@ def test_objection_outside_madrid_week_is_excluded():
         _row(category="timing"),
         _row(category="authority", observed_at=None, created_at=_OUT_WEEK),
     ]
-    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [{"name": "timing", "count": 1}]
+    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [
+        {"name": "timing", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+    ]
 
 
 def test_objection_without_date_is_ignored():
     rows = [_row(category="price", observed_at=None, created_at=None)]
     assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == []
+
+
+def test_objection_counts_resolution_per_category_without_inferring():
+    rows = [
+        _row(category="price", resolution="resolved"),
+        _row(category="price", resolution="open"),
+        _row(category="price"),
+        _row(category="timing", resolution="unknown"),
+        _row(category="timing", resolution="not_a_resolution"),
+    ]
+    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [
+        {"name": "price", "count": 3, "resolved": 1, "open": 1, "unknown": 1},
+        {"name": "timing", "count": 2, "resolved": 0, "open": 0, "unknown": 2},
+    ]

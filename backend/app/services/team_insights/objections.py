@@ -48,6 +48,15 @@ def _row_instant(row: dict) -> datetime | None:
     return _parse_instant(row.get("created_at"))
 
 
+def _resolution_bucket(row: dict) -> str:
+    value = row.get("resolution")
+    if value == "resolved":
+        return "resolved"
+    if value == "open":
+        return "open"
+    return "unknown"
+
+
 def objection_counts(
     rows: list[dict],
     *,
@@ -57,7 +66,7 @@ def objection_counts(
     """Count active objections by category in [start, end). Obstacles and superseded rows do not count."""
     if not rows:
         return []
-    tallies: dict[str, int] = {}
+    tallies: dict[str, dict[str, int]] = {}
     for row in rows:
         if row.get("superseded"):
             continue
@@ -70,7 +79,11 @@ def objection_counts(
         if instant is None or instant < start or instant >= end:
             continue
         name = _objection_name(str(category))
-        tallies[name] = tallies.get(name, 0) + 1
-    ordered = [{"name": name, "count": count} for name, count in tallies.items()]
+        bucket = tallies.setdefault(name, {"resolved": 0, "open": 0, "unknown": 0})
+        bucket[_resolution_bucket(row)] += 1
+    ordered = []
+    for name, parts in tallies.items():
+        count = parts["resolved"] + parts["open"] + parts["unknown"]
+        ordered.append({"name": name, "count": count, **parts})
     ordered.sort(key=lambda item: (-item["count"], item["name"]))
     return ordered

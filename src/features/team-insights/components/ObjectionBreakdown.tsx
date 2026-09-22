@@ -1,6 +1,7 @@
 import { useLanguage } from "@/lib/i18n";
 import {
   objectionCategoriesEmptyMessage,
+  objectionResolutionCountsText,
   visibleObjectionCategories,
   type ObjectionCategory,
 } from "@/lib/team-insights";
@@ -22,7 +23,9 @@ export function ObjectionBreakdown({ categories }: { categories: ObjectionCatego
             <li key={item.name} className="space-y-1">
               <div className="flex justify-between gap-4 text-sm">
                 <span>{item.name}</span>
-                <span>{item.count}</span>
+                <span>
+                  {item.count} {objectionResolutionCountsText(item, p)}
+                </span>
               </div>
               <div className="relative h-4 w-full overflow-hidden rounded-full bg-secondary">
                 <div
