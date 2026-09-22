@@ -22,6 +22,8 @@ Sin destinatario en el tick, `_ReportIdSender` falla y el intento queda `failed`
 
 Antes del envío, el tick materializa el informe diario `self` del día local desde memos y hace upsert en `reports`; el periodo usa `capture_started_at` (o `created_at`), no solo la fecha de fila (`tests/reporting/test_ensure_daily_report_from_memos.py`, 5 passed).
 
+Tras materializar el informe, ensure inserta una fila en `report_notifications` por usuario e informe si no existía (`read_at` null; sin duplicar el mismo día).
+
 ## No verificado
 
 - `GET /reports/{id}` devuelve la instantánea guardada. El informe de otra persona responde 404. Marcar la campana dos veces conserva la primera hora. La página está en `/dashboard/reports/:id`. No se recorrió en el navegador.

@@ -156,6 +156,30 @@ def _existing_report_id(
     return None
 
 
+def _ensure_report_notification(supabase, *, report_id: str, user_id: str) -> None:
+    try:
+        stored = (
+            supabase.table("report_notifications")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("report_id", report_id)
+            .limit(1)
+            .execute()
+        )
+        if stored.data:
+            return
+        supabase.table("report_notifications").insert(
+            {
+                "id": str(uuid.uuid4()),
+                "report_id": report_id,
+                "user_id": user_id,
+                "read_at": None,
+            }
+        ).execute()
+    except Exception:
+        logger.exception("daily report: ensure notification failed")
+
+
 def ensure_self_daily_report(
     supabase,
     *,
@@ -206,6 +230,7 @@ def ensure_self_daily_report(
         payload,
         on_conflict="company_id,user_id,scope,period_start,report_type",
     ).execute()
+    _ensure_report_notification(supabase, report_id=report_id, user_id=user_id)
     return report_id
 
 

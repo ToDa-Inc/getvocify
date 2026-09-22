@@ -16,6 +16,7 @@ from app.services.reporting.tick_bindings import _load_daily_report_people, _loa
 
 MADRID = "Europe/Madrid"
 USER = "99999999-9999-9999-9999-999999999999"
+OTHER_USER = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 COMPANY = "88888888-8888-8888-8888-888888888888"
 AT_CUTOFF = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
 
@@ -40,6 +41,7 @@ class _FakeQuery:
         self._in_filters: dict[str, list] = {}
         self._upsert_payload: dict | None = None
         self._on_conflict: str | None = None
+        self._insert_payload: dict | list | None = None
         self._limit: int | None = None
 
     def select(self, _columns: str):
@@ -66,8 +68,21 @@ class _FakeQuery:
         self._on_conflict = on_conflict
         return self
 
+    def insert(self, payload: dict | list):
+        self._insert_payload = payload
+        return self
+
     def execute(self):
         rows = list(self._store.get(self._table, []))
+        if self._insert_payload is not None:
+            to_add = (
+                self._insert_payload
+                if isinstance(self._insert_payload, list)
+                else [dict(self._insert_payload)]
+            )
+            rows.extend(to_add)
+            self._store[self._table] = rows
+            return SimpleNamespace(data=to_add)
         if self._upsert_payload is not None:
             conflict_cols = (self._on_conflict or "").split(",")
             rows = [
@@ -98,6 +113,7 @@ class FakeSupabase:
             "memos": memos,
             "brief_preferences": [{"user_id": USER, "timezone": MADRID}],
             "team_outcome_observations": [],
+            "report_notifications": [],
         }
         self._period_start = period_start.isoformat()
 
@@ -268,3 +284,79 @@ def test_tick_ensures_report_from_memos_before_email_send():
     assert len(fake.tables["reports"]) == 1
     report_id = fake.tables["reports"][0]["id"]
     assert sender.sent == [f"{report_id}:r1:email"]
+
+
+def _notifications_for_user(fake: FakeSupabase, user_id: str) -> list[dict]:
+    return [n for n in fake.tables["report_notifications"] if str(n.get("user_id")) == user_id]
+
+
+def test_ensure_self_daily_report_creates_one_notification_with_read_at_null():
+    fake = FakeSupabase(memos=[_memo_in_period()])
+    report_id = ensure_self_daily_report(
+        fake,
+        company_id=COMPANY,
+        user_id=USER,
+        timezone=MADRID,
+        now=AT_CUTOFF,
+    )
+    assert report_id
+    notes = _notifications_for_user(fake, USER)
+    assert len(notes) == 1
+    assert notes[0]["report_id"] == report_id
+    assert notes[0]["read_at"] is None
+
+
+def test_second_ensure_same_day_does_not_duplicate_notification():
+    fake = FakeSupabase(memos=[_memo_in_period()])
+    ensure_self_daily_report(
+        fake,
+        company_id=COMPANY,
+        user_id=USER,
+        timezone=MADRID,
+        now=AT_CUTOFF,
+    )
+    ensure_self_daily_report(
+        fake,
+        company_id=COMPANY,
+        user_id=USER,
+        timezone=MADRID,
+        now=AT_CUTOFF,
+    )
+    assert len(_notifications_for_user(fake, USER)) == 1
+
+
+def test_ensure_notification_is_not_visible_to_another_user():
+    fake = FakeSupabase(memos=[_memo_in_period()])
+    ensure_self_daily_report(
+        fake,
+        company_id=COMPANY,
+        user_id=USER,
+        timezone=MADRID,
+        now=AT_CUTOFF,
+    )
+    assert _notifications_for_user(fake, OTHER_USER) == []
+    assert len(_notifications_for_user(fake, USER)) == 1
+
+
+def test_ensure_does_not_create_notification_when_report_not_built():
+    captured_yesterday = datetime(2026, 9, 21, 10, 0, tzinfo=timezone.utc).isoformat()
+    memo = {
+        "id": "memo-yesterday",
+        "company_id": COMPANY,
+        "user_id": USER,
+        "screening_outcome": "connected",
+        "created_at": captured_yesterday,
+        "capture_started_at": captured_yesterday,
+        "extraction": {},
+        "intelligence": {},
+    }
+    fake = FakeSupabase(memos=[memo])
+    result = ensure_self_daily_report(
+        fake,
+        company_id=COMPANY,
+        user_id=USER,
+        timezone=MADRID,
+        now=AT_CUTOFF,
+    )
+    assert result is None
+    assert fake.tables["report_notifications"] == []
