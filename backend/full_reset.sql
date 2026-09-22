@@ -372,6 +372,24 @@ CREATE TABLE IF NOT EXISTS memo_jobs (
   UNIQUE (memo_id, kind, revision_seq)
 );
 
+CREATE TABLE IF NOT EXISTS playbooks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL,
+  sales_motion_key TEXT NOT NULL,
+  active_version_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (company_id, sales_motion_key)
+);
+
+CREATE TABLE IF NOT EXISTS playbook_versions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  playbook_id UUID NOT NULL REFERENCES playbooks(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+  steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+  entries JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)

@@ -270,3 +270,7 @@ above.
 ## 039 — intelligence jobs (F0)
 
 `backend/migrations/039_memo_intelligence_jobs.sql` adds `memo_jobs`. One row per memo, kind and input revision. `claim_memo_job` takes a single lease. `publish_memo_job` rejects an expired run and marks an older revision `superseded` when a newer one already succeeded.
+
+## 040 — playbooks (F08)
+
+`backend/migrations/040_company_playbooks.sql` adds `playbooks` and `playbook_versions`. `publish_playbook_version` leaves one `active_version_id`. Older published versions stay readable so a meeting keeps the snapshot it started with.
