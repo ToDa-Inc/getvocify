@@ -11,6 +11,7 @@ import {
   Headphones,
   Phone,
   LogOut,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
@@ -27,6 +28,7 @@ const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
   { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
+  { icon: MessageCircle, label: "Preguntar", path: "/dashboard/ask" },
   { icon: Settings, label: "Settings", path: "/dashboard/settings" },
 ];
 

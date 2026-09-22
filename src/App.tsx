@@ -34,6 +34,7 @@ import CallingSection from "./pages/dashboard/settings/CallingSection";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
 import PlaybooksSection from "./features/playbooks/components/PlaybooksSection";
+import AskPanel from "./features/ask/components/AskPanel";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -178,6 +179,7 @@ const App = () => (
                 <Route path="billing" element={<BillingPage />} />
               </Route>
               <Route path="insights" element={<TeamInsightsPage />} />
+              <Route path="ask" element={<AskPanel />} />
               <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
               <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
