@@ -13,3 +13,4 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 ## No verificado
 
 - El overlay del escritorio muestra la ayuda solo en una reunión con playbook y evidencia. Una llamada se queda en la línea de transcripción. No hay comprobación nativa con la ventana minimizada.
+- Auditoría extensión + escritorio: ningún segundo emisor de tarjeta de ayuda en vivo (`overlayAssist` solo en `desktop/renderer/overlay.js`; la extensión no importa `suggestion-state`).
