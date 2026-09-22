@@ -54,11 +54,11 @@ function dedupe(cards) {
   return out;
 }
 
-export function renderTodayCard(card, { now }) {
+export function renderTodayCard(card, { now, dismiss, undo }) {
   const undoOpen = card.undoDeadline != null && Date.parse(card.undoDeadline) >= now;
   return html`<article class="v-today-card" data-id="${card.id}" tabindex="-1">
   <p>${card.reason}</p>
-  ${card.status === "pending" ? html`<button type="button" data-action="dismiss">Descartar</button>` : ""}
-  ${undoOpen ? html`<button type="button" data-action="undo">Deshacer</button>` : ""}
+  ${card.status === "pending" ? html`<button type="button" data-action="dismiss">${dismiss}</button>` : ""}
+  ${undoOpen ? html`<button type="button" data-action="undo">${undo}</button>` : ""}
 </article>`;
 }

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { presentExit, reduceTodayList, renderTodayCard, TODAY_EMPTY_FOCUS } from "./today-card.js";
 import { renderToString } from "./html.js";
+import { strings } from "./i18n.js";
 
 const pending = { id: "sig-1", status: "pending", version: 3, reason: "Quedaste en llamarle.", undoDeadline: null };
 
@@ -44,13 +45,33 @@ describe("today card", () => {
     assert.equal(empty.focusId, TODAY_EMPTY_FOCUS);
   });
 
+  it("shows Dismiss or Descartar from caller labels", () => {
+    const en = strings("en");
+    const es = strings("es");
+    const enMarkup = renderToString(
+      renderTodayCard(pending, { now: 0, dismiss: en.dismiss, undo: en.undo }),
+    );
+    assert.match(enMarkup, />Dismiss</);
+    const esMarkup = renderToString(
+      renderTodayCard(pending, { now: 0, dismiss: es.dismiss, undo: es.undo }),
+    );
+    assert.match(esMarkup, />Descartar</);
+  });
+
   it("does not extend the undo deadline while the card is leaving", () => {
     const leaving = presentExit({ ...pending, undoDeadline: "2026-09-22T10:00:05Z" }, true);
     assert.equal(leaving.undoDeadline, "2026-09-22T10:00:05Z");
     assert.equal(leaving.motion.transform, false);
     assert.equal(leaving.motion.height, false);
-    const markup = renderToString(renderTodayCard(leaving, { now: Date.parse("2026-09-22T10:00:06Z") }));
-    assert.equal(markup.includes("Deshacer"), false);
+    const es = strings("es");
+    const markup = renderToString(
+      renderTodayCard(leaving, {
+        now: Date.parse("2026-09-22T10:00:06Z"),
+        dismiss: es.dismiss,
+        undo: es.undo,
+      }),
+    );
+    assert.equal(markup.includes(es.undo), false);
     const css = readFileSync(new URL("./vocify-ui.css", import.meta.url), "utf8");
     const reducedLine = css.split("\n").find((line) => line.includes(".v-today-card.is-leaving") && line.includes("opacity 180ms ease;"));
     assert.equal(reducedLine.includes("transform"), false);

@@ -89,6 +89,8 @@ const STRINGS = {
     listenCouldNotStart: 'No se pudo iniciar',
     listenCouldNotStartTabRetry:
       'No se pudo iniciar el audio de la pestaña. Pulsa Escuchar otra vez.',
+    dismiss: 'Descartar',
+    undo: 'Deshacer',
   },
   en: {
     followupFor: (name) => `Follow-up for ${name}`,
@@ -178,6 +180,8 @@ const STRINGS = {
     listenCouldNotStart: 'Could not start',
     listenCouldNotStartTabRetry:
       'Could not start tab audio. Click Listen again.',
+    dismiss: 'Dismiss',
+    undo: 'Undo',
   },
 };
 

@@ -10,7 +10,8 @@ Estado: la transición de una señal está en `feat/vocify-v1`. No está cerrada
 | Dos escrituras de la misma versión dejan una sola ganadora | Postgres aislado en el mismo archivo |
 | Marcador web: errores de llamada y búsqueda HubSpot salen de `t.product`; `dial-session` recibe copy del catálogo | `src/lib/dial-session.test.ts` |
 | Cola: buzón y no respuesta avanzan aunque haya memo; conversación abre ese memo; fallo se queda en el contacto | `shared/ui/queue.test.js` 4 passed |
-| Tarjeta: descarte v4, deshacer v5, conflicto no borra, última salida deja el foco en el vacío, movimiento reducido solo opacidad | `shared/ui/today-card.test.js` 4 passed |
+| Tarjeta: descarte v4, deshacer v5, conflicto no borra, última salida deja el foco en el vacío, movimiento reducido solo opacidad; Descartar/Dismiss y Deshacer/Undo vía `strings(lang)` | `shared/ui/today-card.test.js` 5 passed |
+| Lista web Hoy (`TodayItemList`): Descartar/Deshacer vía `t.product` del catálogo | `src/lib/today.test.ts` |
 
 No hay migración nueva: usa `previous_status`, `last_action_request_id` y `undo_deadline` de `043`.
 

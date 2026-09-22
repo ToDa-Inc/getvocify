@@ -2,8 +2,8 @@ import { VElement, define } from "../v-element.js";
 import { renderTodayCard } from "../today-card.js";
 
 class VTodayCard extends VElement {
-  static render(card) {
-    return renderTodayCard(card, { now: Date.now() });
+  static render(card, { dismiss, undo, now = Date.now() } = {}) {
+    return renderTodayCard(card, { now, dismiss, undo });
   }
 }
 
