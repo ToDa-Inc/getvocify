@@ -19,4 +19,5 @@ Extensión background: aviso «cuelga antes de grabar nota» vía `memoHangUpFir
 Extensión background: aviso «deja de escuchar la pestaña antes de grabar nota» vía `memoStopListeningFirst` en `shared/ui/i18n.js` (`listenUiLang`).
 Extensión popup y desktop companion: `uiLangInput` + `resolveUiLang`; desktop lee `localStorage.vocify_lang`, la extensión su propia clave `vocify_lang` en `chrome.storage.local` (sin sync con la web).
 App web: el idioma de UI y API sigue `localStorage.vocify_lang` (`en`/`es`); el prefijo `/en` solo aplica como fallback en rutas públicas (`/`/`/en`), no en `/dashboard`.
+Live suggest (extensión + desktop): `resolveProductContextForSuggest` envía oferta local custom, si no `product_context` de GET `/auth/me`, y omite si ambos están vacíos o el local es el pitch legacy de Vocify.
 App web: la primera visita a `/en` sin `vocify_lang` guardado persiste `en`; ajustes del dashboard permite cambiar EN/ES sin salir de la ruta.

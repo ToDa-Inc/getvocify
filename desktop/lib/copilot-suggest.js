@@ -1,4 +1,5 @@
 import { liveAssistKind, pushSse } from '../../shared/ui/copilot/suggestion-state.js';
+import { resolveProductContextForSuggest } from '../../shared/ui/copilot/product-context.js';
 import { liveAssistPayloadFromSuggestEvent } from './live-assist-overlay.js';
 
 /** API `call_mode` for /copilot/suggest from session fields (liveAssistKind rules). */
@@ -15,6 +16,8 @@ export function buildCopilotSuggestRequestBody({
   transcriptWindow = '',
   latestTurn = '',
   language = 'auto',
+  productContext,
+  profileProductContext,
 } = {}) {
   const body = {
     transcript_window: String(transcriptWindow || '').slice(-6000),
@@ -24,6 +27,10 @@ export function buildCopilotSuggestRequestBody({
   };
   const contactId = String(session.contactId ?? session.contact_id ?? '').trim();
   if (contactId) body.contact_id = contactId;
+
+  const resolved = resolveProductContextForSuggest(productContext, profileProductContext);
+  if (resolved) body.product_context = resolved;
+
   return body;
 }
 

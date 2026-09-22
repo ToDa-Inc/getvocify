@@ -3,23 +3,16 @@
  * Live help is meetings only — non-meeting callMode yields null (no fetch).
  */
 
-/** Keep in sync with LEGACY_DEFAULT_PRODUCT_CONTEXT in src/features/copilot/types.ts */
-export const LEGACY_DEFAULT_PRODUCT_CONTEXT = `Product: Vocify — AI voice memos that extract CRM fields and sync to HubSpot after sales calls.
-Ideal customer: B2B sales teams / founders who hate typing notes into CRM after calls.
-Pain: Lost deal context, delayed CRM hygiene, reps avoid logging calls.
-Value: Speak after (or during) the call → structured fields → push to CRM in seconds.
-Proof angles: Speeds CRM updates, reduces forgotten follow-ups, keeps pipeline trustworthy.
-Tone: Direct, founder-to-founder, no fluff. Spanish or English OK.`;
+import {
+  LEGACY_DEFAULT_PRODUCT_CONTEXT,
+  normalizeStoredProductContext,
+  resolveProductContextForSuggest,
+} from '../shared/ui/copilot/product-context.js';
 
-const LEGACY_DEFAULT_PRODUCT_CONTEXT_TRIMMED =
-  LEGACY_DEFAULT_PRODUCT_CONTEXT.trim();
+export { LEGACY_DEFAULT_PRODUCT_CONTEXT };
 
 export function effectiveProductContext(raw) {
-  const trimmed = String(raw ?? '').trim();
-  if (!trimmed || trimmed === LEGACY_DEFAULT_PRODUCT_CONTEXT_TRIMMED) {
-    return '';
-  }
-  return trimmed;
+  return normalizeStoredProductContext(raw);
 }
 
 export function shouldRunCopilotSuggest({ assistEnabled, callMode } = {}) {
@@ -34,6 +27,7 @@ export function buildCopilotSuggestRequestBody({
   transcriptWindow,
   speakerRole = 'prospect',
   productContext,
+  profileProductContext,
 } = {}) {
   if (callMode !== 'meeting') return null;
 
@@ -46,9 +40,9 @@ export function buildCopilotSuggestRequestBody({
       speakerRole === 'rep' || speakerRole === 'unknown' ? speakerRole : 'prospect',
   };
 
-  const trimmedProductContext = effectiveProductContext(productContext);
-  if (trimmedProductContext) {
-    body.product_context = trimmedProductContext;
+  const resolved = resolveProductContextForSuggest(productContext, profileProductContext);
+  if (resolved) {
+    body.product_context = resolved;
   }
 
   const recordId = context?.recordId;

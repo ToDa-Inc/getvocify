@@ -22,6 +22,11 @@ import {
   shouldRequestCopilotSuggest,
   streamCopilotSuggest,
 } from '../lib/copilot-suggest.js';
+import { PRODUCT_CONTEXT_STORAGE_KEY } from './shared/ui/copilot/product-context.js';
+import {
+  ensureSuggestProfileProductContext,
+  resetSuggestProfileProductContextCache,
+} from '../lib/suggest-profile-product-context.js';
 import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.js';
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
@@ -219,6 +224,12 @@ async function requestCopilotSuggest(latestTurn) {
   const transcriptWindow = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
   const session = listenSession ?? { callMode: 'call' };
   const overlayCallMode = session.callMode ?? session.call_mode ?? 'call';
+  const productContext = localStorage.getItem(PRODUCT_CONTEXT_STORAGE_KEY) ?? '';
+  const profileProductContext = await ensureSuggestProfileProductContext(productContext, {
+    fetchImpl: fetch,
+    apiBase: apiBase(),
+    token,
+  });
   try {
     const result = await streamCopilotSuggest(fetch, {
       apiBase: apiBase(),
@@ -228,6 +239,8 @@ async function requestCopilotSuggest(latestTurn) {
         transcriptWindow,
         latestTurn,
         language: 'auto',
+        productContext,
+        profileProductContext,
       }),
       onPayload: (payload) => {
         if (controller.signal.aborted) return;
@@ -651,6 +664,7 @@ function stopCapture() {
   copilotChecklistAbort?.abort();
   copilotChecklistAbort = null;
   resetCopilotSuggestRequestDedupe();
+  resetSuggestProfileProductContextCache();
   resetLiveAssistOverlay();
   listenSession = null;
   listening = false;
@@ -769,6 +783,7 @@ async function startListen() {
   liveAssistChecklist = null;
   transcriptState = { finalTranscript: '', interimTranscript: '' };
   resetCopilotSuggestRequestDedupe();
+  resetSuggestProfileProductContextCache();
   renderTranscript();
   btnListen.disabled = true;
   btnStop.disabled = false;

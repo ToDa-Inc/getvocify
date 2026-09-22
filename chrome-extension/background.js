@@ -54,7 +54,6 @@ import {
   tabCaptureOffscreenReasons,
 } from './lib/tab-capture.js';
 import { TurnDetector } from './lib/turn-detector.js';
-import { PRODUCT_CONTEXT_STORAGE_KEY } from './lib/copilot-sse.js';
 import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js';
 import { mergeSessionVocab } from './lib/session-vocab.js';
 import { apiBaseToWsOrigin, isUnpackedExtension, resolveApiBase } from './lib/api-base.js';
@@ -77,6 +76,12 @@ import {
   fetchCopilotChecklist,
 } from './lib/copilot-checklist.js';
 import { buildCopilotSuggestRequestBody, shouldRunCopilotSuggest } from './lib/copilot-suggest-body.js';
+import { PRODUCT_CONTEXT_STORAGE_KEY } from './shared/ui/copilot/product-context.js';
+import {
+  ensureSuggestProfileProductContext,
+  primeSuggestProfileProductContext,
+  resetSuggestProfileProductContextCache,
+} from './lib/suggest-profile-product-context.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -623,6 +628,7 @@ function prefetchCopilotWsBits(tab) {
     .then((user) => {
       if (!user) return null;
       cachedCopilotUserId = user.id || '';
+      primeSuggestProfileProductContext(user);
       return loadPageSessionContext(tab, user);
     })
     .then((result) => {
@@ -723,6 +729,10 @@ async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRol
   }
   const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
   const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] ?? '';
+  const profileProductContext = await ensureSuggestProfileProductContext(
+    productContext,
+    () => api.getCurrentUser(),
+  );
 
   const suggestBody = buildCopilotSuggestRequestBody({
     callMode: state.callMode,
@@ -731,6 +741,7 @@ async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRol
     transcriptWindow,
     speakerRole,
     productContext,
+    profileProductContext,
   });
   if (!suggestBody) return;
 
@@ -832,6 +843,7 @@ function failListen(reason) {
   copilotDetector.reset();
   abortCopilotSuggest();
   abortCopilotChecklist();
+  resetSuggestProfileProductContextCache();
   listenEpoch += 1;
   chrome.runtime.sendMessage({
     target: 'offscreen',
@@ -909,6 +921,7 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
 
   abortCopilotSuggest();
   copilotDetector.reset();
+  resetSuggestProfileProductContextCache();
 
   await getOffscreenDocument({ recreate: false });
   const wsUrl = await wsUrlPromise;
@@ -966,6 +979,7 @@ async function stopTabCapture(commandSeq = null) {
   copilotDetector.reset();
   abortCopilotSuggest();
   abortCopilotChecklist();
+  resetSuggestProfileProductContextCache();
   chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'STOP_TAB_CAPTURE',

@@ -76,7 +76,19 @@ describe('buildCopilotSuggestRequestBody', () => {
     assert.equal(body.product_context, productContext);
   });
 
-  it('omits product_context for legacy default pitch; keeps custom text', () => {
+  it('legacy local falls back to profile product_context', () => {
+    const body = buildCopilotSuggestRequestBody({
+      callMode: 'meeting',
+      latestTurn: 'hello',
+      transcriptWindow: 'They: hello',
+      productContext: LEGACY_DEFAULT_PRODUCT_CONTEXT,
+      profileProductContext: 'Real offer from profile',
+    });
+    assert.ok(body);
+    assert.equal(body.product_context, 'Real offer from profile');
+  });
+
+  it('legacy local without profile omits product_context; custom local wins', () => {
     const legacyBody = buildCopilotSuggestRequestBody({
       callMode: 'meeting',
       latestTurn: 'hello',
@@ -92,6 +104,7 @@ describe('buildCopilotSuggestRequestBody', () => {
       latestTurn: 'hello',
       transcriptWindow: 'They: hello',
       productContext: custom,
+      profileProductContext: 'Profile should not win',
     });
     assert.ok(customBody);
     assert.equal(customBody.product_context, custom);

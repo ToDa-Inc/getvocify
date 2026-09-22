@@ -40,6 +40,33 @@ describe('buildCopilotSuggestRequestBody', () => {
     });
     assert.equal(grounded.contact_id, 'hs-99');
   });
+
+  it('resolves product_context from local or profile', () => {
+    const local = buildCopilotSuggestRequestBody({
+      session: { callMode: 'meeting' },
+      transcriptWindow: 'x',
+      latestTurn: 'y',
+      productContext: 'Local offer',
+      profileProductContext: 'Profile offer',
+    });
+    assert.equal(local.product_context, 'Local offer');
+
+    const profileOnly = buildCopilotSuggestRequestBody({
+      session: { callMode: 'meeting' },
+      transcriptWindow: 'x',
+      latestTurn: 'y',
+      productContext: '',
+      profileProductContext: 'Profile offer',
+    });
+    assert.equal(profileOnly.product_context, 'Profile offer');
+
+    const omitted = buildCopilotSuggestRequestBody({
+      session: { callMode: 'meeting' },
+      transcriptWindow: 'x',
+      latestTurn: 'y',
+    });
+    assert.equal('product_context' in omitted, false);
+  });
 });
 
 describe('shouldFetchCopilotSuggest', () => {
