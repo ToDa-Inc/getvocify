@@ -29,7 +29,8 @@ class Writer:
         self.remote = {}
         self.fail_once = fail_once
 
-    def create_activity(self, operation_key: str) -> str:
+    def create(self, operation_key: str, proposal: dict) -> str:
+        del proposal
         if self.fail_once:
             self.fail_once = False
             self.remote[operation_key] = "act-1"

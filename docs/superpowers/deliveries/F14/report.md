@@ -15,4 +15,4 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 
 ## No verificado
 
-- La revisión del memo carga la propuesta guardada. Si no hay fila, no se ofrece guardar. HubSpot y Pipedrive siguen recibiendo la escritura por el adaptador inyectado.
+- La revisión del memo carga la propuesta guardada. Si no hay fila, no se ofrece guardar. Al aceptar la reunión, `meetings/crm_writer.py` puede publicar una actividad en HubSpot o Pipedrive con el `access_token` de la conexión (adaptador inyectado en `register_meeting`).

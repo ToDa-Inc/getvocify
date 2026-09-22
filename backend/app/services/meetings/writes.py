@@ -46,9 +46,13 @@ def register_meeting(
         if found:
             return _result("succeeded", found, False, replayed=True)
     try:
-        remote_id = writer.create_activity(operation_key)
+        remote_id = writer.create(operation_key, proposal)
     except TimeoutError:
         return _result("uncertain", None, False, replayed=False)
+    except MeetingWriteError as exc:
+        if exc.code in {"failed", "forbidden"}:
+            return _result("failed", None, False, replayed=False)
+        raise
     stage_changed = False
     if stage_mapping:
         writer.change_stage(stage_mapping)
