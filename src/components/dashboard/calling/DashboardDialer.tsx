@@ -29,6 +29,7 @@ import {
   voiceClientFromToken,
   type VoiceClient,
 } from "@/lib/dial-session";
+import { useLanguage } from "@/lib/i18n";
 import { ROUTES } from "@/shared/lib/constants";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import {
@@ -98,6 +99,8 @@ async function fetchCarrierDisposition(callSid: string | null): Promise<string |
 }
 
 export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Props) => {
+  const { t } = useLanguage();
+  const callCopy = t.product;
   const verified = callerIds.filter(
     (c) => c.status === "verified" && c.source !== "twilio",
   );
@@ -175,7 +178,10 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       try {
-        const message = dispositionMessage(await fetchCarrierDisposition(callSidRef.current));
+        const message = dispositionMessage(
+          await fetchCarrierDisposition(callSidRef.current),
+          callCopy,
+        );
         if (message) {
           setOutcome(message);
           setError(null);
@@ -192,7 +198,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     return () => {
       stopped = true;
     };
-  }, [state]);
+  }, [state, callCopy]);
 
   useEffect(() => {
     onLiveChangeRef.current?.({ state, elapsed });
@@ -243,13 +249,13 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       } catch {
         if (queryRef.current.trim() !== q) return;
         setHits([]);
-        setSearchError("No se pudo buscar en HubSpot");
+        setSearchError(callCopy.callHubSpotSearchFailed);
       } finally {
         if (queryRef.current.trim() === q) setSearching(false);
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [query, state]);
+  }, [query, state, callCopy]);
 
   const destroyDevice = () => {
     const device = deviceRef.current;
@@ -280,7 +286,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       if (isVoiceAccessTokenError(err)) destroyDevice();
-      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
+      setError(userFacingCallError(err, callCopy));
       setState(CALL_STATES.IDLE);
     });
     deviceRef.current = device;
@@ -380,7 +386,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       if (next === CALL_STATES.IDLE) {
-        const ended = telnyxHangupMessage(notification.call);
+        const ended = telnyxHangupMessage(notification.call, callCopy);
         if (ended) {
           setOutcome(ended);
           setError(null);
@@ -434,7 +440,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     call.on("error", (err) => {
       if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) {
         if (!wasAnsweredRef.current) {
-          setOutcome((prev) => prev || "Sin respuesta");
+          setOutcome((prev) => prev || callCopy.callNoAnswer);
         }
         hangup();
         return;
@@ -444,7 +450,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       if (isVoiceAccessTokenError(err)) destroyDevice();
-      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
+      setError(userFacingCallError(err, callCopy));
       pendingMissRef.current = false;
       hangup();
     });
@@ -479,9 +485,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       stopRingback();
       setState(CALL_STATES.IDLE);
       pendingMissRef.current = false;
-      const message = userFacingCallError(err) || "No se pudo iniciar la llamada.";
+      const message = userFacingCallError(err, callCopy);
       setError(message);
-      toast.error(message);
+      if (message) toast.error(message);
     }
   };
 

@@ -1,4 +1,22 @@
 import { CALL_STATES, type CallState } from "./dial-target.ts";
+import type { ProductTranslations } from "./product-catalog.ts";
+
+export type CallProductCopy = Pick<
+  ProductTranslations,
+  | "callStartFailed"
+  | "callSessionExpired"
+  | "callExtensionRestarted"
+  | "callTokenStale"
+  | "callBusy"
+  | "callNoAnswer"
+  | "callCanceled"
+  | "callFailed"
+  | "callRejected"
+>;
+
+export function callErrorStart(copy: CallProductCopy): string {
+  return copy.callStartFailed;
+}
 
 export type VoiceClient = "twilio" | "telnyx";
 
@@ -151,14 +169,17 @@ const RINGING = new Set(["ringing", "early", "trying", "requesting", "recovering
 const ACTIVE = new Set(["active", "held"]);
 const IDLE = new Set(["hangup", "destroy", "destroyed", "purge"]);
 
-export function dispositionMessage(disposition?: string | null): string | null {
+export function dispositionMessage(
+  disposition: string | null | undefined,
+  copy: CallProductCopy,
+): string | null {
   const value = String(disposition || "").toLowerCase();
-  if (value === "busy") return "Ocupado";
+  if (value === "busy") return copy.callBusy;
   if (value === "no_answer" || value === "no-answer" || value === "no_response") {
-    return "Sin respuesta";
+    return copy.callNoAnswer;
   }
-  if (value === "canceled" || value === "cancelled") return "Llamada cancelada";
-  if (value === "failed") return "Llamada fallida";
+  if (value === "canceled" || value === "cancelled") return copy.callCanceled;
+  if (value === "failed") return copy.callFailed;
   return null;
 }
 
@@ -222,29 +243,29 @@ export function isVocifySessionError(error: unknown): boolean {
   return /session expired|invalid or expired session|please sign in/i.test(errorText(error));
 }
 
-export const CALL_ERROR_TOKEN_STALE = "La sesión de llamada caducó. Pulsa Llamar otra vez.";
-export const CALL_ERROR_EXTENSION_RESTARTED = "Vocify se reinició. Pulsa Llamar otra vez.";
-export const CALL_ERROR_SESSION = "Tu sesión de Vocify caducó. Recarga la extensión.";
-export const CALL_ERROR_START = "No se pudo iniciar la llamada.";
-
-export function userFacingCallError(error: unknown, fallback = CALL_ERROR_START): string | null {
+export function userFacingCallError(error: unknown, copy: CallProductCopy): string | null {
+  const fallback = callErrorStart(copy);
   if (isCarrierHangupError(error) || isVoiceSdkGeneralError(error)) return null;
-  if (isVocifySessionError(error)) return CALL_ERROR_SESSION;
-  if (isExtensionRuntimeError(error)) return CALL_ERROR_EXTENSION_RESTARTED;
-  if (isVoiceAccessTokenError(error)) return CALL_ERROR_TOKEN_STALE;
+  if (isVocifySessionError(error)) return copy.callSessionExpired;
+  if (isExtensionRuntimeError(error)) return copy.callExtensionRestarted;
+  if (isVoiceAccessTokenError(error)) return copy.callTokenStale;
   const text = errorText(error).trim();
   if (!text) return fallback;
   if (/twilio/i.test(text)) return fallback;
   return text;
 }
 
-export function telnyxHangupMessage(call: {
-  sipCode?: number | string | null;
-  sipReason?: string | null;
-  causeCode?: number | string | null;
-  cause?: string | null;
-  hangupCause?: string | null;
-} | null | undefined): string | null {
+export function telnyxHangupMessage(
+  call: {
+    sipCode?: number | string | null;
+    sipReason?: string | null;
+    causeCode?: number | string | null;
+    cause?: string | null;
+    hangupCause?: string | null;
+  } | null
+  | undefined,
+  copy: CallProductCopy,
+): string | null {
   const sip = Number(call?.sipCode);
   const q850 = Number(call?.causeCode);
   const cause = [call?.cause, call?.hangupCause, call?.sipReason]
@@ -252,7 +273,7 @@ export function telnyxHangupMessage(call: {
     .join(" ")
     .toLowerCase();
   if (sip === 486 || q850 === 17 || cause.includes("busy")) {
-    return "Ocupado";
+    return copy.callBusy;
   }
   if (
     sip === 480 ||
@@ -263,10 +284,10 @@ export function telnyxHangupMessage(call: {
     cause.includes("no_answer") ||
     cause.includes("no answer")
   ) {
-    return "Sin respuesta";
+    return copy.callNoAnswer;
   }
   if (sip === 603 || sip === 487 || cause.includes("reject")) {
-    return "Llamada rechazada";
+    return copy.callRejected;
   }
   return null;
 }

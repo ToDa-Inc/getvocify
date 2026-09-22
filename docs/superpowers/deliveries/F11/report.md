@@ -17,6 +17,7 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 | El resumen parcial y el listo comparten revisión; sin audio la cita sigue y no hay reproducción; un fallo no inventa secciones | `src/lib/post-brief.test.ts` 3 passed; `tsc --noEmit` |
 | Reproducir tramo busca el audio del memo en el offset de la evidencia | `src/lib/post-brief.test.ts` |
 
+| Ajustes → Resumen posterior: textos EN/ES vía `t.product` (modos, toasts, carga) | `src/lib/product-catalog.ts`; sin literal en `BriefHighlightSettings` |
 | GET brief aplica la preferencia de destaque sin tocar status ni secciones; `not_started` no inventa `highlight` | `tests/coaching/test_brief_http.py` |
 | «Se destaca a las …» usa la zona de la preferencia (`highlight.timezone`), no la del navegador; inmediato sin línea extra | `src/lib/post-brief.test.ts` |
 

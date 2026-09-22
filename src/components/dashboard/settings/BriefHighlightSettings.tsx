@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { useLanguage } from "@/lib/i18n";
 import {
   briefPreferenceKeys,
   briefPreferencesApi,
@@ -11,14 +12,17 @@ import {
   type BriefPreference,
 } from "@/lib/api/brief-preferences";
 
-const OPTIONS: { mode: BriefHighlightMode; label: string }[] = [
-  { mode: "immediate", label: "Inmediato" },
-  { mode: "deferred", label: "Aplazado 30 minutos" },
-  { mode: "end_of_day", label: "Al final del día (18:00)" },
-];
-
 export const BriefHighlightSettings = () => {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
+  const options = useMemo(
+    (): { mode: BriefHighlightMode; label: string }[] => [
+      { mode: "immediate", label: t.product.briefHighlightImmediate },
+      { mode: "deferred", label: t.product.briefHighlightDeferred30 },
+      { mode: "end_of_day", label: t.product.briefHighlightEndOfDay },
+    ],
+    [t.product],
+  );
   const { data, isLoading, isError } = useQuery({
     queryKey: briefPreferenceKeys.current(),
     queryFn: () => briefPreferencesApi.get(),
@@ -36,10 +40,10 @@ export const BriefHighlightSettings = () => {
     onSuccess: (updated: BriefPreference) => {
       queryClient.setQueryData(briefPreferenceKeys.current(), updated);
       setSelected(updated.highlight_mode);
-      toast.success("Preferencia de resumen guardada");
+      toast.success(t.product.briefHighlightSaved);
     },
     onError: () => {
-      toast.error("No se pudo guardar la preferencia");
+      toast.error(t.product.briefHighlightSaveFailed);
     },
   });
 
@@ -55,24 +59,19 @@ export const BriefHighlightSettings = () => {
 
   if (isError) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No se pudo cargar la preferencia. Inténtalo de nuevo más tarde.
-      </p>
+      <p className="text-sm text-muted-foreground">{t.product.briefHighlightLoadFailed}</p>
     );
   }
 
   return (
     <div className="space-y-5">
       <div>
-        <h3 className={THEME_TOKENS.typography.sectionTitle}>Resumen posterior</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          El resumen se genera en cuanto termina la interacción. Elige cuándo quieres que te lo
-          destaquemos.
-        </p>
+        <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.briefHighlightHeading}</h3>
+        <p className="text-xs text-muted-foreground mt-1">{t.product.briefHighlightHelper}</p>
       </div>
 
-      <div className="space-y-2" role="radiogroup" aria-label="Cuándo destacar el resumen">
-        {OPTIONS.map((opt) => {
+      <div className="space-y-2" role="radiogroup" aria-label={t.product.briefHighlightWhenAria}>
+        {options.map((opt) => {
           const on = selected === opt.mode;
           return (
             <button
@@ -102,10 +101,10 @@ export const BriefHighlightSettings = () => {
           {save.isPending ? (
             <>
               <VocifySpinner size={12} />
-              Guardando…
+              {t.product.noteSaving}
             </>
           ) : (
-            "Guardar"
+            t.product.saveButton
           )}
         </Button>
       </div>
