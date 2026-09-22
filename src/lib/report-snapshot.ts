@@ -17,14 +17,18 @@ export function bellCount(unread: number | null | undefined): string | null {
   return String(unread);
 }
 
+export function nullableMetricLabel(value: number | null): string {
+  return value === null ? "No disponible" : String(value);
+}
+
 export function reportSurface(snapshot: ReportSnapshot) {
   const won = snapshot.metrics.deals_won;
   return {
     attempts: snapshot.metrics.attempts,
     connected: snapshot.metrics.connected_calls,
     meetings: snapshot.metrics.meetings_agreed,
-    wonLabel: won === null ? "No disponible" : String(won),
-    adherence: snapshot.metrics.adherence,
+    wonLabel: nullableMetricLabel(won),
+    adherenceLabel: nullableMetricLabel(snapshot.metrics.adherence),
     coaching: snapshot.coaching,
   };
 }

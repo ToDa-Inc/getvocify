@@ -23,5 +23,6 @@ Sin destinatario en el tick, `_ReportIdSender` falla y el intento queda `failed`
 ## No verificado
 
 - `GET /reports/{id}` devuelve la instantánea guardada. El informe de otra persona responde 404. Marcar la campana dos veces conserva la primera hora. La página está en `/dashboard/reports/:id`. No se recorrió en el navegador.
+- La página muestra «Leyendo el informe» o «No se pudo leer el informe» sin tabla; con datos, adherencia y coaching opcional (`src/lib/report-snapshot.test.ts`).
 - La campana está en la barra. El número solo aparece si hay informes sin leer. Un fallo de lectura no pinta un cero.
 - Los proveedores no leen todavía los cierres reales del periodo.
