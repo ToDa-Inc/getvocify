@@ -79,11 +79,14 @@ export function useObjectionSuggestions(): UseObjectionSuggestionsReturn {
       setLatencyMs(null);
       setModel(null);
 
+      const trimmedProductContext = input.productContext?.trim();
       void streamObjectionSuggestion(
         {
           transcript_window: input.transcriptWindow.slice(-6000),
           latest_turn: input.latestTurn,
-          product_context: input.productContext,
+          ...(trimmedProductContext
+            ? { product_context: trimmedProductContext }
+            : {}),
           language: input.language ?? "auto",
           call_mode: input.callMode ?? "speakerphone",
           speaker_role: input.speakerRole ?? "unknown",

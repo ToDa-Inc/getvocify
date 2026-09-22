@@ -16,12 +16,16 @@ export function buildCopilotSuggestRequestBody({
   const body = {
     transcript_window: String(transcriptWindow || '').slice(-6000),
     latest_turn: latestTurn,
-    product_context: productContext,
     language: 'auto',
     call_mode: 'meeting',
     speaker_role:
       speakerRole === 'rep' || speakerRole === 'unknown' ? speakerRole : 'prospect',
   };
+
+  const trimmedProductContext = String(productContext ?? '').trim();
+  if (trimmedProductContext) {
+    body.product_context = trimmedProductContext;
+  }
 
   const recordId = context?.recordId;
   if (

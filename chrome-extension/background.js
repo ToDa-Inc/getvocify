@@ -54,10 +54,7 @@ import {
   tabCaptureOffscreenReasons,
 } from './lib/tab-capture.js';
 import { TurnDetector } from './lib/turn-detector.js';
-import {
-  DEFAULT_PRODUCT_CONTEXT,
-  PRODUCT_CONTEXT_STORAGE_KEY,
-} from './lib/copilot-sse.js';
+import { PRODUCT_CONTEXT_STORAGE_KEY } from './lib/copilot-sse.js';
 import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js';
 import { mergeSessionVocab } from './lib/session-vocab.js';
 import { apiBaseToWsOrigin } from './lib/api-base.js';
@@ -669,7 +666,7 @@ function abortCopilotSuggest() {
 
 async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRole = 'prospect') {
   const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
-  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] || DEFAULT_PRODUCT_CONTEXT;
+  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] ?? '';
 
   const suggestBody = buildCopilotSuggestRequestBody({
     callMode: state.callMode,

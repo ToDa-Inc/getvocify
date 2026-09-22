@@ -41,4 +41,26 @@ describe('buildCopilotSuggestRequestBody', () => {
     });
     assert.equal(body, null);
   });
+
+  it('omits product_context when blank', () => {
+    const body = buildCopilotSuggestRequestBody({
+      callMode: 'meeting',
+      latestTurn: 'hello',
+      transcriptWindow: 'They: hello',
+      productContext: '   ',
+    });
+    assert.ok(body);
+    assert.equal('product_context' in body, false);
+  });
+
+  it('includes product_context when non-empty', () => {
+    const body = buildCopilotSuggestRequestBody({
+      callMode: 'meeting',
+      latestTurn: 'hello',
+      transcriptWindow: 'They: hello',
+      productContext,
+    });
+    assert.ok(body);
+    assert.equal(body.product_context, productContext);
+  });
 });
