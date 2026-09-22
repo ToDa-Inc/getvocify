@@ -3,6 +3,7 @@
 export type BriefHighlight = {
   highlight_mode: "immediate" | "deferred" | "end_of_day";
   highlight_at: string;
+  timezone: string;
 };
 
 export type BriefView = {
@@ -33,7 +34,12 @@ export function highlightScheduleLine(highlight: BriefHighlight | undefined): st
   if (!highlight || highlight.highlight_mode === "immediate") return null;
   const when = new Date(highlight.highlight_at);
   if (Number.isNaN(when.getTime())) return null;
-  const hour = new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" }).format(when);
+  const tz = highlight.timezone || "Europe/Madrid";
+  const hour = new Intl.DateTimeFormat("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: tz,
+  }).format(when);
   return `Se destaca a las ${hour}`;
 }
 

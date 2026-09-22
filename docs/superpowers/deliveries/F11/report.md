@@ -18,6 +18,7 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 | Reproducir tramo busca el audio del memo en el offset de la evidencia | `src/lib/post-brief.test.ts` |
 
 | GET brief aplica la preferencia de destaque sin tocar status ni secciones; `not_started` no inventa `highlight` | `tests/coaching/test_brief_http.py` |
+| «Se destaca a las …» usa la zona de la preferencia (`highlight.timezone`), no la del navegador; inmediato sin línea extra | `src/lib/post-brief.test.ts` |
 
 | Tras guardar score, `publish_memo_score` materializa fila en `post_interaction_briefs` vía `store_memo_score` (buzón `skipped`; misma revisión no duplica fila) | `tests/coaching/test_briefs.py` |
 

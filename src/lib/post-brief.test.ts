@@ -64,17 +64,29 @@ describe("post interaction brief", () => {
     assert.equal(played, null);
   });
 
-  it("shows deferred highlight time and hides immediate scheduling", () => {
+  it("shows deferred highlight time in user timezone and hides immediate scheduling", () => {
     const deferred = highlightScheduleLine({
       highlight_mode: "deferred",
       highlight_at: "2026-09-22T16:30:00Z",
+      timezone: "Europe/Madrid",
     });
-    assert.match(deferred ?? "", /Se destaca a las \d{1,2}:\d{2}/);
-    assert.equal(highlightScheduleLine({ highlight_mode: "immediate", highlight_at: "2026-09-22T16:00:00Z" }), null);
+    assert.equal(deferred, "Se destaca a las 18:30");
+    assert.equal(
+      highlightScheduleLine({
+        highlight_mode: "immediate",
+        highlight_at: "2026-09-22T16:00:00Z",
+        timezone: "Europe/Madrid",
+      }),
+      null,
+    );
     const surface = briefSurface({
       ...partial,
       status: "ready",
-      highlight: { highlight_mode: "end_of_day", highlight_at: "2026-09-22T16:00:00Z" },
+      highlight: {
+        highlight_mode: "end_of_day",
+        highlight_at: "2026-09-22T16:00:00Z",
+        timezone: "Europe/Madrid",
+      },
     });
     assert.match(surface.highlightNote ?? "", /Se destaca a las/);
   });

@@ -83,6 +83,7 @@ def test_deferred_preference_adds_highlight_without_changing_the_brief():
     assert body["sections"] == SECTIONS
     assert body["highlight"]["highlight_mode"] == "deferred"
     assert body["highlight"]["highlight_at"] == "2026-09-22T16:30:00Z"
+    assert body["highlight"]["timezone"] == "Europe/Madrid"
 
 
 def test_not_started_has_no_highlight_at():

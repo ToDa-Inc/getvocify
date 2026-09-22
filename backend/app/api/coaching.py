@@ -36,7 +36,11 @@ def _attach_highlight(body: dict, *, user_id: str, ready_at: datetime) -> dict:
     iso = shown.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return {
         **body,
-        "highlight": {"highlight_mode": preference["highlight_mode"], "highlight_at": iso},
+        "highlight": {
+            "highlight_mode": preference["highlight_mode"],
+            "highlight_at": iso,
+            "timezone": preference["timezone"],
+        },
     }
 
 
