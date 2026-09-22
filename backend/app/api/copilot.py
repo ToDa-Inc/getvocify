@@ -13,7 +13,7 @@ from supabase import Client
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.copilot.context import resolve_suggest_context
-from app.services.copilot.load_grounding import load_suggest_grounding
+from app.services.copilot.load_grounding import load_company_suggest_grounding, load_suggest_grounding
 from app.services.copilot.suggest import stream_objection_suggestion
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
@@ -43,13 +43,19 @@ async def suggest_objection_handling(
         body.contact_id,
         call_mode=body.call_mode,
     )
-    grounding = None
     if body.capture_id:
         grounding = load_suggest_grounding(
             supabase,
             user_id=membership.user_id,
             company_id=membership.company_id,
             capture_id=body.capture_id,
+            context=context,
+        )
+    else:
+        grounding = load_company_suggest_grounding(
+            supabase,
+            company_id=membership.company_id,
+            call_mode=body.call_mode,
             context=context,
         )
 
