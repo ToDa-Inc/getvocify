@@ -162,7 +162,9 @@ describe('listen status model', () => {
     assert.equal(err.phase, 'error');
     assert.equal(err.live, false);
     assert.match(err.line, /Focus the call tab/i);
-    assert.equal(err.buttonLabel, 'Listen to tab');
+    assert.equal(err.buttonLabel, 'Escuchar pestaña');
+    assert.equal(err.statusLabel, 'Sin escucha');
+    assert.equal(err.header, 'Listo para grabar');
   });
 
   it('falls back to live/error when listenPhase is missing from an older state payload', () => {

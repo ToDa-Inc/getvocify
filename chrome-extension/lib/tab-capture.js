@@ -208,18 +208,18 @@ export function listenUiModel({
     case 'error':
       return {
         phase: 'error',
-        buttonLabel: 'Listen to tab',
-        statusLabel: 'Not listening',
-        header: 'Ready to record',
+        buttonLabel: 'Escuchar pestaña',
+        statusLabel: 'Sin escucha',
+        header: 'Listo para grabar',
         line: copilotError || startDeniedMessage('capture_failed'),
         live: false,
       };
     default:
       return {
         phase: 'idle',
-        buttonLabel: 'Listen to tab',
-        statusLabel: 'Record',
-        header: 'Ready to record',
+        buttonLabel: 'Escuchar pestaña',
+        statusLabel: 'Grabar',
+        header: 'Listo para grabar',
         line: null,
         live: false,
       };
