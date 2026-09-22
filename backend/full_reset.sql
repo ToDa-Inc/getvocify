@@ -534,6 +534,35 @@ CREATE TABLE IF NOT EXISTS brief_preferences (
   timezone TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT NOT NULL,
+  company_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  scope TEXT NOT NULL,
+  period_start TIMESTAMPTZ NOT NULL,
+  report_type TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  snapshot JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (company_id, user_id, scope, period_start, report_type)
+);
+
+CREATE TABLE IF NOT EXISTS report_deliveries (
+  idempotency_key TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  delivery_status TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS report_notifications (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  user_id UUID NOT NULL,
+  read_at TIMESTAMPTZ
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)
