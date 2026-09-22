@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/lib/i18n";
 import type { TodayItem } from "@/lib/today";
 
 type Props = {
@@ -9,6 +10,7 @@ type Props = {
 };
 
 export function TodayItemList({ items, onDismiss, onUndo, compact }: Props) {
+  const { t } = useLanguage();
   if (items.length === 0) return null;
 
   return (
@@ -24,12 +26,12 @@ export function TodayItemList({ items, onDismiss, onUndo, compact }: Props) {
             <div className="mt-2 flex flex-wrap gap-2">
               {item.id && item.status !== "dismissed" ? (
                 <Button type="button" variant="outline" size={compact ? "sm" : "default"} onClick={() => void onDismiss(item)}>
-                  Descartar
+                  {t.product.dismiss}
                 </Button>
               ) : null}
               {undoOpen ? (
                 <Button type="button" variant="outline" size={compact ? "sm" : "default"} onClick={() => void onUndo(item)}>
-                  Deshacer
+                  {t.product.undo}
                 </Button>
               ) : null}
             </div>

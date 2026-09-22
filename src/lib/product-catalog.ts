@@ -177,6 +177,8 @@ export const productCatalog = {
     followupEmailBodyCopied: "Email body copied: paste it into the draft",
     followupCompleteFailed: "Could not complete the follow-up",
     askConfirmFailed: "The confirmation could not be completed",
+    dismiss: "Dismiss",
+    undo: "Undo",
   },
   ES: {
     hourLocale: "es-ES",
@@ -356,6 +358,8 @@ export const productCatalog = {
     followupEmailBodyCopied: "Cuerpo del correo copiado: pégalo en el borrador",
     followupCompleteFailed: "No se pudo completar el seguimiento",
     askConfirmFailed: "No se pudo completar la confirmación",
+    dismiss: "Descartar",
+    undo: "Deshacer",
   },
 } as const;
 

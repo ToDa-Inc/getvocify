@@ -97,6 +97,11 @@ describe("today surface", () => {
 });
 
 describe("dismiss stays undoable", () => {
+  it("product catalog differs on dismiss and undo between EN and ES", () => {
+    assert.notEqual(productCatalog.EN.dismiss, productCatalog.ES.dismiss);
+    assert.notEqual(productCatalog.EN.undo, productCatalog.ES.undo);
+  });
+
   it("keeps a dismissed card until the undo deadline and drops it after", () => {
     const pending: TodayItem = { ...card.items[0], id: "sig-1", version: 4, status: "pending" };
     const dismissed: TodayItem = {
