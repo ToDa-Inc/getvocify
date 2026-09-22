@@ -10,9 +10,22 @@ from pydantic import BaseModel
 
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+from app.services.coaching.brief_preferences import read_preference
 from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal
+
+_DEFAULT_HOY_TZ = "Europe/Madrid"
+
+
+def _daily_run_timezone(user_id: str) -> str:
+    try:
+        tz = read_preference(user_id).get("timezone")
+        if tz:
+            return tz
+    except Exception:
+        pass
+    return _DEFAULT_HOY_TZ
 
 router = APIRouter(prefix="/api/v1", tags=["today"])
 
@@ -134,7 +147,7 @@ async def get_today(membership: Membership = Depends(get_membership), supabase=D
     )
     visible = [row for row in (stored.data or []) if row.get("status") == "pending"]
     now = datetime.now(timezone.utc)
-    attempt_daily_run_claim(supabase, membership.company_id, now, None)
+    attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
     else:

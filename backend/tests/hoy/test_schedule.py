@@ -37,6 +37,8 @@ from app.services.hoy.scheduler import (
     rebind_contact,
     task_request,
 )
+from app.services.coaching import brief_preferences as brief_preferences_mod
+from app.services.coaching.brief_preferences import write_preference
 from app.services.hoy.signals import Signal
 
 MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "043_action_signals.sql"
@@ -84,6 +86,77 @@ def test_claim_if_due_waits_until_eight_madrid_and_repeats_the_same_statement():
     assert second == first
     assert second == claim_daily_run_statement(COMPANY, local_date)
     assert claim_if_due(at_eight_madrid, None, COMPANY) == first
+
+
+def test_claim_if_due_waits_until_eight_in_america_new_york_winter():
+    before_eight_ny = datetime(2026, 1, 15, 11, 0, tzinfo=timezone.utc)
+    at_eight_ny = datetime(2026, 1, 15, 13, 0, tzinfo=timezone.utc)
+    assert claim_if_due(before_eight_ny, "America/New_York", COMPANY) is None
+    assert claim_if_due(at_eight_ny, "America/New_York", COMPANY) is not None
+
+
+def _today_client(user_id: str = "user-a"):
+    app = FastAPI()
+    app.include_router(today_api.router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id=user_id, role="member", status="active",
+    )
+    app.dependency_overrides[get_supabase] = lambda: STORE
+    return TestClient(app)
+
+
+def test_get_today_claim_uses_brief_preference_timezone(monkeypatch):
+    write_preference("user-a", {"highlight_mode": "immediate", "timezone": "America/New_York"})
+    captured: dict = {}
+
+    def spy_claim(_supabase, _company_id, _now, tz_name, *, hour=8):
+        captured["tz_name"] = tz_name
+
+    monkeypatch.setattr(today_api, "attempt_daily_run_claim", spy_claim)
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _today_client().get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        brief_preferences_mod._STORE.pop("user-a", None)
+    assert captured["tz_name"] == "America/New_York"
+    assert body["coverage"]["crm_tasks"] == "complete"
+
+
+def test_get_today_claim_defaults_to_madrid_without_preference(monkeypatch):
+    brief_preferences_mod._STORE.pop("user-no-pref", None)
+    captured: dict = {}
+
+    def spy_claim(_supabase, _company_id, _now, tz_name, *, hour=8):
+        captured["tz_name"] = tz_name
+
+    monkeypatch.setattr(today_api, "attempt_daily_run_claim", spy_claim)
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        _today_client("user-no-pref").get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+    assert captured["tz_name"] == "Europe/Madrid"
+
+
+def test_get_today_claim_defaults_to_madrid_when_preference_read_fails(monkeypatch):
+    captured: dict = {}
+
+    def spy_claim(_supabase, _company_id, _now, tz_name, *, hour=8):
+        captured["tz_name"] = tz_name
+
+    def broken_read(_user_id):
+        raise RuntimeError("preference store unavailable")
+
+    monkeypatch.setattr(today_api, "attempt_daily_run_claim", spy_claim)
+    monkeypatch.setattr(today_api, "read_preference", broken_read)
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _today_client().get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+    assert captured["tz_name"] == "Europe/Madrid"
+    assert body["coverage"]["crm_tasks"] == "complete"
 
 
 def test_an_open_crm_task_is_read_and_a_finished_one_is_not():
