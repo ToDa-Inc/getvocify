@@ -16,7 +16,7 @@ La fecha que cuenta es la de la captura, no la del trabajo que termina después.
 
 La ruta de producción `send_report_email` usa el adaptador Resend cuando el caller inyecta cliente Resend (sin envío real verificado en vivo).
 
-`run_due_report_emails` enlaza `due_report_sends` con `send_report_email`; el bucle periódico de `main` invoca `tick_due_report_emails` tras las 18:00 local de Madrid y persiste `sent`, `failed` y `uncertain` en `report_deliveries` (solo `failed` reintenta en un tick posterior; `sent` y `uncertain` no) (`tests/reporting/test_tick_due_report_emails.py`, sin correo real verificado).
+`run_due_report_emails` enlaza `due_report_sends` con `send_report_email`; el bucle periódico de `main` invoca `tick_due_report_emails` tras las 18:00 local de Madrid y persiste `sent`, `failed` y `uncertain` en `report_deliveries` (`sent` y `uncertain` no reenvían; `failed` como mucho una vez por día local según `last_attempt_at`) (`tests/reporting/test_due_sends.py`, `tests/reporting/test_tick_due_report_emails.py`, sin correo real verificado).
 
 ## No verificado
 

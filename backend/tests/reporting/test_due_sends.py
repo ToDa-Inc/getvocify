@@ -33,7 +33,7 @@ class FakeSender:
         return None
 
 
-def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries():
+def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries_once_per_local_day():
     before_cutoff = datetime(2026, 9, 22, 15, 59, tzinfo=timezone.utc)
     at_cutoff = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
     assert due_report_sends(before_cutoff, [PERSON], []) == []
@@ -44,11 +44,26 @@ def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries():
     already_sent = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "sent"}]
     assert due_report_sends(at_cutoff, [PERSON], already_sent) == []
 
-    failed = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "failed"}]
-    assert due_report_sends(at_cutoff, [PERSON], failed) == [PERSON]
-
     uncertain = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "uncertain"}]
     assert due_report_sends(at_cutoff, [PERSON], uncertain) == []
+
+    fail_at_1810 = datetime(2026, 9, 22, 16, 10, tzinfo=timezone.utc)
+    failed_same_day = [
+        {
+            "user_id": PERSON["user_id"],
+            "period_start": ps,
+            "delivery_status": "failed",
+            "last_attempt_at": fail_at_1810.isoformat(),
+        }
+    ]
+    tick_same_day_1820 = datetime(2026, 9, 22, 16, 20, tzinfo=timezone.utc)
+    assert due_report_sends(tick_same_day_1820, [PERSON], failed_same_day) == []
+
+    tick_next_day_1810 = datetime(2026, 9, 23, 16, 10, tzinfo=timezone.utc)
+    assert due_report_sends(tick_next_day_1810, [PERSON], failed_same_day) == [PERSON]
+
+    failed_no_timestamp = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "failed"}]
+    assert due_report_sends(at_cutoff, [PERSON], failed_no_timestamp) == [PERSON]
 
     sender = FakeSender()
     run_due_report_emails(at_cutoff, [PERSON], already_sent, sender)
@@ -59,7 +74,11 @@ def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries():
     assert sender.sent == []
 
     sender = FakeSender()
-    run_due_report_emails(at_cutoff, [PERSON], failed, sender)
+    run_due_report_emails(tick_same_day_1820, [PERSON], failed_same_day, sender)
+    assert sender.sent == []
+
+    sender = FakeSender()
+    run_due_report_emails(tick_next_day_1810, [PERSON], failed_same_day, sender)
     assert sender.sent == ["report-daily-1:r1:email"]
 
     sender = FakeSender()

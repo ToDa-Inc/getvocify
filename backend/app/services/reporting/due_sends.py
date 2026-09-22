@@ -55,33 +55,7 @@ def _period_start_iso(now: datetime, tz_name: str) -> str:
     return start.isoformat()
 
 
-def _skip_period_send(user_id: str, period_start: str, existing: list[dict]) -> bool:
-    for row in existing:
-        if row.get("user_id") != user_id:
-            continue
-        if row.get("period_start") != period_start:
-            continue
-        status = row.get("delivery_status")
-        if status in ("sent", "uncertain"):
-            return True
-    return False
-
-
-def due_report_sends(now: datetime, people: list[dict], existing: list[dict]) -> list[dict]:
-    """People due an email for today's local period; sent/uncertain skip, failed may retry."""
-    due: list[dict] = []
-    for person in people:
-        tz_name = person["timezone"]
-        if not _is_due_after_cutoff(now, tz_name):
-            continue
-        period_start = _period_start_iso(now, tz_name)
-        if _skip_period_send(person["user_id"], period_start, existing):
-            continue
-        due.append(person)
-    return due
-
-
-def _delivery_for_period(user_id: str, period_start: str, existing: list[dict]) -> dict | None:
+def _delivery_row_for_period(user_id: str, period_start: str, existing: list[dict]) -> dict | None:
     for row in existing:
         if row.get("user_id") != user_id:
             continue
@@ -89,6 +63,53 @@ def _delivery_for_period(user_id: str, period_start: str, existing: list[dict]) 
             continue
         return row
     return None
+
+
+def _parse_attempt_at(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        text = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _failed_retry_due(now: datetime, tz_name: str, row: dict) -> bool:
+    """Failed delivery is due again only after the local day of the last attempt."""
+    attempt = _parse_attempt_at(row.get("last_attempt_at")) or _parse_attempt_at(row.get("created_at"))
+    if attempt is None:
+        return True
+    local_day_start, _end = period_bounds(now, tz_name)
+    return attempt < local_day_start
+
+
+def _skip_period_send(user_id: str, period_start: str, existing: list[dict], now: datetime, tz_name: str) -> bool:
+    row = _delivery_row_for_period(user_id, period_start, existing)
+    if row is None:
+        return False
+    status = row.get("delivery_status")
+    if status in ("sent", "uncertain"):
+        return True
+    if status == "failed":
+        return not _failed_retry_due(now, tz_name, row)
+    return False
+
+
+def due_report_sends(now: datetime, people: list[dict], existing: list[dict]) -> list[dict]:
+    """People due an email for today's local period; sent/uncertain skip; failed retries once per local day."""
+    due: list[dict] = []
+    for person in people:
+        tz_name = person["timezone"]
+        if not _is_due_after_cutoff(now, tz_name):
+            continue
+        period_start = _period_start_iso(now, tz_name)
+        if _skip_period_send(person["user_id"], period_start, existing, now, tz_name):
+            continue
+        due.append(person)
+    return due
 
 
 def run_due_report_emails(
@@ -104,18 +125,20 @@ def run_due_report_emails(
         if not (person.get("email") or "").strip():
             continue
         period_start = _period_start_iso(now, person["timezone"])
-        prior = _delivery_for_period(person["user_id"], period_start, existing)
+        prior = _delivery_row_for_period(person["user_id"], period_start, existing)
         report = {"id": person["report_id"], "revision": person["revision"]}
         result = send_report_email(report, sender, existing=prior)
         status = result.get("delivery_status")
         if persist_delivery is not None and status in ("sent", "failed", "uncertain"):
-            persist_delivery(result, person)
+            persist_delivery(result, person, now=now)
+            attempt_at = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
             existing.append(
                 {
                     "user_id": person["user_id"],
                     "period_start": period_start,
                     "delivery_status": status,
                     "idempotency_key": result.get("idempotency_key"),
+                    "last_attempt_at": attempt_at.isoformat(),
                 }
             )
 

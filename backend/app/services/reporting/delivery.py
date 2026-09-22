@@ -35,14 +35,19 @@ def persist_report_delivery(
     report_id: str,
     channel: str,
     delivery_status: str,
+    last_attempt_at: datetime | None = None,
 ) -> None:
     """Upsert one row in report_deliveries (survives process restarts)."""
+    attempt = last_attempt_at or datetime.now(timezone.utc)
+    if attempt.tzinfo is None:
+        attempt = attempt.replace(tzinfo=timezone.utc)
     supabase.table("report_deliveries").upsert(
         {
             "idempotency_key": idempotency_key,
             "report_id": report_id,
             "channel": channel,
             "delivery_status": delivery_status,
+            "last_attempt_at": attempt.isoformat(),
         },
         on_conflict="idempotency_key",
     ).execute()

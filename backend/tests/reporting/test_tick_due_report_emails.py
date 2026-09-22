@@ -108,13 +108,14 @@ def test_tick_persists_sent_and_second_tick_does_not_resend():
     def load_existing():
         return _load_report_delivery_existing(fake)
 
-    def persist_delivery(result, person):
+    def persist_delivery(result, person, now=None):
         persist_report_delivery(
             fake,
             idempotency_key=result["idempotency_key"],
             report_id=person["report_id"],
             channel="email",
             delivery_status=result["delivery_status"],
+            last_attempt_at=now,
         )
 
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)
@@ -127,8 +128,10 @@ def test_tick_persists_sent_and_second_tick_does_not_resend():
     assert sender2.sent == []
 
 
-def test_tick_persists_failed_then_second_tick_retries_once():
-    at_cutoff = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
+def test_tick_persists_failed_same_local_day_does_not_retry_next_day_does():
+    at_cutoff = datetime(2026, 9, 22, 16, 10, tzinfo=timezone.utc)
+    later_same_day = datetime(2026, 9, 22, 16, 20, tzinfo=timezone.utc)
+    next_day = datetime(2026, 9, 23, 16, 10, tzinfo=timezone.utc)
     fake = FakeSupabase()
     sender = FakeSender(fail=RuntimeError("smtp down"))
 
@@ -138,13 +141,14 @@ def test_tick_persists_failed_then_second_tick_retries_once():
     def load_existing():
         return _load_report_delivery_existing(fake)
 
-    def persist_delivery(result, person):
+    def persist_delivery(result, person, now=None):
         persist_report_delivery(
             fake,
             idempotency_key=result["idempotency_key"],
             report_id=person["report_id"],
             channel="email",
             delivery_status=result["delivery_status"],
+            last_attempt_at=now,
         )
 
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)
@@ -153,8 +157,12 @@ def test_tick_persists_failed_then_second_tick_retries_once():
     assert fake.tables["report_deliveries"][0]["delivery_status"] == "failed"
 
     sender2 = FakeSender()
-    tick_due_report_emails(at_cutoff, load_people, load_existing, sender2, persist_delivery)
-    assert sender2.sent == ["report-daily-1:r1:email"]
+    tick_due_report_emails(later_same_day, load_people, load_existing, sender2, persist_delivery)
+    assert sender2.sent == []
+
+    sender3 = FakeSender()
+    tick_due_report_emails(next_day, load_people, load_existing, sender3, persist_delivery)
+    assert sender3.sent == ["report-daily-1:r1:email"]
     assert fake.tables["report_deliveries"][0]["delivery_status"] == "sent"
 
 
@@ -169,13 +177,14 @@ def test_tick_persists_uncertain_and_second_tick_does_not_resend():
     def load_existing():
         return _load_report_delivery_existing(fake)
 
-    def persist_delivery(result, person):
+    def persist_delivery(result, person, now=None):
         persist_report_delivery(
             fake,
             idempotency_key=result["idempotency_key"],
             report_id=person["report_id"],
             channel="email",
             delivery_status=result["delivery_status"],
+            last_attempt_at=now,
         )
 
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)

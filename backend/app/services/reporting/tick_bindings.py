@@ -26,7 +26,7 @@ def report_email_tick_bindings(supabase) -> ReportEmailTickBindings:
         load_people=lambda: _load_daily_report_people(supabase),
         load_existing=lambda: _load_report_delivery_existing(supabase),
         sender=_build_sender(supabase),
-        persist_delivery=lambda result, person: _persist_delivery_row(supabase, result, person),
+        persist_delivery=lambda result, person, now=None: _persist_delivery_row(supabase, result, person, now=now),
     )
 
 
@@ -146,7 +146,7 @@ def _emails_for_user_ids(supabase, user_ids: list) -> dict[str, str]:
     return out
 
 
-def _persist_delivery_row(supabase, result: dict, person: dict) -> None:
+def _persist_delivery_row(supabase, result: dict, person: dict, *, now: datetime | None = None) -> None:
     key = result.get("idempotency_key")
     if not key:
         return
@@ -156,13 +156,14 @@ def _persist_delivery_row(supabase, result: dict, person: dict) -> None:
         report_id=str(person["report_id"]),
         channel="email",
         delivery_status=str(result.get("delivery_status") or "sent"),
+        last_attempt_at=now,
     )
 
 
 def _load_report_delivery_existing(supabase) -> list[dict]:
     stored = (
         supabase.table("report_deliveries")
-        .select("idempotency_key,report_id,delivery_status,channel")
+        .select("idempotency_key,report_id,delivery_status,channel,created_at,last_attempt_at")
         .eq("channel", "email")
         .execute()
     )
@@ -191,6 +192,8 @@ def _load_report_delivery_existing(supabase) -> list[dict]:
                 "period_start": period_start,
                 "delivery_status": delivery.get("delivery_status"),
                 "idempotency_key": delivery.get("idempotency_key"),
+                "created_at": delivery.get("created_at"),
+                "last_attempt_at": delivery.get("last_attempt_at"),
             }
         )
     return existing
