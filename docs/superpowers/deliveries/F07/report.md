@@ -13,9 +13,10 @@ Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. Detener la grabaci�
 | Confirmar otro contacto no aplica; repetir la misma operación no la aplica dos veces | `f9e0352` | `tests/crm_copilot/test_ask_http.py` |
 | Pasados 30 s la espera no reenvía; reabrir lee el mismo turno y no desplaza la lectura | `b91e725` | `src/lib/ask-turn.test.ts` |
 | La voz se puede cancelar o editar; no se envía sola y no crea un memo | `8f4d3c0` | `src/lib/ask-voice.test.ts` |
-| Transcribir la pregunta devuelve texto y `memo_id` null; el silencio queda vacío | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Transcribir la pregunta devuelve texto y `memo_id` null; el silencio queda vacío | `a0ac152` | `tests/crm_copilot/test_ask_http.py` |
+| Conversación vacía, sin resultados y lectura parcial del CRM no comparten la misma frase | este commit | `src/lib/ask-situation.test.ts` |
 
 ## No verificado
 
 - Sin pasar por el arranque, los tests HTTP siguen usando memoria.
-- No hay `AskPanel` ni recorrido en el navegador.
+- El micrófono no se recorrió en el navegador. La pantalla sí distingue la conversación vacía; una consulta sin resultados y una lectura parcial tienen frase propia, pero el turno aún no trae esa cobertura.

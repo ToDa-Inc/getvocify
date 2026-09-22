@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/shared/lib/api-client";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
+import { askSituation } from "@/lib/ask-situation";
 
 const STORAGE_KEY = "vocify-ask-turn";
 
@@ -88,9 +89,14 @@ export default function AskPanel() {
     setDraft("");
   }
 
+  const situation = askSituation({ hasTurns: Boolean(view.turnId) });
+
   return (
     <section className="mx-auto max-w-xl px-4 py-8">
       <h1 className="text-lg font-medium">Preguntar</h1>
+      {situation.message ? (
+        <p className="mt-4 text-sm text-muted-foreground">{situation.message}</p>
+      ) : null}
       {view.notice ? (
         <p className="mt-4 text-sm text-muted-foreground" role="status">{view.notice}</p>
       ) : null}
