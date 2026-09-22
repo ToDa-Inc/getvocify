@@ -3,6 +3,7 @@ import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
 import { ActivityPanel } from "@/components/dashboard/ActivityPanel";
 import { ContactPriorities } from "@/features/today/components/ContactPriorities";
+import { TodayPanel } from "@/features/today/components/TodayPanel";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
@@ -20,11 +21,13 @@ const DashboardHome = () => {
         <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
       </div>
 
+      <TodayPanel />
+
       <VoiceRecorderWidget
         onComplete={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
       />
 
-      <ContactPriorities />
+      <ContactPriorities hideEmpty />
       <ActivityPanel />
     </div>
   );

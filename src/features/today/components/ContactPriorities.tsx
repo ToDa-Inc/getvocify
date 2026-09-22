@@ -12,7 +12,7 @@ function statusOf(error: unknown): number | null {
   return error ? 500 : null;
 }
 
-export function ContactPriorities() {
+export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }) {
   const navigate = useNavigate();
   const query = useContactPriorities();
   const surface = prioritySurface({
@@ -30,6 +30,8 @@ export function ContactPriorities() {
       navigate("/dashboard/settings/integrations");
     }
   }
+
+  if (hideEmpty && surface.kind === "empty") return null;
 
   return (
     <section aria-labelledby="contact-priorities-title" className="space-y-3">
