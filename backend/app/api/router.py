@@ -7,6 +7,7 @@ from app.api import (
     health,
     memos,
     captures,
+    followup,
     crm,
     crm_salesforce,
     crm_pipedrive,
@@ -32,6 +33,7 @@ api_router.include_router(auth.router)
 api_router.include_router(company.router)
 api_router.include_router(billing.router)
 api_router.include_router(memos.router)
+api_router.include_router(followup.router)
 api_router.include_router(captures.router)
 api_router.include_router(crm.router)
 api_router.include_router(calls.router)
