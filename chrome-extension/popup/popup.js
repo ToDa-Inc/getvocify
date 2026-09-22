@@ -5,6 +5,7 @@
  */
 
 import { api } from '../lib/api.js';
+import { briefForContact, briefOnContact, briefRequest } from '../shared/ui/brief.js';
 import '../shared/ui/components/v-followup.js';
 import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
@@ -609,9 +610,46 @@ function renderRecordHeader(state) {
   if (!sub) return;
   if (state.isCopilotListening || state.status === 'copilot') {
     sub.textContent = state.copilotTabTitle || getRecordDisplayName(state.context) || '';
-    return;
+  } else {
+    sub.textContent = getRecordDisplayName(state.context) || '';
   }
-  sub.textContent = getRecordDisplayName(state.context) || '';
+  paintContactBrief(state);
+}
+
+let briefCache = null;
+let briefFlight = null;
+
+function paintContactBrief(state) {
+  const box = document.getElementById('contact-brief');
+  if (!box) return;
+  const contactId = state.context?.objectType === 'contact' ? state.context.recordId : null;
+  const brief = briefForContact(contactId, briefCache);
+  const lines = briefOnContact({
+    objectType: state.context?.objectType,
+    captureActive: Boolean(state.isRecording || state.isCopilotListening || state.status === 'copilot'),
+    brief,
+  });
+  box.replaceChildren();
+  for (const line of lines) {
+    const row = document.createElement('p');
+    row.textContent = line;
+    box.appendChild(row);
+  }
+  box.hidden = lines.length === 0;
+  if (!contactId || state.isRecording || state.isCopilotListening || state.status === 'copilot' || brief || briefFlight === contactId) return;
+  briefFlight = contactId;
+  const connectionId = state.context.connectionId || 'hubspot';
+  api.get(briefRequest(contactId, connectionId)).then((body) => {
+    if (briefFlight !== contactId) return;
+    briefCache = { contactId, brief: body };
+    briefFlight = null;
+    paintContactBrief(state);
+  }).catch(() => {
+    if (briefFlight !== contactId) return;
+    briefCache = { contactId, brief: { text: 'No se pudo cargar todo.', lines: [] } };
+    briefFlight = null;
+    paintContactBrief(state);
+  });
 }
 
 function setIdleListsHidden() {
