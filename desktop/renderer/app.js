@@ -12,6 +12,10 @@ import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
 import {
+  buildCopilotChecklistRequestBody,
+  fetchCopilotChecklist,
+} from '../lib/copilot-checklist.js';
+import {
   buildCopilotSuggestRequestBody,
   markCopilotSuggestRequested,
   resetCopilotSuggestRequestDedupe,
@@ -100,6 +104,8 @@ let permissionPoll = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
 let reviewContext = null;
 let copilotSuggestAbort = null;
+let copilotChecklistAbort = null;
+let liveAssistChecklist = null;
 /** Active listen session: callMode/contact only; never invent CRM ids here. */
 let listenSession = null;
 /** HubSpot record page when known ({ objectType, recordId }), same shape as extension context. */
@@ -144,6 +150,7 @@ function resetLiveAssistOverlay() {
     evidenceRefs: [],
     card: null,
   });
+  liveAssistChecklist = null;
 }
 
 /** Copilot suggest/result payload — updates overlay live-assist slice. */
@@ -156,6 +163,35 @@ export function applyCopilotSuggestionPayload(payload, { callMode, channel } = {
 function abortCopilotSuggest() {
   copilotSuggestAbort?.abort();
   copilotSuggestAbort = null;
+}
+
+async function requestCopilotChecklist() {
+  const token = localStorage.getItem(STORAGE.token);
+  const session = listenSession;
+  if (!listening || !token || !session) return;
+  const callMode = session.callMode ?? session.call_mode ?? 'call';
+  if (callMode !== 'meeting') return;
+
+  copilotChecklistAbort?.abort();
+  const controller = new AbortController();
+  copilotChecklistAbort = controller;
+  try {
+    const result = await fetchCopilotChecklist(fetch, {
+      apiBase: apiBase(),
+      token,
+      body: buildCopilotChecklistRequestBody({ session }),
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted) return;
+    if (result?.ok && result.data) {
+      liveAssistChecklist = result.data;
+      notifyShell();
+    }
+  } catch {
+    /* keep previous checklist on failure */
+  } finally {
+    if (copilotChecklistAbort === controller) copilotChecklistAbort = null;
+  }
 }
 
 async function requestCopilotSuggest(latestTurn) {
@@ -387,6 +423,7 @@ function notifyShell() {
     email,
     apiBase: apiBase(),
     ...assistOverlayFields(liveAssistOverlay),
+    checklist: liveAssistChecklist,
   });
 }
 
@@ -590,6 +627,8 @@ function hookPcm(ctx, stream, onPcm) {
 
 function stopCapture() {
   abortCopilotSuggest();
+  copilotChecklistAbort?.abort();
+  copilotChecklistAbort = null;
   resetCopilotSuggestRequestDedupe();
   resetLiveAssistOverlay();
   listenSession = null;
@@ -728,6 +767,7 @@ async function startListen() {
         const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
         const latestTurn = parts[parts.length - 1]?.replace(/^(You|Them):\s*/, '').trim();
         void requestCopilotSuggest(latestTurn);
+        void requestCopilotChecklist();
       }
       renderTranscript();
     } catch { /* ignore malformed frames */ }

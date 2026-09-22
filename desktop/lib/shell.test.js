@@ -4,6 +4,7 @@ import {
   assistOverlayFields,
   dashboardOrigin,
   overlayBounds,
+  overlayBoundsForState,
   overlayShellState,
   overlaySnippet,
   shouldQuitOnLastWindow,
@@ -85,5 +86,22 @@ describe('desktop shell', () => {
   it('defaults missing evidence to an empty list for shell setState', () => {
     assert.deepEqual(assistOverlayFields({}).evidenceRefs, []);
     assert.deepEqual(assistOverlayFields({ kind: 'meeting' }).evidenceRefs, []);
+  });
+
+  it('forwards checklist progress to the overlay and grows bounds when visible', () => {
+    const checklist = {
+      observed: 1,
+      applicable: 2,
+      steps: [{ step_id: 's1', label: 'Saludo', status: 'met', evidence_refs: [] }],
+    };
+    const overlay = overlayShellState({
+      listening: true,
+      kind: 'meeting',
+      checklist,
+    });
+    assert.deepEqual(overlay.checklist, checklist);
+    const compact = overlayBoundsForState({ listening: true, kind: 'meeting' });
+    const expanded = overlayBoundsForState({ listening: true, kind: 'meeting', checklist });
+    assert.ok(expanded.height > compact.height);
   });
 });

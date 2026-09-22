@@ -19,7 +19,7 @@ import { feedS16le, resolveNativeLoopbackPlan, vocifyTapPath } from './lib/syste
 import { CaptureStore } from './lib/capture-store.js';
 import {
   dashboardMemosUrl,
-  overlayBounds,
+  overlayBoundsForState,
   overlayShellState,
   shouldQuitOnLastWindow,
   trayMenuTemplate,
@@ -129,9 +129,15 @@ function createWindow() {
   return win;
 }
 
+function syncOverlayBounds() {
+  if (!overlayWindow) return;
+  const display = screen.getPrimaryDisplay();
+  overlayWindow.setBounds(overlayBoundsForState(shellState, { workArea: display.workArea }));
+}
+
 function createOverlay() {
   const display = screen.getPrimaryDisplay();
-  const bounds = overlayBounds({ workArea: display.workArea });
+  const bounds = overlayBoundsForState(shellState, { workArea: display.workArea });
   const win = new BrowserWindow({
     ...bounds,
     frame: false,
@@ -157,7 +163,7 @@ function createOverlay() {
 function showOverlay() {
   if (!overlayWindow) createOverlay();
   const display = screen.getPrimaryDisplay();
-  overlayWindow.setBounds(overlayBounds({ workArea: display.workArea }));
+  syncOverlayBounds();
   overlayWindow.showInactive();
 }
 
@@ -315,7 +321,7 @@ ipcMain.handle('permissions:open', async (_event, type) => {
 
 function applyShellStatePatch(state) {
   shellState = { ...shellState, ...state };
-  for (const key of ['kind', 'playbookReady', 'assistEnabled', 'card']) {
+  for (const key of ['kind', 'playbookReady', 'assistEnabled', 'card', 'checklist']) {
     if (Object.prototype.hasOwnProperty.call(state, key) && state[key] == null) {
       delete shellState[key];
     }
@@ -328,6 +334,7 @@ function applyShellStatePatch(state) {
 ipcMain.on('shell:state', (_event, state) => {
   applyShellStatePatch(state);
   overlayWindow?.webContents.send('overlay:state', overlayShellState(shellState));
+  syncOverlayBounds();
   rebuildTrayMenu();
 });
 

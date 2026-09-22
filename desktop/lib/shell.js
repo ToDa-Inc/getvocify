@@ -1,6 +1,8 @@
 export const OVERLAY_WIDTH = 380;
 export const OVERLAY_HEIGHT = 96;
 export const OVERLAY_MARGIN = 16;
+const OVERLAY_CHECKLIST_SUMMARY = 22;
+const OVERLAY_CHECKLIST_STEP = 18;
 
 export const WINDOW_SIZE = {
   compact: { width: 440, height: 780 },
@@ -15,6 +17,22 @@ export function overlayBounds({ workArea } = {}) {
     x: area.x + area.width - OVERLAY_WIDTH - OVERLAY_MARGIN,
     y: area.y + OVERLAY_MARGIN,
   };
+}
+
+export function overlayChecklistExtraHeight(checklist, kind) {
+  if (kind !== 'meeting' || !checklist || typeof checklist !== 'object') return 0;
+  const applicable = Number(checklist.applicable);
+  if (!Number.isFinite(applicable) || applicable <= 0) return 0;
+  const steps = Array.isArray(checklist.steps) ? checklist.steps.length : 0;
+  return OVERLAY_CHECKLIST_SUMMARY + steps * OVERLAY_CHECKLIST_STEP;
+}
+
+export function overlayBoundsForState(state = {}, { workArea } = {}) {
+  const base = overlayBounds({ workArea });
+  const overlay = overlayShellState(state);
+  const extra = overlayChecklistExtraHeight(overlay.checklist, overlay.kind);
+  if (!extra) return base;
+  return { ...base, height: OVERLAY_HEIGHT + extra };
 }
 
 export function trayMenuTemplate({ loggedIn = false, listening = false } = {}) {
@@ -100,5 +118,8 @@ export function overlayShellState(state = {}) {
   }
   overlay.evidenceRefs = assist.evidenceRefs;
   if (assist.card != null) overlay.card = assist.card;
+  if (state.checklist != null && typeof state.checklist === 'object') {
+    overlay.checklist = state.checklist;
+  }
   return overlay;
 }
