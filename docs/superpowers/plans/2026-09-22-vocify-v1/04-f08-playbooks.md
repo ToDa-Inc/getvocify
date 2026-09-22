@@ -160,21 +160,21 @@ El aviso desaparece para la tipología al publicar correctamente. No impide grab
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Texto, PDF y audio terminan en un playbook revisable.
+- [x] Texto, PDF y audio terminan en un playbook revisable. (`cd backend && .venv/bin/python -m pytest tests/playbooks/test_imports.py::test_text_becomes_a_revisable_draft tests/playbooks/test_imports.py::test_a_real_pdf_becomes_a_draft_and_an_encrypted_one_does_not_replace_the_active_version tests/playbooks/test_imports.py::test_audio_becomes_a_draft_without_a_crm_memo -q`)
 
-- [ ] Un miembro puede leer lo permitido, pero no modificarlo.
+- [x] Un miembro puede leer lo permitido, pero no modificarlo. (`cd backend && .venv/bin/python -m pytest tests/playbooks/test_imports.py::test_member_can_read_playbooks_but_cannot_import tests/playbooks/test_versions.py::test_publishing_discovery_does_not_activate_another_motion_and_a_member_cannot -q`)
 
-- [ ] Añadir una tipología no requiere desplegar código.
+- [x] Añadir una tipología no requiere desplegar código. (`cd backend && .venv/bin/python -m pytest tests/playbooks/test_versions.py::test_adding_a_typology_does_not_publish_it_and_a_member_cannot tests/playbooks/test_versions.py::test_two_publishes_leave_one_active_pointer_and_both_versions -q`)
 
-- [ ] Un error de importación no sustituye la versión activa.
+- [x] Un error de importación no sustituye la versión activa. (`cd backend && .venv/bin/python -m pytest tests/playbooks/test_imports.py::test_empty_pdf_fails_and_leaves_the_active_version tests/playbooks/test_imports.py::test_a_real_pdf_becomes_a_draft_and_an_encrypted_one_does_not_replace_the_active_version -q`; `node --test src/lib/playbook-setup.test.ts`)
 
-- [ ] Cada entrada generada apunta a contenido aportado.
+- [x] Cada entrada generada apunta a contenido aportado. (`cd backend && .venv/bin/python -m pytest tests/playbooks/test_versions.py::test_member_cannot_publish_and_an_entry_needs_a_source tests/playbooks/test_versions.py::test_two_publishes_leave_one_active_pointer_and_both_versions -q`)
 
-- [ ] La interfaz permite completar la configuración sin entrevista de IA.
+- [x] La interfaz permite completar la configuración sin entrevista de IA. (`node --test src/lib/playbook-setup.test.ts`)
 
 - [ ] Una empresa nueva ve el aviso y completa tipología → contenido → revisión → publicación. Un member ve la explicación sin controles de escritura.
 
-- [ ] Un borrador o importación parcial no oculta el aviso ni habilita coaching; publicar una tipología no marca las demás como configuradas.
+- [x] Un borrador o importación parcial no oculta el aviso ni habilita coaching; publicar una tipología no marca las demás como configuradas. (`node --test src/lib/playbook-setup.test.ts src/lib/coaching-score.test.ts`; `cd backend && .venv/bin/python -m pytest tests/playbooks/test_versions.py::test_unpublished_playbook_is_explicitly_absent tests/coaching/test_scoring.py::test_a_missing_or_ambiguous_playbook_has_no_mark -q`)
 
 ### Riesgos / edge cases conocidos
 

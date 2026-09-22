@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { applyPublishResult, importReview, motionAfterImport, playbookNotice } from "./playbook-setup.ts";
+
+const playbooksSectionSource = readFileSync(
+  fileURLToPath(new URL("../features/playbooks/components/PlaybooksSection.tsx", import.meta.url)),
+  "utf8",
+);
 
 describe("playbook setup", () => {
   it("tells a member they cannot edit and an admin they can start", () => {
@@ -47,6 +54,19 @@ describe("playbook setup", () => {
       }),
       { discovery: "missing" },
     );
+  });
+
+  it("completes setup with imports only, not an AI interview", () => {
+    assert.doesNotMatch(playbooksSectionSource, /\/ask|copilot|interview|entrevista/i);
+    assert.match(playbooksSectionSource, /\/playbooks\/imports/);
+    assert.match(playbooksSectionSource, /\/playbooks\/types/);
+    const review = importReview({
+      status: "ready",
+      published: false,
+      draft: { text: "Confirmar el problema antes del precio." },
+    });
+    assert.equal(review.canPublish, true);
+    assert.equal(review.status, "draft");
   });
 
   it("a pdf without text does not replace a published motion", () => {
