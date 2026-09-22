@@ -12,7 +12,7 @@ from app.services.copilot.grounding import SuggestGrounding, resolve_suggest_gro
 from app.services.playbooks.versions import get_published_playbook
 
 
-def _published_playbook_snapshots(
+def published_playbook_snapshots(
     supabase: Client,
     *,
     company_id: str,
@@ -47,7 +47,7 @@ def load_company_suggest_grounding(
     context: Optional[SuggestContext] = None,
 ) -> Optional[SuggestGrounding]:
     del context  # contact_id stays on SuggestContext only; no CRM load
-    snapshots = _published_playbook_snapshots(supabase, company_id=company_id)
+    snapshots = published_playbook_snapshots(supabase, company_id=company_id)
     if len(snapshots) != 1:
         return None
     snapshot = snapshots[0]
@@ -60,15 +60,13 @@ def load_company_suggest_grounding(
     )
 
 
-def load_suggest_grounding(
+def load_owned_capture_memo(
     supabase: Client,
     *,
     user_id: str,
     company_id: str,
     capture_id: str,
-    context: Optional[SuggestContext] = None,
-) -> Optional[SuggestGrounding]:
-    del context  # reserved for capture-scoped CRM context; contact_id stays on SuggestContext only
+) -> dict:
     result = (
         supabase.table("memos")
         .select("id,user_id,company_id,interaction_kind,playbook_version_id,sales_motion_key,extraction")
@@ -85,7 +83,15 @@ def load_suggest_grounding(
     row_company = str(row.get("company_id") or "").strip()
     if row_company and row_company != company_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capture not found")
+    return row
 
+
+def suggest_grounding_from_memo_row(
+    supabase: Client,
+    *,
+    company_id: str,
+    row: dict,
+) -> Optional[SuggestGrounding]:
     motion = str(row.get("sales_motion_key") or "").strip() or None
     playbook = None
     versions: list[dict] = []
@@ -127,3 +133,21 @@ def load_suggest_grounding(
             playbook_snapshot=snapshot,
         )
     return grounding
+
+
+def load_suggest_grounding(
+    supabase: Client,
+    *,
+    user_id: str,
+    company_id: str,
+    capture_id: str,
+    context: Optional[SuggestContext] = None,
+) -> Optional[SuggestGrounding]:
+    del context  # reserved for capture-scoped CRM context; contact_id stays on SuggestContext only
+    row = load_owned_capture_memo(
+        supabase,
+        user_id=user_id,
+        company_id=company_id,
+        capture_id=capture_id,
+    )
+    return suggest_grounding_from_memo_row(supabase, company_id=company_id, row=row)

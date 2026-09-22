@@ -13,10 +13,19 @@ from supabase import Client
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.copilot.context import resolve_suggest_context
+from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import load_company_suggest_grounding, load_suggest_grounding
 from app.services.copilot.suggest import stream_objection_suggestion
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
+
+
+class ChecklistRequest(BaseModel):
+    call_mode: Literal["speakerphone", "softphone", "meeting"] = "meeting"
+    capture_id: Optional[str] = Field(default=None, max_length=128)
+    input_revision: Optional[str] = Field(default=None, max_length=128)
+    elapsed_seconds: Optional[float] = Field(default=None, ge=0)
+    finalized_turns: Optional[list[dict]] = Field(default=None)
 
 
 class SuggestRequest(BaseModel):
@@ -29,6 +38,23 @@ class SuggestRequest(BaseModel):
     capture_id: Optional[str] = Field(default=None, max_length=128)
     contact_id: Optional[str] = Field(default=None, max_length=128)
     request_id: Optional[str] = Field(default=None, max_length=128)
+
+
+@router.post("/checklist")
+async def meeting_playbook_checklist(
+    body: ChecklistRequest,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """Return playbook step progress for a meeting from stored observations only."""
+    del body.input_revision, body.finalized_turns, body.elapsed_seconds
+    return build_meeting_checklist(
+        supabase,
+        user_id=membership.user_id,
+        company_id=membership.company_id,
+        call_mode=body.call_mode,
+        capture_id=body.capture_id,
+    )
 
 
 @router.post("/suggest")
