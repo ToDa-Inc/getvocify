@@ -29,6 +29,9 @@ from app.services.hoy.scheduler import (
     build_today_view,
     claim_daily_run_statement,
     company_local_date,
+    daily_run_due,
+    due_company_ids,
+    open_manual_tasks,
     rebind_contact,
 )
 from app.services.hoy.signals import Signal
@@ -49,6 +52,63 @@ def _cold(contact_id: str = "42") -> Signal:
         dedupe_key=f"cold:{contact_id}",
         connection_id="crm-A",
     )
+
+
+def test_the_daily_run_starts_at_the_configured_local_hour():
+    before = datetime(2026, 9, 22, 5, 59, tzinfo=timezone.utc)
+    at_eight = datetime(2026, 9, 22, 6, 0, tzinfo=timezone.utc)
+    assert daily_run_due(before, "Europe/Madrid") is False
+    assert daily_run_due(at_eight, "Europe/Madrid") is True
+    assert daily_run_due(at_eight, "Europe/Madrid", hour=9) is False
+    companies = [
+        {"company_id": COMPANY, "timezone": "Europe/Madrid"},
+        {"company_id": "22222222-2222-2222-2222-222222222222", "timezone": "Europe/Madrid", "hoy_hour": 9},
+    ]
+    assert due_company_ids(at_eight, companies) == [COMPANY]
+
+
+def test_an_open_crm_task_is_read_and_a_finished_one_is_not():
+    tasks, coverage = open_manual_tasks(
+        "hubspot",
+        {"results": [
+            {"id": "1", "properties": {"hs_task_subject": "Llamar a Marina", "hs_task_status": "NOT_STARTED", "contact_id": "42"}},
+            {"id": "2", "properties": {"hs_task_subject": "Hecho", "hs_task_status": "COMPLETED"}},
+        ]},
+        connection_id="crm-A",
+    )
+    assert coverage == "complete"
+    assert [task["remote_id"] for task in tasks] == ["1"]
+    partial, partial_coverage = open_manual_tasks(
+        "pipedrive",
+        {"data": [{"id": 9, "subject": "Seguir", "done": False, "person_id": 42}], "additional_data": {"next_cursor": "n"}},
+        connection_id="crm-A",
+    )
+    assert partial_coverage == "partial"
+    assert partial[0]["title"] == "Seguir"
+    forbidden, forbidden_coverage = open_manual_tasks("hubspot", {"error_kind": "403"}, connection_id="crm-A")
+    assert forbidden == []
+    assert forbidden_coverage == "forbidden"
+
+
+def test_today_shows_tasks_when_a_reader_is_installed():
+    STORE.rows = []
+    today_api.set_today_tasks(lambda _company: (
+        [{"remote_id": "task-9", "title": "Llamar a Marina", "contact_id": "42", "connection_id": "crm-A"}],
+        "complete",
+    ))
+    try:
+        app = FastAPI()
+        app.include_router(today_api.router)
+        app.dependency_overrides[get_membership] = lambda: Membership(
+            id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+        )
+        app.dependency_overrides[get_supabase] = lambda: STORE
+        body = TestClient(app).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+    assert body["coverage"]["crm_tasks"] == "complete"
+    assert body["items"][0]["remote_id"] == "task-9"
+    assert body["pulse"] is None
 
 
 def test_one_local_date_survives_the_dst_change():

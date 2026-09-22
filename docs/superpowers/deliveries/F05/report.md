@@ -16,7 +16,5 @@ Estado: el motor puro de señales está en `feat/vocify-v1`. No está cerrada.
 
 ## No verificado
 
-- No hay un proceso que dispare la ejecución a las 08:00. El `GET` todavía no lee tareas del CRM.
-- El inicio no se recorrió en el navegador: Reticle no tiene sesión en este worktree.
-- La migración no está aplicada en una base compartida.
-- F04 sigue abierta: el recorrido de páginas no usa el token de la conexión, y el inicio no se recorrió en el navegador.
+- `daily_run_due` marca las 08:00 locales (hora configurable). El `GET` incorpora tareas abiertas cuando hay un lector; sin lector, `crm_tasks` sigue `unavailable`. El lector no está instalado en el arranque, así que producción no llama al CRM todavía.
+- El esquema de `043` ya está aplicado.

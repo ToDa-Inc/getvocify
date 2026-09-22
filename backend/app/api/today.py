@@ -16,6 +16,14 @@ from app.services.hoy.signals import Signal
 
 router = APIRouter(prefix="/api/v1", tags=["today"])
 
+_TASKS = None
+
+
+def set_today_tasks(reader) -> None:
+    """reader(company_id) -> (manual_tasks, coverage). None keeps CRM tasks unread."""
+    global _TASKS
+    _TASKS = reader
+
 
 def _signal(row: dict) -> Signal:
     return Signal(
@@ -50,11 +58,15 @@ async def get_today(membership: Membership = Depends(get_membership), supabase=D
     )
     visible = [row for row in (stored.data or []) if row.get("status") == "pending"]
     now = datetime.now(timezone.utc)
+    manual_tasks: list[dict] = []
+    task_coverage = "unavailable"
+    if _TASKS is not None:
+        manual_tasks, task_coverage = _TASKS(membership.company_id)
     return build_today_view(
         signals=[_signal(row) for row in visible],
-        manual_tasks=[],
+        manual_tasks=manual_tasks,
         now=now,
-        coverage={"intelligence": _intelligence(visible), "crm_tasks": "unavailable"},
+        coverage={"intelligence": _intelligence(visible), "crm_tasks": task_coverage},
         generated_at=now.isoformat(),
     )
 
