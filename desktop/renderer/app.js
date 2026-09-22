@@ -5,6 +5,7 @@ import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../li
 import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
+import { streamCopilotSuggest } from '../lib/copilot-suggest.js';
 import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.js';
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
@@ -68,6 +69,7 @@ let timerTick = null;
 let permissionPoll = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
 let reviewContext = null;
+let copilotSuggestAbort = null;
 /** Live-assist slice forwarded to the overlay pill (copilot session fills this). */
 export const liveAssistOverlay = { evidenceRefs: [] };
 
@@ -86,6 +88,41 @@ export function applyCopilotSuggestionPayload(payload, { callMode, channel } = {
   const kind = liveAssistKind({ callMode, channel });
   Object.assign(liveAssistOverlay, liveAssistOverlayFromCopilotPayload(payload, { kind }));
   notifyShell();
+}
+
+function abortCopilotSuggest() {
+  copilotSuggestAbort?.abort();
+  copilotSuggestAbort = null;
+}
+
+async function requestCopilotSuggest(latestTurn) {
+  const token = localStorage.getItem(STORAGE.token);
+  if (!listening || !token || !latestTurn) return;
+  abortCopilotSuggest();
+  const controller = new AbortController();
+  copilotSuggestAbort = controller;
+  const transcriptWindow = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
+  try {
+    await streamCopilotSuggest(fetch, {
+      apiBase: apiBase(),
+      token,
+      body: {
+        transcript_window: transcriptWindow.slice(-6000),
+        latest_turn: latestTurn,
+        call_mode: 'meeting',
+        language: 'auto',
+      },
+      onPayload: (payload) => {
+        if (controller.signal.aborted) return;
+        applyCopilotSuggestionPayload(payload, { callMode: 'meeting' });
+      },
+      signal: controller.signal,
+    });
+  } catch {
+    /* ignore aborted / network errors during live listen */
+  } finally {
+    if (copilotSuggestAbort === controller) copilotSuggestAbort = null;
+  }
 }
 
 function apiBase() {
@@ -314,6 +351,7 @@ function hookPcm(ctx, stream, onPcm) {
 }
 
 function stopCapture() {
+  abortCopilotSuggest();
   resetLiveAssistOverlay();
   listening = false;
   processors.forEach((p) => {
@@ -435,6 +473,11 @@ async function startListen() {
         isFinal,
         audioChannel: data.audio_channel || null,
       });
+      if (isFinal) {
+        const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
+        const latestTurn = parts[parts.length - 1]?.replace(/^(You|Them):\s*/, '').trim();
+        if (latestTurn) void requestCopilotSuggest(latestTurn);
+      }
       renderTranscript();
     } catch { /* ignore malformed frames */ }
   };

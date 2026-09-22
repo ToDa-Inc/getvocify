@@ -13,6 +13,26 @@ function resolveKind(kind) {
   return kind === 'meeting' || kind === 'call' ? kind : null;
 }
 
+function suggestResultText(event) {
+  if (!event || typeof event !== 'object') return '';
+  if (typeof event.text === 'string') return event.text.trim();
+  const suggestion = event.suggestion && typeof event.suggestion === 'object' ? event.suggestion : null;
+  if (!suggestion) return '';
+  if (typeof suggestion.text === 'string') return suggestion.text.trim();
+  if (typeof suggestion.say_this === 'string') return suggestion.say_this.trim();
+  return '';
+}
+
+/** Map a copilot suggest SSE `result` event into overlay payload fields. */
+export function liveAssistPayloadFromSuggestEvent(event) {
+  if (!event || event.type !== 'result') return null;
+  return {
+    playbook_ready: event.playbook_ready === true,
+    evidence_refs: event.evidence_refs,
+    text: suggestResultText(event),
+  };
+}
+
 /**
  * Map a copilot suggest/result payload into overlay live-assist fields.
  * Never invents card text or evidence refs.
