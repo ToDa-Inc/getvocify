@@ -9,10 +9,16 @@ from pydantic import BaseModel, Field
 
 from app.deps import get_membership
 from app.services.company import Membership
-from app.services.intelligence.annotations import AnnotationError, accept_annotation
+from app.services.intelligence.annotations import AnnotationError, SupabaseAnnotationStore, accept_annotation
 
 router = APIRouter(prefix="/api/v1", tags=["annotations"])
 _NOTES: dict = {}
+_STORE = None
+
+
+def set_annotation_store(store) -> None:
+    global _STORE
+    _STORE = store
 
 
 class NoteBody(BaseModel):
@@ -57,17 +63,29 @@ async def put_memo_note(
 
 def _save(annotation_id: str, body: NoteBody, membership: Membership, *, client_capture_id: str | None, memo_id: str | None):
     try:
-        note = accept_annotation(
-            _NOTES,
-            annotation_id=annotation_id,
-            client_capture_id=client_capture_id,
-            text=body.text,
-            offset_ms=body.offset_ms,
-            expected_revision=body.expected_revision,
-            author_id=membership.user_id,
-            company_id=membership.company_id,
-            memo_id=memo_id,
-        )
+        if _STORE is not None:
+            note = _STORE.save(
+                annotation_id=annotation_id,
+                client_capture_id=client_capture_id,
+                text=body.text,
+                offset_ms=body.offset_ms,
+                expected_revision=body.expected_revision,
+                author_id=membership.user_id,
+                company_id=membership.company_id,
+                memo_id=memo_id,
+            )
+        else:
+            note = accept_annotation(
+                _NOTES,
+                annotation_id=annotation_id,
+                client_capture_id=client_capture_id,
+                text=body.text,
+                offset_ms=body.offset_ms,
+                expected_revision=body.expected_revision,
+                author_id=membership.user_id,
+                company_id=membership.company_id,
+                memo_id=memo_id,
+            )
     except AnnotationError as error:
         if error.code == "conflict":
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_public(error.note)) from error

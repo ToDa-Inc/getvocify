@@ -15,6 +15,6 @@ Estado: la nota humana se guarda antes de tener memo. No está cerrada.
 
 ## No verificado
 
-- El `PUT` de la ruta vive en memoria del proceso. La revisión condicional de Postgres está en `revise_statement`, no la llama la ruta.
+- El `PUT` guarda la nota en `interaction_annotations`. Una revisión vieja no cambia el texto ni el `offset_ms`.
 - El detalle del memo muestra el bloque, pero la cobertura llega como no disponible: todavía no lee los patrones guardados. No se recorrió en el navegador.
 - La proyección de patrones no la dispara la extracción. Desktop y extensión no tienen el campo de nota.

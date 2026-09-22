@@ -119,6 +119,7 @@ def test_put_replay_is_the_same_note_and_a_stale_revision_conflicts():
     from app.services.company import Membership
 
     notes_api._NOTES.clear()
+    notes_api.set_annotation_store(None)
     app = FastAPI()
     app.include_router(notes_api.router)
     app.dependency_overrides[get_membership] = lambda: Membership(
@@ -138,6 +139,100 @@ def test_put_replay_is_the_same_note_and_a_stale_revision_conflicts():
     )
     assert stale.status_code == 409
     assert stale.json()["detail"]["text"] == "Lo dijo con ironía"
+
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Table:
+    def __init__(self, rows):
+        self._rows = rows
+        self._filters = []
+        self._mode = "select"
+        self._pending = None
+
+    def select(self, *_args):
+        self._mode = "select"
+        return self
+
+    def insert(self, note):
+        self._mode = "insert"
+        self._pending = note
+        return self
+
+    def update(self, patch):
+        self._mode = "update"
+        self._pending = patch
+        return self
+
+    def eq(self, column, value):
+        self._filters.append((column, value))
+        return self
+
+    def execute(self):
+        if self._mode == "insert":
+            self._rows.append(self._pending)
+            return _Result([self._pending])
+        matched = self._rows
+        for column, value in self._filters:
+            matched = [row for row in matched if row.get(column) == value]
+        if self._mode == "update":
+            if not matched:
+                return _Result([])
+            matched[0].update(self._pending)
+            return _Result([dict(matched[0])])
+        return _Result([dict(row) for row in matched])
+
+
+class _AnnotationsDb:
+    def __init__(self):
+        self.rows = []
+
+    def table(self, name):
+        assert name == "interaction_annotations"
+        return _Table(self.rows)
+
+
+def test_the_saved_note_keeps_its_offset_when_the_revision_is_old():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import annotations as notes_api
+    from app.deps import get_membership
+    from app.services.company import Membership
+    from app.services.intelligence.annotations import SupabaseAnnotationStore
+
+    db = _AnnotationsDb()
+    notes_api.set_annotation_store(SupabaseAnnotationStore(db))
+    try:
+        app = FastAPI()
+        app.include_router(notes_api.router)
+        app.dependency_overrides[get_membership] = lambda: Membership(
+            id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+        )
+        client = TestClient(app)
+        created = client.put(
+            "/api/v1/captures/cap-local-1/annotations/note-1",
+            json={"text": "Lo dijo con ironía", "offset_ms": 134000},
+        )
+        edited = client.put(
+            "/api/v1/captures/cap-local-1/annotations/note-1",
+            json={"text": "segunda", "offset_ms": 1, "expected_revision": 1},
+        )
+        stale = client.put(
+            "/api/v1/captures/cap-local-1/annotations/note-1",
+            json={"text": "tercera", "offset_ms": 1, "expected_revision": 1},
+        )
+    finally:
+        notes_api.set_annotation_store(None)
+    assert created.status_code == 200
+    assert edited.json()["revision"] == 2
+    assert edited.json()["offset_ms"] == 134000
+    assert stale.status_code == 409
+    assert db.rows[0]["text"] == "segunda"
+    assert db.rows[0]["offset_ms"] == 134000
 
 
 def _pg_env() -> dict[str, str]:

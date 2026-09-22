@@ -363,6 +363,9 @@ async def startup_event():
     set_playbook_store(SupabasePlaybookStore(get_supabase()))
     set_ask_store(SupabaseAskStore(get_supabase()))
     set_ask_loop(live_ask_loop)
+    from app.api.annotations import set_annotation_store
+    from app.services.intelligence.annotations import SupabaseAnnotationStore
+    set_annotation_store(SupabaseAnnotationStore(get_supabase()))
     install_intelligence_tick()
     start_worker()
 
