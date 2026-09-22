@@ -74,6 +74,7 @@ import {
   setInflightPreview,
 } from './lib/preview-cache.js';
 import { liveAssistGateFromSuggestPayload } from './lib/live-assist-gate.js';
+import { buildCopilotSuggestRequestBody } from './lib/copilot-suggest-body.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -667,6 +668,19 @@ function abortCopilotSuggest() {
 }
 
 async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRole = 'prospect') {
+  const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
+  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] || DEFAULT_PRODUCT_CONTEXT;
+
+  const suggestBody = buildCopilotSuggestRequestBody({
+    callMode: state.callMode,
+    context: state.context,
+    latestTurn,
+    transcriptWindow,
+    speakerRole,
+    productContext,
+  });
+  if (!suggestBody) return;
+
   abortCopilotSuggest();
   const controller = new AbortController();
   copilotAbort = controller;
@@ -681,20 +695,9 @@ async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRol
     evidenceRefs: [],
   });
 
-  const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
-  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] || DEFAULT_PRODUCT_CONTEXT;
-
   try {
     await api.streamCopilotSuggest(
-      {
-        transcript_window: String(transcriptWindow || '').slice(-6000),
-        latest_turn: latestTurn,
-        product_context: productContext,
-        language: 'auto',
-        call_mode: 'meeting',
-        speaker_role:
-          speakerRole === 'rep' || speakerRole === 'unknown' ? speakerRole : 'prospect',
-      },
+      suggestBody,
       (event) => {
         if (controller.signal.aborted) return;
         if (event.type === 'token') {
