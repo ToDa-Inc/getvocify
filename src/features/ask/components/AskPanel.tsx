@@ -112,7 +112,22 @@ export default function AskPanel() {
           placeholder="Pregunta por un contacto"
           onChange={(event) => setDraft(event.target.value)}
         />
-        <VoiceComposer onText={(text) => setDraft(text)} />
+        <VoiceComposer
+          onText={(text) => setDraft(text)}
+          transcribe={async (blob) => {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result || ""));
+              reader.onerror = () => reject(reader.error);
+              reader.readAsDataURL(blob);
+            });
+            const comma = dataUrl.indexOf(",");
+            const result = await api.post<{ text: string; memo_id: null }>("/ask/transcribe", {
+              audio_base64: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+            });
+            return result.text;
+          }}
+        />
         <button
           type="submit"
           className="rounded-full border border-border px-3 py-1 text-sm"

@@ -28,6 +28,7 @@ def setup_function():
     ask_api._TURNS.clear()
     ask_api._OPERATIONS.clear()
     ask_api.set_ask_store(None)
+    ask_api.set_ask_transcriber(None)
 
 
 def test_a_stored_turn_replays_the_same_id_for_the_callers_company():
@@ -148,3 +149,51 @@ def test_confirming_another_contact_writes_nothing_and_a_repeat_does_not_apply_t
         "/api/v1/ask/conversations/conv-1/operations/op-1/confirm",
         json={"revision": 3, "contact_id": "contact-a"},
     ).status_code == 404
+
+
+def test_voice_transcription_returns_text_and_creates_no_memo():
+    import base64
+
+    seen = {}
+
+    async def transcribe(raw: bytes, **kwargs):
+        seen["source"] = kwargs.get("source")
+        seen["size"] = len(raw)
+        return "¿Qué quedó pendiente con Marina?"
+
+    ask_api.set_ask_transcriber(transcribe)
+    try:
+        client = _client("user-a")
+        response = client.post(
+            "/api/v1/ask/transcribe",
+            json={"audio_base64": base64.b64encode(b"audio-bytes").decode("ascii")},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["text"] == "¿Qué quedó pendiente con Marina?"
+        assert body["memo_id"] is None
+        assert seen["source"] == "ask_voice"
+        assert seen["size"] == len(b"audio-bytes")
+        silent = client.post(
+            "/api/v1/ask/transcribe",
+            json={"audio_base64": base64.b64encode(b"quiet").decode("ascii")},
+        )
+    finally:
+        ask_api.set_ask_transcriber(None)
+
+    async def blank(raw: bytes, **kwargs):
+        del raw, kwargs
+        return "   "
+
+    ask_api.set_ask_transcriber(blank)
+    try:
+        client = _client("user-a")
+        silent = client.post(
+            "/api/v1/ask/transcribe",
+            json={"audio_base64": base64.b64encode(b"quiet").decode("ascii")},
+        )
+        assert silent.status_code == 200
+        assert silent.json()["text"] == ""
+        assert silent.json()["memo_id"] is None
+    finally:
+        ask_api.set_ask_transcriber(None)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -20,6 +22,12 @@ router = APIRouter(prefix="/api/v1/ask", tags=["ask"])
 _TURNS: dict[tuple[str, str, str], dict] = {}
 _OPERATIONS: dict[tuple[str, str, str], dict] = {}
 _store = None
+_transcriber = None
+
+
+def set_ask_transcriber(transcriber) -> None:
+    global _transcriber
+    _transcriber = transcriber
 
 
 def set_ask_store(store) -> None:
@@ -35,6 +43,10 @@ class TurnRequest(BaseModel):
 class ConfirmRequest(BaseModel):
     revision: int
     contact_id: str = Field(min_length=1)
+
+
+class TranscribeRequest(BaseModel):
+    audio_base64: str = Field(min_length=1)
 
 
 def remember_operation(user_id: str, conversation_id: str, operation: dict) -> None:
@@ -132,3 +144,23 @@ async def confirm_ask_operation(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     _OPERATIONS[key] = result
     return result
+
+
+@router.post("/transcribe")
+async def transcribe_question(
+    body: TranscribeRequest,
+    membership: Membership = Depends(get_membership),
+):
+    del membership
+    import base64
+
+    raw = base64.b64decode(body.audio_base64)
+    if _transcriber is not None:
+        spoken = _transcriber(raw, source="ask_voice")
+        if asyncio.iscoroutine(spoken):
+            spoken = await spoken
+    else:
+        from app.services.stt_batch import transcribe_bytes
+
+        spoken = await transcribe_bytes(raw, source="ask_voice")
+    return {"text": str(spoken or "").strip(), "memo_id": None}
