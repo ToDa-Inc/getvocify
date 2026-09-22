@@ -1,5 +1,7 @@
 /** The memo shows the stored score. The browser does not recompute it. */
 
+import type { ProductTranslations } from "./product-catalog";
+
 export type ScoreView = {
   status: string;
   value: number | null;
@@ -18,22 +20,27 @@ export type CoachingSurface =
   | { kind: "unscored"; title: string; strengths: string[]; improvements: string[]; coverage: number | null }
   | { kind: "scored"; strengths: string[]; improvements: string[]; value: number; adherence: number | null; crmOutcome: string | null };
 
-export function coachingSurface(score: ScoreView, role: string): CoachingSurface {
+export type CoachingProductCopy = Pick<
+  ProductTranslations,
+  "coachingSetupTitle" | "coachingSetupAction" | "coachingWaitingTitle" | "coachingUnscoredTitle"
+>;
+
+export function coachingSurface(score: ScoreView, copy: CoachingProductCopy, role: string): CoachingSurface {
   if (score.reason === "missing_playbook") {
     const canEdit = role === "owner" || role === "admin";
     return {
       kind: "setup",
-      title: "Falta configurar el proceso",
-      action: canEdit ? "Configurar el proceso" : null,
+      title: copy.coachingSetupTitle,
+      action: canEdit ? copy.coachingSetupAction : null,
     };
   }
   if (score.reason === "not_scored") {
-    return { kind: "waiting", title: "Todavía no hay puntuación" };
+    return { kind: "waiting", title: copy.coachingWaitingTitle };
   }
   if (score.value === null) {
     return {
       kind: "unscored",
-      title: "Sin puntuación",
+      title: copy.coachingUnscoredTitle,
       strengths: score.strengths ?? [],
       improvements: score.improvements ?? [],
       coverage: score.coverage,

@@ -12,7 +12,7 @@ export function CoachingScore({ memoId }: { memoId: string }) {
   const { user } = useAuth();
   const query = useMemoScore(memoId);
   if (!query.data) return null;
-  const surface = coachingSurface(query.data, user?.company?.role ?? "member");
+  const surface = coachingSurface(query.data, p, user?.company?.role ?? "member");
 
   return (
     <section aria-labelledby="coaching-title" className="mb-6 space-y-3">
