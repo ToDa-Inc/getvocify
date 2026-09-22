@@ -167,3 +167,53 @@ def test_audio_import_uses_stt_and_does_not_create_a_memo():
         assert body["draft"]["text"].startswith("Confirmar el problema")
     finally:
         set_playbook_transcriber(None)
+
+
+def test_a_contradiction_stays_a_draft_and_can_be_reopened():
+    from app.api import playbooks as playbooks_api
+
+    playbooks_api._MOTIONS.clear()
+    playbooks_api._IMPORTS.clear()
+    playbooks_api._LATEST.clear()
+    app = FastAPI()
+    app.include_router(playbooks_router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co", user_id="u", role="owner", status="active",
+    )
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/playbooks/imports",
+        json={
+            "import_id": "imp-conflict",
+            "kind": "text",
+            "payload": "Nunca descuentes. Siempre cierra.",
+            "active_version_id": "pv-2",
+            "sales_motion_key": "discovery",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["published"] is False
+    assert body["active_version_unchanged"] is True
+    assert body["active_version_id"] == "pv-2"
+    assert body["draft"]["contradictions"] == ["siempre/nunca"]
+    blocked = client.post("/api/v1/playbooks/discovery/publish")
+    assert blocked.status_code == 409
+    assert client.get("/api/v1/playbooks").json()["motions"].get("discovery") != "published"
+    reopened = client.get("/api/v1/playbooks/imports/imp-conflict")
+    assert reopened.status_code == 200
+    assert reopened.json()["published"] is False
+    assert reopened.json()["draft"]["text"].startswith("Nunca")
+    cleaned = client.post(
+        "/api/v1/playbooks/imports",
+        json={
+            "import_id": "imp-clean",
+            "kind": "text",
+            "payload": "Confirmar el problema antes del precio.",
+            "sales_motion_key": "discovery",
+        },
+    )
+    assert cleaned.status_code == 200
+    published = client.post("/api/v1/playbooks/discovery/publish")
+    assert published.status_code == 200
+    assert published.json()["motions"]["discovery"] == "published"

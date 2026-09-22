@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyPublishResult, motionAfterImport, playbookNotice } from "./playbook-setup.ts";
+import { applyPublishResult, importReview, motionAfterImport, playbookNotice } from "./playbook-setup.ts";
 
 describe("playbook setup", () => {
   it("tells a member they cannot edit and an admin they can start", () => {
@@ -62,6 +62,15 @@ describe("playbook setup", () => {
     });
     assert.equal(locked.status, "published");
     assert.match(locked.error || "", /protegido/);
+    const conflict = importReview({
+      status: "ready",
+      published: false,
+      draft: { text: "Nunca descuentes. Siempre cierra.", contradictions: ["siempre/nunca"] },
+    });
+    assert.equal(conflict.canPublish, false);
+    assert.equal(conflict.status, "draft");
+    assert.match(conflict.warning || "", /contradictorios/);
+    assert.equal(conflict.text.startsWith("Nunca"), true);
     const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
     assert.equal(drafted.status, "draft");
     assert.equal(drafted.error, null);

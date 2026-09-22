@@ -49,6 +49,7 @@ def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cann
     from app.services.company import Membership
 
     playbooks_api._MOTIONS.clear()
+    playbooks_api._LATEST.clear()
     role = {"value": "owner"}
     app = FastAPI()
     app.include_router(playbooks_router)
@@ -257,6 +258,18 @@ def test_a_text_draft_is_stored_and_publishing_discovery_leaves_qualification_al
         )
         assert listed_with_type.stdout.split() == ["discovery:published", "renewal:missing"]
         assert psql(f"SELECT publish_playbook_motion('{company}', 'renewal');").stdout.strip() == "not_a_draft"
+        contradicted = psql(
+            "SELECT save_playbook_draft("
+            f"'{company}', 'renewal', 'imp-x', 'Nunca descuentes. Siempre cierra.', "
+            """'["siempre/nunca"]'::jsonb);"""
+        )
+        assert contradicted.returncode == 0, contradicted.stderr
+        assert contradicted.stdout.strip() == "ready"
+        assert psql(f"SELECT publish_playbook_motion('{company}', 'renewal');").stdout.strip() == "contradiction"
+        assert psql(
+            "SELECT CASE WHEN active_version_id IS NULL THEN 'still-draft' ELSE 'activated' END "
+            "FROM playbooks WHERE sales_motion_key = 'renewal';"
+        ).stdout.strip() == "still-draft"
     finally:
         proc.terminate()
         proc.wait(timeout=8)
@@ -361,6 +374,7 @@ def test_adding_a_typology_does_not_publish_it_and_a_member_cannot():
     from app.services.company import Membership
 
     playbooks_api._MOTIONS.clear()
+    playbooks_api._LATEST.clear()
     role = {"value": "member"}
     app = FastAPI()
     app.include_router(playbooks_router)

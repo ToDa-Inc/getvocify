@@ -60,7 +60,8 @@ CREATE OR REPLACE FUNCTION save_playbook_draft(
   p_company UUID,
   p_motion TEXT,
   p_import TEXT,
-  p_payload TEXT
+  p_payload TEXT,
+  p_contradictions JSONB DEFAULT '[]'::jsonb
 ) RETURNS TEXT
 LANGUAGE plpgsql
 AS $save_draft$
@@ -104,7 +105,11 @@ BEGIN
     pb,
     'text',
     'ready',
-    jsonb_build_object('text', p_payload, 'source_ref', 'text:' || p_import),
+    jsonb_build_object(
+      'text', p_payload,
+      'source_ref', 'text:' || p_import,
+      'contradictions', COALESCE(p_contradictions, '[]'::jsonb)
+    ),
     (SELECT active_version_id FROM playbooks WHERE id = pb)
   );
   RETURN 'ready';
@@ -125,6 +130,17 @@ BEGIN
 
   IF pb IS NULL THEN
     RETURN 'not_a_draft';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM playbook_imports i
+    WHERE i.playbook_id = pb
+      AND COALESCE(jsonb_array_length(i.draft->'contradictions'), 0) > 0
+      AND i.created_at = (
+        SELECT max(created_at) FROM playbook_imports WHERE playbook_id = pb
+      )
+  ) THEN
+    RETURN 'contradiction';
   END IF;
 
   SELECT id INTO ver FROM playbook_versions

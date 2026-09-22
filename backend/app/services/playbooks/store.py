@@ -6,9 +6,10 @@ from app.services.playbooks.versions import PublishError, accept_publish
 
 
 class MemoryPlaybookStore:
-    def __init__(self, motions: dict, imports: dict):
+    def __init__(self, motions: dict, imports: dict, latest: dict | None = None):
         self._motions = motions
         self._imports = imports
+        self._latest = latest if latest is not None else {}
 
     def get_import(self, import_id: str):
         return self._imports.get(import_id)
@@ -19,11 +20,16 @@ class MemoryPlaybookStore:
             company = self._motions.setdefault(company_id, {})
             if company.get(sales_motion_key) != "published":
                 company[sales_motion_key] = "draft"
+        if sales_motion_key and record.get("status") == "ready":
+            self._latest[(company_id, sales_motion_key)] = record
 
     def motions(self, company_id: str) -> dict:
         return dict(self._motions.get(company_id) or {})
 
     def publish(self, company_id: str, key: str, role: str) -> dict:
+        latest = self._latest.get((company_id, key)) or {}
+        if (latest.get("draft") or {}).get("contradictions"):
+            raise PublishError("contradiction")
         updated = accept_publish(self.motions(company_id), key, role)
         self._motions.setdefault(company_id, {})[key] = "published"
         return updated
@@ -78,6 +84,7 @@ class SupabasePlaybookStore:
                 "p_motion": sales_motion_key,
                 "p_import": record["import_id"],
                 "p_payload": text,
+                "p_contradictions": (record.get("draft") or {}).get("contradictions") or [],
             },
         ).execute()
 
@@ -95,6 +102,8 @@ class SupabasePlaybookStore:
         outcome = getattr(result, "data", None)
         if isinstance(outcome, list):
             outcome = outcome[0] if outcome else None
+        if outcome == "contradiction":
+            raise PublishError("contradiction")
         if outcome != "published":
             raise PublishError("not_a_draft")
         return updated

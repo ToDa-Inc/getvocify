@@ -3,6 +3,7 @@ import { useAuth } from "@/features/auth";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
 import {
   applyPublishResult,
+  importReview,
   motionAfterImport,
   playbookNotice,
   type MotionStatus,
@@ -34,7 +35,10 @@ export default function PlaybooksSection() {
   });
   const [text, setText] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [warnings, setWarnings] = useState<Record<string, string>>({});
+  const [canPublish, setCanPublish] = useState<Record<string, boolean>>({});
   const [typeKey, setTypeKey] = useState("");
+  const [resumeId, setResumeId] = useState("");
   const notice = playbookNotice(role, motions);
   const keys = Array.from(new Set<string>([...MOTIONS, ...Object.keys(motions)]));
 
@@ -55,7 +59,12 @@ export default function PlaybooksSection() {
   async function saveDraft(key: string, kind: "text" | "pdf", payload: string) {
     const body = payload.trim();
     if (!body) return;
-    const record = await api.post<{ status: string; published: boolean; reason?: string | null }>(
+    const record = await api.post<{
+      status: string;
+      published: boolean;
+      reason?: string | null;
+      draft?: { text?: string; contradictions?: string[] } | null;
+    }>(
       "/playbooks/imports",
       {
         import_id: crypto.randomUUID(),
@@ -65,12 +74,23 @@ export default function PlaybooksSection() {
       },
     );
     const next = motionAfterImport(motions[key] || "missing", record);
+    const review = importReview(record);
     setErrors((current) => {
       const copy = { ...current };
       if (next.error) copy[key] = next.error;
       else delete copy[key];
       return copy;
     });
+    setWarnings((current) => {
+      const copy = { ...current };
+      if (review.warning) copy[key] = review.warning;
+      else delete copy[key];
+      return copy;
+    });
+    setCanPublish((current) => ({ ...current, [key]: review.canPublish }));
+    if (review.text) {
+      setText((current) => ({ ...current, [key]: review.text }));
+    }
     if (next.status !== (motions[key] || "missing")) {
       setMotions((current) => ({ ...current, [key]: next.status }));
     }
@@ -126,6 +146,52 @@ export default function PlaybooksSection() {
           </button>
         </form>
       ) : null}
+      {notice.canEdit ? (
+        <form
+          className="mb-4 flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const id = resumeId.trim();
+            if (!id) return;
+            void api
+              .get<{
+                status: string;
+                published: boolean;
+                sales_motion_key?: string;
+                draft?: { text?: string; contradictions?: string[] } | null;
+              }>(`/playbooks/imports/${id}`)
+              .then((record) => {
+                const key = record.sales_motion_key;
+                if (!key || record.published) return;
+                const review = importReview(record);
+                setMotions((current) => ({
+                  ...current,
+                  [key]: review.status === "draft" ? "draft" : current[key] || "missing",
+                }));
+                if (review.text) setText((current) => ({ ...current, [key]: review.text }));
+                setWarnings((current) => {
+                  const copy = { ...current };
+                  if (review.warning) copy[key] = review.warning;
+                  else delete copy[key];
+                  return copy;
+                });
+                setCanPublish((current) => ({ ...current, [key]: review.canPublish }));
+                setResumeId("");
+              })
+              .catch(() => undefined);
+          }}
+        >
+          <input
+            className="rounded-lg border border-border bg-transparent px-3 py-1 text-sm"
+            value={resumeId}
+            placeholder="ID de importación"
+            onChange={(event) => setResumeId(event.target.value)}
+          />
+          <button type="submit" className="rounded-full border border-border px-3 py-1 text-sm">
+            Continuar importación
+          </button>
+        </form>
+      ) : null}
       <ul className="space-y-3">
         {keys.map((key) => (
           <li key={key} className="rounded-xl border border-border px-4 py-3">
@@ -134,6 +200,7 @@ export default function PlaybooksSection() {
               <span className="text-sm text-muted-foreground">{LABEL[motions[key] || "missing"]}</span>
             </div>
             {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{errors[key]}</p> : null}
+            {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{warnings[key]}</p> : null}
             {notice.canEdit && motions[key] !== "published" ? (
               <div className="mt-3 space-y-2">
                 <textarea
@@ -170,7 +237,7 @@ export default function PlaybooksSection() {
                       }}
                     />
                   </label>
-                  {motions[key] === "draft" ? (
+                  {motions[key] === "draft" && canPublish[key] !== false ? (
                     <button
                       type="button"
                       className="rounded-full border border-border px-3 py-1 text-sm"

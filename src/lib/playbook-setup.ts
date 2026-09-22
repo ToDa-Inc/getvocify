@@ -61,3 +61,28 @@ export function motionAfterImport(
   }
   return { status, error: null };
 }
+
+export function importReview(record: {
+  status: string;
+  published: boolean;
+  draft?: { text?: string; contradictions?: string[] } | null;
+}): { status: MotionStatus; warning: string | null; text: string; canPublish: boolean } {
+  const contradictions = record.draft?.contradictions ?? [];
+  if (record.status === "ready" && contradictions.length > 0) {
+    return {
+      status: "draft",
+      warning: "Hay pasos contradictorios. Edita el borrador antes de publicar.",
+      text: record.draft?.text || "",
+      canPublish: false,
+    };
+  }
+  if (record.status === "ready" && record.published === false) {
+    return {
+      status: "draft",
+      warning: null,
+      text: record.draft?.text || "",
+      canPublish: true,
+    };
+  }
+  return { status: "missing", warning: null, text: "", canPublish: false };
+}
