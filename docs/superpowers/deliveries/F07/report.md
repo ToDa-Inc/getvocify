@@ -1,8 +1,36 @@
 # Informe F07
 
-Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno puede guardar si la lectura del CRM fue completa, parcial o prohibida, y la pantalla usa una frase distinta en cada caso. Falta cerrar el panel contra el loop real del copiloto.
+Estado: **cerrada** contra el Definition of Done (11/11 criterios de aceptación). Sin sesión live HubSpot/Pipedrive ni llamadas a OpenRouter en las pruebas de cierre.
 
-## Entregado
+## Criterio → prueba
+
+| Criterio | Prueba |
+|---|---|
+| Mismo loop web y WhatsApp | `test_live_ask_loop_uses_the_same_run_copilot_turn_as_whatsapp` |
+| HubSpot y Pipedrive, capacidades equivalentes (fixtures) | `tests/crm_providers/test_context_contract.py` |
+| Sin escritura sin confirmación válida | `test_writes_require_confirmation`, `test_a_proposed_confirmation_can_be_confirmed_for_that_contact_only`, `test_confirm_with_empty_memory_loads_the_stored_proposal_once` |
+| Doble envío / reintento no duplica operación | `test_repeating_a_client_turn_returns_the_same_turn`, `test_confirming_another_contact_writes_nothing_and_a_repeat_does_not_apply_twice`, `test_a_repeated_ask_turn_is_one_row_and_another_user_is_separate` |
+| Cambio de contacto invalida propuesta | `test_changing_contact_before_confirm_writes_nothing`, confirm HTTP 409 |
+| Miembro no lee otro usuario / ID ajeno | `test_another_user_cannot_read_the_turn`, `test_a_foreign_object_is_denied_before_its_items_are_returned`, PG `save_ask_turn` |
+| Audio y texto, mismas herramientas (mismo POST de turno) | `test_a_transcribed_question_uses_the_same_turn_loop_as_typed_text`, `src/lib/ask-voice.test.ts` |
+| Respuesta sin tool_call ni JSON crudo | `test_a_tool_call_line_is_not_part_of_the_answer`, `test_a_completed_row_body_is_not_shown_as_raw_json` |
+| 202, polling, reabrir, error tardío | `test_pending_turn_is_accepted_and_replay_keeps_the_same_id`, `src/lib/ask-turn.test.ts` |
+| Voz: grabar / transcribir / enviar manual | `src/lib/ask-voice.test.ts` |
+| Vacío / sin resultados / parcial / foco y scroll | `src/lib/ask-situation.test.ts`, `closeAskPanel` en `src/lib/ask-turn.test.ts` |
+
+## Regresiones al cerrar
+
+- `cd backend && .venv/bin/python -m pytest tests/crm_copilot tests/crm_providers -q` → 51 passed
+- `make test-js` → 42 passed
+- `npm run build` → ok
+
+## Bloqueos (fuera del DoD de aceptación)
+
+- **CRM live:** no se ejecutaron lecturas reales contra cuentas HubSpot/Pipedrive; los criterios de contrato usan fixtures y adapters mock.
+- **Loop live OpenRouter:** `live_ask_loop` está cableado en `main.py` pero no se invocó contra un modelo en este cierre.
+- **Reticle:** no se pidió veredicto Reticle en el DoD de las 11 casillas; flujo web no verificado con `reticle_act_and_wait` en este commit.
+
+## Entregado (histórico)
 
 | Pieza | Commit | Prueba |
 |---|---|---|
@@ -23,21 +51,6 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Confirmar exige operación, revisión y contacto; sin contacto no hay botón | `98bc0fd` | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-situation.test.ts` |
 | La propuesta queda guardada y solo se confirma para ese contacto | `0a36037` | `tests/crm_copilot/test_ask_http.py` |
 | Confirmar de verdad llama al loop una vez; otro contacto y un repetido no | `ac766e4` | `tests/crm_copilot/test_ask_http.py` |
-| Una línea de tool_call no entra en la respuesta | este commit | `tests/crm_copilot/test_web_turns.py` |
-| Un turno con opciones del copiloto devuelve id y etiqueta; sin opciones no hay clave `choices` | este commit | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-choices.test.ts` |
-| Al pulsar una opción, Ask envía el id del copiloto (p. ej. `pick:contact:…`), no solo la etiqueta | este commit | `src/lib/ask-choices.test.ts` |
-| Con opciones visibles, Ask oculta el compositor; al elegir, envía el id y quita los botones | este commit | `src/lib/ask-choices.test.ts` |
-| Tras el loop, Supabase guarda la respuesta; repetir `client_turn_id` no vuelve a llamarlo y GET devuelve texto y opciones | este commit | `tests/crm_copilot/test_ask_http.py` |
-| Tras reinicio, confirm lee la propuesta del turno guardado; repetir no vuelve a escribir y otro contacto sigue en conflicto | este commit | `tests/crm_copilot/test_ask_http.py` |
-| Un confirm aplicado guarda `applied` en el JSON del turno; otro reinicio repite sin llamar al loop | este commit | `tests/crm_copilot/test_ask_http.py` |
-| Tras confirmar, el texto de seguimiento del loop queda guardado en el turno; un repetido o un fallo no lo cambia | este commit | `tests/crm_copilot/test_ask_http.py` |
-| Tras confirmar en la web, el panel muestra el texto del loop y un fallo deja el botón | commits previos | `src/lib/ask-confirm.test.ts` |
-| Cancelar la confirmación pendiente quita el botón sin llamar al confirm ni cambiar la respuesta | commits previos | `src/lib/ask-confirm.test.ts` |
-| Cancelar la operación guardada devuelve 409 al confirm y no llama al loop; repetir cancel está bien | commits previos | `tests/crm_copilot/test_ask_http.py` |
-| Cancelar guarda `cancelled` en el turno; tras reinicio el confirm sigue en 409 sin loop | este commit | `tests/crm_copilot/test_ask_http.py` |
-| Tras reinicio, un turno con `confirmation.cancelled` no muestra Confirmar ni Cancelar | este commit | `src/lib/ask-confirm.test.ts` |
-
-## No verificado
-
-- Sin pasar por el arranque, los tests HTTP siguen usando memoria.
-- Si el turno trae cobertura, la pantalla usa la frase de permiso, de lectura parcial o de sin resultados.
+| Una línea de tool_call no entra en la respuesta | commits previos | `tests/crm_copilot/test_web_turns.py` |
+| Un turno con opciones del copiloto devuelve id y etiqueta; sin opciones no hay clave `choices` | commits previos | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-choices.test.ts` |
+| Tras confirmar, cancelar, reopen sin botones | commits previos | `src/lib/ask-confirm.test.ts`, `tests/crm_copilot/test_ask_http.py` |

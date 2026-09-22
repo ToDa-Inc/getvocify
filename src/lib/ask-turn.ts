@@ -81,3 +81,8 @@ export function reopenAsk(turnId: string, fetched: AskSnapshot): AskView {
     unread: false,
   };
 }
+
+/** Closing Ask returns focus to the opener without forcing a scroll jump. */
+export function closeAskPanel(view: AskView, openerControlId: string): { view: AskView; focusId: string } {
+  return { view: { ...view, scroll: false }, focusId: openerControlId };
+}

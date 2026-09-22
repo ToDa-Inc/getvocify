@@ -75,6 +75,34 @@ def test_a_turn_without_choices_has_no_choices_key():
     assert "choices" not in hollow
 
 
+@pytest.mark.asyncio
+async def test_live_ask_loop_uses_the_same_run_copilot_turn_as_whatsapp(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from app.services.crm_copilot import web_sessions as ws
+
+    seen = {}
+
+    async def fake_run(text, **kwargs):
+        seen["text"] = text
+        seen["confirm"] = kwargs.get("confirm")
+        seen["has_execute"] = kwargs.get("execute") is not None
+        seen["has_tools"] = kwargs.get("tools") is not None
+        result = MagicMock()
+        result.text = "Marina queda el jueves."
+        result.kind = "text"
+        return result
+
+    monkeypatch.setattr("app.services.crm_copilot.loop.run_copilot_turn", fake_run)
+    ws.bind_ask_actor("user-a", "co-1")
+    payload = await ws.live_ask_loop("¿Qué sigue?", confirm=None)
+    assert seen["text"] == "¿Qué sigue?"
+    assert seen["confirm"] is None
+    assert seen["has_execute"] is True
+    assert seen["has_tools"] is True
+    assert payload["text"] == "Marina queda el jueves."
+
+
 def test_a_tool_call_line_is_not_part_of_the_answer():
     from app.services.crm_copilot.web_sessions import public_answer
 

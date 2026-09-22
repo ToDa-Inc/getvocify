@@ -177,27 +177,27 @@ El botón Enviar queda deshabilitado mientras el turno de esa conversación est�
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] La misma pregunta usa el mismo loop en web y WhatsApp.
+- [x] La misma pregunta usa el mismo loop en web y WhatsApp.
 
-- [ ] HubSpot y Pipedrive pasan pruebas equivalentes de las capacidades anunciadas.
+- [x] HubSpot y Pipedrive pasan pruebas equivalentes de las capacidades anunciadas.
 
-- [ ] Ninguna escritura ocurre sin su confirmación válida.
+- [x] Ninguna escritura ocurre sin su confirmación válida.
 
-- [ ] Doble clic, recarga o reintento no duplica una operación.
+- [x] Doble clic, recarga o reintento no duplica una operación.
 
-- [ ] Cambiar de contacto invalida la propuesta anterior.
+- [x] Cambiar de contacto invalida la propuesta anterior.
 
-- [ ] Un miembro no obtiene información de otro equipo mediante preguntas o IDs manipulados.
+- [x] Un miembro no obtiene información de otro equipo mediante preguntas o IDs manipulados.
 
-- [ ] Audio y texto producen respuestas basadas en las mismas herramientas.
+- [x] Audio y texto producen respuestas basadas en las mismas herramientas.
 
-- [ ] Respuestas breves, sin mostrar llamadas a herramientas ni IDs internos.
+- [x] Respuestas breves, sin mostrar llamadas a herramientas ni IDs internos.
 
-- [ ] Un `202` muestra espera sin streaming ficticio; cerrar y reabrir recupera el mismo turno. Error de polling y respuesta tardía no duplican el mensaje ni la operación.
+- [x] Un `202` muestra espera sin streaming ficticio; cerrar y reabrir recupera el mismo turno. Error de polling y respuesta tardía no duplican el mensaje ni la operación.
 
-- [ ] Se distingue grabando de transcribiendo; el temporizador se detiene, el texto se puede corregir y solo se envía al pulsar «Enviar». Silencio y permiso denegado permiten seguir escribiendo.
+- [x] Se distingue grabando de transcribiendo; el temporizador se detiene, el texto se puede corregir y solo se envía al pulsar «Enviar». Silencio y permiso denegado permiten seguir escribiendo.
 
-- [ ] La conversación vacía, una consulta sin resultados y una lectura parcial CRM tienen textos y acciones distintos. La navegación de foco y el scroll preservan la lectura del historial.
+- [x] La conversación vacía, una consulta sin resultados y una lectura parcial CRM tienen textos y acciones distintos. La navegación de foco y el scroll preservan la lectura del historial.
 
 ### Riesgos / edge cases conocidos
 

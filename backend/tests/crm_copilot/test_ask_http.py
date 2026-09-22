@@ -681,6 +681,37 @@ def test_cancel_with_empty_memory_blocks_confirm_after_restart():
         ask_api.set_ask_loop(None)
 
 
+def test_a_transcribed_question_uses_the_same_turn_loop_as_typed_text():
+    calls = []
+
+    async def loop(text: str) -> dict:
+        calls.append(text)
+        return {"text": f"Echo: {text}"}
+
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        typed = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-typed", "text": "¿Qué sigue con Marina?"},
+        )
+        assert typed.status_code == 200
+        assert typed.json()["text"] == "Echo: ¿Qué sigue con Marina?"
+        calls.clear()
+        voiced = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={
+                "client_turn_id": "web-voice",
+                "text": "¿Qué quedó pendiente con Marina?",
+            },
+        )
+        assert voiced.status_code == 200
+        assert voiced.json()["text"] == "Echo: ¿Qué quedó pendiente con Marina?"
+        assert calls == ["¿Qué quedó pendiente con Marina?"]
+    finally:
+        ask_api.set_ask_loop(None)
+
+
 def test_a_failed_loop_leaves_the_turn_pending():
     async def loop(_text: str):
         return None

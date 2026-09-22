@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { emptyAsk, notePosted, noteTick, reopenAsk } from "./ask-turn.ts";
+import { closeAskPanel, emptyAsk, notePosted, noteTick, reopenAsk } from "./ask-turn.ts";
 
 describe("ask turn polling", () => {
   it("waits past 30s without posting again", () => {
@@ -41,5 +41,37 @@ describe("ask turn polling", () => {
     );
     assert.equal(reading.scroll, false);
     assert.equal(reading.unread, true);
+  });
+
+  it("a failed poll and a late answer keep one post and the final text", () => {
+    const posted = notePosted(emptyAsk(), {
+      turnId: "turn-2",
+      status: "pending",
+      text: "¿Qué sigue?",
+    });
+    const failed = noteTick(posted, 2000, null, false);
+    assert.equal(failed.posts, 1);
+    assert.equal(failed.text, "¿Qué sigue?");
+    const late = noteTick(
+      failed,
+      2000,
+      { turnId: "turn-2", status: "completed", text: "Marina queda para el jueves." },
+      false,
+    );
+    assert.equal(late.posts, 1);
+    assert.equal(late.text, "Marina queda para el jueves.");
+  });
+
+  it("closing the panel returns focus without scrolling the thread", () => {
+    const reading = noteTick(
+      notePosted(emptyAsk(), { turnId: "turn-2", status: "pending", text: "¿Qué sigue?" }),
+      1000,
+      null,
+      true,
+    );
+    const closed = closeAskPanel(reading, "ask-open");
+    assert.equal(closed.focusId, "ask-open");
+    assert.equal(closed.view.scroll, false);
+    assert.equal(closed.view.unread, reading.unread);
   });
 });
