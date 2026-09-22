@@ -338,6 +338,59 @@ def test_ensure_notification_is_not_visible_to_another_user():
     assert len(_notifications_for_user(fake, USER)) == 1
 
 
+def test_failed_email_retry_next_day_does_not_duplicate_notification():
+    fake = FakeSupabase(memos=[_memo_in_period()])
+    ensure_self_daily_reports_for_due_tick(fake, AT_CUTOFF)
+    assert len(_notifications_for_user(fake, USER)) == 1
+
+    class BadSender(FakeSender):
+        def send(self, key: str) -> None:
+            raise RuntimeError("smtp down")
+
+    sender_fail = BadSender()
+
+    def ensure_daily(now):
+        ensure_self_daily_reports_for_due_tick(fake, now)
+
+    def load_people():
+        return _load_daily_report_people(fake)
+
+    def load_existing():
+        return _load_report_delivery_existing(fake)
+
+    def persist_delivery(result, person, now=None):
+        persist_report_delivery(
+            fake,
+            idempotency_key=result["idempotency_key"],
+            report_id=person["report_id"],
+            channel="email",
+            delivery_status=result["delivery_status"],
+            attempt_at=now,
+        )
+
+    tick_due_report_emails(
+        AT_CUTOFF,
+        load_people,
+        load_existing,
+        sender_fail,
+        persist_delivery,
+        ensure_daily=ensure_daily,
+    )
+    assert len(_notifications_for_user(fake, USER)) == 1
+
+    next_day = datetime(2026, 9, 23, 16, 10, tzinfo=timezone.utc)
+    sender_ok = FakeSender()
+    tick_due_report_emails(
+        next_day,
+        load_people,
+        load_existing,
+        sender_ok,
+        persist_delivery,
+        ensure_daily=ensure_daily,
+    )
+    assert len(_notifications_for_user(fake, USER)) == 1
+
+
 def test_ensure_does_not_create_notification_when_report_not_built():
     captured_yesterday = datetime(2026, 9, 21, 10, 0, tzinfo=timezone.utc).isoformat()
     memo = {

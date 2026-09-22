@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
 import { reportSurface, type ReportSnapshot } from "@/lib/report-snapshot";
@@ -47,6 +47,15 @@ export default function ReportPage() {
         </tbody>
       </table>
       {coachingText ? <p>{coachingText}</p> : null}
+      {surface.exampleLinks.length ? (
+        <ul>
+          {surface.exampleLinks.map((href) => (
+            <li key={href}>
+              <Link to={href}>{href}</Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </main>
   );
 }

@@ -34,7 +34,20 @@ def test_report_id_sender_without_recipient_records_failed_not_sent():
 def test_report_id_sender_with_recipient_records_sent():
     client = FakeResendClient()
     sender = _ReportIdSender(client)
-    sender.set_recipients([{"report_id": "report-1", "email": "rep@example.com"}])
+    snapshot = {
+        "metrics": {
+            "attempts": 1,
+            "connected_calls": 1,
+            "meetings_agreed": 0,
+            "deals_won": None,
+            "adherence": None,
+        },
+        "examples": [],
+        "coaching": None,
+    }
+    sender.set_recipients(
+        [{"report_id": "report-1", "email": "rep@example.com", "snapshot": snapshot}]
+    )
     report = {"id": "report-1", "revision": 1}
     result = deliver_report(report=report, channel="email", existing=None, sender=sender, allowed=True)
     assert result["delivery_status"] == "sent"

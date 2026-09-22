@@ -180,23 +180,23 @@ En móvil, las secciones se apilan; las tablas conservan etiquetas y valores leg
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Email y campana muestran los mismos números.
+- [x] Email y campana muestran los mismos números.
 
-- [ ] Cada periodo produce un único informe por destinatario y ámbito.
+- [x] Cada periodo produce un único informe por destinatario y ámbito.
 
-- [ ] Reintentar un envío no duplica notificaciones.
+- [x] Reintentar un envío no duplica notificaciones.
 
-- [ ] Cambios horarios no duplican ni omiten un periodo.
+- [x] Cambios horarios no duplican ni omiten un periodo.
 
-- [ ] Un comercial no recibe métricas privadas de compañeros.
+- [x] Un comercial no recibe métricas privadas de compañeros.
 
-- [ ] Un fallo de email no elimina el informe de la campana.
+- [x] Un fallo de email no elimina el informe de la campana.
 
-- [ ] El resumen evita párrafos genéricos y enlaza a las conversaciones relevantes.
+- [x] El resumen evita párrafos genéricos y enlaza a las conversaciones relevantes.
 
 - [ ] La página diaria usa el layout definido; la semanal añade barras y tabla equivalentes. Email y página muestran la misma instantánea, periodo y denominadores.
 
-- [ ] Un periodo vacío no produce coaching inventado; cobertura parcial no se convierte en barras cero ni en cero cierres. Las tablas permiten comprender los datos sin color, hover ni gráfico.
+- [x] Un periodo vacío no produce coaching inventado; cobertura parcial no se convierte en barras cero ni en cero cierres. Las tablas permiten comprender los datos sin color, hover ni gráfico.
 
 ### Riesgos / edge cases conocidos
 

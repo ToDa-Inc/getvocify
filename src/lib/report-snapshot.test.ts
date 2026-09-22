@@ -16,6 +16,22 @@ describe("report snapshot", () => {
     assert.equal(surface.coaching, null);
     assert.equal(surface.attempts, 2);
     assert.equal(surface.connected, 1);
+    assert.deepEqual(surface.exampleLinks, []);
+  });
+
+  it("links example memos without inventing coaching on an empty period", () => {
+    const unavailable = productCatalog.ES.unavailable;
+    const surface = reportSurface(
+      {
+        metrics: { attempts: 0, connected_calls: 0, meetings_agreed: 0, deals_won: null, adherence: null },
+        coverage: { crm_outcomes: "unavailable" },
+        coaching: null,
+        examples: ["memo-a"],
+      },
+      unavailable,
+    );
+    assert.deepEqual(surface.exampleLinks, ["/dashboard/memos/memo-a"]);
+    assert.equal(surface.coaching, null);
   });
 
   it("hides the bell when nothing is unread and when the count is unknown", () => {

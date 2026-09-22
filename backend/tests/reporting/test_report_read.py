@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.api import reports as reports_api
 from app.deps import get_membership
 from app.services.company import Membership
+from app.services.reporting.presentation import snapshot_metric_cells
 
 SNAPSHOT = {
     "metrics": {
@@ -125,6 +126,17 @@ def test_a_teammate_cannot_read_a_personal_report_and_the_snapshot_is_unchanged(
     assert body["revision"] == 1
     hidden = as_user("user-b", "admin").get("/api/v1/reports/report-1")
     assert hidden.status_code == 404
+
+
+def test_bell_item_opens_the_same_snapshot_the_email_table_uses():
+    bell = reports_api.bell_items(STORE.tables["report_notifications"], "user-a")
+    assert bell["items"][0]["report_id"] == "report-1"
+    client = _client("user-a")
+    body = client.get("/api/v1/reports/report-1").json()
+    cells = snapshot_metric_cells(body["snapshot"])
+    assert cells["connected_calls"] == "1"
+    assert cells["meetings_agreed"] == "1"
+    assert cells["deals_won"] == "No disponible"
 
 
 def test_marking_a_notification_read_twice_keeps_the_first_time():

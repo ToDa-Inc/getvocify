@@ -10,6 +10,7 @@ from app.config import settings
 from app.services.reporting.daily_snapshot import ensure_self_daily_reports_for_due_tick
 from app.services.reporting.delivery import persist_report_delivery
 from app.services.reporting.due_sends import MADRID
+from app.services.reporting.presentation import email_html_for_snapshot
 from app.services.reporting.resend_sender import report_resend_sender
 
 
@@ -49,12 +50,18 @@ class _ReportIdSender:
         self._client = resend_client
         self._by_report: dict[str, Any] = {}
         self._email_by_report: dict[str, str] = {}
+        self._snapshot_by_report: dict[str, dict] = {}
 
     def set_recipients(self, people: list[dict]) -> None:
         self._email_by_report = {
             str(person["report_id"]): str(person["email"]).strip()
             for person in people
             if person.get("email") and str(person["email"]).strip()
+        }
+        self._snapshot_by_report = {
+            str(person["report_id"]): person["snapshot"]
+            for person in people
+            if person.get("report_id") and isinstance(person.get("snapshot"), dict)
         }
 
     def _sender_for(self, report_id: str):
@@ -63,11 +70,13 @@ class _ReportIdSender:
         email = self._email_by_report.get(report_id)
         if not email:
             return None
+        snapshot = self._snapshot_by_report.get(report_id) or {}
+        html = email_html_for_snapshot(snapshot, report_id=report_id)
         wrapped = report_resend_sender(
             self._client,
             to=email,
             subject="Tu resumen de actividad",
-            html="<p>Consulta el informe en Vocify.</p>",
+            html=html,
         )
         if wrapped is None:
             return None
@@ -93,7 +102,7 @@ def _load_daily_report_people(supabase) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
     stored = (
         supabase.table("reports")
-        .select("id,user_id,company_id,revision,period_start")
+        .select("id,user_id,company_id,revision,period_start,snapshot")
         .eq("report_type", "daily")
         .eq("scope", "self")
         .gte("period_start", since)

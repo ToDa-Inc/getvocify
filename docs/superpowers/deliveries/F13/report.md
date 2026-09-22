@@ -1,32 +1,31 @@
 # Informe F13
 
-Estado: la instantánea del periodo separa intentos, conversaciones y cierres. No está cerrada.
+Estado: **BLOCKED** — falta el layout A12 completo (informe semanal con barras y tabla equivalente) y verificación Reticle campana → informe.
 
-## Entregado
+## Criterio de aceptación
 
-| Pieza | Prueba |
+| Criterio | Prueba |
 |---|---|
-| Un buzón cuenta como intento y no como conversación. Una reunión acordada no suma un cierre | `tests/reporting/test_aggregate.py` |
-| Si el CRM no demuestra el cierre, `deals_won` es null y la cobertura es `unavailable`, no 0 | el mismo archivo |
-| Un periodo vacío deja los conteos en 0, la adherencia vacía y sin texto de coaching | el mismo archivo, 2 passed |
+| Email y campana muestran los mismos números | `tests/reporting/test_presentation.py`, `tests/reporting/test_report_read.py::test_bell_item_opens_the_same_snapshot_the_email_table_uses` |
+| Un periodo, un informe | `tests/reporting/test_delivery.py::test_two_workers_insert_one_report_for_the_period`, `tests/reporting/test_ensure_daily_report_from_memos.py` (upsert) |
+| Reintentar envío no duplica notificaciones | `tests/reporting/test_ensure_daily_report_from_memos.py::test_failed_email_retry_next_day_does_not_duplicate_notification` |
+| Cambios horarios (DST) | `tests/reporting/test_delivery.py::test_dst_is_one_period_and_a_failed_email_keeps_the_notification` |
+| Sin métricas ajenas | `tests/reporting/test_report_read.py`, `tests/reporting/test_delivery.py::test_the_bell_counts_only_unread_rows_for_this_user` |
+| Email fallido conserva campana | mismo test DST + `notification.kept` en `deliver_report` |
+| Enlaces a conversaciones, sin coaching inventado | `tests/reporting/test_presentation.py`, `src/lib/report-snapshot.test.ts`, `examples` en snapshot |
+| Layout diario A12 + semanal con barras | **Pendiente** — `ReportPage.tsx` solo tabla diaria; no hay `report_type=weekly`, `ReportActivityChart` ni secciones A12 (cabecera, objeciones, coaching estructurado) |
+| Periodo vacío / cobertura parcial | `tests/reporting/test_aggregate.py`, `tests/reporting/test_presentation.py`, `report-snapshot.test.ts` |
 
-La fecha que cuenta es la de la captura, no la del trabajo que termina después.
+## Entregado (backend)
 
-| Un periodo local es un solo informe aunque cambie el horario; el correo fallido conserva la campana; un timeout no reenvía | `tests/reporting/test_delivery.py` 3 passed; migración `048` |
+- Instantánea: intentos ≠ conversaciones; `deals_won` null sin CRM; periodo vacío sin coaching (`test_aggregate.py`).
+- Materialización diaria antes del tick; `capture_started_at`; una notificación por informe (`test_ensure_daily_report_from_memos.py`, 6+ casos).
+- Tick 18:00 Madrid; `sent`/`uncertain` no reenvían; `failed` como mucho una vez por día local vía `created_at` (`test_due_sends.py`, `test_tick_due_report_emails.py`).
+- Email HTML desde la misma instantánea persistida (`presentation.py`, `_ReportIdSender`); sin envío Resend real en CI.
+- Destinatario ausente → `failed`, no `sent` (`test_tick_bindings.py`).
 
-La ruta de producción `send_report_email` usa el adaptador Resend cuando el caller inyecta cliente Resend (sin envío real verificado en vivo).
+## Bloqueos
 
-`run_due_report_emails` enlaza `due_report_sends` con `send_report_email`; el bucle periódico de `main` invoca `tick_due_report_emails` tras las 18:00 local de Madrid y persiste `sent`, `failed` y `uncertain` en `report_deliveries` (`sent` y `uncertain` no reenvían; `failed` como mucho una vez por día local según `created_at`, sin columna nueva) (`tests/reporting/test_due_sends.py`, `tests/reporting/test_tick_due_report_emails.py`, sin correo real verificado).
-
-Sin destinatario en el tick, `_ReportIdSender` falla y el intento queda `failed` (no `sent`); el reloj de reintento sigue siendo `created_at` — no hay `last_attempt_at`.
-
-Antes del envío, el tick materializa el informe diario `self` del día local desde memos y hace upsert en `reports`; el periodo usa `capture_started_at` (o `created_at`), no solo la fecha de fila (`tests/reporting/test_ensure_daily_report_from_memos.py`, 5 passed).
-
-Tras materializar el informe, ensure inserta una fila en `report_notifications` por usuario e informe si no existía (`read_at` null; sin duplicar el mismo día).
-
-## No verificado
-
-- `GET /reports/{id}` devuelve la instantánea guardada. El informe de otra persona responde 404. Marcar la campana dos veces conserva la primera hora. La página está en `/dashboard/reports/:id`. No se recorrió en el navegador.
-- La página muestra «Leyendo el informe» o «No se pudo leer el informe» sin tabla; con datos, adherencia y coaching opcional (`src/lib/report-snapshot.test.ts`).
-- La campana está en la barra. El número solo aparece si hay informes sin leer. Un fallo de lectura no pinta un cero.
-- Los proveedores no leen todavía los cierres reales del periodo.
+1. **Layout A12 / informe semanal:** no hay generación de informe semanal ni gráfico de barras con huecos; la casilla de layout queda abierta.
+2. **Reticle:** no hay sesión conectada; no se verificó campana → `/dashboard/reports/:id` en navegador (`verified: pass` pendiente).
+3. **CRM en vivo:** cierres reales del periodo no leídos de HubSpot/Pipedrive en producción (deferred F15); `deals_won` sigue null salvo cobertura completa en tests.

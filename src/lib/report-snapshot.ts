@@ -10,6 +10,7 @@ export type ReportSnapshot = {
   };
   coverage: { crm_outcomes: string };
   coaching: string | null;
+  examples?: string[];
 };
 
 export function bellCount(unread: number | null | undefined): string | null {
@@ -21,6 +22,10 @@ export function nullableMetricLabel(value: number | null, unavailable: string): 
   return value === null ? unavailable : String(value);
 }
 
+export function reportExampleLinks(snapshot: ReportSnapshot): string[] {
+  return (snapshot.examples ?? []).filter(Boolean).map((memoId) => `/dashboard/memos/${memoId}`);
+}
+
 export function reportSurface(snapshot: ReportSnapshot, unavailable: string) {
   const won = snapshot.metrics.deals_won;
   return {
@@ -30,5 +35,6 @@ export function reportSurface(snapshot: ReportSnapshot, unavailable: string) {
     wonLabel: nullableMetricLabel(won, unavailable),
     adherenceLabel: nullableMetricLabel(snapshot.metrics.adherence, unavailable),
     coaching: snapshot.coaching,
+    exampleLinks: reportExampleLinks(snapshot),
   };
 }
