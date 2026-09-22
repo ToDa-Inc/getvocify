@@ -10,6 +10,7 @@ Estado: la adherencia determinista está en `feat/vocify-v1`. No está cerrada.
 | Agregar equipos suma conteos, no promedia porcentajes | el mismo archivo, 3 passed |
 | Sin playbook o cita inexistente no hay nota; el mismo evidencia con deal ganado o perdido conserva `value` y adherencia; una revisión vieja no pisa la guardada | `tests/coaching/test_scoring.py` 4 passed; migración `045` |
 | `publish_memo_score` persiste la nota y llama a `store_memo_score` para materializar el brief (fallo de brief no borra la nota) | `tests/coaching/test_briefs.py` |
+| El callback `store` del worker de inteligencia, si el payload trae `score`, persiste nota y brief sin reclasificar | `tests/intelligence/test_score_store_hook.py` |
 
 ## No verificado
 

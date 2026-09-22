@@ -143,6 +143,9 @@ def database_bindings(supabase, sources_for=None):
             .execute()
         )
         _store_patterns(supabase, memo, extraction, payload)
+        from app.services.coaching.score_jobs import store_coaching_from_job_payload
+
+        store_coaching_from_job_payload(supabase, memo, payload)
 
     return claim, load_memo, publish, sources, store
 
