@@ -355,6 +355,10 @@ async def startup_event():
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
     asyncio.create_task(_periodic_memo_recovery())
     from app.services.intelligence.worker import install_intelligence_tick, start_worker
+    from app.deps import get_supabase
+    from app.api.playbooks import set_playbook_store
+    from app.services.playbooks.store import SupabasePlaybookStore
+    set_playbook_store(SupabasePlaybookStore(get_supabase()))
     install_intelligence_tick()
     start_worker()
 

@@ -1,6 +1,6 @@
 # Informe F08
 
-Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Publicar discovery exige un borrador de texto y no marca las otras tipologías. Un member recibe 403. El estado vive en memoria del proceso (`_MOTIONS`, `_IMPORTS`), no en las tablas de `040`. Settings ya no marca «publicado» con un clic local.
+Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Un borrador de texto se guarda en `playbooks` / `playbook_versions` / `playbook_imports` y publicar discovery no crea qualification. El arranque instala ese almacén. La migración `040` no está aplicada en una base compartida. Reticle no recorrió Settings.
 
 ## Entregado
 
@@ -8,11 +8,12 @@ Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Publicar discovery exige u
 |---|---|---|
 | Una versión activa; la captura conserva la versión del inicio; entrada sin fuente no se publica | commits previos de la rama | `tests/playbooks/test_versions.py` |
 | PDF sin texto no publica; el audio queda en borrador y no crea un memo | commits previos de la rama | `tests/playbooks/test_imports.py` |
-| Publicar discovery deja qualification sin publicar; sin borrador es 409; member es 403 | este commit | `tests/playbooks/test_versions.py` |
-| Un rechazo no cambia el borrador; el resultado de otra tipología no publica discovery | este commit | `src/lib/playbook-setup.test.ts` |
+| Publicar discovery deja qualification sin publicar; sin borrador es 409; member es 403 | `feff559` | `tests/playbooks/test_versions.py` |
+| Un rechazo no cambia el borrador; el resultado de otra tipología no publica discovery | `feff559` | `src/lib/playbook-setup.test.ts` |
+| El borrador queda en Postgres; repetir el mismo import no crea otra versión; qualification no aparece | este commit | `tests/playbooks/test_versions.py` contra PostgreSQL |
 
 ## No verificado
 
 - Reticle no tiene sesión en este worktree, así que el aviso de Settings no se recorrió en el navegador.
 - PDF y audio siguen en la API de importación; la pantalla solo guarda texto.
-- Reiniciar el proceso pierde borradores y publicaciones de `_MOTIONS`.
+- Sin pasar por el arranque de la API, los tests HTTP usan el almacén en memoria.
