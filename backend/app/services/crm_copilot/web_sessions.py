@@ -98,9 +98,22 @@ _actor: dict[str, str] = {}
 _sessions: dict[str, dict] = {}
 
 
+def public_answer(text: str) -> str:
+    """Drop tool-call lines. A normal sentence stays as it was."""
+    import re
+
+    kept = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if re.search(r"^(tool_call|function_call|call_id)\b", stripped, re.I):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def payload_from_turn(text: str, artifacts: dict | None = None, *, kind: str = "text") -> dict:
     coverage = (artifacts or {}).get("crm_coverage")
-    body = {"text": text}
+    body = {"text": public_answer(text)}
     if coverage in {"unavailable", "forbidden", "partial"}:
         body["envelope"] = {"items": [], "coverage": coverage}
     if kind == "confirm":

@@ -17,6 +17,7 @@ from app.services.crm_copilot.web_sessions import (
     attach_read,
     bind_ask_actor,
     confirm_operation,
+    public_answer,
 )
 
 router = APIRouter(prefix="/api/v1/ask", tags=["ask"])
@@ -149,10 +150,10 @@ async def _finish(turn: dict, text: str) -> dict:
             return turn
         confirmation = None
         if hasattr(result, "text"):
-            answer = result.text
+            answer = public_answer(result.text)
             envelope = getattr(result, "envelope", None)
         else:
-            answer = result.get("text") or turn["text"]
+            answer = public_answer(result.get("text") or turn["text"])
             envelope = result.get("envelope")
             confirmation = result.get("confirmation")
         updated = {**turn, "status": "completed", "text": answer}

@@ -22,7 +22,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Esa no disponibilidad no se guarda como una respuesta vacía | `d1c464b` | `tests/crm_copilot/test_web_turns.py` |
 | Confirmar exige operación, revisión y contacto; sin contacto no hay botón | `98bc0fd` | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-situation.test.ts` |
 | La propuesta queda guardada y solo se confirma para ese contacto | `0a36037` | `tests/crm_copilot/test_ask_http.py` |
-| Confirmar de verdad llama al loop una vez; otro contacto y un repetido no | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Confirmar de verdad llama al loop una vez; otro contacto y un repetido no | `ac766e4` | `tests/crm_copilot/test_ask_http.py` |
+| Una línea de tool_call no entra en la respuesta | este commit | `tests/crm_copilot/test_web_turns.py` |
 
 ## No verificado
 

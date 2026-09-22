@@ -44,6 +44,13 @@ def test_an_unavailable_crm_is_not_an_empty_answer():
     assert "confirmation" not in missing
 
 
+def test_a_tool_call_line_is_not_part_of_the_answer():
+    from app.services.crm_copilot.web_sessions import public_answer
+
+    assert public_answer("Marina queda el jueves.") == "Marina queda el jueves."
+    assert public_answer("Marina queda el jueves.\ntool_call get_contact id=abc") == "Marina queda el jueves."
+
+
 def test_repeating_a_client_turn_returns_the_same_turn():
     store = {}
     first = accept_turn(store, conversation_id="conv-1", client_turn_id="web-2", text="¿Qué sigue?")
