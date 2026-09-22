@@ -7,6 +7,24 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 _MODES = {"immediate", "deferred", "end_of_day"}
+_STORE: dict[str, dict] = {}
+
+
+def default_preference() -> dict:
+    return normalize_preference({})
+
+
+def read_preference(user_id: str) -> dict:
+    raw = _STORE.get(user_id)
+    if raw is None:
+        return default_preference()
+    return normalize_preference(raw)
+
+
+def write_preference(user_id: str, raw: dict) -> dict:
+    normalized = normalize_preference(raw)
+    _STORE[user_id] = normalized
+    return normalized
 
 
 def normalize_preference(raw: dict) -> dict:

@@ -33,6 +33,7 @@ import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
 import CallingSection from "./pages/dashboard/settings/CallingSection";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
+import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
 import PlaybooksSection from "./features/playbooks/components/PlaybooksSection";
 import AskPanel from "./features/ask/components/AskPanel";
 import ProfilePage from "./pages/dashboard/ProfilePage";
@@ -172,6 +173,7 @@ const App = () => (
                 <Route path="calling" element={<CallingSection />} />
                 <Route path="offer" element={<OfferSection />} />
                 <Route path="glossary" element={<GlossarySection />} />
+                <Route path="brief" element={<BriefHighlightSection />} />
                 <Route path="playbooks" element={<PlaybooksSection />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
