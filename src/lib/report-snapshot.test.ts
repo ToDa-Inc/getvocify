@@ -1,7 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
-import { bellCount, nullableMetricLabel, reportSurface } from "./report-snapshot.ts";
+import {
+  bellCount,
+  nullableMetricLabel,
+  reportPagePresentation,
+  reportSurface,
+  snapshotMetricCells,
+} from "./report-snapshot.ts";
 
 describe("report snapshot", () => {
   it("does not turn a missing close into zero or add the meeting to wins", () => {
@@ -38,6 +44,36 @@ describe("report snapshot", () => {
     assert.equal(bellCount(0), null);
     assert.equal(bellCount(null), null);
     assert.equal(bellCount(2), "2");
+  });
+
+  it("maps the persisted snapshot to page rows and weekly bars without recomputing metrics", () => {
+    const snapshot = {
+      metrics: { attempts: 8, connected_calls: 5, meetings_agreed: 2, deals_won: null, adherence: null },
+      coverage: { crm_outcomes: "unavailable" },
+      coaching: null,
+    };
+    const unavailable = productCatalog.ES.unavailable;
+    const cells = snapshotMetricCells(snapshot, unavailable);
+    const daily = reportPagePresentation(snapshot, { weekly: false, unavailable });
+    assert.equal(daily.bars, null);
+    assert.equal(daily.activityTable, null);
+    assert.deepEqual(
+      daily.rows.map((row) => row.value),
+      [cells.attempts, cells.connected_calls, cells.meetings_agreed, cells.deals_won, cells.adherence],
+    );
+    assert.equal(daily.rows[3].value, productCatalog.ES.unavailable);
+
+    const weekly = reportPagePresentation(snapshot, { weekly: true, unavailable });
+    assert.equal(weekly.bars?.conversationsOfAttempts, 62.5);
+    assert.equal(weekly.bars?.meetingsOfAttempts, 25);
+    assert.deepEqual(
+      weekly.activityTable?.map((row) => row.value),
+      [cells.attempts, cells.connected_calls, cells.meetings_agreed],
+    );
+    assert.equal(
+      snapshotMetricCells(snapshot, productCatalog.EN.unavailable).deals_won,
+      productCatalog.EN.unavailable,
+    );
   });
 
   it("keeps null adherence unavailable and a real zero as zero", () => {

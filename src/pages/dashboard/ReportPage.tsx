@@ -1,15 +1,28 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
-import { reportSurface, type ReportSnapshot } from "@/lib/report-snapshot";
+import { reportPagePresentation, type ReportSnapshot } from "@/lib/report-snapshot";
 import { api } from "@/shared/lib/api-client";
+
+function ActivityBar({ width, label }: { width: number | null; label: string }) {
+  if (width == null) return null;
+  return (
+    <div className="space-y-1">
+      <span>{label}</span>
+      <div className="h-2 w-full max-w-md rounded bg-muted">
+        <div className="h-2 rounded bg-primary" style={{ width: `${width}%` }} />
+      </div>
+    </div>
+  );
+}
 
 export default function ReportPage() {
   const { t } = useLanguage();
   const { id } = useParams();
   const query = useQuery({
     queryKey: ["report", id],
-    queryFn: () => api.get<{ snapshot: ReportSnapshot }>(`/reports/${id}`),
+    queryFn: () =>
+      api.get<{ snapshot: ReportSnapshot; report_type: string }>(`/reports/${id}`),
     enabled: Boolean(id),
     retry: false,
   });
@@ -32,24 +45,53 @@ export default function ReportPage() {
     );
   }
 
-  const surface = reportSurface(query.data.snapshot, t.product.unavailable);
-  const coachingText = surface.coaching?.trim();
+  const weekly = query.data.report_type === "weekly";
+  const view = reportPagePresentation(query.data.snapshot, {
+    weekly,
+    unavailable: t.product.unavailable,
+  });
+  const coachingText = view.coaching?.trim();
   return (
     <main className="max-w-5xl mx-auto space-y-6 p-6">
       <h1>Informe</h1>
       <table>
         <tbody>
-          <tr><th>Intentos</th><td>{surface.attempts}</td></tr>
-          <tr><th>Conversaciones</th><td>{surface.connected}</td></tr>
-          <tr><th>Reuniones acordadas</th><td>{surface.meetings}</td></tr>
-          <tr><th>Cierres</th><td>{surface.wonLabel}</td></tr>
-          <tr><th>Adherencia</th><td>{surface.adherenceLabel}</td></tr>
+          {view.rows.map((row) => (
+            <tr key={row.cellKey}>
+              <th>{t.product[row.labelKey]}</th>
+              <td>{row.value}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
+      {weekly && view.bars ? (
+        <section className="space-y-4">
+          <ActivityBar
+            width={view.bars.conversationsOfAttempts}
+            label={t.product.teamActivityConnected}
+          />
+          <ActivityBar
+            width={view.bars.meetingsOfAttempts}
+            label={t.product.teamActivityMeetings}
+          />
+          {view.activityTable ? (
+            <table>
+              <tbody>
+                {view.activityTable.map((row) => (
+                  <tr key={row.cellKey}>
+                    <th>{t.product[row.labelKey]}</th>
+                    <td>{row.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </section>
+      ) : null}
       {coachingText ? <p>{coachingText}</p> : null}
-      {surface.exampleLinks.length ? (
+      {view.exampleLinks.length ? (
         <ul>
-          {surface.exampleLinks.map((href) => (
+          {view.exampleLinks.map((href) => (
             <li key={href}>
               <Link to={href}>{href}</Link>
             </li>

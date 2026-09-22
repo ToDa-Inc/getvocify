@@ -194,7 +194,7 @@ En móvil, las secciones se apilan; las tablas conservan etiquetas y valores leg
 
 - [x] El resumen evita párrafos genéricos y enlaza a las conversaciones relevantes.
 
-- [ ] La página diaria usa el layout definido; la semanal añade barras y tabla equivalentes. Email y página muestran la misma instantánea, periodo y denominadores.
+- [x] La página diaria usa el layout definido; la semanal añade barras y tabla equivalentes. Email y página muestran la misma instantánea, periodo y denominadores. `node --experimental-strip-types --test src/lib/report-snapshot.test.ts`; `cd backend && .venv/bin/python -m pytest tests/reporting/test_presentation.py -q`
 
 - [x] Un periodo vacío no produce coaching inventado; cobertura parcial no se convierte en barras cero ni en cero cierres. Las tablas permiten comprender los datos sin color, hover ni gráfico.
 
