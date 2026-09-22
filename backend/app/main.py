@@ -296,6 +296,24 @@ async def _periodic_memo_recovery():
                 "❌ Periodic recovery failed",
                 extra={"domain": "recovery", "phase": "periodic", "error": str(e)},
             )
+        try:
+            from datetime import datetime, timezone
+
+            from app.services.reporting.due_sends import tick_due_report_emails
+            from app.services.reporting.tick_bindings import report_email_tick_bindings
+
+            bindings = report_email_tick_bindings(supabase)
+            tick_due_report_emails(
+                datetime.now(timezone.utc),
+                bindings.load_people,
+                bindings.load_existing,
+                bindings.sender,
+            )
+        except Exception as e:
+            logger.exception(
+                "❌ Report email tick failed",
+                extra={"domain": "reporting", "phase": "periodic_tick", "error": str(e)},
+            )
 
 
 @app.on_event("startup")

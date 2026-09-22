@@ -2,12 +2,49 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.reporting.delivery import period_bounds, send_report_email
 
 SEND_CUTOFF_HOUR = 18
+MADRID = "Europe/Madrid"
+
+logger = logging.getLogger(__name__)
+_last_madrid_report_tick_date: date | None = None
+
+
+def reset_report_tick_guard() -> None:
+    """Tests only: allow another tick the same Madrid local date."""
+    global _last_madrid_report_tick_date
+    _last_madrid_report_tick_date = None
+
+
+def tick_due_report_emails(now: datetime, load_people, load_existing, sender) -> None:
+    """Load candidates and deliveries, then run due sends. Load errors are swallowed."""
+    global _last_madrid_report_tick_date
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    madrid_now = now.astimezone(ZoneInfo(MADRID))
+    if madrid_now.hour < SEND_CUTOFF_HOUR:
+        return
+    if _last_madrid_report_tick_date == madrid_now.date():
+        return
+    try:
+        people = load_people()
+    except Exception:
+        logger.exception("report tick: load_people failed")
+        return
+    try:
+        existing = load_existing()
+    except Exception:
+        logger.exception("report tick: load_existing failed")
+        return
+    if sender is None:
+        return
+    _last_madrid_report_tick_date = madrid_now.date()
+    run_due_report_emails(now, people, existing, sender)
 
 
 def _local_hour(now: datetime, tz_name: str) -> tuple[int, int]:
