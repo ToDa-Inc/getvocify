@@ -19,6 +19,13 @@ export function assistAllowed({ kind, enabled, playbookReady, evidenceRefs }) {
   return { show: true, reason: null };
 }
 
+export function liveAssistKind({ callMode, channel } = {}) {
+  if (callMode === "meeting") return "meeting";
+  if (channel === "phone") return "call";
+  if (callMode === "call") return "call";
+  return "call";
+}
+
 export function resolveLiveAssistKind({ kind, callActive, captureIsMeetingApp } = {}) {
   if (kind === "call" || kind === "meeting") return kind;
   if (callActive) return "call";
@@ -28,14 +35,20 @@ export function resolveLiveAssistKind({ kind, callActive, captureIsMeetingApp } 
 
 export function copilotLiveAssistAllowed({
   kind,
+  callMode,
+  channel,
   assistEnabled,
   playbookReady,
   evidenceRefs,
   callActive,
   captureIsMeetingApp,
 } = {}) {
+  const resolvedKind =
+    callMode != null && callMode !== ""
+      ? liveAssistKind({ callMode, channel })
+      : resolveLiveAssistKind({ kind, callActive, captureIsMeetingApp });
   return assistAllowed({
-    kind: resolveLiveAssistKind({ kind, callActive, captureIsMeetingApp }),
+    kind: resolvedKind,
     enabled: assistEnabled,
     playbookReady,
     evidenceRefs,

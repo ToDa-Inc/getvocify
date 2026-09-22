@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   assistAllowed,
   copilotLiveAssistAllowed,
+  liveAssistKind,
   overlayAssist,
   pushSse,
   reduceSuggestion,
@@ -11,6 +12,21 @@ import {
 } from "./suggestion-state.js";
 
 describe("live meeting assist", () => {
+  it("maps call_mode to assist kind for the extension card", () => {
+    assert.equal(liveAssistKind({ callMode: "meeting" }), "meeting");
+    assert.equal(liveAssistKind({ callMode: "call" }), "call");
+    assert.equal(liveAssistKind({}), "call");
+    assert.equal(
+      copilotLiveAssistAllowed({
+        kind: "call",
+        callMode: "meeting",
+        playbookReady: true,
+        evidenceRefs: ["ev-1"],
+      }).show,
+      true,
+    );
+  });
+
   it("shows meeting help on the overlay and keeps a call on the transcript line", () => {
     assert.equal(overlayAssist({ kind: "call", playbookReady: true, evidenceRefs: ["ev-1"], card: { text: "Pregunta el precio" } }), null);
     assert.equal(overlayAssist({ kind: "meeting", playbookReady: true, evidenceRefs: [], card: { text: "Pregunta el precio" } }), null);

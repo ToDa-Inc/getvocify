@@ -1367,6 +1367,8 @@ function extensionLiveAssistDecision(state) {
   const captureIsMeetingApp = classifyTabCaptureUrl(captureTabUrl).kind === 'meeting_app';
   return copilotLiveAssistAllowed({
     kind: state?.kind,
+    callMode: state?.callMode,
+    channel: state?.isRecording ? 'phone' : 'tab',
     assistEnabled: state?.assistEnabled,
     playbookReady: state?.playbookReady,
     evidenceRefs: state?.evidenceRefs,

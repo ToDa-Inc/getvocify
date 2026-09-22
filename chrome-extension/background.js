@@ -105,6 +105,7 @@ let state = {
   captureTabId: null,
   captureTabUrl: null,
   kind: null,
+  callMode: null,
   playbookReady: false,
   evidenceRefs: [],
   assistEnabled: true,
@@ -856,7 +857,12 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
   prefetchCopilotWsBits(tab);
   const context = tab?.url ? parseCrmPageUrl(tab.url) : state.context;
   const captureTabUrl = tab?.url || null;
-  const captureIsMeetingApp = classifyTabCaptureUrl(captureTabUrl).kind === 'meeting_app';
+  const captureTabKind = classifyTabCaptureUrl(captureTabUrl).kind;
+  const captureIsMeetingApp = captureTabKind === 'meeting_app';
+  const callMode =
+    captureTabKind === 'hubspot' || captureTabKind === 'pipedrive' || captureIsMeetingApp
+      ? 'meeting'
+      : 'call';
 
   updateState({
     isCopilotListening: false,
@@ -873,6 +879,7 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
     copilotError: null,
     captureTabUrl,
     kind: captureIsMeetingApp ? 'meeting' : 'call',
+    callMode,
   });
   armListenStartTimeout();
 
@@ -903,6 +910,7 @@ async function stopTabCapture(commandSeq = null) {
     ...emptyCopilotUi(),
     captureTabUrl: null,
     kind: null,
+    callMode: null,
   });
   chrome.offscreen.closeDocument().catch(() => {});
   return { ok: true };

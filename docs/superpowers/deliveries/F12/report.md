@@ -7,6 +7,7 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 | Pieza | Prueba |
 |---|---|
 | Una llamada no muestra ayuda. Sin playbook o sin evidencia la tarjeta se queda en silencio | `shared/ui/copilot/suggestion-state.test.js` |
+| Listen en pestaña CRM usa `callMode`/`liveAssistKind` para tratar la sesión como reunión aunque `kind` siga en `call` | el mismo archivo |
 | Un paso se marca por evidencia, no por el tiempo transcurrido | el mismo archivo |
 | Cambiar de reunión descarta la respuesta anterior. Un evento SSE partido no se lee hasta cerrar el frame | el mismo archivo, 3 passed |
 
