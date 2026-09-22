@@ -256,11 +256,15 @@ async def confirm_ask_operation(
         )
         if stored and stored.get("confirmation"):
             confirmation = {**stored["confirmation"], "applied": True}
+            updated = {**stored, "status": "completed", "confirmation": confirmation}
+            follow_text = result.get("text")
+            if follow_text:
+                updated["text"] = follow_text
             _store.persist_turn(
                 user_id=membership.user_id,
                 conversation_id=conversation_id,
                 turn_id=stored["turn_id"],
-                turn={**stored, "status": "completed", "confirmation": confirmation},
+                turn=updated,
             )
     _OPERATIONS[key] = result
     return result

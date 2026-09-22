@@ -526,6 +526,7 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
         assert wrong.status_code == 409
         assert calls == []
         assert "applied" not in (_turn_from_row(row).get("confirmation") or {})
+        assert _turn_from_row(row)["text"] == "¿Creo la nota?"
         first = client.post(
             "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
             json={"revision": 2, "contact_id": "contact-a"},
@@ -533,6 +534,7 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
         assert first.status_code == 200
         assert first.json()["applied"] is True
         assert first.json()["text"] == "Nota creada"
+        assert _turn_from_row(row)["text"] == "Nota creada"
         assert calls == [True]
         repeat = client.post(
             "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
@@ -540,6 +542,7 @@ def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
         )
         assert repeat.json()["replayed"] is True
         assert calls == [True]
+        assert _turn_from_row(row)["text"] == "Nota creada"
         assert (_turn_from_row(row).get("confirmation") or {}).get("applied") is True
         ask_api._OPERATIONS.clear()
         after_restart = client.post(
