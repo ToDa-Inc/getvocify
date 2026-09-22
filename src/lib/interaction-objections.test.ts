@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mergeNotes, noteFieldLabel, objectionReview } from "./interaction-objections.ts";
+import {
+  mergeNotes,
+  noteFieldLabel,
+  objectionReview,
+  patternCategoryLabel,
+  patternKindLabel,
+  patternResolutionLabel,
+} from "./interaction-objections.ts";
 
 describe("objection review", () => {
   it("says none were detected only when the read is complete and empty", () => {
@@ -26,6 +33,15 @@ describe("objection review", () => {
     assert.equal(partial.claimNone, false);
     assert.match(partial.title ?? "", /No se puede afirmar/);
     assert.equal(partial.patterns[0].prospect_quotes[0], "está caro");
+    assert.equal(patternCategoryLabel("price"), "Precio");
+    assert.equal(patternCategoryLabel("status_quo"), "Statu quo");
+    assert.equal(patternCategoryLabel("custom_key"), "custom_key");
+    assert.equal(patternKindLabel("objection"), "Objeción");
+    assert.equal(patternKindLabel("obstacle"), "Obstáculo");
+    assert.equal(patternKindLabel("unknown"), "Sin clasificar");
+    assert.equal(patternResolutionLabel("resolved"), "Resuelta");
+    assert.equal(patternResolutionLabel("open"), "Abierta");
+    assert.equal(patternResolutionLabel("unknown"), "Sin dato");
   });
 
   it("shows offset and author for a note that has no turn, without playback", () => {

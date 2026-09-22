@@ -2,7 +2,16 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { api } from "@/shared/lib/api-client";
-import { mergeNotes, noteFieldLabel, objectionReview, type ReviewNote, type ReviewPattern } from "@/lib/interaction-objections";
+import {
+  mergeNotes,
+  noteFieldLabel,
+  objectionReview,
+  patternCategoryLabel,
+  patternKindLabel,
+  patternResolutionLabel,
+  type ReviewNote,
+  type ReviewPattern,
+} from "@/lib/interaction-objections";
 
 type SaveStatus = "idle" | "syncing" | "saved" | "error";
 
@@ -67,7 +76,10 @@ export function InteractionObjections({
       <ul className="space-y-3">
         {review.patterns.map((pattern) => (
           <li key={pattern.pattern_id}>
-            <p>{pattern.category} · {pattern.kind} · {pattern.resolution}</p>
+            <p>
+              {patternCategoryLabel(pattern.category)} · {patternKindLabel(pattern.kind)} ·{" "}
+              {patternResolutionLabel(pattern.resolution)}
+            </p>
             {pattern.prospect_quotes.map((quote) => <p key={quote}>«{quote}»</p>)}
             {pattern.response ? <p>{pattern.response}</p> : null}
           </li>

@@ -10,7 +10,7 @@ Estado: la nota humana se guarda antes de tener memo. No está cerrada.
 | `PUT /captures/{id}/annotations/{annotation_id}` | el mismo archivo |
 | Migración `044` con notas y patrones | Postgres aislado: una de dos revisiones gana y el offset sigue en 134000 |
 | Un obstáculo no es una objeción de venta; la nota de ironía no se atribuye al prospecto; la revisión nueva sustituye la frecuencia | `tests/intelligence/test_patterns.py` 4 passed |
-| La revisión dice «no se detectaron» solo con lectura completa y vacía; una nota sin turno no se reproduce | `src/lib/interaction-objections.test.ts` 3 passed; `tsc --noEmit` |
+| La revisión dice «no se detectaron» solo con lectura completa y vacía; una nota sin turno no se reproduce; categoría, tipo y resolución en español sin tocar claves | `src/lib/interaction-objections.test.ts` 3 passed; `tsc --noEmit` |
 | La nota en la extensión guarda el `offset_ms` del audio en revisión cuando hay reproducción | `shared/ui/note.test.js` |
 | F03 | Suspendida en `docs/superpowers/deliveries/F03/report.md`. No hay código de preparación. |
 
