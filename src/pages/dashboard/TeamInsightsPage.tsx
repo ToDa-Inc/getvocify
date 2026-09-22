@@ -4,6 +4,7 @@ import { useAuth } from "@/features/auth";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
+import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
 import {
   teamInsightsView,
   type ObjectionCategory,
@@ -78,6 +79,7 @@ export default function TeamInsightsPage() {
       ) : null}
       {view.kind === "ready" && view.metrics ? (
         <>
+          <TeamOverview metrics={view.metrics} reps={view.reps} />
           <AdherenceBreakdown metrics={view.metrics} />
           <ObjectionBreakdown categories={query.data?.objection_categories ?? []} />
           <OutcomeBreakdown
