@@ -13,29 +13,37 @@ export type TeamDeal = {
 
 export type ObjectionCategory = { name: string; count: number };
 
-const RAW_OBJECTION_KEYS = new Set([
-  "price",
-  "timing",
-  "authority",
-  "competitor",
-  "status_quo",
-  "trust",
-  "other",
-]);
+export type ObjectionCatalog = Record<string, string>;
 
-/** Spanish labels from the API; drop zero counts and raw category keys. */
-export function visibleObjectionCategories(categories: ObjectionCategory[]): ObjectionCategory[] {
+/** Drop zero counts; map stable category keys through the catalog; other names pass through. */
+export function objectionDisplayName(name: string, catalog: ObjectionCatalog): string {
+  const key = name.trim().toLowerCase();
+  return catalog[key] ?? name;
+}
+
+export function visibleObjectionCategories(
+  categories: ObjectionCategory[],
+  catalog: ObjectionCatalog,
+): ObjectionCategory[] {
   return categories
     .filter((item) => item.count > 0)
-    .filter((item) => !RAW_OBJECTION_KEYS.has(item.name.trim().toLowerCase()))
+    .map((item) => ({
+      name: objectionDisplayName(item.name, catalog),
+      count: item.count,
+    }))
     .sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count;
       return a.name.localeCompare(b.name, "es");
     });
 }
 
-export function objectionCategoriesEmptyMessage(categories: ObjectionCategory[]): string | null {
-  return visibleObjectionCategories(categories).length === 0 ? "No hay objeciones esta semana." : null;
+export function objectionCategoriesEmptyMessage(
+  categories: ObjectionCategory[],
+  catalog: ObjectionCatalog,
+): string | null {
+  return visibleObjectionCategories(categories, catalog).length === 0
+    ? "No hay objeciones esta semana."
+    : null;
 }
 
 export type TeamMetrics = {
@@ -65,8 +73,8 @@ export function adherenceBarRatio(metrics: Pick<TeamMetrics, "adherence" | "met"
   return metrics.met / metrics.applicable;
 }
 
-export function activityLabel(value: number | null): string {
-  return value === null ? "No disponible" : String(value);
+export function activityLabel(value: number | null, unavailable: string): string {
+  return value === null ? unavailable : String(value);
 }
 
 /** True when adherence payload has memos/scores/objections in the filtered scope. */
@@ -101,13 +109,13 @@ export function teamInsightsView(input: {
   title?: string;
   reps: TeamRep[];
   winRate: number | null;
-  partialWarning: string | null;
+  partialCrmWarning: boolean;
   unresolvedLabel: string;
   metrics: TeamMetrics | null;
 } {
   const reps = repsByName(input.reps);
   if (input.role !== "owner" && input.role !== "admin") {
-    return { kind: "denied", title: "No puedes ver el equipo", reps: [], winRate: null, partialWarning: null, unresolvedLabel: "Sin atribución resuelta", metrics: null };
+    return { kind: "denied", title: "No puedes ver el equipo", reps: [], winRate: null, partialCrmWarning: false, unresolvedLabel: "Sin atribución resuelta", metrics: null };
   }
   if (input.companyEmpty) {
     return {
@@ -115,7 +123,7 @@ export function teamInsightsView(input: {
       title: "El panel se completará con las interacciones de tu equipo",
       reps,
       winRate: null,
-      partialWarning: null,
+      partialCrmWarning: false,
       unresolvedLabel: "Sin atribución resuelta",
       metrics: null,
     };
@@ -126,7 +134,7 @@ export function teamInsightsView(input: {
       title: "No hay datos para estos filtros",
       reps,
       winRate: null,
-      partialWarning: null,
+      partialCrmWarning: false,
       unresolvedLabel: "Sin atribución resuelta",
       metrics: null,
     };
@@ -139,7 +147,7 @@ export function teamInsightsView(input: {
     kind: "ready",
     reps,
     winRate,
-    partialWarning: input.metrics.coverageCrm === "complete" ? null : "Falta parte de los cierres del CRM",
+    partialCrmWarning: input.metrics.coverageCrm !== "complete",
     unresolvedLabel: "Sin atribución resuelta",
     metrics: input.metrics,
   };

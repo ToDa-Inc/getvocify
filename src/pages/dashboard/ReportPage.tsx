@@ -1,9 +1,11 @@
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useLanguage } from "@/lib/i18n";
 import { reportSurface, type ReportSnapshot } from "@/lib/report-snapshot";
 import { api } from "@/shared/lib/api-client";
 
 export default function ReportPage() {
+  const { t } = useLanguage();
   const { id } = useParams();
   const query = useQuery({
     queryKey: ["report", id],
@@ -16,7 +18,7 @@ export default function ReportPage() {
     return (
       <main className="max-w-5xl mx-auto p-6">
         <h1>Informe</h1>
-        <p>Leyendo el informe</p>
+        <p>{t.product.reportLoading}</p>
       </main>
     );
   }
@@ -25,12 +27,12 @@ export default function ReportPage() {
     return (
       <main className="max-w-5xl mx-auto p-6">
         <h1>Informe</h1>
-        <p>No se pudo leer el informe</p>
+        <p>{t.product.reportFailed}</p>
       </main>
     );
   }
 
-  const surface = reportSurface(query.data.snapshot);
+  const surface = reportSurface(query.data.snapshot, t.product.unavailable);
   const coachingText = surface.coaching?.trim();
   return (
     <main className="max-w-5xl mx-auto space-y-6 p-6">

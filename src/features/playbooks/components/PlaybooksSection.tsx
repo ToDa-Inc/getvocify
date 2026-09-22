@@ -9,6 +9,7 @@ import {
   type MotionStatus,
   type PlaybookRole,
 } from "@/lib/playbook-setup";
+import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { api } from "@/shared/lib/api-client";
 
@@ -27,6 +28,7 @@ function roleOf(value: string | null | undefined): PlaybookRole {
 }
 
 export default function PlaybooksSection() {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const role = roleOf(user?.company?.role);
   const [motions, setMotions] = useState<Record<string, MotionStatus>>({
@@ -203,7 +205,7 @@ export default function PlaybooksSection() {
         {keys.map((key) => (
           <li key={key} className="rounded-xl border border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span>{motionLabel(key)}</span>
+              <span>{motionLabel(key, t.product.motions)}</span>
               <span className="text-sm text-muted-foreground">
                 {LABEL[motions[key] || "missing"]}
                 {versions[key] ? ` · versión ${versions[key]}` : ""}

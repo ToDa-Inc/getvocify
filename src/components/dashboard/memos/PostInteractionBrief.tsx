@@ -1,5 +1,6 @@
-import { briefSurface, postBriefFetchTitle, requestBriefSectionPlay } from "@/lib/post-brief";
+import { briefSurface, requestBriefSectionPlay } from "@/lib/post-brief";
 import { usePostInteractionBrief } from "@/features/coaching/hooks/usePostInteractionBrief";
+import { useLanguage } from "@/lib/i18n";
 
 export function PostInteractionBrief({
   memoId,
@@ -8,11 +9,12 @@ export function PostInteractionBrief({
   memoId: string;
   onPlay?: (offsetMs: number) => void;
 }) {
+  const { t } = useLanguage();
   const query = usePostInteractionBrief(memoId);
   const surface = query.data ? briefSurface(query.data) : null;
   const title = query.isError
-    ? postBriefFetchTitle("error")
-    : surface?.title ?? postBriefFetchTitle("loading");
+    ? t.product.briefReadFailed
+    : surface?.title ?? t.product.briefNotReady;
   return (
     <section aria-labelledby="post-brief-title" className="mb-6 min-h-24 space-y-2">
       <h2 id="post-brief-title" className="text-lg">{title}</h2>

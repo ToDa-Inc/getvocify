@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-_OBJECTION_LABELS: dict[str, str] = {
-    "price": "Precio",
-    "timing": "Plazo",
-    "authority": "Autoridad",
-    "competitor": "Competidor",
-    "status_quo": "Statu quo",
-    "trust": "Confianza",
-    "other": "Otra",
-}
+_OBJECTION_KEYS = frozenset({
+    "price",
+    "timing",
+    "authority",
+    "competitor",
+    "status_quo",
+    "trust",
+    "other",
+})
 
 
 def _parse_instant(value) -> datetime | None:
@@ -34,9 +34,11 @@ def _parse_instant(value) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def _objection_label(category: str) -> str:
+def _objection_name(category: str) -> str:
     key = str(category).strip().lower()
-    return _OBJECTION_LABELS.get(key, "Otra")
+    if key in _OBJECTION_KEYS:
+        return key
+    return key
 
 
 def _row_instant(row: dict) -> datetime | None:
@@ -67,7 +69,7 @@ def objection_counts(
         instant = _row_instant(row)
         if instant is None or instant < start or instant >= end:
             continue
-        name = _objection_label(str(category))
+        name = _objection_name(str(category))
         tallies[name] = tallies.get(name, 0) + 1
     ordered = [{"name": name, "count": count} for name, count in tallies.items()]
     ordered.sort(key=lambda item: (-item["count"], item["name"]))

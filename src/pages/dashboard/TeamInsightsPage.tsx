@@ -5,6 +5,7 @@ import { AdherenceBreakdown } from "@/features/team-insights/components/Adherenc
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
 import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
+import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import {
   teamAdherenceHasData,
@@ -28,6 +29,7 @@ function adherenceQuery(filters: TeamFilters): string {
 }
 
 export default function TeamInsightsPage() {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const role = user?.company?.role ?? "member";
   const [filters, setFilters] = useState<TeamFilters>(EMPTY_FILTERS);
@@ -135,7 +137,7 @@ export default function TeamInsightsPage() {
               <option value="">Toda tipología</option>
               {motionKeys.map((key) => (
                 <option key={key} value={key}>
-                  {motionLabel(key)}
+                  {motionLabel(key, t.product.motions)}
                 </option>
               ))}
             </select>
@@ -157,7 +159,7 @@ export default function TeamInsightsPage() {
             metrics={view.metrics}
             winRate={view.winRate}
             unresolvedLabel={view.unresolvedLabel}
-            partialWarning={view.partialWarning}
+            partialWarning={view.partialCrmWarning ? t.product.partialCrm : null}
           />
         </>
       ) : null}

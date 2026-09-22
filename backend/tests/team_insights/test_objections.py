@@ -44,7 +44,7 @@ def test_superseded_and_obstacle_rows_do_not_count():
         _row(category="timing", kind="unknown"),
         _row(category="price"),
     ]
-    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [{"name": "Precio", "count": 1}]
+    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [{"name": "price", "count": 1}]
 
 
 def test_categories_sort_by_count_then_name():
@@ -57,13 +57,13 @@ def test_categories_sort_by_count_then_name():
         _row(category="timing"),
     ]
     assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [
-        {"name": "Plazo", "count": 3},
-        {"name": "Autoridad", "count": 2},
-        {"name": "Precio", "count": 1},
+        {"name": "timing", "count": 3},
+        {"name": "authority", "count": 2},
+        {"name": "price", "count": 1},
     ]
 
 
-def test_objection_keys_map_to_spanish_labels():
+def test_objection_keys_stay_stable():
     rows = [
         _row(category="status_quo"),
         _row(category="trust"),
@@ -73,12 +73,19 @@ def test_objection_keys_map_to_spanish_labels():
     ]
     result = objection_counts(rows, start=_WEEK_START, end=_WEEK_END)
     assert {item["name"] for item in result} == {
-        "Statu quo",
-        "Confianza",
-        "Competidor",
-        "Otra",
+        "status_quo",
+        "trust",
+        "competitor",
+        "other",
+        "not_a_real_key",
     }
-    assert result == [{"name": "Otra", "count": 2}, {"name": "Competidor", "count": 1}, {"name": "Confianza", "count": 1}, {"name": "Statu quo", "count": 1}]
+    assert result == [
+        {"name": "competitor", "count": 1},
+        {"name": "not_a_real_key", "count": 1},
+        {"name": "other", "count": 1},
+        {"name": "status_quo", "count": 1},
+        {"name": "trust", "count": 1},
+    ]
 
 
 def test_objection_outside_madrid_week_is_excluded():
@@ -87,7 +94,7 @@ def test_objection_outside_madrid_week_is_excluded():
         _row(category="timing"),
         _row(category="authority", observed_at=None, created_at=_OUT_WEEK),
     ]
-    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [{"name": "Plazo", "count": 1}]
+    assert objection_counts(rows, start=_WEEK_START, end=_WEEK_END) == [{"name": "timing", "count": 1}]
 
 
 def test_objection_without_date_is_ignored():

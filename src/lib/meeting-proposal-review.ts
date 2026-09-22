@@ -14,8 +14,6 @@ export type MeetingProposalReviewSurface =
   | { kind: "hidden" }
   | { kind: "proposal" };
 
-export const MEETING_PROPOSAL_READ_ERROR_TITLE = "No se pudo leer la reunión";
-
 export function meetingProposalReviewSurface(input: MeetingProposalReviewInput): MeetingProposalReviewSurface {
   const queryLoading =
     !input.extractionPending && input.queryIsPending && input.queryFetchStatus === "fetching";
@@ -25,10 +23,10 @@ export function meetingProposalReviewSurface(input: MeetingProposalReviewInput):
   return { kind: "proposal" };
 }
 
-export function meetingProposalReadErrorView() {
+export function meetingProposalReadErrorView(title: string) {
   return {
     visible: true as const,
-    title: MEETING_PROPOSAL_READ_ERROR_TITLE,
+    title,
     startsAt: null,
     save: false,
     omit: false,

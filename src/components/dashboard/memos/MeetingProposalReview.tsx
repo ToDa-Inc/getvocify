@@ -3,6 +3,7 @@ import { useCallback, useMemo } from "react";
 import { meetingProposalView, renderMeetingProposal } from "@shared/ui/meeting-proposal.js";
 import { renderToString } from "@shared/ui/html.js";
 import { api } from "@/shared/lib/api-client";
+import { useLanguage } from "@/lib/i18n";
 import {
   meetingProposalReadErrorView,
   meetingProposalReviewSurface,
@@ -26,6 +27,7 @@ export function MeetingProposalReview({
   memoId: string;
   extractionPending?: boolean;
 }) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["meeting-proposal", memoId],
@@ -65,7 +67,7 @@ export function MeetingProposalReview({
     surface.kind === "pending"
       ? meetingProposalView(null, { surface: "review", extractionPending: true })
       : surface.kind === "read-error"
-        ? meetingProposalReadErrorView()
+        ? meetingProposalReadErrorView(t.product.meetingReadFailed)
         : surface.kind === "hidden"
           ? { visible: false as const }
           : meetingProposalView(proposal, { surface: "review", extractionPending: false });

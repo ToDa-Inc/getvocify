@@ -1,6 +1,8 @@
+import { useLanguage } from "@/lib/i18n";
 import { adherenceBarRatio, type TeamMetrics } from "@/lib/team-insights";
 
 export function AdherenceBreakdown({ metrics }: { metrics: TeamMetrics }) {
+  const { t } = useLanguage();
   const label = metrics.adherence === null ? "Sin adherencia" : `${metrics.met} de ${metrics.applicable}`;
   const barRatio = adherenceBarRatio(metrics);
   return (
@@ -19,7 +21,7 @@ export function AdherenceBreakdown({ metrics }: { metrics: TeamMetrics }) {
         </tbody>
       </table>
       {metrics.sampleLimited ? (
-        <p>Con menos de cinco conversaciones no hay conclusión.</p>
+        <p>{t.product.sampleLimited}</p>
       ) : null}
     </section>
   );

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { productCatalog, type ProductTranslations } from './product-catalog';
 
 export type Language = 'EN' | 'ES';
 
@@ -190,7 +191,8 @@ const translations = {
         "The copilot handles the rest",
         "Your team just sells"
       ]
-    }
+    },
+    product: productCatalog.EN,
   },
   ES: {
     nav: {
@@ -373,9 +375,14 @@ const translations = {
         "El copiloto se encarga del resto",
         "Tu equipo solo vende"
       ]
-    }
+    },
+    product: productCatalog.ES,
   }
 };
+
+export type { ProductTranslations };
+
+export { translations };
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 

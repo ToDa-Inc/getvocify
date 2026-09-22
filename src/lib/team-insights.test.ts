@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { productCatalog } from "./product-catalog.ts";
 import {
   activityLabel,
   adherenceBarRatio,
@@ -32,8 +33,9 @@ const metrics = {
 
 describe("team insights", () => {
   it("labels missing activity as unavailable and real zero as zero", () => {
-    assert.equal(activityLabel(null), "No disponible");
-    assert.equal(activityLabel(0), "0");
+    assert.equal(activityLabel(null, productCatalog.ES.unavailable), "No disponible");
+    assert.equal(activityLabel(null, productCatalog.EN.unavailable), "Not available");
+    assert.equal(activityLabel(0, productCatalog.ES.unavailable), "0");
   });
 
   it("orders reps by name and keeps an unresolved win out of one person's count", () => {
@@ -46,28 +48,30 @@ describe("team insights", () => {
     assert.equal(winsForFilter(deals, null).length, 2);
   });
 
-  it("shows the Madrid-week empty copy and Spanish category names only", () => {
-    assert.equal(objectionCategoriesEmptyMessage([]), "No hay objeciones esta semana.");
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 0 }]), "No hay objeciones esta semana.");
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2 }]), "No hay objeciones esta semana.");
-    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1 }]), null);
+  it("labels stable keys through the catalog and keeps legacy Spanish names", () => {
+    const catalog = productCatalog.ES.objections;
+    assert.equal(objectionCategoriesEmptyMessage([], catalog), "No hay objeciones esta semana.");
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 0 }], catalog), "No hay objeciones esta semana.");
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2 }], catalog), null);
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1 }], catalog), null);
     assert.deepEqual(visibleObjectionCategories([
-      { name: "Plazo", count: 2 },
-      { name: "Precio", count: 1 },
+      { name: "timing", count: 2 },
       { name: "price", count: 5 },
-      { name: "Autoridad", count: 0 },
-    ]), [
       { name: "Plazo", count: 2 },
-      { name: "Precio", count: 1 },
+      { name: "authority", count: 0 },
+    ], catalog), [
+      { name: "Precio", count: 5 },
+      { name: "Plazo", count: 2 },
+      { name: "Plazo", count: 2 },
     ]);
     assert.deepEqual(visibleObjectionCategories([
-      { name: "Precio", count: 2 },
-      { name: "Plazo", count: 2 },
-      { name: "Confianza", count: 3 },
-    ]), [
-      { name: "Confianza", count: 3 },
-      { name: "Plazo", count: 2 },
-      { name: "Precio", count: 2 },
+      { name: "price", count: 2 },
+      { name: "timing", count: 2 },
+      { name: "trust", count: 3 },
+    ], productCatalog.EN.objections), [
+      { name: "Trust", count: 3 },
+      { name: "Price", count: 2 },
+      { name: "Timing", count: 2 },
     ]);
   });
 
@@ -89,7 +93,7 @@ describe("team insights", () => {
     const partial = teamInsightsView({ role: "owner", companyEmpty: false, filters: { period: "week", motion: null, userId: null }, reps, metrics });
     assert.equal(partial.kind, "ready");
     assert.equal(partial.winRate, null);
-    assert.equal(partial.partialWarning, "Falta parte de los cierres del CRM");
+    assert.equal(partial.partialCrmWarning, true);
     assert.equal(partial.metrics?.meetings, 1);
     assert.equal(partial.metrics?.won, null);
     const member = teamInsightsView({ role: "member", companyEmpty: false, filters: { period: "week", motion: null, userId: null }, reps, metrics });

@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { productCatalog } from "./product-catalog.ts";
 import {
   mergeNotes,
   noteFieldLabel,
@@ -33,15 +34,18 @@ describe("objection review", () => {
     assert.equal(partial.claimNone, false);
     assert.match(partial.title ?? "", /No se puede afirmar/);
     assert.equal(partial.patterns[0].prospect_quotes[0], "está caro");
-    assert.equal(patternCategoryLabel("price"), "Precio");
-    assert.equal(patternCategoryLabel("status_quo"), "Statu quo");
-    assert.equal(patternCategoryLabel("custom_key"), "custom_key");
-    assert.equal(patternKindLabel("objection"), "Objeción");
-    assert.equal(patternKindLabel("obstacle"), "Obstáculo");
-    assert.equal(patternKindLabel("unknown"), "Sin clasificar");
-    assert.equal(patternResolutionLabel("resolved"), "Resuelta");
-    assert.equal(patternResolutionLabel("open"), "Abierta");
-    assert.equal(patternResolutionLabel("unknown"), "Sin dato");
+    const en = productCatalog.EN;
+    const es = productCatalog.ES;
+    assert.equal(patternCategoryLabel("price", en), "Price");
+    assert.equal(patternCategoryLabel("price", es), "Precio");
+    assert.equal(patternCategoryLabel("status_quo", es), "Statu quo");
+    assert.equal(patternCategoryLabel("custom_key", es), "custom_key");
+    assert.equal(patternKindLabel("objection", es), "Objeción");
+    assert.equal(patternKindLabel("obstacle", en), "Obstacle");
+    assert.equal(patternKindLabel("unknown", en), "Unclassified");
+    assert.equal(patternResolutionLabel("resolved", es), "Resuelta");
+    assert.equal(patternResolutionLabel("open", en), "Open");
+    assert.equal(patternResolutionLabel("unknown", es), "Sin dato");
   });
 
   it("shows offset and author for a note that has no turn, without playback", () => {

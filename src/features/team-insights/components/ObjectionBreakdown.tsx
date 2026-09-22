@@ -1,3 +1,4 @@
+import { useLanguage } from "@/lib/i18n";
 import {
   objectionCategoriesEmptyMessage,
   visibleObjectionCategories,
@@ -5,8 +6,9 @@ import {
 } from "@/lib/team-insights";
 
 export function ObjectionBreakdown({ categories }: { categories: ObjectionCategory[] }) {
-  const emptyMessage = objectionCategoriesEmptyMessage(categories);
-  const visible = visibleObjectionCategories(categories);
+  const { t } = useLanguage();
+  const emptyMessage = objectionCategoriesEmptyMessage(categories, t.product.objections);
+  const visible = visibleObjectionCategories(categories, t.product.objections);
   const maxCount = visible.reduce((max, item) => Math.max(max, item.count), 0);
   return (
     <section aria-labelledby="team-objections">

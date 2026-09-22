@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/lib/i18n";
 import { api } from "@/shared/lib/api-client";
 import {
   mergeNotes,
@@ -24,6 +25,7 @@ export function InteractionObjections({
   canPlaySpan: boolean;
   offsetMs: number;
 }) {
+  const { t } = useLanguage();
   const query = useQuery({
     queryKey: ["memo-objections", memoId],
     queryFn: () => api.get<{ coverage: "complete" | "partial" | "unavailable"; patterns: ReviewPattern[]; notes: ReviewNote[] }>(
@@ -77,8 +79,8 @@ export function InteractionObjections({
         {review.patterns.map((pattern) => (
           <li key={pattern.pattern_id}>
             <p>
-              {patternCategoryLabel(pattern.category)} · {patternKindLabel(pattern.kind)} ·{" "}
-              {patternResolutionLabel(pattern.resolution)}
+              {patternCategoryLabel(pattern.category, t.product)} · {patternKindLabel(pattern.kind, t.product)} ·{" "}
+              {patternResolutionLabel(pattern.resolution, t.product)}
             </p>
             {pattern.prospect_quotes.map((quote) => <p key={quote}>«{quote}»</p>)}
             {pattern.response ? <p>{pattern.response}</p> : null}

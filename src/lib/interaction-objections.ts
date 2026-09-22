@@ -1,5 +1,7 @@
 /** Review of one interaction. A missing analysis is not "there were no objections". */
 
+import type { ProductTranslations } from "./product-catalog";
+
 export type ReviewPattern = {
   pattern_id: string;
   category: string;
@@ -9,31 +11,36 @@ export type ReviewPattern = {
   prospect_quotes: string[];
 };
 
-const PATTERN_CATEGORY_LABELS: Record<string, string> = {
-  price: "Precio",
-  timing: "Plazo",
-  authority: "Autoridad",
-  competitor: "Competidor",
-  status_quo: "Statu quo",
-  trust: "Confianza",
-  other: "Otra",
-};
+type PatternProductLabels = Pick<
+  ProductTranslations,
+  | "objections"
+  | "kindObjection"
+  | "kindObstacle"
+  | "kindUnknown"
+  | "resolutionResolved"
+  | "resolutionOpen"
+  | "resolutionUnknown"
+>;
 
 /** Display label for a stored category key; unknown keys pass through unchanged. */
-export function patternCategoryLabel(category: string): string {
-  return PATTERN_CATEGORY_LABELS[category] ?? category;
+export function patternCategoryLabel(category: string, labels: PatternProductLabels): string {
+  const key = category.trim().toLowerCase();
+  return labels.objections[key as keyof ProductTranslations["objections"]] ?? category;
 }
 
-export function patternKindLabel(kind: ReviewPattern["kind"]): string {
-  if (kind === "objection") return "Objeción";
-  if (kind === "obstacle") return "Obstáculo";
-  return "Sin clasificar";
+export function patternKindLabel(kind: ReviewPattern["kind"], labels: PatternProductLabels): string {
+  if (kind === "objection") return labels.kindObjection;
+  if (kind === "obstacle") return labels.kindObstacle;
+  return labels.kindUnknown;
 }
 
-export function patternResolutionLabel(resolution: ReviewPattern["resolution"]): string {
-  if (resolution === "resolved") return "Resuelta";
-  if (resolution === "open") return "Abierta";
-  return "Sin dato";
+export function patternResolutionLabel(
+  resolution: ReviewPattern["resolution"],
+  labels: PatternProductLabels,
+): string {
+  if (resolution === "resolved") return labels.resolutionResolved;
+  if (resolution === "open") return labels.resolutionOpen;
+  return labels.resolutionUnknown;
 }
 
 export type ReviewNote = {

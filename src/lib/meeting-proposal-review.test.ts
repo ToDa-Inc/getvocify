@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { productCatalog } from "./product-catalog.ts";
 import {
-  MEETING_PROPOSAL_READ_ERROR_TITLE,
   meetingProposalReadErrorView,
   meetingProposalReviewSurface,
 } from "./meeting-proposal-review.ts";
@@ -56,8 +56,9 @@ describe("meetingProposalReviewSurface", () => {
       }).kind,
       "read-error",
     );
-    const view = meetingProposalReadErrorView();
-    assert.equal(view.title, MEETING_PROPOSAL_READ_ERROR_TITLE);
+    const view = meetingProposalReadErrorView(productCatalog.ES.meetingReadFailed);
+    assert.equal(view.title, productCatalog.ES.meetingReadFailed);
+    assert.equal(meetingProposalReadErrorView(productCatalog.EN.meetingReadFailed).title, productCatalog.EN.meetingReadFailed);
     assert.equal(view.save, false);
     assert.equal(view.omit, false);
     assert.equal(view.startsAt, null);
