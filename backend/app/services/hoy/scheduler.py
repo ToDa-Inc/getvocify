@@ -78,6 +78,59 @@ def open_manual_tasks(provider: str, payload: dict, *, connection_id: str) -> tu
     raise ValueError(f"proveedor no soportado: {provider}")
 
 
+def task_request(provider: str, cursor: str | None) -> dict:
+    if provider == "hubspot":
+        body = {
+            "limit": 100,
+            "properties": ["hs_task_subject", "hs_task_status", "vocify_dedupe_key"],
+            "filterGroups": [{"filters": [
+                {"propertyName": "hs_task_status", "operator": "NEQ", "value": "COMPLETED"},
+            ]}],
+        }
+        if cursor:
+            body["after"] = cursor
+        return {"method": "POST", "path": "/crm/v3/objects/tasks/search", "json": body}
+    if provider == "pipedrive":
+        params = {"done": 0, "limit": 100}
+        if cursor:
+            params["start"] = cursor
+        return {"method": "GET", "path": "/activities", "params": params}
+    raise ValueError(f"proveedor no soportado: {provider}")
+
+
+def _next_cursor(provider: str, payload: dict) -> str | None:
+    if provider == "hubspot":
+        cursor = ((payload.get("paging") or {}).get("next") or {}).get("after")
+        return str(cursor) if cursor else None
+    extra = payload.get("additional_data") or {}
+    pagination = extra.get("pagination") or {}
+    if pagination.get("more_items_in_collection"):
+        start = pagination.get("next_start")
+        return str(start if start is not None else extra.get("next_cursor") or "next")
+    if extra.get("next_cursor"):
+        return str(extra["next_cursor"])
+    return None
+
+
+def collect_open_tasks(provider: str, fetch, *, connection_id: str, max_pages: int = 3) -> tuple[list[dict], str]:
+    """Walk open-task pages. A failed later page keeps what was already read and stays partial."""
+    items: list[dict] = []
+    cursor = None
+    for _ in range(max_pages):
+        try:
+            payload = fetch(task_request(provider, cursor)) or {}
+        except (TimeoutError, OSError):
+            return (items, "partial") if items else ([], "unavailable")
+        page, coverage = open_manual_tasks(provider, payload, connection_id=connection_id)
+        if coverage in {"forbidden", "unavailable"} and not page:
+            return (items, "partial") if items else ([], coverage)
+        items.extend(page)
+        cursor = _next_cursor(provider, payload)
+        if not cursor:
+            return items, "complete"
+    return items, "partial"
+
+
 def claim_daily_run_statement(company_id: str, local_date) -> str:
     return (
         "INSERT INTO hoy_daily_runs (company_id, local_date, status) VALUES ("

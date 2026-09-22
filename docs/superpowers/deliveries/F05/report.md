@@ -16,5 +16,5 @@ Estado: el motor puro de señales está en `feat/vocify-v1`. No está cerrada.
 
 ## No verificado
 
-- `daily_run_due` marca las 08:00 locales (hora configurable). El `GET` incorpora tareas abiertas cuando hay un lector; sin lector, `crm_tasks` sigue `unavailable`. El lector no está instalado en el arranque, así que producción no llama al CRM todavía.
+- `GET /today` lee las tareas abiertas de la conexión `connected` con el token. Sin conexión, `crm_tasks` queda `unavailable`. Un fallo de lectura deja la tarjeta que ya estaba.
 - El esquema de `043` ya está aplicado.

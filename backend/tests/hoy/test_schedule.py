@@ -28,11 +28,13 @@ from app.services.hoy.scheduler import (
     attach_manual,
     build_today_view,
     claim_daily_run_statement,
+    collect_open_tasks,
     company_local_date,
     daily_run_due,
     due_company_ids,
     open_manual_tasks,
     rebind_contact,
+    task_request,
 )
 from app.services.hoy.signals import Signal
 
@@ -189,14 +191,93 @@ class _Query:
 
 class _Supabase:
     def __init__(self):
-        self.rows = []
+        self.tables = {"action_signals": [], "crm_connections": []}
+
+    @property
+    def rows(self):
+        return self.tables["action_signals"]
+
+    @rows.setter
+    def rows(self, value):
+        self.tables["action_signals"] = value
 
     def table(self, name):
-        assert name == "action_signals"
-        return _Query(self.rows)
+        return _Query(self.tables.setdefault(name, []))
 
 
 STORE = _Supabase()
+
+
+def test_today_reads_the_connected_crm_and_keeps_the_card_if_the_read_fails():
+    STORE.rows = [{
+        "company_id": "co-1",
+        "user_id": "user-a",
+        "status": "pending",
+        "type": "going_cold",
+        "contact_id": "42",
+        "memo_id": "memo-1",
+        "connection_id": "crm-A",
+        "dedupe_key": "cold:42",
+        "coverage": "complete",
+        "payload": {"interest": "high", "days_silent": 12},
+    }]
+    STORE.tables["crm_connections"] = [{
+        "id": "crm-A",
+        "company_id": "co-1",
+        "status": "connected",
+        "provider": "hubspot",
+        "access_token": "secret-token",
+    }]
+
+    def fetch(request):
+        assert request["path"] == "/crm/v3/objects/tasks/search"
+        assert request["json"]["filterGroups"][0]["filters"][0]["value"] == "COMPLETED"
+        return {"results": [{
+            "id": "7",
+            "properties": {"hs_task_subject": "Llamar a Marina", "hs_task_status": "NOT_STARTED", "contact_id": "42"},
+        }]}
+
+    today_api.set_today_fetch(fetch)
+    try:
+        app = FastAPI()
+        app.include_router(today_api.router)
+        app.dependency_overrides[get_membership] = lambda: Membership(
+            id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+        )
+        app.dependency_overrides[get_supabase] = lambda: STORE
+        client = TestClient(app)
+        opened = client.get("/api/v1/today").json()
+        today_api.set_today_fetch(lambda _request: (_ for _ in ()).throw(TimeoutError()))
+        failed = client.get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        STORE.tables["crm_connections"] = []
+    assert opened["coverage"]["crm_tasks"] == "complete"
+    assert {item["remote_id"] for item in opened["items"]} == {None, "7"}
+    assert "secret-token" not in str(opened)
+    assert failed["coverage"]["crm_tasks"] == "unavailable"
+    assert [item["dedupe_key"] for item in failed["items"]] == ["cold:42"]
+
+
+def test_the_token_request_hits_hubspot_search_without_printing_the_token():
+    import httpx
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("authorization")
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"results": []})
+
+    connection = {"provider": "hubspot", "access_token": "secret-token", "id": "crm-A"}
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        page = today_api._http_task_page(connection, task_request("hubspot", None), client=client)
+    assert seen["auth"] == "Bearer secret-token"
+    assert seen["path"] == "/crm/v3/objects/tasks/search"
+    assert page == {"results": []}
+    tasks, coverage = collect_open_tasks("hubspot", lambda _request: page, connection_id="crm-A")
+    assert tasks == []
+    assert coverage == "complete"
 
 
 def test_today_keeps_a_pending_card_when_crm_tasks_were_not_read():

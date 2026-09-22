@@ -11,18 +11,89 @@ from pydantic import BaseModel
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.hoy.actions import ActionError, apply_action, undo_action
-from app.services.hoy.scheduler import build_today_view
+from app.services.hoy.scheduler import build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal
 
 router = APIRouter(prefix="/api/v1", tags=["today"])
 
 _TASKS = None
+_FETCH = None
 
 
 def set_today_tasks(reader) -> None:
-    """reader(company_id) -> (manual_tasks, coverage). None keeps CRM tasks unread."""
+    """reader(company_id) -> (manual_tasks, coverage). None reads the connected CRM."""
     global _TASKS
     _TASKS = reader
+
+
+def set_today_fetch(fetch) -> None:
+    """fetch(request) -> CRM page. None uses the connection token."""
+    global _FETCH
+    _FETCH = fetch
+
+
+def _connection(supabase, company_id: str) -> dict | None:
+    stored = (
+        supabase.table("crm_connections")
+        .select("id,status,provider,access_token,metadata,company_id")
+        .eq("company_id", company_id)
+        .execute()
+    )
+    for row in stored.data or []:
+        if row.get("status") == "connected":
+            return row
+    return None
+
+
+def _http_task_page(connection: dict, request: dict, client=None) -> dict:
+    import httpx
+
+    token = connection.get("access_token")
+    provider = connection.get("provider")
+    if not token or provider not in {"hubspot", "pipedrive"}:
+        return {"error_kind": "unavailable"}
+    owns_client = client is None
+    if owns_client:
+        client = httpx.Client(timeout=8.0)
+    try:
+        if provider == "hubspot":
+            response = client.post(
+                "https://api.hubapi.com" + request["path"],
+                headers={"Authorization": f"Bearer {token}"},
+                json=request.get("json") or {},
+            )
+        else:
+            domain = str((connection.get("metadata") or {}).get("api_domain") or "").rstrip("/")
+            if not domain:
+                return {"error_kind": "unavailable"}
+            response = client.get(
+                domain + "/api/v1" + request["path"],
+                headers={"Authorization": f"Bearer {token}"},
+                params=request.get("params") or {},
+            )
+    except httpx.TimeoutException:
+        return {"error_kind": "timeout"}
+    except httpx.HTTPError:
+        return {"error_kind": "transport"}
+    finally:
+        if owns_client:
+            client.close()
+    if response.status_code in (401, 403):
+        return {"error_kind": str(response.status_code)}
+    if response.status_code >= 400:
+        return {"error_kind": "transport"}
+    body = response.json()
+    return body if isinstance(body, dict) else {"error_kind": "transport"}
+
+
+def _read_tasks(connection: dict) -> tuple[list[dict], str]:
+    provider = str(connection.get("provider") or "")
+    connection_id = str(connection.get("id") or "")
+    fetch = _FETCH if _FETCH is not None else (lambda request: _http_task_page(connection, request))
+    try:
+        return collect_open_tasks(provider, fetch, connection_id=connection_id)
+    except (ValueError, TimeoutError, OSError):
+        return [], "unavailable"
 
 
 def _signal(row: dict) -> Signal:
@@ -58,10 +129,14 @@ async def get_today(membership: Membership = Depends(get_membership), supabase=D
     )
     visible = [row for row in (stored.data or []) if row.get("status") == "pending"]
     now = datetime.now(timezone.utc)
-    manual_tasks: list[dict] = []
-    task_coverage = "unavailable"
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
+    else:
+        connection = _connection(supabase, membership.company_id)
+        if connection is None:
+            manual_tasks, task_coverage = [], "unavailable"
+        else:
+            manual_tasks, task_coverage = _read_tasks(connection)
     return build_today_view(
         signals=[_signal(row) for row in visible],
         manual_tasks=manual_tasks,
