@@ -43,6 +43,11 @@ export function highlightScheduleLine(highlight: BriefHighlight | undefined): st
   return `Se destaca a las ${hour}`;
 }
 
+export function postBriefFetchTitle(phase: "loading" | "error"): string {
+  if (phase === "error") return "No se pudo leer el resumen";
+  return "El resumen todavía no está listo";
+}
+
 const TITLES: Record<BriefView["status"], string> = {
   pending: "Preparando el resumen",
   partial: "Resumen parcial",

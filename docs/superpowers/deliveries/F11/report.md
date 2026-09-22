@@ -25,3 +25,4 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 ## No verificado
 
 - Si todavía no hay fila, el memo muestra «El resumen todavía no está listo» y no dice que falte el proceso ni que el trabajo esté en curso. La preferencia de destaque está en Ajustes → Resúmenes.
+- La sección del resumen en el memo siempre está en el DOM: carga y error muestran solo el título (`postBriefFetchTitle`); con datos, el mismo `briefSurface` de antes.

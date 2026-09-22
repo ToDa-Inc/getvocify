@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   briefSurface,
   highlightScheduleLine,
+  postBriefFetchTitle,
   requestBriefSectionPlay,
   retryBrief,
   type BriefView,
@@ -20,6 +21,11 @@ const partial: BriefView = {
 };
 
 describe("post interaction brief", () => {
+  it("uses stable titles while the brief request is loading or fails", () => {
+    assert.equal(postBriefFetchTitle("loading"), "El resumen todavía no está listo");
+    assert.equal(postBriefFetchTitle("error"), "No se pudo leer el resumen");
+  });
+
   it("shows a missing brief without pretending the job is running", () => {
     const surface = briefSurface({
       status: "pending",
