@@ -44,6 +44,7 @@ import {
 import {
   applyTranscriptUpdate,
   canStartTabCapture,
+  classifyTabCaptureUrl,
   isListenEpochCurrent,
   listenFailureReason,
   listenReasonFromOffscreenError,
@@ -102,6 +103,11 @@ let state = {
   copilotLatencyMs: null,
   copilotTabTitle: null,
   captureTabId: null,
+  captureTabUrl: null,
+  kind: null,
+  playbookReady: false,
+  evidenceRefs: [],
+  assistEnabled: true,
   listenPhase: 'idle',
   reviewMemo: null,
   call: {
@@ -849,6 +855,8 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
   rememberTab(tab);
   prefetchCopilotWsBits(tab);
   const context = tab?.url ? parseCrmPageUrl(tab.url) : state.context;
+  const captureTabUrl = tab?.url || null;
+  const captureIsMeetingApp = classifyTabCaptureUrl(captureTabUrl).kind === 'meeting_app';
 
   updateState({
     isCopilotListening: false,
@@ -863,6 +871,8 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
     ...emptyCopilotUi(),
     copilotTabTitle: tab?.title || 'This tab',
     copilotError: null,
+    captureTabUrl,
+    kind: captureIsMeetingApp ? 'meeting' : 'call',
   });
   armListenStartTimeout();
 
@@ -891,6 +901,8 @@ async function stopTabCapture(commandSeq = null) {
     prospectInterim: '',
     finalWords: [],
     ...emptyCopilotUi(),
+    captureTabUrl: null,
+    kind: null,
   });
   chrome.offscreen.closeDocument().catch(() => {});
   return { ok: true };

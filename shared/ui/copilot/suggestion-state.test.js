@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { assistAllowed, overlayAssist, pushSse, reduceSuggestion, stepStatus } from "./suggestion-state.js";
+import {
+  assistAllowed,
+  copilotLiveAssistAllowed,
+  overlayAssist,
+  pushSse,
+  reduceSuggestion,
+  resolveLiveAssistKind,
+  stepStatus,
+} from "./suggestion-state.js";
 
 describe("live meeting assist", () => {
   it("shows meeting help on the overlay and keeps a call on the transcript line", () => {
@@ -12,6 +20,40 @@ describe("live meeting assist", () => {
       evidenceRefs: ["ev-1"],
       card: { text: "Pregunta el precio" },
     }), "Pregunta el precio");
+  });
+
+  it("hides the extension copilot card on a call even with coaching text queued", () => {
+    assert.equal(
+      copilotLiveAssistAllowed({
+        kind: "call",
+        playbookReady: true,
+        evidenceRefs: ["ev-1"],
+        callActive: false,
+        captureIsMeetingApp: false,
+      }).show,
+      false,
+    );
+    assert.equal(
+      copilotLiveAssistAllowed({
+        playbookReady: true,
+        evidenceRefs: ["ev-1"],
+        callActive: true,
+        captureIsMeetingApp: true,
+      }).reason,
+      "not_a_meeting",
+    );
+    assert.equal(
+      copilotLiveAssistAllowed({
+        kind: "meeting",
+        playbookReady: true,
+        evidenceRefs: ["ev-1"],
+        callActive: false,
+        captureIsMeetingApp: false,
+      }).show,
+      true,
+    );
+    assert.equal(resolveLiveAssistKind({ captureIsMeetingApp: true }), "meeting");
+    assert.equal(resolveLiveAssistKind({ callActive: true, captureIsMeetingApp: true }), "call");
   });
 
   it("stays hidden on a call and when there is nothing to ground a card", () => {

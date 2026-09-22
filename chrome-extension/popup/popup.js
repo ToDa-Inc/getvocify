@@ -58,7 +58,14 @@ import {
 } from '../lib/review-insights.js';
 import { crmFieldsHeadingLabel, htmlToCopilotMarkdown, nextStepsHeadingLabel, renderCopilotNoteHtml, stripNextStepsSection } from '../lib/copilot-note.js';
 import { bindPreviewIds, bindPreviewToPage, formatSyncTargetLabel, needsAssociatedContactPick, associatedContactsFromContext, proposedUpdatesForPage, resolveReviewTargets } from '../lib/review-targets.js';
-import { listenClickRuntimeMessage, listenUiModel, requestTabCaptureStreamId, resolveListenPhase } from '../lib/tab-capture.js';
+import {
+  classifyTabCaptureUrl,
+  listenClickRuntimeMessage,
+  listenUiModel,
+  requestTabCaptureStreamId,
+  resolveListenPhase,
+} from '../lib/tab-capture.js';
+import { copilotLiveAssistAllowed } from '../shared/ui/copilot/suggestion-state.js';
 import {
   firstName,
   normalizeDiarizedTranscript,
@@ -1353,6 +1360,21 @@ function renderListenStatus(state, model = listenUiModel(state)) {
   el.dataset.phase = model.phase;
 }
 
+function extensionLiveAssistDecision(state) {
+  const callState = state?.call?.state;
+  const callActive = Boolean(callState && callState !== CALL_STATES.IDLE);
+  const captureTabUrl = state?.captureTabUrl || '';
+  const captureIsMeetingApp = classifyTabCaptureUrl(captureTabUrl).kind === 'meeting_app';
+  return copilotLiveAssistAllowed({
+    kind: state?.kind,
+    assistEnabled: state?.assistEnabled,
+    playbookReady: state?.playbookReady,
+    evidenceRefs: state?.evidenceRefs,
+    callActive,
+    captureIsMeetingApp,
+  });
+}
+
 function renderCopilotCard(state) {
   const card = document.getElementById('copilot-card');
   const say = document.getElementById('copilot-say-this');
@@ -1362,6 +1384,11 @@ function renderCopilotCard(state) {
   if (!card) return;
 
   if (!state.isCopilotListening && state.listenPhase !== 'live') {
+    card.style.display = 'none';
+    return;
+  }
+
+  if (!extensionLiveAssistDecision(state).show) {
     card.style.display = 'none';
     return;
   }

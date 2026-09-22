@@ -19,6 +19,29 @@ export function assistAllowed({ kind, enabled, playbookReady, evidenceRefs }) {
   return { show: true, reason: null };
 }
 
+export function resolveLiveAssistKind({ kind, callActive, captureIsMeetingApp } = {}) {
+  if (kind === "call" || kind === "meeting") return kind;
+  if (callActive) return "call";
+  if (captureIsMeetingApp) return "meeting";
+  return "call";
+}
+
+export function copilotLiveAssistAllowed({
+  kind,
+  assistEnabled,
+  playbookReady,
+  evidenceRefs,
+  callActive,
+  captureIsMeetingApp,
+} = {}) {
+  return assistAllowed({
+    kind: resolveLiveAssistKind({ kind, callActive, captureIsMeetingApp }),
+    enabled: assistEnabled,
+    playbookReady,
+    evidenceRefs,
+  });
+}
+
 export function stepStatus(step, evidenceRefs, elapsedMs = 0) {
   void elapsedMs;
   if (!step?.evidence_ref) return "open";
