@@ -11,7 +11,7 @@ os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 import pytest
 
 from app.services.llm.jev import JevClient
-from app.services.llm.jev_schemas import OBJECTION_KIND, evidence_state
+from app.services.llm.jev_schemas import INTELLIGENCE_QUESTIONS, OBJECTION_KIND, evidence_state
 
 
 class StubJev(JevClient):
@@ -46,6 +46,16 @@ async def test_low_confidence_or_invalid_choice_stays_unknown():
     )
     assert result["status"] == "partial"
     assert result["answers"]["meeting_agreed"] == "unknown"
+
+
+def test_intelligence_questions_do_not_add_tone_or_emotion_analysis():
+    questions = {item["question"] for item in INTELLIGENCE_QUESTIONS}
+    assert questions == {"meeting_agreed", "pain_confirmed"}
+    blob = " ".join(str(item) for item in INTELLIGENCE_QUESTIONS + [OBJECTION_KIND]).lower()
+    assert "tone" not in blob
+    assert "emotion" not in blob
+    assert "emoci" not in blob
+    assert "tono" not in blob
 
 
 @pytest.mark.asyncio

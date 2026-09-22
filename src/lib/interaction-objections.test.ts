@@ -61,6 +61,28 @@ describe("objection review", () => {
     assert.equal(patternResolutionLabel("unknown", es), "Sin dato");
   });
 
+  it("lists category, response, resolution and quotes when the read is complete", () => {
+    const es = productCatalog.ES;
+    const review = objectionReview({
+      coverage: "complete",
+      patterns: [{
+        pattern_id: "pat-1",
+        category: "price",
+        kind: "objection",
+        resolution: "open",
+        response: "Comparar plazos",
+        prospect_quotes: ["está caro"],
+      }],
+      notes: [],
+      canPlaySpan: true,
+      copy: es,
+    });
+    assert.equal(review.claimNone, false);
+    assert.equal(review.title, null);
+    assert.equal(review.patterns[0].response, "Comparar plazos");
+    assert.equal(review.patterns[0].prospect_quotes[0], "está caro");
+  });
+
   it("shows offset and author for a note that has no turn, without playback", () => {
     const es = productCatalog.ES;
     const en = productCatalog.EN;

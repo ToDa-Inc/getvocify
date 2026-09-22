@@ -18,10 +18,13 @@ from pathlib import Path
 import pytest
 
 from app.services.intelligence.patterns import (
+    CATEGORIES,
     apply_projection,
     attribute_evidence,
     frequency,
+    objection_view,
     pattern_from_situation,
+    patterns_from_extraction,
     project_patterns,
     supersede_statement,
 )
@@ -66,14 +69,69 @@ def test_an_irony_note_is_evidence_and_not_the_prospects_words():
             "id": "ev-1",
             "source_id": "turn-1",
             "source_type": "transcript",
-            "quote": "está caro",
+            "quote": "qué barato",
         }],
         note={"id": "note-1", "text": "Lo dijo con ironía"},
-        sources={"turn-1": "el precio está caro ahora", "note-1": "Lo dijo con ironía"},
+        sources={"turn-1": "qué barato, qué barato", "note-1": "Lo dijo con ironía"},
     )
     assert attributed["evidence_refs"] == ["ev-1", "note-1"]
     assert "Lo dijo con ironía" not in attributed["prospect_quotes"]
-    assert attributed["prospect_quotes"] == ["está caro"]
+    assert attributed["prospect_quotes"] == ["qué barato"]
+
+
+def test_categories_stay_on_the_agreed_taxonomy():
+    assert CATEGORIES == {"price", "timing", "authority", "competitor", "status_quo", "trust", "other"}
+    row = pattern_from_situation(
+        pattern_id="pat-x",
+        memo_id="memo-1",
+        input_revision="rev-1",
+        category="not_in_taxonomy",
+        commercial_objection=True,
+        resolution="unknown",
+    )
+    assert row["category"] == "other"
+
+
+def test_driving_now_is_an_obstacle_not_a_commercial_objection():
+    rows = patterns_from_extraction(
+        memo_id="memo-1",
+        input_revision="rev-1",
+        extraction={"objections": [{"text": "Ahora estoy conduciendo", "commercial_objection": False}]},
+    )
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "obstacle"
+    assert rows[0]["kind"] != "objection"
+
+
+def test_review_keeps_one_interaction_scope_without_team_rollup():
+    view = objection_view(
+        notes=[{"annotation_id": "note-1", "text": "matiz", "offset_ms": 1000, "author_id": "user-a", "turn_id": None}],
+        patterns=[
+            {
+                "pattern_id": "pat-1",
+                "category": "price",
+                "kind": "objection",
+                "resolution": "open",
+                "response": "Comparar plazos",
+                "prospect_quotes": ["está caro"],
+                "superseded": False,
+            },
+            {
+                "pattern_id": "pat-old",
+                "category": "price",
+                "kind": "objection",
+                "resolution": "unknown",
+                "response": None,
+                "prospect_quotes": [],
+                "superseded": True,
+            },
+        ],
+        readable=True,
+    )
+    assert view["coverage"] == "complete"
+    assert len(view["patterns"]) == 1
+    assert view["patterns"][0]["pattern_id"] == "pat-1"
+    assert "count" not in view
 
 
 def test_a_corrected_resolution_replaces_the_previous_frequency():

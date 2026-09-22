@@ -1,24 +1,38 @@
 # Informe F10
 
-Estado: la nota humana se guarda antes de tener memo. No está cerrada.
+Estado: **BLOCKED** — DoD §151–167 con una casilla abierta (reloj en extensión).
 
-## Entregado
+## Criterios DoD (plan §149–167)
+
+| Criterio | Evidencia |
+|---|---|
+| Nota sobrevive desconexión / cierre de captura | `test_a_note_exists_before_the_memo`, `test_put_replay_is_the_same_note_and_a_stale_revision_conflicts`, `test_two_revisions_of_the_same_note_leave_one_winner` |
+| Tiempo = reloj de la interacción | **Abierto:** ver bloqueador extensión |
+| Nota no se atribuye al prospecto | `test_an_irony_note_is_evidence_and_not_the_prospects_words`, `test_identical_words_keep_human_note_and_prospect_apart` |
+| Taxonomía acordada | `test_categories_stay_on_the_agreed_taxonomy` |
+| Conduciendo → obstáculo | `test_driving_now_is_an_obstacle_not_a_commercial_objection`, `test_hooks_project_dict_with_commercial_false_as_obstacle` |
+| Ironía considerada | `test_an_irony_note_is_evidence_and_not_the_prospects_words` (cita «qué barato» + `note-1`) |
+| Sin tono/emoción | `test_intelligence_questions_do_not_add_tone_or_emotion_analysis` |
+| Revisión: categoría, respuesta, resolución, evidencia | `interaction-objections.test.ts`, `test_the_memo_reads_the_saved_note_and_skips_a_superseded_pattern` |
+| Alcance F10 / F11 / F12 / F15 | `test_review_keeps_one_interaction_scope_without_team_rollup`, `tests/team_insights/test_objections.py` (F15 agrega filas persistidas) |
+
+## Bloqueadores
+
+- **DoD §153 (reloj):** en `chrome-extension/popup`, el guardado de nota usa `noteOffsetMsFromReviewAudio(document.getElementById('review-audio'))`, pero **no existe** `#review-audio` en `popup/index.html`. La nota se guarda con `offset_ms: 0`. No se añade un reproductor falso al popup. Reloj verificado en API (`offset_ms` estable en reintento), `shared/ui/note.test.js` (playback/review audio) y dashboard (`MemoDetail` → `InteractionObjections` con `currentTime`).
+
+## Entregado (resumen)
 
 | Pieza | Prueba |
 |---|---|
-| Misma `annotation_id` es una nota; el reintento no mueve el `offset_ms`; una revisión vieja responde conflicto; otro autor no pisa el texto | `tests/intelligence/test_annotations.py` |
-| `PUT /captures/{id}/annotations/{annotation_id}` | el mismo archivo |
-| Migración `044` con notas y patrones | Postgres aislado: una de dos revisiones gana y el offset sigue en 134000 |
-| Un obstáculo no es una objeción de venta; la nota de ironía no se atribuye al prospecto; la revisión nueva sustituye la frecuencia | `tests/intelligence/test_patterns.py` 4 passed |
-| La revisión dice «no se detectaron» solo con lectura completa y vacía; una nota sin turno no se reproduce; categoría, tipo y resolución en español sin tocar claves | `src/lib/interaction-objections.test.ts` 3 passed; `tsc --noEmit` |
-| `InteractionObjections` y `CoachingScore` renderizan todo el copy visible desde `product-catalog.ts` (EN/ES vía `t.product`) | revisión de componentes |
-| La nota en la extensión guarda el `offset_ms` del audio en revisión cuando hay reproducción | `shared/ui/note.test.js` |
-| F03 | Suspendida en `docs/superpowers/deliveries/F03/report.md`. No hay código de preparación. |
-| Tras guardar extracción, objeciones → patrones; vacío supersede solo `objection:`; fallo no revierte score/reunión | `tests/memos/test_post_extraction_hooks.py` 16 passed |
+| Notas idempotentes + PUT captura/memo | `tests/intelligence/test_annotations.py` 10 passed |
+| Patrones / supersede / obstáculo | `tests/intelligence/test_patterns.py` |
+| Hooks post-extracción → patrones | `tests/memos/test_post_extraction_hooks.py` |
+| Revisión web + catálogo EN/ES | `InteractionObjections.tsx`, `interaction-objections.test.ts` |
+| Nota en extensión (revisión) | `popup.js` + `review-note`; offset en popup bloqueado arriba |
+| Desktop captura «Añadir nota» | No implementado en `desktop/renderer/app.js` (fuera de casillas DoD actuales) |
 
-## No verificado
+## Comandos de cierre
 
-- El `PUT` guarda la nota en `interaction_annotations`. Una revisión vieja no cambia el texto ni el `offset_ms`.
-- El detalle del memo lee `GET /memos/{id}/objections`. Una fila sustituida no se muestra. Sin filas no se afirma que no hubo objeciones.
-- La extracción guarda las objeciones como patrones. Una extracción posterior sin ellas deja de contarlas. Otro patrón no se toca.
-- La revisión de la extensión tiene el campo de nota. El escritorio no tiene esa pantalla.
+- `cd backend && .venv/bin/python -m pytest tests/intelligence/test_annotations.py tests/intelligence/test_patterns.py -q`
+- `node --test shared/ui/note.test.js src/lib/interaction-objections.test.ts`
+- `npm run build`

@@ -148,23 +148,23 @@ Sin objeciones detectadas y con análisis completo: «No se detectaron objecione
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] La nota sobrevive a desconexión y cierre de captura.
+- [x] La nota sobrevive a desconexión y cierre de captura.
 
 - [ ] El tiempo corresponde al reloj de la interacción.
 
-- [ ] No se atribuye una anotación a palabras del prospecto.
+- [x] No se atribuye una anotación a palabras del prospecto.
 
-- [ ] Clasificación usa exclusivamente la taxonomía acordada.
+- [x] Clasificación usa exclusivamente la taxonomía acordada.
 
-- [ ] «Ahora estoy conduciendo» puede clasificarse como obstáculo, sin convertirlo en objeción comercial por defecto.
+- [x] «Ahora estoy conduciendo» puede clasificarse como obstáculo, sin convertirlo en objeción comercial por defecto.
 
-- [ ] «Qué barato» con una nota de ironía se evalúa considerando esa nota.
+- [x] «Qué barato» con una nota de ironía se evalúa considerando esa nota.
 
-- [ ] No se añade análisis de tono ni emociones.
+- [x] No se añade análisis de tono ni emociones.
 
-- [ ] La revisión muestra categoría, respuesta y resolución con su evidencia; la ausencia de objeciones se distingue de un análisis incompleto y no produce métricas ficticias de éxito.
+- [x] La revisión muestra categoría, respuesta y resolución con su evidencia; la ausencia de objeciones se distingue de un análisis incompleto y no produce métricas ficticias de éxito.
 
-- [ ] Las tres vistas respetan su alcance: F10 persiste hechos, F11 resume, F12 asiste en meetings y F15 agrega sin reanalizar ni ampliar coaching de cold calls.
+- [x] Las tres vistas respetan su alcance: F10 persiste hechos, F11 resume, F12 asiste en meetings y F15 agrega sin reanalizar ni ampliar coaching de cold calls.
 
 ### Riesgos / edge cases conocidos
 
