@@ -14,6 +14,7 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 | Cambiar de reunión descarta la respuesta anterior. Un evento SSE partido no se lee hasta cerrar el frame | el mismo archivo, 3 passed |
 | Extensión: el background reenvía `playbook_ready` / `evidence_refs` del SSE al gate de `#copilot-card` | `chrome-extension/lib/live-assist-gate.test.js` |
 | `/copilot/suggest` incluye `playbook_ready` y `evidence_refs` validados en el evento `result` para meetings | `backend/tests/copilot/test_live_meetings.py` |
+| Escritorio: no repite `/copilot/suggest` si la última línea final es idéntica a la ya pedida | `desktop/lib/copilot-suggest.test.js` |
 
 ## No verificado
 

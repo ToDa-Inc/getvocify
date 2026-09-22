@@ -5,7 +5,12 @@ import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../li
 import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
-import { streamCopilotSuggest } from '../lib/copilot-suggest.js';
+import {
+  markCopilotSuggestRequested,
+  resetCopilotSuggestRequestDedupe,
+  shouldRequestCopilotSuggest,
+  streamCopilotSuggest,
+} from '../lib/copilot-suggest.js';
 import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.js';
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
@@ -97,7 +102,8 @@ function abortCopilotSuggest() {
 
 async function requestCopilotSuggest(latestTurn) {
   const token = localStorage.getItem(STORAGE.token);
-  if (!listening || !token || !latestTurn) return;
+  if (!listening || !token || !shouldRequestCopilotSuggest(latestTurn)) return;
+  markCopilotSuggestRequested(latestTurn);
   abortCopilotSuggest();
   const controller = new AbortController();
   copilotSuggestAbort = controller;
@@ -352,6 +358,7 @@ function hookPcm(ctx, stream, onPcm) {
 
 function stopCapture() {
   abortCopilotSuggest();
+  resetCopilotSuggestRequestDedupe();
   resetLiveAssistOverlay();
   listening = false;
   processors.forEach((p) => {
@@ -450,6 +457,7 @@ async function startListen() {
   currentBackend = nativeBackend || 'chromium';
   captureStreams = system ? [mic, system] : [mic];
   transcriptState = { finalTranscript: '', interimTranscript: '' };
+  resetCopilotSuggestRequestDedupe();
   renderTranscript();
   btnListen.disabled = true;
   btnStop.disabled = false;
@@ -476,7 +484,7 @@ async function startListen() {
       if (isFinal) {
         const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
         const latestTurn = parts[parts.length - 1]?.replace(/^(You|Them):\s*/, '').trim();
-        if (latestTurn) void requestCopilotSuggest(latestTurn);
+        void requestCopilotSuggest(latestTurn);
       }
       renderTranscript();
     } catch { /* ignore malformed frames */ }

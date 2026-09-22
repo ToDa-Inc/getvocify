@@ -1,6 +1,28 @@
 import { pushSse } from '../../shared/ui/copilot/suggestion-state.js';
 import { liveAssistPayloadFromSuggestEvent } from './live-assist-overlay.js';
 
+let lastRequestedFinalLine = '';
+
+/** Whether a final transcript line should trigger a new /copilot/suggest fetch. */
+export function shouldFetchCopilotSuggest(lastRequested, latestTurn) {
+  const line = String(latestTurn ?? '').trim();
+  if (!line) return false;
+  return line !== String(lastRequested ?? '').trim();
+}
+
+export function shouldRequestCopilotSuggest(latestTurn) {
+  return shouldFetchCopilotSuggest(lastRequestedFinalLine, latestTurn);
+}
+
+export function markCopilotSuggestRequested(latestTurn) {
+  const line = String(latestTurn ?? '').trim();
+  if (line) lastRequestedFinalLine = line;
+}
+
+export function resetCopilotSuggestRequestDedupe() {
+  lastRequestedFinalLine = '';
+}
+
 /** Incrementally parse copilot suggest SSE and emit overlay payloads for result events. */
 export function createCopilotSuggestIngester(onPayload) {
   let buffer = '';

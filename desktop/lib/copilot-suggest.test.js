@@ -1,7 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCopilotSuggestIngester } from './copilot-suggest.js';
+import {
+  createCopilotSuggestIngester,
+  shouldFetchCopilotSuggest,
+} from './copilot-suggest.js';
 import { liveAssistPayloadFromSuggestEvent } from './live-assist-overlay.js';
+
+describe('shouldFetchCopilotSuggest', () => {
+  it('skips empty lines and duplicate final lines; fetches when the line changes', () => {
+    assert.equal(shouldFetchCopilotSuggest('', ''), false);
+    assert.equal(shouldFetchCopilotSuggest('', '   '), false);
+    assert.equal(shouldFetchCopilotSuggest('hola', 'hola'), false);
+    assert.equal(shouldFetchCopilotSuggest('hola', '  hola  '), false);
+    assert.equal(shouldFetchCopilotSuggest('', 'nueva línea'), true);
+    assert.equal(shouldFetchCopilotSuggest('antes', 'después'), true);
+  });
+});
 
 describe('copilot-suggest ingest', () => {
   it('maps a grounded result event into an overlay payload', () => {
