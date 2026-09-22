@@ -119,6 +119,7 @@ class EnsureFollowup(unittest.TestCase):
         self.assertEqual((memo["followup"]["status"], memo["followup"]["subject"]), ("ready", "Caso de logística"))
         self.assertIsNone(memo["followup_run_started_at"])
         self.assertIn("Lucía Pérez", llm.messages[1]["content"])
+        self.assertIn("Never invent prices, dates", llm.messages[0]["content"])
         self.assertEqual(llm.kwargs["timeout"], svc.LLM_TIMEOUT_S)
         asyncio.run(svc.ensure_followup(client, "m1", llm=llm))
         self.assertEqual(llm.calls, 1, "a ready draft is never regenerated")
@@ -160,7 +161,9 @@ class EnsureFollowup(unittest.TestCase):
 
     def test_failures_mark_unavailable_and_never_raise(self):
         errored = memo_row()
+        extraction_before = dict(errored["extraction"])
         asyncio.run(svc.ensure_followup(client_for(errored), "m1", llm=FakeLLM(error=TimeoutError())))
+        self.assertEqual(errored["extraction"], extraction_before, "memo extraction stays available when draft fails")
         self.assertEqual((errored["followup"]["status"], errored["followup"]["reason"]), ("unavailable", "error"))
         empty = memo_row()
         asyncio.run(svc.ensure_followup(client_for(empty), "m1", llm=FakeLLM(payload={"subject": "", "body": ""})))

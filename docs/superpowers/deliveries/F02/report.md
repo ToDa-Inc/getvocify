@@ -1,6 +1,6 @@
 # Informe F02
 
-Estado: código de C03 en la rama `feat/vocify-v1`. El esquema ya está aplicado.
+Estado: DoD de aceptación cerrado salvo verificación en tres apps en ejecución. Rama `feat/vocify-v1`; esquema aplicado.
 
 ## Entregado
 
@@ -18,6 +18,7 @@ Estado: código de C03 en la rama `feat/vocify-v1`. El esquema ya está aplicado
 
 ## No verificado
 
+- **Bloqueo DoD:** «Flujo completo verificado en las tres superficies» requiere web, extensión y desktop levantados a la vez; no se ejecutó en este cierre.
 - No hay un memo real de HubSpot, desktop o WhatsApp recorrido de punta a punta.
 - Reticle no se ejecutó sobre `/dashboard/memos/:id`.
 

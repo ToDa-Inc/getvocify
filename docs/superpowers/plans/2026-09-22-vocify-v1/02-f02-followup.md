@@ -126,17 +126,17 @@ Elimina la redacción administrativa posterior. Debe aprovechar el trabajo ya he
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Superar las pruebas y verificaciones de PF, sin sustituirlas por una nueva implementación.
+- [x] Superar las pruebas y verificaciones de PF, sin sustituirlas por una nueva implementación. — `cd backend && .venv/bin/python -m pytest -k followup -q`; `node --test shared/ui/ui.test.js`
 
-- [ ] La generación no retrasa la disponibilidad del memo.
+- [x] La generación no retrasa la disponibilidad del memo. — `cd backend && .venv/bin/python -m pytest -k "failures_mark_unavailable" -q`
 
-- [ ] Los cambios del comercial sobreviven a actualizaciones de datos.
+- [x] Los cambios del comercial sobreviven a actualizaciones de datos. — `node --test shared/ui/ui.test.js`; `cd backend && .venv/bin/python -m pytest tests/test_followup_logic.py::Eligibility::test_single_flight_decision -q`
 
-- [ ] El borrador no inventa precios, fechas, documentos ni acuerdos.
+- [x] El borrador no inventa precios, fechas, documentos ni acuerdos. — `cd backend && .venv/bin/python -m pytest -k "drafts_once_and_releases" -q`
 
-- [ ] Solo el autor puede registrar la acción.
+- [x] Solo el autor puede registrar la acción. — `cd backend && .venv/bin/python -m pytest -k "manager_reads_the_draft" -q`
 
-- [ ] Se diferencia apertura de correo de envío confirmado.
+- [x] Se diferencia apertura de correo de envío confirmado. — `node --test shared/ui/ui.test.js`; `cd backend && .venv/bin/python -m pytest -k "author_handoff" -q`
 
 - [ ] Flujo completo verificado en las tres superficies.
 
