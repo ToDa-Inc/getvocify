@@ -57,6 +57,12 @@ import {
 } from '../lib/home-hoy.js';
 import { renderToString } from './shared/ui/html.js';
 import { applyDataI18n, strings } from './shared/ui/i18n.js';
+import {
+  latestTaggedTurnBody,
+  splitTaggedTranscript,
+  stripSpeakerPrefix,
+  turnRoleFromPart,
+} from '../lib/transcript-turns.js';
 import { renderTodayCard } from './shared/ui/today-card.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
@@ -584,7 +590,8 @@ function renderTranscript() {
   transcriptView = reconcileTranscript(transcriptView, next) ?? next;
   const follow = stickToLive;
   const text = transcriptView.turns.map((turn) => turn.text).join(' ').trim();
-  const parts = text ? text.split(/(?=(?:You|Them): )/).filter(Boolean) : [];
+  const parts = text ? splitTaggedTranscript(text) : [];
+  const t = strings(uiLang());
   if (!parts.length) {
     transcriptEl.querySelectorAll('.turn').forEach((node) => node.remove());
     if (!transcriptEl.querySelector('.empty')) {
@@ -597,7 +604,7 @@ function renderTranscript() {
     transcriptEl.querySelector('.empty')?.remove();
     const rows = [...transcriptEl.querySelectorAll('.turn')];
     parts.forEach((part, index) => {
-      const isYou = part.startsWith('You:');
+      const role = turnRoleFromPart(part);
       let row = rows[index];
       if (!row) {
         row = document.createElement('div');
@@ -605,13 +612,15 @@ function renderTranscript() {
         row.append(document.createElement('span'), document.createElement('div'));
         transcriptEl.append(row);
       }
-      row.className = `turn v-transcript-turn ${isYou ? 'you' : 'them'}`;
+      const roleClass = role === 'rep' ? 'you' : role === 'prospect' ? 'them' : '';
+      row.className = `turn v-transcript-turn${roleClass ? ` ${roleClass}` : ''}`;
       const speaker = row.children[0];
       speaker.className = 'speaker';
-      speaker.textContent = isYou ? 'You' : 'Them';
+      speaker.textContent =
+        role === 'rep' ? t.speakerYou : role === 'prospect' ? t.speakerThem : '';
       const bubble = row.children[1];
       bubble.className = 'bubble';
-      const body = part.replace(/^(You|Them):\s*/, '');
+      const body = stripSpeakerPrefix(part);
       if (bubble.textContent !== body) bubble.textContent = body;
     });
     rows.slice(parts.length).forEach((node) => node.remove());
@@ -790,8 +799,7 @@ async function startListen() {
         lang: uiLang(),
       });
       if (isFinal) {
-        const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
-        const latestTurn = parts[parts.length - 1]?.replace(/^(You|Them):\s*/, '').trim();
+        const latestTurn = latestTaggedTurnBody(transcriptState.finalTranscript);
         void requestCopilotSuggest(latestTurn);
         void requestCopilotChecklist();
       }
@@ -1152,8 +1160,7 @@ desktop()?.shell?.onCommand((command) => {
   if (command === 'assist-on') {
     liveAssistOverlay.assistEnabled = true;
     notifyShell();
-    const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
-    const latestTurn = parts[parts.length - 1]?.replace(/^(You|Them):\s*/, '').trim();
+    const latestTurn = latestTaggedTurnBody(transcriptState.finalTranscript);
     if (latestTurn) void requestCopilotSuggest(latestTurn);
   }
   if (command === 'assist-off') {
