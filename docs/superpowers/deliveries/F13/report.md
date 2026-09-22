@@ -17,5 +17,5 @@ La fecha que cuenta es la de la captura, no la del trabajo que termina después.
 ## No verificado
 
 - `GET /reports/{id}` devuelve la instantánea guardada. El informe de otra persona responde 404. Marcar la campana dos veces conserva la primera hora. La página está en `/dashboard/reports/:id`. No se recorrió en el navegador.
-- El correo no se envía de verdad: Resend solo acepta la clave de idempotencia si alguien la pasa. La campana no está en la barra.
+- La campana está en la barra. El número solo aparece si hay informes sin leer. Un fallo de lectura no pinta un cero.
 - Los proveedores no leen todavía los cierres reales del periodo.

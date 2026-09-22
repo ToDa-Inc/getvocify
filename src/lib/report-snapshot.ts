@@ -12,6 +12,11 @@ export type ReportSnapshot = {
   coaching: string | null;
 };
 
+export function bellCount(unread: number | null | undefined): string | null {
+  if (unread == null || unread < 1) return null;
+  return String(unread);
+}
+
 export function reportSurface(snapshot: ReportSnapshot) {
   const won = snapshot.metrics.deals_won;
   return {

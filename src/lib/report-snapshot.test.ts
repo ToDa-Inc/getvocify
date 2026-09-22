@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { reportSurface } from "./report-snapshot.ts";
+import { bellCount, reportSurface } from "./report-snapshot.ts";
 
 describe("report snapshot", () => {
   it("does not turn a missing close into zero or add the meeting to wins", () => {
@@ -14,5 +14,11 @@ describe("report snapshot", () => {
     assert.equal(surface.coaching, null);
     assert.equal(surface.attempts, 2);
     assert.equal(surface.connected, 1);
+  });
+
+  it("hides the bell when nothing is unread and when the count is unknown", () => {
+    assert.equal(bellCount(0), null);
+    assert.equal(bellCount(null), null);
+    assert.equal(bellCount(2), "2");
   });
 });

@@ -49,6 +49,15 @@ async def get_report(
     return public_report(rows[0])
 
 
+def bell_items(rows: list[dict], user_id: str) -> dict:
+    """Unread rows for this person. A read row does not count. Another user's row is absent."""
+    own = [row for row in rows if row.get("user_id") == user_id and not row.get("read_at")]
+    return {
+        "unread": len(own),
+        "items": [{"id": row.get("id"), "report_id": row.get("report_id")} for row in own],
+    }
+
+
 def mark_notification_read(row: dict, *, user_id: str, now: datetime) -> dict:
     if row.get("user_id") != user_id:
         raise PermissionError("notificación ajena")
@@ -58,6 +67,23 @@ def mark_notification_read(row: dict, *, user_id: str, now: datetime) -> dict:
 
 
 notifications = APIRouter(prefix="/api/v1", tags=["notifications"])
+
+
+@notifications.get("/notifications")
+async def list_notifications(
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    try:
+        stored = (
+            supabase.table("report_notifications")
+            .select("id,report_id,user_id,read_at")
+            .eq("user_id", membership.user_id)
+            .execute()
+        )
+    except Exception:
+        return {"unread": None, "items": []}
+    return bell_items(stored.data or [], membership.user_id)
 
 
 @notifications.patch("/notifications/{notification_id}")

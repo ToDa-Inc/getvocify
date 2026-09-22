@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from app.services.reporting.delivery import claim_report_statement, deliver_report, period_bounds
+from app.api.reports import bell_items
 
 MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "048_reports_notifications.sql"
 COMPANY = "88888888-8888-8888-8888-888888888888"
@@ -42,6 +43,17 @@ class Sender:
 
     def reconcile(self, key: str):
         return self.remote.get(key)
+
+
+def test_the_bell_counts_only_unread_rows_for_this_user():
+    rows = [
+        {"id": "n1", "report_id": "r1", "user_id": USER, "read_at": None},
+        {"id": "n2", "report_id": "r2", "user_id": USER, "read_at": "2026-09-22T10:00:00Z"},
+        {"id": "n3", "report_id": "r3", "user_id": "other", "read_at": None},
+    ]
+    bell = bell_items(rows, USER)
+    assert bell["unread"] == 1
+    assert bell["items"] == [{"id": "n1", "report_id": "r1"}]
 
 
 def test_dst_is_one_period_and_a_failed_email_keeps_the_notification():

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
@@ -12,11 +13,14 @@ import {
   Phone,
   LogOut,
   MessageCircle,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import Logo from "@/components/Logo";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { bellCount } from "@/lib/report-snapshot";
+import { api } from "@/shared/lib/api-client";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
@@ -31,6 +35,25 @@ const navItems = [
   { icon: MessageCircle, label: "Preguntar", path: "/dashboard/ask" },
   { icon: Settings, label: "Settings", path: "/dashboard/settings" },
 ];
+
+function ReportBell() {
+  const query = useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => api.get<{ unread: number | null; items: { id: string; report_id: string }[] }>("/notifications"),
+  });
+  const count = bellCount(query.isSuccess ? query.data.unread : null);
+  const reportId = query.data?.items[0]?.report_id;
+  return (
+    <Link
+      to={reportId ? `/dashboard/reports/${reportId}` : "/dashboard"}
+      aria-label={count ? `${count} informes sin leer` : "Informes"}
+      className="relative inline-flex"
+    >
+      <Bell className="h-4 w-4" />
+      {count ? <span className="absolute -right-2 -top-2 text-[10px]">{count}</span> : null}
+    </Link>
+  );
+}
 
 const BILLING_PATH = "/dashboard/settings/billing";
 
@@ -78,6 +101,7 @@ const DashboardLayout = () => {
             <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
               Beta
             </span>
+            <ReportBell />
           </div>
           <Button
             variant="ghost"
