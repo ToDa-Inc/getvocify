@@ -25,10 +25,13 @@ PERSON = {
 
 
 class FakeSender:
-    def __init__(self):
+    def __init__(self, *, fail: Exception | None = None):
         self.sent: list[str] = []
+        self._fail = fail
 
     def send(self, key: str) -> None:
+        if self._fail is not None:
+            raise self._fail
         self.sent.append(key)
 
     def reconcile(self, key: str):
@@ -118,6 +121,67 @@ def test_tick_persists_sent_and_second_tick_does_not_resend():
     assert sender.sent == ["report-daily-1:r1:email"]
     assert len(fake.tables["report_deliveries"]) == 1
     assert fake.tables["report_deliveries"][0]["delivery_status"] == "sent"
+
+    sender2 = FakeSender()
+    tick_due_report_emails(at_cutoff, load_people, load_existing, sender2, persist_delivery)
+    assert sender2.sent == []
+
+
+def test_tick_persists_failed_then_second_tick_retries_once():
+    at_cutoff = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
+    fake = FakeSupabase()
+    sender = FakeSender(fail=RuntimeError("smtp down"))
+
+    def load_people():
+        return [PERSON]
+
+    def load_existing():
+        return _load_report_delivery_existing(fake)
+
+    def persist_delivery(result, person):
+        persist_report_delivery(
+            fake,
+            idempotency_key=result["idempotency_key"],
+            report_id=person["report_id"],
+            channel="email",
+            delivery_status=result["delivery_status"],
+        )
+
+    tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)
+    assert sender.sent == []
+    assert len(fake.tables["report_deliveries"]) == 1
+    assert fake.tables["report_deliveries"][0]["delivery_status"] == "failed"
+
+    sender2 = FakeSender()
+    tick_due_report_emails(at_cutoff, load_people, load_existing, sender2, persist_delivery)
+    assert sender2.sent == ["report-daily-1:r1:email"]
+    assert fake.tables["report_deliveries"][0]["delivery_status"] == "sent"
+
+
+def test_tick_persists_uncertain_and_second_tick_does_not_resend():
+    at_cutoff = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
+    fake = FakeSupabase()
+    sender = FakeSender(fail=TimeoutError("resend timeout"))
+
+    def load_people():
+        return [PERSON]
+
+    def load_existing():
+        return _load_report_delivery_existing(fake)
+
+    def persist_delivery(result, person):
+        persist_report_delivery(
+            fake,
+            idempotency_key=result["idempotency_key"],
+            report_id=person["report_id"],
+            channel="email",
+            delivery_status=result["delivery_status"],
+        )
+
+    tick_due_report_emails(at_cutoff, load_people, load_existing, sender, persist_delivery)
+    assert sender.sent == []
+    assert len(fake.tables["report_deliveries"]) == 1
+    assert fake.tables["report_deliveries"][0]["delivery_status"] == "uncertain"
 
     sender2 = FakeSender()
     tick_due_report_emails(at_cutoff, load_people, load_existing, sender2, persist_delivery)

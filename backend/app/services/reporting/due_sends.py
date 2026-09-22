@@ -107,13 +107,14 @@ def run_due_report_emails(
         prior = _delivery_for_period(person["user_id"], period_start, existing)
         report = {"id": person["report_id"], "revision": person["revision"]}
         result = send_report_email(report, sender, existing=prior)
-        if result.get("sent") and persist_delivery is not None:
+        status = result.get("delivery_status")
+        if persist_delivery is not None and status in ("sent", "failed", "uncertain"):
             persist_delivery(result, person)
             existing.append(
                 {
                     "user_id": person["user_id"],
                     "period_start": period_start,
-                    "delivery_status": result.get("delivery_status"),
+                    "delivery_status": status,
                     "idempotency_key": result.get("idempotency_key"),
                 }
             )
