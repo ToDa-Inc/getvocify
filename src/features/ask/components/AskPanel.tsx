@@ -91,6 +91,7 @@ export default function AskPanel() {
   }, [conversationId, view.turnId, view.status]);
 
   async function postTurn(text: string) {
+    setTurnChoices([]);
     const turn = await api.post<AskTurnBody>(
       `/ask/conversations/${conversationId}/turns`,
       { client_turn_id: crypto.randomUUID(), text },
@@ -122,6 +123,8 @@ export default function AskPanel() {
     items: read.items,
   });
 
+  const choicesOpen = showAskChoices(view, turnChoices);
+
   return (
     <section className="mx-auto max-w-xl px-4 py-8">
       <h1 className="text-lg font-medium">Preguntar</h1>
@@ -135,8 +138,8 @@ export default function AskPanel() {
         <p className="mt-2 text-sm" role="status">Hay una respuesta nueva</p>
       ) : null}
       {view.text ? <p className="mt-4 text-sm">{view.text}</p> : null}
-      {showAskChoices(view, turnChoices) ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+      {choicesOpen ? (
+        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Opciones">
           {turnChoices.map((choice) => (
             <button
               key={choice.id}
@@ -165,44 +168,46 @@ export default function AskPanel() {
           Confirmar para {pendingConfirm.contactId}
         </button>
       ) : null}
-      <form
-        className="mt-6 space-y-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        <textarea
-          className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
-          rows={3}
-          value={draft}
-          placeholder="Pregunta por un contacto"
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <VoiceComposer
-          onText={(text) => setDraft(text)}
-          transcribe={async (blob) => {
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result || ""));
-              reader.onerror = () => reject(reader.error);
-              reader.readAsDataURL(blob);
-            });
-            const comma = dataUrl.indexOf(",");
-            const result = await api.post<{ text: string; memo_id: null }>("/ask/transcribe", {
-              audio_base64: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-            });
-            return result.text;
+      {!choicesOpen ? (
+        <form
+          className="mt-6 space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void send();
           }}
-        />
-        <button
-          type="submit"
-          className="rounded-full border border-border px-3 py-1 text-sm"
-          disabled={Boolean(view.turnId && view.status !== "completed" && view.status !== "failed")}
         >
-          Enviar
-        </button>
-      </form>
+          <textarea
+            className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
+            rows={3}
+            value={draft}
+            placeholder="Pregunta por un contacto"
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <VoiceComposer
+            onText={(text) => setDraft(text)}
+            transcribe={async (blob) => {
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ""));
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(blob);
+              });
+              const comma = dataUrl.indexOf(",");
+              const result = await api.post<{ text: string; memo_id: null }>("/ask/transcribe", {
+                audio_base64: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
+              });
+              return result.text;
+            }}
+          />
+          <button
+            type="submit"
+            className="rounded-full border border-border px-3 py-1 text-sm"
+            disabled={Boolean(view.turnId && view.status !== "completed" && view.status !== "failed")}
+          >
+            Enviar
+          </button>
+        </form>
+      ) : null}
     </section>
   );
 }

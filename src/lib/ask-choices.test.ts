@@ -51,4 +51,11 @@ describe("ask choices", () => {
     assert.equal(ready.turnId, null);
     assert.equal(ready.posts, 2);
   });
+
+  it("hides choice buttons after the follow-up view resets", () => {
+    const choices = [{ id: "c1", label: "Marina López" }];
+    const completed = { ...emptyAsk(), turnId: "turn-1", status: "completed" as const };
+    assert.equal(showAskChoices(completed, choices), true);
+    assert.equal(showAskChoices(viewForFollowUp(completed), choices), false);
+  });
 });
