@@ -244,6 +244,10 @@ def build_today_view(
             items[-1]["id"] = payload["signal_id"]
             items[-1]["version"] = payload.get("version")
             items[-1]["status"] = payload.get("status") or "pending"
+            if payload.get("undo_deadline"):
+                items[-1]["undo_deadline"] = payload["undo_deadline"]
+            if payload.get("last_action_request_id"):
+                items[-1]["last_action_request_id"] = payload["last_action_request_id"]
     for task in loose:
         items.append({
             "type": "manual_task",

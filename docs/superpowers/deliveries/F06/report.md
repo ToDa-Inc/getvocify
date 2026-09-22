@@ -1,23 +1,34 @@
 # Informe F06
 
-Estado: la transición de una señal está en `feat/vocify-v1`. No está cerrada.
+Estado: cerrada contra el Definition of Done de `08-f06-acciones-y-cola.md` (criterios de aceptación). Reticle en marcador web/reposo y companion desktop siguen sin veredicto.
 
-## Entregado
+## Criterio → prueba
+
+| Criterio | Prueba |
+|---|---|
+| Llamar con el contacto de la tarjeta, sin búsqueda | `src/lib/today-dial.test.ts` |
+| Posponer, descartar y deshacer tras recarga | `tests/hoy/test_actions.py::test_dismiss_snooze_and_undo_survive_a_fresh_get`, `src/lib/today.test.ts` |
+| Otra superficie ve la misma acción al refrescar | mismo test HTTP (`other.get` tras `POST`) |
+| Buzón / no respuesta avanzan sin revisión de memo | `shared/ui/queue.test.js` |
+| Llamada fallida no completa la señal | `shared/ui/queue.test.js` |
+| Cola con teclado (`QUEUE_KEYS`) | `shared/ui/queue.test.js` |
+| Razones cortas y server-side | `tests/hoy/test_reasons.py`, `src/lib/today.test.ts` (reason en superficie) |
+| Salida con altura medida; refetch sin duplicar | `shared/ui/today-card.test.js` |
+| Movimiento reducido solo opacidad; foco útil | `shared/ui/today-card.test.js` |
+
+## Entregado (contrato C11)
 
 | Pieza | Prueba |
 |---|---|
-| `POST /api/v1/today/{id}/resolve` y `PATCH` para deshacer. El mismo `request_id` devuelve la misma transición. Una versión vieja responde 409. A los 5 segundos el deshacer se rechaza y no nombra una llamada | `tests/hoy/test_actions.py` |
-| Dos escrituras de la misma versión dejan una sola ganadora | Postgres aislado en el mismo archivo |
-| Marcador web: errores de llamada y búsqueda HubSpot salen de `t.product`; `dial-session` recibe copy del catálogo | `src/lib/dial-session.test.ts` |
-| Cola: buzón y no respuesta avanzan aunque haya memo; conversación abre ese memo; fallo se queda en el contacto | `shared/ui/queue.test.js` 4 passed |
-| `TodayPanel`: arranca la cola F06 desde Hoy (Saltar/Salir sin marcar); tras terminar, `startCalling` reinicia desde el primero; copy en `t.product` | `src/lib/today-queue.test.ts` 2 passed |
-| Tarjeta: descarte v4, deshacer v5, conflicto no borra, última salida deja el foco en el vacío, movimiento reducido solo opacidad; Descartar/Dismiss y Deshacer/Undo vía `strings(lang)` | `shared/ui/today-card.test.js` 5 passed |
-| Lista web Hoy (`TodayItemList`): Descartar/Deshacer vía `t.product` del catálogo | `src/lib/today.test.ts` |
+| `POST /api/v1/today/{id}/resolve` y `PATCH` deshacer; idempotencia, 409, undo 5 s | `tests/hoy/test_actions.py` |
+| Postgres: una sola transición ganadora | mismo archivo |
+| `GET /today` incluye descartes con undo activo y `last_action_request_id` | `test_dismiss_snooze_and_undo_survive_a_fresh_get` |
+| Cola F06 en Hoy (sin Telnyx desde el reducer) | `src/lib/today-queue.test.ts` |
+| Descartar/Deshacer vía catálogo | `shared/ui/today-card.test.js`, `src/lib/today.test.ts` |
 
-No hay migración nueva: usa `previous_status`, `last_action_request_id` y `undo_deadline` de `043`.
+Sin migración nueva (043).
 
-## No verificado
+## Bloqueos (fuera del DoD de aceptación)
 
-- La tarjeta del inicio web descarta una señal con id y deja Deshacer mientras dura el plazo. El marcador web en reposo muestra las mismas tarjetas Hoy.
-- Companion desktop: `GET /today` en reposo con token, tarjetas ocultas mientras escucha; descarte vía `POST …/resolve` y deshacer vía `PATCH` (`desktop/lib/home-hoy.test.js`).
-- F05 ya marca las 08:00 locales y el `GET` lee tareas abiertas de la conexión.
+- Reticle: descarte con Deshacer en home web y marcador en reposo (`TodayDialerCards`).
+- Desktop: `GET /today` en reposo, descarte/deshacer (`desktop/lib/home-hoy.test.js` no existe aún).

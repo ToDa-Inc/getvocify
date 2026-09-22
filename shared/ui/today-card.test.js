@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { presentExit, reduceTodayList, renderTodayCard, TODAY_EMPTY_FOCUS } from "./today-card.js";
+import { exitMotion, presentExit, reduceTodayList, renderTodayCard, TODAY_EMPTY_FOCUS } from "./today-card.js";
 import { renderToString } from "./html.js";
 import { strings } from "./i18n.js";
 
@@ -56,6 +56,11 @@ describe("today card", () => {
       renderTodayCard(pending, { now: 0, dismiss: es.dismiss, undo: es.undo }),
     );
     assert.match(esMarkup, />Descartar</);
+  });
+
+  it("measures real height before a full-motion exit", () => {
+    assert.equal(exitMotion(false).measureHeight, true);
+    assert.equal(exitMotion(true).measureHeight, undefined);
   });
 
   it("does not extend the undo deadline while the card is leaving", () => {

@@ -63,3 +63,11 @@ export const QUEUE_KEYS = {
   queue: { Enter: "call", s: "skip", Escape: "exit" },
   review: { n: "reviewed", Escape: "exit" },
 };
+
+/** Map a keyboard event to a queue action for the current mode. */
+export function queueKeyAction(mode, key, { metaKey = false, ctrlKey = false } = {}) {
+  if (metaKey || ctrlKey) return null;
+  const map = QUEUE_KEYS[mode];
+  if (!map) return null;
+  return map[key] ?? null;
+}

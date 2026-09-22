@@ -144,23 +144,23 @@ Sin tarjetas se hereda el estado vacío de F05. Una tarjeta con teléfono o perm
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] «Llamar» utiliza el contacto correcto sin búsqueda adicional.
+- [x] «Llamar» utiliza el contacto correcto sin búsqueda adicional.
 
-- [ ] Posponer, descartar y deshacer sobreviven a una recarga.
+- [x] Posponer, descartar y deshacer sobreviven a una recarga.
 
-- [ ] Otra superficie refleja la acción al recuperar foco.
+- [x] Otra superficie refleja la acción al recuperar foco.
 
-- [ ] Buzón/no respuesta avanza sin tratarlo como conversación.
+- [x] Buzón/no respuesta avanza sin tratarlo como conversación.
 
-- [ ] Una llamada fallida no completa una tarea.
+- [x] Una llamada fallida no completa una tarea.
 
-- [ ] La cola funciona con teclado.
+- [x] La cola funciona con teclado.
 
-- [ ] Razones cortas, concretas y consistentes en todas las superficies.
+- [x] Razones cortas, concretas y consistentes en todas las superficies.
 
-- [ ] Resolver/descartar/posponer retira la tarjeta con altura medida, sin salto brusco; un refetch concurrente no interrumpe la transición ni duplica nodos.
+- [x] Resolver/descartar/posponer retira la tarjeta con altura medida, sin salto brusco; un refetch concurrente no interrumpe la transición ni duplica nodos.
 
-- [ ] En reducción de movimiento solo cambia la opacidad. Deshacer, error y `409` restituyen el estado correcto, y el foco queda en una acción útil incluso al retirar la última tarjeta.
+- [x] En reducción de movimiento solo cambia la opacidad. Deshacer, error y `409` restituyen el estado correcto, y el foco queda en una acción útil incluso al retirar la última tarjeta.
 
 ### Riesgos / edge cases conocidos
 

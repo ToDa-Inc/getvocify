@@ -138,6 +138,21 @@ describe("dismiss stays undoable", () => {
     assert.notEqual(productCatalog.EN.undo, productCatalog.ES.undo);
   });
 
+  it("shows a dismissed card returned by GET after reload", () => {
+    const pending: TodayItem = { ...card.items[0], id: "sig-1", version: 4, status: "pending" };
+    const dismissed: TodayItem = {
+      ...pending,
+      version: 5,
+      status: "dismissed",
+      undo_deadline: "2026-09-22T08:00:05Z",
+      last_action_request_id: "act-2",
+    };
+    const before = Date.parse("2026-09-22T08:00:04Z");
+    const listed = cardsAfterDismiss([dismissed], [], before);
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].last_action_request_id, "act-2");
+  });
+
   it("keeps a dismissed card until the undo deadline and drops it after", () => {
     const pending: TodayItem = { ...card.items[0], id: "sig-1", version: 4, status: "pending" };
     const dismissed: TodayItem = {

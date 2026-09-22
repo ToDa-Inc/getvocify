@@ -53,21 +53,30 @@ export function useTodayCardActions() {
 
   const dismiss = useCallback(async (item: TodayItem) => {
     if (!item.id || item.version == null) return;
+    const requestId = crypto.randomUUID();
     const result = await todayApi.resolve(item.id, {
       action: "dismiss",
-      request_id: crypto.randomUUID(),
+      request_id: requestId,
       expected_version: item.version,
     });
     setActedStore((current) => [
       ...current.filter((card) => card.id !== item.id),
-      { ...item, status: result.status, version: result.version, undo_deadline: result.undo_deadline },
+      {
+        ...item,
+        status: result.status,
+        version: result.version,
+        undo_deadline: result.undo_deadline,
+        last_action_request_id: requestId,
+      },
     ]);
   }, []);
 
   const undo = useCallback(async (item: TodayItem) => {
     if (!item.id || item.version == null) return;
+    const requestId = item.last_action_request_id;
+    if (!requestId) return;
     await todayApi.undo(item.id, {
-      request_id: crypto.randomUUID(),
+      request_id: requestId,
       expected_version: item.version,
     });
     setActedStore((current) => current.filter((card) => card.id !== item.id));

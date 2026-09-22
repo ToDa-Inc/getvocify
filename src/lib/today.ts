@@ -14,6 +14,7 @@ export type TodayItem = {
   version?: number | null;
   status?: string | null;
   undo_deadline?: string | null;
+  last_action_request_id?: string | null;
 };
 
 export type TodayView = {

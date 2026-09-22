@@ -14,6 +14,7 @@ from app.services.coaching.brief_preferences import read_preference
 from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal
+from app.services.hoy.visibility import is_today_visible
 
 _DEFAULT_HOY_TZ = "Europe/Madrid"
 
@@ -115,6 +116,10 @@ def _signal(row: dict) -> Signal:
         payload["signal_id"] = row["id"]
         payload["version"] = row.get("version")
         payload["status"] = row.get("status") or "pending"
+        if row.get("undo_deadline"):
+            payload["undo_deadline"] = row.get("undo_deadline")
+        if row.get("last_action_request_id"):
+            payload["last_action_request_id"] = row.get("last_action_request_id")
     return Signal(
         type=row["type"],
         contact_id=row.get("contact_id"),
@@ -150,8 +155,8 @@ async def get_today(
         .eq("user_id", membership.user_id)
         .execute()
     )
-    visible = [row for row in (stored.data or []) if row.get("status") == "pending"]
-    now = datetime.now(timezone.utc)
+    now = _now()
+    visible = [row for row in (stored.data or []) if is_today_visible(row, now)]
     attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
@@ -171,11 +176,12 @@ async def get_today(
     )
 
 
-_CLOCK = [datetime.now(timezone.utc)]
+_CLOCK_DEFAULT = datetime.now(timezone.utc)
+_CLOCK = [_CLOCK_DEFAULT]
 
 
 def _now() -> datetime:
-    return _CLOCK[0]
+    return datetime.now(timezone.utc) if _CLOCK[0] is _CLOCK_DEFAULT else _CLOCK[0]
 
 
 class ResolveBody(BaseModel):

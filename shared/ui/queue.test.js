@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { prefetchTarget, queueReducer } from "./queue.js";
+import { prefetchTarget, queueKeyAction, queueReducer } from "./queue.js";
 
 const state = { mode: "calling", items: [{ id: "a" }, { id: "b" }], index: 0 };
 
@@ -46,5 +46,13 @@ describe("queue", () => {
     const target = prefetchTarget(state);
     assert.deepEqual(target, { id: "b" });
     assert.equal("blocks" in target, false);
+  });
+
+  it("maps queue keyboard shortcuts without modifier keys", () => {
+    assert.equal(queueKeyAction("queue", "Enter"), "call");
+    assert.equal(queueKeyAction("queue", "s"), "skip");
+    assert.equal(queueKeyAction("queue", "Escape"), "exit");
+    assert.equal(queueKeyAction("review", "n"), "reviewed");
+    assert.equal(queueKeyAction("queue", "Enter", { metaKey: true }), null);
   });
 });

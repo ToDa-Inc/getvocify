@@ -123,13 +123,25 @@ class _Result:
         self.data = data
 
 
+class _EmptyTable:
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        return _Result([])
+
+
 class _Store:
     def __init__(self, rows):
         self.rows = rows
 
     def table(self, name):
-        assert name == "action_signals"
-        return _Query(self)
+        if name == "action_signals":
+            return _Query(self)
+        return _EmptyTable()
 
 
 class _Query:
@@ -157,6 +169,71 @@ class _Query:
         for row in rows:
             row.update(self.payload)
         return _Result(rows)
+
+
+def test_dismiss_snooze_and_undo_survive_a_fresh_get():
+    row = {
+        "id": "sig-1",
+        "company_id": "co-1",
+        "user_id": "user-a",
+        "status": "pending",
+        "version": 3,
+        "type": "going_cold",
+        "contact_id": "42",
+        "deal_id": None,
+        "memo_id": "memo-1",
+        "connection_id": "crm-A",
+        "dedupe_key": "cold:42",
+        "coverage": "complete",
+        "payload": {"interest": "high", "days_silent": 12},
+        "previous_status": None,
+        "last_action_request_id": None,
+        "last_action_at": None,
+        "undo_deadline": None,
+        "snoozed_until": None,
+    }
+    store = _Store([row])
+    today_api._CLOCK[0] = NOW
+    today_api.set_today_tasks(lambda _company: ([], "unavailable"))
+    app = FastAPI()
+    app.include_router(today_api.router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+    )
+    app.dependency_overrides[get_supabase] = lambda: store
+    client = TestClient(app)
+    other = TestClient(app)
+
+    dismissed = client.post(
+        "/api/v1/today/sig-1/resolve",
+        json={"action": "dismiss", "request_id": "act-2", "expected_version": 3, "until": None},
+    )
+    assert dismissed.status_code == 200
+    after_dismiss = other.get("/api/v1/today").json()
+    assert len(after_dismiss["items"]) == 1
+    assert after_dismiss["items"][0]["status"] == "dismissed"
+    assert after_dismiss["items"][0]["undo_deadline"] == dismissed.json()["undo_deadline"]
+    assert after_dismiss["items"][0]["last_action_request_id"] == "act-2"
+
+    undone = other.patch(
+        "/api/v1/today/sig-1",
+        json={"request_id": "act-2", "expected_version": 4},
+    )
+    assert undone.status_code == 200
+    assert undone.json()["status"] == "pending"
+    assert client.get("/api/v1/today").json()["items"][0]["status"] == "pending"
+
+    snoozed = client.post(
+        "/api/v1/today/sig-1/resolve",
+        json={
+            "action": "snooze",
+            "request_id": "act-3",
+            "expected_version": 5,
+            "until": (NOW + timedelta(days=2)).isoformat(),
+        },
+    )
+    assert snoozed.status_code == 200
+    assert client.get("/api/v1/today").json()["items"] == []
 
 
 def test_http_replay_and_foreign_signal():
