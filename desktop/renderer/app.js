@@ -37,6 +37,13 @@ import {
   reviewFields,
   waitForReview,
 } from '../lib/memo-review.js';
+import {
+  HOME_BRIEF_LOADING,
+  homeBriefContactId,
+  homeBriefDisplayLines,
+  homeBriefRequestPath,
+  shouldFetchHomeBrief,
+} from '../lib/home-brief.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
 const STORAGE = {
@@ -63,6 +70,7 @@ const liveLabel = document.getElementById('live-label');
 const timerEl = document.getElementById('timer');
 const backendChip = document.getElementById('backend-chip');
 const sessionChip = document.getElementById('session-chip');
+const contactBriefEl = document.getElementById('contact-brief');
 
 function desktop() {
   return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
@@ -86,6 +94,8 @@ let copilotSuggestAbort = null;
 let listenSession = null;
 /** HubSpot record page when known ({ objectType, recordId }), same shape as extension context. */
 let hubspotRecordPage = hubspotRecordPageFromLocation();
+let homeBriefCache = null;
+let homeBriefFlight = null;
 
 function hubspotRecordPageFromLocation() {
   const params = new URLSearchParams(window.location.search);
@@ -184,6 +194,54 @@ function formatTimer(ms) {
   return `${mins}:${secs}`;
 }
 
+function paintHomeBrief() {
+  if (!contactBriefEl || listenPanel.hidden) return;
+  hubspotRecordPage = knownHubspotRecordPage() ?? hubspotRecordPage;
+  const recordPage = hubspotRecordPage;
+  const lines = homeBriefDisplayLines({
+    recordPage,
+    captureActive: listening,
+    cache: homeBriefCache,
+    flightContactId: homeBriefFlight,
+  });
+  contactBriefEl.replaceChildren();
+  for (const line of lines) {
+    const row = document.createElement('p');
+    row.className = line === HOME_BRIEF_LOADING ? 'v-followup__hint' : 'v-followup__body';
+    row.textContent = line;
+    contactBriefEl.append(row);
+  }
+  contactBriefEl.hidden = lines.length === 0;
+
+  if (
+    !shouldFetchHomeBrief({
+      recordPage,
+      captureActive: listening,
+      cache: homeBriefCache,
+      flightContactId: homeBriefFlight,
+    })
+  ) {
+    return;
+  }
+  const contactId = homeBriefContactId(recordPage);
+  const token = localStorage.getItem(STORAGE.token);
+  if (!contactId || !token) return;
+  homeBriefFlight = contactId;
+  request(homeBriefRequestPath(contactId), { token })
+    .then((body) => {
+      if (homeBriefFlight !== contactId) return;
+      homeBriefCache = { contactId, brief: body };
+      homeBriefFlight = null;
+      paintHomeBrief();
+    })
+    .catch(() => {
+      if (homeBriefFlight !== contactId) return;
+      homeBriefCache = { contactId, brief: { text: 'No se pudo cargar todo.', lines: [] } };
+      homeBriefFlight = null;
+      paintHomeBrief();
+    });
+}
+
 function notifyShell() {
   const email = localStorage.getItem(STORAGE.email) || '';
   if (sessionChip) {
@@ -224,6 +282,8 @@ function showScreen(name) {
   listenPanel.hidden = name !== 'listen';
   reviewPanel.hidden = name !== 'review';
   desktop()?.shell?.resize(name === 'review' ? 'review' : 'compact');
+  if (name === 'listen') paintHomeBrief();
+  else if (contactBriefEl) contactBriefEl.hidden = true;
   notifyShell();
 }
 
@@ -430,6 +490,7 @@ function stopCapture() {
   btnStop.disabled = true;
   setLiveUi(false);
   desktop()?.shell?.hideOverlay();
+  paintHomeBrief();
   notifyShell();
 }
 
@@ -506,6 +567,7 @@ async function startListen() {
   backendChip.textContent = backendLabel(currentBackend);
   statusEl.textContent = `Hearing the meeting via ${backendLabel(currentBackend)}. Overlay stays on top.`;
   desktop()?.shell?.showOverlay();
+  paintHomeBrief();
   notifyShell();
 
   const wsUrl = applyChannelLabelsToLiveUrl(liveTranscriptionUrl(apiBase()), ['prospect', 'rep']);
