@@ -119,6 +119,29 @@ describe("post interaction brief", () => {
     assert.match(surface.highlightNote ?? "", /Se destaca a las/);
   });
 
+  it("maps six API statuses to catalog titles without endless waiting", () => {
+    const base = {
+      input_revision: "rev-4",
+      sections: [{ kind: "objections", evidence_refs: ["ev-1"], quote: "está caro" }],
+      audio_available: false,
+      strength: null,
+      improvement: null,
+    } as const;
+    const cases: Array<{ status: BriefView["status"]; reason: string | null; waiting: boolean; titleKey: keyof typeof productCatalog.ES }> = [
+      { status: "pending", reason: "waiting_for_sources", waiting: true, titleKey: "briefTitlePending" },
+      { status: "partial", reason: "score_pending", waiting: false, titleKey: "briefTitlePartial" },
+      { status: "ready", reason: null, waiting: false, titleKey: "briefTitleReady" },
+      { status: "skipped", reason: "no_conversation", waiting: false, titleKey: "briefTitleSkipped" },
+      { status: "unavailable", reason: "missing_playbook", waiting: false, titleKey: "briefTitleUnavailable" },
+      { status: "failed", reason: "job_error", waiting: false, titleKey: "briefTitleFailed" },
+    ];
+    for (const item of cases) {
+      const surface = briefSurface({ ...base, ...item, sections: item.status === "skipped" ? [] : base.sections }, productCatalog.ES);
+      assert.equal(surface.title, productCatalog.ES[item.titleKey]);
+      assert.equal(surface.waiting, item.status === "pending" && item.waiting);
+    }
+  });
+
   it("turns a failure into a partial retry without inventing sections", () => {
     const failed = briefSurface({ ...partial, status: "failed", reason: "job_error" }, productCatalog.ES);
     assert.equal(failed.title, productCatalog.ES.briefTitleFailed);

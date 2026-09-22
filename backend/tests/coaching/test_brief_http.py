@@ -59,6 +59,31 @@ def setup_function():
     store._STORE.clear()
 
 
+def test_changing_preference_updates_highlight_time_on_read():
+    row = {
+        "revision_seq": 4,
+        "status": "ready",
+        "input_revision": "rev-4",
+        "created_at": READY_AT,
+        "body": {
+            "input_revision": "rev-4",
+            "sections": SECTIONS,
+            "audio_available": False,
+            "strength": "Nombró el precio",
+            "improvement": None,
+            "waiting": False,
+            "reason": None,
+        },
+    }
+    store.write_preference(USER_ID, {"highlight_mode": "deferred", "timezone": "Europe/Madrid"})
+    deferred = _client(BriefStore(briefs=[row])).get(f"/api/v1/memos/{MEMO_ID}/brief").json()
+    store.write_preference(USER_ID, {"highlight_mode": "end_of_day", "timezone": "Europe/Madrid"})
+    end_of_day = _client(BriefStore(briefs=[row])).get(f"/api/v1/memos/{MEMO_ID}/brief").json()
+    assert deferred["highlight"]["highlight_mode"] == "deferred"
+    assert end_of_day["highlight"]["highlight_mode"] == "end_of_day"
+    assert deferred["highlight"]["highlight_at"] != end_of_day["highlight"]["highlight_at"]
+
+
 def test_deferred_preference_adds_highlight_without_changing_the_brief():
     store.write_preference(USER_ID, {"highlight_mode": "deferred", "timezone": "Europe/Madrid"})
     row = {
@@ -84,6 +109,46 @@ def test_deferred_preference_adds_highlight_without_changing_the_brief():
     assert body["highlight"]["highlight_mode"] == "deferred"
     assert body["highlight"]["highlight_at"] == "2026-09-22T16:30:00Z"
     assert body["highlight"]["timezone"] == "Europe/Madrid"
+
+
+def test_get_brief_uses_the_highest_revision_row():
+    older = {
+        "revision_seq": 3,
+        "status": "ready",
+        "input_revision": "rev-3",
+        "created_at": READY_AT,
+        "body": {
+            "input_revision": "rev-3",
+            "sections": [],
+            "audio_available": False,
+            "strength": "Conclusión antigua",
+            "improvement": "Mejora antigua",
+            "waiting": False,
+            "reason": None,
+        },
+    }
+    current = {
+        "revision_seq": 4,
+        "status": "partial",
+        "input_revision": "rev-4",
+        "created_at": READY_AT,
+        "body": {
+            "input_revision": "rev-4",
+            "sections": SECTIONS,
+            "audio_available": False,
+            "strength": None,
+            "improvement": None,
+            "waiting": False,
+            "reason": "score_pending",
+        },
+    }
+    got = _client(BriefStore(briefs=[older, current])).get(f"/api/v1/memos/{MEMO_ID}/brief")
+    assert got.status_code == 200
+    body = got.json()
+    assert body["input_revision"] == "rev-4"
+    assert body["status"] == "partial"
+    assert body.get("strength") is None
+    assert body.get("improvement") is None
 
 
 def test_not_started_has_no_highlight_at():

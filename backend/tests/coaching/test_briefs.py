@@ -129,6 +129,90 @@ def test_materialize_ready_score_keeps_revision_and_objection_section():
     assert row["body"]["strength"] == "Nombró el precio"
 
 
+def test_improvement_is_omitted_without_evidence_sections():
+    bare = aggregate_brief(
+        screening=None,
+        score={
+            "input_revision": "rev-4",
+            "status": "ready",
+            "value": 8,
+            "strengths": ["Nombró el precio"],
+            "improvements": ["No cerró el paso"],
+        },
+        patterns=[],
+        playbook_present=True,
+        job_error=False,
+        input_revision="rev-4",
+        audio_available=False,
+    )
+    assert bare["status"] == "ready"
+    assert bare["improvement"] is None
+    assert bare["strength"] == "Nombró el precio"
+    backed = aggregate_brief(
+        screening=None,
+        score={
+            "input_revision": "rev-4",
+            "status": "ready",
+            "value": 8,
+            "strengths": ["Nombró el precio"],
+            "improvements": ["No cerró el paso"],
+        },
+        patterns=[{"input_revision": "rev-4", "superseded": False, "evidence_refs": ["ev-1"]}],
+        playbook_present=True,
+        job_error=False,
+        input_revision="rev-4",
+        audio_available=False,
+    )
+    assert backed["improvement"] == "No cerró el paso"
+    assert backed["sections"][0]["evidence_refs"] == ["ev-1"]
+
+
+def test_ready_brief_keeps_one_coaching_line_and_three_evidence_refs():
+    brief = aggregate_brief(
+        screening=None,
+        score={
+            "input_revision": "rev-4",
+            "status": "ready",
+            "value": 8,
+            "strengths": ["Uno", "Dos"],
+            "improvements": ["Mejora"],
+        },
+        patterns=PATTERNS,
+        playbook_present=True,
+        job_error=False,
+        input_revision="rev-4",
+        audio_available=False,
+    )
+    assert brief["strength"] == "Uno"
+    assert brief["improvement"] == "Mejora"
+    assert brief["sections"] == [{"kind": "objections", "evidence_refs": ["ev-1", "ev-2", "ev-3"]}]
+
+
+def test_terminal_brief_states_never_wait_forever():
+    skipped = aggregate_brief(
+        screening="voicemail",
+        score={"input_revision": "rev-4", "status": "pending"},
+        patterns=PATTERNS,
+        playbook_present=True,
+        job_error=False,
+        input_revision="rev-4",
+        audio_available=False,
+    )
+    assert skipped["status"] == "skipped"
+    assert skipped["waiting"] is False
+    failed = aggregate_brief(
+        screening=None,
+        score=None,
+        patterns=[],
+        playbook_present=True,
+        job_error=True,
+        input_revision="rev-4",
+        audio_available=False,
+    )
+    assert failed["status"] == "failed"
+    assert failed["waiting"] is False
+
+
 def test_materialize_voicemail_screening_is_skipped():
     row = materialize_brief(
         screening="voicemail",

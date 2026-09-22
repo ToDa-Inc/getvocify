@@ -131,6 +131,17 @@ def test_supabase_read_failure_falls_back_to_memory():
     }
 
 
+def test_deferred_highlight_does_not_delay_brief_processing():
+    jobs = enqueue_brief([], memo_id="memo-1", input_revision="rev-4")
+    highlighted = apply_preference(
+        {"status": "pending", "reason": "score_pending", "waiting": True, "sections": []},
+        {"highlight_mode": "deferred", "timezone": "Europe/Madrid"},
+    )
+    assert jobs[0]["available_at"] == "now"
+    assert highlighted["highlight"]["highlight_mode"] == "deferred"
+    assert highlighted["waiting"] is True
+
+
 def test_changing_the_preference_keeps_a_ready_brief():
     brief = {"status": "ready", "sections": [{"kind": "objections", "evidence_refs": ["ev-1"]}]}
     updated = apply_preference(brief, {"highlight_mode": "deferred", "timezone": "Europe/Madrid"})

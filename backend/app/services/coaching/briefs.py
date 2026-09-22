@@ -48,8 +48,17 @@ def aggregate_brief(
             return {**base, "status": "partial", "reason": "score_pending", "waiting": score is not None and score.get("status") == "pending"}
         return {**base, "status": "pending", "reason": "waiting_for_sources", "waiting": True}
     if score.get("status") in {"partial", "unavailable"} or score.get("value") is None:
-        return {**base, "status": "partial", "reason": score.get("reason") or "score_pending"}
-    return {**base, "status": "ready", "reason": None}
+        return _evidence_backed_coaching({**base, "status": "partial", "reason": score.get("reason") or "score_pending"})
+    return _evidence_backed_coaching({**base, "status": "ready", "reason": None})
+
+
+def _evidence_backed_coaching(brief: dict) -> dict:
+    """An improvement is only shown when objection evidence exists for this revision."""
+    sections = brief.get("sections") or []
+    has_evidence = any(section.get("evidence_refs") for section in sections)
+    if brief.get("improvement") and not has_evidence:
+        return {**brief, "improvement": None}
+    return brief
 
 
 def _sections(patterns: list[dict], input_revision: str) -> list[dict]:

@@ -98,6 +98,9 @@ def test_store_coaching_from_job_payload_persists_score_and_brief():
     store_coaching_from_job_payload(supabase, MEMO, payload)
     assert len(supabase.tables["memo_scores"]) == 1
     assert len(supabase.tables["post_interaction_briefs"]) == 1
+    brief = supabase.tables["post_interaction_briefs"][0]
+    assert brief["status"] == "ready"
+    assert brief["body"]["waiting"] is False
     store_coaching_from_job_payload(supabase, MEMO, payload)
     assert len(supabase.tables["post_interaction_briefs"]) == 1
 

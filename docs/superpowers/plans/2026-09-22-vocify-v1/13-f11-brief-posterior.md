@@ -149,21 +149,21 @@ La preferencia «al terminar / diferido / fin del día» determina cuándo desta
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] La llamada siguiente puede empezar mientras se procesa el brief.
+- [x] La llamada siguiente puede empezar mientras se procesa el brief.
 
-- [ ] Cambiar la preferencia modifica cuándo se destaca.
+- [x] Cambiar la preferencia modifica cuándo se destaca.
 
-- [ ] Un reinicio del trabajador no deja el brief pendiente indefinidamente.
+- [x] Un reinicio del trabajador no deja el brief pendiente indefinidamente.
 
-- [ ] No se muestran conclusiones de una revisión antigua.
+- [x] No se muestran conclusiones de una revisión antigua.
 
-- [ ] Cada mejora incluye evidencia.
+- [x] Cada mejora incluye evidencia.
 
-- [ ] El contenido principal es breve y utilizable.
+- [x] El contenido principal es breve y utilizable.
 
-- [ ] Se verifican los seis estados visuales y sus acciones. Buzón/no respuesta termina en `skipped`; nunca queda cargando indefinidamente.
+- [x] Se verifican los seis estados visuales y sus acciones. Buzón/no respuesta termina en `skipped`; nunca queda cargando indefinidamente.
 
-- [ ] Un resultado parcial muestra solo secciones respaldadas; un retry o revisión nueva no presenta como actual una conclusión antigua. Un brief sin audio permite leer la cita sin reproducción ficticia.
+- [x] Un resultado parcial muestra solo secciones respaldadas; un retry o revisión nueva no presenta como actual una conclusión antigua. Un brief sin audio permite leer la cita sin reproducción ficticia.
 
 ### Riesgos / edge cases conocidos
 
