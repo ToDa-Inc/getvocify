@@ -9,6 +9,7 @@ import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors"
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
 import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteractionBrief";
@@ -545,6 +546,9 @@ const MemoDetail = () => {
                   </a>
                 </Button>
               </div>
+            ) : null}
+            {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
+              <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} />
             ) : null}
             {isOwnMemo && id ? (
               <InteractionObjections

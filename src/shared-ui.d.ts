@@ -1,4 +1,9 @@
-declare module "@shared/ui/components/v-followup.js";
+declare module "@shared/ui/brief.js" {
+  export function visibleBrief(brief: { text?: string | null; lines?: { text?: string | null }[] }): string[];
+  export function briefForContact(contactId: string | null, cached: { contactId: string; brief: unknown } | null): unknown;
+  export function briefOnContact(input: { objectType?: string; captureActive?: boolean; brief?: { text?: string | null; lines?: { text?: string | null }[] } | null }): string[];
+  export function briefRequest(contactId: string, connectionId?: string): string;
+}
 
 declare module "@shared/ui/compose.js" {
   export type ComposeResult =
