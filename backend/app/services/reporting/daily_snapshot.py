@@ -73,6 +73,31 @@ def _outcomes_for_snapshot(observations: list[dict] | None, *, user_id: str) -> 
     return {"coverage": crm.get("crm_coverage") or "unavailable"}
 
 
+def _load_recent_memos_for_tick(supabase, since_iso: str) -> list[dict]:
+    """Load memos that might fall in a local day window (row or capture time since *since*)."""
+    columns = (
+        "id,company_id,user_id,screening_outcome,extraction,intelligence,"
+        "capture_started_at,created_at"
+    )
+    by_id: dict[str, dict] = {}
+    for column in ("created_at", "capture_started_at"):
+        try:
+            result = (
+                supabase.table("memos")
+                .select(columns)
+                .gte(column, since_iso)
+                .execute()
+            )
+        except Exception:
+            logger.exception("daily report tick: list recent memos failed (%s)", column)
+            continue
+        for row in result.data or []:
+            memo_id = row.get("id")
+            if memo_id is not None:
+                by_id[str(memo_id)] = row
+    return list(by_id.values())
+
+
 def _load_memos_for_user(supabase, *, company_id: str, user_id: str) -> list[dict]:
     try:
         result = (
@@ -189,20 +214,7 @@ def ensure_self_daily_reports_for_due_tick(supabase, now: datetime) -> None:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     since = (now - timedelta(days=2)).isoformat()
-    try:
-        recent = (
-            supabase.table("memos")
-            .select(
-                "id,company_id,user_id,screening_outcome,extraction,intelligence,"
-                "capture_started_at,created_at"
-            )
-            .gte("created_at", since)
-            .execute()
-        )
-        memos = list(recent.data or [])
-    except Exception:
-        logger.exception("daily report tick: list recent memos failed")
-        return
+    memos = _load_recent_memos_for_tick(supabase, since)
     if not memos:
         return
     user_ids = list({str(m["user_id"]) for m in memos if m.get("user_id")})

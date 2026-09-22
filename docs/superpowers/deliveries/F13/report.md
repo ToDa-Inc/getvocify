@@ -20,7 +20,7 @@ La ruta de producción `send_report_email` usa el adaptador Resend cuando el cal
 
 Sin destinatario en el tick, `_ReportIdSender` falla y el intento queda `failed` (no `sent`); el reloj de reintento sigue siendo `created_at` — no hay `last_attempt_at`.
 
-Antes del envío, el tick materializa el informe diario `self` del día local desde memos y hace upsert en `reports` (`tests/reporting/test_ensure_daily_report_from_memos.py`, 2 passed).
+Antes del envío, el tick materializa el informe diario `self` del día local desde memos y hace upsert en `reports`; el periodo usa `capture_started_at` (o `created_at`), no solo la fecha de fila (`tests/reporting/test_ensure_daily_report_from_memos.py`, 5 passed).
 
 ## No verificado
 

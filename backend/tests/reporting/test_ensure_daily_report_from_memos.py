@@ -170,6 +170,70 @@ def test_ensure_self_daily_report_upserts_once_and_build_snapshot_from_memos():
     assert len(fake.tables["reports"]) == 1
 
 
+def test_tick_includes_memo_when_capture_falls_in_local_period_not_created_at():
+    row_created = datetime(2026, 9, 18, 8, 0, tzinfo=timezone.utc).isoformat()
+    captured_today = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc).isoformat()
+    memo = {
+        "id": "memo-captured-today",
+        "company_id": COMPANY,
+        "user_id": USER,
+        "screening_outcome": "connected",
+        "created_at": row_created,
+        "capture_started_at": captured_today,
+        "extraction": {},
+        "intelligence": {},
+    }
+    fake = FakeSupabase(memos=[memo])
+    ensure_self_daily_reports_for_due_tick(fake, AT_CUTOFF)
+    assert len(fake.tables["reports"]) == 1
+    snap = fake.tables["reports"][0]["snapshot"]
+    assert snap["metrics"]["attempts"] == 1
+    assert snap["metrics"]["deals_won"] is None
+
+
+def test_tick_skips_memo_captured_yesterday_empty_period_attempts_zero():
+    captured_yesterday = datetime(2026, 9, 21, 10, 0, tzinfo=timezone.utc).isoformat()
+    memo = {
+        "id": "memo-yesterday",
+        "company_id": COMPANY,
+        "user_id": USER,
+        "screening_outcome": "connected",
+        "created_at": captured_yesterday,
+        "capture_started_at": captured_yesterday,
+        "extraction": {},
+        "intelligence": {},
+    }
+    fake = FakeSupabase(memos=[memo])
+    ensure_self_daily_reports_for_due_tick(fake, AT_CUTOFF)
+    assert fake.tables["reports"] == []
+
+
+def test_ensure_self_daily_report_uses_capture_started_at_over_stale_created_at():
+    row_created = datetime(2026, 9, 18, 8, 0, tzinfo=timezone.utc).isoformat()
+    captured_today = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc).isoformat()
+    memo = {
+        "id": "memo-1",
+        "company_id": COMPANY,
+        "user_id": USER,
+        "screening_outcome": "connected",
+        "created_at": row_created,
+        "capture_started_at": captured_today,
+        "extraction": {},
+        "intelligence": {},
+    }
+    fake = FakeSupabase(memos=[memo])
+    ensure_self_daily_report(
+        fake,
+        company_id=COMPANY,
+        user_id=USER,
+        timezone=MADRID,
+        now=AT_CUTOFF,
+    )
+    assert len(fake.tables["reports"]) == 1
+    assert fake.tables["reports"][0]["snapshot"]["metrics"]["attempts"] == 1
+    assert fake.tables["reports"][0]["snapshot"]["metrics"]["deals_won"] is None
+
+
 def test_tick_ensures_report_from_memos_before_email_send():
     fake = FakeSupabase(memos=[_memo_in_period()])
     sender = FakeSender()
