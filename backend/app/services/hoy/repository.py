@@ -47,3 +47,22 @@ def reopen_statement(*, company_id: str, user_id: str, connection_id: str, chang
         f"AND connection_id = {_literal(connection_id)} AND dedupe_key = {_literal(change['dedupe_key'])} "
         f"AND status = 'snoozed' AND version = {int(change['expected_version'])};"
     )
+
+
+def transition_statement(
+    *,
+    signal_id: str,
+    company_id: str,
+    user_id: str,
+    expected_version: int,
+    request_id: str,
+    status: str,
+) -> str:
+    return (
+        "UPDATE action_signals SET "
+        f"previous_status = status, status = {_literal(status)}, version = version + 1, "
+        f"last_action_request_id = {_literal(request_id)}, "
+        "last_action_at = now(), undo_deadline = now() + interval '5 seconds', updated_at = now() "
+        f"WHERE id = {_literal(signal_id)} AND company_id = {_literal(company_id)} "
+        f"AND user_id = {_literal(user_id)} AND version = {int(expected_version)};"
+    )
