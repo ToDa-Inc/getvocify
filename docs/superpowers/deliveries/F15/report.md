@@ -29,6 +29,8 @@ No se inventa un estado anterior si no hay historia.
 
 `GET /team/adherence` expone `sample_limited` cuando la semana Madrid tiene entre una y cuatro conversaciones puntuadas (cero no cuenta como limitada); la página muestra «Con menos de cinco conversaciones no hay conclusión.» junto a los recuentos de adherencia. La cobertura de cierres CRM solo se infiere de `crm_coverage` (`complete`/`partial`), no del `coverage` de pasos del playbook. Pruebas: `tests/team_insights/test_aggregate.py` y `src/lib/motion-label.test.ts`.
 
+`GET /team/adherence` rellena `crm_coverage`, `won`, `lost` y `unresolved_wins` desde `team_outcome_observations` (última observación por deal; lectura fallida o vacía → no disponible, no cero). Prueba: `tests/team_insights/test_adherence_crm_outcomes.py`.
+
 ## Filtros compartidos (2026-09-22)
 
 `GET /team/adherence` comparte `user_id` y `motion` entre actividad, adherencia y objeciones; sin parámetros mantiene el agregado de empresa. La respuesta incluye `reps` ordenados por nombre (`es`), la página `/dashboard/insights` expone Comercial y Tipología con los mismos query params, y un miembro sigue en 403 antes de cualquier cifra. Pruebas: `tests/team_insights/test_adherence_filters.py` y `src/lib/team-insights.test.ts`.

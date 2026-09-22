@@ -43,6 +43,9 @@ export default function TeamInsightsPage() {
         applicable_steps: number;
         coverage: number | null;
         crm_coverage?: "complete" | "partial";
+        won?: number | null;
+        lost?: number | null;
+        unresolved_wins?: number;
         sample_limited?: boolean;
         attempts?: number;
         connected?: number;
@@ -76,9 +79,9 @@ export default function TeamInsightsPage() {
           attempts: typeof query.data.attempts === "number" ? query.data.attempts : null,
           connected: typeof query.data.connected === "number" ? query.data.connected : null,
           meetings: typeof query.data.meetings === "number" ? query.data.meetings : null,
-          won: null,
-          lost: null,
-          unresolvedWins: 0,
+          won: query.data.won ?? null,
+          lost: query.data.lost ?? null,
+          unresolvedWins: query.data.unresolved_wins ?? 0,
           adherence: query.data.adherence,
           met: query.data.met_steps,
           applicable: query.data.applicable_steps,

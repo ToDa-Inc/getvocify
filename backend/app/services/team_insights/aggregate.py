@@ -9,6 +9,7 @@ from app.services.activity_scope import author_display_name
 from app.services.coaching.metrics import aggregate_adherence
 from app.services.company import CompanyService
 from app.services.team_insights.objections import objection_counts
+from app.services.team_insights.outcomes import adherence_crm_outcomes
 
 _MADRID = ZoneInfo("Europe/Madrid")
 
@@ -226,6 +227,17 @@ def load_team_adherence_inputs(
         playbook_present = bool(published.data)
     except Exception:
         pass
+    outcome_observations: list[dict] | None = None
+    try:
+        observations = (
+            supabase.table("team_outcome_observations")
+            .select("connection_id,deal_id,status,owner_user_id,attribution,observed_at")
+            .eq("company_id", company_id)
+            .execute()
+        )
+        outcome_observations = list(observations.data or [])
+    except Exception:
+        outcome_observations = None
     period_start, period_end = madrid_week_bounds()
     return {
         "parts": parts,
@@ -236,6 +248,8 @@ def load_team_adherence_inputs(
         "activity_period_end": period_end,
         "pattern_rows": pattern_rows,
         "reps": reps,
+        "outcome_observations": outcome_observations,
+        "outcome_user_id": filter_user,
     }
 
 
@@ -250,8 +264,20 @@ def team_adherence(
     activity_period_end: datetime | None = None,
     pattern_rows: list[dict] | None = None,
     reps: list[dict] | None = None,
+    outcome_observations: list[dict] | None = None,
+    outcome_user_id: str | None = None,
 ) -> dict:
     assert_team_reader(role)
+
+    def with_crm_outcomes(body: dict) -> dict:
+        if outcome_observations is None:
+            body["crm_coverage"] = "unavailable"
+            body["won"] = None
+            body["lost"] = None
+            body["unresolved_wins"] = 0
+        else:
+            body.update(adherence_crm_outcomes(outcome_observations, user_id=outcome_user_id))
+        return body
     if activity_period_start is None or activity_period_end is None:
         activity_period_start, activity_period_end = madrid_week_bounds()
     week_parts = adherence_parts_in_period(
@@ -286,7 +312,7 @@ def team_adherence(
             end=activity_period_end,
         )
         body["reps"] = reps or []
-        return body
+        return with_crm_outcomes(body)
     metrics = aggregate_adherence(week_parts)
     conclusion = None
     if effective_sample < 5:
@@ -307,4 +333,4 @@ def team_adherence(
         end=activity_period_end,
     )
     body["reps"] = reps or []
-    return body
+    return with_crm_outcomes(body)

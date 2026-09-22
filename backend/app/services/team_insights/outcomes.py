@@ -56,6 +56,40 @@ def latest_observations(history: list[dict]) -> list[dict]:
     return list(chosen.values())
 
 
+def adherence_crm_outcomes(history: list[dict], *, user_id: str | None = None) -> dict:
+    """Partial CRM snapshot only. An empty history is unavailable, not zero wins."""
+    unavailable = {
+        "crm_coverage": "unavailable",
+        "won": None,
+        "lost": None,
+        "unresolved_wins": 0,
+    }
+    if not history:
+        return unavailable
+    rows = latest_observations(history)
+    filter_user = (user_id or "").strip() or None
+    won = 0
+    lost = 0
+    unresolved_wins = 0
+    for row in rows:
+        owner = row.get("owner_user_id")
+        if filter_user is not None and owner != filter_user:
+            continue
+        status = row.get("status")
+        if status == "won":
+            won += 1
+            if row.get("attribution") != "assigned":
+                unresolved_wins += 1
+        elif status == "lost":
+            lost += 1
+    return {
+        "crm_coverage": "partial",
+        "won": won,
+        "lost": lost,
+        "unresolved_wins": unresolved_wins,
+    }
+
+
 def reconcile_wins(history: list[dict]) -> dict:
     rows = [row for row in latest_observations(history) if row["status"] == "won"]
     assigned = sum(1 for row in rows if row["attribution"] == "assigned")
