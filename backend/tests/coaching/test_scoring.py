@@ -136,3 +136,62 @@ def test_an_older_revision_does_not_replace_the_stored_mark():
         proc.terminate()
         proc.wait(timeout=8)
         shutil.rmtree(datadir, ignore_errors=True)
+
+
+def test_get_score_returns_the_stored_mark_for_the_company():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import coaching as coaching_api
+    from app.deps import get_membership, get_supabase
+    from app.services.company import Membership
+
+    class Result:
+        def __init__(self, data):
+            self.data = data
+
+    class Query:
+        def __init__(self, rows):
+            self.rows = rows
+            self.filters = []
+
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, column, value):
+            self.filters.append((column, value))
+            return self
+
+        def execute(self):
+            rows = self.rows
+            for column, value in self.filters:
+                rows = [row for row in rows if row.get(column) == value]
+            return Result(rows)
+
+    class Store:
+        def table(self, name):
+            if name == "memos":
+                return Query([{"id": "memo-1", "company_id": "co-1"}])
+            return Query([{
+                "memo_id": "memo-1",
+                "revision_seq": 2,
+                "playbook_version_id": "pv-2",
+                "score": {"status": "ready", "value": 6, "reason": None, "adherence": 0.5, "crm_outcome": "closed_won"},
+            }])
+
+    app = FastAPI()
+    app.include_router(coaching_api.router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+    )
+    app.dependency_overrides[get_supabase] = lambda: Store()
+    body = TestClient(app).get("/api/v1/memos/memo-1/score").json()
+    assert body["value"] == 6
+    assert body["adherence"] == 0.5
+    assert body["crm_outcome"] == "closed_won"
+
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-2", user_id="user-b", role="member", status="active",
+    )
+    hidden = TestClient(app).get("/api/v1/memos/memo-1/score")
+    assert hidden.status_code == 404

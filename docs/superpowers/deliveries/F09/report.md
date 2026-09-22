@@ -12,4 +12,5 @@ Estado: la adherencia determinista está en `feat/vocify-v1`. No está cerrada.
 
 ## No verificado
 
-- No hay `GET` de score ni la tarjeta en el memo. La rúbrica está en `scoring_v1.md` y el ensamblado no llama a un modelo.
+- `GET /memos/{id}/score` devuelve la nota guardada y no la recalcula. La tarjeta muestra fortaleza y mejora antes del número. `src/lib/coaching-score.test.ts` 2 passed; `tsc --noEmit`.
+- No hay un conjunto de 20 conversaciones anotadas. No se inventa. El ensamblado no llama a un modelo. La pantalla no se recorrió en el navegador.
