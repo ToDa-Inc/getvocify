@@ -26,11 +26,13 @@ async def list_contact_priorities(
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = None,
 ):
-    connected, rows = load_context(supabase, membership.company_id)
+    connected, rows, provider, portal_id = load_context(supabase, membership.company_id)
     if not connected:
         snapshot = {"connected": False, "coverage": "unavailable", "candidates": []}
     else:
         snapshot = snapshot_from_rows(rows, connected=True)
+        snapshot["provider"] = provider
+        snapshot["portal_id"] = portal_id
     return build_priority_page(
         snapshot=snapshot,
         user_id=membership.user_id,

@@ -102,6 +102,9 @@ def test_empty_states_are_distinct():
     assert disconnected["action"] is None
     assert empty_priority_copy(connected=False, coverage="complete", role="owner")["action"] == "Conectar CRM"
     assert empty_priority_copy(connected=True, coverage="complete")["title"].startswith("No hay contactos prioritarios ahora")
+    assert empty_priority_copy(connected=True, coverage="complete", provider="pipedrive")["contacts_url"] == "https://app.pipedrive.com/persons"
+    assert empty_priority_copy(connected=True, coverage="complete", provider="hubspot")["contacts_url"] is None
+    assert empty_priority_copy(connected=True, coverage="complete", provider="hubspot", portal_id="99")["contacts_url"] == "https://app.hubspot.com/contacts/99/objects/0-1"
     assert empty_priority_copy(connected=True, coverage="partial")["title"] == "Falta parte del historial"
     member = empty_priority_copy(connected=True, coverage="complete", role="member", assigned=False)
     assert member["action"] == "Revisa tu asignación con el administrador"

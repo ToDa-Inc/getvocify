@@ -55,6 +55,8 @@ def build_priority_page(
             coverage=coverage,
             role=role,
             assigned=snapshot.get("assigned", True),
+            provider=snapshot.get("provider"),
+            portal_id=snapshot.get("portal_id"),
         )
     return {
         "items": page,
@@ -177,20 +179,22 @@ def load_context(supabase, company_id: str) -> tuple[bool, list[dict]]:
     """A company is connected only when a CRM row is status=connected. Expired tokens are not an empty list."""
     connections = (
         supabase.table("crm_connections")
-        .select("id,status,company_id")
+        .select("id,status,company_id,provider,metadata")
         .eq("company_id", company_id)
         .execute()
     )
-    connected = any(row.get("status") == "connected" for row in (connections.data or []))
-    if not connected:
-        return False, []
+    live = next((row for row in (connections.data or []) if row.get("status") == "connected"), None)
+    if not live:
+        return False, [], None, None
+    meta = live.get("metadata") or {}
+    portal = meta.get("portal_id") or meta.get("hub_id")
     stored = (
         supabase.table("contact_priority_context")
         .select("*")
         .eq("company_id", company_id)
         .execute()
     )
-    return True, list(stored.data or [])
+    return True, list(stored.data or []), live.get("provider"), str(portal) if portal else None
 
 
 def upsert_statements(rows: list[dict]) -> str:

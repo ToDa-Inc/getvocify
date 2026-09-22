@@ -45,7 +45,11 @@ export function ContactPriorities({ hideEmpty = false }: { hideEmpty?: boolean }
       {surface.kind === "empty" ? (
         <div>
           <p>{surface.title}</p>
-          {surface.action === "Reintentar" || surface.action === "Conectar CRM" || surface.action === "Mapear responsables" ? (
+          {surface.action === "Abrir contactos en CRM" && surface.contactsUrl ? (
+            <a href={surface.contactsUrl} target="_blank" rel="noreferrer">
+              {surface.action}
+            </a>
+          ) : surface.action === "Reintentar" || surface.action === "Conectar CRM" || surface.action === "Mapear responsables" ? (
             <Button type="button" variant="outline" onClick={() => runAction(surface.action as string)}>
               {surface.action}
             </Button>

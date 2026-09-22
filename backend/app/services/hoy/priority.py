@@ -10,12 +10,23 @@ def candidate_id(connection_id: str, contact_id: str, deal_id: Optional[str]) ->
     return f"{connection_id}:{contact_id}:{deal_id or ''}"
 
 
+def contacts_url(provider: str | None, portal_id: str | None = None) -> str | None:
+    name = (provider or "").strip().lower()
+    if name == "hubspot" and portal_id:
+        return f"https://app.hubspot.com/contacts/{portal_id}/objects/0-1"
+    if name == "pipedrive":
+        return "https://app.pipedrive.com/persons"
+    return None
+
+
 def empty_priority_copy(
     *,
     connected: bool,
     coverage: str,
     role: str = "member",
     assigned: bool | None = True,
+    provider: str | None = None,
+    portal_id: str | None = None,
 ) -> dict:
     if not connected:
         action = "Conectar CRM" if role in ("owner", "admin") else None
@@ -28,6 +39,7 @@ def empty_priority_copy(
     return {
         "title": "No hay contactos prioritarios ahora. Buen momento para prospectar",
         "action": "Abrir contactos en CRM",
+        "contacts_url": contacts_url(provider, portal_id),
     }
 
 

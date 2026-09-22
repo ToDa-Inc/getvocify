@@ -16,13 +16,14 @@ export type PriorityView = {
   coverage: string;
   title: string | null;
   action: string | null;
+  contacts_url?: string | null;
   observed_at?: string | null;
 };
 
 export type PrioritySurface =
   | { kind: "loading" }
   | { kind: "error"; title: string }
-  | { kind: "empty"; title: string; action: string | null; observedAt: string | null }
+  | { kind: "empty"; title: string; action: string | null; contactsUrl: string | null; observedAt: string | null }
   | { kind: "list"; items: PriorityCandidate[]; note: string | null; stale: boolean; observedAt: string | null };
 
 export function prioritySurface(input: {
@@ -36,6 +37,7 @@ export function prioritySurface(input: {
         kind: "empty",
         title: input.data.title ?? "",
         action: input.data.action,
+        contactsUrl: input.data.contacts_url ?? null,
         observedAt: input.data.observed_at ?? null,
       };
     }
