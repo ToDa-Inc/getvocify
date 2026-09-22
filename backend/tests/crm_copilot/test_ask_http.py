@@ -470,6 +470,79 @@ def test_supabase_store_persists_a_finished_turn_and_replay_skips_the_loop():
         ask_api.set_ask_loop(None)
 
 
+def test_confirm_with_empty_memory_loads_the_stored_proposal_once():
+    from app.services.crm_copilot.web_sessions import _encode_completed_body, _turn_from_row
+
+    calls = []
+
+    async def loop(_text: str, confirm=None):
+        calls.append(confirm)
+        if confirm:
+            return {"text": "Nota creada"}
+        return None
+
+    row = {
+        "id": "turn-1",
+        "user_id": "user-a",
+        "conversation_id": "conv-1",
+        "client_turn_id": "web-1",
+        "status": "completed",
+        "body": _encode_completed_body(
+            {
+                "status": "completed",
+                "text": "¿Creo la nota?",
+                "confirmation": {
+                    "operation_id": "op-store",
+                    "revision": 2,
+                    "contact_id": "contact-a",
+                },
+            }
+        ),
+    }
+
+    class Store:
+        def get_turn_by_operation(self, *, user_id, conversation_id, operation_id):
+            if user_id != row["user_id"] or conversation_id != row["conversation_id"]:
+                return None
+            turn = _turn_from_row(row)
+            if (turn.get("confirmation") or {}).get("operation_id") != operation_id:
+                return None
+            return turn
+
+    ask_api._OPERATIONS.clear()
+    ask_api.set_ask_store(Store())
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        wrong = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
+            json={"revision": 2, "contact_id": "contact-b"},
+        )
+        assert wrong.status_code == 409
+        assert calls == []
+        first = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert first.status_code == 200
+        assert first.json()["applied"] is True
+        assert first.json()["text"] == "Nota creada"
+        assert calls == [True]
+        repeat = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-store/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert repeat.json()["replayed"] is True
+        assert calls == [True]
+        assert client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-unknown/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        ).status_code == 404
+    finally:
+        ask_api.set_ask_store(None)
+        ask_api.set_ask_loop(None)
+
+
 def test_a_failed_loop_leaves_the_turn_pending():
     async def loop(_text: str):
         return None

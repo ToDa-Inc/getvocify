@@ -110,6 +110,36 @@ class SupabaseAskStore:
             return None
         return _turn_from_row(rows[0])
 
+    def get_turn_by_operation(self, *, user_id, conversation_id, operation_id):
+        result = (
+            self.supabase.table("copilot_web_turns")
+            .select("id,conversation_id,client_turn_id,status,body,user_id")
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .eq("status", "completed")
+            .execute()
+        )
+        rows = list(getattr(result, "data", None) or [])
+        for row in rows:
+            turn = _turn_from_row(row)
+            confirmation = turn.get("confirmation") or {}
+            if confirmation.get("operation_id") == operation_id:
+                return turn
+        return None
+
+
+def proposed_operation_from_turn(turn: dict, operation_id: str) -> dict | None:
+    confirmation = turn.get("confirmation") or {}
+    if confirmation.get("operation_id") != operation_id:
+        return None
+    return {
+        "operation_id": confirmation["operation_id"],
+        "revision": confirmation["revision"],
+        "contact_id": confirmation["contact_id"],
+        "applied": False,
+        "status": "proposed",
+    }
+
 
 def accept_turn(store: dict, *, conversation_id: str, client_turn_id: str, text: str) -> dict:
     key = (conversation_id, client_turn_id)

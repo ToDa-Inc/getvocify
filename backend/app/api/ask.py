@@ -17,6 +17,7 @@ from app.services.crm_copilot.web_sessions import (
     attach_read,
     bind_ask_actor,
     confirm_operation,
+    proposed_operation_from_turn,
     public_answer,
 )
 
@@ -216,6 +217,14 @@ async def confirm_ask_operation(
 ):
     key = (membership.user_id, conversation_id, operation_id)
     operation = _OPERATIONS.get(key)
+    if not operation and _store is not None:
+        turn = _store.get_turn_by_operation(
+            user_id=membership.user_id,
+            conversation_id=conversation_id,
+            operation_id=operation_id,
+        )
+        if turn:
+            operation = proposed_operation_from_turn(turn, operation_id)
     if not operation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operación no encontrada")
     try:
