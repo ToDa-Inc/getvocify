@@ -10,6 +10,19 @@ export function meetingProposalView(proposal, { surface = "review", extractionPe
   if (proposal.decision === "omitted" || proposal.decision === "omit") {
     return { visible: true, title: "Reunión omitida", startsAt: proposal.starts_at ?? null, save: false, omit: false };
   }
+  if (
+    (proposal.decision === "accepted" || proposal.decision === "accept" || proposal.decision === "corrected") &&
+    proposal.crm_status === "not_requested"
+  ) {
+    return {
+      visible: true,
+      title: "Reunión detectada",
+      startsAt: proposal.starts_at ?? null,
+      timezone: proposal.timezone ?? null,
+      save: false,
+      omit: false,
+    };
+  }
   if (proposal.crm_status === "uncertain" || proposal.crm_status === "failed") {
     return {
       visible: true,

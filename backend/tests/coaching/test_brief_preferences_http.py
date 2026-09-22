@@ -31,6 +31,7 @@ def _client(user_id: str, company_id: str = "co-1") -> TestClient:
 
 def setup_function():
     store._STORE.clear()
+    store.set_supabase(None)
 
 
 def test_member_saves_deferred_and_reads_it_back():
