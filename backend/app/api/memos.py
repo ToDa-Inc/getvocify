@@ -22,6 +22,7 @@ from app.services.activity_scope import (
     resolve_list_user_ids,
 )
 from app.services.captures import insert_memo_row
+from app.services.followup import schedule_followup
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
 from app.services.extraction import ExtractionService
@@ -294,6 +295,7 @@ async def extract_memo_async(
                 datetime.utcnow().isoformat(),
             ),
         )
+        schedule_followup(supabase, memo_id)
         persist_pipeline_meta(
             supabase,
             memo_id,
@@ -2014,6 +2016,7 @@ async def re_extract_memo(
         run=run_record(run_id, "re_extract", started_at, t0, "ok"),
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
+    schedule_followup(supabase, str(memo_id))
     release_pipeline_run(supabase, str(memo_id), run_id)
 
     updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()

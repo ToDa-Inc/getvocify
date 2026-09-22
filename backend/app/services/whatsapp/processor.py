@@ -2158,6 +2158,7 @@ async def _extract_and_create_memo(
             prepare_transcript_for_extraction,
             schedule_transcript_polish,
         )
+        from app.services.followup import schedule_followup
 
         product_context = load_product_context(supabase, user_id)
         profile = load_stt_profile(supabase, user_id)
@@ -2218,6 +2219,7 @@ async def _extract_and_create_memo(
 
         update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
         schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
+        schedule_followup(supabase, str(memo_id))
         logger.info(
             "✅ Memo created",
             extra=log_domain(DOMAIN_WHATSAPP, "memo_created", memo_id=memo_id, whatsapp_message_id=whatsapp_message_id),
