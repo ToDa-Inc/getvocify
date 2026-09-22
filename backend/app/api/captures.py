@@ -55,6 +55,26 @@ def _to_response(identity: CaptureIdentity) -> CaptureResponse:
     )
 
 
+def _active_playbook_version(supabase: Client, company_id: str, sales_motion_key: Optional[str]) -> Optional[str]:
+    if not sales_motion_key:
+        return None
+    try:
+        result = (
+            supabase.table("playbooks")
+            .select("active_version_id")
+            .eq("company_id", company_id)
+            .eq("sales_motion_key", sales_motion_key)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    rows = list(getattr(result, "data", None) or [])
+    if not rows:
+        return None
+    return rows[0].get("active_version_id")
+
+
 @router.post("", response_model=CaptureResponse)
 async def create_capture(
     body: CreateCaptureRequest,
@@ -70,6 +90,9 @@ async def create_capture(
         interaction_kind=body.interaction_kind,
         sales_motion_key=body.sales_motion_key,
         playbook_version_id=body.playbook_version_id,
+        active_version_id=None if body.playbook_version_id else _active_playbook_version(
+            supabase, membership.company_id, body.sales_motion_key
+        ),
     )
     return _to_response(identity)
 

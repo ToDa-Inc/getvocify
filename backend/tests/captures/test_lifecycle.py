@@ -212,6 +212,54 @@ def test_repeat_post_same_author_returns_same_ids():
     assert first.status == second.status == "recording"
 
 
+def test_a_meeting_keeps_the_playbook_version_it_started_with():
+    supabase, store = fake_db()
+    reserve_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        client_capture_id=CLIENT_CAPTURE,
+        started_at=STARTED_AT,
+        interaction_kind="meeting",
+        sales_motion_key="discovery",
+        playbook_version_id="pv-1",
+        active_version_id="pv-9",
+    )
+    assert store[0]["playbook_version_id"] == "pv-1"
+    reserve_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        client_capture_id=CLIENT_CAPTURE,
+        started_at=STARTED_AT,
+        interaction_kind="meeting",
+        sales_motion_key="discovery",
+        playbook_version_id="pv-2",
+        active_version_id="pv-2",
+    )
+    assert store[0]["playbook_version_id"] == "pv-1"
+    reserve_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        client_capture_id="cap-open",
+        started_at=STARTED_AT,
+        interaction_kind="meeting",
+        sales_motion_key="discovery",
+        active_version_id="pv-3",
+    )
+    assert store[1]["playbook_version_id"] == "pv-3"
+    complete_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        capture_id=store[0]["id"],
+        transcript="Hola",
+        audio_duration=1,
+    )
+    assert store[0]["playbook_version_id"] == "pv-1"
+
+
 def test_same_client_capture_id_other_author_does_not_return_foreign_memo():
     supabase, store = fake_db()
     owned = reserve_capture(

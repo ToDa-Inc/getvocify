@@ -176,6 +176,7 @@ def reserve_capture(
     interaction_kind: str,
     sales_motion_key: Optional[str] = None,
     playbook_version_id: Optional[str] = None,
+    active_version_id: Optional[str] = None,
 ) -> CaptureIdentity:
     client_id = (client_capture_id or "").strip()
     if not client_id:
@@ -194,6 +195,9 @@ def reserve_capture(
     if existing:
         return _identity_from_row(existing)
 
+    from app.services.playbooks.versions import snapshot_for_capture
+
+    pinned = snapshot_for_capture(playbook_version_id, active_version_id)
     payload = {
         "user_id": user_id,
         "company_id": company_id,
@@ -201,7 +205,7 @@ def reserve_capture(
         "capture_started_at": _as_iso(started_at),
         "interaction_kind": kind,
         "sales_motion_key": sales_motion_key,
-        "playbook_version_id": playbook_version_id,
+        "playbook_version_id": pinned,
         "capture_status": "recording",
         "capture_input_revision": 0,
         "status": CAPTURE_STATUS_TO_MEMO_STATUS["recording"],
