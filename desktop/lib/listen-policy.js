@@ -1,3 +1,19 @@
+/** HubSpot contact id for copilot suggest when the page is a contact record; never invent ids. */
+export function contactIdForListenSession(crmPageContext) {
+  if (!crmPageContext || crmPageContext.objectType !== 'contact') return null;
+  const recordId = crmPageContext.recordId;
+  if (recordId == null || recordId === '') return null;
+  const id = String(recordId).trim();
+  return id || null;
+}
+
+export function buildListenSession({ callMode = 'meeting', crmPageContext = null } = {}) {
+  return {
+    callMode,
+    contactId: contactIdForListenSession(crmPageContext),
+  };
+}
+
 export function canStartListen({
   hasToken = false,
   isListening = false,

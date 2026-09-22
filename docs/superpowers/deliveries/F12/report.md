@@ -16,6 +16,7 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 | `/copilot/suggest` incluye `playbook_ready` y `evidence_refs` validados en el evento `result` para meetings | `backend/tests/copilot/test_live_meetings.py` |
 | Escritorio: no repite `/copilot/suggest` tras éxito si la línea final es idéntica; un fallo deja la línea reintentable | `desktop/lib/copilot-suggest.test.js` |
 | Escritorio: `/copilot/suggest` lleva `call_mode` desde la sesión (reunión vs llamada) y `contact_id` solo si la sesión ya lo tiene | `desktop/lib/copilot-suggest.test.js` |
+| Escritorio: al escuchar, `listenSession.contactId` copia el `recordId` solo en página HubSpot de contacto; deal o sin registro queda null | `desktop/lib/listen-policy.test.js` |
 | Backend: `contact_id` opcional en `/copilot/suggest` se normaliza en `SuggestContext` sin inventar contacto; `speakerphone` sigue siendo llamada y `meeting` reunión | `backend/tests/copilot/test_suggest_contact_context.py` |
 
 ## No verificado

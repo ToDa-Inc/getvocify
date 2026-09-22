@@ -1,7 +1,13 @@
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio, liveTranscriptionUrl } from '../lib/channels.js';
 import { backendLabel } from '../lib/capture-labels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
-import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../lib/listen-policy.js';
+import {
+  applyTranscriptUpdate,
+  buildListenSession,
+  canStartListen,
+  startDeniedMessage,
+} from '../lib/listen-policy.js';
+import { parseHubSpotRecordPage } from '../lib/hubspot-record-page.js';
 import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
@@ -78,6 +84,30 @@ let reviewContext = null;
 let copilotSuggestAbort = null;
 /** Active listen session: callMode/contact only; never invent CRM ids here. */
 let listenSession = null;
+/** HubSpot record page when known ({ objectType, recordId }), same shape as extension context. */
+let hubspotRecordPage = hubspotRecordPageFromLocation();
+
+function hubspotRecordPageFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const objectType = params.get('objectType');
+  const recordId = params.get('recordId');
+  if (!objectType || recordId == null || recordId === '') return null;
+  return { objectType, recordId };
+}
+
+function knownHubspotRecordPage() {
+  if (hubspotRecordPage?.recordId != null) return hubspotRecordPage;
+  try {
+    const url = sessionStorage.getItem('vocify_hubspot_page_url');
+    if (url) {
+      const parsed = parseHubSpotRecordPage(url);
+      if (parsed) return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
 /** Live-assist slice forwarded to the overlay pill (copilot session fills this). */
 export const liveAssistOverlay = { evidenceRefs: [] };
 
@@ -462,10 +492,11 @@ async function startListen() {
   listening = true;
   currentBackend = nativeBackend || 'chromium';
   captureStreams = system ? [mic, system] : [mic];
-  listenSession = {
+  hubspotRecordPage = knownHubspotRecordPage() ?? hubspotRecordPage;
+  listenSession = buildListenSession({
     callMode: 'meeting',
-    contactId: listenSession?.contactId ?? listenSession?.contact_id ?? null,
-  };
+    crmPageContext: hubspotRecordPage,
+  });
   transcriptState = { finalTranscript: '', interimTranscript: '' };
   resetCopilotSuggestRequestDedupe();
   renderTranscript();
