@@ -6,8 +6,20 @@ from typing import Any, Callable, Optional
 
 from app.models.intelligence import EvidenceRef, IntelligenceV1, MeetingFact, quote_is_in_source
 from app.services.intelligence.worker import revision_for_memo
+from app.services.llm.jev_schemas import INTELLIGENCE_QUESTIONS, evidence_state
 
 Classify = Callable[[dict], dict]
+
+
+async def classify_memo(memo: dict, client) -> dict:
+    """Ask Jev about this memo. Silence stays unknown, and a late quote is still in the state."""
+    excerpts = [
+        str(raw["quote"])
+        for raw in (memo.get("candidate_evidence") or [])
+        if isinstance(raw, dict) and raw.get("quote")
+    ]
+    state = evidence_state(memo.get("transcript") or "", excerpts)
+    return await client.classify_questions(state, INTELLIGENCE_QUESTIONS)
 
 
 def _tri_state(value: Any, *, yes: str, no: str) -> Optional[bool]:

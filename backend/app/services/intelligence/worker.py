@@ -43,8 +43,31 @@ def run_claimed(claim, load_memo, publish, classify, sources_for) -> Optional[di
     }
 
 
-def make_database_tick(supabase, classify, sources_for=None):
-    """Build one pass over claim_memo_job. No row means no classify and no publish."""
+async def run_claimed_awaiting(claim, load_memo, publish, classify, sources_for) -> Optional[dict]:
+    """Same as run_claimed, after awaiting an async classifier."""
+    claimed = claim()
+    if not claimed:
+        return None
+    memo = load_memo(claimed["memo_id"])
+    if not memo:
+        return {"outcome": "missing_memo", "published": False}
+    result = classify(memo)
+    if asyncio.iscoroutine(result):
+        result = await result
+    from app.services.intelligence.interpret import interpret_memo
+
+    intelligence, created = interpret_memo(memo, lambda _memo: result, sources_for(memo))
+    outcome = publish(claimed["job_id"], claimed["run_id"], intelligence.model_dump())
+    return {
+        "created": created,
+        "outcome": outcome,
+        "published": True,
+        "input_revision": intelligence.input_revision,
+    }
+
+
+def database_bindings(supabase, sources_for=None):
+    """claim_memo_job, the memo row, and publish_memo_job for one pass."""
 
     def claim():
         result = supabase.rpc(
@@ -79,6 +102,13 @@ def make_database_tick(supabase, classify, sources_for=None):
             return sources_for(memo)
         return {"transcript": memo.get("transcript") or ""}
 
+    return claim, load_memo, publish, sources
+
+
+def make_database_tick(supabase, classify, sources_for=None):
+    """Build one pass over claim_memo_job. No row means no classify and no publish."""
+    claim, load_memo, publish, sources = database_bindings(supabase, sources_for)
+
     def tick():
         return run_claimed(claim, load_memo, publish, classify, sources)
 
@@ -86,17 +116,28 @@ def make_database_tick(supabase, classify, sources_for=None):
 
 
 def install_intelligence_tick(classify=None) -> None:
-    """Claim from Postgres only when a classifier is installed and publishing is enabled."""
+    """Claim from Postgres only when publishing is enabled. Without an API key, do not claim."""
     from app.config import settings
 
-    if classify is None or not settings.INTELLIGENCE_WORKER_PUBLISH:
+    if not settings.INTELLIGENCE_WORKER_PUBLISH:
         set_worker_tick(None)
         return
 
     from app.deps import get_supabase
+    from app.services.intelligence.interpret import classify_memo
+    from app.services.llm.jev import JevClient
 
-    def tick():
-        return make_database_tick(get_supabase(), classify)()
+    async def default_classify(memo):
+        client = JevClient(api_key=settings.OPENROUTER_API_KEY or "")
+        return await classify_memo(memo, client)
+
+    chosen = classify or default_classify
+
+    async def tick():
+        if classify is None and not (settings.OPENROUTER_API_KEY or "").strip():
+            return None
+        claim, load_memo, publish, sources = database_bindings(get_supabase())
+        return await run_claimed_awaiting(claim, load_memo, publish, chosen, sources)
 
     set_worker_tick(tick)
 

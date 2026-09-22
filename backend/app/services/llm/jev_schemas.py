@@ -11,6 +11,22 @@ OBJECTION_KIND = {
     "instructions": "Is the remark a commercial price objection, a timing objection, a practical obstacle, or unknown? Do not treat 'I am driving' as price or timing.",
 }
 
+MEETING_AGREED = {
+    "question": "meeting_agreed",
+    "allowed": ["agreed", "not_agreed", "unknown"],
+    "on_missing": "unknown",
+    "instructions": "Did both sides agree to meet? A suggestion that was not confirmed stays unknown.",
+}
+
+PAIN_CONFIRMED = {
+    "question": "pain_confirmed",
+    "allowed": ["confirmed", "not_confirmed", "unknown"],
+    "on_missing": "unknown",
+    "instructions": "Did the prospect confirm a concrete pain? If it was not stated, stay unknown.",
+}
+
+INTELLIGENCE_QUESTIONS = [MEETING_AGREED, PAIN_CONFIRMED]
+
 
 def evidence_state(transcript: str, excerpts: list[str], *, limit: int = MAX_STATE_CHARS) -> dict:
     """Keep cited excerpts even when they sit past the first 16k characters."""

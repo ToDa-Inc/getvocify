@@ -201,3 +201,42 @@ def test_a_claimed_job_publishes_with_job_and_run_and_a_missing_memo_does_not():
     client = Client()
     assert make_database_tick(client, classify)()["published"] is False
     assert client.rpc_names == ["claim_memo_job"]
+
+
+def test_startup_tick_does_not_claim_without_an_api_key(monkeypatch):
+    from app.config import settings
+    from app.services.intelligence import worker as worker_mod
+    from app.services.intelligence.worker import install_intelligence_tick, set_worker_tick
+
+    monkeypatch.setattr(settings, "INTELLIGENCE_WORKER_PUBLISH", True)
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "")
+
+    def boom():
+        raise AssertionError("supabase")
+
+    monkeypatch.setattr("app.deps.get_supabase", boom)
+    install_intelligence_tick()
+    try:
+        assert worker_mod._worker_tick is not None
+        assert asyncio.run(worker_mod._worker_tick()) is None
+    finally:
+        set_worker_tick(None)
+
+
+def test_an_async_classifier_publishes_the_claimed_job():
+    from app.services.intelligence.worker import run_claimed_awaiting
+
+    published = []
+
+    async def classify(_memo):
+        return {"status": "unavailable", "answers": {}}
+
+    outcome = asyncio.run(run_claimed_awaiting(
+        lambda: {"job_id": "job-1", "run_id": "run-1", "memo_id": "memo-1"},
+        lambda _memo_id: MEMO,
+        lambda job_id, run_id, payload: published.append((job_id, run_id, payload["status"])),
+        classify,
+        lambda _memo: {},
+    ))
+    assert outcome["published"] is True
+    assert published == [("job-1", "run-1", "unavailable")]

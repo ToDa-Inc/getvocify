@@ -70,3 +70,19 @@ async def test_late_resolution_is_kept_when_the_transcript_is_long():
     )
     assert result["answers"]["objection_resolution"] == "resolved"
     assert late in client.seen_state["transcript"]
+
+
+@pytest.mark.asyncio
+async def test_memo_classifier_keeps_silence_unknown_and_a_late_quote():
+    from app.services.intelligence.interpret import classify_memo
+
+    late = "El seguimiento nos ocupa tres horas al día."
+    transcript = ("inicio " * 4000) + late
+    memo = {"transcript": transcript, "candidate_evidence": [{"quote": late}]}
+    client = StubJev(None)
+    result = await classify_memo(memo, client)
+    assert result["status"] == "unavailable"
+    assert result["answers"]["meeting_agreed"] == "unknown"
+    assert result["answers"]["pain_confirmed"] == "unknown"
+    assert result["answers"]["meeting_agreed"] is not False
+    assert late in client.seen_state["transcript"]

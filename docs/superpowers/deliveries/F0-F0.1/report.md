@@ -1,6 +1,6 @@
 # Informe F0 / F0.1
 
-Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: al arrancar, el proceso llama a `install_intelligence_tick()` sin clasificador, así que no ejecuta `claim_memo_job`. El tick de base ya reclama y publica en la misma pasada cuando hay clasificador y `INTELLIGENCE_WORKER_PUBLISH`; sin fila no clasifica, y sin memo no publica.
+Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: `INTELLIGENCE_WORKER_PUBLISH` sigue apagado, así que el arranque no llama a `claim_memo_job`. Con el flag y `OPENROUTER_API_KEY`, la pasada clasifica con Jev y publica en el mismo tick; sin clave no reclama; sin memo no publica.
 
 ## Entregado
 
@@ -11,8 +11,9 @@ Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: al ar
 | `memo_jobs`, un claim, lease vencido no publica, revisión vieja no pisa la nueva | `c5a0599` | `tests/intelligence/test_jobs.py` contra PostgreSQL |
 | Encolado tras extracción, reextracción y WhatsApp; barrido de un trabajo perdido | `4561e9b` | `tests/intelligence/test_recovery.py` |
 | Misma revisión no se interpreta dos veces | `acdb98e` | `tests/intelligence/test_interpret.py` |
-| Claim vacío no clasifica; memo ausente no publica; job y run van juntos a `publish_memo_job` | este commit | `tests/intelligence/test_recovery.py` |
+| Claim vacío no clasifica; memo ausente no publica; job y run van juntos a `publish_memo_job` | `9af9f3c` | `tests/intelligence/test_recovery.py` |
+| Silencio de Jev sigue en unknown y la cita tardía entra en el estado; sin clave el tick no reclama | este commit | `tests/intelligence/test_classification.py`, `tests/intelligence/test_recovery.py` |
 
 ## Siguiente
 
-Pasar un clasificador real a `install_intelligence_tick` y activar `INTELLIGENCE_WORKER_PUBLISH` solo cuando ese clasificador llame a Jev. Hasta entonces el arranque no reclama trabajos.
+Activar `INTELLIGENCE_WORKER_PUBLISH` en el proceso que deba consumir la cola. Hasta entonces el arranque no reclama trabajos. El resultado publicado todavía no se escribe sobre el memo.
