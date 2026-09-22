@@ -22,7 +22,7 @@ export function TodayPanel() {
   const active = queue.mode === "queue";
   const done = queue.mode === "done";
   const current = currentItem(queue);
-  const canStart = listed.length > 0 && queue.mode === "idle";
+  const canStart = listed.length > 0 && (queue.mode === "idle" || queue.mode === "done");
 
   return (
     <section aria-labelledby="today-title" aria-busy={surface.kind === "loading"} className="space-y-3">
