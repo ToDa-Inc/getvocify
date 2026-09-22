@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.hoy.assigned import parse_assigned_page
+from app.services.hoy.assigned import collect_assigned, parse_assigned_page
 from app.services.hoy.context import (
     build_priority_page,
     fold_context,
@@ -211,3 +211,65 @@ def test_postgres_keeps_one_row_per_connection_and_the_old_timestamp():
         assert "12:00:00" not in shown.stdout
     finally:
         _stop(proc, datadir)
+
+
+def test_both_providers_walk_pages_and_a_timeout_does_not_replace_the_cache():
+    hubspot_pages = [
+        {"results": [{"id": "1", "properties": {"owner_email": "ana@vocify.test"}}], "paging": {"next": {"after": "100"}}},
+        {"results": [{"id": "2", "properties": {"owner_email": "ana@vocify.test"}}]},
+    ]
+    calls = []
+
+    def fetch_hubspot(request):
+        calls.append(request)
+        return hubspot_pages.pop(0)
+
+    collected = collect_assigned("hubspot", fetch_hubspot, connection_id="crm-A", observed_at="2026-09-22T09:00:00Z")
+    assert calls[0]["path"] == "/crm/v3/objects/contacts/search"
+    assert "after" not in calls[0]["json"]
+    assert calls[1]["json"]["after"] == "100"
+    assert collected["coverage"] == "complete"
+    assert [item["contact_id"] for item in collected["items"]] == ["1", "2"]
+    rows = fold_context(company_id=COMPANY, pages=[collected], members=MEMBERS)
+    assert rows[0]["history_complete"] is True
+
+    pipedrive_pages = [
+        {"data": [{"id": 7, "owner_id": 4}], "additional_data": {"next_cursor": "p2"}},
+        {"data": [{"id": 8, "owner_id": {"email": "ana@vocify.test"}}]},
+    ]
+
+    def fetch_pipedrive(request):
+        assert request["path"] == "/persons"
+        assert request["version"] == "v2"
+        return pipedrive_pages.pop(0)
+
+    pipedrive = collect_assigned("pipedrive", fetch_pipedrive, connection_id="crm-B", observed_at="2026-09-22T09:00:00Z")
+    assert [item["contact_id"] for item in pipedrive["items"]] == ["7", "8"]
+    assert pipedrive["items"][0]["owner_email"] is None
+
+    stopped = collect_assigned(
+        "hubspot",
+        lambda _request: {"results": [{"id": "42", "properties": {}}], "paging": {"next": {"after": "9"}}},
+        connection_id="crm-A",
+        observed_at="2026-09-22T12:00:00Z",
+        max_pages=1,
+    )
+    assert stopped["coverage"] == "partial"
+    ranked = rank_candidates(snapshot_from_rows(
+        fold_context(company_id=COMPANY, pages=[stopped], members=MEMBERS),
+        connected=True,
+    )["candidates"], NOW)
+    assert ranked[0]["never_called"] is False
+
+    previous = fold_context(company_id=COMPANY, pages=[collected], members=MEMBERS)
+
+    def fail_second(request):
+        if request["json"].get("after"):
+            raise TimeoutError("crm")
+        return {"results": [{"id": "9", "properties": {}}], "paging": {"next": {"after": "1"}}}
+
+    failed = collect_assigned("hubspot", fail_second, connection_id="crm-A", observed_at="2026-09-22T12:00:00Z")
+    kept = fold_context(company_id=COMPANY, pages=[failed], members=MEMBERS, previous=previous)
+    assert kept[0]["observed_at"] == "2026-09-22T09:00:00Z"
+    assert failed["items"] == []
+
