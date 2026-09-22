@@ -310,6 +310,7 @@ def _bundle(ctx: CopilotContext) -> HubSpotBundle:
     if not conn:
         raise ValueError("No CRM connected")
     if provider_ready(conn.get("provider")) != "ready":
+        ctx.artifacts["crm_coverage"] = "unavailable"
         raise ValueError("crm_unavailable")
     ctx.hs = HubSpotBundle.from_provider(build_crm_provider(ctx.supabase, conn))
     return ctx.hs

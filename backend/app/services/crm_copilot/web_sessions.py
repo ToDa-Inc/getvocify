@@ -98,6 +98,14 @@ _actor: dict[str, str] = {}
 _sessions: dict[str, dict] = {}
 
 
+def payload_from_turn(text: str, artifacts: dict | None = None) -> dict:
+    coverage = (artifacts or {}).get("crm_coverage")
+    body = {"text": text}
+    if coverage in {"unavailable", "forbidden", "partial"}:
+        body["envelope"] = {"items": [], "coverage": coverage}
+    return body
+
+
 def bind_ask_actor(user_id: str, company_id: str) -> None:
     _actor["user_id"] = user_id
     _actor["company_id"] = company_id
@@ -128,7 +136,7 @@ async def live_ask_loop(text: str):
     except Exception:
         logging.getLogger(__name__).exception("ask loop failed")
         return None
-    return {"text": result.text or ""}
+    return payload_from_turn(result.text or "", artifacts)
 
 
 def attach_read(turn: dict, envelope: dict) -> dict:

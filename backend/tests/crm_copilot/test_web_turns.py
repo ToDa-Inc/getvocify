@@ -17,6 +17,17 @@ from app.services.crm_copilot.web_sessions import (
 )
 
 
+def test_an_unavailable_crm_is_not_an_empty_answer():
+    from app.services.crm_copilot.web_sessions import payload_from_turn
+
+    plain = payload_from_turn("Marina queda el jueves.", {})
+    assert "envelope" not in plain
+    blocked = payload_from_turn("No pude leer el CRM.", {"crm_coverage": "unavailable"})
+    assert blocked["envelope"]["coverage"] == "unavailable"
+    assert blocked["envelope"]["items"] == []
+    assert blocked["text"] == "No pude leer el CRM."
+
+
 def test_repeating_a_client_turn_returns_the_same_turn():
     store = {}
     first = accept_turn(store, conversation_id="conv-1", client_turn_id="web-2", text="¿Qué sigue?")
