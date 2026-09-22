@@ -27,6 +27,8 @@ import {
   telnyxRtcClientOptions,
   watchRemoteAudio,
   voiceClientFromToken,
+  connectWithVoiceTokenRecovery,
+  applyVoiceTokenRefresh,
   type VoiceClient,
 } from "@/lib/dial-session";
 import { ROUTES } from "@/shared/lib/constants";
@@ -128,6 +130,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const callSidRef = useRef<string | null>(null);
   const wasAnsweredRef = useRef(false);
   const pendingMissRef = useRef(false);
+  const placingCallRef = useRef(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef(query);
   const onLiveChangeRef = useRef(onLiveChange);
@@ -270,6 +273,17 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     const device = new Device(token, {
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
     });
+    device.on("tokenWillExpire", () => {
+      void applyVoiceTokenRefresh({
+        remint: async () => (await callsApi.createToken()).token,
+        apply: (next) => {
+          deviceRef.current?.updateToken(next);
+        },
+        onFailure: () => {
+          if (!callRef.current) destroyDevice();
+        },
+      });
+    });
     device.on("error", (err) => {
       if (
         isCarrierHangupError(err) ||
@@ -279,7 +293,11 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       ) {
         return;
       }
-      if (isVoiceAccessTokenError(err)) destroyDevice();
+      if (isVoiceAccessTokenError(err)) {
+        destroyDevice();
+        // connect() / recovery owns the retry while placing; idle expiry is silent.
+        if (placingCallRef.current || !callRef.current) return;
+      }
       setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
       setState(CALL_STATES.IDLE);
     });
@@ -395,24 +413,27 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
   const startTwilioCall = async (token: string, target: SelectedTarget) => {
     voiceClientRef.current = "twilio";
-    const connect = async (forceNew = false) => {
-      const device = await ensureDevice(token, { forceNew });
-      return device.connect({
-        params: {
-          To: target.phone,
-          CallerId: from,
-          ContactId: target.contactId || "",
-        },
-      });
-    };
+    placingCallRef.current = true;
     let call;
     try {
-      call = await connect();
-    } catch (err) {
-      if (!isVoiceAccessTokenError(err)) throw err;
-      call = await connect(true);
+      call = await connectWithVoiceTokenRecovery({
+        token,
+        connect: async (jwt, forceNew) => {
+          const device = await ensureDevice(jwt, { forceNew });
+          return device.connect({
+            params: {
+              To: target.phone,
+              CallerId: from,
+              ContactId: target.contactId || "",
+            },
+          });
+        },
+        remint: async () => (await callsApi.createToken()).token,
+      });
+      callRef.current = call;
+    } finally {
+      placingCallRef.current = false;
     }
-    callRef.current = call;
     const rememberSid = () => {
       const sid = call.parameters?.CallSid;
       if (sid) callSidRef.current = sid;

@@ -204,6 +204,37 @@ export function isVoiceAccessTokenError(error: unknown): boolean {
   );
 }
 
+/**
+ * Device.connect() can throw 20104 while the JWT we just minted is fine: the
+ * reused Device is still holding a dead token. Remint + force a new Device once.
+ */
+export async function connectWithVoiceTokenRecovery<T>(args: {
+  token: string;
+  connect: (token: string, forceNew: boolean) => Promise<T>;
+  remint: () => Promise<string>;
+}): Promise<T> {
+  try {
+    return await args.connect(args.token, false);
+  } catch (error) {
+    if (!isVoiceAccessTokenError(error)) throw error;
+    const next = await args.remint();
+    return args.connect(next, true);
+  }
+}
+
+/** tokenWillExpire: push a new JWT, or tear the Device down so the next click is clean. */
+export async function applyVoiceTokenRefresh(args: {
+  remint: () => Promise<string>;
+  apply: (token: string) => void;
+  onFailure: () => void;
+}): Promise<void> {
+  try {
+    args.apply(await args.remint());
+  } catch {
+    args.onFailure();
+  }
+}
+
 export function isExtensionRuntimeError(error: unknown): boolean {
   const text = errorText(error);
   return (

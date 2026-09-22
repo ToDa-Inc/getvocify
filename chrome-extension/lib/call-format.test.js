@@ -24,6 +24,8 @@ import {
   isExtensionRuntimeError,
   userFacingCallError,
   userFacingCallSetupError,
+  connectWithVoiceTokenRecovery,
+  applyVoiceTokenRefresh,
   CALL_ERROR_TOKEN_STALE,
   CALL_ERROR_EXTENSION_RESTARTED,
   CALL_ERROR_SESSION,
@@ -267,6 +269,98 @@ describe('contactCallHint', () => {
       text: '',
       action: null,
     });
+  });
+});
+
+function tokenExpired() {
+  return Object.assign(new Error('AccessTokenExpired'), { code: 20104 });
+}
+
+describe('connectWithVoiceTokenRecovery', () => {
+  it('retries 20104 with a freshly minted JWT and a new Device', async () => {
+    const attempts = [];
+    const call = await connectWithVoiceTokenRecovery({
+      token: 'stale',
+      connect: async (token, forceNew) => {
+        attempts.push({ token, forceNew });
+        if (attempts.length === 1) throw tokenExpired();
+        return { sid: 'CA1' };
+      },
+      remint: async () => 'fresh',
+    });
+    assert.equal(call.sid, 'CA1');
+    assert.deepEqual(attempts, [
+      { token: 'stale', forceNew: false },
+      { token: 'fresh', forceNew: true },
+    ]);
+  });
+
+  it('does not remint a carrier hangup', async () => {
+    let reminted = 0;
+    await assert.rejects(
+      connectWithVoiceTokenRecovery({
+        token: 'ok',
+        connect: async () => {
+          throw Object.assign(new Error('hangup'), { code: 31005 });
+        },
+        remint: async () => {
+          reminted += 1;
+          return 'fresh';
+        },
+      }),
+      /hangup/,
+    );
+    assert.equal(reminted, 0);
+  });
+
+  it('does not remint twice when the fresh JWT also expires', async () => {
+    let reminted = 0;
+    await assert.rejects(
+      connectWithVoiceTokenRecovery({
+        token: 'stale',
+        connect: async () => {
+          throw tokenExpired();
+        },
+        remint: async () => {
+          reminted += 1;
+          return 'still-stale';
+        },
+      }),
+      /AccessTokenExpired/,
+    );
+    assert.equal(reminted, 1);
+  });
+});
+
+describe('applyVoiceTokenRefresh', () => {
+  it('pushes a new JWT onto the live Device', async () => {
+    const applied = [];
+    let destroyed = false;
+    await applyVoiceTokenRefresh({
+      remint: async () => 'fresh',
+      apply: (token) => applied.push(token),
+      onFailure: () => {
+        destroyed = true;
+      },
+    });
+    assert.deepEqual(applied, ['fresh']);
+    assert.equal(destroyed, false);
+  });
+
+  it('destroys the Device when minting fails so the next click starts clean', async () => {
+    const applied = [];
+    let destroyed = false;
+    await applyVoiceTokenRefresh({
+      remint: async () => {
+        throw new Error('session expired');
+      },
+      apply: (token) => applied.push(token),
+      onFailure: () => {
+        destroyed = true;
+      },
+    });
+    assert.deepEqual(applied, []);
+    assert.equal(destroyed, true);
   });
 });
 

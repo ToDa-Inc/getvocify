@@ -161,6 +161,29 @@ export function isVoiceAccessTokenError(error) {
   );
 }
 
+/**
+ * Device.connect() can throw 20104 while the JWT we just minted is fine: the
+ * reused Device is still holding a dead token. Remint + force a new Device once.
+ */
+export async function connectWithVoiceTokenRecovery({ token, connect, remint }) {
+  try {
+    return await connect(token, false);
+  } catch (error) {
+    if (!isVoiceAccessTokenError(error)) throw error;
+    const next = await remint();
+    return connect(next, true);
+  }
+}
+
+/** tokenWillExpire: push a new JWT, or tear the Device down so the next click is clean. */
+export async function applyVoiceTokenRefresh({ remint, apply, onFailure }) {
+  try {
+    apply(await remint());
+  } catch {
+    onFailure();
+  }
+}
+
 /** Chrome killed the extension service worker or the offscreen page. Reload / second click recovers. */
 export function isExtensionRuntimeError(error) {
   const text = errorText(error);

@@ -14,6 +14,8 @@ import {
   isVoiceAccessTokenError,
   isVoiceSdkGeneralError,
   userFacingCallError,
+  connectWithVoiceTokenRecovery,
+  applyVoiceTokenRefresh,
 } from './lib/call-format.js';
 import { isListenEpochCurrent, isSessionEndingCaptureTrack, tabCaptureGetUserMediaConstraints } from './lib/tab-capture.js';
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio } from './lib/stt-channels.js';
@@ -40,6 +42,7 @@ let activeCallProvider = null;
 let telnyxMuted = false;
 let lastReportedCallState = null;
 let stream = null;
+let placingCall = false;
 let recorderStream = null;
 let pcmStream = null;
 let micStartedAt = 0;
@@ -365,20 +368,31 @@ function attachDeviceListeners(device) {
     ) {
       return;
     }
-    activeCall = null;
-    activeCallProvider = null;
     if (isVoiceAccessTokenError(err) && twilioDevice === device) {
+      const inFlight = Boolean(activeCall);
       destroyTwilioDevice();
+      // Recovery remints while placing. Idle expiry is silent.
+      if (placingCall || !inFlight) return;
     } else {
       try {
         device.destroy();
       } catch (_) { /* already gone */ }
       if (twilioDevice === device) twilioDevice = null;
     }
+    activeCall = null;
+    activeCallProvider = null;
     reportCallState(CALL_STATES.IDLE, twilioErrorText(err, 'No se pudo iniciar la llamada.'));
   });
   device.on('tokenWillExpire', () => {
-    chrome.runtime.sendMessage({ type: 'CALL_TOKEN_REFRESH_REQUEST' });
+    void applyVoiceTokenRefresh({
+      remint: async () => (await api.createVoiceToken()).token,
+      apply: (token) => {
+        if (twilioDevice === device) twilioDevice.updateToken(token);
+      },
+      onFailure: () => {
+        if (!activeCall && twilioDevice === device) destroyTwilioDevice();
+      },
+    });
   });
 }
 
@@ -604,21 +618,27 @@ async function connectTwilioDevice({ token, to, callerId, contactId, dealId, for
 }
 
 async function startTwilioCall({ token, to, callerId, contactId, dealId }) {
+  placingCall = true;
   try {
-    await connectTwilioDevice({ token, to, callerId, contactId, dealId });
+    await connectWithVoiceTokenRecovery({
+      token,
+      connect: (jwt, forceNew) => connectTwilioDevice({
+        token: jwt,
+        to,
+        callerId,
+        contactId,
+        dealId,
+        forceNew,
+      }),
+      remint: async () => (await api.createVoiceToken()).token,
+    });
   } catch (error) {
-    if (isVoiceAccessTokenError(error)) {
-      try {
-        await connectTwilioDevice({ token, to, callerId, contactId, dealId, forceNew: true });
-        return;
-      } catch (retryErr) {
-        error = retryErr;
-      }
-    }
     activeCall = null;
     activeCallProvider = null;
     if (isVoiceAccessTokenError(error)) destroyTwilioDevice();
     reportCallState(CALL_STATES.IDLE, twilioErrorText(error, error.message || 'No se pudo iniciar la llamada.'));
+  } finally {
+    placingCall = false;
   }
 }
 
