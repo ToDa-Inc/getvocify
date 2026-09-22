@@ -196,6 +196,9 @@ class Settings(BaseSettings):
     CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
+    # Follow-up drafts. Off does not block extraction; sent means mail-client handoff.
+    FOLLOWUP_ENABLED: bool = True
+    FOLLOWUP_MODEL: Optional[str] = None  # None = the LLM router's default model
 
     CALLING_PROVIDER: str = "twilio"
     TELNYX_API_KEY: Optional[str] = None
