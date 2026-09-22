@@ -17,5 +17,4 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 
 ## No verificado
 
-- La preferencia no está en Ajustes. El memo pide el resumen, pero no hay filas, así que el bloque no aparece. No se recorrió en el navegador.
-- El botón de reproducir no mueve el audio. El trabajo no se encola desde el score, los patrones o la reunión.
+- Si todavía no hay fila, el memo muestra «El resumen todavía no está listo» y no dice que falte el proceso ni que el trabajo esté en curso. La preferencia sigue fuera de Ajustes. El botón de reproducir no mueve el audio.

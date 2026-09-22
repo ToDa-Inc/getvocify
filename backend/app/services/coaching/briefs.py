@@ -3,6 +3,20 @@
 from __future__ import annotations
 
 
+def absent_brief() -> dict:
+    """No stored row yet. That is not a missing playbook and not a job in progress."""
+    return {
+        "status": "pending",
+        "reason": "not_started",
+        "input_revision": "",
+        "sections": [],
+        "audio_available": False,
+        "strength": None,
+        "improvement": None,
+        "waiting": False,
+    }
+
+
 def aggregate_brief(
     *,
     screening: str | None,

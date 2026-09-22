@@ -14,6 +14,22 @@ const partial: BriefView = {
 };
 
 describe("post interaction brief", () => {
+  it("shows a missing brief without pretending the job is running", () => {
+    const surface = briefSurface({
+      status: "pending",
+      reason: "not_started",
+      input_revision: "",
+      sections: [],
+      audio_available: false,
+      strength: null,
+      improvement: null,
+      waiting: false,
+    });
+    assert.equal(surface.title, "El resumen todavía no está listo");
+    assert.equal(surface.waiting, false);
+    assert.equal(surface.strength, null);
+  });
+
   it("keeps the same revision when a partial brief becomes ready", () => {
     const before = briefSurface(partial);
     const after = briefSurface({ ...partial, status: "ready", strength: "Nombró el precio", improvement: "No cerró el paso" });

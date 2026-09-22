@@ -35,7 +35,7 @@ export function briefSurface(brief: BriefView): BriefSurface {
   const sections = brief.sections.map((section) => ({ ...section }));
   const quoteWithoutAudio = sections.some((section) => section.quote && !brief.audio_available);
   return {
-    title: TITLES[brief.status],
+    title: brief.reason === "not_started" ? "El resumen todavía no está listo" : TITLES[brief.status],
     revision: brief.input_revision,
     waiting: brief.status === "pending" && brief.waiting,
     strength: brief.strength,

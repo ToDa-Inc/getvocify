@@ -7,7 +7,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-briefs-32b+")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-briefs-32b+")
 
-from app.services.coaching.briefs import aggregate_brief
+from app.services.coaching.briefs import absent_brief, aggregate_brief
 
 PATTERNS = [{
     "input_revision": "rev-4",
@@ -16,7 +16,13 @@ PATTERNS = [{
 }]
 
 
-def test_voicemail_and_no_response_are_skipped_without_waiting():
+def test_a_missing_row_is_not_a_running_job_or_a_missing_playbook():
+    brief = absent_brief()
+    assert brief["status"] == "pending"
+    assert brief["reason"] == "not_started"
+    assert brief["waiting"] is False
+    assert brief["strength"] is None
+    assert brief["sections"] == []
     for screening in ("voicemail", "no_response"):
         brief = aggregate_brief(
             screening=screening,

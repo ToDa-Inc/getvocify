@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.deps import get_membership, get_supabase
+from app.services.coaching.briefs import absent_brief
 from app.services.company import Membership
 
 router = APIRouter(prefix="/api/v1", tags=["coaching"])
@@ -72,7 +73,7 @@ async def get_memo_brief(
     )
     briefs = stored.data or []
     if not briefs:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resumen no encontrado")
+        return absent_brief()
     current = max(briefs, key=lambda row: row.get("revision_seq") or 0)
     body = dict(current.get("body") or {})
     body["status"] = current.get("status")
