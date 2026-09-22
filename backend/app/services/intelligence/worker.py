@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 REGISTERED_KINDS = frozenset({"intelligence"})
 _worker_task: Optional[asyncio.Task] = None
 _worker_stop = asyncio.Event()
+_worker_tick = None
+
+
+def set_worker_tick(tick) -> None:
+    """One pass of the loop. Production and tests install claim/publish here."""
+    global _worker_tick
+    _worker_tick = tick
 
 
 def revision_for_memo(memo: dict) -> str:
@@ -98,6 +105,14 @@ def record_enqueue(supabase: Any, memo: dict) -> Optional[dict]:
 
 async def _worker_loop() -> None:
     while not _worker_stop.is_set():
+        tick = _worker_tick
+        if tick is not None:
+            try:
+                outcome = tick()
+                if asyncio.iscoroutine(outcome):
+                    await outcome
+            except Exception:
+                logger.exception("intelligence tick failed")
         try:
             await asyncio.wait_for(_worker_stop.wait(), timeout=30)
         except asyncio.TimeoutError:

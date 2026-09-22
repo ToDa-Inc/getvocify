@@ -67,3 +67,29 @@ def test_worker_starts_once_and_stops():
         await stop_worker()
 
     asyncio.run(scenario())
+
+
+def test_an_empty_claim_inside_the_worker_does_not_classify():
+    from app.services.intelligence.interpret import drain_once
+    from app.services.intelligence.worker import set_worker_tick
+
+    calls = {"classify": 0}
+
+    def classify(*_args, **_kwargs):
+        calls["classify"] += 1
+        return {"answers": []}
+
+    def tick():
+        return drain_once({}, lambda: None, lambda *_a, **_k: None, classify, {})
+
+    async def scenario():
+        set_worker_tick(tick)
+        try:
+            assert start_worker() is True
+            await asyncio.sleep(0.05)
+            await stop_worker()
+        finally:
+            set_worker_tick(None)
+
+    asyncio.run(scenario())
+    assert calls["classify"] == 0

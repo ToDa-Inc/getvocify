@@ -1,6 +1,6 @@
 # Informe F0 / F0.1
 
-Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: el worker no reclama todavía filas de `memo_jobs` en el proceso de la API, porque no hay driver de PostgreSQL en la aplicación. El claim atómico está probado con `psql`.
+Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: al arrancar, el proceso no instala el tick que llama a `claim_memo_job`. El bucle ya puede ejecutar un tick; si el claim viene vacío, no clasifica.
 
 ## Entregado
 
