@@ -16,5 +16,5 @@ Estado: la nota humana se guarda antes de tener memo. No está cerrada.
 ## No verificado
 
 - El `PUT` guarda la nota en `interaction_annotations`. Una revisión vieja no cambia el texto ni el `offset_ms`.
-- El detalle del memo muestra el bloque, pero la cobertura llega como no disponible: todavía no lee los patrones guardados. No se recorrió en el navegador.
+- El detalle del memo lee `GET /memos/{id}/objections`. Una fila sustituida no se muestra. Sin filas no se afirma que no hubo objeciones.
 - La proyección de patrones no la dispara la extracción. Desktop y extensión no tienen el campo de nota.

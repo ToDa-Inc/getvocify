@@ -1,29 +1,36 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { api } from "@/shared/lib/api-client";
-import { noteFieldLabel, objectionReview, type ReviewNote, type ReviewPattern } from "@/lib/interaction-objections";
+import { mergeNotes, noteFieldLabel, objectionReview, type ReviewNote, type ReviewPattern } from "@/lib/interaction-objections";
 
 type SaveStatus = "idle" | "syncing" | "saved" | "error";
 
 export function InteractionObjections({
   memoId,
-  coverage,
-  patterns,
-  notes,
   canPlaySpan,
   offsetMs,
 }: {
   memoId: string;
-  coverage: "complete" | "partial" | "unavailable";
-  patterns: ReviewPattern[];
-  notes: ReviewNote[];
   canPlaySpan: boolean;
   offsetMs: number;
 }) {
-  const [localNotes, setLocalNotes] = useState<ReviewNote[]>(notes);
+  const query = useQuery({
+    queryKey: ["memo-objections", memoId],
+    queryFn: () => api.get<{ coverage: "complete" | "partial" | "unavailable"; patterns: ReviewPattern[]; notes: ReviewNote[] }>(
+      `/memos/${memoId}/objections`,
+    ),
+  });
+  const [added, setAdded] = useState<ReviewNote[]>([]);
+  const notes = mergeNotes(query.data?.notes ?? [], added);
   const [text, setText] = useState("");
   const [status, setStatus] = useState<SaveStatus>("idle");
-  const review = objectionReview({ coverage, patterns, notes: localNotes, canPlaySpan });
+  const review = objectionReview({
+    coverage: query.data?.coverage ?? "unavailable",
+    patterns: query.data?.patterns ?? [],
+    notes,
+    canPlaySpan,
+  });
   const label = noteFieldLabel(status);
 
   async function save() {
@@ -36,7 +43,7 @@ export function InteractionObjections({
         `/memos/${memoId}/annotations/${annotationId}`,
         { text: body, offset_ms: offsetMs },
       );
-      setLocalNotes((current) => [
+      setAdded((current) => [
         ...current,
         {
           annotation_id: saved.annotation_id,

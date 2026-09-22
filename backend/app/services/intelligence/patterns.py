@@ -77,6 +77,37 @@ def frequency(rows: list[dict]) -> int:
     return sum(1 for row in rows if not row.get("superseded"))
 
 
+def objection_view(*, notes: list[dict], patterns: list[dict], readable: bool) -> dict:
+    """A failed read is not an empty analysis. A superseded row is not a current objection."""
+    if not readable:
+        return {"coverage": "unavailable", "patterns": [], "notes": []}
+    active = [row for row in patterns if not row.get("superseded")]
+    return {
+        "coverage": "complete" if patterns else "unavailable",
+        "patterns": [
+            {
+                "pattern_id": row["pattern_id"],
+                "category": row.get("category"),
+                "kind": row.get("kind"),
+                "resolution": row.get("resolution"),
+                "response": row.get("response"),
+                "prospect_quotes": list(row.get("prospect_quotes") or []),
+            }
+            for row in active
+        ],
+        "notes": [
+            {
+                "annotation_id": row["annotation_id"],
+                "text": row.get("text") or "",
+                "offset_ms": row.get("offset_ms") or 0,
+                "author_id": row.get("author_id"),
+                "turn_id": row.get("turn_id"),
+            }
+            for row in notes
+        ],
+    }
+
+
 def supersede_statement(*, memo_id: str, pattern_id: str, input_revision: str) -> str:
     return (
         "UPDATE interaction_patterns SET superseded = TRUE "

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { noteFieldLabel, objectionReview } from "./interaction-objections.ts";
+import { mergeNotes, noteFieldLabel, objectionReview } from "./interaction-objections.ts";
 
 describe("objection review", () => {
   it("says none were detected only when the read is complete and empty", () => {
@@ -40,5 +40,10 @@ describe("objection review", () => {
     assert.equal(review.notes[0].offset_ms, 134000);
     assert.equal(review.claimNone, false);
     assert.equal(noteFieldLabel("error"), "No se pudo guardar la nota");
+    const merged = mergeNotes(
+      [{ annotation_id: "note-1", text: "guardada", offset_ms: 1, author_id: "user-a" }],
+      [{ annotation_id: "note-1", text: "duplicada", offset_ms: 1, author_id: "user-a" }, { annotation_id: "note-2", text: "nueva", offset_ms: 2, author_id: "user-a" }],
+    );
+    assert.deepEqual(merged.map((note) => note.annotation_id), ["note-1", "note-2"]);
   });
 });

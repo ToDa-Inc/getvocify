@@ -7,9 +7,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.deps import get_membership
+from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.intelligence.annotations import AnnotationError, SupabaseAnnotationStore, accept_annotation
+from app.services.intelligence.patterns import objection_view
 
 router = APIRouter(prefix="/api/v1", tags=["annotations"])
 _NOTES: dict = {}
@@ -91,3 +92,28 @@ def _save(annotation_id: str, body: NoteBody, membership: Membership, *, client_
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_public(error.note)) from error
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Nota no válida") from error
     return _public(note)
+
+
+@router.get("/memos/{memo_id}/objections")
+async def get_objections(
+    memo_id: str,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    try:
+        notes = (
+            supabase.table("interaction_annotations")
+            .select("annotation_id,text,offset_ms,author_id,turn_id,memo_id,company_id")
+            .eq("company_id", membership.company_id)
+            .eq("memo_id", memo_id)
+            .execute()
+        )
+        patterns = (
+            supabase.table("interaction_patterns")
+            .select("pattern_id,category,kind,resolution,response,prospect_quotes,superseded,memo_id")
+            .eq("memo_id", memo_id)
+            .execute()
+        )
+    except Exception:
+        return objection_view(notes=[], patterns=[], readable=False)
+    return objection_view(notes=notes.data or [], patterns=patterns.data or [], readable=True)

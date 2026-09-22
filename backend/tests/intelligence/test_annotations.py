@@ -235,6 +235,54 @@ def test_the_saved_note_keeps_its_offset_when_the_revision_is_old():
     assert db.rows[0]["offset_ms"] == 134000
 
 
+def test_the_memo_reads_the_saved_note_and_skips_a_superseded_pattern():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import annotations as notes_api
+    from app.deps import get_membership, get_supabase
+    from app.services.company import Membership
+
+    class _Multi:
+        def __init__(self):
+            self.tables = {
+                "interaction_annotations": [{
+                    "annotation_id": "note-1",
+                    "text": "Lo dijo con ironía",
+                    "offset_ms": 134000,
+                    "author_id": "user-a",
+                    "turn_id": None,
+                    "memo_id": "memo-1",
+                    "company_id": "co-1",
+                }],
+                "interaction_patterns": [
+                    {"pattern_id": "old", "memo_id": "memo-1", "category": "price", "kind": "objection", "resolution": "open", "response": None, "prospect_quotes": [], "superseded": True},
+                    {"pattern_id": "new", "memo_id": "memo-1", "category": "price", "kind": "objection", "resolution": "open", "response": "Comparar plazos", "prospect_quotes": ["está caro"], "superseded": False},
+                ],
+            }
+
+        def table(self, name):
+            return _Table(self.tables[name])
+
+    app = FastAPI()
+    app.include_router(notes_api.router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+    )
+    app.dependency_overrides[get_supabase] = lambda: _Multi()
+    body = TestClient(app).get("/api/v1/memos/memo-1/objections").json()
+    assert body["coverage"] == "complete"
+    assert [item["pattern_id"] for item in body["patterns"]] == ["new"]
+    assert body["notes"][0]["offset_ms"] == 134000
+
+    empty = _Multi()
+    empty.tables = {"interaction_annotations": [], "interaction_patterns": []}
+    app.dependency_overrides[get_supabase] = lambda: empty
+    bare = TestClient(app).get("/api/v1/memos/memo-1/objections").json()
+    assert bare["coverage"] == "unavailable"
+    assert bare["patterns"] == []
+
+
 def _pg_env() -> dict[str, str]:
     env = os.environ.copy()
     env["LC_ALL"] = "C"

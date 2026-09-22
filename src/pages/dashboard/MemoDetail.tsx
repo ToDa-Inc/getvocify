@@ -553,9 +553,6 @@ const MemoDetail = () => {
             {isOwnMemo && id ? (
               <InteractionObjections
                 memoId={id}
-                coverage="unavailable"
-                patterns={[]}
-                notes={[]}
                 canPlaySpan={false}
                 offsetMs={Math.round(currentTime * 1000)}
               />

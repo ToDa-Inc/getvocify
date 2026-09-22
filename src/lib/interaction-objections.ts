@@ -50,6 +50,11 @@ export function objectionReview(input: {
   return { title: null, claimNone: false, patterns: input.patterns, notes };
 }
 
+export function mergeNotes(stored: ReviewNote[], added: ReviewNote[]): ReviewNote[] {
+  const ids = new Set(stored.map((note) => note.annotation_id));
+  return [...stored, ...added.filter((note) => !ids.has(note.annotation_id))];
+}
+
 export function noteFieldLabel(status: "idle" | "syncing" | "saved" | "error"): string | null {
   if (status === "syncing") return "Guardando…";
   if (status === "saved") return "Nota guardada";
