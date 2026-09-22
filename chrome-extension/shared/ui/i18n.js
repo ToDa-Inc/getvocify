@@ -55,6 +55,8 @@ const STRINGS = {
     speakerYou: 'Tú',
     speakerThem: 'Ellos',
     memoHangUpFirst: 'Cuelga la llamada antes de grabar una nota.',
+    memoStopListeningFirst:
+      'Deja de escuchar la pestaña antes de grabar una nota.',
     listenDenyCallInProgress:
       'Cuelga la llamada antes de escuchar esta pestaña.',
     listenDenyMicRecording:
@@ -142,6 +144,8 @@ const STRINGS = {
     speakerYou: 'You',
     speakerThem: 'Them',
     memoHangUpFirst: 'Hang up the call before recording a memo.',
+    memoStopListeningFirst:
+      'Stop listening to the tab before recording a memo.',
     listenDenyCallInProgress:
       'Hang up the call before listening to this tab.',
     listenDenyMicRecording:

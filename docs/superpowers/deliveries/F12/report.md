@@ -16,3 +16,4 @@ Listen deny (`startDeniedMessage`), fallbacks de inicio y prefijos de transcript
 Desktop companion: el split de turnos en vivo usa todos los prefijos `speakerYou`/`speakerThem` del catálogo (es/en), no solo `You:`/`Them:`.
 Desktop overlay: `speakerRoleFromLastLine` comparte la misma lista de prefijos del catálogo para ocultar ayuda en turnos rep.
 Extensión background: aviso «cuelga antes de grabar nota» vía `memoHangUpFirst` en `shared/ui/i18n.js` (`listenUiLang`).
+Extensión background: aviso «deja de escuchar la pestaña antes de grabar nota» vía `memoStopListeningFirst` en `shared/ui/i18n.js` (`listenUiLang`).

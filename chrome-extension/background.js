@@ -519,7 +519,7 @@ async function startRecording() {
     return;
   }
   if (state.isCopilotListening) {
-    showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
+    showNotification('Vocify Copilot', strings(listenUiLang).memoStopListeningFirst);
     return;
   }
   clearCallWatch();
@@ -582,7 +582,7 @@ async function stopRecording() {
 
 async function handleToggleRecording() {
   if (state.isCopilotListening) {
-    showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
+    showNotification('Vocify Copilot', strings(listenUiLang).memoStopListeningFirst);
     return;
   }
   if (state.isRecording) {

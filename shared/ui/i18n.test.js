@@ -25,4 +25,12 @@ test('listen chrome keys return es or en copy', () => {
     strings('en').memoHangUpFirst,
     'Hang up the call before recording a memo.',
   );
+  assert.equal(
+    strings('es').memoStopListeningFirst,
+    'Deja de escuchar la pestaña antes de grabar una nota.',
+  );
+  assert.equal(
+    strings('en').memoStopListeningFirst,
+    'Stop listening to the tab before recording a memo.',
+  );
 });
