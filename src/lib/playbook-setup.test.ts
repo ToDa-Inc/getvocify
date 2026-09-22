@@ -55,6 +55,13 @@ describe("playbook setup", () => {
     });
     assert.equal(failed.status, "published");
     assert.match(failed.error || "", /PDF/);
+    const locked = motionAfterImport("published", {
+      status: "failed",
+      published: false,
+      reason: "pdf_encrypted",
+    });
+    assert.equal(locked.status, "published");
+    assert.match(locked.error || "", /protegido/);
     const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
     assert.equal(drafted.status, "draft");
     assert.equal(drafted.error, null);

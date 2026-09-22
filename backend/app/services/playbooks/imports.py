@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import re
 from typing import Any, Callable, Optional
 
@@ -30,10 +32,11 @@ def start_import(
     reason = None
     status = "ready"
     if kind == "pdf":
-        text = _pdf_text(payload)
-        if not text.strip():
+        text, pdf_reason = read_pdf(payload)
+        if pdf_reason:
             status = "failed"
-            reason = "pdf_has_no_text"
+            reason = pdf_reason
+            text = ""
     elif kind == "audio":
         if stt is None:
             status = "failed"
@@ -77,7 +80,27 @@ def start_import(
     }
 
 
-def _pdf_text(payload: str) -> str:
-    if payload.lstrip().startswith("%PDF") and "BT" not in payload and "Tj" not in payload:
-        return ""
-    return payload
+def _pdf_bytes(payload: str) -> bytes:
+    stripped = (payload or "").lstrip()
+    if stripped.startswith("%PDF"):
+        return stripped.encode("latin-1", errors="ignore")
+    try:
+        return base64.b64decode(stripped, validate=True)
+    except Exception:
+        return b""
+
+
+def read_pdf(payload: str) -> tuple[str, Optional[str]]:
+    """Extract text with pypdf. An encrypted or empty file does not become a draft."""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(_pdf_bytes(payload)))
+        if reader.is_encrypted:
+            return "", "pdf_encrypted"
+        text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:
+        return "", "pdf_has_no_text"
+    if not text.strip():
+        return "", "pdf_has_no_text"
+    return text, None

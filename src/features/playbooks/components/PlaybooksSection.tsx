@@ -160,7 +160,13 @@ export default function PlaybooksSection() {
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (!file) return;
-                        void file.text().then((payload) => saveDraft(key, "pdf", payload));
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const value = String(reader.result || "");
+                          const comma = value.indexOf(",");
+                          void saveDraft(key, "pdf", comma >= 0 ? value.slice(comma + 1) : value);
+                        };
+                        reader.readAsDataURL(file);
                       }}
                     />
                   </label>

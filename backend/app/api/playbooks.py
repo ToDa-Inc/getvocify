@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,27 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 _IMPORTS: dict[str, dict] = {}
 _MOTIONS: dict[str, dict[str, str]] = {}
 _store = None
+_transcriber = None
+
+
+def set_playbook_transcriber(transcriber) -> None:
+    global _transcriber
+    _transcriber = transcriber
+
+
+async def _audio_text(payload: str) -> str:
+    transcriber = _transcriber
+    if transcriber is None:
+        import base64
+
+        from app.services.stt_batch import transcribe_bytes
+
+        raw = base64.b64decode(payload)
+        return await transcribe_bytes(raw, source="playbook_import")
+    result = transcriber(payload)
+    if asyncio.iscoroutine(result):
+        return await result
+    return result
 
 
 def get_playbook_store():
@@ -69,12 +91,20 @@ def _guard(membership: Membership) -> None:
 async def create_import(body: ImportRequest, membership: Membership = Depends(get_membership)):
     _guard(membership)
     store = get_playbook_store()
+    stt = None
+    if body.kind == "audio":
+        try:
+            spoken = await _audio_text(body.payload)
+            stt = lambda _raw, spoken=spoken: spoken
+        except Exception:
+            stt = None
     record = start_import(
         import_id=body.import_id,
         kind=body.kind,
         payload=body.payload,
         active_version_id=body.active_version_id,
         existing=store.get_import(body.import_id),
+        stt=stt,
     )
     store.save_import(membership.company_id, record, body.sales_motion_key)
     return record
