@@ -7,7 +7,12 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-team-agg-32")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-team-agg-32")
 
+from datetime import datetime, timezone
+
 from app.services.team_insights.aggregate import activity_counts, team_adherence
+
+_WEEK_START = datetime(2026, 9, 21, 22, 0, tzinfo=timezone.utc)
+_WEEK_END = datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc)
 
 
 def _part(met: int, missed: int) -> dict:
@@ -36,19 +41,38 @@ def test_without_a_playbook_there_is_no_invented_performance():
 
 def test_voicemail_and_connected_activity_reach_adherence_json():
     rows = [
-        {"screening": "voicemail"},
-        {"screening": "voicemail"},
-        {"screening": "connected", "meeting_agreed": True},
+        {"screening": "voicemail", "observed_at": "2026-09-22T09:00:00Z"},
+        {"screening": "voicemail", "observed_at": "2026-09-22T10:00:00Z"},
+        {"screening": "connected", "meeting_agreed": True, "observed_at": "2026-09-22T11:00:00Z"},
     ]
-    assert activity_counts(rows) == {"attempts": 3, "connected": 1, "meetings": 1}
+    assert activity_counts(rows, start=_WEEK_START, end=_WEEK_END) == {
+        "attempts": 3,
+        "connected": 1,
+        "meetings": 1,
+    }
     metrics = team_adherence(
         role="admin",
         parts=[],
         playbook_present=False,
         sample_size=0,
         activity_rows=rows,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
     )
     assert metrics["attempts"] == 3
     assert metrics["connected"] == 1
     assert metrics["meetings"] == 1
     assert metrics["adherence"] is None
+
+
+def test_activity_counts_ignore_out_of_week_and_missing_observed_at():
+    rows = [
+        {"screening": "connected", "observed_at": "2026-09-22T10:00:00Z"},
+        {"screening": "voicemail", "observed_at": "2026-09-20T10:00:00Z"},
+        {"screening": "connected", "meeting_agreed": True},
+    ]
+    assert activity_counts(rows, start=_WEEK_START, end=_WEEK_END) == {
+        "attempts": 1,
+        "connected": 1,
+        "meetings": 0,
+    }

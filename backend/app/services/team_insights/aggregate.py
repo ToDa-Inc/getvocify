@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 from app.services.coaching.metrics import aggregate_adherence
+
+_MADRID = ZoneInfo("Europe/Madrid")
 
 _TEAM_ROLES = frozenset({"owner", "admin"})
 _SCREENING_ATTEMPTS = frozenset({"voicemail", "no_response", "connected"})
@@ -26,12 +31,43 @@ def authorized_scope(*, role: str, requested_user_id: str | None, instruction: s
     return {"scope": "team", "user_id": None}
 
 
-def activity_counts(rows: list[dict]) -> dict:
+def madrid_week_bounds(*, now: datetime | None = None) -> tuple[datetime, datetime]:
+    """Current ISO week in Europe/Madrid as UTC half-open [start, end)."""
+    instant = now or datetime.now(timezone.utc)
+    local = instant.astimezone(_MADRID)
+    monday_local = (local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=local.weekday()))
+    next_monday_local = monday_local + timedelta(days=7)
+    return monday_local.astimezone(timezone.utc), next_monday_local.astimezone(timezone.utc)
+
+
+def _parse_instant(value) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        dt = datetime.fromisoformat(text)
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def activity_counts(rows: list[dict], *, start: datetime, end: datetime) -> dict:
     """Voicemail and no-answer are attempts only. Connected is an attempt and a conversation."""
     attempts = 0
     connected = 0
     meetings = 0
     for row in rows:
+        observed = _parse_instant(row.get("observed_at"))
+        if observed is None or observed < start or observed >= end:
+            continue
         screening = row.get("screening")
         if screening in _SCREENING_ATTEMPTS:
             attempts += 1
@@ -49,7 +85,8 @@ def activity_row_from_memo(memo: dict) -> dict | None:
     intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
     meeting = intel.get("meeting") if isinstance(intel, dict) else {}
     agreed = meeting.get("agreed") if isinstance(meeting, dict) else None
-    return {"screening": screening, "meeting_agreed": agreed is True}
+    observed = memo.get("observed_at") or memo.get("capture_started_at") or memo.get("created_at")
+    return {"screening": screening, "meeting_agreed": agreed is True, "observed_at": observed}
 
 
 def adherence_part_from_score(score: dict) -> dict | None:
@@ -71,7 +108,7 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
     try:
         memos = (
             supabase.table("memos")
-            .select("id,screening_outcome,extraction,intelligence")
+            .select("id,screening_outcome,extraction,intelligence,capture_started_at,created_at")
             .eq("company_id", company_id)
             .execute()
         )
@@ -99,11 +136,14 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
         playbook_present = bool(published.data)
     except Exception:
         pass
+    period_start, period_end = madrid_week_bounds()
     return {
         "parts": parts,
         "playbook_present": playbook_present,
         "sample_size": len(parts),
         "activity_rows": activity_rows,
+        "activity_period_start": period_start,
+        "activity_period_end": period_end,
     }
 
 
@@ -114,9 +154,20 @@ def team_adherence(
     playbook_present: bool,
     sample_size: int,
     activity_rows: list[dict] | None = None,
+    activity_period_start: datetime | None = None,
+    activity_period_end: datetime | None = None,
 ) -> dict:
     assert_team_reader(role)
-    activity = activity_counts(activity_rows) if activity_rows is not None else {}
+    if activity_rows is not None:
+        if activity_period_start is None or activity_period_end is None:
+            activity_period_start, activity_period_end = madrid_week_bounds()
+        activity = activity_counts(
+            activity_rows,
+            start=activity_period_start,
+            end=activity_period_end,
+        )
+    else:
+        activity = {}
     if not playbook_present or sample_size < 1:
         body = {
             "met_steps": 0,
