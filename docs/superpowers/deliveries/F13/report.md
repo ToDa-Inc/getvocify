@@ -16,7 +16,7 @@ La fecha que cuenta es la de la captura, no la del trabajo que termina después.
 
 La ruta de producción `send_report_email` usa el adaptador Resend cuando el caller inyecta cliente Resend (sin envío real verificado en vivo).
 
-`due_report_sends` / `run_due_reports` deciden quién debe recibir el correo del día local tras las 18:00 y omiten periodos `sent` o `uncertain` (reintento solo si `failed`); sin bucle en `main` ni envío en vivo aquí.
+`run_due_report_emails` enlaza `due_report_sends` con `send_report_email` (sender falso en tests; sin envío en vivo ni bucle en `main`).
 
 ## No verificado
 

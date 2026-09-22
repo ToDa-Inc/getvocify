@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from app.services.reporting.delivery import period_bounds
+from app.services.reporting.delivery import period_bounds, send_report_email
 
 SEND_CUTOFF_HOUR = 18
 
@@ -51,6 +51,25 @@ def due_report_sends(now: datetime, people: list[dict], existing: list[dict]) ->
             continue
         due.append(person)
     return due
+
+
+def _delivery_for_period(user_id: str, period_start: str, existing: list[dict]) -> dict | None:
+    for row in existing:
+        if row.get("user_id") != user_id:
+            continue
+        if row.get("period_start") != period_start:
+            continue
+        return row
+    return None
+
+
+def run_due_report_emails(now: datetime, people: list[dict], existing: list[dict], sender) -> None:
+    """Call send_report_email once per due person; skips sent/uncertain for the local period."""
+    for person in due_report_sends(now, people, existing):
+        period_start = _period_start_iso(now, person["timezone"])
+        prior = _delivery_for_period(person["user_id"], period_start, existing)
+        report = {"id": person["report_id"], "revision": person["revision"]}
+        send_report_email(report, sender, existing=prior)
 
 
 def run_due_reports(now: datetime, people: list[dict], existing: list[dict], send) -> None:

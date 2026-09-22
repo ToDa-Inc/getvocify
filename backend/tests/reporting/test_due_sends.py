@@ -9,10 +9,27 @@ os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-due-sends-32")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-due-sends-32")
 
 from app.services.reporting.delivery import period_bounds
-from app.services.reporting.due_sends import due_report_sends, run_due_reports
+from app.services.reporting.due_sends import due_report_sends, run_due_report_emails
 
 MADRID = "Europe/Madrid"
-PERSON = {"user_id": "99999999-9999-9999-9999-999999999999", "company_id": "88888888-8888-8888-8888-888888888888", "timezone": MADRID}
+PERSON = {
+    "user_id": "99999999-9999-9999-9999-999999999999",
+    "company_id": "88888888-8888-8888-8888-888888888888",
+    "timezone": MADRID,
+    "report_id": "report-daily-1",
+    "revision": 1,
+}
+
+
+class FakeSender:
+    def __init__(self):
+        self.sent: list[str] = []
+
+    def send(self, key: str) -> None:
+        self.sent.append(key)
+
+    def reconcile(self, key: str):
+        return None
 
 
 def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries():
@@ -32,18 +49,18 @@ def test_madrid_before_1800_not_due_at_1800_due_sent_skips_failed_retries():
     uncertain = [{"user_id": PERSON["user_id"], "period_start": ps, "delivery_status": "uncertain"}]
     assert due_report_sends(at_cutoff, [PERSON], uncertain) == []
 
-    calls: list[dict] = []
+    sender = FakeSender()
+    run_due_report_emails(at_cutoff, [PERSON], already_sent, sender)
+    assert sender.sent == []
 
-    def send(person: dict) -> None:
-        calls.append(person)
+    sender = FakeSender()
+    run_due_report_emails(at_cutoff, [PERSON], uncertain, sender)
+    assert sender.sent == []
 
-    run_due_reports(at_cutoff, [PERSON], already_sent, send)
-    assert calls == []
+    sender = FakeSender()
+    run_due_report_emails(at_cutoff, [PERSON], failed, sender)
+    assert sender.sent == ["report-daily-1:r1:email"]
 
-    calls.clear()
-    run_due_reports(at_cutoff, [PERSON], uncertain, send)
-    assert calls == []
-
-    calls.clear()
-    run_due_reports(at_cutoff, [PERSON], failed, send)
-    assert calls == [PERSON]
+    sender = FakeSender()
+    run_due_report_emails(at_cutoff, [PERSON], [], sender)
+    assert sender.sent == ["report-daily-1:r1:email"]
