@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from app.services.reporting.delivery import claim_report_statement, deliver_report, period_bounds
+from app.services.reporting.resend_sender import ResendReportSender
 from app.api.reports import bell_items
 
 MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "048_reports_notifications.sql"
@@ -72,6 +73,37 @@ def test_dst_is_one_period_and_a_failed_email_keeps_the_notification():
     denied = deliver_report(report=report, channel="email", existing=None, sender=sender, allowed=False)
     assert denied["delivery_status"] == "skipped"
     assert sender.sent == []
+
+
+class FakeResendClient:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def send_email(self, to, subject, html, from_email=None, idempotency_key=None):
+        self.calls.append(
+            {"to": to, "subject": subject, "html": html, "from_email": from_email, "idempotency_key": idempotency_key}
+        )
+        return {"id": "msg-resend-1"}
+
+
+def test_resend_adapter_passes_idempotency_key_and_replay_skips_send():
+    report = {"id": "report-1", "revision": 1}
+    fake = FakeResendClient()
+    sender = ResendReportSender(
+        fake,
+        to="rep@example.com",
+        subject="Tu resumen",
+        html="<p>Actividad del día</p>",
+    )
+    first = deliver_report(report=report, channel="email", existing=None, sender=sender, allowed=True)
+    assert first["delivery_status"] == "sent"
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["idempotency_key"] == "report-1:r1:email"
+    assert "report-1:r1:email" not in fake.calls[0]["html"]
+    second = deliver_report(report=report, channel="email", existing=first, sender=sender, allowed=True)
+    assert second["replayed"] is True
+    assert second["delivery_status"] == "sent"
+    assert len(fake.calls) == 1
 
 
 def test_a_timeout_is_reconciled_instead_of_sending_again():
