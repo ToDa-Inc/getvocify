@@ -10,9 +10,11 @@ Estado: la nota humana se guarda antes de tener memo. No está cerrada.
 | `PUT /captures/{id}/annotations/{annotation_id}` | el mismo archivo |
 | Migración `044` con notas y patrones | Postgres aislado: una de dos revisiones gana y el offset sigue en 134000 |
 | Un obstáculo no es una objeción de venta; la nota de ironía no se atribuye al prospecto; la revisión nueva sustituye la frecuencia | `tests/intelligence/test_patterns.py` 4 passed |
+| La revisión dice «no se detectaron» solo con lectura completa y vacía; una nota sin turno no se reproduce | `src/lib/interaction-objections.test.ts` 3 passed; `tsc --noEmit` |
 | F03 | Suspendida en `docs/superpowers/deliveries/F03/report.md`. No hay código de preparación. |
 
 ## No verificado
 
 - El `PUT` de la ruta vive en memoria del proceso. La revisión condicional de Postgres está en `revise_statement`, no la llama la ruta.
-- No hay nota en la revisión de la web, el desktop o la extensión. La proyección de patrones no la dispara la extracción.
+- El detalle del memo muestra el bloque, pero la cobertura llega como no disponible: todavía no lee los patrones guardados. No se recorrió en el navegador.
+- La proyección de patrones no la dispara la extracción. Desktop y extensión no tienen el campo de nota.

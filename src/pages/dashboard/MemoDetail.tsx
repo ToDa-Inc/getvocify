@@ -8,6 +8,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
+import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
@@ -541,6 +542,16 @@ const MemoDetail = () => {
                   </a>
                 </Button>
               </div>
+            ) : null}
+            {isOwnMemo && id ? (
+              <InteractionObjections
+                memoId={id}
+                coverage="unavailable"
+                patterns={[]}
+                notes={[]}
+                canPlaySpan={false}
+                offsetMs={Math.round(currentTime * 1000)}
+              />
             ) : null}
             {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
