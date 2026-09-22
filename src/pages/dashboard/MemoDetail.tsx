@@ -8,6 +8,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
+import { MemoMeetingChecklist } from "@/components/dashboard/memos/MemoMeetingChecklist";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
@@ -416,6 +417,8 @@ const MemoDetail = () => {
                 : "Review and sync to CRM."}
         </p>
       </div>
+
+      {id ? <MemoMeetingChecklist memoId={id} /> : null}
 
       {extractionFailed && isOwnMemo && (
         <div className="mb-8 p-6 rounded-[2rem] border-2 border-destructive/30 bg-destructive/5 flex flex-col sm:flex-row items-start sm:items-center gap-4">

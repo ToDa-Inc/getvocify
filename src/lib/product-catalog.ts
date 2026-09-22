@@ -78,6 +78,7 @@ export const productCatalog = {
     teamAdherenceApplicable: "Scorable",
     teamAdherenceEmpty: "No adherence",
     teamAdherenceOf: "{met} of {applicable}",
+    checklistDone: "Done",
     teamOutcomesWon: "Won",
     teamOutcomesLost: "Lost",
     teamOutcomesRate: "Rate",
@@ -172,6 +173,7 @@ export const productCatalog = {
     offerSaving: "Saving…",
     offerSavedToast: "Product context saved",
     offerSaveFailedToast: "Could not save product context",
+    askConfirmFailed: "The confirmation could not be completed",
   },
   ES: {
     hourLocale: "es-ES",
@@ -252,6 +254,7 @@ export const productCatalog = {
     teamAdherenceApplicable: "Evaluables",
     teamAdherenceEmpty: "Sin adherencia",
     teamAdherenceOf: "{met} de {applicable}",
+    checklistDone: "Hecho",
     teamOutcomesWon: "Ganados",
     teamOutcomesLost: "Perdidos",
     teamOutcomesRate: "Tasa",
@@ -346,6 +349,7 @@ export const productCatalog = {
     offerSaving: "Guardando…",
     offerSavedToast: "Contexto de producto guardado",
     offerSaveFailedToast: "No se pudo guardar el contexto de producto",
+    askConfirmFailed: "No se pudo completar la confirmación",
   },
 } as const;
 
