@@ -1,3 +1,5 @@
+import { strings } from '../shared/ui/i18n.js';
+
 /**
  * Tab-capture policy for live call copilot.
  *
@@ -177,49 +179,52 @@ export function listenFailureReason({ canStartReason = null, streamId = null, pa
 }
 
 export function listenUiModel({
+  lang,
   listenPhase = null,
   isCopilotListening = false,
   copilotError = null,
   tabTitle = null,
   heardAnything = false,
 } = {}) {
+  const t = strings(lang);
+  const startingStatus = t.listenStartingButton.replace(/\u2026$|\.\.\.$/, '').trim() || t.listenStartingButton;
   const phase = resolveListenPhase({ listenPhase, isCopilotListening, copilotError });
   switch (phase) {
     case 'starting':
       return {
         phase: 'starting',
-        buttonLabel: 'Empezando…',
-        statusLabel: 'Empezando',
-        header: 'Empezando a escuchar…',
-        line: 'Capturando audio de esta pestaña…',
+        buttonLabel: t.listenStartingButton,
+        statusLabel: startingStatus,
+        header: t.listenStartingHeader,
+        line: t.listenStartingLine,
         live: false,
       };
     case 'live':
       return {
         phase: 'live',
-        buttonLabel: 'Dejar de escuchar',
-        statusLabel: heardAnything ? 'Escuchando' : 'Escuchando — esperando voz',
-        header: tabTitle ? `Escuchando · ${tabTitle}` : 'Escuchando esta pestaña',
-    line: heardAnything
-      ? (tabTitle ? `Escuchando «${tabTitle}»…` : 'Escuchando esta pestaña…')
-      : 'Escuchando esta pestaña, no tu micrófono. La otra parte de la llamada debería aparecer aquí.',
+        buttonLabel: t.listenStopButton,
+        statusLabel: heardAnything ? t.listenLiveStatus : t.listenLiveWaiting,
+        header: tabTitle ? t.listenHeaderTab(tabTitle) : t.listenHeaderPlain,
+        line: heardAnything
+          ? (tabTitle ? t.listenLineTab(tabTitle) : t.listenLinePlain)
+          : t.listenLineMic,
         live: true,
       };
     case 'error':
       return {
         phase: 'error',
-        buttonLabel: 'Escuchar pestaña',
-        statusLabel: 'Sin escucha',
-        header: 'Listo para grabar',
+        buttonLabel: t.listenIdleButton,
+        statusLabel: t.listenNotListening,
+        header: t.listenReady,
         line: copilotError || startDeniedMessage('capture_failed'),
         live: false,
       };
     default:
       return {
         phase: 'idle',
-        buttonLabel: 'Escuchar pestaña',
-        statusLabel: 'Grabar',
-        header: 'Listo para grabar',
+        buttonLabel: t.listenIdleButton,
+        statusLabel: t.listenIdleStatus,
+        header: t.listenReady,
         line: null,
         live: false,
       };

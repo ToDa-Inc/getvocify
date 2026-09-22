@@ -67,6 +67,7 @@ import {
 } from '../lib/tab-capture.js';
 import { copilotLiveAssistAllowed } from '../shared/ui/copilot/suggestion-state.js';
 import { overlayChecklistMarkup } from '../shared/ui/copilot/checklist.js';
+import { applyDataI18n, strings } from '../shared/ui/i18n.js';
 import { renderToString } from '../shared/ui/html.js';
 import {
   decideCopilotPillLine,
@@ -125,6 +126,13 @@ import {
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
 import { startLocalRingback } from '../lib/local-ringback.js';
 import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta, userFacingCallError } from '../lib/call-format.js';
+
+function popupUiLang() {
+  return {
+    vocify_lang: localStorage.getItem('vocify_lang'),
+    navigatorLanguage: navigator.language,
+  };
+}
 
 function paintCallMuteButton(muted, enabled) {
   const muteBtn = document.getElementById('call-mute');
@@ -1348,6 +1356,7 @@ function renderListenButton(state) {
   const label = document.getElementById('listen-tab-label');
   if (!btn) return;
   const model = listenUiModel({
+    lang: popupUiLang(),
     listenPhase: resolveListenPhase(state),
     isCopilotListening: state.isCopilotListening,
     copilotError: state.copilotError,
@@ -1358,11 +1367,11 @@ function renderListenButton(state) {
   btn.classList.toggle('listening', active);
   btn.setAttribute('aria-pressed', active ? 'true' : 'false');
   if (label) label.textContent = model.buttonLabel;
-  btn.style.display = state.isRecording ? 'none' : '';
+  btn.style.display = state.isRecording ? 'none' : 'inline-flex';
   renderListenStatus(state, model);
 }
 
-function renderListenStatus(state, model = listenUiModel(state)) {
+function renderListenStatus(state, model = listenUiModel({ ...state, lang: popupUiLang() })) {
   const el = document.getElementById('listen-status');
   if (!el) return;
   if (state.isRecording || !model.line) {
@@ -1404,7 +1413,7 @@ function renderCopilotAssistToggle(state) {
   }
 
   wrap.style.display = 'flex';
-  toggle.textContent = copilotAssistToggleLabel(Boolean(state.assistEnabled));
+  toggle.textContent = copilotAssistToggleLabel(Boolean(state.assistEnabled), popupUiLang());
   toggle.setAttribute('aria-pressed', state.assistEnabled ? 'true' : 'false');
 }
 
@@ -1419,7 +1428,12 @@ function renderCopilotChecklist(state) {
     return;
   }
 
-  const markup = overlayChecklistMarkup(state.copilotChecklist, { kind: 'meeting' });
+  const t = strings(popupUiLang());
+  const markup = overlayChecklistMarkup(state.copilotChecklist, {
+    kind: 'meeting',
+    doneLabel: t.checklistDone,
+    progressLabel: t.checklistProgress,
+  });
   host.innerHTML = markup ? renderToString(markup) : '';
   host.style.display = host.innerHTML ? 'block' : 'none';
   host.hidden = !host.innerHTML;
@@ -1503,7 +1517,7 @@ function renderCopilotCard(state) {
       say.textContent = pillLine.text;
     } else if (state.copilotIsLoading && !suggestion) {
       say.style.display = 'block';
-      say.textContent = 'Ayuda en esta reunión…';
+      say.textContent = strings(popupUiLang()).helpActive;
     } else {
       say.style.display = 'none';
       say.textContent = '';
@@ -1527,12 +1541,14 @@ function paintLiveTranscript(state) {
   if (state.isRecording) {
     liveTranscriptText.innerHTML = state.finalTranscript
       ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${state.interimTranscript || 'Listening...'}</span>`;
+      : `<span style="opacity:0.5">${state.interimTranscript || strings(popupUiLang()).listenLiveWaiting}</span>`;
     liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
     return;
   }
   if (state.isCopilotListening || state.status === 'copilot' || state.listenPhase === 'starting') {
+    const t = strings(popupUiLang());
     const model = listenUiModel({
+      lang: popupUiLang(),
       listenPhase: resolveListenPhase(state),
       isCopilotListening: state.isCopilotListening,
       copilotError: state.copilotError,
@@ -1541,11 +1557,11 @@ function paintLiveTranscript(state) {
     });
     liveTranscriptText.innerHTML = state.finalTranscript
       ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${model.line || 'Capturando audio de esta pestaña…'}</span>`;
+      : `<span style="opacity:0.5">${model.line || t.listenStartingLine}</span>`;
     liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
     const transcriptLabel = liveTranscriptContainer.querySelector('.transcript-label');
     if (transcriptLabel) {
-      transcriptLabel.textContent = model.live ? 'Escuchando esta pestaña…' : 'Empezando a escuchar…';
+      transcriptLabel.textContent = model.live ? t.listenLinePlain : t.listenStartingHeader;
     }
     renderListenStatus(state, model);
     renderCopilotCard(state);
@@ -1613,7 +1629,9 @@ function renderState(state) {
 
   if (state.isCopilotListening || state.status === 'copilot' || state.listenPhase === 'starting') {
     stopIdleContextPoll();
+    const t = strings(popupUiLang());
     const model = listenUiModel({
+      lang: popupUiLang(),
       listenPhase: resolveListenPhase(state),
       isCopilotListening: state.isCopilotListening,
       copilotError: state.copilotError,
@@ -1624,7 +1642,9 @@ function renderState(state) {
     recordButton.classList.remove('recording');
     recordButton.disabled = true;
     document.getElementById('record-status-label').textContent =
-      model.phase === 'starting' ? 'Empezando…' : 'Escuchando…';
+      model.phase === 'starting'
+        ? t.listenStartingButton
+        : `${t.listenLiveStatus}…`;
     liveTranscriptContainer.style.display = 'block';
     if (idleTools) {
       idleTools.style.display = 'grid';
@@ -1644,7 +1664,7 @@ function renderState(state) {
 
   recordButton.disabled = false;
   recordButton.classList.remove('recording');
-  document.getElementById('record-status-label').textContent = 'Record';
+  document.getElementById('record-status-label').textContent = strings(popupUiLang()).listenIdleStatus;
   const dealContextBadge = document.getElementById('deal-context-badge');
   if (dealContextBadge) dealContextBadge.style.display = 'none';
 
@@ -4451,6 +4471,7 @@ document.getElementById('loading-error-logout')?.addEventListener('click', signO
 // INIT
 // ============================================
 async function init() {
+  applyDataI18n(document, popupUiLang());
   showScreen('loading');
   authStatus = 'unknown';
 

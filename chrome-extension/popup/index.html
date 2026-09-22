@@ -33,8 +33,13 @@
           <button id="record-button" class="record-btn" aria-label="Record a voice memo">
             <div class="record-icon"></div>
           </button>
-          <p id="record-status-label" class="record-label">Record</p>
+          <p id="record-status-label" class="record-label" data-i18n="listenIdleStatus"></p>
         </div>
+
+        <button type="button" id="listen-tab-button" class="btn-secondary-hero" aria-pressed="false">
+          <span id="listen-tab-label"></span>
+        </button>
+        <p id="listen-status" class="listen-status" hidden></p>
 
         <div class="idle-tools">
           <button id="paste-transcript-toggle" type="button" class="tool-btn">
@@ -99,19 +104,19 @@
       </section>
 
       <div id="live-transcript-container" class="transcript-container" style="display: none;">
-        <p class="transcript-label">Transcribiendo…</p>
+        <p class="transcript-label" data-i18n="transcribing"></p>
         <div id="live-transcript-text" class="transcript-text"></div>
       </div>
 
       <div id="copilot-assist-wrap" class="copilot-assist-wrap" style="display: none;">
         <div id="copilot-card" class="copilot-card" style="display: none;">
-          <p class="caps-label copilot-kicker">Di esto</p>
-          <p id="copilot-say-this" class="copilot-say-this">Esperando a que termine de hablar…</p>
+          <p class="caps-label copilot-kicker" data-i18n="sayThis"></p>
+          <p id="copilot-say-this" class="copilot-say-this" data-i18n="waitingForThem"></p>
           <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
           <p id="copilot-next" class="copilot-next" style="display: none;"></p>
           <p id="copilot-error" class="copilot-error" style="display: none;"></p>
         </div>
-        <button type="button" id="copilot-assist-toggle" class="copilot-assist-toggle">Ayuda</button>
+        <button type="button" id="copilot-assist-toggle" class="copilot-assist-toggle" data-i18n="helpOn"></button>
       </div>
       <div id="copilot-checklist" class="copilot-checklist-host" style="display: none;" hidden></div>
 

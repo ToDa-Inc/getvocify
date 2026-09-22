@@ -1,3 +1,5 @@
+import { strings } from '../renderer/shared/ui/i18n.js';
+
 export const OVERLAY_WIDTH = 380;
 export const OVERLAY_HEIGHT = 96;
 export const OVERLAY_MARGIN = 16;
@@ -64,11 +66,11 @@ export function dashboardMemosUrl(apiBase) {
   return `${dashboardOrigin(apiBase)}/dashboard/memos`;
 }
 
-export function overlaySnippet(state = {}) {
+export function overlaySnippet(state = {}, lang) {
   const interim = String(state.interimTranscript || '').trim();
   if (interim) return interim;
   const finalTranscript = String(state.finalTranscript || '').trim();
-  if (!finalTranscript) return 'Escuchando la reunión…';
+  if (!finalTranscript) return strings(lang).overlayListening;
   const parts = finalTranscript.split(/(?=(?:You|Them): )/).filter(Boolean);
   return (parts[parts.length - 1] || finalTranscript).trim();
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { overlayChecklistMarkup } from "./checklist.js";
 import { renderToString } from "../html.js";
+import { strings } from "../i18n.js";
 
 const sample = {
   playbook_version_id: "pb-1",
@@ -21,12 +22,28 @@ describe("overlay checklist renderer", () => {
   });
 
   it("shows progress and step labels without evidence text", () => {
-    const html = overlayChecklistMarkup(sample, { kind: "meeting" });
+    const es = strings("es");
+    const html = overlayChecklistMarkup(sample, {
+      kind: "meeting",
+      doneLabel: es.checklistDone,
+      progressLabel: es.checklistProgress,
+    });
     const out = renderToString(html);
     assert.match(out, /1 de 3/);
     assert.match(out, /Saludo/);
     assert.match(out, /Hecho/);
     assert.match(out, /Precio/);
     assert.doesNotMatch(out, /ev-1/);
+
+    const en = strings("en");
+    const enOut = renderToString(
+      overlayChecklistMarkup(sample, {
+        kind: "meeting",
+        doneLabel: en.checklistDone,
+        progressLabel: en.checklistProgress,
+      }),
+    );
+    assert.match(enOut, /1 of 3/);
+    assert.match(enOut, /Done/);
   });
 });

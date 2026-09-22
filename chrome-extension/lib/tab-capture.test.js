@@ -135,7 +135,7 @@ describe('listen status model', () => {
   });
 
   it('does not claim live until capture is confirmed', () => {
-    const starting = listenUiModel({ listenPhase: 'starting' });
+    const starting = listenUiModel({ lang: 'es', listenPhase: 'starting' });
     assert.equal(starting.phase, 'starting');
     assert.equal(starting.live, false);
     assert.match(starting.line, /Capturando/i);
@@ -144,6 +144,7 @@ describe('listen status model', () => {
 
   it('says listening and waiting for speech when connected with no transcript yet', () => {
     const live = listenUiModel({
+      lang: 'es',
       listenPhase: 'live',
       isCopilotListening: true,
       tabTitle: 'Acme deal',
@@ -156,6 +157,7 @@ describe('listen status model', () => {
 
   it('shows a not-listening error in the panel instead of hiding it', () => {
     const err = listenUiModel({
+      lang: 'es',
       listenPhase: 'error',
       copilotError: startDeniedMessage('no_stream_id'),
     });
@@ -165,6 +167,20 @@ describe('listen status model', () => {
     assert.equal(err.buttonLabel, 'Escuchar pestaña');
     assert.equal(err.statusLabel, 'Sin escucha');
     assert.equal(err.header, 'Listo para grabar');
+  });
+
+  it('returns English labels when lang is en', () => {
+    const idle = listenUiModel({ lang: 'en', listenPhase: 'idle' });
+    assert.equal(idle.buttonLabel, 'Listen to tab');
+    assert.equal(idle.statusLabel, 'Record');
+    const live = listenUiModel({
+      lang: 'en',
+      listenPhase: 'live',
+      isCopilotListening: true,
+      heardAnything: true,
+    });
+    assert.equal(live.buttonLabel, 'Stop listening');
+    assert.equal(live.statusLabel, 'Listening');
   });
 
   it('falls back to live/error when listenPhase is missing from an older state payload', () => {

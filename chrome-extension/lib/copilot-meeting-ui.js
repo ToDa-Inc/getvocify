@@ -1,3 +1,5 @@
+import { strings } from '../shared/ui/i18n.js';
+
 export function isMeetingListenActive(state) {
   const listening =
     Boolean(state?.isCopilotListening)
@@ -7,8 +9,9 @@ export function isMeetingListenActive(state) {
   return listening && state?.callMode === 'meeting';
 }
 
-export function copilotAssistToggleLabel(assistEnabled) {
-  return assistEnabled ? 'Ocultar ayuda' : 'Ayuda';
+export function copilotAssistToggleLabel(assistEnabled, lang) {
+  const t = strings(lang);
+  return assistEnabled ? t.helpOff : t.helpOn;
 }
 
 export function shouldShowCopilotChecklist(state, checklist) {

@@ -15,7 +15,7 @@ describe('live-assist-overlay', () => {
     assert.equal(overlay.kind, 'meeting');
     assert.equal(overlay.playbookReady, true);
     assert.deepEqual(overlay.evidenceRefs, ['ev-1']);
-    assert.deepEqual(overlay.card, { text: 'Pregunta el precio' });
+    assert.deepEqual(overlay.card, { text: 'Pregunta el precio', category: null });
   });
 
   it('leaves card null when evidence_refs is empty', () => {

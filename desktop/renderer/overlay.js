@@ -1,11 +1,21 @@
 import { overlayChecklistMarkup } from './shared/ui/copilot/checklist.js';
 import { initialPillState, pillDecision } from './shared/ui/copilot/pill.js';
+import { applyDataI18n, strings } from './shared/ui/i18n.js';
 import { renderToString } from './shared/ui/html.js';
 
 const lineEl = document.getElementById('overlay-line');
 const labelEl = document.getElementById('overlay-label');
 const checklistEl = document.getElementById('overlay-checklist');
 const assistBtn = document.getElementById('overlay-assist');
+
+function uiLang() {
+  return {
+    vocify_lang: localStorage.getItem('vocify_lang'),
+    navigatorLanguage: navigator.language,
+  };
+}
+
+applyDataI18n(document, uiLang());
 
 let pillState = initialPillState();
 let tickTimer = null;
@@ -47,7 +57,12 @@ let lastOverlayState = null;
 
 function paintChecklist(state) {
   if (!checklistEl) return;
-  const markup = overlayChecklistMarkup(state?.checklist, { kind: state?.kind });
+  const t = strings(uiLang());
+  const markup = overlayChecklistMarkup(state?.checklist, {
+    kind: state?.kind,
+    doneLabel: t.checklistDone,
+    progressLabel: t.checklistProgress,
+  });
   if (!markup) {
     checklistEl.hidden = true;
     checklistEl.innerHTML = '';
@@ -59,13 +74,15 @@ function paintChecklist(state) {
 
 function paintAssistButton(assistEnabled) {
   if (!assistBtn) return;
+  const t = strings(uiLang());
   const on = assistEnabled === true;
-  assistBtn.textContent = on ? 'Ocultar ayuda' : 'Ayuda';
+  assistBtn.textContent = on ? t.helpOff : t.helpOn;
   assistBtn.hidden = !lastOverlayState?.listening;
 }
 
 function paintOverlay(state) {
   lastOverlayState = state;
+  const t = strings(uiLang());
   if (!state?.listening) {
     resetPillState();
   }
@@ -91,12 +108,13 @@ function paintOverlay(state) {
 
   if (state?.assistEnabled === true && decision.show && decision.text) {
     lineEl.textContent = decision.text;
-    labelEl.textContent = 'Ayuda';
+    labelEl.textContent = t.sayThis;
     return;
   }
 
   if (state?.lastLine) lineEl.textContent = state.lastLine;
-  labelEl.textContent = state?.listening ? 'En vivo' : 'En reposo';
+  else lineEl.textContent = t.overlayListening;
+  labelEl.textContent = state?.listening ? t.overlayLive : t.desktopIdle;
 }
 
 desktop()?.shell?.onOverlayState((state) => {

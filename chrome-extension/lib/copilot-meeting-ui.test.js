@@ -13,8 +13,10 @@ describe('copilot meeting popup chrome', () => {
       true,
     );
     assert.equal(isMeetingListenActive({ callMode: 'call', isCopilotListening: true }), false);
-    assert.equal(copilotAssistToggleLabel(false), 'Ayuda');
-    assert.equal(copilotAssistToggleLabel(true), 'Ocultar ayuda');
+    assert.equal(copilotAssistToggleLabel(false, 'es'), 'Ayuda');
+    assert.equal(copilotAssistToggleLabel(true, 'es'), 'Ocultar ayuda');
+    assert.equal(copilotAssistToggleLabel(false, 'en'), 'Help');
+    assert.equal(copilotAssistToggleLabel(true, 'en'), 'Hide help');
   });
 
   it('hides checklist when applicable is zero', () => {

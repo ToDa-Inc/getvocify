@@ -56,6 +56,7 @@ import {
   todayItemToCard,
 } from '../lib/home-hoy.js';
 import { renderToString } from './shared/ui/html.js';
+import { applyDataI18n, strings } from './shared/ui/i18n.js';
 import { renderTodayCard } from './shared/ui/today-card.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
@@ -65,6 +66,15 @@ const STORAGE = {
   api: 'vocify_api_base',
   email: 'vocify_email',
 };
+
+function uiLang() {
+  return {
+    vocify_lang: localStorage.getItem('vocify_lang'),
+    navigatorLanguage: navigator.language,
+  };
+}
+
+applyDataI18n(document, uiLang());
 
 const loginPanel = document.getElementById('login-panel');
 const permissionsPanel = document.getElementById('permissions-panel');
@@ -421,7 +431,7 @@ function notifyShell() {
   desktop()?.shell?.setState({
     listening,
     loggedIn: Boolean(localStorage.getItem(STORAGE.token)),
-    lastLine: overlaySnippet(transcriptState),
+    lastLine: overlaySnippet(transcriptState, uiLang()),
     backend: currentBackend,
     email,
     apiBase: apiBase(),
@@ -432,9 +442,10 @@ function notifyShell() {
 }
 
 function setLiveUi(on) {
+  const t = strings(uiLang());
   liveDot.classList.toggle('live', on);
   liveDot.classList.toggle('idle', !on);
-  liveLabel.textContent = on ? 'Escuchando' : 'En reposo';
+  liveLabel.textContent = on ? t.listenLiveStatus : t.desktopIdle;
   if (on) {
     startedAt = Date.now();
     timerEl.textContent = '00:00';
@@ -754,7 +765,7 @@ async function startListen() {
   btnStop.disabled = false;
   setLiveUi(true);
   backendChip.textContent = backendLabel(currentBackend);
-  statusEl.textContent = `Escuchando la reunión vía ${backendLabel(currentBackend)}. La ventana flotante sigue encima.`;
+  statusEl.textContent = strings(uiLang()).desktopHearing;
   desktop()?.shell?.showOverlay();
   paintHomeBrief();
   paintHomeHoy();
@@ -978,7 +989,7 @@ async function openReview(memoId) {
 async function stopAndSend() {
   const transcript = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
   stopCapture();
-  statusEl.textContent = 'Parado.';
+  statusEl.textContent = strings(uiLang()).desktopStopped;
   if (!transcript) {
     showError(listenError, 'Nothing transcribed. Try again with the call unmuted.');
     return;
