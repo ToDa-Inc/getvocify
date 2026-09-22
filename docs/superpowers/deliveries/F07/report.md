@@ -1,6 +1,6 @@
 # Informe F07
 
-Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. La pregunta por voz se transcribe a texto editable y solo sale al pulsar Enviar; no crea un memo. No se recorrió el micrófono en el navegador. La migración `041` no está aplicada en una base compartida.
+Estado: C07 y C08 empezados en `feat/vocify-v1`. No cerrado. La voz no se envía sola ni crea un memo: cancelar suelta el micrófono y un permiso denegado deja escribir. La pantalla aún no llama al transcriptor, así que el texto hablado no aparece hasta que se pase esa función. No se probó el micrófono en el navegador. La migración `041` no está aplicada en una base compartida.
 
 ## Entregado
 
