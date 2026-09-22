@@ -15,6 +15,5 @@ No hay migración nueva: usa `previous_status`, `last_action_request_id` y `undo
 
 ## No verificado
 
-- La tarjeta compartida no está montada en el inicio web ni en el marcador. El deshacer no se recorrió en el navegador.
-- El deshacer no se recorrió en el navegador.
-- F05 sigue sin disparar el día a las 08:00 y sin leer tareas del CRM.
+- La tarjeta del inicio web descarta una señal con id y deja Deshacer mientras dura el plazo. El marcador no monta esa tarjeta.
+- F05 ya marca las 08:00 locales y el `GET` lee tareas abiertas de la conexión.

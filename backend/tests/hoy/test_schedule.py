@@ -291,6 +291,8 @@ def test_today_keeps_a_pending_card_when_crm_tasks_were_not_read():
         "memo_id": "memo-1",
         "connection_id": "crm-A",
         "dedupe_key": "cold:42",
+        "id": "sig-1",
+        "version": 4,
         "coverage": "complete",
         "payload": {"interest": "high", "days_silent": 12},
     }, {
@@ -309,6 +311,8 @@ def test_today_keeps_a_pending_card_when_crm_tasks_were_not_read():
     app.dependency_overrides[get_supabase] = lambda: STORE
     body = TestClient(app).get("/api/v1/today").json()
     assert [item["dedupe_key"] for item in body["items"]] == ["cold:42"]
+    assert body["items"][0]["id"] == "sig-1"
+    assert body["items"][0]["version"] == 4
     assert body["pulse"] is None
     assert body["coverage"]["crm_tasks"] == "unavailable"
 

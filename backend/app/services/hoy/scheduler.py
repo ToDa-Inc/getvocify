@@ -202,6 +202,10 @@ def build_today_view(
             "origins": payload.get("origins") or ["detected"],
             "supporting": [item.type for item in card.supporting],
         })
+        if payload.get("signal_id"):
+            items[-1]["id"] = payload["signal_id"]
+            items[-1]["version"] = payload.get("version")
+            items[-1]["status"] = payload.get("status") or "pending"
     for task in loose:
         items.append({
             "type": "manual_task",

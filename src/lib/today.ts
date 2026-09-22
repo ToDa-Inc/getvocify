@@ -8,6 +8,10 @@ export type TodayItem = {
   remote_id?: string | null;
   origins: string[];
   supporting: string[];
+  id?: string | null;
+  version?: number | null;
+  status?: string | null;
+  undo_deadline?: string | null;
 };
 
 export type TodayView = {
@@ -77,4 +81,17 @@ export function todaySurface(input: {
     };
   }
   return { kind: "no-activity", title: "Todavía no hay actividad registrada para preparar tu día" };
+}
+
+export function cardsAfterDismiss(server: TodayItem[], acted: TodayItem[], nowMs: number): TodayItem[] {
+  const actedById = new Map(acted.filter((item) => item.id).map((item) => [item.id as string, item]));
+  const undoable = (item: TodayItem) =>
+    item.status === "dismissed" && item.undo_deadline != null && Date.parse(item.undo_deadline) >= nowMs;
+  const merged = server.map((item) => {
+    const next = item.id ? actedById.get(item.id) : undefined;
+    return next && undoable(next) ? next : item;
+  });
+  const serverIds = new Set(server.map((item) => item.id).filter(Boolean));
+  const extra = acted.filter((item) => item.id && !serverIds.has(item.id) && undoable(item));
+  return [...merged, ...extra];
 }

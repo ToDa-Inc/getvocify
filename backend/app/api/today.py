@@ -97,13 +97,18 @@ def _read_tasks(connection: dict) -> tuple[list[dict], str]:
 
 
 def _signal(row: dict) -> Signal:
+    payload = dict(row.get("payload") or {})
+    if row.get("id"):
+        payload["signal_id"] = row["id"]
+        payload["version"] = row.get("version")
+        payload["status"] = row.get("status") or "pending"
     return Signal(
         type=row["type"],
         contact_id=row.get("contact_id"),
         deal_id=row.get("deal_id"),
         source_memo_id=row.get("memo_id") or "",
         due_at=None,
-        payload=dict(row.get("payload") or {}),
+        payload=payload,
         dedupe_key=row["dedupe_key"],
         connection_id=row.get("connection_id"),
     )

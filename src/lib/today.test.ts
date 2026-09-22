@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { todaySurface, type TodayView } from "./today.ts";
+import { todaySurface, cardsAfterDismiss, type TodayView, type TodayItem } from "./today.ts";
 
 const emptyComplete: TodayView = {
   items: [],
@@ -72,5 +72,23 @@ describe("today surface", () => {
       role: "member",
     });
     assert.equal(fromApi.kind, "connect");
+  });
+});
+
+describe("dismiss stays undoable", () => {
+  it("keeps a dismissed card until the undo deadline and drops it after", () => {
+    const pending: TodayItem = { ...card.items[0], id: "sig-1", version: 4, status: "pending" };
+    const dismissed: TodayItem = {
+      ...pending,
+      version: 5,
+      status: "dismissed",
+      undo_deadline: "2026-09-22T08:00:05Z",
+    };
+    const before = Date.parse("2026-09-22T08:00:04Z");
+    const after = Date.parse("2026-09-22T08:00:06Z");
+    assert.equal(cardsAfterDismiss([pending], [dismissed], before)[0].status, "dismissed");
+    assert.equal(cardsAfterDismiss([pending], [dismissed], after)[0].status, "pending");
+    assert.equal(cardsAfterDismiss([], [dismissed], before).length, 1);
+    assert.equal(cardsAfterDismiss([], [dismissed], after).length, 0);
   });
 });
