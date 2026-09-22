@@ -161,9 +161,14 @@ v-followup[hidden] { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .v-pill { transition: none; }
+  .v-today-card.is-leaving { transition: opacity 180ms ease; }
 }
 
 @keyframes v-breathe {
   50% { opacity: 0.55; }
+}
+
+.v-today-card.is-leaving {
+  transition: opacity 180ms ease, transform 180ms ease, height 180ms ease;
 }
 
