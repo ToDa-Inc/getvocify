@@ -6,14 +6,24 @@ import { ObjectionBreakdown } from "@/features/team-insights/components/Objectio
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
 import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
 import {
+  teamAdherenceHasData,
   teamInsightsView,
   type ObjectionCategory,
   type TeamFilters,
   type TeamMetrics,
+  type TeamRep,
 } from "@/lib/team-insights";
 import { api } from "@/shared/lib/api-client";
 
 const EMPTY_FILTERS: TeamFilters = { period: "week", motion: null, userId: null };
+
+function adherenceQuery(filters: TeamFilters): string {
+  const params = new URLSearchParams();
+  if (filters.userId) params.set("user_id", filters.userId);
+  if (filters.motion) params.set("motion", filters.motion);
+  const qs = params.toString();
+  return qs ? `/team/adherence?${qs}` : "/team/adherence";
+}
 
 export default function TeamInsightsPage() {
   const { user } = useAuth();
@@ -32,7 +42,14 @@ export default function TeamInsightsPage() {
         connected?: number;
         meetings?: number;
         objection_categories?: ObjectionCategory[];
-      }>("/team/adherence"),
+        reps?: TeamRep[];
+      }>(adherenceQuery(filters)),
+    enabled: allowed,
+    retry: false,
+  });
+  const motionsQuery = useQuery({
+    queryKey: ["playbook-motions"],
+    queryFn: () => api.get<{ motions: Record<string, string> }>("/playbooks"),
     enabled: allowed,
     retry: false,
   });
@@ -44,33 +61,82 @@ export default function TeamInsightsPage() {
       </main>
     );
   }
-  const metrics: TeamMetrics | null = query.data
-    ? {
-        attempts: typeof query.data.attempts === "number" ? query.data.attempts : null,
-        connected: typeof query.data.connected === "number" ? query.data.connected : null,
-        meetings: typeof query.data.meetings === "number" ? query.data.meetings : null,
-        won: null,
-        lost: null,
-        unresolvedWins: 0,
-        adherence: query.data.adherence,
-        met: query.data.met_steps,
-        applicable: query.data.applicable_steps,
-        coverageCrm: query.data.coverage === null ? "unavailable" : "complete",
-      }
-    : null;
+  const reps: TeamRep[] = query.data?.reps ?? [];
+  const filterActive = Boolean(filters.userId || filters.motion);
+  const scopedEmpty = filterActive && query.data != null && !teamAdherenceHasData(query.data);
+  const metrics: TeamMetrics | null =
+    query.data && !scopedEmpty
+      ? {
+          attempts: typeof query.data.attempts === "number" ? query.data.attempts : null,
+          connected: typeof query.data.connected === "number" ? query.data.connected : null,
+          meetings: typeof query.data.meetings === "number" ? query.data.meetings : null,
+          won: null,
+          lost: null,
+          unresolvedWins: 0,
+          adherence: query.data.adherence,
+          met: query.data.met_steps,
+          applicable: query.data.applicable_steps,
+          coverageCrm: query.data.coverage === null ? "unavailable" : "complete",
+        }
+      : null;
   const view = teamInsightsView({
     role,
     companyEmpty: false,
     filters,
-    reps: [],
+    reps,
     metrics: query.isSuccess ? metrics : null,
   });
+  const motionKeys = Object.keys(motionsQuery.data?.motions ?? {}).sort((a, b) =>
+    a.localeCompare(b, "es"),
+  );
 
   return (
     <main className="max-w-5xl mx-auto space-y-8 p-6">
       <h1>Equipo</h1>
       {view.kind === "denied" ? <p>{view.title}</p> : null}
       {view.kind === "new" ? <p>{view.title}</p> : null}
+      {allowed ? (
+        <div className="flex flex-wrap gap-4">
+          <label>
+            Comercial{" "}
+            <select
+              value={filters.userId ?? ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  userId: event.target.value ? event.target.value : null,
+                }))
+              }
+            >
+              <option value="">Todo el equipo</option>
+              {reps.map((rep) => (
+                <option key={rep.userId} value={rep.userId}>
+                  {rep.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Tipología{" "}
+            <select
+              value={filters.motion ?? ""}
+              onChange={(event) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  motion: event.target.value ? event.target.value : null,
+                }))
+              }
+            >
+              <option value="">Toda tipología</option>
+              {motionKeys.map((key) => (
+                <option key={key} value={key}>
+                  {key}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
       {view.kind === "empty" ? (
         <div>
           <p>{view.title}</p>

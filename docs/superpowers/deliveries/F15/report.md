@@ -23,6 +23,10 @@ No se inventa un estado anterior si no hay historia.
 | Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan; etiquetas ES y solo semana Madrid (`observed_at`/`created_at`) | `tests/team_insights/test_objections.py` |
 | La página de equipo lista nombres ES de categoría o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
 
+## Filtros compartidos (2026-09-22)
+
+`GET /team/adherence` comparte `user_id` y `motion` entre actividad, adherencia y objeciones; sin parámetros mantiene el agregado de empresa. La respuesta incluye `reps` ordenados por nombre (`es`), la página `/dashboard/insights` expone Comercial y Tipología con los mismos query params, y un miembro sigue en 403 antes de cualquier cifra. Pruebas: `tests/team_insights/test_adherence_filters.py` y `src/lib/team-insights.test.ts`.
+
 ## No verificado
 
 - La página está en `/dashboard/insights`. No se recorrió en el navegador. La gestión de miembros sigue en Ajustes.

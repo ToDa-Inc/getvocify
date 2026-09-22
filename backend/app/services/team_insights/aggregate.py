@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from app.services.activity_scope import author_display_name
 from app.services.coaching.metrics import aggregate_adherence
+from app.services.company import CompanyService
 from app.services.team_insights.objections import objection_counts
 
 _MADRID = ZoneInfo("Europe/Madrid")
@@ -116,19 +118,75 @@ def adherence_part_from_score(score: dict, *, observed_at=None) -> dict | None:
     return part
 
 
-def load_team_adherence_inputs(supabase, company_id: str) -> dict:
+def sort_reps_by_name(reps: list[dict]) -> list[dict]:
+    """Alphabetical by display name (Spanish locale when available)."""
+    import locale
+
+    collator = locale.strxfrm
+    try:
+        locale.setlocale(locale.LC_COLLATE, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_COLLATE, "es_ES")
+        except locale.Error:
+            collator = lambda text: (text or "").casefold()  # noqa: E731
+    try:
+        return sorted(reps, key=lambda rep: collator(str(rep.get("name") or "")))
+    except Exception:
+        return sorted(reps, key=lambda rep: str(rep.get("name") or "").casefold())
+
+
+def load_team_reps(supabase, company_id: str) -> list[dict]:
+    """Active company members as {userId, name}; never invent non-members."""
+    try:
+        members = CompanyService(supabase).list_members(company_id)
+    except Exception:
+        return []
+    reps: list[dict] = []
+    for member in members:
+        if (member.get("status") or "active") != "active":
+            continue
+        uid = str(member.get("user_id") or "").strip()
+        if not uid:
+            continue
+        reps.append(
+            {
+                "userId": uid,
+                "name": author_display_name(member.get("full_name"), member.get("email")),
+            }
+        )
+    return sort_reps_by_name(reps)
+
+
+def load_team_adherence_inputs(
+    supabase,
+    company_id: str,
+    *,
+    user_id: str | None = None,
+    motion: str | None = None,
+) -> dict:
     """Memos and scores for the company. Empty lists when the read fails."""
     activity_rows: list[dict] = []
     parts: list[dict] = []
     pattern_rows: list[dict] = []
     playbook_present = False
+    reps = load_team_reps(supabase, company_id)
+    filter_user = (user_id or "").strip() or None
+    filter_motion = (motion or "").strip() or None
     try:
-        memos = (
+        query = (
             supabase.table("memos")
-            .select("id,screening_outcome,extraction,intelligence,capture_started_at,created_at")
+            .select(
+                "id,user_id,sales_motion_key,screening_outcome,extraction,intelligence,"
+                "capture_started_at,created_at"
+            )
             .eq("company_id", company_id)
-            .execute()
         )
+        if filter_user:
+            query = query.eq("user_id", filter_user)
+        if filter_motion:
+            query = query.eq("sales_motion_key", filter_motion)
+        memos = query.execute()
         memo_ids: list[str] = []
         for memo in memos.data or []:
             memo_ids.append(str(memo.get("id")))
@@ -177,6 +235,7 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
         "activity_period_start": period_start,
         "activity_period_end": period_end,
         "pattern_rows": pattern_rows,
+        "reps": reps,
     }
 
 
@@ -190,6 +249,7 @@ def team_adherence(
     activity_period_start: datetime | None = None,
     activity_period_end: datetime | None = None,
     pattern_rows: list[dict] | None = None,
+    reps: list[dict] | None = None,
 ) -> dict:
     assert_team_reader(role)
     if activity_period_start is None or activity_period_end is None:
@@ -223,6 +283,7 @@ def team_adherence(
             start=activity_period_start,
             end=activity_period_end,
         )
+        body["reps"] = reps or []
         return body
     metrics = aggregate_adherence(week_parts)
     conclusion = None
@@ -242,4 +303,5 @@ def team_adherence(
         start=activity_period_start,
         end=activity_period_end,
     )
+    body["reps"] = reps or []
     return body

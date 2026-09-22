@@ -52,6 +52,17 @@ export function activityLabel(value: number | null): string {
   return value === null ? "No disponible" : String(value);
 }
 
+/** True when adherence payload has memos/scores/objections in the filtered scope. */
+export function teamAdherenceHasData(data: {
+  attempts?: number;
+  met_steps?: number;
+  objection_categories?: ObjectionCategory[];
+}): boolean {
+  if ((data.attempts ?? 0) > 0) return true;
+  if ((data.met_steps ?? 0) > 0) return true;
+  return (data.objection_categories ?? []).some((item) => item.count > 0);
+}
+
 export function repsByName(reps: TeamRep[]): TeamRep[] {
   return [...reps].sort((a, b) => a.name.localeCompare(b.name, "es"));
 }

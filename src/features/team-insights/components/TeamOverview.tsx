@@ -11,7 +11,7 @@ export function TeamOverview({ metrics, reps }: { metrics: TeamMetrics; reps: Te
           <tr><th>Reuniones acordadas</th><td>{activityLabel(metrics.meetings)}</td></tr>
         </tbody>
       </table>
-      <p>{reps.map((rep) => rep.name).join(", ")}</p>
+      {reps.length > 0 ? <p>{reps.map((rep) => rep.name).join(", ")}</p> : null}
     </section>
   );
 }

@@ -4,6 +4,7 @@ import {
   activityLabel,
   objectionCategoriesEmptyMessage,
   repsByName,
+  teamAdherenceHasData,
   teamInsightsView,
   visibleObjectionCategories,
   winsForFilter,
@@ -57,6 +58,11 @@ describe("team insights", () => {
       { name: "Plazo", count: 2 },
       { name: "Precio", count: 1 },
     ]);
+  });
+
+  it("detects an empty scoped adherence payload", () => {
+    assert.equal(teamAdherenceHasData({ attempts: 0, met_steps: 0, objection_categories: [] }), false);
+    assert.equal(teamAdherenceHasData({ attempts: 1, met_steps: 0 }), true);
   });
 
   it("does not turn an empty filter or a missing close into a zero rate", () => {
