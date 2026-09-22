@@ -15,6 +15,7 @@ from app.services.crm_copilot.web_sessions import (
     UncertainOperation,
     accept_turn,
     attach_read,
+    bind_ask_actor,
     confirm_operation,
 )
 
@@ -84,6 +85,7 @@ async def post_turn(
     body: TurnRequest,
     membership: Membership = Depends(get_membership),
 ):
+    bind_ask_actor(membership.user_id, membership.company_id)
     if _store is not None:
         turn = _store.save_turn(
             user_id=membership.user_id,
@@ -123,6 +125,8 @@ async def _finish(turn: dict, text: str) -> dict:
         result = _loop(text)
         if asyncio.iscoroutine(result):
             result = await result
+        if result is None:
+            return turn
         if hasattr(result, "text"):
             answer = result.text
             envelope = getattr(result, "envelope", None)

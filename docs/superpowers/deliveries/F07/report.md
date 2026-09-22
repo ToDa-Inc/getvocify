@@ -16,7 +16,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Transcribir la pregunta devuelve texto y `memo_id` null; el silencio queda vacío | `a0ac152` | `tests/crm_copilot/test_ask_http.py` |
 | Conversación vacía, sin resultados y lectura parcial del CRM no comparten la misma frase | `40835da` | `src/lib/ask-situation.test.ts` |
 | Un turno con lectura prohibida no se guarda como consulta sin resultados | `53f4821` | `tests/crm_copilot/test_ask_http.py` |
-| La pregunta web pasa por el loop una vez; el reintento no lo vuelve a llamar | este commit | `tests/crm_copilot/test_ask_http.py` |
+| La pregunta web pasa por el loop una vez; el reintento no lo vuelve a llamar | `d72ed0c` | `tests/crm_copilot/test_ask_http.py` |
+| Al arrancar, Ask usa el mismo loop que WhatsApp; si falla, el turno sigue pendiente | este commit | `tests/crm_copilot/test_ask_http.py` |
 
 ## No verificado
 

@@ -267,3 +267,21 @@ def test_the_web_turn_runs_the_loop_once_and_keeps_an_empty_read():
         assert calls == ["¿Qué sigue?"]
     finally:
         ask_api.set_ask_loop(None)
+
+
+def test_a_failed_loop_leaves_the_turn_pending():
+    async def loop(_text: str):
+        return None
+
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        response = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-fail", "text": "¿Qué sigue?"},
+        )
+        assert response.status_code == 202
+        assert response.json()["status"] == "pending"
+        assert response.json()["text"] == "¿Qué sigue?"
+    finally:
+        ask_api.set_ask_loop(None)

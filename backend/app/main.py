@@ -357,11 +357,12 @@ async def startup_event():
     from app.services.intelligence.worker import install_intelligence_tick, start_worker
     from app.deps import get_supabase
     from app.api.playbooks import set_playbook_store
-    from app.api.ask import set_ask_store
+    from app.api.ask import set_ask_loop, set_ask_store
     from app.services.playbooks.store import SupabasePlaybookStore
-    from app.services.crm_copilot.web_sessions import SupabaseAskStore
+    from app.services.crm_copilot.web_sessions import SupabaseAskStore, live_ask_loop
     set_playbook_store(SupabasePlaybookStore(get_supabase()))
     set_ask_store(SupabaseAskStore(get_supabase()))
+    set_ask_loop(live_ask_loop)
     install_intelligence_tick()
     start_worker()
 

@@ -94,6 +94,43 @@ def confirm_operation(
     return {**operation, "applied": True, "status": "succeeded", "replayed": False}
 
 
+_actor: dict[str, str] = {}
+_sessions: dict[str, dict] = {}
+
+
+def bind_ask_actor(user_id: str, company_id: str) -> None:
+    _actor["user_id"] = user_id
+    _actor["company_id"] = company_id
+
+
+async def live_ask_loop(text: str):
+    """Same copilot loop as WhatsApp. A failure leaves the turn pending."""
+    import logging
+
+    from app.deps import get_supabase
+    from app.services.crm_copilot.loop import run_copilot_turn
+    from app.services.crm_copilot.prompts import build_system_prompt
+    from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, execute_tool
+    from app.services.llm.client import LLMClient
+
+    user_id = _actor.get("user_id") or ""
+    artifacts = _sessions.setdefault(user_id, {})
+    try:
+        result = await run_copilot_turn(
+            text,
+            artifacts=artifacts,
+            llm=LLMClient(),
+            execute=execute_tool,
+            tools=OPENAI_TOOLS,
+            system=build_system_prompt(artifacts),
+            ctx=CopilotContext(supabase=get_supabase(), user_id=user_id, artifacts=artifacts),
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("ask loop failed")
+        return None
+    return {"text": result.text or ""}
+
+
 def attach_read(turn: dict, envelope: dict) -> dict:
     """A finished read keeps its coverage. Forbidden is not an empty result."""
     coverage = envelope.get("coverage")
