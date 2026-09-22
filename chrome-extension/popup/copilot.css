@@ -1,5 +1,66 @@
-.copilot-card {
+.copilot-assist-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 16px 0;
+}
+
+.copilot-assist-toggle {
+  flex-shrink: 0;
+  margin-top: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.35);
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.copilot-assist-toggle:hover {
+  background: rgb(255 255 255 / 0.5);
+}
+
+.copilot-checklist-host {
   margin: 8px 16px 12px;
+}
+
+.copilot-checklist-host .overlay-checklist {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.28);
+  border: 1px solid rgb(255 255 255 / 0.45);
+}
+
+.copilot-checklist-host .overlay-checklist-summary {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--beige);
+}
+
+.copilot-checklist-host .overlay-checklist-step {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--foreground);
+}
+
+.copilot-checklist-host .overlay-checklist-step:last-child {
+  margin-bottom: 0;
+}
+
+.copilot-checklist-host .muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.copilot-card {
+  flex: 1;
+  min-width: 0;
+  margin: 0 0 12px;
   padding: 12px 14px;
   border-radius: 12px;
   background:

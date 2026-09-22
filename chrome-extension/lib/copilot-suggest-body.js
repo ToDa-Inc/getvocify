@@ -22,6 +22,11 @@ export function effectiveProductContext(raw) {
   return trimmed;
 }
 
+export function shouldRunCopilotSuggest({ assistEnabled, callMode } = {}) {
+  if (assistEnabled === false) return false;
+  return callMode === 'meeting';
+}
+
 export function buildCopilotSuggestRequestBody({
   callMode,
   context = null,

@@ -66,6 +66,14 @@ import {
   resolveListenPhase,
 } from '../lib/tab-capture.js';
 import { copilotLiveAssistAllowed } from '../shared/ui/copilot/suggestion-state.js';
+import { overlayChecklistMarkup } from '../shared/ui/copilot/checklist.js';
+import { renderToString } from '../shared/ui/html.js';
+import { formatCopilotSayThisLine } from '../lib/copilot-say-this.js';
+import {
+  copilotAssistToggleLabel,
+  isMeetingListenActive,
+  shouldShowCopilotChecklist,
+} from '../lib/copilot-meeting-ui.js';
 import {
   firstName,
   normalizeDiarizedTranscript,
@@ -1380,6 +1388,38 @@ function extensionLiveAssistDecision(state) {
   });
 }
 
+function renderCopilotAssistToggle(state) {
+  const wrap = document.getElementById('copilot-assist-wrap');
+  const toggle = document.getElementById('copilot-assist-toggle');
+  if (!wrap || !toggle) return;
+
+  if (!isMeetingListenActive(state)) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = 'flex';
+  toggle.textContent = copilotAssistToggleLabel(Boolean(state.assistEnabled));
+  toggle.setAttribute('aria-pressed', state.assistEnabled ? 'true' : 'false');
+}
+
+function renderCopilotChecklist(state) {
+  const host = document.getElementById('copilot-checklist');
+  if (!host) return;
+
+  if (!shouldShowCopilotChecklist(state, state.copilotChecklist)) {
+    host.style.display = 'none';
+    host.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+
+  const markup = overlayChecklistMarkup(state.copilotChecklist, { kind: 'meeting' });
+  host.innerHTML = markup ? renderToString(markup) : '';
+  host.style.display = host.innerHTML ? 'block' : 'none';
+  host.hidden = !host.innerHTML;
+}
+
 function renderCopilotCard(state) {
   const card = document.getElementById('copilot-card');
   const say = document.getElementById('copilot-say-this');
@@ -1388,13 +1428,17 @@ function renderCopilotCard(state) {
   const err = document.getElementById('copilot-error');
   if (!card) return;
 
+  renderCopilotAssistToggle(state);
+
   if (!state.isCopilotListening && state.listenPhase !== 'live') {
     card.style.display = 'none';
+    renderCopilotChecklist(state);
     return;
   }
 
   if (!extensionLiveAssistDecision(state).show) {
     card.style.display = 'none';
+    renderCopilotChecklist(state);
     return;
   }
 
@@ -1407,7 +1451,7 @@ function renderCopilotCard(state) {
   if (state.copilotIsLoading && !suggestion) {
     if (say) say.textContent = 'Coaching in real time…';
   } else if (suggestion?.say_this) {
-    if (say) say.textContent = suggestion.say_this;
+    if (say) say.textContent = formatCopilotSayThisLine(suggestion.say_this);
   } else if (say) {
     say.textContent = 'Waiting for the other side to finish speaking…';
   }
@@ -1421,6 +1465,7 @@ function renderCopilotCard(state) {
     next.style.display = q ? 'block' : 'none';
     next.textContent = q ? `Next: ${q}` : '';
   }
+  renderCopilotChecklist(state);
 }
 
 function paintLiveTranscript(state) {
@@ -3872,6 +3917,12 @@ recordButton.addEventListener('click', async () => {
       chrome.runtime.sendMessage({ type: 'TOGGLE_RECORDING' });
     }
   }
+});
+
+document.getElementById('copilot-assist-toggle')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'TOGGLE_COPILOT_ASSIST' }).catch((err) => {
+    console.error('[Popup] toggle copilot assist failed:', err);
+  });
 });
 
 document.getElementById('listen-tab-button')?.addEventListener('click', () => {

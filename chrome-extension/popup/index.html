@@ -103,13 +103,17 @@
         <div id="live-transcript-text" class="transcript-text"></div>
       </div>
 
-      <div id="copilot-card" class="copilot-card" style="display: none;">
-        <p class="caps-label copilot-kicker">Say this</p>
-        <p id="copilot-say-this" class="copilot-say-this">Waiting for the other side to finish speaking…</p>
-        <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
-        <p id="copilot-next" class="copilot-next" style="display: none;"></p>
-        <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+      <div id="copilot-assist-wrap" class="copilot-assist-wrap" style="display: none;">
+        <div id="copilot-card" class="copilot-card" style="display: none;">
+          <p class="caps-label copilot-kicker">Say this</p>
+          <p id="copilot-say-this" class="copilot-say-this">Waiting for the other side to finish speaking…</p>
+          <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
+          <p id="copilot-next" class="copilot-next" style="display: none;"></p>
+          <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+        </div>
+        <button type="button" id="copilot-assist-toggle" class="copilot-assist-toggle">Ayuda</button>
       </div>
+      <div id="copilot-checklist" class="copilot-checklist-host" style="display: none;" hidden></div>
 
       <div id="paste-transcript-section" class="paste-transcript-section" style="display: none;">
         <textarea id="paste-transcript-input" class="transcript-textarea" rows="5" placeholder="Paste your transcript here..."></textarea>

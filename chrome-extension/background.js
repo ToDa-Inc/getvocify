@@ -57,7 +57,7 @@ import { TurnDetector } from './lib/turn-detector.js';
 import { PRODUCT_CONTEXT_STORAGE_KEY } from './lib/copilot-sse.js';
 import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js';
 import { mergeSessionVocab } from './lib/session-vocab.js';
-import { apiBaseToWsOrigin } from './lib/api-base.js';
+import { apiBaseToWsOrigin, isUnpackedExtension, resolveApiBase } from './lib/api-base.js';
 import { actionsForCommand } from './lib/hotkey.js';
 import { reviewMemoIfCurrent, slimReviewMemo } from './lib/review-screen.js';
 import { reviewIdsFromMemo } from './lib/memo-identity.js';
@@ -71,7 +71,11 @@ import {
   setInflightPreview,
 } from './lib/preview-cache.js';
 import { liveAssistGateFromSuggestPayload } from './lib/live-assist-gate.js';
-import { buildCopilotSuggestRequestBody } from './lib/copilot-suggest-body.js';
+import {
+  buildCopilotChecklistRequestBody,
+  fetchCopilotChecklist,
+} from './lib/copilot-checklist.js';
+import { buildCopilotSuggestRequestBody, shouldRunCopilotSuggest } from './lib/copilot-suggest-body.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
@@ -107,7 +111,8 @@ let state = {
   callMode: null,
   playbookReady: false,
   evidenceRefs: [],
-  assistEnabled: true,
+  assistEnabled: false,
+  copilotChecklist: null,
   listenPhase: 'idle',
   reviewMemo: null,
   call: {
@@ -658,13 +663,63 @@ function emptyCopilotUi() {
 }
 
 let copilotAbort = null;
+let copilotChecklistAbort = null;
 
 function abortCopilotSuggest() {
   copilotAbort?.abort();
   copilotAbort = null;
 }
 
+function abortCopilotChecklist() {
+  copilotChecklistAbort?.abort();
+  copilotChecklistAbort = null;
+}
+
+async function resolveBgApiBase() {
+  const r = await chrome.storage.local.get(['api_base']);
+  return resolveApiBase({
+    unpacked: isUnpackedExtension(chrome.runtime.getManifest()),
+    override: r.api_base,
+  });
+}
+
+async function requestCopilotChecklist() {
+  if (state.callMode !== 'meeting') return;
+  if (!state.isCopilotListening && state.listenPhase !== 'live' && state.listenPhase !== 'starting') {
+    return;
+  }
+
+  const { accessToken } = await api.getTokens().catch(() => ({ accessToken: null }));
+  if (!accessToken) return;
+
+  abortCopilotChecklist();
+  const controller = new AbortController();
+  copilotChecklistAbort = controller;
+  try {
+    const session = {};
+    const captureId = String(state.captureId ?? state.capture_id ?? '').trim();
+    if (captureId) session.capture_id = captureId;
+    const result = await fetchCopilotChecklist(fetch, {
+      apiBase: await resolveBgApiBase(),
+      token: accessToken,
+      body: buildCopilotChecklistRequestBody({ session }),
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted) return;
+    if (result?.ok && result.data) {
+      updateState({ copilotChecklist: result.data });
+    }
+  } catch {
+    /* keep previous checklist on failure */
+  } finally {
+    if (copilotChecklistAbort === controller) copilotChecklistAbort = null;
+  }
+}
+
 async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRole = 'prospect') {
+  if (!shouldRunCopilotSuggest({ assistEnabled: state.assistEnabled, callMode: state.callMode })) {
+    return;
+  }
   const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
   const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] ?? '';
 
@@ -733,6 +788,7 @@ const copilotDetector = new TurnDetector({
   clearTimer: (id) => clearTimeout(id),
   onTurn: (turn, _full, meta) => {
     requestCopilotSuggestion(turn, state.finalTranscript, meta?.speakerRole || 'prospect');
+    void requestCopilotChecklist();
   },
 });
 
@@ -772,6 +828,7 @@ function failListen(reason) {
   copilotDetector.setEnabled(false);
   copilotDetector.reset();
   abortCopilotSuggest();
+  abortCopilotChecklist();
   listenEpoch += 1;
   chrome.runtime.sendMessage({
     target: 'offscreen',
@@ -785,6 +842,8 @@ function failListen(reason) {
     status: 'idle',
     listenPhase: 'error',
     ...emptyCopilotUi(),
+    copilotChecklist: null,
+    assistEnabled: false,
     copilotError: message,
   });
   showNotification('Vocify Copilot', message);
@@ -888,6 +947,8 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
     captureTabUrl,
     kind: captureIsMeetingApp ? 'meeting' : 'call',
     callMode,
+    assistEnabled: false,
+    copilotChecklist: null,
   });
   armListenStartTimeout();
 
@@ -901,6 +962,7 @@ async function stopTabCapture(commandSeq = null) {
   copilotDetector.setEnabled(false);
   copilotDetector.reset();
   abortCopilotSuggest();
+  abortCopilotChecklist();
   chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'STOP_TAB_CAPTURE',
@@ -916,6 +978,8 @@ async function stopTabCapture(commandSeq = null) {
     prospectInterim: '',
     finalWords: [],
     ...emptyCopilotUi(),
+    copilotChecklist: null,
+    assistEnabled: false,
     captureTabUrl: null,
     kind: null,
     callMode: null,
@@ -1269,6 +1333,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch((e) => sendResponse({ error: e.message }));
       return true;
 
+    case 'TOGGLE_COPILOT_ASSIST': {
+      updateState({ assistEnabled: !state.assistEnabled });
+      sendResponse({ ok: true, assistEnabled: state.assistEnabled });
+      return true;
+    }
+
     case 'RECORDING_STARTED':
       updateState({ isRecording: true, status: 'recording' });
       break;
@@ -1305,6 +1375,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       clearListenStartTimeout();
       copilotDetector.setEnabled(true);
       updateState({ isCopilotListening: true, listenPhase: 'live', status: 'copilot' });
+      void requestCopilotChecklist();
       break;
 
     case 'TAB_CAPTURE_STOPPED':
@@ -1312,11 +1383,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clearListenStartTimeout();
         copilotDetector.setEnabled(false);
         abortCopilotSuggest();
+        abortCopilotChecklist();
         updateState({
           isCopilotListening: false,
           listenPhase: 'idle',
           status: 'idle',
           ...emptyCopilotUi(),
+          copilotChecklist: null,
+          assistEnabled: false,
         });
       }
       break;

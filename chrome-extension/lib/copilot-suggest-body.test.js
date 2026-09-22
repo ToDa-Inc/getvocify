@@ -3,9 +3,18 @@ import { describe, it } from 'node:test';
 import {
   LEGACY_DEFAULT_PRODUCT_CONTEXT,
   buildCopilotSuggestRequestBody,
+  shouldRunCopilotSuggest,
 } from './copilot-suggest-body.js';
 
 const productContext = 'Product context';
+
+describe('shouldRunCopilotSuggest', () => {
+  it('skips fetch when live help is off or not a meeting', () => {
+    assert.equal(shouldRunCopilotSuggest({ assistEnabled: false, callMode: 'meeting' }), false);
+    assert.equal(shouldRunCopilotSuggest({ assistEnabled: true, callMode: 'call' }), false);
+    assert.equal(shouldRunCopilotSuggest({ assistEnabled: true, callMode: 'meeting' }), true);
+  });
+});
 
 describe('buildCopilotSuggestRequestBody', () => {
   it('meeting + contact record sends contact_id', () => {
