@@ -54,6 +54,7 @@ const STRINGS = {
     meetingReconcile: 'Reconciliar',
     speakerYou: 'Tú',
     speakerThem: 'Ellos',
+    memoHangUpFirst: 'Cuelga la llamada antes de grabar una nota.',
     listenDenyCallInProgress:
       'Cuelga la llamada antes de escuchar esta pestaña.',
     listenDenyMicRecording:
@@ -140,6 +141,7 @@ const STRINGS = {
     meetingReconcile: 'Reconcile',
     speakerYou: 'You',
     speakerThem: 'Them',
+    memoHangUpFirst: 'Hang up the call before recording a memo.',
     listenDenyCallInProgress:
       'Hang up the call before listening to this tab.',
     listenDenyMicRecording:

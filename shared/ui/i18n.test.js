@@ -17,4 +17,12 @@ test('listen chrome keys return es or en copy', () => {
   assert.equal(strings('en').checklistProgress(2, 5), '2 of 5');
   assert.equal(strings('es').listenHeaderTab('Acme'), 'Escuchando · Acme');
   assert.equal(strings('en').listenHeaderTab('Acme'), 'Listening · Acme');
+  assert.equal(
+    strings('es').memoHangUpFirst,
+    'Cuelga la llamada antes de grabar una nota.',
+  );
+  assert.equal(
+    strings('en').memoHangUpFirst,
+    'Hang up the call before recording a memo.',
+  );
 });

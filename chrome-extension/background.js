@@ -71,6 +71,7 @@ import {
   setInflightPreview,
 } from './lib/preview-cache.js';
 import { liveAssistGateFromSuggestPayload } from './lib/live-assist-gate.js';
+import { strings } from './shared/ui/i18n.js';
 import {
   buildCopilotChecklistRequestBody,
   fetchCopilotChecklist,
@@ -514,7 +515,7 @@ async function loadPageSessionContext(tab, user) {
 async function startRecording() {
   if (state.isRecording) return;
   if (state.call?.state && state.call.state !== CALL_STATES.IDLE) {
-    showNotification('Vocify Copilot', 'Hang up the call before recording a memo.');
+    showNotification('Vocify Copilot', strings(listenUiLang).memoHangUpFirst);
     return;
   }
   if (state.isCopilotListening) {
