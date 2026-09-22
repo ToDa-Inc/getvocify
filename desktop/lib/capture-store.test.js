@@ -10,6 +10,20 @@ function store() {
   return { root, store: new CaptureStore(root), cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 
+test('local audio stays on disk when transcription would disconnect mid-capture', () => {
+  const ctx = store();
+  try {
+    ctx.store.begin('cap-local-1', { startedAt: '2026-09-22T08:00:00Z' });
+    ctx.store.append('cap-local-1', 'mic', Buffer.from('before-ws-cut'));
+    ctx.store.append('cap-local-1', 'mic', Buffer.from('-after-ws-cut'));
+    const view = ctx.store.read('cap-local-1');
+    const audio = readFileSync(view.channels.mic.path);
+    assert.equal(audio.toString(), 'before-ws-cut-after-ws-cut');
+  } finally {
+    ctx.cleanup();
+  }
+});
+
 test('restart recovers the manifest and audio before remote confirmation', () => {
   const ctx = store();
   try {

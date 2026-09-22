@@ -190,6 +190,51 @@ def test_create_capture_returns_reserved_memo_identity():
     assert store[0]["status"] == "uploading"
 
 
+def test_meeting_capture_complete_uses_existing_pipeline_to_review():
+    from app.services.transcript_sanitize import extraction_complete_update
+
+    supabase, store = fake_db()
+    reserved = reserve_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        client_capture_id=CLIENT_CAPTURE,
+        started_at=STARTED_AT,
+        interaction_kind="meeting",
+    )
+    assert store[0]["source_type"] == "meeting_transcript"
+    done = complete_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        capture_id=reserved.capture_id,
+        transcript="Quedamos el martes",
+        audio_duration=12.0,
+    )
+    assert done.should_start_pipeline is True
+    assert store[0]["status"] == CAPTURE_STATUS_TO_MEMO_STATUS["processing"]
+    review_update = extraction_complete_update(
+        {"summary": "Recap"},
+        processed_at="2026-09-22T12:00:00Z",
+    )
+    assert review_update["status"] == "pending_review"
+
+
+def test_meeting_source_type_is_preserved_for_re_extraction():
+    from app.services.pipeline_meta import extraction_source_type
+
+    supabase, store = fake_db()
+    reserve_capture(
+        supabase,
+        user_id=USER_A,
+        company_id=COMPANY_A,
+        client_capture_id=CLIENT_CAPTURE,
+        started_at=STARTED_AT,
+        interaction_kind="meeting",
+    )
+    assert extraction_source_type(store[0]["source_type"]) == "meeting_transcript"
+
+
 def test_repeat_post_same_author_returns_same_ids():
     supabase, _store = fake_db()
     first = reserve_capture(

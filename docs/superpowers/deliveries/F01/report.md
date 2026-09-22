@@ -22,8 +22,24 @@ Estado: `bloqueada por decisión externa` en distribución. Captura, kernel y tr
 
 ## Bloqueos
 
+### F01-DESKTOP-WEB-E2E
+
+- Criterio: «Se verifica el flujo en desktop y la revisión correspondiente en web».
+- Bloqueo: requiere sesión Electron instalada y recorrido Reticle/dashboard; no cubierto por tests unitarios en esta entrega.
+
+### F01-V-TRANSCRIPT-DESKTOP
+
+- Criterio: «`<v-transcript>` cumple la continuidad visual y `prefers-reduced-motion` en el desktop real».
+- Bloqueo: exige app desktop instalada y verificación visual; las pruebas de reconciliación en `shared/ui/transcript.test.js` no sustituyen ese recorrido.
+
+### F01-DMG-INSTALACION
+
+- Criterio: «DMG con marca y ZIP… instalación desde el artefacto descargado permite login, permisos, captura micrófono/sistema…».
+- Bloqueo: requiere abrir el DMG en un Mac, permisos de micrófono/sistema y primera captura; `desktop/lib/package-gate.test.js` solo valida contrato de empaquetado.
+
 ### F01-DISTRIBUCION
 
+- Criterio: «Tras confirmar Developer ID, firma y notarización se validan sobre el artefacto distribuible…».
 - Hecho comprobado: `desktop/package.json` deja `identity: null` y `hardenedRuntime: false`. El workflow pone `CSC_IDENTITY_AUTO_DISCOVERY` en false.
 - Falta: cuenta Apple Developer, acceso a Developer ID y quién guarda las credenciales.
 - Responsable: Dani.
@@ -33,6 +49,7 @@ Estado: `bloqueada por decisión externa` en distribución. Captura, kernel y tr
 
 ### F01-DESCARGA
 
+- Criterio: «La ubicación de descarga aprobada lleva al artefacto correcto…».
 - Hecho comprobado: `RecordPage` sigue enlazando al repositorio. No se ha sustituido.
 - Falta: elegir dashboard, landing o ambos, y el alojamiento del artefacto.
 - Responsable: Dani.

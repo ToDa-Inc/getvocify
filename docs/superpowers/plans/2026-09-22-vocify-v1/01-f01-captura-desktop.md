@@ -170,23 +170,23 @@ Si las decisiones de distribución siguen pendientes, terminar captura, transcri
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Reunión → memo → revisión → aprobación CRM utiliza el pipeline actual.
+- [x] Reunión → memo → revisión → aprobación CRM utiliza el pipeline actual. `cd backend && .venv/bin/python -m pytest tests/captures/test_lifecycle.py::test_meeting_capture_complete_uses_existing_pipeline_to_review -q && cd desktop && node --test lib/meeting-handoff.test.js`
 
-- [ ] Repetir la subida produce el mismo memo.
+- [x] Repetir la subida produce el mismo memo. `cd backend && .venv/bin/python -m pytest tests/captures/test_lifecycle.py::test_complete_same_content_is_idempotent -q`
 
-- [ ] Reiniciar la aplicación recupera una captura pendiente.
+- [x] Reiniciar la aplicación recupera una captura pendiente. `cd desktop && node --test lib/capture-store.test.js --test-name-pattern 'restart recovers'`
 
-- [ ] Un corte del WebSocket no destruye el audio conservado.
+- [x] Un corte del WebSocket no destruye el audio conservado. `cd desktop && node --test lib/capture-store.test.js --test-name-pattern 'transcription would disconnect'`
 
-- [ ] La reextracción reconoce el memo como meeting.
+- [x] La reextracción reconoce el memo como meeting. `cd backend && .venv/bin/python -m pytest tests/captures/test_lifecycle.py::test_meeting_source_type_is_preserved_for_re_extraction -q`
 
-- [ ] Los tiempos permiten localizar un fragmento real.
+- [x] Los tiempos permiten localizar un fragmento real. `cd backend && .venv/bin/python -m pytest tests/captures/test_audio.py::test_extract_words_keeps_offsets_in_milliseconds tests/captures/test_audio.py::test_partial_transcript_with_complete_audio_does_not_start_extraction tests/intelligence/test_annotations.py::test_put_replay_is_the_same_note_and_a_stale_revision_conflicts -q`
 
 - [ ] Se verifica el flujo en desktop y la revisión correspondiente en web.
 
-- [ ] Provisional «Quedamos el mar» → definitivo «Quedamos el martes» aparece una sola vez, conserva hablante y no parpadea. Una corrección dentro del provisional reemplaza únicamente el tramo afectado.
+- [x] Provisional «Quedamos el mar» → definitivo «Quedamos el martes» aparece una sola vez, conserva hablante y no parpadea. Una corrección dentro del provisional reemplaza únicamente el tramo afectado. `node --test shared/ui/transcript.test.js`
 
-- [ ] Eventos repetidos, cambio de hablante y finalización sin último definitivo no duplican ni certifican texto provisional. Una sesión larga conserva scroll voluntario y no reconstruye todo el historial al actualizar.
+- [x] Eventos repetidos, cambio de hablante y finalización sin último definitivo no duplican ni certifican texto provisional. Una sesión larga conserva scroll voluntario y no reconstruye todo el historial al actualizar. `node --test shared/ui/transcript.test.js`
 
 - [ ] `<v-transcript>` cumple la continuidad visual y `prefers-reduced-motion` en el desktop real, además de sus pruebas de reconciliación.
 
