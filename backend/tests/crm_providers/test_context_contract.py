@@ -85,3 +85,12 @@ async def test_a_scope_error_is_not_an_empty_inbox_on_either_crm():
         assert means_no_activity(envelope) is False
     assert envelopes[0]["coverage"] == envelopes[1]["coverage"]
     assert envelopes[0]["reason"] == envelopes[1]["reason"] == "email_scope_missing"
+
+
+def test_pipedrive_is_unavailable_not_hubspot_only():
+    from app.services.crm_copilot.tools import provider_ready
+
+    assert provider_ready("hubspot") == "ready"
+    assert provider_ready(None) == "missing"
+    assert provider_ready("pipedrive") == "unavailable"
+    assert "hubspot" not in provider_ready("pipedrive")

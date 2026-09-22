@@ -17,7 +17,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Conversación vacía, sin resultados y lectura parcial del CRM no comparten la misma frase | `40835da` | `src/lib/ask-situation.test.ts` |
 | Un turno con lectura prohibida no se guarda como consulta sin resultados | `53f4821` | `tests/crm_copilot/test_ask_http.py` |
 | La pregunta web pasa por el loop una vez; el reintento no lo vuelve a llamar | `d72ed0c` | `tests/crm_copilot/test_ask_http.py` |
-| Al arrancar, Ask usa el mismo loop que WhatsApp; si falla, el turno sigue pendiente | este commit | `tests/crm_copilot/test_ask_http.py` |
+| Al arrancar, Ask usa el mismo loop que WhatsApp; si falla, el turno sigue pendiente | `d1e6699` | `tests/crm_copilot/test_ask_http.py` |
+| Pipedrive no se rechaza como «solo HubSpot»; queda no disponible | este commit | `tests/crm_providers/test_context_contract.py` |
 
 ## No verificado
 

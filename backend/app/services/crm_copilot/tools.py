@@ -292,6 +292,15 @@ def expire_stale_focus(copilot: dict, now: Optional[datetime] = None) -> None:
         clear_focus(copilot)
 
 
+def provider_ready(provider: str | None) -> str:
+    name = (provider or "").strip().lower()
+    if name == "hubspot":
+        return "ready"
+    if not name:
+        return "missing"
+    return "unavailable"
+
+
 def _bundle(ctx: CopilotContext) -> HubSpotBundle:
     if ctx.hs is not None:
         return ctx.hs
@@ -300,8 +309,8 @@ def _bundle(ctx: CopilotContext) -> HubSpotBundle:
     conn = resolve_sync_connection_prefer_hubspot(ctx.supabase, ctx.user_id)
     if not conn:
         raise ValueError("No CRM connected")
-    if (conn.get("provider") or "").lower() != "hubspot":
-        raise ValueError("WhatsApp CRM copilot currently supports HubSpot only")
+    if provider_ready(conn.get("provider")) != "ready":
+        raise ValueError("crm_unavailable")
     ctx.hs = HubSpotBundle.from_provider(build_crm_provider(ctx.supabase, conn))
     return ctx.hs
 
