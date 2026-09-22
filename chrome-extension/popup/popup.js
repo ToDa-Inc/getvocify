@@ -68,7 +68,10 @@ import {
 import { copilotLiveAssistAllowed } from '../shared/ui/copilot/suggestion-state.js';
 import { overlayChecklistMarkup } from '../shared/ui/copilot/checklist.js';
 import { renderToString } from '../shared/ui/html.js';
-import { formatCopilotSayThisLine } from '../lib/copilot-say-this.js';
+import {
+  decideCopilotPillLine,
+  initialPillState,
+} from '../lib/copilot-pill-card.js';
 import {
   copilotAssistToggleLabel,
   isMeetingListenActive,
@@ -174,6 +177,8 @@ let lastPageRecordKey = null;
 let lastBgState = null;
 /** Drops an in-flight Listen start if the user hits Stop before START_TAB_CAPTURE is sent */
 let listenStartSeq = 0;
+let copilotPillState = initialPillState();
+let copilotPillTickTimer = null;
 /** Mirror dashboard HubSpotSyncPreview confidence gate */
 const CONFIDENT_MATCH_THRESHOLD = 0.7;
 /** When true, user must explicitly pick/create a deal before approve */
@@ -1420,6 +1425,32 @@ function renderCopilotChecklist(state) {
   host.hidden = !host.innerHTML;
 }
 
+function copilotListenMeetingId() {
+  return listenStartSeq > 0 ? `ext-listen-${listenStartSeq}` : null;
+}
+
+function resetCopilotPillState() {
+  copilotPillState = initialPillState();
+  if (copilotPillTickTimer) {
+    clearInterval(copilotPillTickTimer);
+    copilotPillTickTimer = null;
+  }
+}
+
+function ensureCopilotPillTick(active) {
+  if (!active) {
+    if (copilotPillTickTimer) {
+      clearInterval(copilotPillTickTimer);
+      copilotPillTickTimer = null;
+    }
+    return;
+  }
+  if (copilotPillTickTimer) return;
+  copilotPillTickTimer = setInterval(() => {
+    if (lastBgState) renderCopilotCard(lastBgState);
+  }, 1000);
+}
+
 function renderCopilotCard(state) {
   const card = document.getElementById('copilot-card');
   const say = document.getElementById('copilot-say-this');
@@ -1430,7 +1461,15 @@ function renderCopilotCard(state) {
 
   renderCopilotAssistToggle(state);
 
-  if (!state.isCopilotListening && state.listenPhase !== 'live') {
+  if (!isMeetingListenActive(state)) {
+    resetCopilotPillState();
+    card.style.display = 'none';
+    renderCopilotChecklist(state);
+    return;
+  }
+
+  if (!state.isCopilotListening && state.listenPhase !== 'live' && state.listenPhase !== 'starting') {
+    resetCopilotPillState();
     card.style.display = 'none';
     renderCopilotChecklist(state);
     return;
@@ -1439,21 +1478,36 @@ function renderCopilotCard(state) {
   if (!extensionLiveAssistDecision(state).show) {
     card.style.display = 'none';
     renderCopilotChecklist(state);
+    ensureCopilotPillTick(false);
     return;
   }
 
   card.style.display = 'block';
   const suggestion = state.copilotSuggestion;
+  const pillLine = decideCopilotPillLine(
+    copilotPillState,
+    state,
+    copilotListenMeetingId(),
+    Date.now(),
+  );
+  copilotPillState = pillLine.state;
+  ensureCopilotPillTick(state.assistEnabled === true);
+
   if (err) {
     err.style.display = state.copilotError ? 'block' : 'none';
     err.textContent = state.copilotError || '';
   }
-  if (state.copilotIsLoading && !suggestion) {
-    if (say) say.textContent = 'Coaching in real time…';
-  } else if (suggestion?.say_this) {
-    if (say) say.textContent = formatCopilotSayThisLine(suggestion.say_this);
-  } else if (say) {
-    say.textContent = 'Waiting for the other side to finish speaking…';
+  if (say) {
+    if (pillLine.show && pillLine.text) {
+      say.style.display = 'block';
+      say.textContent = pillLine.text;
+    } else if (state.copilotIsLoading && !suggestion) {
+      say.style.display = 'block';
+      say.textContent = 'Coaching in real time…';
+    } else {
+      say.style.display = 'none';
+      say.textContent = '';
+    }
   }
   if (heard) {
     const turn = state.copilotLastTurn;

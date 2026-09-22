@@ -6,3 +6,4 @@ Desktop overlay: checklist de meeting vía `POST /copilot/checklist` y renderer 
 Desktop overlay: ayuda live opt-in («Ayuda»), línea vía `pillDecision` (4 s / 10 s / 60 s), sin `/copilot/suggest` hasta activar; checklist sigue en meeting.
 Backend: `POST /api/v1/copilot/checklist` devuelve pasos del snapshot publicado y marca `met` solo con `playbook_observations` en la captura y `evidence_refs` no vacíos; modos no-meeting y ambigüedad de playbook sin `capture_id` responden checklist vacío.
 Extensión meeting listen: ayuda desactivada al inicio (sin `/copilot/suggest` hasta «Ayuda»), checklist vía `POST /copilot/checklist` y botón Ayuda/Ocultar ayuda junto a la tarjeta.
+Extensión popup: la línea «Say this» usa `pillDecision` (4 s / 10 s / 60 s, rep oculta); nuevo listen reinicia el reloj; suggest sigue bloqueado con ayuda off.
