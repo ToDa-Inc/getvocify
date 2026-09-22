@@ -266,3 +266,7 @@ above.
 ## 038 — follow-up draft (F02)
 
 `backend/migrations/038_memos_followup.sql` adds `memos.followup`, `memos.followup_run_started_at` and `user_profiles.writing_samples`. `sent` means the draft was handed to the mail client, not that delivery was confirmed.
+
+## 039 — intelligence jobs (F0)
+
+`backend/migrations/039_memo_intelligence_jobs.sql` adds `memo_jobs`. One row per memo, kind and input revision. `claim_memo_job` takes a single lease. `publish_memo_job` rejects an expired run and marks an older revision `superseded` when a newer one already succeeded.

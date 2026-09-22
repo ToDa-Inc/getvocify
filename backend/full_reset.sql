@@ -350,6 +350,28 @@ CREATE TABLE memos (
   speechmatics_job_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS memo_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID,
+  memo_id UUID NOT NULL,
+  kind TEXT NOT NULL,
+  input_revision TEXT NOT NULL,
+  revision_seq BIGINT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'running', 'success', 'failed', 'superseded')
+  ),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lease_until TIMESTAMPTZ,
+  run_id UUID,
+  last_error TEXT,
+  result JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (memo_id, kind, input_revision),
+  UNIQUE (memo_id, kind, revision_seq)
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)
