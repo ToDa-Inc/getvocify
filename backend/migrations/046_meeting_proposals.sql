@@ -15,3 +15,12 @@ CREATE TABLE IF NOT EXISTS meeting_proposals (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (memo_id, proposal_id, input_revision)
 );
+
+CREATE TABLE IF NOT EXISTS meeting_writes (
+  operation_key TEXT PRIMARY KEY,
+  memo_id UUID NOT NULL,
+  proposal_id TEXT NOT NULL,
+  remote_id TEXT,
+  crm_status TEXT NOT NULL,
+  stage_changed BOOLEAN NOT NULL DEFAULT false
+);

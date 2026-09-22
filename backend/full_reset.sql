@@ -507,6 +507,15 @@ CREATE TABLE IF NOT EXISTS meeting_proposals (
   PRIMARY KEY (memo_id, proposal_id, input_revision)
 );
 
+CREATE TABLE IF NOT EXISTS meeting_writes (
+  operation_key TEXT PRIMARY KEY,
+  memo_id UUID NOT NULL,
+  proposal_id TEXT NOT NULL,
+  remote_id TEXT,
+  crm_status TEXT NOT NULL,
+  stage_changed BOOLEAN NOT NULL DEFAULT false
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)

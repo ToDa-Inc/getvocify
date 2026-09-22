@@ -11,8 +11,9 @@ Estado: la propuesta de reunión no inventa la hora. No está cerrada.
 | «A las cinco» sin contexto queda ambiguo, no 17:00. La hora duplicada del cambio de horario pide revisión | el mismo archivo |
 | Migración `046`: una propuesta ambigua se guarda con `starts_at` vacío | Postgres aislado, 5 passed |
 
+| Repetir la aprobación crea una actividad; un timeout se reconcilia antes de otro alta; sin mapeo de etapa no se cambia el deal | `tests/meetings/test_writes.py` 3 passed, Postgres aislado |
+
 ## No verificado
 
-- Aceptar la propuesta no escribe todavía en HubSpot ni en Pipedrive.
-- No cambia la etapa del deal.
+- HubSpot y Pipedrive no reciben la llamada real: el escritor está inyectado.
 - No está en la pantalla de revisión.
