@@ -37,6 +37,7 @@ export default function PlaybooksSection() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<Record<string, string>>({});
   const [canPublish, setCanPublish] = useState<Record<string, boolean>>({});
+  const [versions, setVersions] = useState<Record<string, string>>({});
   const [typeKey, setTypeKey] = useState("");
   const [resumeId, setResumeId] = useState("");
   const notice = playbookNotice(role, motions);
@@ -99,7 +100,9 @@ export default function PlaybooksSection() {
   async function publish(key: string) {
     if (motions[key] !== "draft") return;
     try {
-      const data = await api.post<{ motions: Record<string, MotionStatus> }>(`/playbooks/${key}/publish`);
+      const data = await api.post<{ motions: Record<string, MotionStatus>; activated?: Record<string, string> }>(
+        `/playbooks/${key}/publish`,
+      );
       setMotions((current) =>
         applyPublishResult(current, key, {
           ok: data.motions[key] === "published",
@@ -107,6 +110,9 @@ export default function PlaybooksSection() {
           status: data.motions[key],
         }),
       );
+      if (data.activated?.[key]) {
+        setVersions((current) => ({ ...current, [key]: data.activated?.[key] || "" }));
+      }
     } catch {
       setMotions((current) => applyPublishResult(current, key, { ok: false }));
     }
@@ -197,7 +203,10 @@ export default function PlaybooksSection() {
           <li key={key} className="rounded-xl border border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="capitalize">{key}</span>
-              <span className="text-sm text-muted-foreground">{LABEL[motions[key] || "missing"]}</span>
+              <span className="text-sm text-muted-foreground">
+                {LABEL[motions[key] || "missing"]}
+                {versions[key] ? ` · versión ${versions[key]}` : ""}
+              </span>
             </div>
             {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{errors[key]}</p> : null}
             {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{warnings[key]}</p> : null}

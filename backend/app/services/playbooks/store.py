@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import uuid
+
 from app.services.playbooks.versions import PublishError, accept_publish
 
 
 class MemoryPlaybookStore:
-    def __init__(self, motions: dict, imports: dict, latest: dict | None = None):
+    def __init__(self, motions: dict, imports: dict, latest: dict | None = None, activated: dict | None = None):
         self._motions = motions
         self._imports = imports
         self._latest = latest if latest is not None else {}
+        self._activated = activated if activated is not None else {}
 
     def get_import(self, import_id: str):
         return self._imports.get(import_id)
@@ -32,7 +35,15 @@ class MemoryPlaybookStore:
             raise PublishError("contradiction")
         updated = accept_publish(self.motions(company_id), key, role)
         self._motions.setdefault(company_id, {})[key] = "published"
+        self._activated[(company_id, key)] = str(uuid.uuid4())
         return updated
+
+    def activated(self, company_id: str) -> dict:
+        return {
+            key: version
+            for (company, key), version in self._activated.items()
+            if company == company_id
+        }
 
     def add_type(self, company_id: str, key: str, name: str, role: str) -> dict:
         from app.services.playbooks.versions import can_publish
@@ -51,6 +62,7 @@ class MemoryPlaybookStore:
 class SupabasePlaybookStore:
     def __init__(self, supabase):
         self.supabase = supabase
+        self._activated: dict[tuple[str, str], str] = {}
 
     def get_import(self, import_id: str):
         result = (
@@ -104,9 +116,20 @@ class SupabasePlaybookStore:
             outcome = outcome[0] if outcome else None
         if outcome == "contradiction":
             raise PublishError("contradiction")
-        if outcome != "published":
+        if isinstance(outcome, str) and outcome.startswith("published"):
+            version = outcome.split(":", 1)[1] if ":" in outcome else ""
+            if version:
+                self._activated[(company_id, key)] = version
+        else:
             raise PublishError("not_a_draft")
         return updated
+
+    def activated(self, company_id: str) -> dict:
+        return {
+            key: version
+            for (company, key), version in self._activated.items()
+            if company == company_id
+        }
 
     def add_type(self, company_id: str, key: str, name: str, role: str) -> dict:
         from app.services.playbooks.versions import can_publish

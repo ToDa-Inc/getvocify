@@ -526,7 +526,7 @@ BEGIN
   END IF;
 
   PERFORM publish_playbook_version(ver);
-  RETURN 'published';
+  RETURN 'published:' || ver::text;
 END;
 $publish_motion$;
 

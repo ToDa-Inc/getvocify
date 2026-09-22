@@ -15,14 +15,25 @@ export function playbookNotice(
   const publishedKeys = Object.entries(motions)
     .filter(([, status]) => status === "published")
     .map(([key]) => key);
-  const showNotice = Object.keys(motions).length === 0 || Object.values(motions).some((status) => status !== "published");
+  const anyDraft = Object.values(motions).some((status) => status === "draft" || status === "importing");
+  const anyMissing = Object.values(motions).some((status) => status === "missing");
+  const none = Object.keys(motions).length === 0 || Object.values(motions).every((status) => status === "missing");
+  const showNotice = none || anyDraft || anyMissing;
   const canEdit = role === "owner" || role === "admin";
+  let message = "";
+  if (!canEdit) {
+    message = "Tu administrador debe configurar el proceso.";
+  } else if (none) {
+    message = "Define vuestro proceso para activar el coaching.";
+  } else if (anyDraft) {
+    message = "Tienes un playbook pendiente de publicar.";
+  } else if (anyMissing) {
+    message = "Falta publicar el proceso de las tipologías pendientes.";
+  }
   return {
     showNotice,
     canEdit,
-    message: canEdit
-      ? "Elige una tipología, aporta el contenido, revísalo y publícalo."
-      : "El proceso comercial lo configura un administrador. Puedes leerlo cuando esté publicado.",
+    message,
     publishedKeys,
   };
 }

@@ -11,12 +11,13 @@ describe("playbook setup", () => {
     assert.equal(member.canEdit, false);
     assert.match(member.message, /administrador/);
     assert.equal(admin.canEdit, true);
-    assert.match(admin.message, /publícalo/);
+    assert.match(admin.message, /coaching/);
   });
 
   it("keeps the notice while a draft or import exists", () => {
     const notice = playbookNotice("owner", { discovery: "draft", qualification: "importing" });
     assert.equal(notice.showNotice, true);
+    assert.match(notice.message, /pendiente de publicar/);
     assert.deepEqual(notice.publishedKeys, []);
   });
 
@@ -24,6 +25,7 @@ describe("playbook setup", () => {
     const notice = playbookNotice("owner", { discovery: "published", qualification: "missing" });
     assert.deepEqual(notice.publishedKeys, ["discovery"]);
     assert.equal(notice.showNotice, true);
+    assert.match(notice.message, /pendientes/);
   });
 
   it("a rejected publish leaves the draft, and discovery does not publish the rest", () => {

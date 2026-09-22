@@ -175,6 +175,7 @@ def test_a_contradiction_stays_a_draft_and_can_be_reopened():
     playbooks_api._MOTIONS.clear()
     playbooks_api._IMPORTS.clear()
     playbooks_api._LATEST.clear()
+    playbooks_api._ACTIVATED.clear()
     app = FastAPI()
     app.include_router(playbooks_router)
     app.dependency_overrides[get_membership] = lambda: Membership(

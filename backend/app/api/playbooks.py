@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 _IMPORTS: dict[str, dict] = {}
 _MOTIONS: dict[str, dict[str, str]] = {}
 _LATEST: dict[tuple[str, str], dict] = {}
+_ACTIVATED: dict[tuple[str, str], str] = {}
 _store = None
 _transcriber = None
 
@@ -46,7 +47,7 @@ async def _audio_text(payload: str) -> str:
 def get_playbook_store():
     if _store is not None:
         return _store
-    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST)
+    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED)
 
 
 def set_playbook_store(store) -> None:
@@ -131,7 +132,7 @@ async def publish_motion(sales_motion_key: str, membership: Membership = Depends
                 detail="Hay pasos contradictorios. Edita el borrador antes de publicar.",
             )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No hay un borrador para publicar")
-    return {"motions": updated}
+    return {"motions": updated, "activated": get_playbook_store().activated(membership.company_id)}
 
 
 @router.get("/imports/{import_id}")

@@ -50,6 +50,7 @@ def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cann
 
     playbooks_api._MOTIONS.clear()
     playbooks_api._LATEST.clear()
+    playbooks_api._ACTIVATED.clear()
     role = {"value": "owner"}
     app = FastAPI()
     app.include_router(playbooks_router)
@@ -74,6 +75,8 @@ def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cann
     assert published.status_code == 200
     motions = published.json()["motions"]
     assert motions["discovery"] == "published"
+    assert published.json()["activated"]["discovery"]
+    assert "qualification" not in published.json()["activated"]
     assert motions.get("qualification") != "published"
     listed = client.get("/api/v1/playbooks")
     assert listed.status_code == 200
@@ -235,7 +238,11 @@ def test_a_text_draft_is_stored_and_publishing_discovery_leaves_qualification_al
         missing = psql(f"SELECT publish_playbook_motion('{company}', 'qualification');")
         assert missing.stdout.strip() == "not_a_draft"
         published = psql(f"SELECT publish_playbook_motion('{company}', 'discovery');")
-        assert published.stdout.strip() == "published"
+        assert published.stdout.strip().startswith("published:")
+        activated = published.stdout.strip().split(":", 1)[1]
+        assert psql(
+            "SELECT active_version_id::text FROM playbooks WHERE sales_motion_key = 'discovery';"
+        ).stdout.strip() == activated
         assert psql(
             "SELECT CASE WHEN active_version_id IS NOT NULL THEN 'now-active' ELSE 'still-empty' END "
             "FROM playbooks WHERE sales_motion_key = 'discovery';"
@@ -375,6 +382,7 @@ def test_adding_a_typology_does_not_publish_it_and_a_member_cannot():
 
     playbooks_api._MOTIONS.clear()
     playbooks_api._LATEST.clear()
+    playbooks_api._ACTIVATED.clear()
     role = {"value": "member"}
     app = FastAPI()
     app.include_router(playbooks_router)

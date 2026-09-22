@@ -1,6 +1,6 @@
 # Informe F08
 
-Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Un texto contradictorio se queda en borrador, se puede reabrir por su id y no sustituye la versión activa. La migración `040` no está aplicada en una base compartida. Reticle no recorrió Settings.
+Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Publicar devuelve la versión que queda activa y no marca las demás tipologías. El aviso distingue una empresa sin proceso, un borrador y tipologías pendientes. La migración `040` no está aplicada en una base compartida. Reticle no recorrió Settings.
 
 ## Entregado
 
@@ -13,7 +13,8 @@ Estado: C06 empezado en `feat/vocify-v1`. No cerrado. Un texto contradictorio se
 | El borrador queda en Postgres; repetir el mismo import no crea otra versión; qualification no aparece | `0367e6f` | `tests/playbooks/test_versions.py` contra PostgreSQL |
 | La versión guarda `source_ref`; añadir `renewal` no la publica; un PDF sin texto no sustituye lo publicado | `29d81a0` | `tests/playbooks/test_versions.py`, `src/lib/playbook-setup.test.ts` |
 | pypdf extrae el texto; un PDF con contraseña no sustituye la versión activa; el audio usa STT y no crea un memo | `48df491` | `tests/playbooks/test_imports.py` |
-| Un borrador con «nunca/siempre» no se publica y se puede reabrir por el id de importación | este commit | `tests/playbooks/test_imports.py`, `tests/playbooks/test_versions.py` |
+| Un borrador con «nunca/siempre» no se publica y se puede reabrir por el id de importación | `4f3d299` | `tests/playbooks/test_imports.py`, `tests/playbooks/test_versions.py` |
+| Publicar devuelve la versión activada; el aviso distingue empresa vacía, borrador y tipologías pendientes | este commit | `tests/playbooks/test_versions.py`, `src/lib/playbook-setup.test.ts` |
 
 ## No verificado
 
