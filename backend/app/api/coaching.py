@@ -47,3 +47,34 @@ async def get_memo_score(
     body = dict(current.get("score") or {})
     body["playbook_version_id"] = current.get("playbook_version_id")
     return body
+
+
+@router.get("/memos/{memo_id}/brief")
+async def get_memo_brief(
+    memo_id: str,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    memo = (
+        supabase.table("memos")
+        .select("id,company_id")
+        .eq("id", memo_id)
+        .execute()
+    )
+    rows = memo.data or []
+    if not rows or rows[0].get("company_id") != membership.company_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    stored = (
+        supabase.table("post_interaction_briefs")
+        .select("*")
+        .eq("memo_id", memo_id)
+        .execute()
+    )
+    briefs = stored.data or []
+    if not briefs:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resumen no encontrado")
+    current = max(briefs, key=lambda row: row.get("revision_seq") or 0)
+    body = dict(current.get("body") or {})
+    body["status"] = current.get("status")
+    body["input_revision"] = current.get("input_revision")
+    return body

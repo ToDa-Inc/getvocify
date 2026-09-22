@@ -11,6 +11,7 @@ import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
+import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteractionBrief";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
@@ -561,6 +562,7 @@ const MemoDetail = () => {
                 extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
               />
             ) : null}
+            {isOwnMemo && id ? <PostInteractionBrief memoId={id} /> : null}
             {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
             {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
