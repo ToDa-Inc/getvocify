@@ -15,6 +15,7 @@ No se inventa un estado anterior si no hay historia.
 
 | Dos comerciales 1/1 y 1/9 dan 2/10, no la media de sus porcentajes | `tests/team_insights/test_aggregate.py` |
 | La actividad del equipo cuenta solo la semana Madrid en curso; sin `observed_at` no entra | el mismo archivo |
+| La adherencia del equipo suma solo scores con `created_at` en la semana Madrid en curso; semana vacía → null | el mismo archivo |
 | Un miembro recibe 403 sin cifras. El texto del chat no amplía el filtro | `tests/team_insights/test_permissions.py` |
 
 | Los nombres van por orden alfabético. Un filtro vacío no es un cero. Sin cobertura, la tasa de cierres no se calcula. Un miembro no ve cifras | `src/lib/team-insights.test.ts` 2 passed; `tsc --noEmit` |

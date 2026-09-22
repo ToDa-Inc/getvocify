@@ -15,8 +15,14 @@ _WEEK_START = datetime(2026, 9, 21, 22, 0, tzinfo=timezone.utc)
 _WEEK_END = datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc)
 
 
-def _part(met: int, missed: int) -> dict:
-    return {"met_steps": met, "missed_steps": missed, "unknown_steps": 0, "not_applicable_steps": 0}
+def _part(met: int, missed: int, *, observed_at: str = "2026-09-22T10:00:00Z") -> dict:
+    return {
+        "met_steps": met,
+        "missed_steps": missed,
+        "unknown_steps": 0,
+        "not_applicable_steps": 0,
+        "observed_at": observed_at,
+    }
 
 
 def test_two_reps_pool_to_two_of_ten_not_the_average_of_their_rates():
@@ -25,6 +31,8 @@ def test_two_reps_pool_to_two_of_ten_not_the_average_of_their_rates():
         parts=[_part(1, 0), _part(1, 8)],
         playbook_present=True,
         sample_size=10,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
     )
     assert metrics["met_steps"] == 2
     assert metrics["applicable_steps"] == 10
@@ -63,6 +71,34 @@ def test_voicemail_and_connected_activity_reach_adherence_json():
     assert metrics["connected"] == 1
     assert metrics["meetings"] == 1
     assert metrics["adherence"] is None
+
+
+def test_adherence_uses_only_scores_in_the_madrid_week():
+    metrics = team_adherence(
+        role="admin",
+        parts=[_part(1, 0), _part(1, 8, observed_at="2026-09-15T10:00:00Z")],
+        playbook_present=True,
+        sample_size=2,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["met_steps"] == 1
+    assert metrics["applicable_steps"] == 1
+    assert metrics["adherence"] == 1.0
+
+
+def test_adherence_with_no_scores_in_week_is_null_not_zero():
+    metrics = team_adherence(
+        role="admin",
+        parts=[_part(1, 8, observed_at="2026-09-15T10:00:00Z")],
+        playbook_present=True,
+        sample_size=1,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["adherence"] is None
+    assert metrics["met_steps"] == 0
+    assert metrics["applicable_steps"] == 0
 
 
 def test_activity_counts_ignore_out_of_week_and_missing_observed_at():

@@ -59,6 +59,17 @@ def _parse_instant(value) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
+def adherence_parts_in_period(parts: list[dict], *, start: datetime, end: datetime) -> list[dict]:
+    """Only scores whose observed_at falls in [start, end) feed team adherence."""
+    kept: list[dict] = []
+    for part in parts:
+        observed = _parse_instant(part.get("observed_at"))
+        if observed is None or observed < start or observed >= end:
+            continue
+        kept.append(part)
+    return kept
+
+
 def activity_counts(rows: list[dict], *, start: datetime, end: datetime) -> dict:
     """Voicemail and no-answer are attempts only. Connected is an attempt and a conversation."""
     attempts = 0
@@ -89,15 +100,19 @@ def activity_row_from_memo(memo: dict) -> dict | None:
     return {"screening": screening, "meeting_agreed": agreed is True, "observed_at": observed}
 
 
-def adherence_part_from_score(score: dict) -> dict | None:
+def adherence_part_from_score(score: dict, *, observed_at=None) -> dict | None:
     if score.get("status") not in {"ready", "partial"}:
         return None
-    return {
+    part = {
         "met_steps": int(score.get("met_steps") or 0),
         "missed_steps": int(score.get("missed_steps") or 0),
         "unknown_steps": int(score.get("unknown_steps") or 0),
         "not_applicable_steps": int(score.get("not_applicable_steps") or 0),
     }
+    instant = observed_at if observed_at is not None else score.get("observed_at")
+    if instant is not None:
+        part["observed_at"] = instant
+    return part
 
 
 def load_team_adherence_inputs(supabase, company_id: str) -> dict:
@@ -119,10 +134,18 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
             if row is not None:
                 activity_rows.append(row)
         if memo_ids:
-            scores = supabase.table("memo_scores").select("memo_id,score").in_("memo_id", memo_ids).execute()
+            scores = (
+                supabase.table("memo_scores")
+                .select("memo_id,score,created_at")
+                .in_("memo_id", memo_ids)
+                .execute()
+            )
             for item in scores.data or []:
                 score = item.get("score") or {}
-                part = adherence_part_from_score(score if isinstance(score, dict) else {})
+                part = adherence_part_from_score(
+                    score if isinstance(score, dict) else {},
+                    observed_at=item.get("created_at"),
+                )
                 if part is not None:
                     parts.append(part)
         published = (
@@ -158,9 +181,15 @@ def team_adherence(
     activity_period_end: datetime | None = None,
 ) -> dict:
     assert_team_reader(role)
+    if activity_period_start is None or activity_period_end is None:
+        activity_period_start, activity_period_end = madrid_week_bounds()
+    week_parts = adherence_parts_in_period(
+        parts,
+        start=activity_period_start,
+        end=activity_period_end,
+    )
+    effective_sample = len(week_parts)
     if activity_rows is not None:
-        if activity_period_start is None or activity_period_end is None:
-            activity_period_start, activity_period_end = madrid_week_bounds()
         activity = activity_counts(
             activity_rows,
             start=activity_period_start,
@@ -168,7 +197,7 @@ def team_adherence(
         )
     else:
         activity = {}
-    if not playbook_present or sample_size < 1:
+    if not playbook_present or effective_sample < 1:
         body = {
             "met_steps": 0,
             "applicable_steps": 0,
@@ -179,9 +208,9 @@ def team_adherence(
         }
         body.update(activity)
         return body
-    metrics = aggregate_adherence(parts)
+    metrics = aggregate_adherence(week_parts)
     conclusion = None
-    if sample_size < 5:
+    if effective_sample < 5:
         conclusion = None
     body = {
         "met_steps": metrics["met_steps"],
