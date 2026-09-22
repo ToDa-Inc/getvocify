@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/shared/lib/api-client";
-import { confirmErrorDetail, confirmResult, type AskConfirmBody } from "@/lib/ask-confirm";
+import { cancelConfirm, confirmErrorDetail, confirmResult, type AskConfirmBody } from "@/lib/ask-confirm";
+import { askConfirmPrompt } from "@/lib/product-catalog";
 import { useLanguage } from "@/lib/i18n";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
 import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
@@ -120,6 +121,14 @@ export default function AskPanel() {
     setDraft("");
   }
 
+  function applyConfirmOutcome(outcome: ReturnType<typeof confirmResult>) {
+    if (!outcome.clearPending) return;
+    setPendingConfirm(null);
+    if (outcome.text) {
+      setView((current) => ({ ...current, text: outcome.text!, notice: null }));
+    }
+  }
+
   async function confirmPending() {
     if (!pendingConfirm) return;
     try {
@@ -127,13 +136,7 @@ export default function AskPanel() {
         `/ask/conversations/${conversationId}/operations/${pendingConfirm.operationId}/confirm`,
         { revision: pendingConfirm.revision, contact_id: pendingConfirm.contactId },
       );
-      const outcome = confirmResult(body);
-      if (outcome.clearPending) {
-        setPendingConfirm(null);
-        if (outcome.text) {
-          setView((current) => ({ ...current, text: outcome.text!, notice: null }));
-        }
-      }
+      applyConfirmOutcome(confirmResult(body));
     } catch (error) {
       const detail = error instanceof ApiError ? confirmErrorDetail(error.data) : null;
       setView((current) => ({
@@ -141,6 +144,11 @@ export default function AskPanel() {
         notice: detail ?? t.product.askConfirmFailed,
       }));
     }
+  }
+
+  function cancelPending() {
+    if (!pendingConfirm) return;
+    applyConfirmOutcome(cancelConfirm());
   }
 
   const situation = askSituation({
@@ -181,15 +189,29 @@ export default function AskPanel() {
         </div>
       ) : null}
       {pendingConfirm ? (
-        <button
-          type="button"
-          className="mt-3 rounded-full border border-border px-3 py-1 text-sm"
-          onClick={() => {
-            void confirmPending();
-          }}
-        >
-          Confirmar para {pendingConfirm.contactId}
-        </button>
+        <div className="mt-3 space-y-2">
+          <p className="text-sm text-muted-foreground">
+            {askConfirmPrompt(t.product, pendingConfirm.contactId)}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-border px-3 py-1 text-sm"
+              onClick={() => {
+                void confirmPending();
+              }}
+            >
+              {t.product.confirmAction}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-border px-3 py-1 text-sm"
+              onClick={cancelPending}
+            >
+              {t.product.cancelAction}
+            </button>
+          </div>
+        </div>
       ) : null}
       {!choicesOpen ? (
         <form

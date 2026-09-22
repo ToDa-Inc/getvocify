@@ -23,6 +23,10 @@ export function confirmResult(body: AskConfirmBody | null | undefined): ConfirmA
   return { clearPending: true, text };
 }
 
+export function cancelConfirm(): ConfirmApplyOutcome {
+  return { clearPending: true, text: null };
+}
+
 export function confirmErrorDetail(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const detail = (data as { detail?: unknown }).detail;

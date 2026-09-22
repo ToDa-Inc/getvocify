@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { confirmErrorDetail, confirmResult } from "./ask-confirm.ts";
+import { cancelConfirm, confirmErrorDetail, confirmResult } from "./ask-confirm.ts";
 
 describe("confirmResult", () => {
   it("clears pending and shows follow-up text after a succeeded confirm", () => {
@@ -29,6 +29,12 @@ describe("confirmResult", () => {
       clearPending: false,
       text: null,
     });
+  });
+});
+
+describe("cancelConfirm", () => {
+  it("drops pending without replacing the answer text", () => {
+    assert.deepEqual(cancelConfirm(), { clearPending: true, text: null });
   });
 });
 

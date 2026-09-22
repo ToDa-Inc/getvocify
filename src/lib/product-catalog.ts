@@ -177,6 +177,9 @@ export const productCatalog = {
     followupEmailBodyCopied: "Email body copied: paste it into the draft",
     followupCompleteFailed: "Could not complete the follow-up",
     askConfirmFailed: "The confirmation could not be completed",
+    askConfirmForContact: "Confirm for {contactId}",
+    confirmAction: "Confirm",
+    cancelAction: "Cancel",
     dismiss: "Dismiss",
     undo: "Undo",
   },
@@ -358,6 +361,9 @@ export const productCatalog = {
     followupEmailBodyCopied: "Cuerpo del correo copiado: pégalo en el borrador",
     followupCompleteFailed: "No se pudo completar el seguimiento",
     askConfirmFailed: "No se pudo completar la confirmación",
+    askConfirmForContact: "Confirmar para {contactId}",
+    confirmAction: "Confirmar",
+    cancelAction: "Cancelar",
     dismiss: "Descartar",
     undo: "Deshacer",
   },
@@ -373,4 +379,11 @@ export function productText(
     return catalog[key as keyof ProductTranslations] as string;
   }
   return key;
+}
+
+export function askConfirmPrompt(
+  catalog: ProductTranslations,
+  contactId: string,
+): string {
+  return catalog.askConfirmForContact.replace("{contactId}", contactId);
 }
