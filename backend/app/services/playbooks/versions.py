@@ -9,6 +9,23 @@ def can_publish(role: str) -> bool:
     return role in {"owner", "admin"}
 
 
+class PublishError(Exception):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def accept_publish(motions: dict, key: str, role: str) -> dict:
+    """Publish one draft. A member is refused, and any other typology stays as it was."""
+    if not can_publish(role):
+        raise PublishError("forbidden")
+    if motions.get(key) != "draft":
+        raise PublishError("not_a_draft")
+    updated = dict(motions)
+    updated[key] = "published"
+    return updated
+
+
 def snapshot_for_capture(pinned_version_id: Optional[str], active_version_id: Optional[str]) -> Optional[str]:
     return pinned_version_id or active_version_id
 

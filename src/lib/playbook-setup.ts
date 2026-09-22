@@ -26,3 +26,20 @@ export function playbookNotice(
     publishedKeys,
   };
 }
+
+export type PublishResult = {
+  ok: boolean;
+  salesMotionKey?: string;
+  status?: MotionStatus;
+};
+
+export function applyPublishResult(
+  motions: Record<string, MotionStatus>,
+  key: string,
+  result: PublishResult,
+): Record<string, MotionStatus> {
+  if (!result.ok || result.salesMotionKey !== key || result.status !== "published") {
+    return motions;
+  }
+  return { ...motions, [key]: "published" };
+}

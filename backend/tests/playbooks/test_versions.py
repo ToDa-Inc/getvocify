@@ -39,6 +39,50 @@ def test_unpublished_playbook_is_explicitly_absent():
     assert get_published_playbook(draft, [{**V1, "status": "draft"}]) is None
 
 
+def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cannot():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import playbooks as playbooks_api
+    from app.api.playbooks import router as playbooks_router
+    from app.deps import get_membership
+    from app.services.company import Membership
+
+    playbooks_api._MOTIONS.clear()
+    role = {"value": "owner"}
+    app = FastAPI()
+    app.include_router(playbooks_router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co", user_id="u", role=role["value"], status="active",
+    )
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/playbooks/imports",
+        json={
+            "import_id": "imp-discovery",
+            "kind": "text",
+            "payload": "Confirmar el problema antes del precio.",
+            "sales_motion_key": "discovery",
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["published"] is False
+    missing = client.post("/api/v1/playbooks/qualification/publish")
+    assert missing.status_code == 409
+    published = client.post("/api/v1/playbooks/discovery/publish")
+    assert published.status_code == 200
+    motions = published.json()["motions"]
+    assert motions["discovery"] == "published"
+    assert motions.get("qualification") != "published"
+    listed = client.get("/api/v1/playbooks")
+    assert listed.status_code == 200
+    assert listed.json()["motions"]["discovery"] == "published"
+    role["value"] = "member"
+    denied = client.post("/api/v1/playbooks/discovery/publish")
+    assert denied.status_code == 403
+    assert playbooks_api._MOTIONS["co"]["discovery"] == "published"
+
+
 def test_two_publishes_leave_one_active_pointer_and_both_versions(tmp_path=None):
     import os
     import shutil

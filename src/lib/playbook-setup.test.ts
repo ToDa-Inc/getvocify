@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { playbookNotice } from "./playbook-setup.ts";
+import { applyPublishResult, playbookNotice } from "./playbook-setup.ts";
 
 describe("playbook setup", () => {
   it("tells a member they cannot edit and an admin they can start", () => {
@@ -24,5 +24,26 @@ describe("playbook setup", () => {
     const notice = playbookNotice("owner", { discovery: "published", qualification: "missing" });
     assert.deepEqual(notice.publishedKeys, ["discovery"]);
     assert.equal(notice.showNotice, true);
+  });
+
+  it("a rejected publish leaves the draft, and discovery does not publish the rest", () => {
+    const motions = { discovery: "draft", qualification: "missing", closing: "missing" };
+    assert.deepEqual(applyPublishResult(motions, "discovery", { ok: false }), motions);
+    const next = applyPublishResult(motions, "discovery", {
+      ok: true,
+      salesMotionKey: "discovery",
+      status: "published",
+    });
+    assert.equal(next.discovery, "published");
+    assert.equal(next.qualification, "missing");
+    assert.equal(next.closing, "missing");
+    assert.deepEqual(
+      applyPublishResult({ discovery: "missing" }, "discovery", {
+        ok: true,
+        salesMotionKey: "qualification",
+        status: "published",
+      }),
+      { discovery: "missing" },
+    );
   });
 });

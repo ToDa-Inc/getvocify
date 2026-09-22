@@ -10,11 +10,12 @@ from pydantic import BaseModel
 from app.deps import get_membership
 from app.services.company import Membership
 from app.services.playbooks.imports import start_import
-from app.services.playbooks.versions import can_publish
+from app.services.playbooks.versions import PublishError, accept_publish, can_publish
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 _IMPORTS: dict[str, dict] = {}
+_MOTIONS: dict[str, dict[str, str]] = {}
 
 
 class ImportRequest(BaseModel):
@@ -22,6 +23,7 @@ class ImportRequest(BaseModel):
     kind: str
     payload: str = ""
     active_version_id: Optional[str] = None
+    sales_motion_key: Optional[str] = None
 
 
 def _guard(membership: Membership) -> None:
@@ -40,7 +42,29 @@ async def create_import(body: ImportRequest, membership: Membership = Depends(ge
         existing=_IMPORTS.get(body.import_id),
     )
     _IMPORTS[body.import_id] = record
+    if body.sales_motion_key and record.get("status") == "ready" and not record.get("published"):
+        company = _MOTIONS.setdefault(membership.company_id, {})
+        if company.get(body.sales_motion_key) != "published":
+            company[body.sales_motion_key] = "draft"
     return record
+
+
+@router.get("")
+async def list_playbooks(membership: Membership = Depends(get_membership)):
+    return {"motions": dict(_MOTIONS.get(membership.company_id) or {})}
+
+
+@router.post("/{sales_motion_key}/publish")
+async def publish_motion(sales_motion_key: str, membership: Membership = Depends(get_membership)):
+    motions = dict(_MOTIONS.get(membership.company_id) or {})
+    try:
+        updated = accept_publish(motions, sales_motion_key, membership.role)
+    except PublishError as exc:
+        if exc.code == "forbidden":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden publicar")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No hay un borrador para publicar")
+    _MOTIONS.setdefault(membership.company_id, {})[sales_motion_key] = "published"
+    return {"motions": updated}
 
 
 @router.get("/imports/{import_id}")
