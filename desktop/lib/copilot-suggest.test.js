@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildCopilotSuggestRequestBody,
+  copilotSuggestCallMode,
   createCopilotSuggestIngester,
   markCopilotSuggestRequested,
   resetCopilotSuggestRequestDedupe,
@@ -8,6 +10,37 @@ import {
   shouldRequestCopilotSuggest,
 } from './copilot-suggest.js';
 import { liveAssistPayloadFromSuggestEvent } from './live-assist-overlay.js';
+
+describe('buildCopilotSuggestRequestBody', () => {
+  it('maps session callMode via liveAssistKind; contact_id only when session has one', () => {
+    assert.equal(copilotSuggestCallMode({ callMode: 'meeting' }), 'meeting');
+    assert.equal(copilotSuggestCallMode({ callMode: 'call' }), 'speakerphone');
+    assert.equal(copilotSuggestCallMode({}), 'speakerphone');
+
+    const bare = buildCopilotSuggestRequestBody({
+      session: { callMode: 'meeting' },
+      transcriptWindow: 'They: hello',
+      latestTurn: 'hello',
+    });
+    assert.equal(bare.call_mode, 'meeting');
+    assert.equal(bare.latest_turn, 'hello');
+    assert.equal('contact_id' in bare, false);
+
+    const call = buildCopilotSuggestRequestBody({
+      session: { callMode: 'call' },
+      transcriptWindow: 'x',
+      latestTurn: 'y',
+    });
+    assert.equal(call.call_mode, 'speakerphone');
+
+    const grounded = buildCopilotSuggestRequestBody({
+      session: { callMode: 'meeting', contactId: 'hs-99' },
+      transcriptWindow: 'x',
+      latestTurn: 'y',
+    });
+    assert.equal(grounded.contact_id, 'hs-99');
+  });
+});
 
 describe('shouldFetchCopilotSuggest', () => {
   it('skips empty lines and duplicate final lines; fetches when the line changes', () => {

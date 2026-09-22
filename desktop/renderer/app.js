@@ -6,6 +6,7 @@ import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
 import {
+  buildCopilotSuggestRequestBody,
   markCopilotSuggestRequested,
   resetCopilotSuggestRequestDedupe,
   shouldRequestCopilotSuggest,
@@ -75,6 +76,8 @@ let permissionPoll = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
 let reviewContext = null;
 let copilotSuggestAbort = null;
+/** Active listen session: callMode/contact only; never invent CRM ids here. */
+let listenSession = null;
 /** Live-assist slice forwarded to the overlay pill (copilot session fills this). */
 export const liveAssistOverlay = { evidenceRefs: [] };
 
@@ -107,19 +110,21 @@ async function requestCopilotSuggest(latestTurn) {
   const controller = new AbortController();
   copilotSuggestAbort = controller;
   const transcriptWindow = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
+  const session = listenSession ?? { callMode: 'call' };
+  const overlayCallMode = session.callMode ?? session.call_mode ?? 'call';
   try {
     const result = await streamCopilotSuggest(fetch, {
       apiBase: apiBase(),
       token,
-      body: {
-        transcript_window: transcriptWindow.slice(-6000),
-        latest_turn: latestTurn,
-        call_mode: 'meeting',
+      body: buildCopilotSuggestRequestBody({
+        session,
+        transcriptWindow,
+        latestTurn,
         language: 'auto',
-      },
+      }),
       onPayload: (payload) => {
         if (controller.signal.aborted) return;
-        applyCopilotSuggestionPayload(payload, { callMode: 'meeting' });
+        applyCopilotSuggestionPayload(payload, { callMode: overlayCallMode });
       },
       signal: controller.signal,
     });
@@ -360,6 +365,7 @@ function stopCapture() {
   abortCopilotSuggest();
   resetCopilotSuggestRequestDedupe();
   resetLiveAssistOverlay();
+  listenSession = null;
   listening = false;
   processors.forEach((p) => {
     try { p.disconnect(); } catch { /* ignore */ }
@@ -456,6 +462,10 @@ async function startListen() {
   listening = true;
   currentBackend = nativeBackend || 'chromium';
   captureStreams = system ? [mic, system] : [mic];
+  listenSession = {
+    callMode: 'meeting',
+    contactId: listenSession?.contactId ?? listenSession?.contact_id ?? null,
+  };
   transcriptState = { finalTranscript: '', interimTranscript: '' };
   resetCopilotSuggestRequestDedupe();
   renderTranscript();

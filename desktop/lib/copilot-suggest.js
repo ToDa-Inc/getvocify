@@ -1,5 +1,31 @@
-import { pushSse } from '../../shared/ui/copilot/suggestion-state.js';
+import { liveAssistKind, pushSse } from '../../shared/ui/copilot/suggestion-state.js';
 import { liveAssistPayloadFromSuggestEvent } from './live-assist-overlay.js';
+
+/** API `call_mode` for /copilot/suggest from session fields (liveAssistKind rules). */
+export function copilotSuggestCallMode(session = {}) {
+  const kind = liveAssistKind({
+    callMode: session.callMode ?? session.call_mode,
+    channel: session.channel,
+  });
+  return kind === 'meeting' ? 'meeting' : 'speakerphone';
+}
+
+export function buildCopilotSuggestRequestBody({
+  session = {},
+  transcriptWindow = '',
+  latestTurn = '',
+  language = 'auto',
+} = {}) {
+  const body = {
+    transcript_window: String(transcriptWindow || '').slice(-6000),
+    latest_turn: String(latestTurn ?? '').trim(),
+    language,
+    call_mode: copilotSuggestCallMode(session),
+  };
+  const contactId = String(session.contactId ?? session.contact_id ?? '').trim();
+  if (contactId) body.contact_id = contactId;
+  return body;
+}
 
 let lastRequestedFinalLine = '';
 
