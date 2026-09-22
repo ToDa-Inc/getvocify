@@ -22,7 +22,7 @@ No se inventa un estado anterior si no hay historia.
 
 | Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan; claves estables (`price`, …) y solo semana Madrid (`observed_at`/`created_at`); etiquetas de equipo y memo salen del catálogo EN/ES | `tests/team_insights/test_objections.py` |
 | Textos de equipo, resumen post-interacción y objeciones en memo salen de `product-catalog.ts` (EN/ES vía `t.product`); libs reciben el catálogo como argumento | `src/lib/team-insights.test.ts`, `src/lib/post-brief.test.ts`, `src/lib/interaction-objections.test.ts` |
-| La página de equipo lista nombres ES de categoría o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
+| La página de equipo lista nombres de categoría en el idioma de la app o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
 | Objeciones por recuento (barra + número) y adherencia con barra met/applicable cuando hay datos | `src/lib/team-insights.test.ts` |
 
 ## Muestra pequeña y cobertura CRM (2026-09-22)
