@@ -182,6 +182,10 @@ export const productCatalog = {
     cancelAction: "Cancel",
     dismiss: "Dismiss",
     undo: "Undo",
+    startCalling: "Start calling",
+    queueSkip: "Skip",
+    queueExit: "Exit",
+    queueDone: "Done",
   },
   ES: {
     hourLocale: "es-ES",
@@ -366,6 +370,10 @@ export const productCatalog = {
     cancelAction: "Cancelar",
     dismiss: "Descartar",
     undo: "Deshacer",
+    startCalling: "Empezar a llamar",
+    queueSkip: "Saltar",
+    queueExit: "Salir",
+    queueDone: "Listo",
   },
 } as const;
 
