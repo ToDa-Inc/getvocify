@@ -26,6 +26,22 @@ def test_an_unavailable_crm_is_not_an_empty_answer():
     assert blocked["envelope"]["coverage"] == "unavailable"
     assert blocked["envelope"]["items"] == []
     assert blocked["text"] == "No pude leer el CRM."
+    confirm = payload_from_turn(
+        "¿Creo la nota?",
+        {"copilot": {"pending_id": "op-1", "revision": 3, "pending_args": {"contact_id": "contact-a"}}},
+        kind="confirm",
+    )
+    assert confirm["confirmation"] == {
+        "operation_id": "op-1",
+        "revision": 3,
+        "contact_id": "contact-a",
+    }
+    missing = payload_from_turn(
+        "¿Sigo?",
+        {"copilot": {"pending_id": "op-1", "pending_args": {}}},
+        kind="confirm",
+    )
+    assert "confirmation" not in missing
 
 
 def test_repeating_a_client_turn_returns_the_same_turn():

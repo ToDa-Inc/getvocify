@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { askSituation } from "./ask-situation.ts";
+import { askConfirmation, askSituation } from "./ask-situation.ts";
 
 describe("ask situation", () => {
   it("uses a different sentence for an empty chat, no results, and a partial CRM read", () => {
@@ -20,5 +20,16 @@ describe("ask situation", () => {
     assert.equal(messages.size, 4);
     assert.equal(none.message.includes("permiso"), false);
     assert.equal(forbidden.message.includes("No hay resultados"), false);
+  });
+
+  it("a confirmation needs the operation, the revision, and the contact", () => {
+    assert.equal(askConfirmation({}), null);
+    assert.equal(askConfirmation({ confirmation: { operation_id: "op-1", revision: 3 } }), null);
+    assert.deepEqual(
+      askConfirmation({
+        confirmation: { operation_id: "op-1", revision: 3, contact_id: "contact-a" },
+      }),
+      { operationId: "op-1", revision: 3, contactId: "contact-a" },
+    );
   });
 });

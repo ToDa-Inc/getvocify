@@ -42,3 +42,17 @@ export function askSituation(input: {
   }
   return { message: "", action: "none" };
 }
+
+export function askConfirmation(turn: {
+  confirmation?: { operation_id?: string; revision?: number; contact_id?: string } | null;
+}): { operationId: string; revision: number; contactId: string } | null {
+  const confirmation = turn.confirmation;
+  if (!confirmation?.operation_id || confirmation.revision == null || !confirmation.contact_id) {
+    return null;
+  }
+  return {
+    operationId: confirmation.operation_id,
+    revision: confirmation.revision,
+    contactId: confirmation.contact_id,
+  };
+}

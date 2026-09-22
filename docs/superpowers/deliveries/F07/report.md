@@ -19,7 +19,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | La pregunta web pasa por el loop una vez; el reintento no lo vuelve a llamar | `d72ed0c` | `tests/crm_copilot/test_ask_http.py` |
 | Al arrancar, Ask usa el mismo loop que WhatsApp; si falla, el turno sigue pendiente | `d1e6699` | `tests/crm_copilot/test_ask_http.py` |
 | Pipedrive no se rechaza como «solo HubSpot»; queda no disponible | `8d11e42` | `tests/crm_providers/test_context_contract.py` |
-| Esa no disponibilidad no se guarda como una respuesta vacía | este commit | `tests/crm_copilot/test_web_turns.py` |
+| Esa no disponibilidad no se guarda como una respuesta vacía | `d1c464b` | `tests/crm_copilot/test_web_turns.py` |
+| Confirmar exige operación, revisión y contacto; sin contacto no hay botón | este commit | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-situation.test.ts` |
 
 ## No verificado
 

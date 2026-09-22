@@ -98,11 +98,22 @@ _actor: dict[str, str] = {}
 _sessions: dict[str, dict] = {}
 
 
-def payload_from_turn(text: str, artifacts: dict | None = None) -> dict:
+def payload_from_turn(text: str, artifacts: dict | None = None, *, kind: str = "text") -> dict:
     coverage = (artifacts or {}).get("crm_coverage")
     body = {"text": text}
     if coverage in {"unavailable", "forbidden", "partial"}:
         body["envelope"] = {"items": [], "coverage": coverage}
+    if kind == "confirm":
+        copilot = (artifacts or {}).get("copilot") or {}
+        args = copilot.get("pending_args") or {}
+        contact_id = args.get("contact_id") or args.get("contactId")
+        operation_id = copilot.get("pending_id")
+        if contact_id and operation_id:
+            body["confirmation"] = {
+                "operation_id": operation_id,
+                "revision": int(copilot.get("revision") or 1),
+                "contact_id": contact_id,
+            }
     return body
 
 
@@ -136,7 +147,7 @@ async def live_ask_loop(text: str):
     except Exception:
         logging.getLogger(__name__).exception("ask loop failed")
         return None
-    return payload_from_turn(result.text or "", artifacts)
+    return payload_from_turn(result.text or "", artifacts, kind=result.kind)
 
 
 def attach_read(turn: dict, envelope: dict) -> dict:

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/shared/lib/api-client";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
-import { askSituation } from "@/lib/ask-situation";
+import { askConfirmation, askSituation } from "@/lib/ask-situation";
 
 const STORAGE_KEY = "vocify-ask-turn";
 
@@ -13,7 +13,7 @@ type AskTurnBody = {
   status: AskSnapshot["status"];
   text: string;
   coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
-  item_count?: number;
+  confirmation?: { operation_id?: string; revision?: number; contact_id?: string } | null;
 };
 
 function readStored(): StoredTurn | null {
@@ -26,7 +26,7 @@ function readStored(): StoredTurn | null {
 }
 
 export default function AskPanel() {
-  const [read, setRead] = useState<{ coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null; items?: number }>({});
+  const [pendingConfirm, setPendingConfirm] = useState<ReturnType<typeof askConfirmation>>(null);
   const [view, setView] = useState<AskView>(emptyAsk());
   const [conversationId] = useState("conv-1");
 
@@ -46,6 +46,7 @@ export default function AskPanel() {
           text: turn.text,
         }));
         setRead({ coverage: turn.coverage, items: turn.item_count });
+        setPendingConfirm(askConfirmation(turn));
       })
       .catch(() => undefined);
     return () => {
@@ -72,6 +73,7 @@ export default function AskPanel() {
             ),
           );
           setRead({ coverage: turn.coverage, items: turn.item_count });
+          setPendingConfirm(askConfirmation(turn));
         })
         .catch(() => {
           setView((current) => noteTick(current, 2000, null, false));
@@ -100,6 +102,7 @@ export default function AskPanel() {
     });
     setView(next);
     setRead({ coverage: turn.coverage, items: turn.item_count });
+    setPendingConfirm(askConfirmation(turn));
     if (next.turnId) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));
     }
@@ -125,6 +128,20 @@ export default function AskPanel() {
         <p className="mt-2 text-sm" role="status">Hay una respuesta nueva</p>
       ) : null}
       {view.text ? <p className="mt-4 text-sm">{view.text}</p> : null}
+      {pendingConfirm ? (
+        <button
+          type="button"
+          className="mt-3 rounded-full border border-border px-3 py-1 text-sm"
+          onClick={() => {
+            void api.post(
+              `/ask/conversations/${conversationId}/operations/${pendingConfirm.operationId}/confirm`,
+              { revision: pendingConfirm.revision, contact_id: pendingConfirm.contactId },
+            ).then(() => setPendingConfirm(null));
+          }}
+        >
+          Confirmar para {pendingConfirm.contactId}
+        </button>
+      ) : null}
       <form
         className="mt-6 space-y-2"
         onSubmit={(event) => {

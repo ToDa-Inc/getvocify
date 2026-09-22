@@ -76,6 +76,7 @@ def _public(turn: dict) -> dict:
         "text": turn["text"],
         "coverage": turn.get("coverage"),
         "item_count": turn.get("item_count"),
+        "confirmation": turn.get("confirmation"),
     }
 
 
@@ -127,13 +128,17 @@ async def _finish(turn: dict, text: str) -> dict:
             result = await result
         if result is None:
             return turn
+        confirmation = None
         if hasattr(result, "text"):
             answer = result.text
             envelope = getattr(result, "envelope", None)
         else:
             answer = result.get("text") or turn["text"]
             envelope = result.get("envelope")
+            confirmation = result.get("confirmation")
         updated = {**turn, "status": "completed", "text": answer}
+        if confirmation:
+            updated["confirmation"] = confirmation
         if envelope:
             updated = attach_read(updated, envelope)
         return updated
