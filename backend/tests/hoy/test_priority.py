@@ -96,6 +96,27 @@ def test_a_future_agreed_call_is_shown_without_an_invite_to_call_sooner():
     assert ranked[0]["reason"] == "scheduled_no_early_call"
 
 
+def test_turning_on_recent_pain_changes_tier_and_reason():
+    shared = {
+        "connection_id": "crm-A",
+        "contact_id": "42",
+        "deal_id": "deal-7",
+        "coverage": "complete",
+        "last_call_at": "2026-09-01T00:00:00Z",
+        "meeting_agreed": False,
+    }
+    before = rank_candidates([{**shared, "pain_confirmed": False}], NOW)[0]
+    after = rank_candidates(
+        [{**shared, "pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z", "evidence_refs": ["ev-1"]}],
+        NOW,
+    )[0]
+    assert before["tier"] == 3
+    assert before["reason"] == "followup_pending"
+    assert after["tier"] == 1
+    assert after["reason"] == "pain_agree_next_step"
+    assert after["evidence_refs"] == ["ev-1"]
+
+
 def test_empty_states_are_distinct():
     disconnected = empty_priority_copy(connected=False, coverage="complete", role="member")
     assert disconnected["title"] == "title_connect_crm"

@@ -1,21 +1,31 @@
 # Informe F04
 
-Estado: reglas C09 y el enlace a contactos del CRM cuando hay proveedor conocido. HubSpot sin portal no inventa una URL. Copy de prioridades: claves estables en la API y catálogo EN/ES en la web.
+Estado: **DONE** — los ocho criterios de aceptación del plan tienen prueba automatizada ejecutada en cierre.
 
-## Entregado
+## Criterio → prueba
 
-| Pieza | Commit | Prueba |
-|---|---|---|
-| Ranking: dolor reciente antes de «nunca llamado»; reunión acordada fuera; deal cerrado aparte | `1bfe60a` y el commit de esta lista | `tests/hoy/test_priority.py` |
-| `GET /api/v1/contact-priorities`: vacío, parcial y sin CRM no se confunden | `3b6a687` | `tests/hoy/test_priority_http.py` |
-| La web no convierte un 403 en lista vacía y conserva la lectura anterior si el refetch falla | `3b6a687` | `src/lib/contact-priorities.test.ts` |
-| Migración `042_contact_priority_context.sql` | `3b6a687` | Tabla también en `full_reset.sql` |
-| Página incompleta de HubSpot o Pipedrive no es «nunca llamado»; email ambiguo no asigna; el mismo nombre no asigna; un fallo conserva la hora | este commit | `tests/hoy/test_priority_context.py` 4 passed, incluido Postgres aislado |
-| `GET /contact-priorities` con caché vacía y token CRM hace una lectura asignada; la segunda petición no vuelve al CRM; 403 no es lista completa vacía | este commit | `tests/hoy/test_priority_http.py` |
-| `connection_assigned_fetch` cierra el `httpx.Client` por defecto tras cada petición; el cliente inyectado no se cierra | este commit | `tests/hoy/test_assigned_fetch.py` |
+| Criterio | Prueba |
+|---|---|
+| Dolor reciente antes de «nunca llamado» | `tests/hoy/test_priority.py::test_recent_pain_without_a_meeting_outranks_a_complete_never_called` |
+| Reunión acordada no es captación | `tests/hoy/test_priority.py::test_agreed_meeting_is_not_a_prospecting_call_and_incomplete_history_is_not_never_called` |
+| Deal cerrado fuera de la lista activa | `tests/hoy/test_priority.py::test_two_connections_and_a_closed_deal_stay_apart` |
+| Candidatos dentro de la asignación | `tests/hoy/test_priority_http.py::test_rows_drive_empty_partial_and_the_personal_list`; `tests/hoy/test_priority_context.py::test_an_ambiguous_email_stays_out_and_a_shared_name_does_not_assign` |
+| Incompleto ≠ sin llamadas | `tests/hoy/test_priority_context.py::test_an_unfinished_page_from_either_crm_is_not_never_called`; ranking `history_partial` en `test_priority.py` |
+| Cambio de fuente explicable | `tests/hoy/test_priority.py::test_turning_on_recent_pain_changes_tier_and_reason` |
+| Vacío completo, sin asignados y error CRM distintos | `tests/hoy/test_priority.py::test_empty_states_are_distinct`; `tests/hoy/test_priority_http.py::test_a_complete_empty_crm_is_not_the_same_as_no_priority_candidates`; `test_no_connection_is_not_an_empty_complete_list`; `test_forbidden_fetch_is_not_an_empty_complete_list`; `node --test src/lib/contact-priorities.test.ts` |
+| Parcial no «nunca llamado»; deals separados | `tests/hoy/test_priority_http.py::test_a_folded_unfinished_page_is_what_the_route_returns`; deal cerrado vs abierto arriba |
 
-## No verificado
+## Comandos de cierre
 
-- El `GET` selecciona `crm_connections` y `contact_priority_context` por `company_id`. Las pruebas usan un cliente falso con el mismo `select`/`eq`; no hay una base Supabase real detrás.
-- La lectura de contactos asignados usa el `access_token` de la conexión (`connection_assigned_fetch`); `collect_assigned` recorre HubSpot `POST /crm/v3/objects/contacts/search` y Pipedrive `GET /persons` v2. Si el transporte falla, no sustituye la caché.
-- «Abrir contactos en CRM» abre Pipedrive o HubSpot cuando hay portal. Sin portal, HubSpot no tiene enlace.
+```text
+cd backend && .venv/bin/python -m pytest tests/hoy/test_priority.py tests/hoy/test_priority_context.py tests/hoy/test_priority_http.py -q
+node --test src/lib/contact-priorities.test.ts
+npm run build
+```
+
+## Limitaciones (no bloquean DoD)
+
+- El `GET` usa cliente Supabase falso en HTTP tests; no hay instancia remota en CI local.
+- Lectura asignada real usa `access_token` de la conexión; fallo de transporte no sustituye caché (cubierto en tests de `collect_assigned` / fold).
+- HubSpot sin `portal_id` no expone URL de contactos (`test_empty_states_are_distinct`).
+- Verificación Reticle de UI no ejecutada en este cierre; estados web cubiertos por `contact-priorities.test.ts` y contrato HTTP de claves estables.

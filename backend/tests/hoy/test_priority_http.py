@@ -208,6 +208,36 @@ def test_empty_cache_with_hubspot_token_fetches_once_and_cached_rows_skip_crm():
     assert second["items"][0]["contact_id"] == "77"
 
 
+def test_a_complete_empty_crm_is_not_the_same_as_no_priority_candidates():
+    def handler(_request: Request) -> Response:
+        return Response(200, json={"results": []})
+
+    client = httpx.Client(transport=MockTransport(handler))
+    api.set_assigned_fetch_factory(lambda connection: connection_assigned_fetch(connection, client=client))
+    STORE.tables["crm_connections"] = [{
+        "id": "crm-A",
+        "company_id": "co-1",
+        "status": "connected",
+        "provider": "hubspot",
+        "access_token": "pat-test",
+    }]
+    onboarding = _client("user-a").get("/api/v1/contact-priorities").json()
+    assert onboarding["items"] == []
+    assert onboarding["coverage"] == "complete"
+    assert onboarding["title"] == "title_no_assigned"
+    assert onboarding["action"] == "review_assignment"
+
+    STORE.tables["contact_priority_context"] = [_row(
+        contact_id="9",
+        payload={"meeting_agreed": True, "pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z"},
+    )]
+    api.set_assigned_fetch_factory(None)
+    none_now = _client("user-a").get("/api/v1/contact-priorities").json()
+    assert none_now["items"] == []
+    assert none_now["title"] == "title_none_now"
+    assert none_now["action"] == "open_contacts"
+
+
 def test_forbidden_fetch_is_not_an_empty_complete_list():
     def handler(_request: Request) -> Response:
         return Response(403, json={"message": "denied"})

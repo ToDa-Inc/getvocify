@@ -147,21 +147,21 @@ Un contacto nuevo puede entrar en el grupo sin llamadas solo tras completar las 
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Pain confirmado reciente precede a contacto sin llamadas registradas.
+- [x] Pain confirmado reciente precede a contacto sin llamadas registradas.
 
-- [ ] Una reunión ya acordada evita proponer otra llamada de captación.
+- [x] Una reunión ya acordada evita proponer otra llamada de captación.
 
-- [ ] Un deal cerrado no aparece como oportunidad activa.
+- [x] Un deal cerrado no aparece como oportunidad activa.
 
-- [ ] Cada comercial recibe candidatos dentro de su asignación.
+- [x] Cada comercial recibe candidatos dentro de su asignación.
 
-- [ ] Información incompleta se distingue de ausencia de llamadas.
+- [x] Información incompleta se distingue de ausencia de llamadas.
 
-- [ ] Cambiar un dato fuente cambia la prioridad de manera explicable.
+- [x] Cambiar un dato fuente cambia la prioridad de manera explicable.
 
-- [ ] Cero candidatos con cobertura completa muestra el copy y la acción definidos; onboarding sin contactos y error CRM tienen estados distintos.
+- [x] Cero candidatos con cobertura completa muestra el copy y la acción definidos; onboarding sin contactos y error CRM tienen estados distintos.
 
-- [ ] Un historial parcial no produce «nunca llamado». Con varios deals, el motivo remite al deal correcto y no duplica una misma acción.
+- [x] Un historial parcial no produce «nunca llamado». Con varios deals, el motivo remite al deal correcto y no duplica una misma acción.
 
 ### Riesgos / edge cases conocidos
 
