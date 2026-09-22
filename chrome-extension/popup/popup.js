@@ -5,6 +5,8 @@
  */
 
 import { api } from '../lib/api.js';
+import '../shared/ui/components/v-followup.js';
+import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
 import {
   canPaintInsightsFromMemo,
@@ -332,7 +334,71 @@ function clearReviewPreviewUi() {
   const reasonEl = document.getElementById('target-deal-reason');
   if (nameEl) nameEl.textContent = '';
   if (reasonEl) reasonEl.textContent = '';
+  stopFollowup();
 }
+
+const followupEl = document.getElementById('review-followup');
+const FOLLOWUP_POLL_MS = 1500;
+const FOLLOWUP_MAX_POLLS = 25;
+let followupTimer = null;
+
+function stopFollowup() {
+  clearTimeout(followupTimer);
+  followupTimer = null;
+  if (!followupEl) return;
+  followupEl.hidden = true;
+  followupEl.data = null;
+  delete followupEl.dataset.memoId;
+}
+
+async function loadFollowup(memoId, attempt = 0) {
+  clearTimeout(followupTimer);
+  if (!followupEl || !isCurrentReviewMemo(memoId)) return;
+  let view;
+  try {
+    view = await api.get(`/memos/${memoId}/followup`);
+  } catch {
+    followupEl.hidden = true;
+    return;
+  }
+  if (!isCurrentReviewMemo(memoId)) return;
+  followupEl.dataset.memoId = memoId;
+  followupEl.hidden = view.status === 'unavailable';
+  followupEl.data = view;
+  if (view.status === 'generating' && attempt < FOLLOWUP_MAX_POLLS) {
+    followupTimer = setTimeout(() => loadFollowup(memoId, attempt + 1), FOLLOWUP_POLL_MS);
+  }
+}
+
+function openFollowupTarget(url) {
+  if (url.startsWith('mailto:')) window.location.href = url;
+  else chrome.tabs.create({ url });
+}
+
+followupEl?.addEventListener('v-action', async (event) => {
+  const { action, value, element } = event.detail;
+  const memoId = element.dataset.memoId;
+  const view = element.data;
+  if (!memoId || !view) return;
+  const { subject, body } = element.value;
+  const record = (payload) => api.post(`/memos/${memoId}/followup`, payload);
+  try {
+    if (action === 'copy') {
+      await navigator.clipboard.writeText(body);
+      await record({ action: 'copied', channel: 'email', subject, body });
+      return;
+    }
+    const channel = value === 'whatsapp' ? 'whatsapp' : 'email';
+    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
+    const url = target.ok ? target.url : target.fallback;
+    if (!url) return;
+    if (!target.ok) await navigator.clipboard.writeText(body);
+    openFollowupTarget(url);
+    element.data = await record({ action: 'sent', channel, subject, body });
+  } catch (err) {
+    console.warn('[followup] action failed', err);
+  }
+});
 
 function lockReviewSession(context) {
   reviewSessionLocked = true;
@@ -1730,6 +1796,7 @@ function cachedReviewMemo(memoId) {
 
 async function handleReviewState(memoId, context) {
   startSessionHeartbeat();
+  loadFollowup(memoId);
   const gen = ++reviewFetchGen;
   const cached = cachedReviewMemo(memoId);
   const fromProcessing = lastRenderedStatus === 'processing' || lastBgState?.status === 'processing';
