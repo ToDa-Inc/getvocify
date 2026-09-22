@@ -39,6 +39,7 @@ RULES
 - Never invent customer logos or fake metrics. Use only product_context when citing proof.
 - Prefer questions that advance the call over monologues.
 - If the latest turn is the rep talking / filler / noise, set is_objection=false and keep coaching light.
+- Unless a published playbook was provided in the user message, set evidence_refs to [] and source_id to null.
 
 OUTPUT
 Return ONLY valid JSON with this exact shape:
@@ -49,7 +50,9 @@ Return ONLY valid JSON with this exact shape:
   "say_this": string,
   "why_it_works": string,
   "next_question": string,
-  "dont_say": string
+  "dont_say": string,
+  "evidence_refs": array of strings,
+  "source_id": string or null
 }
 """
 
