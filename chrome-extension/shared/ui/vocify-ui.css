@@ -1,0 +1,26 @@
+.v-transcript,
+.transcript {
+  min-height: 8rem;
+}
+
+.v-transcript-turn,
+.transcript .turn {
+  transition: opacity 160ms ease;
+}
+
+.v-transcript-jump {
+  margin-top: 8px;
+}
+
+.v-transcript-jump:focus-visible,
+.transcript:focus-visible {
+  outline: 2px solid hsl(var(--v-beige, 35 25% 35%));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-transcript-turn,
+  .transcript .turn {
+    transition: none;
+  }
+}

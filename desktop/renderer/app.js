@@ -2,6 +2,7 @@ import { applyChannelLabelsToLiveUrl, encodeChannelAudio, liveTranscriptionUrl }
 import { backendLabel } from '../lib/capture-labels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../lib/listen-policy.js';
+import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import { dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { humanizeSaasError } from '../lib/saas.js';
 import { listenPermissionGate, permissionAction, permissionCopy, PERMISSION } from '../lib/permissions.js';
@@ -37,6 +38,7 @@ const listenError = document.getElementById('listen-error');
 const reviewError = document.getElementById('review-error');
 const statusEl = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
+const returnLiveBtn = document.getElementById('btn-return-live');
 const btnListen = document.getElementById('btn-listen');
 const btnStop = document.getElementById('btn-stop');
 const liveDot = document.getElementById('live-dot');
@@ -216,29 +218,58 @@ async function request(path, { method = 'GET', body, token } = {}) {
   }
 }
 
+let transcriptView = { revision: 0, turns: [], interim: null };
+let stickToLive = true;
+
 function renderTranscript() {
-  const text = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
-  if (!text) {
-    transcriptEl.innerHTML = '<p class="empty">Transcript will appear here — same You / Them labels as the dashboard.</p>';
-    notifyShell();
-    return;
+  const legacy = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
+  const next = {
+    revision: transcriptView.revision + 1,
+    turns: legacy
+      ? [{ id: 'live', text: legacy }]
+      : [],
+    interim: null,
+  };
+  transcriptView = reconcileTranscript(transcriptView, next) ?? next;
+  const follow = stickToLive;
+  const text = transcriptView.turns.map((turn) => turn.text).join(' ').trim();
+  const parts = text ? text.split(/(?=(?:You|Them): )/).filter(Boolean) : [];
+  if (!parts.length) {
+    transcriptEl.querySelectorAll('.turn').forEach((node) => node.remove());
+    if (!transcriptEl.querySelector('.empty')) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = 'Escuchando. La transcripción aparecerá aquí.';
+      transcriptEl.append(empty);
+    }
+  } else {
+    transcriptEl.querySelector('.empty')?.remove();
+    const rows = [...transcriptEl.querySelectorAll('.turn')];
+    parts.forEach((part, index) => {
+      const isYou = part.startsWith('You:');
+      let row = rows[index];
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'turn v-transcript-turn';
+        row.append(document.createElement('span'), document.createElement('div'));
+        transcriptEl.append(row);
+      }
+      row.className = `turn v-transcript-turn ${isYou ? 'you' : 'them'}`;
+      const speaker = row.children[0];
+      speaker.className = 'speaker';
+      speaker.textContent = isYou ? 'You' : 'Them';
+      const bubble = row.children[1];
+      bubble.className = 'bubble';
+      const body = part.replace(/^(You|Them):\s*/, '');
+      if (bubble.textContent !== body) bubble.textContent = body;
+    });
+    rows.slice(parts.length).forEach((node) => node.remove());
   }
-  const parts = text.split(/(?=(?:You|Them): )/).filter(Boolean);
-  transcriptEl.innerHTML = '';
-  for (const part of parts) {
-    const isYou = part.startsWith('You:');
-    const row = document.createElement('div');
-    row.className = `turn ${isYou ? 'you' : 'them'}`;
-    const speaker = document.createElement('span');
-    speaker.className = 'speaker';
-    speaker.textContent = isYou ? 'You' : 'Them';
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = part.replace(/^(You|Them):\s*/, '');
-    row.append(speaker, bubble);
-    transcriptEl.appendChild(row);
+  if (returnLiveBtn) {
+    returnLiveBtn.hidden = follow || !parts.length;
+    returnLiveBtn.textContent = 'Volver al directo';
   }
-  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  if (follow) transcriptEl.scrollTop = transcriptEl.scrollHeight;
   notifyShell();
 }
 
@@ -630,6 +661,20 @@ document.getElementById('btn-permissions-continue').addEventListener('click', ()
     stopPermissionPoll();
     showScreen('listen');
   }
+});
+
+transcriptEl.addEventListener('scroll', () => {
+  stickToLive = scrollFollow({
+    scrollTop: transcriptEl.scrollTop,
+    scrollHeight: transcriptEl.scrollHeight,
+    clientHeight: transcriptEl.clientHeight,
+  }).follow;
+  if (returnLiveBtn) returnLiveBtn.hidden = stickToLive || !transcriptEl.querySelector('.turn');
+});
+returnLiveBtn?.addEventListener('click', () => {
+  stickToLive = true;
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+  returnLiveBtn.hidden = true;
 });
 
 btnListen.addEventListener('click', () => {
