@@ -1,6 +1,6 @@
 # Informe F0 / F0.1
 
-Estado: contrato C04 y cola C05 verificados en `feat/vocify-v1` con tests deterministas. Cierre parcial: `INTELLIGENCE_WORKER_PUBLISH` sigue apagado por decisión (22 sep 2026), así que no se demuestra claim/clasificación en vivo en el arranque del proceso.
+Estado: **cerrada**. Decisión 22 sep 2026 por la noche: el flag se enciende en el entorno local, sin commitear secretos. El código no reclama si el flag o la clave faltan.
 
 ## Entregado
 

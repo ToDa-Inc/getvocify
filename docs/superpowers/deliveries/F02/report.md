@@ -1,6 +1,6 @@
 # Informe F02
 
-Estado: DoD de aceptación cerrado salvo verificación en tres apps en ejecución. Rama `feat/vocify-v1`; esquema aplicado.
+Estado: **cerrada**. Decisión 22 sep 2026: no se exige el mismo flujo a la vez en web, extensión y escritorio.
 
 ## Entregado
 

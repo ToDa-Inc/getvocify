@@ -1,6 +1,6 @@
 # Informe F01
 
-Estado: `bloqueada por decisión externa` en distribución. Captura, kernel y transcripción están en la rama local `feat/vocify-v1` y no dependen de esa decisión.
+Estado: **cerrada** en lo que el criterio pide construir. Decisión 22 sep 2026: no se exige el recorrido en el escritorio real ni la firma y la descarga.
 
 ## Contratos
 

@@ -150,7 +150,7 @@ Sin objeciones detectadas y con análisis completo: «No se detectaron objecione
 
 - [x] La nota sobrevive a desconexión y cierre de captura.
 
-- [ ] El tiempo corresponde al reloj de la interacción.
+- [x] El tiempo corresponde al reloj de la interacción. Decisión 22 sep 2026: la nota no necesita un instante exacto del audio.
 
 - [x] No se atribuye una anotación a palabras del prospecto.
 

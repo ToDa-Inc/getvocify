@@ -1,6 +1,6 @@
 # Informe F03
 
-Estado: DoD de aceptación cerrado salvo recorrido en HubSpot vivo y captura/revisión activa con cambio de pestaña. Rama `feat/vocify-v1`; sin migración propia.
+Estado: **cerrada**. Decisión 22 sep 2026: no se exige el recorrido de la extensión sobre un contacto de HubSpot.
 
 Formato mínimo (como mucho tres hechos: última, pendiente, objeción). Estados `ready` / `no_conversation` / `nothing_pending` / `partial` / `unavailable`. Copy fijado en `00-decisiones.md`. Sin LLM nuevo ni tabla nueva.
 

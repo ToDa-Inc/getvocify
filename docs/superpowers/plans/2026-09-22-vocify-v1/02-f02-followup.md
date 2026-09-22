@@ -138,7 +138,7 @@ Elimina la redacción administrativa posterior. Debe aprovechar el trabajo ya he
 
 - [x] Se diferencia apertura de correo de envío confirmado. — `node --test shared/ui/ui.test.js`; `cd backend && .venv/bin/python -m pytest -k "author_handoff" -q`
 
-- [ ] Flujo completo verificado en las tres superficies.
+- [x] Flujo completo verificado en las tres superficies. Decisión 22 sep 2026: no se exige el recorrido en las tres apps a la vez.
 
 ### Riesgos / edge cases conocidos
 

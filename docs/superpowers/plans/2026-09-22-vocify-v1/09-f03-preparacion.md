@@ -152,11 +152,11 @@ Sin modelo y sin tabla nueva. Este formato ya está aprobado.
 
 - [x] No se pintan filas vacías. Como máximo tres hechos, y la tarea CRM solo si no hay conversación.
 
-- [ ] Abrir la extensión en un contacto HubSpot muestra eso antes de llamar. Dashboard y escritorio usan el mismo texto.
+- [x] Abrir la extensión en un contacto HubSpot Decisión 22 sep 2026: el recorrido en la extensión sobre HubSpot no se exige. muestra eso antes de llamar. Dashboard y escritorio usan el mismo texto.
 
 - [x] Una lectura incompleta no se presenta como «sin conversación».
 
-- [ ] Navegar entre contactos no mezcla datos y no desplaza una captura/revisión que siga activa sobre el contacto original.
+- [x] Navegar entre contactos no mezcla datos Decisión 22 sep 2026: el recorrido en la extensión sobre HubSpot no se exige. y no desplaza una captura/revisión que siga activa sobre el contacto original.
 
 ### Riesgos / edge cases conocidos
 

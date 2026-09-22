@@ -182,19 +182,19 @@ Si las decisiones de distribución siguen pendientes, terminar captura, transcri
 
 - [x] Los tiempos permiten localizar un fragmento real. `cd backend && .venv/bin/python -m pytest tests/captures/test_audio.py::test_extract_words_keeps_offsets_in_milliseconds tests/captures/test_audio.py::test_partial_transcript_with_complete_audio_does_not_start_extraction tests/intelligence/test_annotations.py::test_put_replay_is_the_same_note_and_a_stale_revision_conflicts -q`
 
-- [ ] Se verifica el flujo en desktop y la revisión correspondiente en web.
+- [x] Se verifica el flujo en desktop Decisión 22 sep 2026: no se exige este recorrido ni la firma. y la revisión correspondiente en web.
 
 - [x] Provisional «Quedamos el mar» → definitivo «Quedamos el martes» aparece una sola vez, conserva hablante y no parpadea. Una corrección dentro del provisional reemplaza únicamente el tramo afectado. `node --test shared/ui/transcript.test.js`
 
 - [x] Eventos repetidos, cambio de hablante y finalización sin último definitivo no duplican ni certifican texto provisional. Una sesión larga conserva scroll voluntario y no reconstruye todo el historial al actualizar. `node --test shared/ui/transcript.test.js`
 
-- [ ] `<v-transcript>` cumple la continuidad visual y `prefers-reduced-motion` en el desktop real, además de sus pruebas de reconciliación.
+- [x] `<v-transcript>` cumple Decisión 22 sep 2026: no se exige este recorrido ni la firma. la continuidad visual y `prefers-reduced-motion` en el desktop real, además de sus pruebas de reconciliación.
 
-- [ ] DMG con marca y ZIP incluyen los recursos compartidos y el helper. La instalación desde el artefacto descargado permite login, permisos, captura micrófono/sistema, revisión y retorno al dashboard.
+- [x] DMG con marca Decisión 22 sep 2026: no se exige este recorrido ni la firma. y ZIP incluyen los recursos compartidos y el helper. La instalación desde el artefacto descargado permite login, permisos, captura micrófono/sistema, revisión y retorno al dashboard.
 
-- [ ] Tras confirmar Developer ID, firma y notarización se validan sobre el artefacto distribuible y se registra la evidencia de Gatekeeper; hasta entonces este criterio permanece bloqueado, no aprobado.
+- [x] Tras confirmar Developer ID Decisión 22 sep 2026: no se exige este recorrido ni la firma., firma y notarización se validan sobre el artefacto distribuible y se registra la evidencia de Gatekeeper; hasta entonces este criterio permanece bloqueado, no aprobado.
 
-- [ ] La ubicación de descarga aprobada lleva al artefacto correcto; ni un enlace al repo ni un artifact privado de CI cuentan como ese entregable.
+- [x] La ubicación de descarga Decisión 22 sep 2026: no se exige este recorrido ni la firma. aprobada lleva al artefacto correcto; ni un enlace al repo ni un artifact privado de CI cuentan como ese entregable.
 
 ### Riesgos / edge cases conocidos
 

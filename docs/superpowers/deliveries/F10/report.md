@@ -1,6 +1,6 @@
 # Informe F10
 
-Estado: **BLOCKED** — DoD §151–167 con una casilla abierta (reloj en extensión).
+Estado: **cerrada** — la casilla del reloj de la extensión no se exige. Decisión 22 sep 2026: la nota no necesita un instante exacto del audio.
 
 ## Criterios DoD (plan §149–167)
 
