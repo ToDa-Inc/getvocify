@@ -18,17 +18,8 @@
 }
 
 :root {
-  --beige: hsl(35, 25%, 35%);
-  --beige-light: hsl(35, 20%, 50%);
-  --beige-dark: hsl(35, 30%, 25%);
-  --cream: hsl(40, 33%, 96%);
-  --foreground: hsl(30, 12%, 12%);
-  --muted: hsl(30, 6%, 42%);
-  --border: hsl(38, 16%, 84%);
   --hairline: rgba(71, 67, 42, 0.12);
-  --secondary: hsl(38, 25%, 88%);
   --hover-fill: color-mix(in srgb, var(--beige) 8%, #fff);
-  --success: #346538;
   --radius: 12px;
   --shadow-soft: 0 1px 2px rgba(40, 30, 20, 0.04);
   --shadow-large: 0 16px 40px -22px rgba(40, 30, 20, 0.22);

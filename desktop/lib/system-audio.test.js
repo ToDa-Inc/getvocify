@@ -6,6 +6,7 @@ import {
   feedS16le,
   parsePactlDefaultSink,
   pulseMonitorName,
+  vocifyTapPath,
 } from './system-audio.js';
 
 describe('system-audio (anarlog-style loopback)', () => {
@@ -51,6 +52,24 @@ describe('system-audio (anarlog-style loopback)', () => {
     assert.ok(ffmpeg.args.includes('sink.monitor'));
 
     assert.equal(buildNativeLoopbackPlan({ platform: 'darwin', bins: { pwRecord: '/usr/bin/pw-record' } }), null);
+    const tap = buildNativeLoopbackPlan({
+      platform: 'darwin',
+      bins: { vocifyTap: '/tmp/vocify-tap' },
+    });
+    assert.equal(tap.backend, 'sck');
+    assert.equal(tap.cmd, '/tmp/vocify-tap');
+  });
+
+  it('resolves the packaged ScreenCaptureKit helper on macOS', () => {
+    assert.equal(
+      vocifyTapPath({
+        platform: 'darwin',
+        appRoot: '/app',
+        existsSync: (file) => file === '/app/native/macos-tap/vocify-tap',
+      }),
+      '/app/native/macos-tap/vocify-tap',
+    );
+    assert.equal(vocifyTapPath({ platform: 'linux', appRoot: '/app', existsSync: () => true }), null);
   });
 
   it('emits even s16le frames and keeps a leftover odd byte', () => {
@@ -66,5 +85,6 @@ describe('system-audio (anarlog-style loopback)', () => {
   it('labels backends for the listen status line', () => {
     assert.match(backendLabel('pipewire'), /PipeWire/i);
     assert.match(backendLabel('chromium'), /Chromium/i);
+    assert.match(backendLabel('sck'), /ScreenCaptureKit/i);
   });
 });

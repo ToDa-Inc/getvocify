@@ -15,14 +15,16 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureRuntimeDir, linuxChromiumSwitches, sanitizeSessionBusAddress } from './lib/launch.js';
+import { feedS16le, resolveNativeLoopbackPlan, vocifyTapPath } from './lib/system-audio.js';
+import { isAllowedApiBase, proxyJsonRequest } from './lib/saas.js';
 import {
   dashboardMemosUrl,
   overlayBounds,
   shouldQuitOnLastWindow,
   trayMenuTemplate,
+  WINDOW_SIZE,
 } from './lib/shell.js';
-import { feedS16le, resolveNativeLoopbackPlan } from './lib/system-audio.js';
-import { isAllowedApiBase, proxyJsonRequest } from './lib/saas.js';
+import { normalizeAccessStatus, PERMISSION, settingsDeepLinks } from './lib/permissions.js';
 import { createCompanionServer, listenLocal } from './server.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -92,8 +94,8 @@ function revealWindow(win) {
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 420,
-    height: 780,
+    width: WINDOW_SIZE.compact.width,
+    height: WINDOW_SIZE.compact.height,
     minWidth: 380,
     minHeight: 640,
     backgroundColor: '#f7f4ee',
@@ -209,7 +211,12 @@ function createTray() {
 
 ipcMain.handle('system-audio:start', async () => {
   stopNativeCapture();
-  const plan = resolveNativeLoopbackPlan();
+  const tap = vocifyTapPath({
+    platform: process.platform,
+    appRoot: __dirname,
+    resourcesPath: process.resourcesPath,
+  });
+  const plan = resolveNativeLoopbackPlan({ vocifyTap: tap });
   if (!plan) return { ok: false, reason: 'unavailable' };
   try {
     const child = spawn(plan.cmd, plan.args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -252,6 +259,57 @@ ipcMain.handle('system-audio:start', async () => {
 ipcMain.handle('system-audio:stop', () => {
   stopNativeCapture();
   return { ok: true };
+});
+
+ipcMain.handle('shell:resize', (_event, size) => {
+  const next = size === 'review' ? WINDOW_SIZE.review : WINDOW_SIZE.compact;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setSize(next.width, next.height, true);
+  }
+  return { ok: true, ...next };
+});
+
+function permissionSnapshot() {
+  if (process.platform !== 'darwin' || !systemPreferences.getMediaAccessStatus) {
+    return { platform: process.platform, microphone: 'authorized', systemAudio: 'authorized' };
+  }
+  return {
+    platform: 'darwin',
+    microphone: normalizeAccessStatus(systemPreferences.getMediaAccessStatus('microphone')),
+    systemAudio: normalizeAccessStatus(systemPreferences.getMediaAccessStatus('screen')),
+  };
+}
+
+ipcMain.handle('permissions:status', () => permissionSnapshot());
+
+ipcMain.handle('permissions:request', async (_event, type) => {
+  if (process.platform === 'darwin' && type === PERMISSION.microphone && systemPreferences.askForMediaAccess) {
+    try {
+      await systemPreferences.askForMediaAccess('microphone');
+    } catch {
+      /* user can retry */
+    }
+  }
+  if (process.platform === 'darwin' && type === PERMISSION.systemAudio) {
+    try {
+      await desktopCapturer.getSources({ types: ['screen'] });
+    } catch {
+      /* TCC prompt or already denied */
+    }
+  }
+  return permissionSnapshot();
+});
+
+ipcMain.handle('permissions:open', async (_event, type) => {
+  for (const url of settingsDeepLinks(type === PERMISSION.microphone ? PERMISSION.microphone : PERMISSION.systemAudio)) {
+    try {
+      await shell.openExternal(url);
+      break;
+    } catch {
+      /* try the older Settings URL */
+    }
+  }
+  return permissionSnapshot();
 });
 
 ipcMain.on('shell:state', (_event, state) => {
@@ -321,14 +379,6 @@ app.whenReady().then(async () => {
       })
       .catch(() => callback({}));
   });
-
-  if (process.platform === 'darwin' && systemPreferences.askForMediaAccess) {
-    try {
-      await systemPreferences.askForMediaAccess('microphone');
-    } catch {
-      /* user can retry from Listen */
-    }
-  }
 
   const server = createCompanionServer();
   rendererUrl = await listenLocal(server);

@@ -1,6 +1,13 @@
-export function canStartListen({ hasToken = false, isListening = false } = {}) {
+export function canStartListen({
+  hasToken = false,
+  isListening = false,
+  permissionGate = null,
+} = {}) {
   if (isListening) return { ok: false, reason: 'already_listening' };
   if (!hasToken) return { ok: false, reason: 'login_required' };
+  if (permissionGate && permissionGate.ok === false) {
+    return { ok: false, reason: permissionGate.reason };
+  }
   return { ok: true };
 }
 

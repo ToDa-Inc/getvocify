@@ -2,6 +2,11 @@ export const OVERLAY_WIDTH = 380;
 export const OVERLAY_HEIGHT = 96;
 export const OVERLAY_MARGIN = 16;
 
+export const WINDOW_SIZE = {
+  compact: { width: 440, height: 780 },
+  review: { width: 920, height: 780 },
+};
+
 export function overlayBounds({ workArea } = {}) {
   const area = workArea || { x: 0, y: 0, width: 1440, height: 900 };
   return {
@@ -17,7 +22,7 @@ export function trayMenuTemplate({ loggedIn = false, listening = false } = {}) {
     { id: 'show', label: 'Open Vocify' },
     { type: 'separator' },
     { id: 'listen', label: 'Listen', enabled: Boolean(loggedIn) && !listening },
-    { id: 'stop', label: 'Stop & send', enabled: Boolean(listening) },
+    { id: 'stop', label: 'Stop & review', enabled: Boolean(listening) },
     { type: 'separator' },
     { id: 'dashboard', label: 'Open dashboard' },
     { type: 'separator' },

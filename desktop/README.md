@@ -11,7 +11,7 @@ npm install
 npm start
 ```
 
-A window and a menu-bar icon should appear. Log in with the same Vocify account as [app.getvocify.com](https://app.getvocify.com).
+A window and a menu-bar icon should appear. Log in with the same Vocify account as [app.getvocify.com](https://app.getvocify.com). On Mac, grant **Microphone** and **Screen & System Audio Recording** (that last one is how macOS lets the app hear Zoom/Meet/Teams — it does not capture your screen).
 
 ## Logs (login / SaaS)
 
@@ -30,4 +30,4 @@ npm run dist:mac
 open dist/Vocify-Companion-0.2.0.dmg
 ```
 
-Or GitHub → Actions → **Mac DMG** → download the artifact. Unsigned: **Right-click → Open**. Grant Microphone + Screen Recording.
+Or GitHub → Actions → **Mac DMG** → download the artifact. Unsigned: **Right-click → Open**. Grant Microphone + Screen & System Audio Recording (audio only; the screen is not captured).

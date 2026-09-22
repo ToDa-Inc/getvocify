@@ -14,8 +14,14 @@ contextBridge.exposeInMainWorld('vocifyDesktop', {
       return () => ipcRenderer.removeListener('system-audio:pcm', handler);
     },
   },
+  permissions: {
+    status: () => ipcRenderer.invoke('permissions:status'),
+    request: (type) => ipcRenderer.invoke('permissions:request', type),
+    open: (type) => ipcRenderer.invoke('permissions:open', type),
+  },
   shell: {
     setState: (state) => ipcRenderer.send('shell:state', state),
+    resize: (size) => ipcRenderer.invoke('shell:resize', size),
     showOverlay: () => ipcRenderer.invoke('overlay:show'),
     hideOverlay: () => ipcRenderer.invoke('overlay:hide'),
     openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),

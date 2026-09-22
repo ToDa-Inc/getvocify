@@ -6,6 +6,7 @@ import {
   overlaySnippet,
   shouldQuitOnLastWindow,
   trayMenuTemplate,
+  WINDOW_SIZE,
 } from './shell.js';
 
 describe('desktop shell', () => {
@@ -14,6 +15,10 @@ describe('desktop shell', () => {
     assert.equal(bounds.width, 380);
     assert.ok(bounds.x > 1000);
     assert.equal(bounds.y, 41);
+  });
+
+  it('widens the window for CRM review', () => {
+    assert.ok(WINDOW_SIZE.review.width > WINDOW_SIZE.compact.width);
   });
 
   it('shows Listen when idle and Stop when live', () => {

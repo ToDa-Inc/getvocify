@@ -4,6 +4,21 @@ import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../lib/listen-policy.js';
 import { dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { humanizeSaasError } from '../lib/saas.js';
+import { listenPermissionGate, permissionAction, permissionCopy, PERMISSION } from '../lib/permissions.js';
+import { pickMicConstraints } from '../lib/mic-devices.js';
+import {
+  buildApproveExtraction,
+  canEditOrRemoveProposedField,
+  omittedKeysFrom,
+  proposedFieldKey,
+} from '../lib/extraction-omit.js';
+import {
+  approvePayload,
+  notesFromPreview,
+  pickDeal,
+  reviewFields,
+  waitForReview,
+} from '../lib/memo-review.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
 const STORAGE = {
@@ -14,9 +29,12 @@ const STORAGE = {
 };
 
 const loginPanel = document.getElementById('login-panel');
+const permissionsPanel = document.getElementById('permissions-panel');
 const listenPanel = document.getElementById('listen-panel');
+const reviewPanel = document.getElementById('review-panel');
 const loginError = document.getElementById('login-error');
 const listenError = document.getElementById('listen-error');
+const reviewError = document.getElementById('review-error');
 const statusEl = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
 const btnListen = document.getElementById('btn-listen');
@@ -26,6 +44,10 @@ const liveLabel = document.getElementById('live-label');
 const timerEl = document.getElementById('timer');
 const backendChip = document.getElementById('backend-chip');
 const sessionChip = document.getElementById('session-chip');
+
+function desktop() {
+  return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
+}
 
 let listening = false;
 let currentBackend = 'chromium';
@@ -37,10 +59,9 @@ let nativePcmUnsub = null;
 let transcriptState = { finalTranscript: '', interimTranscript: '' };
 let startedAt = 0;
 let timerTick = null;
-
-function desktop() {
-  return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
-}
+let permissionPoll = null;
+let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
+let reviewContext = null;
 
 function apiBase() {
   return (localStorage.getItem(STORAGE.api) || document.getElementById('api-base').value || PROD_API)
@@ -93,10 +114,77 @@ function setLiveUi(on) {
   }
 }
 
-function setLoggedIn(on) {
-  loginPanel.hidden = on;
-  listenPanel.hidden = !on;
+function showScreen(name) {
+  loginPanel.hidden = name !== 'login';
+  permissionsPanel.hidden = name !== 'permissions';
+  listenPanel.hidden = name !== 'listen';
+  reviewPanel.hidden = name !== 'review';
+  desktop()?.shell?.resize(name === 'review' ? 'review' : 'compact');
   notifyShell();
+}
+
+function permissionGate() {
+  return listenPermissionGate({
+    platform: permissionState.platform || desktop()?.platform,
+    microphone: permissionState.microphone,
+    systemAudio: permissionState.systemAudio,
+  });
+}
+
+function paintPermissionRow(row, type, status) {
+  const copy = permissionCopy(type);
+  const on = status === 'authorized';
+  row.classList.toggle('is-on', on);
+  row.querySelector('[data-title]').textContent = on ? copy.enabledLabel : copy.enableLabel;
+  row.querySelector('[data-body]').textContent = on ? copy.enabledBody : copy.enableBody;
+  const btn = row.querySelector('[data-action]');
+  btn.hidden = on;
+  btn.textContent = permissionAction(status) === 'open_settings' ? 'Open Settings' : 'Enable';
+}
+
+async function refreshPermissions() {
+  const api = desktop()?.permissions;
+  if (!api?.status) {
+    permissionState = { platform: desktop()?.platform, microphone: 'authorized', systemAudio: 'authorized' };
+    return permissionState;
+  }
+  permissionState = await api.status();
+  paintPermissionRow(document.getElementById('perm-mic'), PERMISSION.microphone, permissionState.microphone);
+  paintPermissionRow(document.getElementById('perm-audio'), PERMISSION.systemAudio, permissionState.systemAudio);
+  document.getElementById('btn-permissions-continue').disabled = !permissionGate().ok;
+  return permissionState;
+}
+
+function startPermissionPoll() {
+  stopPermissionPoll();
+  permissionPoll = setInterval(() => {
+    refreshPermissions().catch(() => {});
+  }, 1000);
+}
+
+function stopPermissionPoll() {
+  if (permissionPoll) clearInterval(permissionPoll);
+  permissionPoll = null;
+}
+
+async function enterApp() {
+  await refreshPermissions();
+  if (!permissionGate().ok) {
+    showScreen('permissions');
+    startPermissionPoll();
+    return;
+  }
+  stopPermissionPoll();
+  showScreen('listen');
+}
+
+async function handlePermissionClick(type) {
+  const api = desktop()?.permissions;
+  if (!api) return;
+  const status = type === PERMISSION.microphone ? permissionState.microphone : permissionState.systemAudio;
+  if (permissionAction(status) === 'open_settings') await api.open(type);
+  else await api.request(type);
+  await refreshPermissions();
 }
 
 async function request(path, { method = 'GET', body, token } = {}) {
@@ -209,12 +297,18 @@ function stopCapture() {
 }
 
 async function startListen() {
+  await refreshPermissions();
   const gate = canStartListen({
     hasToken: Boolean(localStorage.getItem(STORAGE.token)),
     isListening: listening,
+    permissionGate: permissionGate(),
   });
   if (!gate.ok) {
-    showError(listenError, startDeniedMessage(gate.reason));
+    if (gate.reason === 'no_mic' || gate.reason === 'no_system_audio') {
+      showScreen('permissions');
+      startPermissionPoll();
+    }
+    showError(listenError, startDeniedMessage(gate.reason, { platform: desktop()?.platform }));
     return;
   }
   showError(listenError, '');
@@ -223,7 +317,8 @@ async function startListen() {
   let system;
   let nativeBackend = null;
   try {
-    mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    mic = await navigator.mediaDevices.getUserMedia(pickMicConstraints(devices));
   } catch {
     showError(listenError, startDeniedMessage('no_mic', { platform }));
     return;
@@ -266,8 +361,7 @@ async function startListen() {
   btnStop.disabled = false;
   setLiveUi(true);
   backendChip.textContent = backendLabel(currentBackend);
-  const via = backendLabel(currentBackend);
-  statusEl.textContent = `Hearing the meeting via ${via}. Overlay stays on top.`;
+  statusEl.textContent = `Hearing the meeting via ${backendLabel(currentBackend)}. Overlay stays on top.`;
   desktop()?.shell?.showOverlay();
   notifyShell();
 
@@ -306,6 +400,131 @@ async function startListen() {
   }
 }
 
+function renderReview() {
+  const ctx = reviewContext;
+  if (!ctx) return;
+  const summaryEl = document.getElementById('review-summary');
+  const nextEl = document.getElementById('review-next');
+  if (summaryEl.value) ctx.summary = summaryEl.value;
+  if (nextEl.value) ctx.nextSteps = nextEl.value.split('\n').map((line) => line.trim()).filter(Boolean);
+  const notes = notesFromPreview(ctx.preview, ctx.memo?.extraction);
+  summaryEl.value = ctx.summary ?? notes.summary;
+  nextEl.value = (ctx.nextSteps || notes.nextSteps).join('\n');
+  const dealEl = document.getElementById('review-deal');
+  const dealsEl = document.getElementById('review-deals');
+  if (ctx.deal.needsDecision) {
+    dealEl.textContent = 'Pick the HubSpot deal for this call.';
+    dealsEl.hidden = false;
+    dealsEl.innerHTML = '';
+    for (const match of ctx.deal.matches || []) {
+      const label = document.createElement('label');
+      label.className = 'deal-option';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'review-deal';
+      radio.value = match.deal_id;
+      radio.checked = ctx.dealId === match.deal_id;
+      radio.addEventListener('change', () => {
+        ctx.dealId = match.deal_id;
+        ctx.isNewDeal = false;
+      });
+      const text = document.createElement('span');
+      text.textContent = `${match.deal_name || match.deal_id} (${Math.round((match.match_confidence || 0) * 100)}%)`;
+      label.append(text, radio);
+      dealsEl.appendChild(label);
+    }
+    const create = document.createElement('label');
+    create.className = 'deal-option';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'review-deal';
+    radio.value = '';
+    radio.addEventListener('change', () => {
+      ctx.dealId = null;
+      ctx.isNewDeal = true;
+    });
+    const text = document.createElement('span');
+    text.textContent = 'Create a new deal';
+    create.append(text, radio);
+    dealsEl.appendChild(create);
+  } else {
+    dealsEl.hidden = true;
+    dealEl.textContent = ctx.deal.selected
+      ? `Matched: ${ctx.deal.selected.deal_name || ctx.deal.selected.deal_id}`
+      : 'No confident deal match — Approve can still update the contact.';
+  }
+
+  const fieldsEl = document.getElementById('review-fields');
+  fieldsEl.innerHTML = '';
+  for (const row of ctx.updates) {
+    const wrap = document.createElement('div');
+    wrap.className = 'field-row';
+    const block = document.createElement('label');
+    block.textContent = row.field_label || row.field_name;
+    const input = document.createElement('input');
+    input.value = row.new_value ?? '';
+    input.addEventListener('input', () => {
+      row.new_value = input.value;
+    });
+    block.appendChild(input);
+    wrap.appendChild(block);
+    if (canEditOrRemoveProposedField(row)) {
+      const omit = document.createElement('button');
+      omit.type = 'button';
+      omit.className = 'ghost omit';
+      omit.textContent = 'Omit';
+      omit.addEventListener('click', () => {
+        const key = proposedFieldKey(row);
+        if (key) ctx.omittedKeys.push(key);
+        ctx.updates = ctx.updates.filter((item) => item !== row);
+        renderReview();
+      });
+      wrap.appendChild(omit);
+    }
+    fieldsEl.appendChild(wrap);
+  }
+  if (!ctx.updates.length) {
+    fieldsEl.innerHTML = '<p class="muted">No field updates extracted.</p>';
+  }
+}
+
+async function openReview(memoId) {
+  showScreen('review');
+  document.getElementById('review-status').textContent = 'Extracting CRM fields…';
+  showError(reviewError, '');
+  const token = localStorage.getItem(STORAGE.token);
+  const waited = await waitForReview(() => request(`/memos/${memoId}`, { token }));
+  if (!waited.ok) {
+    document.getElementById('review-status').textContent = '';
+    showError(reviewError, waited.error || 'Extraction failed');
+    return;
+  }
+  const memo = waited.memo;
+  let preview = {};
+  try {
+    preview = await request(`/memos/${memoId}/preview`, { token });
+  } catch (err) {
+    showError(reviewError, err.message || 'Preview failed');
+  }
+  const deal = pickDeal(preview.matched_deals || preview.matches || []);
+  const notes = notesFromPreview(preview, memo.extraction);
+  reviewContext = {
+    memoId,
+    memo,
+    preview,
+    deal,
+    dealId: deal.dealId,
+    isNewDeal: false,
+    originalUpdates: reviewFields(preview),
+    updates: reviewFields(preview).map((row) => ({ ...row })),
+    omittedKeys: [],
+    summary: notes.summary,
+    nextSteps: notes.nextSteps,
+  };
+  document.getElementById('review-status').textContent = 'Review notes and fields, then approve.';
+  renderReview();
+}
+
 async function stopAndSend() {
   const transcript = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
   stopCapture();
@@ -316,14 +535,58 @@ async function stopAndSend() {
   }
   try {
     const token = localStorage.getItem(STORAGE.token);
-    await request('/memos/upload-transcript', {
+    const uploaded = await request('/memos/upload-and-extract', {
       method: 'POST',
       token,
       body: { transcript, source_type: 'meeting_transcript' },
     });
-    statusEl.textContent = 'Sent to Vocify. Open the dashboard to review speakers and CRM fields.';
+    statusEl.textContent = 'Sent to Vocify.';
+    await openReview(uploaded.id);
   } catch (err) {
     showError(listenError, err.message || 'Upload failed');
+  }
+}
+
+async function approveReview() {
+  if (!reviewContext) return;
+  showError(reviewError, '');
+  const summary = document.getElementById('review-summary').value;
+  const nextSteps = document.getElementById('review-next').value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const omitted = [
+    ...reviewContext.omittedKeys,
+    ...omittedKeysFrom(reviewContext.originalUpdates, reviewContext.updates),
+  ];
+  const extraction = buildApproveExtraction({
+    memoExtraction: reviewContext.memo?.extraction || {},
+    updates: reviewContext.updates,
+    omittedKeys: omitted,
+    summary,
+    nextSteps,
+  });
+  const token = localStorage.getItem(STORAGE.token);
+  const contact = reviewContext.preview?.selected_contact;
+  try {
+    document.getElementById('btn-approve').disabled = true;
+    await request(`/memos/${reviewContext.memoId}/approve`, {
+      method: 'POST',
+      token,
+      body: approvePayload({
+        dealId: reviewContext.dealId,
+        isNewDeal: reviewContext.isNewDeal,
+        extraction,
+        contactId: contact?.contact_id,
+        companyId: contact?.company_id,
+        skipDeal: Boolean(reviewContext.preview?.skip_deal) && !reviewContext.dealId && !reviewContext.isNewDeal,
+      }),
+    });
+    document.getElementById('review-status').textContent = 'CRM updated.';
+  } catch (err) {
+    showError(reviewError, err.message || 'Approve failed');
+  } finally {
+    document.getElementById('btn-approve').disabled = false;
   }
 }
 
@@ -338,7 +601,7 @@ document.getElementById('btn-login').addEventListener('click', async () => {
     localStorage.setItem(STORAGE.token, data.access_token);
     if (data.refresh_token) localStorage.setItem(STORAGE.refresh, data.refresh_token);
     localStorage.setItem(STORAGE.email, email);
-    setLoggedIn(true);
+    await enterApp();
   } catch (err) {
     showError(loginError, err.message || 'Login failed');
   }
@@ -346,13 +609,27 @@ document.getElementById('btn-login').addEventListener('click', async () => {
 
 document.getElementById('btn-logout').addEventListener('click', () => {
   stopCapture();
+  stopPermissionPoll();
   localStorage.removeItem(STORAGE.token);
   localStorage.removeItem(STORAGE.refresh);
-  setLoggedIn(false);
+  showScreen('login');
 });
 
 document.getElementById('btn-dashboard').addEventListener('click', () => {
   desktop()?.shell?.openExternal(dashboardMemosUrl(apiBase()));
+});
+
+document.getElementById('perm-mic').querySelector('[data-action]').addEventListener('click', () => {
+  handlePermissionClick(PERMISSION.microphone).catch(() => {});
+});
+document.getElementById('perm-audio').querySelector('[data-action]').addEventListener('click', () => {
+  handlePermissionClick(PERMISSION.systemAudio).catch(() => {});
+});
+document.getElementById('btn-permissions-continue').addEventListener('click', () => {
+  if (permissionGate().ok) {
+    stopPermissionPoll();
+    showScreen('listen');
+  }
 });
 
 btnListen.addEventListener('click', () => {
@@ -360,6 +637,12 @@ btnListen.addEventListener('click', () => {
 });
 btnStop.addEventListener('click', () => {
   stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
+});
+document.getElementById('btn-approve').addEventListener('click', () => {
+  approveReview().catch((err) => showError(reviewError, err.message || 'Approve failed'));
+});
+document.getElementById('btn-review-back').addEventListener('click', () => {
+  showScreen('listen');
 });
 
 desktop()?.shell?.onCommand((command) => {
@@ -369,4 +652,5 @@ desktop()?.shell?.onCommand((command) => {
 
 document.getElementById('api-base').value = localStorage.getItem(STORAGE.api) || PROD_API;
 document.getElementById('email').value = localStorage.getItem(STORAGE.email) || '';
-setLoggedIn(Boolean(localStorage.getItem(STORAGE.token)));
+if (localStorage.getItem(STORAGE.token)) enterApp();
+else showScreen('login');

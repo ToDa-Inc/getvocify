@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vocify Companion</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" />
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./theme.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body class="paper-app">
@@ -22,10 +24,10 @@
         <span id="session-chip" class="chip" hidden></span>
       </header>
 
-      <section id="login-panel" class="card glass">
+      <section id="login-panel" class="card paper">
         <p class="caps">Same account as the dashboard</p>
         <h1>Sign in to <span class="accent">listen</span></h1>
-        <p class="lede">System audio is the prospect. Your mic is You. Stop sends a memo into Vocify review.</p>
+        <p class="lede">System audio is the prospect. Your mic is You. After the call, review notes and CRM fields here.</p>
         <label>Email <input id="email" type="email" autocomplete="username" /></label>
         <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
         <details class="advanced">
@@ -34,6 +36,30 @@
         </details>
         <button id="btn-login" class="primary" type="button">Log in</button>
         <p id="login-error" class="error" hidden></p>
+      </section>
+
+      <section id="permissions-panel" hidden>
+        <div class="card paper">
+          <p class="caps">macOS permissions</p>
+          <h1>Hear the call, not the <span class="accent">screen</span></h1>
+          <p class="lede">Grant microphone and system audio. Screen &amp; System Audio Recording is required so Vocify can hear Zoom, Meet, and Teams. Your screen is not captured.</p>
+          <div id="perm-mic" class="perm-row">
+            <div>
+              <p class="perm-title" data-title>Enable microphone</p>
+              <p class="muted" data-body>Vocify records your voice as You.</p>
+            </div>
+            <button type="button" class="ghost" data-action>Enable</button>
+          </div>
+          <div id="perm-audio" class="perm-row">
+            <div>
+              <p class="perm-title" data-title>Enable system audio</p>
+              <p class="muted" data-body>Hears meeting playback as Them.</p>
+            </div>
+            <button type="button" class="ghost" data-action>Enable</button>
+          </div>
+          <p class="muted perm-hint">If the prompt does not appear, open System Settings → Privacy &amp; Security, enable Vocify, then return here.</p>
+          <button id="btn-permissions-continue" class="primary" type="button" disabled>Continue</button>
+        </div>
       </section>
 
       <section id="listen-panel" hidden>
@@ -49,7 +75,7 @@
           <p id="status" class="lede">Start Zoom, Meet, or Teams. Companion hears the meeting as Them.</p>
         </div>
 
-        <div class="card transcript-card">
+        <div class="card paper transcript-card">
           <div class="who">
             <span>You</span>
             <span class="dot"></span>
@@ -62,13 +88,35 @@
 
         <div class="actions">
           <button id="btn-listen" class="primary" type="button">Listen</button>
-          <button id="btn-stop" class="danger" type="button" disabled>Stop &amp; send</button>
+          <button id="btn-stop" class="danger" type="button" disabled>Stop &amp; review</button>
         </div>
         <div class="actions secondary-actions">
           <button id="btn-dashboard" class="ghost" type="button">Open dashboard</button>
           <button id="btn-logout" class="ghost" type="button">Log out</button>
         </div>
         <p id="listen-error" class="error" hidden></p>
+      </section>
+
+      <section id="review-panel" hidden>
+        <div class="review-grid">
+          <div class="card paper">
+            <p class="caps">Call notes</p>
+            <label>Summary <textarea id="review-summary" rows="8"></textarea></label>
+            <label>Next steps <textarea id="review-next" rows="4" placeholder="One per line"></textarea></label>
+          </div>
+          <div class="card paper">
+            <p class="caps">CRM fields</p>
+            <p id="review-deal" class="muted"></p>
+            <div id="review-deals" class="deal-list" hidden></div>
+            <div id="review-fields" class="field-list"></div>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="btn-approve" class="primary" type="button">Approve to CRM</button>
+          <button id="btn-review-back" class="ghost" type="button">Back to listen</button>
+        </div>
+        <p id="review-status" class="lede"></p>
+        <p id="review-error" class="error" hidden></p>
       </section>
     </div>
     <script type="module" src="./app.js"></script>

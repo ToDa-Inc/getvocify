@@ -1,7 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { backendLabel } from './capture-labels.js';
+import { TAP_DEVICE_NAME } from './mic-devices.js';
 
-export { backendLabel };
+export { backendLabel, TAP_DEVICE_NAME };
 
 export function pulseMonitorName(sink) {
   const name = typeof sink === 'string' ? sink.trim() : '';
@@ -35,15 +38,38 @@ export function defaultPulseSink({ spawnSyncFn = spawnSync } = {}) {
 }
 
 /**
- * Linux system-audio capture the way Anarlog does it:
- * PipeWire stream.capture.sink, then PulseAudio <default-sink>.monitor.
+ * Linux: Anarlog-style PipeWire stream.capture.sink, then Pulse monitor.
+ * macOS: ScreenCaptureKit helper (vocify-tap) when present; else Chromium loopback.
  * https://github.com/fastrepl/anarlog
  */
+export function vocifyTapPath({
+  platform = process.platform,
+  appRoot = '',
+  resourcesPath = '',
+  existsSync = (file) => fs.existsSync(file),
+} = {}) {
+  if (platform !== 'darwin') return null;
+  const candidates = [
+    resourcesPath ? path.join(resourcesPath, 'vocify-tap') : '',
+    appRoot ? path.join(appRoot, 'native', 'macos-tap', 'vocify-tap') : '',
+  ].filter(Boolean);
+  return candidates.find((file) => existsSync(file)) || null;
+}
+
 export function buildNativeLoopbackPlan({
   platform = process.platform,
   bins = {},
   defaultSink = null,
 } = {}) {
+  if (platform === 'darwin' && bins.vocifyTap) {
+    return {
+      backend: 'sck',
+      cmd: bins.vocifyTap,
+      args: [],
+      sampleRate: 16000,
+    };
+  }
+
   if (platform !== 'linux') return null;
 
   if (bins.pwRecord) {
@@ -109,11 +135,13 @@ export function resolveNativeLoopbackPlan({
   platform = process.platform,
   spawnSyncFn = spawnSync,
   defaultSink,
+  vocifyTap = null,
 } = {}) {
   const bins = {
     pwRecord: whichBin('pw-record', { spawnSyncFn }),
     parec: whichBin('parec', { spawnSyncFn }),
     ffmpeg: whichBin('ffmpeg', { spawnSyncFn }),
+    vocifyTap,
   };
   const sink = defaultSink === undefined ? defaultPulseSink({ spawnSyncFn }) : defaultSink;
   return buildNativeLoopbackPlan({ platform, bins, defaultSink: sink });

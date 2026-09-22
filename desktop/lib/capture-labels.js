@@ -8,6 +8,8 @@ export function backendLabel(backend) {
       return 'FFmpeg Pulse monitor';
     case 'chromium':
       return 'Chromium loopback';
+    case 'sck':
+      return 'ScreenCaptureKit';
     default:
       return 'system audio';
   }

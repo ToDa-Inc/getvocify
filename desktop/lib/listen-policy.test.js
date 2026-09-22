@@ -7,6 +7,13 @@ describe('listen-policy', () => {
     assert.equal(canStartListen({ hasToken: false }).ok, false);
     assert.equal(canStartListen({ hasToken: true, isListening: true }).reason, 'already_listening');
     assert.equal(canStartListen({ hasToken: true }).ok, true);
+    assert.equal(
+      canStartListen({
+        hasToken: true,
+        permissionGate: { ok: false, reason: 'no_system_audio' },
+      }).reason,
+      'no_system_audio',
+    );
     assert.match(startDeniedMessage('no_system_audio'), /system audio/i);
     assert.match(startDeniedMessage('no_system_audio', { platform: 'linux' }), /PipeWire|PulseAudio/i);
   });
