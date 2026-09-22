@@ -138,6 +138,43 @@ def claim_daily_run_statement(company_id: str, local_date) -> str:
     )
 
 
+def claim_if_due(now: datetime, tz_name: str | None, company_id: str, *, hour: int = 8) -> str | None:
+    """SQL to claim today's run after the local hour, or None while the day is still closed."""
+    tz = tz_name or "Europe/Madrid"
+    if not daily_run_due(now, tz, hour):
+        return None
+    return claim_daily_run_statement(company_id, company_local_date(now, tz))
+
+
+def attempt_daily_run_claim(
+    supabase,
+    company_id: str,
+    now: datetime,
+    tz_name: str | None,
+    *,
+    hour: int = 8,
+) -> None:
+    """Best-effort claim on GET /today. Fake Supabase clients without upsert are skipped."""
+    if claim_if_due(now, tz_name, company_id, hour=hour) is None:
+        return
+    table_fn = getattr(supabase, "table", None)
+    if table_fn is None:
+        return
+    table = table_fn("hoy_daily_runs")
+    upsert = getattr(table, "upsert", None)
+    if upsert is None:
+        return
+    local_date = company_local_date(now, tz_name or "Europe/Madrid")
+    try:
+        upsert(
+            {"company_id": company_id, "local_date": local_date.isoformat(), "status": "started"},
+            on_conflict="company_id,local_date",
+            ignore_duplicates=True,
+        ).execute()
+    except Exception:
+        return
+
+
 def attach_manual(signals: list[Signal], tasks: list[dict]) -> tuple[list[Signal], list[dict]]:
     """Link only when the task names the signal. The same title is not a match."""
     by_key = {signal.dedupe_key: signal for signal in signals}

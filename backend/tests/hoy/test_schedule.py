@@ -28,6 +28,7 @@ from app.services.hoy.scheduler import (
     attach_manual,
     build_today_view,
     claim_daily_run_statement,
+    claim_if_due,
     collect_open_tasks,
     company_local_date,
     daily_run_due,
@@ -67,6 +68,22 @@ def test_the_daily_run_starts_at_the_configured_local_hour():
         {"company_id": "22222222-2222-2222-2222-222222222222", "timezone": "Europe/Madrid", "hoy_hour": 9},
     ]
     assert due_company_ids(at_eight, companies) == [COMPANY]
+
+
+def test_claim_if_due_waits_until_eight_madrid_and_repeats_the_same_statement():
+    before_eight_madrid = datetime(2026, 9, 22, 5, 59, tzinfo=timezone.utc)
+    at_eight_madrid = datetime(2026, 9, 22, 6, 0, tzinfo=timezone.utc)
+    assert claim_if_due(before_eight_madrid, "Europe/Madrid", COMPANY) is None
+    first = claim_if_due(at_eight_madrid, "Europe/Madrid", COMPANY)
+    local_date = company_local_date(at_eight_madrid, "Europe/Madrid")
+    assert first is not None
+    assert COMPANY in first
+    assert local_date.isoformat() in first
+    assert "ON CONFLICT DO NOTHING" in first
+    second = claim_if_due(at_eight_madrid, "Europe/Madrid", COMPANY)
+    assert second == first
+    assert second == claim_daily_run_statement(COMPANY, local_date)
+    assert claim_if_due(at_eight_madrid, None, COMPANY) == first
 
 
 def test_an_open_crm_task_is_read_and_a_finished_one_is_not():
