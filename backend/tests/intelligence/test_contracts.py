@@ -57,6 +57,21 @@ def test_quote_missing_from_the_source_is_not_evidence():
     assert quote_is_in_source(evidence, {"memo-1": "El seguimiento nos ocupa tres horas al día."}) is True
 
 
+def test_unavailable_intelligence_does_not_strip_existing_extraction_fields():
+    memo = MemoExtraction.model_validate(
+        {
+            "summary": "Quiere propuesta",
+            "nextSteps": ["Enviar deck"],
+            "objections": ["Está caro"],
+            "intelligence": {**PARTIAL, "status": "unavailable"},
+        }
+    )
+    assert memo.summary == "Quiere propuesta"
+    assert memo.nextSteps == ["Enviar deck"]
+    assert memo.objections == ["Está caro"]
+    assert memo.intelligence.status == "unavailable"
+
+
 def test_identical_words_keep_human_note_and_prospect_apart():
     quote = "Ahora conduzco"
     prospect = EvidenceRef(

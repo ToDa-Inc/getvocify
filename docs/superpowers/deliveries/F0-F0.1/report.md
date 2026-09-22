@@ -1,6 +1,6 @@
 # Informe F0 / F0.1
 
-Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: `INTELLIGENCE_WORKER_PUBLISH` sigue apagado, así que el arranque no llama a `claim_memo_job`. Con el flag y `OPENROUTER_API_KEY`, la pasada clasifica con Jev, escribe `extraction.intelligence` y publica en el mismo tick. Sin clave no reclama. Un fallo al escribir no publica. La inteligencia guardada no cambia la revisión.
+Estado: contrato C04 y cola C05 verificados en `feat/vocify-v1` con tests deterministas. Cierre parcial: `INTELLIGENCE_WORKER_PUBLISH` sigue apagado por decisión (22 sep 2026), así que no se demuestra claim/clasificación en vivo en el arranque del proceso.
 
 ## Entregado
 
@@ -15,7 +15,12 @@ Estado: contrato C04 y cola C05 empezados en `feat/vocify-v1`. No cerrado: `INTE
 | Silencio de Jev sigue en unknown y la cita tardía entra en el estado; sin clave el tick no reclama | `e87aa05` | `tests/intelligence/test_classification.py`, `tests/intelligence/test_recovery.py` |
 | La inteligencia queda en la extracción sin cambiar la revisión; un fallo al escribir no publica | `366897e` | `tests/intelligence/test_recovery.py` |
 | Un fallo dobla la espera hasta 120 s; el log lleva kind, estado y revisión, no la transcripción; el reinicio vuelve a pasar | `fb62ac4` | `tests/intelligence/test_recovery.py` |
+| DoD: criterios de contrato/recuperación marcados en el plan; regresión 48 pytest + build | (este commit) | `tests/intelligence`, `tests/crm_copilot/test_loop.py`; `npm run build` |
+
+## Bloqueado por decisión
+
+- **Arranque con publish + OpenRouter:** el criterio «Con publish encendido y clave configurada, el arranque del proceso reclama y clasifica jobs pendientes en vivo» queda sin marcar porque `INTELLIGENCE_WORKER_PUBLISH` permanece apagado. El proceso no debe reclamar jobs en arranque salvo que el flag y una clave OpenRouter estén ambos configurados; con el flag off, `install_intelligence_tick` deja `_worker_tick` en `None` (probado).
 
 ## Siguiente
 
-Activar `INTELLIGENCE_WORKER_PUBLISH` en el proceso que deba consumir la cola. Hasta entonces el arranque no reclama trabajos.
+Activar `INTELLIGENCE_WORKER_PUBLISH` solo en el proceso que deba consumir la cola y repetir el criterio de arranque en vivo con clave configurada. Hasta entonces la entrega queda **BLOCKED** en ese único criterio.

@@ -244,6 +244,15 @@ def test_a_claimed_job_publishes_with_job_and_run_and_a_missing_memo_does_not():
     assert client.rpc_names == ["claim_memo_job"]
 
 
+def test_install_intelligence_tick_with_publish_off_registers_no_claim():
+    from app.services.intelligence import worker as worker_mod
+    from app.services.intelligence.worker import install_intelligence_tick, set_worker_tick
+
+    set_worker_tick(None)
+    install_intelligence_tick()
+    assert worker_mod._worker_tick is None
+
+
 def test_startup_tick_does_not_claim_without_an_api_key(monkeypatch):
     from app.config import settings
     from app.services.intelligence import worker as worker_mod
