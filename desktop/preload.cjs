@@ -40,4 +40,12 @@ contextBridge.exposeInMainWorld('vocifyDesktop', {
   saas: {
     request: (payload) => ipcRenderer.invoke('saas:request', payload),
   },
+  capture: {
+    begin: (payload) => ipcRenderer.invoke('capture:begin', payload),
+    append: (payload) => ipcRenderer.invoke('capture:append', payload),
+    channelAbsent: (payload) => ipcRenderer.invoke('capture:channel-absent', payload),
+    pending: () => ipcRenderer.invoke('capture:pending'),
+    confirm: (clientCaptureId) => ipcRenderer.invoke('capture:confirm', clientCaptureId),
+    discard: (clientCaptureId) => ipcRenderer.invoke('capture:discard', clientCaptureId),
+  },
 });

@@ -18,7 +18,10 @@ ALTER TABLE memos
   ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
   ADD COLUMN IF NOT EXISTS capture_status TEXT,
   ADD COLUMN IF NOT EXISTS capture_content_fingerprint TEXT,
-  ADD COLUMN IF NOT EXISTS capture_input_revision INTEGER NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS capture_input_revision INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS audio_status TEXT,
+  ADD COLUMN IF NOT EXISTS capture_turns JSONB,
+  ADD COLUMN IF NOT EXISTS transcript_complete BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE memos DROP CONSTRAINT IF EXISTS memos_interaction_kind_check;
 ALTER TABLE memos ADD CONSTRAINT memos_interaction_kind_check

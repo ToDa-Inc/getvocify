@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from supabase import Client
 
@@ -15,6 +15,7 @@ from app.services.captures import (
     CaptureIdentity,
     complete_capture,
     reserve_capture,
+    store_capture_audio,
 )
 from app.services.company import Membership
 
@@ -34,12 +35,15 @@ class CaptureResponse(BaseModel):
     capture_id: str
     memo_id: str
     status: str
+    audio_status: str = "partial"
 
 
 class CompleteCaptureRequest(BaseModel):
     transcript: Optional[str] = None
     audio_duration: Optional[float] = None
     turns: Optional[list[Any]] = None
+    transcript_complete: bool = True
+    audio_status: Optional[str] = None
 
 
 def _to_response(identity: CaptureIdentity) -> CaptureResponse:
@@ -47,6 +51,7 @@ def _to_response(identity: CaptureIdentity) -> CaptureResponse:
         capture_id=identity.capture_id,
         memo_id=identity.memo_id,
         status=identity.status,
+        audio_status=identity.audio_status,
     )
 
 
@@ -85,6 +90,8 @@ async def complete_capture_endpoint(
             transcript=body.transcript,
             audio_duration=body.audio_duration,
             turns=body.turns,
+            transcript_complete=body.transcript_complete,
+            audio_status=body.audio_status,
         )
     except CaptureContentConflict as exc:
         raise HTTPException(
@@ -97,7 +104,7 @@ async def complete_capture_endpoint(
             },
         ) from exc
 
-    if identity.should_start_pipeline and (body.transcript or "").strip():
+    if identity.should_start_pipeline and not identity.needs_batch_stt and (body.transcript or "").strip():
         from app.api.memos import start_extraction_from_transcript
 
         await start_extraction_from_transcript(
@@ -107,4 +114,26 @@ async def complete_capture_endpoint(
             supabase,
             source_type="meeting_transcript",
         )
+    return _to_response(identity)
+
+
+@router.put("/{capture_id}/audio", response_model=CaptureResponse)
+async def upload_capture_audio(
+    capture_id: str,
+    request: Request,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    audio = await request.body()
+    content_type = request.headers.get("content-type", "application/octet-stream")
+    declared = request.headers.get("content-length")
+    byte_length = int(declared) if declared and declared.isdigit() else len(audio)
+    identity = store_capture_audio(
+        supabase,
+        user_id=membership.user_id,
+        capture_id=capture_id,
+        audio=audio,
+        content_type=content_type,
+        byte_length=byte_length,
+    )
     return _to_response(identity)

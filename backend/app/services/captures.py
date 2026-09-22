@@ -40,12 +40,18 @@ CAPTURE_STATUS_TO_MEMO_STATUS = {
 }
 
 
+MAX_AUDIO_BYTES = 512 * 1024 * 1024
+AUDIO_TYPES = frozenset({"audio/wav", "audio/x-wav", "audio/wave", "audio/pcm", "audio/l16"})
+
+
 @dataclass
 class CaptureIdentity:
     capture_id: str
     memo_id: str
     status: str
     should_start_pipeline: bool = False
+    needs_batch_stt: bool = False
+    audio_status: str = "partial"
 
 
 class CaptureContentConflict(Exception):
@@ -215,6 +221,65 @@ def reserve_capture(
     return _identity_from_row(created)
 
 
+def _audio_extension(content_type: str) -> str:
+    if content_type in {"audio/pcm", "audio/l16"}:
+        return "pcm"
+    return "wav"
+
+
+def store_capture_audio(
+    supabase: Client,
+    *,
+    user_id: str,
+    capture_id: str,
+    audio: bytes,
+    content_type: str,
+    byte_length: Optional[int] = None,
+) -> CaptureIdentity:
+    """Store capture audio in the private call-recordings bucket. Never a public URL."""
+    from app.services.storage import CALL_RECORDINGS_BUCKET
+
+    row = _load_owned_capture(supabase, user_id, capture_id)
+    size = byte_length if byte_length is not None else len(audio)
+    if size > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="El audio supera 512 MiB")
+    mime = (content_type or "").split(";")[0].strip().lower()
+    if mime not in AUDIO_TYPES:
+        raise HTTPException(status_code=422, detail="Formato de audio no admitido")
+    if mime in {"audio/wav", "audio/x-wav", "audio/wave"} and not audio.startswith(b"RIFF"):
+        raise HTTPException(status_code=422, detail="WAV incompleto")
+
+    path = f"{user_id}/{row['id']}.{_audio_extension(mime)}"
+    try:
+        supabase.storage.from_(CALL_RECORDINGS_BUCKET).upload(
+            path=path,
+            file=audio,
+            file_options={"content-type": mime, "upsert": "true"},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="No se pudo guardar el audio") from exc
+
+    update = {
+        "recording_path": path,
+        "audio_status": "partial",
+        "capture_status": "upload_pending",
+        "status": CAPTURE_STATUS_TO_MEMO_STATUS["upload_pending"],
+    }
+    (
+        supabase.table("memos")
+        .update(update)
+        .eq("id", row["id"])
+        .eq("user_id", user_id)
+        .execute()
+    )
+    row.update(update)
+    identity = _identity_from_row(row)
+    identity.audio_status = "partial"
+    return identity
+
+
 def complete_capture(
     supabase: Client,
     *,
@@ -224,9 +289,34 @@ def complete_capture(
     transcript: Optional[str] = None,
     audio_duration: Optional[float] = None,
     turns: Optional[list] = None,
+    transcript_complete: bool = True,
+    audio_status: Optional[str] = None,
 ) -> CaptureIdentity:
     del company_id  # scope is the session author; company is already on the row
     row = _load_owned_capture(supabase, user_id, capture_id)
+    if not transcript_complete:
+        update = {
+            "transcript": (transcript or "").strip() or None,
+            "audio_duration": audio_duration,
+            "capture_turns": turns or [],
+            "transcript_complete": False,
+            "audio_status": audio_status or row.get("audio_status") or "partial",
+            "capture_status": "processing",
+            "status": CAPTURE_STATUS_TO_MEMO_STATUS["processing"],
+        }
+        (
+            supabase.table("memos")
+            .update(update)
+            .eq("id", row["id"])
+            .eq("user_id", user_id)
+            .execute()
+        )
+        row.update(update)
+        identity = _identity_from_row(row, should_start_pipeline=False)
+        identity.needs_batch_stt = (update["audio_status"] == "complete")
+        identity.audio_status = str(update["audio_status"])
+        return identity
+
     fingerprint = content_fingerprint(transcript, audio_duration, turns)
     existing_fp = row.get("capture_content_fingerprint")
     if existing_fp:
@@ -244,6 +334,8 @@ def complete_capture(
     update = {
         "transcript": (transcript or "").strip() or None,
         "audio_duration": audio_duration,
+        "capture_turns": turns or [],
+        "transcript_complete": True,
         "capture_content_fingerprint": fingerprint,
         "capture_status": capture_status,
         "status": CAPTURE_STATUS_TO_MEMO_STATUS[capture_status],

@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureRuntimeDir, linuxChromiumSwitches, sanitizeSessionBusAddress } from './lib/launch.js';
 import { feedS16le, resolveNativeLoopbackPlan, vocifyTapPath } from './lib/system-audio.js';
-import { isAllowedApiBase, proxyJsonRequest } from './lib/saas.js';
+import { CaptureStore } from './lib/capture-store.js';
 import {
   dashboardMemosUrl,
   overlayBounds,
@@ -333,6 +333,51 @@ ipcMain.handle('overlay:hide', () => {
 ipcMain.handle('shell:open-external', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) shell.openExternal(url);
   return { ok: true };
+});
+
+let captureStore;
+
+function captures() {
+  if (!captureStore) {
+    captureStore = new CaptureStore(path.join(app.getPath('userData'), 'captures'));
+  }
+  return captureStore;
+}
+
+ipcMain.handle('capture:begin', (_event, payload) => {
+  const id = payload?.clientCaptureId;
+  if (!id) return { ok: false, error: 'clientCaptureId required' };
+  return { ok: true, manifest: captures().begin(id, payload) };
+});
+
+ipcMain.handle('capture:append', (_event, payload) => {
+  try {
+    const chunk = Buffer.from(payload?.chunk || []);
+    const manifest = captures().append(payload.clientCaptureId, payload.channel, chunk);
+    return { ok: true, manifest };
+  } catch (err) {
+    return { ok: false, error: err.message, code: err.code || 'append_failed' };
+  }
+});
+
+ipcMain.handle('capture:channel-absent', (_event, payload) => {
+  const manifest = captures().noteChannelAbsent(payload.clientCaptureId, payload.channel, payload.reason);
+  return { ok: true, manifest };
+});
+
+ipcMain.handle('capture:pending', () => ({ ok: true, items: captures().pending() }));
+
+ipcMain.handle('capture:confirm', (_event, clientCaptureId) => {
+  return { ok: true, manifest: captures().confirmRemote(clientCaptureId) };
+});
+
+ipcMain.handle('capture:discard', (_event, clientCaptureId) => {
+  try {
+    captures().discard(clientCaptureId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle('saas:request', async (_event, payload) => {
