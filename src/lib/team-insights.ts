@@ -28,7 +28,10 @@ export function visibleObjectionCategories(categories: ObjectionCategory[]): Obj
   return categories
     .filter((item) => item.count > 0)
     .filter((item) => !RAW_OBJECTION_KEYS.has(item.name.trim().toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name, "es");
+    });
 }
 
 export function objectionCategoriesEmptyMessage(categories: ObjectionCategory[]): string | null {
@@ -47,6 +50,12 @@ export type TeamMetrics = {
   applicable: number;
   coverageCrm: "complete" | "partial" | "unavailable";
 };
+
+/** Share of steps met when adherence is defined and applicable > 0; otherwise no bar. */
+export function adherenceBarRatio(metrics: Pick<TeamMetrics, "adherence" | "met" | "applicable">): number | null {
+  if (metrics.adherence === null || metrics.applicable <= 0) return null;
+  return metrics.met / metrics.applicable;
+}
 
 export function activityLabel(value: number | null): string {
   return value === null ? "No disponible" : String(value);

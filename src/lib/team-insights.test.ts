@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   activityLabel,
+  adherenceBarRatio,
   objectionCategoriesEmptyMessage,
   repsByName,
   teamAdherenceHasData,
@@ -58,6 +59,21 @@ describe("team insights", () => {
       { name: "Plazo", count: 2 },
       { name: "Precio", count: 1 },
     ]);
+    assert.deepEqual(visibleObjectionCategories([
+      { name: "Precio", count: 2 },
+      { name: "Plazo", count: 2 },
+      { name: "Confianza", count: 3 },
+    ]), [
+      { name: "Confianza", count: 3 },
+      { name: "Plazo", count: 2 },
+      { name: "Precio", count: 2 },
+    ]);
+  });
+
+  it("shows an adherence bar only when adherence and applicable steps exist", () => {
+    assert.equal(adherenceBarRatio({ adherence: null, met: 0, applicable: 10 }), null);
+    assert.equal(adherenceBarRatio({ adherence: 0.2, met: 2, applicable: 0 }), null);
+    assert.equal(adherenceBarRatio({ adherence: 0.2, met: 2, applicable: 10 }), 0.2);
   });
 
   it("detects an empty scoped adherence payload", () => {

@@ -22,6 +22,7 @@ No se inventa un estado anterior si no hay historia.
 
 | Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan; etiquetas ES y solo semana Madrid (`observed_at`/`created_at`) | `tests/team_insights/test_objections.py` |
 | La página de equipo lista nombres ES de categoría o «No hay objeciones esta semana.»; sin claves crudas, ceros ni ranking | `src/lib/team-insights.test.ts` |
+| Objeciones por recuento (barra + número) y adherencia con barra met/applicable cuando hay datos | `src/lib/team-insights.test.ts` |
 
 ## Filtros compartidos (2026-09-22)
 
