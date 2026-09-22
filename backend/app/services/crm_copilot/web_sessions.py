@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 
 class TurnConflict(Exception):
     pass
@@ -9,6 +11,40 @@ class TurnConflict(Exception):
 
 class UncertainOperation(Exception):
     pass
+
+
+def _encode_completed_body(turn: dict) -> str:
+    payload: dict = {"__vocify_turn__": 1, "text": turn.get("text") or ""}
+    for key in ("coverage", "item_count", "choices", "confirmation"):
+        value = turn.get(key)
+        if value is not None:
+            payload[key] = value
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _turn_from_row(row: dict) -> dict:
+    status = row.get("status") or "pending"
+    body = row.get("body") or ""
+    turn = {
+        "conversation_id": row.get("conversation_id"),
+        "turn_id": row.get("id"),
+        "status": status,
+        "client_turn_id": row.get("client_turn_id"),
+        "text": body,
+    }
+    if status != "completed":
+        return turn
+    if body.startswith("{"):
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            return turn
+        if payload.get("__vocify_turn__"):
+            turn["text"] = payload.get("text") or ""
+            for key in ("coverage", "item_count", "choices", "confirmation"):
+                if key in payload:
+                    turn[key] = payload[key]
+    return turn
 
 
 class SupabaseAskStore:
@@ -28,13 +64,36 @@ class SupabaseAskStore:
         ).execute()
         rows = list(getattr(result, "data", None) or [])
         row = rows[0] if rows else {}
+        replayed = bool(row.get("replayed"))
+        turn_id = row.get("turn_id")
+        if replayed and turn_id:
+            loaded = self.get_turn(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+            )
+            if loaded:
+                return {**loaded, "replayed": True}
         return {
             "conversation_id": conversation_id,
-            "turn_id": row.get("turn_id"),
+            "turn_id": turn_id,
             "status": "pending",
             "client_turn_id": client_turn_id,
             "text": row.get("body") or text,
+            "replayed": False,
         }
+
+    def persist_turn(self, *, user_id, conversation_id, turn_id, turn: dict) -> None:
+        if turn.get("status") != "completed":
+            return
+        (
+            self.supabase.table("copilot_web_turns")
+            .update({"status": "completed", "body": _encode_completed_body(turn)})
+            .eq("id", turn_id)
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .execute()
+        )
 
     def get_turn(self, *, user_id, conversation_id, turn_id):
         result = (
@@ -49,14 +108,7 @@ class SupabaseAskStore:
         rows = list(getattr(result, "data", None) or [])
         if not rows:
             return None
-        row = rows[0]
-        return {
-            "conversation_id": row.get("conversation_id"),
-            "turn_id": row.get("id"),
-            "status": row.get("status") or "pending",
-            "client_turn_id": row.get("client_turn_id"),
-            "text": row.get("body") or "",
-        }
+        return _turn_from_row(rows[0])
 
 
 def accept_turn(store: dict, *, conversation_id: str, client_turn_id: str, text: str) -> dict:

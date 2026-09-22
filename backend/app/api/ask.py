@@ -120,6 +120,13 @@ async def post_turn(
         if not turn.get("replayed"):
             turn = await _finish(turn, body.text)
             _stage_confirmation(turn, membership.user_id, conversation_id)
+            if turn.get("status") == "completed":
+                _store.persist_turn(
+                    user_id=membership.user_id,
+                    conversation_id=conversation_id,
+                    turn_id=turn["turn_id"],
+                    turn=turn,
+                )
         code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
         return JSONResponse(status_code=code, content=_public(turn))
     scoped: dict = {

@@ -82,6 +82,25 @@ def test_a_tool_call_line_is_not_part_of_the_answer():
     assert public_answer("Marina queda el jueves.\ntool_call get_contact id=abc") == "Marina queda el jueves."
 
 
+def test_a_completed_row_body_is_not_shown_as_raw_json():
+    from app.services.crm_copilot.web_sessions import _turn_from_row
+
+    row = {
+        "id": "turn-1",
+        "conversation_id": "conv-1",
+        "client_turn_id": "web-1",
+        "status": "completed",
+        "body": (
+            '{"__vocify_turn__": 1, "text": "Marina queda el jueves.", '
+            '"choices": [{"id": "c1", "label": "Marina López"}]}'
+        ),
+    }
+    turn = _turn_from_row(row)
+    assert turn["text"] == "Marina queda el jueves."
+    assert turn["choices"][0]["label"] == "Marina López"
+    assert "{" not in turn["text"]
+
+
 def test_repeating_a_client_turn_returns_the_same_turn():
     store = {}
     first = accept_turn(store, conversation_id="conv-1", client_turn_id="web-2", text="¿Qué sigue?")
