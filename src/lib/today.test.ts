@@ -73,6 +73,42 @@ describe("today surface", () => {
     if (partial.kind === "incomplete") assert.equal(partial.title, copy.today_incomplete);
   });
 
+  it("shows the no-activity onboarding when CRM is connected but Hoy has no payload", () => {
+    const surface = todaySurface(
+      { data: null, errorStatus: null, isLoading: false, connected: true, role: "owner" },
+      copy,
+    );
+    assert.equal(surface.kind, "no-activity");
+    if (surface.kind === "no-activity") assert.equal(surface.title, copy.today_no_activity);
+  });
+
+  it("lists CRM manual tasks even when Vocify signals are absent", () => {
+    const crmOnly: TodayView = {
+      items: [{
+        type: "manual_task",
+        dedupe_key: null,
+        contact_id: "42",
+        reason: "Llamar a Marina",
+        remote_id: "task-9",
+        origins: ["manual"],
+        supporting: [],
+      }],
+      pulse: null,
+      folded_count: 0,
+      generated_at: "2026-09-22T08:00:00Z",
+      coverage: { intelligence: "complete", crm_tasks: "complete" },
+    };
+    const surface = todaySurface(
+      { data: crmOnly, errorStatus: null, isLoading: false, connected: true, role: "member" },
+      copy,
+    );
+    assert.equal(surface.kind, "list");
+    if (surface.kind === "list") {
+      assert.equal(surface.items[0].remote_id, "task-9");
+      assert.deepEqual(surface.items[0].origins, ["manual"]);
+    }
+  });
+
   it("tells a member to wait for an admin when the CRM is disconnected", () => {
     const member = todaySurface(
       { data: null, errorStatus: null, isLoading: false, connected: false, role: "member" },

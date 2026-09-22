@@ -144,3 +144,13 @@ def test_unknown_interest_and_a_resolved_objection_do_not_open_a_card():
     opened = signals_for_contact([open_objection], now=NOW, day_end=DAY_END)
     assert opened[0].type == "objection_open"
     assert opened[0].payload["quote"] == "está caro"
+
+
+def test_reason_and_due_label_follow_accept_language():
+    due = signals_for_contact([
+        _touch(commitments=(Commitment("call", "prospect_request", "Call back", NOW - timedelta(days=1)),)),
+    ], now=NOW, day_end=DAY_END)[0]
+    assert reason(due, lang="en") == "They asked you to call."
+    assert due_label(due.due_at, now=NOW, lang="en") == "Due yesterday"
+    cold = signals_for_contact([_touch(interest="high")], now=NOW, day_end=DAY_END)[0]
+    assert reason(cold, lang="en").startswith("Showed strong interest")
