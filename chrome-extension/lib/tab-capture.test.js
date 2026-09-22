@@ -138,8 +138,8 @@ describe('listen status model', () => {
     const starting = listenUiModel({ listenPhase: 'starting' });
     assert.equal(starting.phase, 'starting');
     assert.equal(starting.live, false);
-    assert.match(starting.line, /Capturing/i);
-    assert.equal(starting.buttonLabel, 'Starting…');
+    assert.match(starting.line, /Capturando/i);
+    assert.equal(starting.buttonLabel, 'Empezando…');
   });
 
   it('says listening and waiting for speech when connected with no transcript yet', () => {
@@ -150,8 +150,8 @@ describe('listen status model', () => {
       heardAnything: false,
     });
     assert.equal(live.live, true);
-    assert.match(live.statusLabel, /waiting for speech/i);
-    assert.match(live.line, /not your mic/i);
+    assert.match(live.statusLabel, /esperando voz/i);
+    assert.match(live.line, /no tu micrófono/i);
   });
 
   it('shows a not-listening error in the panel instead of hiding it', () => {

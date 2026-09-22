@@ -188,21 +188,21 @@ export function listenUiModel({
     case 'starting':
       return {
         phase: 'starting',
-        buttonLabel: 'Starting…',
-        statusLabel: 'Starting',
-        header: 'Starting listen',
-        line: 'Capturing this tab’s audio…',
+        buttonLabel: 'Empezando…',
+        statusLabel: 'Empezando',
+        header: 'Empezando a escuchar…',
+        line: 'Capturando audio de esta pestaña…',
         live: false,
       };
     case 'live':
       return {
         phase: 'live',
-        buttonLabel: 'Stop listening',
-        statusLabel: heardAnything ? 'Listening' : 'Listening — waiting for speech',
-        header: tabTitle ? `Listening · ${tabTitle}` : 'Listening to this tab',
+        buttonLabel: 'Dejar de escuchar',
+        statusLabel: heardAnything ? 'Escuchando' : 'Escuchando — esperando voz',
+        header: tabTitle ? `Escuchando · ${tabTitle}` : 'Escuchando esta pestaña',
     line: heardAnything
-      ? (tabTitle ? `Hearing “${tabTitle}”` : 'Hearing this tab')
-      : 'Hearing this tab, not your mic. The other side of the call should appear here.',
+      ? (tabTitle ? `Escuchando «${tabTitle}»…` : 'Escuchando esta pestaña…')
+      : 'Escuchando esta pestaña, no tu micrófono. La otra parte de la llamada debería aparecer aquí.',
         live: true,
       };
     case 'error':

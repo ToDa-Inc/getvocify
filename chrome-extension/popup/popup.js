@@ -1503,7 +1503,7 @@ function renderCopilotCard(state) {
       say.textContent = pillLine.text;
     } else if (state.copilotIsLoading && !suggestion) {
       say.style.display = 'block';
-      say.textContent = 'Coaching in real time…';
+      say.textContent = 'Ayuda en esta reunión…';
     } else {
       say.style.display = 'none';
       say.textContent = '';
@@ -1512,12 +1512,12 @@ function renderCopilotCard(state) {
   if (heard) {
     const turn = state.copilotLastTurn;
     heard.style.display = turn ? 'block' : 'none';
-    heard.textContent = turn ? `They said: “${turn}”` : '';
+    heard.textContent = turn ? `Dijeron: «${turn}»` : '';
   }
   if (next) {
     const q = suggestion?.next_question;
     next.style.display = q ? 'block' : 'none';
-    next.textContent = q ? `Next: ${q}` : '';
+    next.textContent = q ? `Siguiente: ${q}` : '';
   }
   renderCopilotChecklist(state);
 }
@@ -1541,11 +1541,11 @@ function paintLiveTranscript(state) {
     });
     liveTranscriptText.innerHTML = state.finalTranscript
       ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${model.line || 'Capturing this tab’s audio…'}</span>`;
+      : `<span style="opacity:0.5">${model.line || 'Capturando audio de esta pestaña…'}</span>`;
     liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
     const transcriptLabel = liveTranscriptContainer.querySelector('.transcript-label');
     if (transcriptLabel) {
-      transcriptLabel.textContent = model.live ? 'Hearing this tab' : 'Starting listen';
+      transcriptLabel.textContent = model.live ? 'Escuchando esta pestaña…' : 'Empezando a escuchar…';
     }
     renderListenStatus(state, model);
     renderCopilotCard(state);
@@ -1624,7 +1624,7 @@ function renderState(state) {
     recordButton.classList.remove('recording');
     recordButton.disabled = true;
     document.getElementById('record-status-label').textContent =
-      model.phase === 'starting' ? 'Starting' : 'Listening';
+      model.phase === 'starting' ? 'Empezando…' : 'Escuchando…';
     liveTranscriptContainer.style.display = 'block';
     if (idleTools) {
       idleTools.style.display = 'grid';

@@ -8,3 +8,4 @@ Backend: `POST /api/v1/copilot/checklist` devuelve pasos del snapshot publicado 
 Extensión meeting listen: ayuda desactivada al inicio (sin `/copilot/suggest` hasta «Ayuda»), checklist vía `POST /copilot/checklist` y botón Ayuda/Ocultar ayuda junto a la tarjeta.
 Extensión popup: la línea «Say this» usa `pillDecision` (4 s / 10 s / 60 s, rep oculta); nuevo listen reinicia el reloj; suggest sigue bloqueado con ayuda off.
 Extensión popup live: copy estático en español («Transcribiendo…», «Di esto», «Esperando a que termine de hablar…») en el bloque de transcript/copilot antes del paint JS.
+Extensión popup listen: el paint JS ya no pisa el HTML con estados en inglés («Empezando a escuchar…», «Escuchando esta pestaña…», «Ayuda en esta reunión…»); `listenUiModel` en `tab-capture.js` alinea botón y línea de estado.
