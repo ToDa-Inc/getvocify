@@ -26,6 +26,7 @@ export function InteractionObjections({
   offsetMs: number;
 }) {
   const { t } = useLanguage();
+  const p = t.product;
   const query = useQuery({
     queryKey: ["memo-objections", memoId],
     queryFn: () => api.get<{ coverage: "complete" | "partial" | "unavailable"; patterns: ReviewPattern[]; notes: ReviewNote[] }>(
@@ -41,9 +42,9 @@ export function InteractionObjections({
     patterns: query.data?.patterns ?? [],
     notes,
     canPlaySpan,
-    copy: t.product,
+    copy: p,
   });
-  const label = noteFieldLabel(status, t.product);
+  const label = noteFieldLabel(status, p);
 
   async function save() {
     const body = text.trim();
@@ -74,33 +75,37 @@ export function InteractionObjections({
 
   return (
     <section aria-labelledby="objections-title" className="mb-6 space-y-3">
-      <h2 id="objections-title" className="text-lg">Objeciones</h2>
+      <h2 id="objections-title" className="text-lg">{p.teamHeadingObjections}</h2>
       {review.title ? <p>{review.title}</p> : null}
       <ul className="space-y-3">
         {review.patterns.map((pattern) => (
           <li key={pattern.pattern_id}>
             <p>
-              {patternCategoryLabel(pattern.category, t.product)} · {patternKindLabel(pattern.kind, t.product)} ·{" "}
-              {patternResolutionLabel(pattern.resolution, t.product)}
+              {patternCategoryLabel(pattern.category, p)} · {patternKindLabel(pattern.kind, p)} ·{" "}
+              {patternResolutionLabel(pattern.resolution, p)}
             </p>
-            {pattern.prospect_quotes.map((quote) => <p key={quote}>«{quote}»</p>)}
+            {pattern.prospect_quotes.map((quote) => (
+              <p key={quote}>{p.prospectQuote.replace("{quote}", quote)}</p>
+            ))}
             {pattern.response ? <p>{pattern.response}</p> : null}
           </li>
         ))}
         {review.notes.map((note) => (
           <li key={note.annotation_id}>
             <p>{note.label}: {note.text}</p>
-            <p>{note.offset_ms} ms · {note.author_id}</p>
-            {note.playable ? <p>Tramo reproducible</p> : null}
+            <p>
+              {p.noteOffsetMeta.replace("{offset}", String(note.offset_ms)).replace("{author}", note.author_id)}
+            </p>
+            {note.playable ? <p>{p.objectionPlayableSpan}</p> : null}
           </li>
         ))}
       </ul>
       <label className="block space-y-2">
-        <span>Nota</span>
+        <span>{p.noteLabel}</span>
         <textarea value={text} onChange={(event) => setText(event.target.value)} rows={2} className="w-full rounded-md border p-2" />
       </label>
       <Button type="button" variant="outline" onClick={() => void save()} disabled={status === "syncing"}>
-        Guardar nota
+        {p.noteSaveButton}
       </Button>
       {label ? <p role="status">{label}</p> : null}
     </section>
