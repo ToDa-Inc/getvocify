@@ -44,6 +44,15 @@ import {
   homeBriefRequestPath,
   shouldFetchHomeBrief,
 } from '../lib/home-brief.js';
+import {
+  homeHoyCardsForDisplay,
+  homeHoyListedItems,
+  homeHoyRequestPath,
+  shouldFetchHomeHoy,
+  todayItemToCard,
+} from '../lib/home-hoy.js';
+import { renderToString } from './shared/ui/html.js';
+import { renderTodayCard } from './shared/ui/today-card.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
 const STORAGE = {
@@ -71,6 +80,7 @@ const timerEl = document.getElementById('timer');
 const backendChip = document.getElementById('backend-chip');
 const sessionChip = document.getElementById('session-chip');
 const contactBriefEl = document.getElementById('contact-brief');
+const homeHoyEl = document.getElementById('home-hoy');
 
 function desktop() {
   return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
@@ -96,6 +106,11 @@ let listenSession = null;
 let hubspotRecordPage = hubspotRecordPageFromLocation();
 let homeBriefCache = null;
 let homeBriefFlight = null;
+let homeHoyItems = [];
+let homeHoyActed = [];
+let homeHoyFlight = false;
+let homeHoyStale = true;
+let homeHoyUndoTick = null;
 
 function hubspotRecordPageFromLocation() {
   const params = new URLSearchParams(window.location.search);
@@ -194,6 +209,122 @@ function formatTimer(ms) {
   return `${mins}:${secs}`;
 }
 
+function stopHomeHoyUndoClock() {
+  if (homeHoyUndoTick) clearInterval(homeHoyUndoTick);
+  homeHoyUndoTick = null;
+}
+
+function startHomeHoyUndoClock() {
+  stopHomeHoyUndoClock();
+  homeHoyUndoTick = setInterval(() => paintHomeHoy(), 1000);
+}
+
+function paintHomeHoy() {
+  if (!homeHoyEl || listenPanel.hidden) return;
+  const token = localStorage.getItem(STORAGE.token);
+  const nowMs = Date.now();
+  const listed = homeHoyListedItems(homeHoyItems, homeHoyActed, nowMs);
+  const cards = homeHoyCardsForDisplay({
+    captureActive: listening,
+    cards: listed.map(todayItemToCard),
+  });
+
+  homeHoyEl.replaceChildren();
+  if (!token || !cards.length) {
+    homeHoyEl.hidden = true;
+    stopHomeHoyUndoClock();
+  } else {
+    for (const card of cards) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = renderToString(renderTodayCard(card, { now: nowMs }));
+      homeHoyEl.append(wrap.firstElementChild ?? wrap);
+    }
+    homeHoyEl.hidden = false;
+    const undoOpen = cards.some(
+      (card) => card.undoDeadline != null && Date.parse(card.undoDeadline) >= nowMs,
+    );
+    if (undoOpen) startHomeHoyUndoClock();
+    else stopHomeHoyUndoClock();
+  }
+
+  if (
+    shouldFetchHomeHoy({
+      token,
+      captureActive: listening,
+      inFlight: homeHoyFlight,
+      stale: homeHoyStale,
+    })
+  ) {
+    homeHoyFlight = true;
+    request(homeHoyRequestPath(), { token })
+      .then((body) => {
+        homeHoyItems = Array.isArray(body?.items) ? body.items : [];
+        homeHoyFlight = false;
+        homeHoyStale = false;
+        paintHomeHoy();
+      })
+      .catch(() => {
+        homeHoyFlight = false;
+      });
+  }
+}
+
+async function dismissHomeHoyCard(cardEl) {
+  const id = cardEl?.dataset?.id;
+  if (!id) return;
+  const item = homeHoyListedItems(homeHoyItems, homeHoyActed, Date.now()).find((row) => row.id === id);
+  if (!item?.id || item.version == null) return;
+  const token = localStorage.getItem(STORAGE.token);
+  if (!token) return;
+  try {
+    const result = await request(`/today/${item.id}/resolve`, {
+      method: 'POST',
+      token,
+      body: {
+        action: 'dismiss',
+        request_id: crypto.randomUUID(),
+        expected_version: item.version,
+      },
+    });
+    homeHoyActed = [
+      ...homeHoyActed.filter((row) => row.id !== item.id),
+      {
+        ...item,
+        status: result.status,
+        version: result.version,
+        undo_deadline: result.undo_deadline,
+      },
+    ];
+    paintHomeHoy();
+  } catch {
+    /* failed dismiss leaves the card */
+  }
+}
+
+async function undoHomeHoyCard(cardEl) {
+  const id = cardEl?.dataset?.id;
+  if (!id) return;
+  const item = homeHoyListedItems(homeHoyItems, homeHoyActed, Date.now()).find((row) => row.id === id);
+  if (!item?.id || item.version == null) return;
+  const token = localStorage.getItem(STORAGE.token);
+  if (!token) return;
+  try {
+    await request(`/today/${item.id}`, {
+      method: 'PATCH',
+      token,
+      body: {
+        request_id: crypto.randomUUID(),
+        expected_version: item.version,
+      },
+    });
+    homeHoyActed = homeHoyActed.filter((row) => row.id !== item.id);
+    homeHoyStale = true;
+    paintHomeHoy();
+  } catch {
+    /* keep card as-is */
+  }
+}
+
 function paintHomeBrief() {
   if (!contactBriefEl || listenPanel.hidden) return;
   hubspotRecordPage = knownHubspotRecordPage() ?? hubspotRecordPage;
@@ -282,8 +413,14 @@ function showScreen(name) {
   listenPanel.hidden = name !== 'listen';
   reviewPanel.hidden = name !== 'review';
   desktop()?.shell?.resize(name === 'review' ? 'review' : 'compact');
-  if (name === 'listen') paintHomeBrief();
-  else if (contactBriefEl) contactBriefEl.hidden = true;
+  if (name === 'listen') {
+    paintHomeBrief();
+    paintHomeHoy();
+  } else {
+    if (contactBriefEl) contactBriefEl.hidden = true;
+    if (homeHoyEl) homeHoyEl.hidden = true;
+    stopHomeHoyUndoClock();
+  }
   notifyShell();
 }
 
@@ -491,6 +628,8 @@ function stopCapture() {
   setLiveUi(false);
   desktop()?.shell?.hideOverlay();
   paintHomeBrief();
+  homeHoyStale = true;
+  paintHomeHoy();
   notifyShell();
 }
 
@@ -568,6 +707,7 @@ async function startListen() {
   statusEl.textContent = `Hearing the meeting via ${backendLabel(currentBackend)}. Overlay stays on top.`;
   desktop()?.shell?.showOverlay();
   paintHomeBrief();
+  paintHomeHoy();
   notifyShell();
 
   const wsUrl = applyChannelLabelsToLiveUrl(liveTranscriptionUrl(apiBase()), ['prospect', 'rep']);
@@ -866,9 +1006,25 @@ document.getElementById('btn-login').addEventListener('click', async () => {
   }
 });
 
+homeHoyEl?.addEventListener('click', (event) => {
+  const action = event.target.closest('[data-action]');
+  if (!action || !homeHoyEl.contains(action)) return;
+  const cardEl = action.closest('.v-today-card');
+  if (!cardEl) return;
+  if (action.dataset.action === 'dismiss') {
+    dismissHomeHoyCard(cardEl).catch(() => {});
+  } else if (action.dataset.action === 'undo') {
+    undoHomeHoyCard(cardEl).catch(() => {});
+  }
+});
+
 document.getElementById('btn-logout').addEventListener('click', () => {
   stopCapture();
   stopPermissionPoll();
+  stopHomeHoyUndoClock();
+  homeHoyItems = [];
+  homeHoyActed = [];
+  homeHoyStale = true;
   localStorage.removeItem(STORAGE.token);
   localStorage.removeItem(STORAGE.refresh);
   showScreen('login');

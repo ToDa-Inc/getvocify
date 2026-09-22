@@ -99,6 +99,7 @@ h1 {
 
 .card { padding: var(--space-5); }
 #contact-brief { margin-bottom: 14px; }
+#home-hoy { display: grid; gap: 10px; margin-bottom: 14px; }
 #contact-brief .v-followup__body,
 #contact-brief .v-followup__hint { margin: 0 0 6px; }
 #contact-brief .v-followup__body:last-child,
