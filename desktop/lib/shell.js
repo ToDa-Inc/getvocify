@@ -121,5 +121,8 @@ export function overlayShellState(state = {}) {
   if (state.checklist != null && typeof state.checklist === 'object') {
     overlay.checklist = state.checklist;
   }
+  if (state.meetingId != null && String(state.meetingId).length) {
+    overlay.meetingId = String(state.meetingId);
+  }
   return overlay;
 }

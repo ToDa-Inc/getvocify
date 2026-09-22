@@ -185,6 +185,10 @@ function sendCommand(name) {
     app.quit();
     return;
   }
+  if (name === 'assist-on' || name === 'assist-off') {
+    mainWindow?.webContents.send('shell:command', name);
+    return;
+  }
   showMainWindow();
   mainWindow?.webContents.send('shell:command', name);
 }
@@ -321,7 +325,7 @@ ipcMain.handle('permissions:open', async (_event, type) => {
 
 function applyShellStatePatch(state) {
   shellState = { ...shellState, ...state };
-  for (const key of ['kind', 'playbookReady', 'assistEnabled', 'card', 'checklist']) {
+  for (const key of ['kind', 'playbookReady', 'assistEnabled', 'card', 'checklist', 'meetingId']) {
     if (Object.prototype.hasOwnProperty.call(state, key) && state[key] == null) {
       delete shellState[key];
     }

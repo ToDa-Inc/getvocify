@@ -70,12 +70,13 @@ describe('copilot-suggest ingest', () => {
       type: 'result',
       playbook_ready: true,
       evidence_refs: ['ev-1'],
-      suggestion: { say_this: 'Pregunta el precio' },
+      suggestion: { say_this: 'Pregunta el precio', objection_type: 'price' },
     });
     assert.deepEqual(payload, {
       playbook_ready: true,
       evidence_refs: ['ev-1'],
       text: 'Pregunta el precio',
+      category: 'price',
     });
   });
 

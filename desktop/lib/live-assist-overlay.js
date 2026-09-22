@@ -23,13 +23,23 @@ function suggestResultText(event) {
   return '';
 }
 
+function suggestObjectionCategory(event) {
+  const suggestion = event?.suggestion && typeof event.suggestion === 'object' ? event.suggestion : null;
+  if (!suggestion) return null;
+  const raw = suggestion.objection_type ?? suggestion.objectionType ?? null;
+  if (raw == null || raw === '') return null;
+  return String(raw).trim() || null;
+}
+
 /** Map a copilot suggest SSE `result` event into overlay payload fields. */
 export function liveAssistPayloadFromSuggestEvent(event) {
   if (!event || event.type !== 'result') return null;
+  const category = suggestObjectionCategory(event);
   return {
     playbook_ready: event.playbook_ready === true,
     evidence_refs: event.evidence_refs,
     text: suggestResultText(event),
+    category,
   };
 }
 
@@ -58,6 +68,10 @@ export function liveAssistOverlayFromCopilotPayload(payload, { kind } = {}) {
   }
 
   const text = typeof payload.text === 'string' ? payload.text.trim() : '';
-  base.card = text ? { text } : null;
+  const category =
+    payload.category != null && String(payload.category).trim()
+      ? String(payload.category).trim()
+      : null;
+  base.card = text ? { text, category } : null;
   return base;
 }

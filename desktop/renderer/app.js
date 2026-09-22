@@ -108,6 +108,7 @@ let copilotChecklistAbort = null;
 let liveAssistChecklist = null;
 /** Active listen session: callMode/contact only; never invent CRM ids here. */
 let listenSession = null;
+let liveAssistMeetingId = null;
 /** HubSpot record page when known ({ objectType, recordId }), same shape as extension context. */
 let hubspotRecordPage = hubspotRecordPageFromLocation();
 let homeBriefCache = null;
@@ -143,10 +144,11 @@ function knownHubspotRecordPage() {
 export const liveAssistOverlay = { evidenceRefs: [] };
 
 function resetLiveAssistOverlay() {
+  liveAssistMeetingId = null;
   Object.assign(liveAssistOverlay, {
     kind: null,
     playbookReady: null,
-    assistEnabled: null,
+    assistEnabled: false,
     evidenceRefs: [],
     card: null,
   });
@@ -196,6 +198,7 @@ async function requestCopilotChecklist() {
 
 async function requestCopilotSuggest(latestTurn) {
   const token = localStorage.getItem(STORAGE.token);
+  if (liveAssistOverlay.assistEnabled !== true) return;
   if (!listening || !token || !shouldRequestCopilotSuggest(latestTurn)) return;
   abortCopilotSuggest();
   const controller = new AbortController();
@@ -422,6 +425,7 @@ function notifyShell() {
     backend: currentBackend,
     email,
     apiBase: apiBase(),
+    meetingId: liveAssistMeetingId,
     ...assistOverlayFields(liveAssistOverlay),
     checklist: liveAssistChecklist,
   });
@@ -736,6 +740,13 @@ async function startListen() {
     callMode: 'meeting',
     crmPageContext: hubspotRecordPage,
   });
+  liveAssistMeetingId = crypto.randomUUID();
+  liveAssistOverlay.assistEnabled = false;
+  liveAssistOverlay.card = null;
+  liveAssistOverlay.evidenceRefs = [];
+  liveAssistOverlay.playbookReady = null;
+  liveAssistOverlay.kind = 'meeting';
+  liveAssistChecklist = null;
   transcriptState = { finalTranscript: '', interimTranscript: '' };
   resetCopilotSuggestRequestDedupe();
   renderTranscript();
@@ -1117,6 +1128,19 @@ document.getElementById('btn-review-back').addEventListener('click', () => {
 desktop()?.shell?.onCommand((command) => {
   if (command === 'listen') startListen().catch((err) => showError(listenError, err.message || 'Could not start'));
   if (command === 'stop') stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
+  if (command === 'assist-on') {
+    liveAssistOverlay.assistEnabled = true;
+    notifyShell();
+    const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
+    const latestTurn = parts[parts.length - 1]?.replace(/^(You|Them):\s*/, '').trim();
+    if (latestTurn) void requestCopilotSuggest(latestTurn);
+  }
+  if (command === 'assist-off') {
+    liveAssistOverlay.assistEnabled = false;
+    liveAssistOverlay.card = null;
+    abortCopilotSuggest();
+    notifyShell();
+  }
 });
 
 document.getElementById('api-base').value = localStorage.getItem(STORAGE.api) || PROD_API;
