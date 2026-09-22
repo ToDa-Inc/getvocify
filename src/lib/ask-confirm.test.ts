@@ -1,6 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { cancelConfirm, confirmErrorDetail, confirmResult } from "./ask-confirm.ts";
+import {
+  cancelConfirm,
+  confirmErrorDetail,
+  confirmResult,
+  pendingConfirmFromTurn,
+} from "./ask-confirm.ts";
 
 describe("confirmResult", () => {
   it("clears pending and shows follow-up text after a succeeded confirm", () => {
@@ -29,6 +34,35 @@ describe("confirmResult", () => {
       clearPending: false,
       text: null,
     });
+  });
+});
+
+describe("pendingConfirmFromTurn", () => {
+  it("returns null when confirmation.cancelled is true on a reopened turn", () => {
+    assert.equal(
+      pendingConfirmFromTurn({
+        confirmation: {
+          operation_id: "op-1",
+          revision: 2,
+          contact_id: "contact-a",
+          cancelled: true,
+        },
+      }),
+      null,
+    );
+  });
+
+  it("still returns pending when confirmation is not cancelled", () => {
+    assert.deepEqual(
+      pendingConfirmFromTurn({
+        confirmation: {
+          operation_id: "op-1",
+          revision: 2,
+          contact_id: "contact-a",
+        },
+      }),
+      { operationId: "op-1", revision: 2, contactId: "contact-a" },
+    );
   });
 });
 

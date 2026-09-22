@@ -1,12 +1,19 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/shared/lib/api-client";
-import { cancelConfirm, confirmErrorDetail, confirmResult, type AskConfirmBody } from "@/lib/ask-confirm";
+import {
+  cancelConfirm,
+  confirmErrorDetail,
+  confirmResult,
+  pendingConfirmFromTurn,
+  type AskConfirmBody,
+  type AskTurnConfirmation,
+} from "@/lib/ask-confirm";
 import { askConfirmPrompt } from "@/lib/product-catalog";
 import { useLanguage } from "@/lib/i18n";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
 import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
-import { askConfirmation, askSituation } from "@/lib/ask-situation";
+import { askSituation } from "@/lib/ask-situation";
 
 const STORAGE_KEY = "vocify-ask-turn";
 
@@ -18,7 +25,7 @@ type AskTurnBody = {
   text: string;
   coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
   item_count?: number;
-  confirmation?: { operation_id?: string; revision?: number; contact_id?: string } | null;
+  confirmation?: AskTurnConfirmation | null;
   choices?: AskChoice[];
 };
 
@@ -36,7 +43,7 @@ export default function AskPanel() {
   const [draft, setDraft] = useState("");
   const [read, setRead] = useState<{ coverage?: AskTurnBody["coverage"]; items?: number }>({});
   const [turnChoices, setTurnChoices] = useState<AskChoice[]>([]);
-  const [pendingConfirm, setPendingConfirm] = useState<ReturnType<typeof askConfirmation>>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<ReturnType<typeof pendingConfirmFromTurn>>(null);
   const [view, setView] = useState<AskView>(emptyAsk());
   const [conversationId] = useState("conv-1");
 
@@ -56,7 +63,7 @@ export default function AskPanel() {
           text: turn.text,
         }));
         setRead({ coverage: turn.coverage, items: turn.item_count });
-        setPendingConfirm(askConfirmation(turn));
+        setPendingConfirm(pendingConfirmFromTurn(turn));
         setTurnChoices(askChoices(turn));
       })
       .catch(() => undefined);
@@ -84,7 +91,7 @@ export default function AskPanel() {
             ),
           );
           setRead({ coverage: turn.coverage, items: turn.item_count });
-          setPendingConfirm(askConfirmation(turn));
+          setPendingConfirm(pendingConfirmFromTurn(turn));
           setTurnChoices(askChoices(turn));
         })
         .catch(() => {
@@ -107,7 +114,7 @@ export default function AskPanel() {
     });
     setView(next);
     setRead({ coverage: turn.coverage, items: turn.item_count });
-    setPendingConfirm(askConfirmation(turn));
+    setPendingConfirm(pendingConfirmFromTurn(turn));
     setTurnChoices(askChoices(turn));
     if (next.turnId) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));

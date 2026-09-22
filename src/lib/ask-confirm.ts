@@ -1,3 +1,33 @@
+export type AskTurnConfirmation = {
+  operation_id?: string;
+  revision?: number;
+  contact_id?: string;
+  cancelled?: boolean;
+};
+
+export type PendingConfirm = {
+  operationId: string;
+  revision: number;
+  contactId: string;
+};
+
+export function pendingConfirmFromTurn(turn: {
+  confirmation?: AskTurnConfirmation | null;
+}): PendingConfirm | null {
+  const confirmation = turn.confirmation;
+  if (confirmation?.cancelled === true) {
+    return null;
+  }
+  if (!confirmation?.operation_id || confirmation.revision == null || !confirmation.contact_id) {
+    return null;
+  }
+  return {
+    operationId: confirmation.operation_id,
+    revision: confirmation.revision,
+    contactId: confirmation.contact_id,
+  };
+}
+
 export type AskConfirmBody = {
   status?: string;
   text?: string;
