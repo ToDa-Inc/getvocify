@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 
+from app.services.hoy.assigned import collect_assigned, connection_assigned_fetch
 from app.services.hoy.priority import empty_priority_copy, rank_candidates
 
 
@@ -124,6 +126,72 @@ def invalidate_context(rows: list[dict], reason: str) -> list[dict]:
     return updated
 
 
+def snapshot_from_fetch_page(page: dict) -> dict:
+    """A forbidden or unavailable read must not look like an empty complete CRM."""
+    coverage = page.get("coverage") or "unavailable"
+    return {
+        "connected": True,
+        "coverage": coverage,
+        "assigned": coverage == "complete",
+        "candidates": [],
+        "observed_at": page.get("observed_at"),
+    }
+
+
+def persist_context_rows(supabase, rows: list[dict]) -> None:
+    if not rows:
+        return
+    payload = []
+    for row in rows:
+        payload.append({
+            "company_id": row["company_id"],
+            "connection_id": row["connection_id"],
+            "contact_id": row["contact_id"],
+            "deal_id": row.get("deal_id") or "",
+            "owner_user_id": row.get("owner_user_id"),
+            "owner_ambiguous": bool(row.get("owner_ambiguous")),
+            "coverage": row["coverage"],
+            "history_complete": bool(row.get("history_complete")),
+            "observed_at": row.get("observed_at"),
+            "payload": row.get("payload") or {},
+        })
+    supabase.table("contact_priority_context").upsert(
+        payload,
+        on_conflict="company_id,connection_id,contact_id,deal_id",
+    ).execute()
+
+
+def maybe_refresh_assigned_context(
+    supabase,
+    company_id: str,
+    connection: dict,
+    rows: list[dict],
+    members: list[dict],
+    *,
+    observed_at: str,
+    fetch_factory: Callable[[dict], Callable[[dict], dict]] = connection_assigned_fetch,
+) -> tuple[list[dict], dict | None]:
+    """Fetch assigned contacts once when the cache is empty and the CRM token is live."""
+    if rows:
+        return rows, None
+    token = str(connection.get("access_token") or "").strip()
+    provider = str(connection.get("provider") or "").strip().lower()
+    if not token or provider not in {"hubspot", "pipedrive"}:
+        return rows, None
+    connection_id = str(connection.get("id") or "")
+    fetch = fetch_factory(connection)
+    page = collect_assigned(provider, fetch, connection_id=connection_id, observed_at=observed_at)
+    folded = fold_context(company_id=company_id, pages=[page], members=members, previous=rows)
+    if folded:
+        persist_context_rows(supabase, folded)
+        return folded, None
+    if page.get("items"):
+        return rows, None
+    if page.get("coverage") in {"forbidden", "unavailable", "partial"}:
+        return rows, snapshot_from_fetch_page(page)
+    return rows, None
+
+
 def snapshot_from_rows(rows: list[dict], *, connected: bool) -> dict:
     if not connected:
         return {"connected": False, "coverage": "unavailable", "candidates": [], "observed_at": None}
@@ -175,17 +243,17 @@ def _sql_literal(value) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def load_context(supabase, company_id: str) -> tuple[bool, list[dict]]:
+def load_context(supabase, company_id: str) -> tuple[bool, list[dict], str | None, str | None, dict | None]:
     """A company is connected only when a CRM row is status=connected. Expired tokens are not an empty list."""
     connections = (
         supabase.table("crm_connections")
-        .select("id,status,company_id,provider,metadata")
+        .select("id,status,company_id,provider,metadata,access_token")
         .eq("company_id", company_id)
         .execute()
     )
     live = next((row for row in (connections.data or []) if row.get("status") == "connected"), None)
     if not live:
-        return False, [], None, None
+        return False, [], None, None, None
     meta = live.get("metadata") or {}
     portal = meta.get("portal_id") or meta.get("hub_id")
     stored = (
@@ -194,7 +262,7 @@ def load_context(supabase, company_id: str) -> tuple[bool, list[dict]]:
         .eq("company_id", company_id)
         .execute()
     )
-    return True, list(stored.data or []), live.get("provider"), str(portal) if portal else None
+    return True, list(stored.data or []), live.get("provider"), str(portal) if portal else None, live
 
 
 def upsert_statements(rows: list[dict]) -> str:

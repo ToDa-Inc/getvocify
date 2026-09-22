@@ -11,6 +11,7 @@ Estado: reglas C09 y el enlace a contactos del CRM cuando hay proveedor conocido
 | La web no convierte un 403 en lista vacía y conserva la lectura anterior si el refetch falla | `3b6a687` | `src/lib/contact-priorities.test.ts` |
 | Migración `042_contact_priority_context.sql` | `3b6a687` | Tabla también en `full_reset.sql` |
 | Página incompleta de HubSpot o Pipedrive no es «nunca llamado»; email ambiguo no asigna; el mismo nombre no asigna; un fallo conserva la hora | este commit | `tests/hoy/test_priority_context.py` 4 passed, incluido Postgres aislado |
+| `GET /contact-priorities` con caché vacía y token CRM hace una lectura asignada; la segunda petición no vuelve al CRM; 403 no es lista completa vacía | este commit | `tests/hoy/test_priority_http.py` |
 
 ## No verificado
 
