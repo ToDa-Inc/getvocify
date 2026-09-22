@@ -14,6 +14,7 @@ const SECTIONS = [
   { to: "/dashboard/settings/calling", label: "Calling" },
   { to: "/dashboard/settings/offer", label: "Offer" },
   { to: "/dashboard/settings/glossary", label: "Glossary" },
+  { to: "/dashboard/settings/playbooks", label: "Proceso" },
   { to: "/dashboard/settings/team", label: "Team" },
   { to: "/dashboard/settings/usage", label: "Usage" },
   { to: "/dashboard/settings/billing", label: "Billing" },
