@@ -11,6 +11,8 @@ import type {
   UploadMemoResponse, 
   ApproveMemoPayload,
   UsageResponse,
+  FollowupView,
+  FollowupActionPayload,
 } from './types';
 
 /**
@@ -174,6 +176,20 @@ export const memosApi = {
    */
   delete: (id: string): Promise<void> => {
     return api.delete<void>(`/memos/${id}`);
+  },
+
+  /**
+   * Follow-up draft for a memo (polled while it is being written)
+   */
+  getFollowup: (id: string): Promise<FollowupView> => {
+    return api.get<FollowupView>(`/memos/${id}/followup`);
+  },
+
+  /**
+   * Record the hand-off (sent or copied) with the rep's final text
+   */
+  followupAction: (id: string, payload: FollowupActionPayload): Promise<FollowupView> => {
+    return api.post<FollowupView>(`/memos/${id}/followup`, payload);
   },
 };
 

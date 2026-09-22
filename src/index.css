@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&display=swap');
 @import "./styles/tokens.css";
+@import "../shared/ui/vocify-ui.css";
 
 @font-face {
   font-family: 'Geist';

@@ -7,6 +7,7 @@ import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
+import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
@@ -541,6 +542,7 @@ const MemoDetail = () => {
                 </Button>
               </div>
             ) : null}
+            {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
                 key={id || ""}
