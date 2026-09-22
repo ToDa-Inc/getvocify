@@ -192,6 +192,13 @@
       </div>
 
       <v-followup id="review-followup" hidden></v-followup>
+      <form id="review-note" hidden>
+        <label>Nota
+          <textarea id="review-note-text" rows="2"></textarea>
+        </label>
+        <button type="submit">Guardar nota</button>
+        <p id="review-note-status"></p>
+      </form>
 
       <div id="review-loading-section" class="review-loading" style="display: none;">
         <div class="live-loader" aria-hidden="true">

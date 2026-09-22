@@ -18,3 +18,4 @@ Estado: la nota humana se guarda antes de tener memo. No está cerrada.
 - El `PUT` guarda la nota en `interaction_annotations`. Una revisión vieja no cambia el texto ni el `offset_ms`.
 - El detalle del memo lee `GET /memos/{id}/objections`. Una fila sustituida no se muestra. Sin filas no se afirma que no hubo objeciones.
 - La extracción guarda las objeciones como patrones. Una extracción posterior sin ellas deja de contarlas. Otro patrón no se toca.
+- La revisión de la extensión tiene el campo de nota. El escritorio no tiene esa pantalla.

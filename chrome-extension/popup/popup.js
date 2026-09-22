@@ -6,6 +6,7 @@
 
 import { api } from '../lib/api.js';
 import { briefForContact, briefOnContact, briefRequest } from '../shared/ui/brief.js';
+import { noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
 import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
@@ -350,10 +351,34 @@ function stopFollowup() {
   followupEl.hidden = true;
   followupEl.data = null;
   delete followupEl.dataset.memoId;
+  const noteForm = document.getElementById('review-note');
+  if (noteForm) noteForm.hidden = true;
 }
+
+document.getElementById('review-note')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const memoId = form.dataset.memoId;
+  const field = document.getElementById('review-note-text');
+  const status = document.getElementById('review-note-status');
+  const body = noteSaveBody(field?.value, 0);
+  if (!memoId || !body) return;
+  try {
+    await api.put(`/memos/${memoId}/annotations/note-${crypto.randomUUID()}`, body);
+    if (field) field.value = '';
+    if (status) status.textContent = 'Nota guardada';
+  } catch {
+    if (status) status.textContent = 'No se pudo guardar la nota';
+  }
+});
 
 async function loadFollowup(memoId, attempt = 0) {
   clearTimeout(followupTimer);
+  const noteForm = document.getElementById('review-note');
+  if (noteForm && isCurrentReviewMemo(memoId)) {
+    noteForm.hidden = false;
+    noteForm.dataset.memoId = memoId;
+  }
   if (!followupEl || !isCurrentReviewMemo(memoId)) return;
   let view;
   try {
