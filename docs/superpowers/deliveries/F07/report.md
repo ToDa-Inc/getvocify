@@ -21,7 +21,8 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Pipedrive no se rechaza como «solo HubSpot»; queda no disponible | `8d11e42` | `tests/crm_providers/test_context_contract.py` |
 | Esa no disponibilidad no se guarda como una respuesta vacía | `d1c464b` | `tests/crm_copilot/test_web_turns.py` |
 | Confirmar exige operación, revisión y contacto; sin contacto no hay botón | `98bc0fd` | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-situation.test.ts` |
-| La propuesta queda guardada y solo se confirma para ese contacto | este commit | `tests/crm_copilot/test_ask_http.py` |
+| La propuesta queda guardada y solo se confirma para ese contacto | `0a36037` | `tests/crm_copilot/test_ask_http.py` |
+| Confirmar de verdad llama al loop una vez; otro contacto y un repetido no | este commit | `tests/crm_copilot/test_ask_http.py` |
 
 ## No verificado
 

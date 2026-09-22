@@ -122,7 +122,7 @@ def bind_ask_actor(user_id: str, company_id: str) -> None:
     _actor["company_id"] = company_id
 
 
-async def live_ask_loop(text: str):
+async def live_ask_loop(text: str, confirm: bool | None = None):
     """Same copilot loop as WhatsApp. A failure leaves the turn pending."""
     import logging
 
@@ -142,6 +142,7 @@ async def live_ask_loop(text: str):
             execute=execute_tool,
             tools=OPENAI_TOOLS,
             system=build_system_prompt(artifacts),
+            confirm=confirm,
             ctx=CopilotContext(supabase=get_supabase(), user_id=user_id, artifacts=artifacts),
         )
     except Exception:

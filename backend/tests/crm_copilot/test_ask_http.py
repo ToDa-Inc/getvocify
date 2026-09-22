@@ -270,7 +270,12 @@ def test_the_web_turn_runs_the_loop_once_and_keeps_an_empty_read():
 
 
 def test_a_proposed_confirmation_can_be_confirmed_for_that_contact_only():
-    async def loop(_text: str) -> dict:
+    calls = []
+
+    async def loop(_text: str, confirm=None):
+        calls.append(confirm)
+        if confirm:
+            return {"text": "Nota creada"}
         return {
             "text": "¿Creo la nota?",
             "confirmation": {
@@ -294,12 +299,20 @@ def test_a_proposed_confirmation_can_be_confirmed_for_that_contact_only():
             json={"revision": 2, "contact_id": "contact-b"},
         )
         assert wrong.status_code == 409
+        assert calls == [None]
         right = client.post(
             "/api/v1/ask/conversations/conv-1/operations/op-9/confirm",
             json={"revision": 2, "contact_id": "contact-a"},
         )
         assert right.status_code == 200
         assert right.json()["applied"] is True
+        assert right.json()["text"] == "Nota creada"
+        repeat = client.post(
+            "/api/v1/ask/conversations/conv-1/operations/op-9/confirm",
+            json={"revision": 2, "contact_id": "contact-a"},
+        )
+        assert repeat.json()["replayed"] is True
+        assert calls == [None, True]
     finally:
         ask_api.set_ask_loop(None)
 

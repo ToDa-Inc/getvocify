@@ -214,6 +214,12 @@ async def confirm_ask_operation(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except UncertainOperation as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if not result.get("replayed") and _loop is not None:
+        follow = _loop("", confirm=True)
+        if asyncio.iscoroutine(follow):
+            follow = await follow
+        if isinstance(follow, dict) and follow.get("text"):
+            result = {**result, "text": follow["text"]}
     _OPERATIONS[key] = result
     return result
 
