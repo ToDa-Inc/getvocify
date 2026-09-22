@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.reporting.delivery import claim_report_statement, deliver_report, period_bounds
+from app.services.reporting.delivery import claim_report_statement, deliver_report, period_bounds, send_report_email
 from app.services.reporting.resend_sender import ResendReportSender
 from app.api.reports import bell_items
 
@@ -84,6 +84,17 @@ class FakeResendClient:
             {"to": to, "subject": subject, "html": html, "from_email": from_email, "idempotency_key": idempotency_key}
         )
         return {"id": "msg-resend-1"}
+
+
+def test_send_report_email_passes_idempotency_key_into_sender_send_once():
+    report = {"id": "report-1", "revision": 1}
+    sender = Sender()
+    first = send_report_email(report, sender)
+    assert first["delivery_status"] == "sent"
+    assert sender.sent == ["report-1:r1:email"]
+    second = send_report_email(report, sender, existing=first)
+    assert second["replayed"] is True
+    assert sender.sent == ["report-1:r1:email"]
 
 
 def test_resend_adapter_passes_idempotency_key_and_replay_skips_send():

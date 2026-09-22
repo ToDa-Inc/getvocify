@@ -19,6 +19,25 @@ class ReportResendClient(Protocol):
     ) -> dict[str, Any]: ...
 
 
+def report_resend_sender(
+    resend_client: ReportResendClient | None,
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    from_email: str | None = None,
+) -> ResendReportSender | None:
+    if resend_client is None:
+        return None
+    return ResendReportSender(
+        resend_client,
+        to=to,
+        subject=subject,
+        html=html,
+        from_email=from_email,
+    )
+
+
 class ResendReportSender:
     def __init__(
         self,

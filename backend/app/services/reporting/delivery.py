@@ -23,6 +23,11 @@ def claim_report_statement(*, company_id: str, user_id: str, scope: str, period_
     )
 
 
+def send_report_email(report: dict, sender, *, existing: dict | None = None) -> dict:
+    """Production email path: deliver_report with channel email and delivery allowed."""
+    return deliver_report(report=report, channel="email", existing=existing, sender=sender, allowed=True)
+
+
 def deliver_report(*, report: dict, channel: str, existing: dict | None, sender, allowed: bool) -> dict:
     key = f"{report['id']}:r{report['revision']}:{channel}"
     notification = {"report_id": report["id"], "kept": True}

@@ -14,7 +14,7 @@ La fecha que cuenta es la de la captura, no la del trabajo que termina después.
 
 | Un periodo local es un solo informe aunque cambie el horario; el correo fallido conserva la campana; un timeout no reenvía | `tests/reporting/test_delivery.py` 3 passed; migración `048` |
 
-El correo del informe pasa la clave de idempotencia a Resend (sin envío real verificado en vivo).
+La ruta de producción `send_report_email` usa el adaptador Resend cuando el caller inyecta cliente Resend (sin envío real verificado en vivo).
 
 ## No verificado
 
