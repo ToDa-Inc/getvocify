@@ -46,7 +46,7 @@ export function renderFollowup(view, lang) {
   <div class="v-followup__body" data-role="body" contenteditable="plaintext-only" spellcheck="true">${view.body}</div>
   ${view.to ? '' : html`<p class="v-followup__hint">${t.addEmail}</p>`}
   <footer class="v-followup__actions">
-    ${view.to ? html`<button type="button" class="${pill('email')}" data-action="send" data-value="email">${t.send}</button>` : ''}
+    ${view.to ? html`<button type="button" class="${pill('email')}" data-action="send" data-value="email">${t.openMail}</button>` : ''}
     ${view.phone ? html`<button type="button" class="${pill('whatsapp')}" data-action="send" data-value="whatsapp">${t.whatsapp}</button>` : ''}
     <button type="button" class="v-text-action" data-action="copy">${t.copy}</button>
   </footer>

@@ -12,6 +12,7 @@ Estado: código de C03 en la rama `feat/vocify-v1`. El esquema ya está aplicado
 | Se programa tras extracción, reextracción y WhatsApp. El buzón de voz no | `a161627` | Tres llamadas a `schedule_followup` |
 | GET para quien puede leer; POST solo el autor; manager `403`; no listo `409` | `2166650` | `tests/test_followup_api.py` 3 passed |
 | `<v-followup>` y hoja compartida | `bfa1ae3` | `shared/ui/ui.test.js` 14 passed |
+| Botón de correo: «Abrir en el correo», no «Enviar» | (este commit) | `shared/ui/ui.test.js` |
 | Extensión, desktop y web | `5b3b5a8`, `61ba0e7`, `ee4ee7b` | `npm run build` en verde para la web |
 
 ## No verificado

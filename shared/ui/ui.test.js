@@ -63,7 +63,9 @@ test('generating state is busy, announces itself, and reserves space', () => {
 
 test('ready state: email is primary, WhatsApp is ghost, copy always present', () => {
   const out = renderToString(renderFollowup(ready, 'es'));
-  assert.match(out, /class="v-pill v-pill--primary" data-action="send" data-value="email">Enviar</);
+  assert.match(out, /class="v-pill v-pill--primary" data-action="send" data-value="email">Abrir en el correo</);
+  assert.doesNotMatch(out, />Enviar</);
+  assert.doesNotMatch(out, /delivered/i);
   assert.match(out, /class="v-pill v-pill--ghost" data-action="send" data-value="whatsapp">WhatsApp</);
   assert.match(out, /data-action="copy">Copiar</);
   assert.doesNotMatch(out, /v-followup__hint/);
@@ -92,6 +94,8 @@ test('sent state says what we know: it was opened, not that it was delivered', (
   assert.match(wa, /Abierto en WhatsApp\./);
   assert.doesNotMatch(wa, /enviado/i);
   assert.doesNotMatch(wa, /delivered/i);
+  assert.doesNotMatch(mail, />Enviar</);
+  assert.doesNotMatch(mail, /data-value="email">Enviar</);
 });
 
 test('unavailable renders nothing; English labels switch with lang', () => {
