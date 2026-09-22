@@ -86,6 +86,30 @@ def test_repeating_an_approval_creates_one_activity_and_keeps_legacy_fields():
     assert payload["meeting"]["decision"] == "accept"
 
 
+def test_correcting_a_proposal_reuses_one_remote_activity():
+    writer = Writer()
+    accepted = register_meeting(
+        proposal=_proposal(),
+        decision="accept",
+        operation_key="op-1",
+        writer=writer,
+        stage_mapping=None,
+        existing=None,
+    )
+    corrected = register_meeting(
+        proposal={**_proposal(), "starts_at": "2026-09-30T14:00:00+00:00"},
+        decision="corrected",
+        operation_key="op-1",
+        writer=writer,
+        stage_mapping=None,
+        existing=accepted,
+        starts_at="2026-09-30T14:00:00+00:00",
+    )
+    assert writer.created == ["op-1"]
+    assert corrected["replayed"] is True
+    assert corrected["remote_id"] == "act-1"
+
+
 def test_a_timeout_is_reconciled_before_another_create_and_an_ambiguous_accept_is_refused():
     writer = Writer(fail_once=True)
     uncertain = register_meeting(

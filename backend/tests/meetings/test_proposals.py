@@ -17,7 +17,11 @@ from pathlib import Path
 import pytest
 
 from app.services.meetings.proposals import build_proposal, insert_proposal_statement, latest_proposal
-from app.services.meetings.time_resolution import local_time_is_ambiguous
+from app.services.meetings.time_resolution import local_time_is_ambiguous, resolve_phrase
+
+MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "046_meeting_proposals.sql"
+MEMO = "66666666-6666-6666-6666-666666666666"
+
 
 def test_the_newest_proposal_is_the_one_on_the_memo_and_none_is_empty():
     assert latest_proposal([]) is None
@@ -32,7 +36,6 @@ def test_the_newest_proposal_is_the_one_on_the_memo_and_none_is_empty():
     ])
     assert agreed["needs_review"] is False
     assert agreed["starts_at"] == "2026-09-29T15:00:00Z"
-MEMO = "66666666-6666-6666-6666-666666666666"
 
 
 def test_we_could_meet_is_not_a_confirmed_agreement():
@@ -68,6 +71,37 @@ def test_a_corrected_time_keeps_the_last_time_both_confirmed():
     assert proposal["precision"] == "exact"
     assert "ev-correction" in proposal["evidence_refs"]
     assert proposal["closes_deal"] is False
+
+
+def test_a_date_without_hour_does_not_default_to_nine():
+    resolved = resolve_phrase("quedamos el martes", tz_name="Europe/Madrid")
+    assert resolved["precision"] == "date_only"
+    assert resolved["starts_at"] is None
+    proposal = build_proposal(
+        proposal_id="meet-1",
+        phrase="quedamos el martes",
+        tz_name="Europe/Madrid",
+        evidence_refs=["ev-2"],
+    )
+    assert proposal["starts_at"] is None
+    assert "09:00" not in str(proposal.get("starts_at") or "")
+
+
+def test_reopening_review_keeps_the_same_proposal_and_decision():
+    stored = {
+        "proposal_id": "meet-1",
+        "agreement": "agreed",
+        "starts_at": "2026-09-29T15:00:00+00:00",
+        "created_at": "2026-09-22T12:00:00Z",
+        "timezone": "Europe/Madrid",
+        "decision": "accepted",
+        "crm_status": "succeeded",
+    }
+    first = latest_proposal([stored])
+    second = latest_proposal([stored])
+    assert first == second
+    assert first["decision"] == "accepted"
+    assert first["crm_status"] == "succeeded"
 
 
 def test_five_oclock_without_context_is_not_seventeen():

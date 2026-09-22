@@ -152,23 +152,23 @@ Esta decisión cierra A13 dentro del alcance V1; cambiarla a detección en vivo 
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] «Podríamos vernos» no produce un acuerdo confirmado.
+- [x] «Podríamos vernos» no produce un acuerdo confirmado.
 
-- [ ] Cambiar de 16:00 a 17:00 durante la conversación conserva 17:00.
+- [x] Cambiar de 16:00 a 17:00 durante la conversación conserva 17:00.
 
-- [ ] Una fecha sin hora no recibe las 09:00 por defecto.
+- [x] Una fecha sin hora no recibe las 09:00 por defecto.
 
-- [ ] Zona horaria y cambios de horario se prueban expresamente.
+- [x] Zona horaria y cambios de horario se prueban expresamente.
 
-- [ ] Repetir aprobación no crea dos actividades.
+- [x] Repetir aprobación no crea dos actividades.
 
-- [ ] Corregir una propuesta actualiza su decisión sin duplicar el KPI.
+- [x] Corregir una propuesta actualiza su decisión sin duplicar el KPI.
 
-- [ ] No se genera ningún evento de venta ganada a partir de este dato.
+- [x] No se genera ningún evento de venta ganada a partir de este dato.
 
-- [ ] Durante el meeting no aparece «Reunión detectada» en el overlay; después de completar extracción sí aparece en la revisión cuando hay evidencia, sin escribir aún en CRM.
+- [x] Durante el meeting no aparece «Reunión detectada» en el overlay; después de completar extracción sí aparece en la revisión cuando hay evidencia, sin escribir aún en CRM.
 
-- [ ] Ausencia de acuerdo, extracción pendiente y acuerdo con fecha incompleta producen estados distintos; reabrir la revisión recupera la misma propuesta y decisión.
+- [x] Ausencia de acuerdo, extracción pendiente y acuerdo con fecha incompleta producen estados distintos; reabrir la revisión recupera la misma propuesta y decisión.
 
 ### Riesgos / edge cases conocidos
 

@@ -160,6 +160,24 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
+def test_get_returns_the_stored_proposal_for_memo_review():
+    client = _client()
+    response = client.get(f"/api/v1/memos/{MEMO}/meeting-proposal")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["proposal"]["proposal_id"] == "meet-1"
+    assert body["proposal"]["decision"] == "pending"
+    assert body["proposal"]["crm_status"] == "not_requested"
+
+
+def test_get_returns_null_when_no_proposal_row():
+    STORE.tables["meeting_proposals"] = []
+    client = _client()
+    response = client.get(f"/api/v1/memos/{MEMO}/meeting-proposal")
+    assert response.status_code == 200
+    assert response.json()["proposal"] is None
+
+
 def test_accept_once_replay_does_not_create_second_remote_id():
     client = _client()
     body = {"decision": "accept", "proposal_id": "meet-1"}

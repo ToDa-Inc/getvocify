@@ -45,6 +45,35 @@ describe("meeting proposal review", () => {
     assert.equal(markup.includes(t.meetingOmit), true);
   });
 
+  it("shows distinct review states for pending extraction, no agreement, and incomplete date", () => {
+    const t = strings("es");
+    const pending = meetingProposalView(null, { extractionPending: true, lang: "es" });
+    const noAgreement = meetingProposalView(
+      { agreement: "unknown", starts_at: null, needs_review: true, decision: "pending", crm_status: "not_requested" },
+      { surface: "review", lang: "es" },
+    );
+    const incomplete = meetingProposalView(
+      { agreement: "agreed", starts_at: null, needs_review: true, precision: "date_only", decision: "pending", crm_status: "not_requested" },
+      { surface: "review", lang: "es" },
+    );
+    assert.equal(pending.title, t.meetingChecking);
+    assert.equal(noAgreement.save, false);
+    assert.equal(incomplete.title, t.meetingPending);
+    assert.notEqual(pending.title, incomplete.title);
+  });
+
+  it("shows detected in review after extraction without a CRM write yet", () => {
+    const t = strings("es");
+    const view = meetingProposalView(
+      { ...agreed, decision: "pending", crm_status: "not_requested" },
+      { surface: "review", lang: "es" },
+    );
+    const markup = renderToString(renderMeetingProposal(view));
+    assert.equal(view.title, t.meetingDetected);
+    assert.equal(view.save, true);
+    assert.equal(markup.includes(t.meetingSaved), false);
+  });
+
   it("does not call an uncertain CRM write saved", () => {
     const t = strings("es");
     const view = meetingProposalView(
