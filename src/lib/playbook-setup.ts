@@ -43,3 +43,19 @@ export function applyPublishResult(
   }
   return { ...motions, [key]: "published" };
 }
+
+export function motionAfterImport(
+  status: MotionStatus,
+  record: { status: string; published: boolean; reason?: string | null },
+): { status: MotionStatus; error: string | null } {
+  if (record.status === "failed") {
+    const error = record.reason === "pdf_has_no_text"
+      ? "El PDF no tiene texto. Prueba con otro archivo o pega el texto."
+      : "No se ha podido importar.";
+    return { status, error };
+  }
+  if (record.status === "ready" && record.published === false && status !== "published") {
+    return { status: "draft", error: null };
+  }
+  return { status, error: null };
+}

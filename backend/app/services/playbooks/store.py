@@ -28,6 +28,19 @@ class MemoryPlaybookStore:
         self._motions.setdefault(company_id, {})[key] = "published"
         return updated
 
+    def add_type(self, company_id: str, key: str, name: str, role: str) -> dict:
+        from app.services.playbooks.versions import can_publish
+
+        if not can_publish(role):
+            raise PublishError("forbidden")
+        cleaned = (key or "").strip()
+        if not cleaned:
+            raise PublishError("empty_type")
+        company = self._motions.setdefault(company_id, {})
+        company.setdefault(cleaned, "missing")
+        del name
+        return dict(company)
+
 
 class SupabasePlaybookStore:
     def __init__(self, supabase):
@@ -85,3 +98,22 @@ class SupabasePlaybookStore:
         if outcome != "published":
             raise PublishError("not_a_draft")
         return updated
+
+    def add_type(self, company_id: str, key: str, name: str, role: str) -> dict:
+        from app.services.playbooks.versions import can_publish
+
+        if not can_publish(role):
+            raise PublishError("forbidden")
+        cleaned = (key or "").strip()
+        if not cleaned:
+            raise PublishError("empty_type")
+        result = self.supabase.rpc(
+            "add_interaction_type",
+            {"p_company": company_id, "p_key": cleaned, "p_name": name or cleaned},
+        ).execute()
+        outcome = getattr(result, "data", None)
+        if isinstance(outcome, list):
+            outcome = outcome[0] if outcome else None
+        if outcome == "empty":
+            raise PublishError("empty_type")
+        return self.motions(company_id)

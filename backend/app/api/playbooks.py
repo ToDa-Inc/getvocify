@@ -31,6 +31,27 @@ def set_playbook_store(store) -> None:
     _store = store
 
 
+class TypeRequest(BaseModel):
+    type_key: str
+    name: str = ""
+
+
+@router.post("/types")
+async def create_type(body: TypeRequest, membership: Membership = Depends(get_membership)):
+    try:
+        motions = get_playbook_store().add_type(
+            membership.company_id,
+            body.type_key,
+            body.name or body.type_key,
+            membership.role,
+        )
+    except PublishError as exc:
+        if exc.code == "forbidden":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden añadir una tipología")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave")
+    return {"motions": motions}
+
+
 class ImportRequest(BaseModel):
     import_id: str
     kind: str

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyPublishResult, playbookNotice } from "./playbook-setup.ts";
+import { applyPublishResult, motionAfterImport, playbookNotice } from "./playbook-setup.ts";
 
 describe("playbook setup", () => {
   it("tells a member they cannot edit and an admin they can start", () => {
@@ -45,5 +45,18 @@ describe("playbook setup", () => {
       }),
       { discovery: "missing" },
     );
+  });
+
+  it("a pdf without text does not replace a published motion", () => {
+    const failed = motionAfterImport("published", {
+      status: "failed",
+      published: false,
+      reason: "pdf_has_no_text",
+    });
+    assert.equal(failed.status, "published");
+    assert.match(failed.error || "", /PDF/);
+    const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
+    assert.equal(drafted.status, "draft");
+    assert.equal(drafted.error, null);
   });
 });

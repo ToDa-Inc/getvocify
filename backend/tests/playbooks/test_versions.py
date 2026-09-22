@@ -246,6 +246,17 @@ def test_a_text_draft_is_stored_and_publishing_discovery_leaves_qualification_al
         assert psql(
             "SELECT count(*) FROM playbooks WHERE sales_motion_key = 'qualification';"
         ).stdout.strip() == "0"
+        assert psql("SELECT entries->0->>'source_ref' FROM playbook_versions;").stdout.strip() == "text:imp-1"
+        added = psql(f"SELECT add_interaction_type('{company}', 'renewal', 'Renovación');")
+        assert added.returncode == 0, added.stderr
+        assert added.stdout.strip() == "renewal"
+        psql(f"SELECT add_interaction_type('{company}', 'renewal', 'Renovación');")
+        assert psql("SELECT count(*) FROM interaction_types;").stdout.strip() == "1"
+        listed_with_type = psql(
+            f"SELECT sales_motion_key || ':' || motion_status FROM list_playbook_motions('{company}') ORDER BY 1;"
+        )
+        assert listed_with_type.stdout.split() == ["discovery:published", "renewal:missing"]
+        assert psql(f"SELECT publish_playbook_motion('{company}', 'renewal');").stdout.strip() == "not_a_draft"
     finally:
         proc.terminate()
         proc.wait(timeout=8)
@@ -338,4 +349,34 @@ def test_the_publish_route_asks_postgres_for_one_motion_only():
         ] == ["discovery"]
     finally:
         set_playbook_store(None)
+
+
+def test_adding_a_typology_does_not_publish_it_and_a_member_cannot():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import playbooks as playbooks_api
+    from app.api.playbooks import router as playbooks_router
+    from app.deps import get_membership
+    from app.services.company import Membership
+
+    playbooks_api._MOTIONS.clear()
+    role = {"value": "member"}
+    app = FastAPI()
+    app.include_router(playbooks_router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co", user_id="u", role=role["value"], status="active",
+    )
+    client = TestClient(app)
+    denied = client.post("/api/v1/playbooks/types", json={"type_key": "renewal", "name": "Renovación"})
+    assert denied.status_code == 403
+    role["value"] = "owner"
+    empty = client.post("/api/v1/playbooks/types", json={"type_key": "  ", "name": "Vacía"})
+    assert empty.status_code == 409
+    created = client.post("/api/v1/playbooks/types", json={"type_key": "renewal", "name": "Renovación"})
+    assert created.status_code == 200
+    assert created.json()["motions"]["renewal"] == "missing"
+    assert created.json()["motions"].get("discovery") != "published"
+    again = client.post("/api/v1/playbooks/types", json={"type_key": "renewal", "name": "Renovación"})
+    assert again.json()["motions"]["renewal"] == "missing"
 

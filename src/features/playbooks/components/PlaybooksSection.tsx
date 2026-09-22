@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
-import { applyPublishResult, playbookNotice, type MotionStatus, type PlaybookRole } from "@/lib/playbook-setup";
+import {
+  applyPublishResult,
+  motionAfterImport,
+  playbookNotice,
+  type MotionStatus,
+  type PlaybookRole,
+} from "@/lib/playbook-setup";
 import { api } from "@/shared/lib/api-client";
 
 const MOTIONS = ["discovery", "qualification", "closing"] as const;
@@ -27,7 +33,10 @@ export default function PlaybooksSection() {
     closing: "missing",
   });
   const [text, setText] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [typeKey, setTypeKey] = useState("");
   const notice = playbookNotice(role, motions);
+  const keys = Array.from(new Set<string>([...MOTIONS, ...Object.keys(motions)]));
 
   useEffect(() => {
     let cancelled = false;
@@ -43,17 +52,27 @@ export default function PlaybooksSection() {
     };
   }, []);
 
-  async function saveDraft(key: string) {
-    const payload = (text[key] || "").trim();
-    if (!payload) return;
-    const record = await api.post<{ status: string; published: boolean }>("/playbooks/imports", {
-      import_id: crypto.randomUUID(),
-      kind: "text",
-      payload,
-      sales_motion_key: key,
+  async function saveDraft(key: string, kind: "text" | "pdf", payload: string) {
+    const body = payload.trim();
+    if (!body) return;
+    const record = await api.post<{ status: string; published: boolean; reason?: string | null }>(
+      "/playbooks/imports",
+      {
+        import_id: crypto.randomUUID(),
+        kind,
+        payload: body,
+        sales_motion_key: key,
+      },
+    );
+    const next = motionAfterImport(motions[key] || "missing", record);
+    setErrors((current) => {
+      const copy = { ...current };
+      if (next.error) copy[key] = next.error;
+      else delete copy[key];
+      return copy;
     });
-    if (record.status === "ready" && record.published === false) {
-      setMotions((current) => (current[key] === "published" ? current : { ...current, [key]: "draft" }));
+    if (next.status !== (motions[key] || "missing")) {
+      setMotions((current) => ({ ...current, [key]: next.status }));
     }
   }
 
@@ -73,17 +92,48 @@ export default function PlaybooksSection() {
     }
   }
 
+  async function addType() {
+    const key = typeKey.trim();
+    if (!key) return;
+    const data = await api.post<{ motions: Record<string, MotionStatus> }>("/playbooks/types", {
+      type_key: key,
+      name: key,
+    });
+    setMotions((current) => ({ ...current, ...data.motions }));
+    setTypeKey("");
+  }
+
   return (
     <div>
       <h2 className="text-lg font-medium mb-2">Proceso comercial</h2>
       <PlaybookSetupNotice role={role} motions={motions} />
+      {notice.canEdit ? (
+        <form
+          className="mb-4 flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void addType();
+          }}
+        >
+          <input
+            className="rounded-lg border border-border bg-transparent px-3 py-1 text-sm"
+            value={typeKey}
+            placeholder="Nueva tipología"
+            onChange={(event) => setTypeKey(event.target.value)}
+          />
+          <button type="submit" className="rounded-full border border-border px-3 py-1 text-sm">
+            Añadir tipología
+          </button>
+        </form>
+      ) : null}
       <ul className="space-y-3">
-        {MOTIONS.map((key) => (
+        {keys.map((key) => (
           <li key={key} className="rounded-xl border border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="capitalize">{key}</span>
-              <span className="text-sm text-muted-foreground">{LABEL[motions[key]]}</span>
+              <span className="text-sm text-muted-foreground">{LABEL[motions[key] || "missing"]}</span>
             </div>
+            {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{errors[key]}</p> : null}
             {notice.canEdit && motions[key] !== "published" ? (
               <div className="mt-3 space-y-2">
                 <textarea
@@ -93,14 +143,27 @@ export default function PlaybooksSection() {
                   placeholder="Pega cómo vendéis en esta tipología"
                   onChange={(event) => setText((current) => ({ ...current, [key]: event.target.value }))}
                 />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     className="rounded-full border border-border px-3 py-1 text-sm"
-                    onClick={() => void saveDraft(key)}
+                    onClick={() => void saveDraft(key, "text", text[key] || "")}
                   >
                     Guardar borrador
                   </button>
+                  <label className="rounded-full border border-border px-3 py-1 text-sm">
+                    Importar PDF
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      className="sr-only"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void file.text().then((payload) => saveDraft(key, "pdf", payload));
+                      }}
+                    />
+                  </label>
                   {motions[key] === "draft" ? (
                     <button
                       type="button"
