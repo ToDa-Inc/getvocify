@@ -2,6 +2,12 @@ export type AppLanguage = 'EN' | 'ES';
 
 export type StoredAppLanguage = 'en' | 'es';
 
+export type HtmlLang = StoredAppLanguage;
+
+export function htmlLang(lang: AppLanguage): HtmlLang {
+  return lang === 'EN' ? 'en' : 'es';
+}
+
 const VOCIFY_LANG_KEY = 'vocify_lang';
 
 export function readStoredAppLanguage(): StoredAppLanguage | null {

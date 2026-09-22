@@ -14,6 +14,7 @@ Estado: código de C03 en la rama `feat/vocify-v1`. El esquema ya está aplicado
 | `<v-followup>` y hoja compartida | `bfa1ae3` | `shared/ui/ui.test.js` 14 passed |
 | Botón de correo: «Abrir en el correo», no «Enviar» | (este commit) | `shared/ui/ui.test.js` |
 | Extensión, desktop y web | `5b3b5a8`, `61ba0e7`, `ee4ee7b` | `npm run build` en verde para la web |
+| Web: `<html lang>`, `<v-followup lang>` y toasts del seguimiento desde `t.product` | (este commit) | `node --test src/lib/app-language.test.ts` |
 
 ## No verificado
 

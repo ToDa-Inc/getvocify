@@ -3,6 +3,7 @@ import { productCatalog, type ProductTranslations } from './product-catalog';
 import { setApiRequestLanguage, type ApiRequestLanguage } from '@/shared/lib/api-request-language';
 import {
   appLanguageToPersistFromVisit,
+  htmlLang,
   publicPathForLanguage,
   readStoredAppLanguage,
   resolveAppLanguage,
@@ -413,6 +414,10 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
     setLanguage(resolved);
     setApiRequestLanguage(apiLanguageFromAppLanguage(resolved));
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = htmlLang(language);
+  }, [language]);
 
   const t = translations[language];
 

@@ -173,6 +173,9 @@ export const productCatalog = {
     offerSaving: "Saving…",
     offerSavedToast: "Product context saved",
     offerSaveFailedToast: "Could not save product context",
+    followupCopied: "Follow-up copied",
+    followupEmailBodyCopied: "Email body copied: paste it into the draft",
+    followupCompleteFailed: "Could not complete the follow-up",
     askConfirmFailed: "The confirmation could not be completed",
   },
   ES: {
@@ -349,6 +352,9 @@ export const productCatalog = {
     offerSaving: "Guardando…",
     offerSavedToast: "Contexto de producto guardado",
     offerSaveFailedToast: "No se pudo guardar el contexto de producto",
+    followupCopied: "Seguimiento copiado",
+    followupEmailBodyCopied: "Cuerpo del correo copiado: pégalo en el borrador",
+    followupCompleteFailed: "No se pudo completar el seguimiento",
     askConfirmFailed: "No se pudo completar la confirmación",
   },
 } as const;

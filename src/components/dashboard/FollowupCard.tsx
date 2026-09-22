@@ -6,6 +6,8 @@ import { composeTarget } from "@shared/ui/compose.js";
 import { memosApi } from "@/features/memos/api";
 import type { FollowupView } from "@/features/memos/types";
 import { useVElement, type VAction } from "@/hooks/use-v-element";
+import { useLanguage } from "@/lib/i18n";
+import { htmlLang } from "@/lib/app-language";
 
 const POLL_MS = 1500;
 
@@ -18,7 +20,9 @@ function openTarget(url: string) {
 
 /** The follow-up draft on the memo review, for the memo's author. */
 export function FollowupCard({ memoId }: { memoId: string }) {
+  const { language, t } = useLanguage();
   const queryClient = useQueryClient();
+  const uiLang = htmlLang(language);
   const { data } = useQuery({
     queryKey: ["memo-followup", memoId],
     queryFn: () => memosApi.getFollowup(memoId),
@@ -33,7 +37,7 @@ export function FollowupCard({ memoId }: { memoId: string }) {
       try {
         if (action === "copy") {
           await navigator.clipboard.writeText(body);
-          toast.success("Follow-up copied");
+          toast.success(t.product.followupCopied);
           await memosApi.followupAction(memoId, { action: "copied", channel: "email", subject, body });
           return;
         }
@@ -43,23 +47,23 @@ export function FollowupCard({ memoId }: { memoId: string }) {
         if (!url) return;
         if (!target.ok) {
           await navigator.clipboard.writeText(body);
-          toast("Email body copied: paste it into the draft");
+          toast(t.product.followupEmailBodyCopied);
         }
         openTarget(url);
         const next = await memosApi.followupAction(memoId, { action: "sent", channel, subject, body });
         queryClient.setQueryData(["memo-followup", memoId], next);
       } catch {
-        toast.error("Could not complete the follow-up");
+        toast.error(t.product.followupCompleteFailed);
       }
     },
-    [memoId, queryClient],
+    [memoId, queryClient, t.product],
   );
 
   const ref = useVElement(data, onAction);
   if (!data || data.status === "unavailable") return null;
   return (
     <div className="mb-4">
-      <v-followup ref={ref} />
+      <v-followup ref={ref} lang={uiLang} />
     </div>
   );
 }

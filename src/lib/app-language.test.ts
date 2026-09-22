@@ -1,6 +1,20 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { appLanguageToPersistFromVisit, resolveAppLanguage } from './app-language.ts';
+import {
+  appLanguageToPersistFromVisit,
+  htmlLang,
+  resolveAppLanguage,
+} from './app-language.ts';
+
+describe('htmlLang', () => {
+  it('EN maps to en', () => {
+    assert.equal(htmlLang('EN'), 'en');
+  });
+
+  it('ES maps to es', () => {
+    assert.equal(htmlLang('ES'), 'es');
+  });
+});
 
 describe('resolveAppLanguage', () => {
   it('stored en on /dashboard is EN', () => {
