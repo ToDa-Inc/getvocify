@@ -5,7 +5,9 @@ import { applyTranscriptUpdate, canStartListen, startDeniedMessage } from '../li
 import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
+import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.js';
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
+import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
 import { humanizeSaasError } from '../lib/saas.js';
 import { listenPermissionGate, permissionAction, permissionCopy, PERMISSION } from '../lib/permissions.js';
 import { pickMicConstraints } from '../lib/mic-devices.js';
@@ -77,6 +79,13 @@ function resetLiveAssistOverlay() {
     evidenceRefs: [],
     card: null,
   });
+}
+
+/** Copilot suggest/result payload — updates overlay live-assist slice. */
+export function applyCopilotSuggestionPayload(payload, { callMode, channel } = {}) {
+  const kind = liveAssistKind({ callMode, channel });
+  Object.assign(liveAssistOverlay, liveAssistOverlayFromCopilotPayload(payload, { kind }));
+  notifyShell();
 }
 
 function apiBase() {

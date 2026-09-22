@@ -9,6 +9,7 @@ Estado: la ayuda en vivo no sale en una llamada. No está cerrada.
 | Una llamada no muestra ayuda. Sin playbook o sin evidencia la tarjeta se queda en silencio | `shared/ui/copilot/suggestion-state.test.js` |
 | Listen en pestaña CRM usa `callMode`/`liveAssistKind` para tratar la sesión como reunión aunque `kind` siga en `call` | el mismo archivo |
 | El shell del escritorio reenvía `kind`, `playbookReady`, `evidenceRefs` y `card` al overlay | `desktop/lib/shell.test.js` |
+| El renderer del escritorio rellena `liveAssistOverlay` desde `playbook_ready`, `evidence_refs` y `text` del suggest | `desktop/lib/live-assist-overlay.test.js` |
 | Un paso se marca por evidencia, no por el tiempo transcurrido | el mismo archivo |
 | Cambiar de reunión descarta la respuesta anterior. Un evento SSE partido no se lee hasta cerrar el frame | el mismo archivo, 3 passed |
 | Extensión: el background reenvía `playbook_ready` / `evidence_refs` del SSE al gate de `#copilot-card` | `chrome-extension/lib/live-assist-gate.test.js` |
