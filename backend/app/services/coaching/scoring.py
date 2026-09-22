@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+from app.services.coaching.brief_preferences import publish_if_newer
+from app.services.coaching.briefs import materialize_brief
 from app.services.coaching.metrics import compute_adherence
 
 PROMPT_VERSION = "scoring_v1"
@@ -92,3 +94,97 @@ def _text(value) -> str:
     if value is None:
         return "NULL"
     return "'" + str(value).replace("'", "''") + "'"
+
+
+def store_memo_score(
+    supabase,
+    *,
+    memo_id: str,
+    input_revision: str,
+    revision_seq: int,
+    score: dict,
+    screening: str | None = None,
+    patterns: list[dict] | None = None,
+    playbook_present: bool = True,
+    job_error: bool = False,
+    audio_available: bool = False,
+) -> bool:
+    """Write memo_scores for this revision, then upsert post_interaction_briefs from aggregate_brief."""
+    if not _upsert_score_if_newer(supabase, memo_id, input_revision, revision_seq, score):
+        return False
+    brief = materialize_brief(
+        screening=screening,
+        score=score,
+        patterns=list(patterns or []),
+        playbook_present=playbook_present,
+        job_error=job_error,
+        input_revision=input_revision,
+        audio_available=audio_available,
+    )
+    _upsert_brief_if_newer(
+        supabase,
+        memo_id=memo_id,
+        input_revision=input_revision,
+        revision_seq=revision_seq,
+        status=brief["status"],
+        body=brief["body"],
+    )
+    return True
+
+
+def _upsert_score_if_newer(supabase, memo_id: str, input_revision: str, revision_seq: int, score: dict) -> bool:
+    stored = (
+        supabase.table("memo_scores")
+        .select("revision_seq")
+        .eq("memo_id", memo_id)
+        .eq("input_revision", input_revision)
+        .execute()
+    )
+    rows = list(getattr(stored, "data", None) or [])
+    if rows and (rows[0].get("revision_seq") or 0) >= revision_seq:
+        return False
+    (
+        supabase.table("memo_scores")
+        .upsert(
+            {
+                "memo_id": memo_id,
+                "input_revision": input_revision,
+                "revision_seq": revision_seq,
+                "playbook_version_id": score.get("playbook_version_id"),
+                "prompt_version": PROMPT_VERSION,
+                "score": score,
+            }
+        )
+        .execute()
+    )
+    return True
+
+
+def _upsert_brief_if_newer(
+    supabase,
+    *,
+    memo_id: str,
+    input_revision: str,
+    revision_seq: int,
+    status: str,
+    body: dict,
+) -> None:
+    stored = (
+        supabase.table("post_interaction_briefs")
+        .select("revision_seq")
+        .eq("memo_id", memo_id)
+        .eq("input_revision", input_revision)
+        .execute()
+    )
+    rows = list(getattr(stored, "data", None) or [])
+    current = rows[0] if rows else None
+    incoming = {
+        "memo_id": memo_id,
+        "input_revision": input_revision,
+        "revision_seq": revision_seq,
+        "status": status,
+        "body": body,
+    }
+    if publish_if_newer(current, incoming) is None:
+        return
+    supabase.table("post_interaction_briefs").upsert(incoming).execute()

@@ -78,3 +78,28 @@ def _coaching(score: dict | None, input_revision: str) -> dict:
         "strength": strengths[0] if strengths else None,
         "improvement": improvements[0] if improvements else None,
     }
+
+
+def materialize_brief(
+    *,
+    screening: str | None,
+    score: dict | None,
+    patterns: list[dict],
+    playbook_present: bool,
+    job_error: bool,
+    input_revision: str,
+    audio_available: bool,
+) -> dict:
+    """Aggregate coaching sources into a persisted brief row (status + JSON body)."""
+    aggregated = aggregate_brief(
+        screening=screening,
+        score=score,
+        patterns=patterns,
+        playbook_present=playbook_present,
+        job_error=job_error,
+        input_revision=input_revision,
+        audio_available=audio_available,
+    )
+    status = aggregated["status"]
+    body = {key: value for key, value in aggregated.items() if key != "status"}
+    return {"status": status, "input_revision": input_revision, "body": body}

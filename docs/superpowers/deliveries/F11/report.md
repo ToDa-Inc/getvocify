@@ -18,6 +18,8 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 
 | GET brief aplica la preferencia de destaque sin tocar status ni secciones; `not_started` no inventa `highlight` | `tests/coaching/test_brief_http.py` |
 
+| Tras guardar score, `store_memo_score` materializa fila en `post_interaction_briefs` vía `aggregate_brief` (buzón `skipped`) | `tests/coaching/test_briefs.py` |
+
 ## No verificado
 
 - Si todavía no hay fila, el memo muestra «El resumen todavía no está listo» y no dice que falte el proceso ni que el trabajo esté en curso. La preferencia de destaque está en Ajustes → Resúmenes.
