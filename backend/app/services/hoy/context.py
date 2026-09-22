@@ -173,6 +173,26 @@ def _sql_literal(value) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def load_context(supabase, company_id: str) -> tuple[bool, list[dict]]:
+    """A company is connected only when a CRM row is status=connected. Expired tokens are not an empty list."""
+    connections = (
+        supabase.table("crm_connections")
+        .select("id,status,company_id")
+        .eq("company_id", company_id)
+        .execute()
+    )
+    connected = any(row.get("status") == "connected" for row in (connections.data or []))
+    if not connected:
+        return False, []
+    stored = (
+        supabase.table("contact_priority_context")
+        .select("*")
+        .eq("company_id", company_id)
+        .execute()
+    )
+    return True, list(stored.data or [])
+
+
 def upsert_statements(rows: list[dict]) -> str:
     if not rows:
         return ""

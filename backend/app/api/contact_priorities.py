@@ -1,4 +1,4 @@
-"""GET /contact-priorities. Rows are the cached context, not a separate snapshot."""
+"""GET /contact-priorities. Reads contact_priority_context for the caller's company."""
 
 from __future__ import annotations
 
@@ -6,15 +6,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
 
-from app.deps import get_membership
+from app.deps import get_membership, get_supabase
 from app.services.company import Membership
-from app.services.hoy.context import build_priority_page, snapshot_from_rows
+from app.services.hoy.context import build_priority_page, load_context, snapshot_from_rows
 
 router = APIRouter(prefix="/api/v1", tags=["contact-priorities"])
 
-# company_id -> rows shaped like contact_priority_context. Tests fill this; a live reader can replace it.
-_ROWS: dict[str, list[dict]] = {}
-_CONNECTED: set[str] = set()
 _CLOCK = [datetime.now(timezone.utc)]
 
 
@@ -25,13 +22,15 @@ def _now() -> datetime:
 @router.get("/contact-priorities")
 async def list_contact_priorities(
     membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
     limit: int = Query(default=20, ge=1, le=50),
     cursor: str | None = None,
 ):
-    if membership.company_id not in _CONNECTED:
+    connected, rows = load_context(supabase, membership.company_id)
+    if not connected:
         snapshot = {"connected": False, "coverage": "unavailable", "candidates": []}
     else:
-        snapshot = snapshot_from_rows(_ROWS.get(membership.company_id) or [], connected=True)
+        snapshot = snapshot_from_rows(rows, connected=True)
     return build_priority_page(
         snapshot=snapshot,
         user_id=membership.user_id,

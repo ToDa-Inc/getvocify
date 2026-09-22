@@ -1,4 +1,4 @@
-"""F04 list: the route reads cached context rows, not a hand-built snapshot."""
+"""F04 list: the route selects context rows for the caller's company."""
 
 import os
 from datetime import datetime, timezone
@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import contact_priorities as api
-from app.deps import get_membership
+from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.hoy.assigned import parse_assigned_page
 from app.services.hoy.context import fold_context
@@ -21,12 +21,45 @@ NOW = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc)
 COMPANY = "11111111-1111-1111-1111-111111111111"
 
 
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    def __init__(self, rows):
+        self._rows = rows
+        self._filters = []
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, column, value):
+        self._filters.append((column, value))
+        return self
+
+    def execute(self):
+        rows = self._rows
+        for column, value in self._filters:
+            rows = [row for row in rows if row.get(column) == value]
+        return _Result(rows)
+
+
+class _Supabase:
+    def __init__(self):
+        self.tables = {"crm_connections": [], "contact_priority_context": []}
+
+    def table(self, name):
+        return _Query(self.tables.setdefault(name, []))
+
+
 def _client(user_id: str, role: str = "member", company_id: str = "co-1") -> TestClient:
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[get_membership] = lambda: Membership(
         id="m", company_id=company_id, user_id=user_id, role=role, status="active",
     )
+    app.dependency_overrides[get_supabase] = lambda: STORE
     return TestClient(app)
 
 
@@ -47,14 +80,19 @@ def _row(**overrides) -> dict:
     return row
 
 
+STORE = _Supabase()
+
+
 def setup_function():
-    api._ROWS.clear()
-    api._CONNECTED.clear()
+    STORE.tables = {"crm_connections": [], "contact_priority_context": []}
     api._CLOCK[0] = NOW
 
 
 def test_no_connection_is_not_an_empty_complete_list():
-    api._ROWS["co-1"] = [_row(payload={"pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z"})]
+    STORE.tables["crm_connections"] = [{"company_id": "co-1", "status": "expired"}]
+    STORE.tables["contact_priority_context"] = [
+        _row(payload={"pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z"}),
+    ]
     body = _client("user-a").get("/api/v1/contact-priorities").json()
     assert body["items"] == []
     assert body["coverage"] == "unavailable"
@@ -62,8 +100,8 @@ def test_no_connection_is_not_an_empty_complete_list():
 
 
 def test_rows_drive_empty_partial_and_the_personal_list():
-    api._CONNECTED.add("co-1")
-    api._ROWS["co-1"] = [_row(
+    STORE.tables["crm_connections"] = [{"company_id": "co-1", "status": "connected", "provider": "hubspot"}]
+    STORE.tables["contact_priority_context"] = [_row(
         contact_id="9",
         payload={"meeting_agreed": True, "pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z"},
     )]
@@ -72,7 +110,7 @@ def test_rows_drive_empty_partial_and_the_personal_list():
     assert empty["title"].startswith("No hay contactos prioritarios ahora")
     assert empty["action"] == "Abrir contactos en CRM"
 
-    api._ROWS["co-1"] = [_row(
+    STORE.tables["contact_priority_context"] = [_row(
         contact_id="8",
         owner_user_id="user-b",
         coverage="partial",
@@ -84,7 +122,7 @@ def test_rows_drive_empty_partial_and_the_personal_list():
     assert partial["title"] == "Falta parte del historial"
     assert partial["observed_at"] == "2026-09-22T09:00:00Z"
 
-    api._ROWS["co-1"] = [
+    STORE.tables["contact_priority_context"] = [
         _row(contact_id="1", owner_user_id="user-b", payload={"last_call_at": None}),
         _row(contact_id="2", owner_ambiguous=True, owner_user_id=None, payload={}),
         _row(
@@ -97,15 +135,12 @@ def test_rows_drive_empty_partial_and_the_personal_list():
                 "meeting_agreed": False,
             },
         ),
+        _row(company_id="co-2", contact_id="99", payload={"pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z"}),
     ]
     page = _client("user-a").get("/api/v1/contact-priorities").json()
     assert [row["contact_id"] for row in page["items"]] == ["42"]
     assert page["items"][0]["reason"].startswith("Confirmó el problema")
     assert "Tier" not in page["items"][0]["reason"]
-
-    other_company = _client("user-a", company_id="co-2").get("/api/v1/contact-priorities").json()
-    assert other_company["items"] == []
-    assert other_company["coverage"] == "unavailable"
 
 
 def test_a_folded_unfinished_page_is_what_the_route_returns():
@@ -118,8 +153,8 @@ def test_a_folded_unfinished_page_is_what_the_route_returns():
         connection_id="crm-A",
         observed_at="2026-09-22T09:00:00Z",
     )
-    api._CONNECTED.add(COMPANY)
-    api._ROWS[COMPANY] = fold_context(
+    STORE.tables["crm_connections"] = [{"company_id": COMPANY, "status": "connected"}]
+    STORE.tables["contact_priority_context"] = fold_context(
         company_id=COMPANY,
         pages=[page],
         members=[{"user_id": "user-a", "email": "ana@vocify.test"}],

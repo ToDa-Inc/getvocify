@@ -14,7 +14,7 @@ Estado: reglas C09 y el bloque del inicio están en `feat/vocify-v1`. No está c
 
 ## No verificado
 
-- El `GET` arma la página desde filas con la forma de `042`. Sigue siendo memoria del proceso: no hace `SELECT` contra Supabase.
+- El `GET` selecciona `crm_connections` y `contact_priority_context` por `company_id`. Las pruebas usan un cliente falso con el mismo `select`/`eq`; no hay una base Supabase real detrás.
 - Los proveedores no llaman a la red: `parse_assigned_page` interpreta una página ya recibida.
 - «Abrir contactos en CRM» no abre un CRM: no hay URL de contactos.
 - Reticle no tiene sesión en este worktree. El inicio no se recorrió en el navegador.
