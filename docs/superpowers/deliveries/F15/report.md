@@ -13,7 +13,10 @@ Estado: una venta de equipo no se atribuye dos veces. No está cerrada.
 
 No se inventa un estado anterior si no hay historia.
 
+| Dos comerciales 1/1 y 1/9 dan 2/10, no la media de sus porcentajes | `tests/team_insights/test_aggregate.py` |
+| Un miembro recibe 403 sin cifras. El texto del chat no amplía el filtro | `tests/team_insights/test_permissions.py` |
+
 ## No verificado
 
-- Un miembro todavía no recibe 403 en un endpoint de equipo: no hay API.
-- No hay página de equipo ni barras. El chat no está limitado.
+- No hay página de equipo ni barras. La política de base de datos no está en la migración: el rechazo está en la API.
+- El chat de WhatsApp sigue con su guarda anterior; esta función no está conectada a ese bucle.

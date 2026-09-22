@@ -14,6 +14,7 @@ from app.api import (
     today,
     annotations,
     coaching,
+    team_insights,
     crm,
     crm_salesforce,
     crm_pipedrive,
@@ -46,6 +47,7 @@ api_router.include_router(contact_priorities.router)
 api_router.include_router(today.router)
 api_router.include_router(annotations.router)
 api_router.include_router(coaching.router)
+api_router.include_router(team_insights.router)
 api_router.include_router(captures.router)
 api_router.include_router(crm.router)
 api_router.include_router(calls.router)
