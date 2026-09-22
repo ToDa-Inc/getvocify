@@ -6,7 +6,7 @@
 
 import { api } from '../lib/api.js';
 import { briefForContact, briefOnContact, briefRequest } from '../shared/ui/brief.js';
-import { noteSaveBody } from '../shared/ui/note.js';
+import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
 import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
@@ -368,7 +368,10 @@ document.getElementById('review-note')?.addEventListener('submit', async (event)
   const memoId = form.dataset.memoId;
   const field = document.getElementById('review-note-text');
   const status = document.getElementById('review-note-status');
-  const body = noteSaveBody(field?.value, 0);
+  const body = noteSaveBody(
+    field?.value,
+    noteOffsetMsFromReviewAudio(document.getElementById('review-audio')),
+  );
   if (!memoId || !body) return;
   try {
     await api.put(`/memos/${memoId}/annotations/note-${crypto.randomUUID()}`, body);
