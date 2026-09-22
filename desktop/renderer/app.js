@@ -23,6 +23,13 @@ import {
   shouldRequestCopilotSuggest,
   streamCopilotSuggest,
 } from '../lib/copilot-suggest.js';
+import {
+  beginMeetingListenAssist,
+  resetLiveAssistOnStop,
+  shouldApplyCopilotStreamPayload,
+  shouldRequestLiveCopilotSuggest,
+  turnOffLiveAssist,
+} from '../lib/copilot-session.js';
 import { PRODUCT_CONTEXT_STORAGE_KEY } from './shared/ui/copilot/product-context.js';
 import {
   ensureSuggestProfileProductContext,
@@ -164,15 +171,10 @@ function knownHubspotRecordPage() {
 export const liveAssistOverlay = { evidenceRefs: [] };
 
 function resetLiveAssistOverlay() {
-  liveAssistMeetingId = null;
-  Object.assign(liveAssistOverlay, {
-    kind: null,
-    playbookReady: null,
-    assistEnabled: false,
-    evidenceRefs: [],
-    card: null,
-  });
-  liveAssistChecklist = null;
+  const stop = resetLiveAssistOnStop();
+  liveAssistMeetingId = stop.meetingId;
+  Object.assign(liveAssistOverlay, stop.overlay);
+  liveAssistChecklist = stop.checklist;
 }
 
 /** Copilot suggest/result payload — updates overlay live-assist slice. */
@@ -218,8 +220,17 @@ async function requestCopilotChecklist() {
 
 async function requestCopilotSuggest(latestTurn) {
   const token = localStorage.getItem(STORAGE.token);
-  if (liveAssistOverlay.assistEnabled !== true) return;
-  if (!listening || !token || !shouldRequestCopilotSuggest(latestTurn)) return;
+  if (
+    !shouldRequestLiveCopilotSuggest({
+      listening,
+      assistEnabled: liveAssistOverlay.assistEnabled,
+      hasToken: Boolean(token),
+      latestTurn,
+      shouldRequestTurn: shouldRequestCopilotSuggest,
+    })
+  ) {
+    return;
+  }
   abortCopilotSuggest();
   const controller = new AbortController();
   copilotSuggestAbort = controller;
@@ -245,7 +256,7 @@ async function requestCopilotSuggest(latestTurn) {
         profileProductContext,
       }),
       onPayload: (payload) => {
-        if (controller.signal.aborted) return;
+        if (!shouldApplyCopilotStreamPayload({ signalAborted: controller.signal.aborted })) return;
         applyCopilotSuggestionPayload(payload, { callMode: overlayCallMode });
       },
       signal: controller.signal,
@@ -779,15 +790,12 @@ async function startListen() {
     callMode: 'meeting',
     crmPageContext: hubspotRecordPage,
   });
-  liveAssistMeetingId = crypto.randomUUID();
-  liveAssistOverlay.assistEnabled = false;
-  liveAssistOverlay.card = null;
-  liveAssistOverlay.evidenceRefs = [];
-  liveAssistOverlay.playbookReady = null;
-  liveAssistOverlay.kind = 'meeting';
-  liveAssistChecklist = null;
+  const listenAssist = beginMeetingListenAssist({ createMeetingId: () => crypto.randomUUID() });
+  liveAssistMeetingId = listenAssist.meetingId;
+  Object.assign(liveAssistOverlay, listenAssist.overlay);
+  liveAssistChecklist = listenAssist.checklist;
   transcriptState = { finalTranscript: '', interimTranscript: '' };
-  resetCopilotSuggestRequestDedupe();
+  if (listenAssist.resetSuggestDedupe) resetCopilotSuggestRequestDedupe();
   resetSuggestProfileProductContextCache();
   renderTranscript();
   btnListen.disabled = true;
@@ -1248,9 +1256,8 @@ desktop()?.shell?.onCommand((command) => {
     if (latestTurn) void requestCopilotSuggest(latestTurn);
   }
   if (command === 'assist-off') {
-    liveAssistOverlay.assistEnabled = false;
-    liveAssistOverlay.card = null;
-    abortCopilotSuggest();
+    const off = turnOffLiveAssist(liveAssistOverlay);
+    if (off.shouldAbortSuggest) abortCopilotSuggest();
     notifyShell();
   }
 });

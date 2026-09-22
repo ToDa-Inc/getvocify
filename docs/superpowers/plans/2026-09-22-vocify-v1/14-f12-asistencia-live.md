@@ -162,21 +162,21 @@ Permite mantener el proceso sin añadir tareas manuales durante la conversación
 
 ### Criterio de aceptación (Definition of Done)
 
-- [ ] Los pasos se marcan por evidencia, no por hablar durante cierto tiempo.
+- [x] Los pasos se marcan por evidencia, no por hablar durante cierto tiempo.
 
-- [ ] Sin playbook o respaldo, la tarjeta permanece silenciosa.
+- [x] Sin playbook o respaldo, la tarjeta permanece silenciosa.
 
-- [ ] La ayuda está desactivable.
+- [x] La ayuda está desactivable.
 
-- [ ] Se respetan duración mínima, retirada y espera por categoría.
+- [x] Se respetan duración mínima, retirada y espera por categoría.
 
-- [ ] La intervención del comercial evita que la tarjeta siga molestando.
+- [x] La intervención del comercial evita que la tarjeta siga molestando.
 
-- [ ] Cancelar o cambiar de meeting descarta respuestas pendientes del anterior.
+- [x] Cancelar o cambiar de meeting descarta respuestas pendientes del anterior.
 
-- [ ] La beta conserva escucha, detección de turnos, sugerencia manual y enrolamiento al consumir el núcleo compartido. Sus pruebas de regresión cubren el contrato SSE antiguo y la cancelación.
+- [x] La beta conserva escucha, detección de turnos, sugerencia manual y enrolamiento al consumir el núcleo compartido. Sus pruebas de regresión cubren el contrato SSE antiguo y la cancelación.
 
-- [ ] Una captura desktop utiliza una sola sesión de transcripción y una sola solicitud activa de sugerencias; el overlay no duplica procesamiento. Detener/cambiar meeting limpia listeners y cancela el stream; un resultado antiguo no aparece en la nueva captura.
+- [x] Una captura desktop utiliza una sola sesión de transcripción y una sola solicitud activa de sugerencias; el overlay no duplica procesamiento. Detener/cambiar meeting limpia listeners y cancela el stream; un resultado antiguo no aparece en la nueva captura.
 
 - [ ] La sugerencia aparece en el overlay existente con la ventana principal minimizada y en fullscreen; Stop y volver a la principal siguen funcionando. La configuración estática de Electron no sustituye esta comprobación nativa.
 

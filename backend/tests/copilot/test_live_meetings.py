@@ -73,6 +73,22 @@ def test_empty_evidence_stays_silent_without_advice_text():
     assert result["suggestion"]["why_it_works"] == ""
 
 
+def test_short_verbatim_ref_is_not_grounded_without_playbook_evidence():
+    suggestion = {
+        "say_this": "¿Qué coste tiene mantener el proceso actual?",
+        "evidence_refs": ["too short"],
+    }
+    result = finalize_suggest_result(
+        call_mode="meeting",
+        suggestion=suggestion,
+        grounding=_grounding(evidence_ids=frozenset()),
+        latest_turn="They only said: too short",
+    )
+    assert result["playbook_ready"] is False
+    assert result["evidence_refs"] == []
+    assert result["suggestion"]["say_this"] == ""
+
+
 def test_invented_evidence_ref_is_not_published():
     suggestion = {
         "say_this": "Invented",

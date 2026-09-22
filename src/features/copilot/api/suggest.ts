@@ -1,3 +1,4 @@
+import { parseSuggestSseStream } from "../../../../shared/ui/copilot/suggest-stream.js";
 import type { SuggestRequest, SuggestStreamEvent } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8888/api/v1";
@@ -59,25 +60,8 @@ export async function streamObjectionSuggestion(
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() || "";
-
-    for (const part of parts) {
-      const line = part
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      const raw = line.slice(5).trim();
-      if (!raw) continue;
-      try {
-        const event = JSON.parse(raw) as SuggestStreamEvent;
-        onEvent(event);
-      } catch {
-        /* ignore partial JSON */
-      }
-    }
+    buffer = parseSuggestSseStream(buffer, decoder.decode(value, { stream: true }), (event) => {
+      onEvent(event as SuggestStreamEvent);
+    });
   }
 }

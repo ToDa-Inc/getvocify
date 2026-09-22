@@ -52,6 +52,34 @@ describe("pillDecision", () => {
     assert.equal(out.text, "Aclara el coste");
   });
 
+  it("hides the line while the rep is speaking during the minimum hold", () => {
+    let state = initialPillState();
+    const shown = pillDecision(
+      state,
+      {
+        ...meeting,
+        text: "Pregunta por el presupuesto",
+        category: "price",
+      },
+      0,
+    );
+    assert.equal(shown.show, true);
+    state = shown.state;
+    const repTurn = pillDecision(
+      state,
+      { ...meeting, speakerRole: "rep", text: "Yo respondo", category: "price" },
+      2000,
+    );
+    assert.equal(repTurn.show, false);
+    const prospectAgain = pillDecision(
+      repTurn.state,
+      { ...meeting, speakerRole: "prospect", text: "Otra objeción", category: "price" },
+      3000,
+    );
+    assert.equal(prospectAgain.show, true);
+    assert.equal(prospectAgain.text, "Pregunta por el presupuesto");
+  });
+
   it("respects min hold, max show, and category cooldown", () => {
     let state = initialPillState();
     const first = pillDecision(state, { ...meeting, text: "Uno", category: "price" }, 0);

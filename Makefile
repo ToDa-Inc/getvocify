@@ -23,7 +23,7 @@ test-js:
 	node --experimental-strip-types --test src/lib/*.test.ts
 	cd desktop && node --test lib/*.test.js
 	node --test scripts/*.test.mjs
-	node --test shared/ui/*.test.js
+	node --test shared/ui/*.test.js shared/ui/copilot/*.test.js
 
 check-generated:
 	node scripts/build-tokens.mjs --check
