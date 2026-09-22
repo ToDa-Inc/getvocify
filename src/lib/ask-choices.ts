@@ -8,6 +8,12 @@ export function askChoices(turn: { choices?: AskChoice[] | null }): AskChoice[] 
   return rows.filter((row) => Boolean(row.id?.trim() && row.label?.trim()));
 }
 
+export function choiceFollowUp(choice: AskChoice): string {
+  const id = choice.id?.trim();
+  if (id) return id;
+  return choice.label?.trim() ?? "";
+}
+
 export function showAskChoices(view: AskView, choices: AskChoice[]): boolean {
   return view.status === "completed" && askChoices({ choices }).length > 0;
 }

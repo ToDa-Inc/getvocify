@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/shared/lib/api-client";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
-import { askChoices, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
+import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
 import { askConfirmation, askSituation } from "@/lib/ask-situation";
 
@@ -143,7 +143,7 @@ export default function AskPanel() {
               type="button"
               className="rounded-full border border-border px-3 py-1 text-sm"
               onClick={() => {
-                void postTurn(choice.label);
+                void postTurn(choiceFollowUp(choice));
               }}
             >
               {choice.label}

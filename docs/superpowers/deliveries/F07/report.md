@@ -25,6 +25,7 @@ Estado: C07 y C08 en `feat/vocify-v1`. El esquema ya está aplicado. Un turno pu
 | Confirmar de verdad llama al loop una vez; otro contacto y un repetido no | `ac766e4` | `tests/crm_copilot/test_ask_http.py` |
 | Una línea de tool_call no entra en la respuesta | este commit | `tests/crm_copilot/test_web_turns.py` |
 | Un turno con opciones del copiloto devuelve id y etiqueta; sin opciones no hay clave `choices` | este commit | `tests/crm_copilot/test_web_turns.py`, `src/lib/ask-choices.test.ts` |
+| Al pulsar una opción, Ask envía el id del copiloto (p. ej. `pick:contact:…`), no solo la etiqueta | este commit | `src/lib/ask-choices.test.ts` |
 
 ## No verificado
 
