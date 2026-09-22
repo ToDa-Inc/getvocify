@@ -4,7 +4,12 @@ import { useAuth } from "@/features/auth";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
-import { teamInsightsView, type TeamFilters, type TeamMetrics } from "@/lib/team-insights";
+import {
+  teamInsightsView,
+  type ObjectionCategory,
+  type TeamFilters,
+  type TeamMetrics,
+} from "@/lib/team-insights";
 import { api } from "@/shared/lib/api-client";
 
 const EMPTY_FILTERS: TeamFilters = { period: "week", motion: null, userId: null };
@@ -25,7 +30,7 @@ export default function TeamInsightsPage() {
         attempts?: number;
         connected?: number;
         meetings?: number;
-        objection_categories?: Array<{ name: string; count: number }>;
+        objection_categories?: ObjectionCategory[];
       }>("/team/adherence"),
     enabled: allowed,
     retry: false,

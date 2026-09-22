@@ -11,6 +11,30 @@ export type TeamDeal = {
   ownerUserId: string | null;
 };
 
+export type ObjectionCategory = { name: string; count: number };
+
+const RAW_OBJECTION_KEYS = new Set([
+  "price",
+  "timing",
+  "authority",
+  "competitor",
+  "status_quo",
+  "trust",
+  "other",
+]);
+
+/** Spanish labels from the API; drop zero counts and raw category keys. */
+export function visibleObjectionCategories(categories: ObjectionCategory[]): ObjectionCategory[] {
+  return categories
+    .filter((item) => item.count > 0)
+    .filter((item) => !RAW_OBJECTION_KEYS.has(item.name.trim().toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+export function objectionCategoriesEmptyMessage(categories: ObjectionCategory[]): string | null {
+  return visibleObjectionCategories(categories).length === 0 ? "No hay objeciones esta semana." : null;
+}
+
 export type TeamMetrics = {
   attempts: number | null;
   connected: number | null;

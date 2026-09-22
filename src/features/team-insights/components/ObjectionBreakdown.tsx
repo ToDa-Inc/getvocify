@@ -1,15 +1,24 @@
-export function ObjectionBreakdown({ categories }: { categories: Array<{ name: string; count: number }> }) {
-  const ordered = [...categories].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "es"));
+import {
+  objectionCategoriesEmptyMessage,
+  visibleObjectionCategories,
+  type ObjectionCategory,
+} from "@/lib/team-insights";
+
+export function ObjectionBreakdown({ categories }: { categories: ObjectionCategory[] }) {
+  const emptyMessage = objectionCategoriesEmptyMessage(categories);
+  const visible = visibleObjectionCategories(categories);
   return (
     <section aria-labelledby="team-objections">
       <h2 id="team-objections">Objeciones</h2>
-      <table>
-        <tbody>
-          {ordered.map((item) => (
-            <tr key={item.name}><th>{item.name}</th><td>{item.count}</td></tr>
+      {emptyMessage ? (
+        <p>{emptyMessage}</p>
+      ) : (
+        <ul>
+          {visible.map((item) => (
+            <li key={item.name}>{item.name}</li>
           ))}
-        </tbody>
-      </table>
+        </ul>
+      )}
     </section>
   );
 }

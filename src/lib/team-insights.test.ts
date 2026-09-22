@@ -1,6 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { activityLabel, repsByName, teamInsightsView, winsForFilter } from "./team-insights.ts";
+import {
+  activityLabel,
+  objectionCategoriesEmptyMessage,
+  repsByName,
+  teamInsightsView,
+  visibleObjectionCategories,
+  winsForFilter,
+} from "./team-insights.ts";
 
 const reps = [
   { userId: "b", name: "Carlos" },
@@ -34,6 +41,22 @@ describe("team insights", () => {
     ];
     assert.equal(winsForFilter(deals, "a").length, 1);
     assert.equal(winsForFilter(deals, null).length, 2);
+  });
+
+  it("shows the Madrid-week empty copy and Spanish category names only", () => {
+    assert.equal(objectionCategoriesEmptyMessage([]), "No hay objeciones esta semana.");
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 0 }]), "No hay objeciones esta semana.");
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "price", count: 2 }]), "No hay objeciones esta semana.");
+    assert.equal(objectionCategoriesEmptyMessage([{ name: "Precio", count: 1 }]), null);
+    assert.deepEqual(visibleObjectionCategories([
+      { name: "Plazo", count: 2 },
+      { name: "Precio", count: 1 },
+      { name: "price", count: 5 },
+      { name: "Autoridad", count: 0 },
+    ]), [
+      { name: "Plazo", count: 2 },
+      { name: "Precio", count: 1 },
+    ]);
   });
 
   it("does not turn an empty filter or a missing close into a zero rate", () => {
