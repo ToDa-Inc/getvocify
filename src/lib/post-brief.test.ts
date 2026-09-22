@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { briefSurface, highlightScheduleLine, retryBrief, type BriefView } from "./post-brief.ts";
+import {
+  briefSurface,
+  highlightScheduleLine,
+  requestBriefSectionPlay,
+  retryBrief,
+  type BriefView,
+} from "./post-brief.ts";
 
 const partial: BriefView = {
   status: "partial",
@@ -43,6 +49,19 @@ describe("post interaction brief", () => {
     assert.equal(surface.sections[0].quote, "está caro");
     assert.equal(surface.playable, false);
     assert.equal(surface.audioNote, "Audio no disponible");
+  });
+
+  it("calls onPlay at offset when playable", () => {
+    let played: number | null = null;
+    requestBriefSectionPlay(true, 12000, (ms) => {
+      played = ms;
+    });
+    assert.equal(played, 12000);
+    played = null;
+    requestBriefSectionPlay(false, 12000, (ms) => {
+      played = ms;
+    });
+    assert.equal(played, null);
   });
 
   it("shows deferred highlight time and hides immediate scheduling", () => {

@@ -175,6 +175,13 @@ const MemoDetail = () => {
     setIsPlaying(!isPlaying);
   };
 
+  const playMemoAtOffset = (offsetMs: number) => {
+    if (!memo?.audioUrl) return;
+    audio.currentTime = offsetMs / 1000;
+    audio.play().catch(console.error);
+    setIsPlaying(true);
+  };
+
   const formatDuration = (seconds: number) => {
     if (!seconds) return "0:00";
     const mins = Math.floor(seconds / 60);
@@ -563,7 +570,9 @@ const MemoDetail = () => {
                 extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
               />
             ) : null}
-            {isOwnMemo && id ? <PostInteractionBrief memoId={id} /> : null}
+            {isOwnMemo && id ? (
+              <PostInteractionBrief memoId={id} onPlay={memo.audioUrl ? playMemoAtOffset : undefined} />
+            ) : null}
             {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
             {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>

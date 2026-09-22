@@ -1,7 +1,13 @@
-import { briefSurface } from "@/lib/post-brief";
+import { briefSurface, requestBriefSectionPlay } from "@/lib/post-brief";
 import { usePostInteractionBrief } from "@/features/coaching/hooks/usePostInteractionBrief";
 
-export function PostInteractionBrief({ memoId }: { memoId: string }) {
+export function PostInteractionBrief({
+  memoId,
+  onPlay,
+}: {
+  memoId: string;
+  onPlay?: (offsetMs: number) => void;
+}) {
   const query = usePostInteractionBrief(memoId);
   if (query.isError || !query.data) return null;
   const surface = briefSurface(query.data);
@@ -13,10 +19,19 @@ export function PostInteractionBrief({ memoId }: { memoId: string }) {
       {surface.strength ? <p>Fortaleza: {surface.strength}</p> : null}
       {surface.improvement ? <p>Mejora: {surface.improvement}</p> : null}
       {surface.sections.map((section) => (
-        <p key={section.evidence_refs.join("-")}>{section.quote}</p>
+        <div key={section.evidence_refs.join("-")} className="space-y-1">
+          {section.quote ? <p>{section.quote}</p> : null}
+          {surface.playable && section.offset_ms != null ? (
+            <button
+              type="button"
+              onClick={() => requestBriefSectionPlay(surface.playable, section.offset_ms, onPlay)}
+            >
+              Reproducir tramo
+            </button>
+          ) : null}
+        </div>
       ))}
       {surface.audioNote ? <p>{surface.audioNote}</p> : null}
-      {surface.playable ? <button type="button">Reproducir tramo</button> : null}
     </section>
   );
 }

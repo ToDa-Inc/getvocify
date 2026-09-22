@@ -71,3 +71,13 @@ export function retryBrief(current: BriefView): BriefView {
     waiting: false,
   };
 }
+
+/** Seek/play hook for a brief evidence section (memo page audio). */
+export function requestBriefSectionPlay(
+  playable: boolean,
+  offsetMs: number | null | undefined,
+  onPlay: ((offsetMs: number) => void) | undefined,
+): void {
+  if (!playable || offsetMs == null || !onPlay) return;
+  onPlay(offsetMs);
+}
