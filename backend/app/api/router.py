@@ -11,6 +11,7 @@ from app.api import (
     playbooks,
     ask,
     contact_priorities,
+    today,
     crm,
     crm_salesforce,
     crm_pipedrive,
@@ -40,6 +41,7 @@ api_router.include_router(followup.router)
 api_router.include_router(playbooks.router)
 api_router.include_router(ask.router)
 api_router.include_router(contact_priorities.router)
+api_router.include_router(today.router)
 api_router.include_router(captures.router)
 api_router.include_router(crm.router)
 api_router.include_router(calls.router)
