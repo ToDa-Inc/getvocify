@@ -491,6 +491,22 @@ CREATE TABLE IF NOT EXISTS memo_scores (
   PRIMARY KEY (memo_id, input_revision)
 );
 
+CREATE TABLE IF NOT EXISTS meeting_proposals (
+  proposal_id TEXT NOT NULL,
+  memo_id UUID NOT NULL,
+  input_revision TEXT NOT NULL,
+  agreement TEXT NOT NULL,
+  starts_at TIMESTAMPTZ,
+  timezone TEXT,
+  precision TEXT NOT NULL,
+  decision TEXT NOT NULL DEFAULT 'pending',
+  crm_status TEXT NOT NULL DEFAULT 'not_requested',
+  evidence_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  remote_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memo_id, proposal_id, input_revision)
+);
+
 -- F01.02 / migration 037: one client capture id per author.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
   ON memos (user_id, client_capture_id)
