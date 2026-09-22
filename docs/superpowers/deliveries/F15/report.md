@@ -20,7 +20,7 @@ No se inventa un estado anterior si no hay historia.
 
 | Los nombres van por orden alfabético. Un filtro vacío no es un cero. Sin cobertura, la tasa de cierres no se calcula. Un miembro no ve cifras | `src/lib/team-insights.test.ts` 2 passed; `tsc --noEmit` |
 
-| Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan | `tests/team_insights/test_objections.py` 3 passed |
+| Objeciones activas por categoría en `GET /team/adherence`; superseded y obstacle no cuentan; etiquetas ES y solo semana Madrid (`observed_at`/`created_at`) | `tests/team_insights/test_objections.py` |
 
 ## No verificado
 

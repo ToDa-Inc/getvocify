@@ -152,7 +152,7 @@ def load_team_adherence_inputs(supabase, company_id: str) -> dict:
                     parts.append(part)
             patterns = (
                 supabase.table("interaction_patterns")
-                .select("category,kind,superseded")
+                .select("category,kind,superseded,created_at")
                 .in_("memo_id", memo_ids)
                 .execute()
             )
@@ -218,7 +218,11 @@ def team_adherence(
             "conclusion": None,
         }
         body.update(activity)
-        body["objection_categories"] = objection_counts(pattern_rows or [])
+        body["objection_categories"] = objection_counts(
+            pattern_rows or [],
+            start=activity_period_start,
+            end=activity_period_end,
+        )
         return body
     metrics = aggregate_adherence(week_parts)
     conclusion = None
@@ -233,5 +237,9 @@ def team_adherence(
         "conclusion": conclusion,
     }
     body.update(activity)
-    body["objection_categories"] = objection_counts(pattern_rows or [])
+    body["objection_categories"] = objection_counts(
+        pattern_rows or [],
+        start=activity_period_start,
+        end=activity_period_end,
+    )
     return body
