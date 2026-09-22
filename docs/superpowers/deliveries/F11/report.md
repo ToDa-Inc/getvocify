@@ -15,6 +15,8 @@ Estado: el resumen posterior distingue los estados. No está cerrado.
 
 | El resumen parcial y el listo comparten revisión; sin audio la cita sigue y no hay reproducción; un fallo no inventa secciones | `src/lib/post-brief.test.ts` 3 passed; `tsc --noEmit` |
 
+| GET brief aplica la preferencia de destaque sin tocar status ni secciones; `not_started` no inventa `highlight` | `tests/coaching/test_brief_http.py` |
+
 ## No verificado
 
 - Si todavía no hay fila, el memo muestra «El resumen todavía no está listo» y no dice que falte el proceso ni que el trabajo esté en curso. La preferencia de destaque está en Ajustes → Resúmenes. El botón de reproducir no mueve el audio.

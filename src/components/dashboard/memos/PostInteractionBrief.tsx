@@ -8,6 +8,7 @@ export function PostInteractionBrief({ memoId }: { memoId: string }) {
   return (
     <section aria-labelledby="post-brief-title" className="mb-6 min-h-24 space-y-2">
       <h2 id="post-brief-title" className="text-lg">{surface.title}</h2>
+      {surface.highlightNote ? <p>{surface.highlightNote}</p> : null}
       {surface.waiting ? <p>Preparando…</p> : null}
       {surface.strength ? <p>Fortaleza: {surface.strength}</p> : null}
       {surface.improvement ? <p>Mejora: {surface.improvement}</p> : null}

@@ -1,5 +1,10 @@
 /** Six brief states. A failed retry keeps the sections that already exist. */
 
+export type BriefHighlight = {
+  highlight_mode: "immediate" | "deferred" | "end_of_day";
+  highlight_at: string;
+};
+
 export type BriefView = {
   status: "pending" | "partial" | "ready" | "skipped" | "unavailable" | "failed";
   reason: string | null;
@@ -9,6 +14,7 @@ export type BriefView = {
   strength: string | null;
   improvement: string | null;
   waiting: boolean;
+  highlight?: BriefHighlight;
 };
 
 export type BriefSurface = {
@@ -20,7 +26,16 @@ export type BriefSurface = {
   sections: BriefView["sections"];
   playable: boolean;
   audioNote: string | null;
+  highlightNote: string | null;
 };
+
+export function highlightScheduleLine(highlight: BriefHighlight | undefined): string | null {
+  if (!highlight || highlight.highlight_mode === "immediate") return null;
+  const when = new Date(highlight.highlight_at);
+  if (Number.isNaN(when.getTime())) return null;
+  const hour = new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" }).format(when);
+  return `Se destaca a las ${hour}`;
+}
 
 const TITLES: Record<BriefView["status"], string> = {
   pending: "Preparando el resumen",
@@ -43,6 +58,7 @@ export function briefSurface(brief: BriefView): BriefSurface {
     sections,
     playable: brief.audio_available && sections.some((section) => section.offset_ms != null),
     audioNote: quoteWithoutAudio ? "Audio no disponible" : null,
+    highlightNote: highlightScheduleLine(brief.highlight),
   };
 }
 

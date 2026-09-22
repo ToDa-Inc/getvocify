@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { briefSurface, retryBrief, type BriefView } from "./post-brief.ts";
+import { briefSurface, highlightScheduleLine, retryBrief, type BriefView } from "./post-brief.ts";
 
 const partial: BriefView = {
   status: "partial",
@@ -43,6 +43,21 @@ describe("post interaction brief", () => {
     assert.equal(surface.sections[0].quote, "está caro");
     assert.equal(surface.playable, false);
     assert.equal(surface.audioNote, "Audio no disponible");
+  });
+
+  it("shows deferred highlight time and hides immediate scheduling", () => {
+    const deferred = highlightScheduleLine({
+      highlight_mode: "deferred",
+      highlight_at: "2026-09-22T16:30:00Z",
+    });
+    assert.match(deferred ?? "", /Se destaca a las \d{1,2}:\d{2}/);
+    assert.equal(highlightScheduleLine({ highlight_mode: "immediate", highlight_at: "2026-09-22T16:00:00Z" }), null);
+    const surface = briefSurface({
+      ...partial,
+      status: "ready",
+      highlight: { highlight_mode: "end_of_day", highlight_at: "2026-09-22T16:00:00Z" },
+    });
+    assert.match(surface.highlightNote ?? "", /Se destaca a las/);
   });
 
   it("turns a failure into a partial retry without inventing sections", () => {

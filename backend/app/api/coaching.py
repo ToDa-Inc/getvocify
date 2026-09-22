@@ -2,13 +2,42 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.deps import get_membership, get_supabase
+from app.services.coaching.brief_preferences import highlight_at, read_preference
 from app.services.coaching.briefs import absent_brief
 from app.services.company import Membership
 
 router = APIRouter(prefix="/api/v1", tags=["coaching"])
+
+
+def _parse_instant(raw: object) -> datetime:
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+    text = str(raw).replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _brief_ready_at(row: dict, body: dict) -> datetime:
+    if body.get("ready_at"):
+        return _parse_instant(body["ready_at"])
+    if row.get("created_at"):
+        return _parse_instant(row["created_at"])
+    return datetime.now(timezone.utc)
+
+
+def _attach_highlight(body: dict, *, user_id: str, ready_at: datetime) -> dict:
+    preference = read_preference(user_id)
+    shown = highlight_at(ready_at, preference)
+    iso = shown.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return {
+        **body,
+        "highlight": {"highlight_mode": preference["highlight_mode"], "highlight_at": iso},
+    }
 
 
 @router.get("/memos/{memo_id}/score")
@@ -78,4 +107,5 @@ async def get_memo_brief(
     body = dict(current.get("body") or {})
     body["status"] = current.get("status")
     body["input_revision"] = current.get("input_revision")
-    return body
+    ready_at = _brief_ready_at(current, body)
+    return _attach_highlight(body, user_id=membership.user_id, ready_at=ready_at)
