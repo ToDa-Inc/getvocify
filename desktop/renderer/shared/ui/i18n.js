@@ -52,6 +52,40 @@ const STRINGS = {
     meetingSave: 'Guardar reunión',
     meetingOmit: 'Omitir',
     meetingReconcile: 'Reconciliar',
+    speakerYou: 'Tú',
+    speakerThem: 'Ellos',
+    listenDenyCallInProgress:
+      'Cuelga la llamada antes de escuchar esta pestaña.',
+    listenDenyMicRecording:
+      'Detén la nota de voz antes de escuchar esta pestaña.',
+    listenDenyAlreadyListeningTab: 'Ya estás escuchando una pestaña.',
+    listenDenyLoginRequiredTab: 'Inicia sesión arriba para empezar a escuchar.',
+    listenDenyNoTab: 'Enfoca una pestaña de Chrome e inténtalo de nuevo.',
+    listenDenyNoStreamId:
+      'No se pudo capturar esta pestaña. Enfoca la pestaña de la llamada y pulsa Escuchar otra vez.',
+    listenDenyNotHubspotTab:
+      'Abre el registro de HubSpot donde está la llamada y pulsa Escuchar.',
+    listenDenyUnsupportedMeetingTab:
+      'Escuchar captura una pestaña de llamada de HubSpot en Chrome, no Zoom, Meet ni Teams de escritorio.',
+    listenDenyNoAudio:
+      'Esta pestaña aún no tiene audio. Inicia la llamada y pulsa Escuchar otra vez.',
+    listenDenyStreamExpired:
+      'La captura expiró antes de empezar. Pulsa Escuchar otra vez.',
+    listenDenyCaptureFailed:
+      'No se pudo iniciar el audio de la pestaña. Quédate en la pestaña de llamada de HubSpot y pulsa Escuchar otra vez.',
+    listenDenyTabCaptureDefault: 'No se pudo iniciar la captura de pestaña.',
+    listenDenyAlreadyListening: 'Ya estás escuchando.',
+    listenDenyLoginRequired: 'Inicia sesión para empezar a escuchar.',
+    listenDenyNoSystemAudioLinux:
+      'No se pudo capturar el audio del sistema. Instala PipeWire (pw-record) o PulseAudio (parec), o comparte una ventana con audio.',
+    listenDenyNoSystemAudioMac:
+      'No se pudo capturar el audio del sistema. En macOS concede Grabación de pantalla e inténtalo de nuevo.',
+    listenDenyNoMic:
+      'Se necesita permiso de micrófono para tu parte de la llamada.',
+    listenDenyDesktopDefault: 'No se pudo empezar a escuchar.',
+    listenCouldNotStart: 'No se pudo iniciar',
+    listenCouldNotStartTabRetry:
+      'No se pudo iniciar el audio de la pestaña. Pulsa Escuchar otra vez.',
   },
   en: {
     followupFor: (name) => `Follow-up for ${name}`,
@@ -104,6 +138,40 @@ const STRINGS = {
     meetingSave: 'Save meeting',
     meetingOmit: 'Skip',
     meetingReconcile: 'Reconcile',
+    speakerYou: 'You',
+    speakerThem: 'Them',
+    listenDenyCallInProgress:
+      'Hang up the call before listening to this tab.',
+    listenDenyMicRecording:
+      'Stop the voice memo before listening to this tab.',
+    listenDenyAlreadyListeningTab: 'Already listening to a tab.',
+    listenDenyLoginRequiredTab: 'Log in above to start listening.',
+    listenDenyNoTab: 'Focus a Chrome tab and try again.',
+    listenDenyNoStreamId:
+      'Could not capture this tab. Focus the call tab and click Listen again.',
+    listenDenyNotHubspotTab:
+      'Open the HubSpot record where the call is happening, then click Listen.',
+    listenDenyUnsupportedMeetingTab:
+      'Listen captures a HubSpot call tab in Chrome — not Zoom, Meet, or Teams desktop.',
+    listenDenyNoAudio:
+      'This tab has no audio yet. Start the call, then click Listen again.',
+    listenDenyStreamExpired:
+      'Capture expired before it started. Click Listen again.',
+    listenDenyCaptureFailed:
+      'Could not start tab audio. Stay on the HubSpot call tab and click Listen again.',
+    listenDenyTabCaptureDefault: 'Could not start tab capture.',
+    listenDenyAlreadyListening: 'Already listening.',
+    listenDenyLoginRequired: 'Log in to start listening.',
+    listenDenyNoSystemAudioLinux:
+      'Could not capture system audio. Install PipeWire (pw-record) or PulseAudio (parec), or share a window that has audio.',
+    listenDenyNoSystemAudioMac:
+      'Could not capture system audio. On macOS grant Screen Recording, then try again.',
+    listenDenyNoMic:
+      'Microphone permission is required for your side of the call.',
+    listenDenyDesktopDefault: 'Could not start listening.',
+    listenCouldNotStart: 'Could not start',
+    listenCouldNotStartTabRetry:
+      'Could not start tab audio. Click Listen again.',
   },
 };
 

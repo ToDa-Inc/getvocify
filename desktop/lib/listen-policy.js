@@ -1,3 +1,5 @@
+import { strings } from '../renderer/shared/ui/i18n.js';
+
 /** HubSpot contact id for copilot suggest when the page is a contact record; never invent ids. */
 export function contactIdForListenSession(crmPageContext) {
   if (!crmPageContext || crmPageContext.objectType !== 'contact') return null;
@@ -27,34 +29,35 @@ export function canStartListen({
   return { ok: true };
 }
 
-export function startDeniedMessage(reason, { platform } = {}) {
+export function startDeniedMessage(reason, { platform, lang } = {}) {
+  const t = strings(lang);
   switch (reason) {
     case 'already_listening':
-      return 'Already listening.';
+      return t.listenDenyAlreadyListening;
     case 'login_required':
-      return 'Log in to start listening.';
+      return t.listenDenyLoginRequired;
     case 'no_system_audio':
-      if (platform === 'linux') {
-        return 'Could not capture system audio. Install PipeWire (pw-record) or PulseAudio (parec), or share a window that has audio.';
-      }
-      return 'Could not capture system audio. On macOS grant Screen Recording, then try again.';
+      return platform === 'linux'
+        ? t.listenDenyNoSystemAudioLinux
+        : t.listenDenyNoSystemAudioMac;
     case 'no_mic':
-      return 'Microphone permission is required for your side of the call.';
+      return t.listenDenyNoMic;
     default:
-      return 'Could not start listening.';
+      return t.listenDenyDesktopDefault;
   }
 }
 
-export function applyTranscriptUpdate(state, { text, isFinal, audioChannel } = {}) {
+export function applyTranscriptUpdate(state, { text, isFinal, audioChannel, lang } = {}) {
+  const t = strings(lang);
   const finalTranscript = state.finalTranscript || '';
   const piece = typeof text === 'string' ? text : '';
   const role = audioChannel === 'rep' ? 'rep' : audioChannel === 'prospect' ? 'prospect' : null;
   const tagged = !piece
     ? ''
     : role === 'rep'
-      ? `You: ${piece}`
+      ? `${t.speakerYou}: ${piece}`
       : role === 'prospect'
-        ? `Them: ${piece}`
+        ? `${t.speakerThem}: ${piece}`
         : piece;
 
   if (isFinal) {

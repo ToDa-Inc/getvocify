@@ -699,7 +699,10 @@ async function startListen() {
       showScreen('permissions');
       startPermissionPoll();
     }
-    showError(listenError, startDeniedMessage(gate.reason, { platform: desktop()?.platform }));
+    showError(
+      listenError,
+      startDeniedMessage(gate.reason, { platform: desktop()?.platform, lang: uiLang() }),
+    );
     return;
   }
   showError(listenError, '');
@@ -711,7 +714,7 @@ async function startListen() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     mic = await navigator.mediaDevices.getUserMedia(pickMicConstraints(devices));
   } catch {
-    showError(listenError, startDeniedMessage('no_mic', { platform }));
+    showError(listenError, startDeniedMessage('no_mic', { platform, lang: uiLang() }));
     return;
   }
   const native = desktop()?.systemAudio;
@@ -732,13 +735,13 @@ async function startListen() {
       system.getVideoTracks().forEach((t) => t.stop());
     } catch {
       mic.getTracks().forEach((t) => t.stop());
-      showError(listenError, startDeniedMessage('no_system_audio', { platform }));
+      showError(listenError, startDeniedMessage('no_system_audio', { platform, lang: uiLang() }));
       return;
     }
     if (!system.getAudioTracks().length) {
       mic.getTracks().forEach((t) => t.stop());
       system.getTracks().forEach((t) => t.stop());
-      showError(listenError, startDeniedMessage('no_system_audio', { platform }));
+      showError(listenError, startDeniedMessage('no_system_audio', { platform, lang: uiLang() }));
       return;
     }
   }
@@ -784,6 +787,7 @@ async function startListen() {
         text,
         isFinal,
         audioChannel: data.audio_channel || null,
+        lang: uiLang(),
       });
       if (isFinal) {
         const parts = `${transcriptState.finalTranscript}`.trim().split(/(?=(?:You|Them): )/).filter(Boolean);
@@ -1124,7 +1128,9 @@ returnLiveBtn?.addEventListener('click', () => {
 });
 
 btnListen.addEventListener('click', () => {
-  startListen().catch((err) => showError(listenError, err.message || 'Could not start'));
+  startListen().catch((err) =>
+    showError(listenError, err.message || strings(uiLang()).listenCouldNotStart),
+  );
 });
 btnStop.addEventListener('click', () => {
   stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
@@ -1137,7 +1143,11 @@ document.getElementById('btn-review-back').addEventListener('click', () => {
 });
 
 desktop()?.shell?.onCommand((command) => {
-  if (command === 'listen') startListen().catch((err) => showError(listenError, err.message || 'Could not start'));
+  if (command === 'listen') {
+    startListen().catch((err) =>
+      showError(listenError, err.message || strings(uiLang()).listenCouldNotStart),
+    );
+  }
   if (command === 'stop') stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
   if (command === 'assist-on') {
     liveAssistOverlay.assistEnabled = true;

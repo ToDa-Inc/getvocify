@@ -12,3 +12,4 @@ Extensión popup listen: el paint JS ya no pisa el HTML con estados en inglés (
 Desktop companion listen: ventana principal y overlay flotante en español («Parar y revisar», «Escuchando»/«En reposo», «Escuchando la reunión…», «Parar»); `overlaySnippet` y `overlay.js` ya no pisan el HTML en inglés.
 Extensión popup listen: `listenUiModel` idle/error en español («Escuchar pestaña», «Grabar», «Sin escucha», «Listo para grabar»); starting/live sin cambios.
 Listen chrome (extensión, desktop, overlay): copy estático en `shared/ui/i18n.js` para `es` y `en`.
+Listen deny (`startDeniedMessage`), fallbacks de inicio y prefijos de transcript (`speakerYou`/`speakerThem`) en `shared/ui/i18n.js` para extensión y desktop.

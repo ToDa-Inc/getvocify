@@ -26,32 +26,33 @@ export function canStartTabCapture({
   return { ok: true };
 }
 
-export function startDeniedMessage(reason) {
+export function startDeniedMessage(reason, lang) {
+  const t = strings(lang);
   switch (reason) {
     case 'call_in_progress':
-      return 'Hang up the call before listening to this tab.';
+      return t.listenDenyCallInProgress;
     case 'mic_recording':
-      return 'Stop the voice memo before listening to this tab.';
+      return t.listenDenyMicRecording;
     case 'already_listening':
-      return 'Already listening to a tab.';
+      return t.listenDenyAlreadyListeningTab;
     case 'login_required':
-      return 'Log in above to start listening.';
+      return t.listenDenyLoginRequiredTab;
     case 'no_tab':
-      return 'Focus a Chrome tab and try again.';
+      return t.listenDenyNoTab;
     case 'no_stream_id':
-      return 'Could not capture this tab. Focus the call tab and click Listen again.';
+      return t.listenDenyNoStreamId;
     case 'not_hubspot_tab':
-      return 'Open the HubSpot record where the call is happening, then click Listen.';
+      return t.listenDenyNotHubspotTab;
     case 'unsupported_meeting_tab':
-      return 'Listen captures a HubSpot call tab in Chrome — not Zoom, Meet, or Teams desktop.';
+      return t.listenDenyUnsupportedMeetingTab;
     case 'no_audio':
-      return 'This tab has no audio yet. Start the call, then click Listen again.';
+      return t.listenDenyNoAudio;
     case 'stream_expired':
-      return 'Capture expired before it started. Click Listen again.';
+      return t.listenDenyStreamExpired;
     case 'capture_failed':
-      return 'Could not start tab audio. Stay on the HubSpot call tab and click Listen again.';
+      return t.listenDenyCaptureFailed;
     default:
-      return 'Could not start tab capture.';
+      return t.listenDenyTabCaptureDefault;
   }
 }
 
@@ -216,7 +217,7 @@ export function listenUiModel({
         buttonLabel: t.listenIdleButton,
         statusLabel: t.listenNotListening,
         header: t.listenReady,
-        line: copilotError || startDeniedMessage('capture_failed'),
+        line: copilotError || startDeniedMessage('capture_failed', lang),
         live: false,
       };
     default:
@@ -264,7 +265,8 @@ export function isSessionEndingCaptureTrack(track) {
   return Boolean(track && track.kind === 'audio');
 }
 
-export function applyTranscriptUpdate(state, { text, isFinal, words, audioChannel } = {}) {
+export function applyTranscriptUpdate(state, { text, isFinal, words, audioChannel, lang } = {}) {
+  const t = strings(lang);
   const finalTranscript = state.finalTranscript || '';
   const finalWords = Array.isArray(state.finalWords) ? state.finalWords : [];
   const prospectFinal = state.prospectFinal || '';
@@ -274,9 +276,9 @@ export function applyTranscriptUpdate(state, { text, isFinal, words, audioChanne
   const tagged = !piece
     ? ''
     : role === 'rep'
-      ? `You: ${piece}`
+      ? `${t.speakerYou}: ${piece}`
       : role === 'prospect'
-        ? `Them: ${piece}`
+        ? `${t.speakerThem}: ${piece}`
         : piece;
 
   if (isFinal) {

@@ -36,21 +36,32 @@ describe('listen-policy', () => {
       }).reason,
       'no_system_audio',
     );
-    assert.match(startDeniedMessage('no_system_audio'), /system audio/i);
-    assert.match(startDeniedMessage('no_system_audio', { platform: 'linux' }), /PipeWire|PulseAudio/i);
+    const en = { vocify_lang: 'en' };
+    const es = { vocify_lang: 'es' };
+    assert.match(startDeniedMessage('no_system_audio', { lang: en }), /system audio/i);
+    assert.match(
+      startDeniedMessage('no_system_audio', { platform: 'darwin', lang: es }),
+      /audio del sistema/i,
+    );
+    assert.match(startDeniedMessage('no_system_audio', { platform: 'linux', lang: en }), /PipeWire|PulseAudio/i);
+    assert.match(startDeniedMessage('no_mic', { lang: en }), /Microphone permission/i);
+    assert.match(startDeniedMessage('no_mic', { lang: es }), /permiso de micrófono/i);
   });
 
   it('tags prospect vs rep on the live transcript', () => {
+    const en = { vocify_lang: 'en' };
     let state = { finalTranscript: '', interimTranscript: '' };
     state = applyTranscriptUpdate(state, {
       text: 'the price is too high',
       isFinal: true,
       audioChannel: 'prospect',
+      lang: en,
     });
     state = applyTranscriptUpdate(state, {
       text: 'we can start smaller',
       isFinal: true,
       audioChannel: 'rep',
+      lang: en,
     });
     assert.equal(state.finalTranscript, 'Them: the price is too high You: we can start smaller');
   });

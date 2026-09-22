@@ -4037,13 +4037,16 @@ document.getElementById('listen-tab-button')?.addEventListener('click', () => {
   requestTabCaptureStreamId(chrome.tabCapture, captureTabId)
     .then((streamId) => {
       if (seq !== listenStartSeq) return { cancelled: true };
-      return chrome.runtime.sendMessage(listenClickRuntimeMessage({
-        isCopilotListening: false,
-        listenPhase: 'idle',
-        captureTabId,
-        streamId,
-        commandSeq: seq,
-      }));
+      return chrome.runtime.sendMessage({
+        ...listenClickRuntimeMessage({
+          isCopilotListening: false,
+          listenPhase: 'idle',
+          captureTabId,
+          streamId,
+          commandSeq: seq,
+        }),
+        uiLang: popupUiLang(),
+      });
     })
     .then((res) => {
       if (seq !== listenStartSeq || res?.cancelled) return null;
@@ -4067,7 +4070,7 @@ document.getElementById('listen-tab-button')?.addEventListener('click', () => {
         listenPhase: 'error',
         status: 'idle',
         isCopilotListening: false,
-        copilotError: err?.message || 'Could not start tab audio. Click Listen again.',
+        copilotError: err?.message || strings(popupUiLang()).listenCouldNotStartTabRetry,
       };
       renderState(lastBgState);
     });

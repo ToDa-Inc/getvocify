@@ -797,6 +797,8 @@ let listenStartTimerId = null;
 let listenEpoch = 0;
 /** Popup click generation — a Stop click invalidates an in-flight Start. */
 let listenCommandSeq = 0;
+/** UI language from the popup for listen deny copy and transcript tags. */
+let listenUiLang = null;
 
 function acceptListenCommandSeq(commandSeq) {
   if (commandSeq == null || !Number.isFinite(Number(commandSeq))) return true;
@@ -836,7 +838,7 @@ function failListen(reason) {
     minEpoch: listenEpoch,
   });
   chrome.offscreen.closeDocument().catch(() => {});
-  const message = startDeniedMessage(reason);
+  const message = startDeniedMessage(reason, listenUiLang);
   updateState({
     isCopilotListening: false,
     status: 'idle',
@@ -1322,6 +1324,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'START_TAB_CAPTURE':
+      if (message.uiLang != null) listenUiLang = message.uiLang;
       startTabCapture(message.tabId, message.streamId, message.commandSeq)
         .then(sendResponse)
         .catch((e) => sendResponse({ error: e.message }));
@@ -1408,6 +1411,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isFinal: message.isFinal,
         words: message.words,
         audioChannel: message.audioChannel,
+        lang: listenUiLang,
       });
       updateState(next);
       if (state.isCopilotListening) {
