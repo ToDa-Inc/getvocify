@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { visibleBrief, briefForContact, briefOnContact, briefRequest } from "./brief.js";
+import {
+  BRIEF_LOADING,
+  visibleBrief,
+  briefForContact,
+  briefOnContact,
+  briefRequest,
+  contactBriefDisplayLines,
+  shouldApplyBriefResponse,
+} from "./brief.js";
 
 describe("pre-call brief", () => {
   it("shows the never-spoken sentence without a fake last call", () => {
@@ -33,5 +41,34 @@ describe("pre-call brief", () => {
     assert.deepEqual(briefOnContact({ objectType: "contact", captureActive: false, brief }), ["Sin conversación todavía."]);
     assert.deepEqual(briefOnContact({ objectType: "contact", captureActive: true, brief }), []);
     assert.equal(briefRequest("42", "crm-A"), "/briefs?contact_id=42&connection_id=crm-A");
+  });
+
+  it("shows one loading line instead of the previous contact", () => {
+    const cached = { contactId: "42", brief: { text: "Sin conversación todavía.", lines: [] } };
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "9",
+        captureActive: false,
+        cache: cached,
+        flightContactId: "9",
+      }),
+      [BRIEF_LOADING],
+    );
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "9",
+        captureActive: false,
+        cache: cached,
+        flightContactId: null,
+      }),
+      [],
+    );
+  });
+
+  it("drops a stale response after the user changed contact", () => {
+    assert.equal(shouldApplyBriefResponse("9", "42"), false);
+    assert.equal(shouldApplyBriefResponse("9", "9"), true);
   });
 });

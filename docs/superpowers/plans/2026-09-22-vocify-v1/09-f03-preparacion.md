@@ -142,19 +142,19 @@ Sin modelo y sin tabla nueva. Este formato ya está aprobado.
 
 - [x] Formato mínimo y extensión sobre el contacto, aprobados el 22 sep 2026.
 
-- [ ] Ninguna afirmación carece de fuente.
+- [x] Ninguna afirmación carece de fuente.
 
-- [ ] Abrir el brief no genera análisis nuevo.
+- [x] Abrir el brief no genera análisis nuevo.
 
-- [ ] El contacto nunca hablado y el que no dejó nada tienen frases distintas.
+- [x] El contacto nunca hablado y el que no dejó nada tienen frases distintas.
 
-- [ ] La precarga no muestra datos de un contacto anterior.
+- [x] La precarga no muestra datos de un contacto anterior.
 
-- [ ] No se pintan filas vacías. Como máximo tres hechos, y la tarea CRM solo si no hay conversación.
+- [x] No se pintan filas vacías. Como máximo tres hechos, y la tarea CRM solo si no hay conversación.
 
 - [ ] Abrir la extensión en un contacto HubSpot muestra eso antes de llamar. Dashboard y escritorio usan el mismo texto.
 
-- [ ] Una lectura incompleta no se presenta como «sin conversación».
+- [x] Una lectura incompleta no se presenta como «sin conversación».
 
 - [ ] Navegar entre contactos no mezcla datos y no desplaza una captura/revisión que siga activa sobre el contacto original.
 

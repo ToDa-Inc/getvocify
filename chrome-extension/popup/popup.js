@@ -5,7 +5,12 @@
  */
 
 import { api } from '../lib/api.js';
-import { briefForContact, briefOnContact, briefRequest } from '../shared/ui/brief.js';
+import {
+  briefForContact,
+  briefRequest,
+  contactBriefDisplayLines,
+  shouldApplyBriefResponse,
+} from '../shared/ui/brief.js';
 import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
 import { composeTarget } from '../shared/ui/compose.js';
@@ -690,12 +695,15 @@ function paintContactBrief(state) {
   const box = document.getElementById('contact-brief');
   if (!box) return;
   const contactId = state.context?.objectType === 'contact' ? state.context.recordId : null;
-  const brief = briefForContact(contactId, briefCache);
-  const lines = briefOnContact({
+  const captureActive = Boolean(state.isRecording || state.isCopilotListening || state.status === 'copilot');
+  const lines = contactBriefDisplayLines({
     objectType: state.context?.objectType,
-    captureActive: Boolean(state.isRecording || state.isCopilotListening || state.status === 'copilot'),
-    brief,
+    contactId,
+    captureActive,
+    cache: briefCache,
+    flightContactId: briefFlight,
   });
+  const brief = briefForContact(contactId, briefCache);
   box.replaceChildren();
   for (const line of lines) {
     const row = document.createElement('p');
@@ -707,12 +715,12 @@ function paintContactBrief(state) {
   briefFlight = contactId;
   const connectionId = state.context.connectionId || 'hubspot';
   api.get(briefRequest(contactId, connectionId)).then((body) => {
-    if (briefFlight !== contactId) return;
+    if (!shouldApplyBriefResponse(briefFlight, contactId)) return;
     briefCache = { contactId, brief: body };
     briefFlight = null;
     paintContactBrief(state);
   }).catch(() => {
-    if (briefFlight !== contactId) return;
+    if (!shouldApplyBriefResponse(briefFlight, contactId)) return;
     briefCache = { contactId, brief: { text: 'No se pudo cargar todo.', lines: [] } };
     briefFlight = null;
     paintContactBrief(state);

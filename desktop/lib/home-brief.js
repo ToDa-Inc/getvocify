@@ -1,6 +1,11 @@
-import { briefForContact, briefOnContact, briefRequest } from '../renderer/shared/ui/brief.js';
+import {
+  BRIEF_LOADING,
+  briefForContact,
+  briefRequest,
+  contactBriefDisplayLines,
+} from '../renderer/shared/ui/brief.js';
 
-export const HOME_BRIEF_LOADING = 'Leyendo…';
+export const HOME_BRIEF_LOADING = BRIEF_LOADING;
 
 export function homeBriefContactId(recordPage) {
   if (!recordPage || recordPage.objectType !== 'contact') return null;
@@ -13,19 +18,14 @@ export function homeBriefContactId(recordPage) {
 /** Text lines for the home brief surface (0–3 facts, or one loading line). */
 export function homeBriefDisplayLines({ recordPage, captureActive, cache, flightContactId }) {
   const contactId = homeBriefContactId(recordPage);
-  if (!contactId || captureActive) return [];
-
-  const brief = briefForContact(contactId, cache);
-  const contentLines = briefOnContact({
+  if (!contactId) return [];
+  return contactBriefDisplayLines({
     objectType: recordPage.objectType,
-    captureActive: false,
-    brief,
+    contactId,
+    captureActive,
+    cache,
+    flightContactId,
   });
-  if (contentLines.length) return contentLines;
-
-  if (flightContactId === contactId) return [HOME_BRIEF_LOADING];
-
-  return [];
 }
 
 export function shouldFetchHomeBrief({ recordPage, captureActive, cache, flightContactId }) {

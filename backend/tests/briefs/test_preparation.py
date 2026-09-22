@@ -1,5 +1,7 @@
 """F03 brief: three facts at most. Never spoken is not the same as nothing left."""
 
+import pathlib
+
 import os
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -77,6 +79,28 @@ def test_a_crm_task_does_not_appear_once_there_is_a_conversation():
     )
     assert brief["status"] == "nothing_pending"
     assert brief["lines"] == []
+
+
+def test_every_fact_line_names_its_source():
+    brief = prepare_brief(
+        coverage="complete",
+        last={"text": "El 2 sep hablasteis del almacén.", "observed_at": "2026-09-02", "source_ref": "memo-1"},
+        pending={"text": "Quedó pendiente: enviar el caso.", "source_ref": "memo-2"},
+        objection={"text": "Objeción: el precio.", "source_ref": "memo-3"},
+        pain_confirmed=True,
+    )
+    for line in brief["lines"]:
+        assert line.get("source_ref")
+
+
+def test_preparation_stays_read_only_without_a_model():
+    root = pathlib.Path(__file__).resolve().parents[2] / "app"
+    for rel in ("services/briefs/preparation.py", "api/briefs.py"):
+        text = (root / rel).read_text(encoding="utf-8").lower()
+        assert "openai" not in text
+        assert "anthropic" not in text
+        assert "invoke_llm" not in text
+        assert "llm_service" not in text
 
 
 def test_get_brief_uses_the_loader_for_that_contact():
