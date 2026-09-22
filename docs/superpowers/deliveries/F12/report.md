@@ -17,4 +17,5 @@ Desktop companion: el split de turnos en vivo usa todos los prefijos `speakerYou
 Desktop overlay: `speakerRoleFromLastLine` comparte la misma lista de prefijos del catálogo para ocultar ayuda en turnos rep.
 Extensión background: aviso «cuelga antes de grabar nota» vía `memoHangUpFirst` en `shared/ui/i18n.js` (`listenUiLang`).
 Extensión background: aviso «deja de escuchar la pestaña antes de grabar nota» vía `memoStopListeningFirst` en `shared/ui/i18n.js` (`listenUiLang`).
+Extensión popup y desktop companion: `uiLangInput` + `resolveUiLang`; desktop lee `localStorage.vocify_lang`, la extensión su propia clave `vocify_lang` en `chrome.storage.local` (sin sync con la web).
 App web: el idioma de UI y API sigue `localStorage.vocify_lang` (`en`/`es`); el prefijo `/en` solo aplica como fallback en rutas públicas (`/`/`/en`), no en `/dashboard`.

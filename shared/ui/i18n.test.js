@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveUiLang, strings } from './i18n.js';
+import { resolveUiLang, strings, uiLangInput } from './i18n.js';
+
+test('uiLangInput forwards saved en/es and navigator for resolveUiLang', () => {
+  assert.equal(resolveUiLang(uiLangInput('en', 'es-ES')), 'en');
+  assert.equal(resolveUiLang(uiLangInput(null, 'en-GB')), 'en');
+  assert.equal(resolveUiLang(uiLangInput(undefined, '')), 'es');
+  assert.deepEqual(uiLangInput('fr', 'de-DE'), { navigatorLanguage: 'de-DE' });
+});
 
 test('resolveUiLang prefers vocify_lang then navigatorLanguage then es fallback', () => {
   assert.equal(resolveUiLang({ vocify_lang: 'en-US', navigatorLanguage: 'es-ES' }), 'en');

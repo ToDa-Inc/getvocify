@@ -56,7 +56,7 @@ import {
   todayItemToCard,
 } from '../lib/home-hoy.js';
 import { renderToString } from './shared/ui/html.js';
-import { applyDataI18n, strings } from './shared/ui/i18n.js';
+import { applyDataI18n, strings, uiLangInput } from './shared/ui/i18n.js';
 import {
   latestTaggedTurnBody,
   splitTaggedTranscript,
@@ -74,10 +74,7 @@ const STORAGE = {
 };
 
 function uiLang() {
-  return {
-    vocify_lang: localStorage.getItem('vocify_lang'),
-    navigatorLanguage: navigator.language,
-  };
+  return uiLangInput(localStorage.getItem('vocify_lang'), navigator.language);
 }
 
 applyDataI18n(document, uiLang());

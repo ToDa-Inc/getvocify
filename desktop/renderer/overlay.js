@@ -1,6 +1,6 @@
 import { overlayChecklistMarkup } from './shared/ui/copilot/checklist.js';
 import { initialPillState, pillDecision } from './shared/ui/copilot/pill.js';
-import { applyDataI18n, strings } from './shared/ui/i18n.js';
+import { applyDataI18n, strings, uiLangInput } from './shared/ui/i18n.js';
 import { renderToString } from './shared/ui/html.js';
 import { speakerRoleFromLastLine } from '../lib/transcript-turns.js';
 
@@ -10,10 +10,7 @@ const checklistEl = document.getElementById('overlay-checklist');
 const assistBtn = document.getElementById('overlay-assist');
 
 function uiLang() {
-  return {
-    vocify_lang: localStorage.getItem('vocify_lang'),
-    navigatorLanguage: navigator.language,
-  };
+  return uiLangInput(localStorage.getItem('vocify_lang'), navigator.language);
 }
 
 applyDataI18n(document, uiLang());

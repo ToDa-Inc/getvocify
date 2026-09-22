@@ -183,6 +183,28 @@ const STRINGS = {
 
 const FALLBACK = 'es';
 
+/**
+ * Build `resolveUiLang` / `strings` input from saved preference and navigator.
+ * Forwards `vocify_lang` only when it maps to a supported UI language (es/en).
+ *
+ * @param {string | null | undefined} saved
+ * @param {string | null | undefined} navigatorLanguage
+ */
+export function uiLangInput(saved, navigatorLanguage) {
+  /** @type {{ vocify_lang?: string, navigatorLanguage?: string }} */
+  const out = {};
+  if (typeof saved === 'string' && saved.trim()) {
+    const code = saved.trim().slice(0, 2).toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(STRINGS, code)) {
+      out.vocify_lang = saved.trim();
+    }
+  }
+  if (typeof navigatorLanguage === 'string' && navigatorLanguage.trim()) {
+    out.navigatorLanguage = navigatorLanguage.trim();
+  }
+  return out;
+}
+
 /** @param {string | { vocify_lang?: string | null, navigatorLanguage?: string | null } | null | undefined} input */
 export function resolveUiLang(input) {
   const opts =

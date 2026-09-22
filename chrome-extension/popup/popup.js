@@ -67,7 +67,7 @@ import {
 } from '../lib/tab-capture.js';
 import { copilotLiveAssistAllowed } from '../shared/ui/copilot/suggestion-state.js';
 import { overlayChecklistMarkup } from '../shared/ui/copilot/checklist.js';
-import { applyDataI18n, strings } from '../shared/ui/i18n.js';
+import { applyDataI18n, strings, uiLangInput } from '../shared/ui/i18n.js';
 import { renderToString } from '../shared/ui/html.js';
 import {
   decideCopilotPillLine,
@@ -127,11 +127,22 @@ import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarg
 import { startLocalRingback } from '../lib/local-ringback.js';
 import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta, userFacingCallError } from '../lib/call-format.js';
 
+let popupSavedLang = null;
+let popupSavedLangReady = false;
+
+async function loadPopupSavedLang() {
+  try {
+    const data = await chrome.storage.local.get('vocify_lang');
+    popupSavedLang = data.vocify_lang ?? null;
+  } catch {
+    popupSavedLang = null;
+  }
+  popupSavedLangReady = true;
+}
+
 function popupUiLang() {
-  return {
-    vocify_lang: localStorage.getItem('vocify_lang'),
-    navigatorLanguage: navigator.language,
-  };
+  const saved = popupSavedLangReady ? popupSavedLang : null;
+  return uiLangInput(saved, navigator.language);
 }
 
 function paintCallMuteButton(muted, enabled) {
@@ -4474,6 +4485,7 @@ document.getElementById('loading-error-logout')?.addEventListener('click', signO
 // INIT
 // ============================================
 async function init() {
+  await loadPopupSavedLang();
   applyDataI18n(document, popupUiLang());
   showScreen('loading');
   authStatus = 'unknown';
