@@ -44,6 +44,37 @@ def test_an_unavailable_crm_is_not_an_empty_answer():
     assert "confirmation" not in missing
 
 
+def test_a_choices_turn_keeps_both_labels():
+    from app.services.crm_copilot.web_sessions import payload_from_turn
+
+    payload = payload_from_turn(
+        "¿Cuál Marina?",
+        {
+            "copilot": {
+                "choices": [
+                    {"id": "c1", "label": "Marina López"},
+                    {"id": "c2", "label": "Marina Ruiz"},
+                ]
+            }
+        },
+        kind="choices",
+    )
+    assert [row["label"] for row in payload["choices"]] == ["Marina López", "Marina Ruiz"]
+
+
+def test_a_turn_without_choices_has_no_choices_key():
+    from app.services.crm_copilot.web_sessions import payload_from_turn
+
+    plain = payload_from_turn("Hola.", {})
+    assert "choices" not in plain
+    hollow = payload_from_turn(
+        "¿Cuál?",
+        {"copilot": {"choices": [{"id": "", "label": "Marina"}]}},
+        kind="choices",
+    )
+    assert "choices" not in hollow
+
+
 def test_a_tool_call_line_is_not_part_of_the_answer():
     from app.services.crm_copilot.web_sessions import public_answer
 

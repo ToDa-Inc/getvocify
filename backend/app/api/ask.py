@@ -86,7 +86,7 @@ def _stage_confirmation(turn: dict, user_id: str, conversation_id: str) -> None:
 
 
 def _public(turn: dict) -> dict:
-    return {
+    body = {
         "conversation_id": turn["conversation_id"],
         "turn_id": turn["turn_id"],
         "status": turn["status"],
@@ -96,6 +96,10 @@ def _public(turn: dict) -> dict:
         "item_count": turn.get("item_count"),
         "confirmation": turn.get("confirmation"),
     }
+    choices = turn.get("choices")
+    if choices:
+        body["choices"] = choices
+    return body
 
 
 @router.post("/conversations/{conversation_id}/turns")
@@ -156,9 +160,12 @@ async def _finish(turn: dict, text: str) -> dict:
             answer = public_answer(result.get("text") or turn["text"])
             envelope = result.get("envelope")
             confirmation = result.get("confirmation")
+            choices = result.get("choices")
         updated = {**turn, "status": "completed", "text": answer}
         if confirmation:
             updated["confirmation"] = confirmation
+        if choices:
+            updated["choices"] = choices
         if envelope:
             updated = attach_read(updated, envelope)
         return updated

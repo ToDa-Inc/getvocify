@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/shared/lib/api-client";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
+import { askChoices, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
 import { askConfirmation, askSituation } from "@/lib/ask-situation";
 
@@ -13,7 +14,9 @@ type AskTurnBody = {
   status: AskSnapshot["status"];
   text: string;
   coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
+  item_count?: number;
   confirmation?: { operation_id?: string; revision?: number; contact_id?: string } | null;
+  choices?: AskChoice[];
 };
 
 function readStored(): StoredTurn | null {
@@ -26,6 +29,9 @@ function readStored(): StoredTurn | null {
 }
 
 export default function AskPanel() {
+  const [draft, setDraft] = useState("");
+  const [read, setRead] = useState<{ coverage?: AskTurnBody["coverage"]; items?: number }>({});
+  const [turnChoices, setTurnChoices] = useState<AskChoice[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<ReturnType<typeof askConfirmation>>(null);
   const [view, setView] = useState<AskView>(emptyAsk());
   const [conversationId] = useState("conv-1");
@@ -47,6 +53,7 @@ export default function AskPanel() {
         }));
         setRead({ coverage: turn.coverage, items: turn.item_count });
         setPendingConfirm(askConfirmation(turn));
+        setTurnChoices(askChoices(turn));
       })
       .catch(() => undefined);
     return () => {
@@ -74,6 +81,7 @@ export default function AskPanel() {
           );
           setRead({ coverage: turn.coverage, items: turn.item_count });
           setPendingConfirm(askConfirmation(turn));
+          setTurnChoices(askChoices(turn));
         })
         .catch(() => {
           setView((current) => noteTick(current, 2000, null, false));
@@ -82,20 +90,12 @@ export default function AskPanel() {
     return () => window.clearInterval(timer);
   }, [conversationId, view.turnId, view.status]);
 
-  async function send() {
-    const text = draft.trim();
-    if (!text || view.turnId) return;
-    const turn = await api.post<{
-      turn_id: string;
-      status: AskSnapshot["status"];
-      text: string;
-      coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
-      item_count?: number;
-    }>(
+  async function postTurn(text: string) {
+    const turn = await api.post<AskTurnBody>(
       `/ask/conversations/${conversationId}/turns`,
       { client_turn_id: crypto.randomUUID(), text },
     );
-    const next = notePosted(view, {
+    const next = notePosted(viewForFollowUp(view), {
       turnId: turn.turn_id,
       status: turn.status,
       text: turn.text,
@@ -103,9 +103,16 @@ export default function AskPanel() {
     setView(next);
     setRead({ coverage: turn.coverage, items: turn.item_count });
     setPendingConfirm(askConfirmation(turn));
+    setTurnChoices(askChoices(turn));
     if (next.turnId) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));
     }
+  }
+
+  async function send() {
+    const text = draft.trim();
+    if (!text || (view.turnId && view.status !== "completed" && view.status !== "failed")) return;
+    await postTurn(text);
     setDraft("");
   }
 
@@ -128,6 +135,22 @@ export default function AskPanel() {
         <p className="mt-2 text-sm" role="status">Hay una respuesta nueva</p>
       ) : null}
       {view.text ? <p className="mt-4 text-sm">{view.text}</p> : null}
+      {showAskChoices(view, turnChoices) ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {turnChoices.map((choice) => (
+            <button
+              key={choice.id}
+              type="button"
+              className="rounded-full border border-border px-3 py-1 text-sm"
+              onClick={() => {
+                void postTurn(choice.label);
+              }}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {pendingConfirm ? (
         <button
           type="button"
@@ -175,7 +198,7 @@ export default function AskPanel() {
         <button
           type="submit"
           className="rounded-full border border-border px-3 py-1 text-sm"
-          disabled={Boolean(view.turnId)}
+          disabled={Boolean(view.turnId && view.status !== "completed" && view.status !== "failed")}
         >
           Enviar
         </button>

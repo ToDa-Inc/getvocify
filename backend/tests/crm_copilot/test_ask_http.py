@@ -317,6 +317,32 @@ def test_a_proposed_confirmation_can_be_confirmed_for_that_contact_only():
         ask_api.set_ask_loop(None)
 
 
+def test_a_choices_turn_returns_both_labels_in_the_public_payload():
+    async def loop(_text: str) -> dict:
+        return {
+            "text": "¿Cuál Marina?",
+            "choices": [
+                {"id": "c1", "label": "Marina López"},
+                {"id": "c2", "label": "Marina Ruiz"},
+            ],
+        }
+
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        response = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-choices", "text": "busca Marina"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert [row["label"] for row in body["choices"]] == ["Marina López", "Marina Ruiz"]
+        fetched = client.get(f"/api/v1/ask/conversations/conv-1/turns/{body['turn_id']}")
+        assert "choices" in fetched.json()
+    finally:
+        ask_api.set_ask_loop(None)
+
+
 def test_a_failed_loop_leaves_the_turn_pending():
     async def loop(_text: str):
         return None

@@ -111,11 +111,28 @@ def public_answer(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def public_choices(artifacts: dict | None, *, kind: str = "text") -> list[dict] | None:
+    if kind != "choices":
+        return None
+    copilot = (artifacts or {}).get("copilot") or {}
+    rows = []
+    for choice in list(copilot.get("choices") or [])[:10]:
+        cid = str(choice.get("id") or "").strip()
+        label = str(choice.get("label") or "").strip()
+        if not cid or not label:
+            continue
+        rows.append({"id": cid, "label": label})
+    return rows or None
+
+
 def payload_from_turn(text: str, artifacts: dict | None = None, *, kind: str = "text") -> dict:
     coverage = (artifacts or {}).get("crm_coverage")
     body = {"text": public_answer(text)}
     if coverage in {"unavailable", "forbidden", "partial"}:
         body["envelope"] = {"items": [], "coverage": coverage}
+    choices = public_choices(artifacts, kind=kind)
+    if choices:
+        body["choices"] = choices
     if kind == "confirm":
         copilot = (artifacts or {}).get("copilot") or {}
         args = copilot.get("pending_args") or {}
