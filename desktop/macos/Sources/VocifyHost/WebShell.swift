@@ -11,8 +11,14 @@ private let shellBackground = NSColor(
 )
 
 final class HostController: ObservableObject {
-    let bridge = Bridge()
+    let bridge: Bridge
     @Published var isListening = false
+
+    init() {
+        let bridge = Bridge()
+        self.bridge = bridge
+        bridge.host = self
+    }
 
     func emitCommand(_ name: String) {
         bridge.emitCommand(name)
@@ -20,7 +26,12 @@ final class HostController: ObservableObject {
 
     func toggleListenStop() {
         emitCommand(isListening ? "stop" : "listen")
-        isListening.toggle()
+    }
+
+    func applyShellState(_ state: [String: Any]) {
+        if let listening = state["listening"] as? Bool {
+            isListening = listening
+        }
     }
 
     func resolveRendererRoot() -> URL {

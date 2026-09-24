@@ -22,12 +22,13 @@ struct VocifyHostApp: App {
                     NSApplication.shared.orderFrontStandardAboutPanel(nil)
                 }
             }
-            CommandMenu("Nota") {
+            CommandGroup(replacing: .newItem) {
                 Button("Nueva nota") {
                     host.emitCommand("show")
                 }
                 .keyboardShortcut("n", modifiers: .command)
-
+            }
+            CommandMenu("Nota") {
                 Button("Grabar/Parar") {
                     host.toggleListenStop()
                 }

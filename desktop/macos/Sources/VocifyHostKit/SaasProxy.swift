@@ -11,6 +11,18 @@ public enum SaasProxy {
         return false
     }
 
+    public static func parseResponseBody(_ data: Data) -> Any {
+        if data.isEmpty { return [:] as [String: Any] }
+        do {
+            return try JSONSerialization.jsonObject(with: data)
+        } catch {
+            if let text = String(data: data, encoding: .utf8) {
+                return ["raw": text]
+            }
+            return [:] as [String: Any]
+        }
+    }
+
     public static func request(_ payload: [String: Any]) async -> [String: Any] {
         let base = payload["base"] as? String ?? ""
         guard isAllowedApiBase(base) else {
@@ -42,22 +54,17 @@ public enum SaasProxy {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            var parsed: [String: Any] = [:]
-            if !data.isEmpty {
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    parsed = json
-                } else if let text = String(data: data, encoding: .utf8) {
-                    parsed = ["raw": text]
-                }
-            }
+            let parsed = parseResponseBody(data)
             let ok = (200 ... 299).contains(status)
             if ok {
                 return ["ok": true, "status": status, "data": parsed]
             }
-            let detail = parsed["detail"] as? String
-            let error = detail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                ? detail!
-                : "HTTP \(status)"
+            var error = "HTTP \(status)"
+            if let dict = parsed as? [String: Any],
+               let detail = dict["detail"] as? String,
+               !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                error = detail
+            }
             return ["ok": false, "status": status, "data": parsed, "error": error]
         } catch {
             return ["ok": false, "status": 0, "data": [:] as [String: Any], "error": error.localizedDescription]

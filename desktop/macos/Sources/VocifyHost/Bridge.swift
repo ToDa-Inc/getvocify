@@ -5,6 +5,7 @@ import VocifyHostKit
 
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     weak var webView: WKWebView?
+    weak var host: HostController?
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -53,7 +54,14 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["ok": true]
         case "capture:pending":
             return [] as [[String: Any]]
-        case "shell:state", "shell:command":
+        case "shell:state":
+            if let state = args["state"] as? [String: Any] {
+                await MainActor.run {
+                    host?.applyShellState(state)
+                }
+            }
+            return nil
+        case "shell:command":
             return nil
         case "capture:begin", "capture:append", "capture:channel-absent", "capture:confirm", "capture:discard":
             return ["ok": true]

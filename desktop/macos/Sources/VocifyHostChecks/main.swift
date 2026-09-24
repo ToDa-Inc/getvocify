@@ -39,5 +39,11 @@ do {
     check(result["ok"] as? Bool == false, "foreign request not sent")
     check(result["error"] as? String == "API base is not a Vocify host", "foreign request error text")
 }
+do {
+    let fixture = Data(#"[{"id":"m1"}]"#.utf8)
+    let parsed = SaasProxy.parseResponseBody(fixture)
+    check(parsed is [Any], "json array parses as array")
+    check((parsed as? [Any])?.count == 1, "json array element count")
+}
 
 print("all checks passed")
