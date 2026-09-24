@@ -159,12 +159,22 @@ def load_team_reps(supabase, company_id: str) -> list[dict]:
     return sort_reps_by_name(reps)
 
 
+def _first_plain_line(summary: str) -> str:
+    """First real sentence of a summary, without markdown headings or bullets."""
+    for raw in summary.splitlines():
+        text = raw.strip().lstrip("#").strip().lstrip("-*•").strip()
+        if not text or raw.strip().startswith("#"):
+            continue
+        return text
+    return ""
+
+
 def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
     """Up to three recent conversations that already have a summary. No new read."""
     ranked: list[tuple[str, str, str]] = []
     for memo in memos:
         extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-        line = str((extraction or {}).get("summary") or "").strip()
+        line = _first_plain_line(str((extraction or {}).get("summary") or ""))
         memo_id = str(memo.get("id") or "").strip()
         if not line or not memo_id:
             continue
@@ -190,6 +200,7 @@ def load_team_adherence_inputs(
     reps = load_team_reps(supabase, company_id)
     filter_user = (user_id or "").strip() or None
     filter_motion = (motion or "").strip() or None
+    member_ids = [str(rep.get("userId")) for rep in reps if rep.get("userId")]
     try:
         query = (
             supabase.table("memos")
@@ -197,8 +208,14 @@ def load_team_adherence_inputs(
                 "id,user_id,sales_motion_key,screening_outcome,extraction,"
                 "capture_started_at,created_at"
             )
-            .eq("company_id", company_id)
         )
+        # Older memos have no company_id. Members' memos without one still belong to the team.
+        if member_ids:
+            query = query.in_("user_id", member_ids).or_(
+                f"company_id.eq.{company_id},company_id.is.null"
+            )
+        else:
+            query = query.eq("company_id", company_id)
         if filter_user:
             query = query.eq("user_id", filter_user)
         if filter_motion:

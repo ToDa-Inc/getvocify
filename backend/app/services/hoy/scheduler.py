@@ -221,6 +221,14 @@ def rebind_contact(rows: list[dict], *, memo_id: str, contact_id: str) -> list[d
     return kept
 
 
+def card_detail(payload: dict) -> str | None:
+    """The line the rep said or heard. The reason already states the type."""
+    text = " ".join(str(payload.get("quote") or "").split())
+    if len(text) > 160:
+        text = text[:157].rstrip() + "…"
+    return text or None
+
+
 def contact_record_url(
     *,
     provider: str | None,
@@ -267,6 +275,7 @@ def build_today_view(
             "remote_id": payload.get("remote_id"),
             "origins": payload.get("origins") or ["detected"],
             "supporting": [item.type for item in card.supporting],
+            "detail": card_detail(payload),
             "open_url": contact_record_url(
                 provider=provider,
                 contact_id=card.primary.contact_id,

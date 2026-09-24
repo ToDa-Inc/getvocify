@@ -114,7 +114,10 @@ def persist_new_signals(supabase, *, company_id: str, user_id: str, signals: lis
                 "memo_id": signal.source_memo_id,
                 "type": signal.type,
                 "dedupe_key": signal.dedupe_key,
-                "payload": signal.payload,
+                "payload": {
+                    **signal.payload,
+                    **({"due_at": signal.due_at.isoformat()} if signal.due_at else {}),
+                },
                 "status": "pending",
                 "coverage": "complete",
             },
@@ -130,8 +133,8 @@ def refresh_hoy_signals(supabase, *, company_id: str, user_id: str, now: datetim
         stored = (
             supabase.table("memos")
             .select("id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at")
-            .eq("company_id", company_id)
             .eq("user_id", user_id)
+            .or_(f"company_id.eq.{company_id},company_id.is.null")
             .order("created_at", desc=True)
             .limit(40)
             .execute()

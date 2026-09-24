@@ -417,6 +417,61 @@ def test_get_today_reason_follows_accept_language():
     assert english["items"][0]["reason"] == reason(signal, lang="en")
 
 
+def test_a_card_names_the_contact_and_keeps_the_quote():
+    objection = Signal(
+        type="objection_open",
+        contact_id="42",
+        deal_id=None,
+        source_memo_id="memo-1",
+        due_at=None,
+        payload={"category": "price", "quote": "Es caro para este trimestre", "touch_at": NOW.isoformat()},
+        dedupe_key="objection:memo-1:price",
+        connection_id="crm-A",
+    )
+    view = build_today_view(
+        signals=[objection],
+        manual_tasks=[{"remote_id": "task-9", "title": "Follow up", "contact_id": "42"}],
+        now=NOW,
+        coverage={"intelligence": "complete", "crm_tasks": "complete"},
+        generated_at="2026-09-22T08:00:00Z",
+    )
+    call = next(item for item in view["items"] if item["type"] == "objection_open")
+    task = next(item for item in view["items"] if item["type"] == "manual_task")
+    assert call["detail"] == "Es caro para este trimestre"
+    assert task["type"] == "manual_task"
+
+    STORE.rows = [{
+        "company_id": "co-1",
+        "user_id": "user-a",
+        "status": "pending",
+        "type": "objection_open",
+        "contact_id": "42",
+        "memo_id": "memo-1",
+        "connection_id": "crm-A",
+        "dedupe_key": "objection:memo-1:price",
+        "coverage": "complete",
+        "payload": {"category": "price", "quote": "Es caro para este trimestre", "touch_at": NOW.isoformat()},
+    }]
+    STORE.tables["memos"] = [{
+        "id": "memo-1",
+        "user_id": "user-a",
+        "hubspot_contact_id": "42",
+        "extraction": {"contactName": "Marina López", "companyName": "Acme"},
+    }]
+    today_api.set_today_tasks(lambda _company: ([{"remote_id": "task-9", "title": "Follow up", "contact_id": "42"}], "complete"))
+    try:
+        body = _today_client().get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        STORE.tables["memos"] = []
+    named = next(item for item in body["items"] if item["type"] == "objection_open")
+    loose = next(item for item in body["items"] if item["type"] == "manual_task")
+    assert named["contact_name"] == "Marina López"
+    assert named["company_name"] == "Acme"
+    assert named["detail"] == "Es caro para este trimestre"
+    assert loose["contact_name"] == "Marina López"
+
+
 def test_today_keeps_a_pending_card_when_crm_tasks_were_not_read():
     STORE.rows = [{
         "company_id": "co-1",

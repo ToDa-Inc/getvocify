@@ -47,6 +47,10 @@ class _Query:
         self._in_filters.append((column, list(values)))
         return self
 
+    def or_(self, expression: str):
+        self._or = expression
+        return self
+
     def limit(self, n: int):
         self._limit = n
         return self
@@ -61,6 +65,19 @@ class _Query:
         for column, values in self._in_filters:
             allowed = {str(v) for v in values}
             rows = [row for row in rows if str(row.get(column)) in allowed]
+        expression = getattr(self, "_or", None)
+        if expression:
+            wanted = [part.split(".", 2) for part in expression.split(",")]
+
+            def keep(row):
+                for column, op, value in wanted:
+                    if op == "eq" and str(row.get(column)) == value:
+                        return True
+                    if op == "is" and value == "null" and row.get(column) is None:
+                        return True
+                return False
+
+            rows = [row for row in rows if keep(row)]
         if self._limit is not None:
             rows = rows[: self._limit]
         return _Result(rows)
@@ -142,6 +159,15 @@ def test_without_filter_both_reps_count():
     inputs = load_team_adherence_inputs(_store(), COMPANY)
     body = team_adherence(role="admin", **inputs)
     assert body["attempts"] == 2
+
+
+def test_a_member_memo_without_company_id_still_counts_and_an_outsider_does_not():
+    store = _store()
+    store.tables["memos"].append({**_memo("memo-old", USER_A, "discovery"), "company_id": None})
+    store.tables["memos"].append({**_memo("memo-out", "cccccccc-cccc-cccc-cccc-cccccccccccc", "discovery"), "company_id": None})
+    inputs = load_team_adherence_inputs(store, COMPANY)
+    body = team_adherence(role="admin", **inputs)
+    assert body["attempts"] == 3
 
 
 def test_activity_counts_trace_to_company_memos():

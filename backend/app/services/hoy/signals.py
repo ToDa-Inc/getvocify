@@ -107,6 +107,8 @@ def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetim
 def _rank_key(signal: Signal, now: datetime) -> tuple:
     tier = TIER[signal.type]
     if signal.type == "commitment_due":
+        if signal.due_at is None:
+            return (tier, 1, float("inf"))
         return (tier, 0 if signal.due_at < now else 1, signal.due_at.timestamp())
     if signal.type == "going_cold":
         return (tier, 0 if signal.payload["interest"] == "high" else 1, signal.payload["days_silent"])

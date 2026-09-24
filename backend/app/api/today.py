@@ -154,12 +154,19 @@ def _signal(row: dict) -> Signal:
             payload["undo_deadline"] = row.get("undo_deadline")
         if row.get("last_action_request_id"):
             payload["last_action_request_id"] = row.get("last_action_request_id")
+    due_at = None
+    raw_due = payload.get("due_at")
+    if isinstance(raw_due, str) and raw_due:
+        try:
+            due_at = datetime.fromisoformat(raw_due.replace("Z", "+00:00"))
+        except ValueError:
+            due_at = None
     return Signal(
         type=row["type"],
         contact_id=row.get("contact_id"),
         deal_id=row.get("deal_id"),
         source_memo_id=row.get("memo_id") or "",
-        due_at=None,
+        due_at=due_at,
         payload=payload,
         dedupe_key=row["dedupe_key"],
         connection_id=row.get("connection_id"),
@@ -218,7 +225,7 @@ async def get_today(
     meta = (connection or {}).get("metadata") or {}
     portal = meta.get("portal_id") or meta.get("hub_id") or meta.get("portalId")
     domain = str(meta.get("company_domain") or "").strip() or None
-    return build_today_view(
+    view = build_today_view(
         signals=[_signal(row) for row in visible],
         manual_tasks=manual_tasks,
         now=now,
@@ -229,6 +236,55 @@ async def get_today(
         portal_id=str(portal) if portal else None,
         company_domain=domain,
     )
+    _stamp_contact_names(view, visible, _memo_directory(supabase, membership.user_id))
+    return view
+
+
+def _clean_name(value) -> str | None:
+    text = " ".join(str(value or "").split())
+    return text or None
+
+
+def _memo_directory(supabase, user_id: str) -> tuple[dict[str, tuple[str | None, str | None]], dict[str, tuple[str | None, str | None]]]:
+    """Names already extracted on the memo. A failed read leaves the card unnamed."""
+    try:
+        stored = (
+            supabase.table("memos")
+            .select("id,user_id,hubspot_contact_id,extraction")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        return {}, {}
+    by_memo: dict[str, tuple[str | None, str | None]] = {}
+    by_contact: dict[str, tuple[str | None, str | None]] = {}
+    for memo in stored.data or []:
+        extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+        pair = (_clean_name(extraction.get("contactName")), _clean_name(extraction.get("companyName")))
+        if memo.get("id"):
+            by_memo[str(memo["id"])] = pair
+        contact_id = memo.get("hubspot_contact_id")
+        if contact_id and pair[0]:
+            by_contact[str(contact_id)] = pair
+    return by_memo, by_contact
+
+
+def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict, dict]) -> None:
+    by_memo, by_contact = directory
+    row_by_key = {row.get("dedupe_key"): row for row in signals if row.get("dedupe_key")}
+    for item in view.get("items") or []:
+        row = row_by_key.get(item.get("dedupe_key")) or {}
+        memo_id = row.get("memo_id")
+        found = by_memo.get(str(memo_id)) if memo_id else None
+        name, company = found if found else (None, None)
+        if not name:
+            found = by_contact.get(str(item.get("contact_id") or ""))
+            if found:
+                name, company = found
+        if name:
+            item["contact_name"] = name
+        if company:
+            item["company_name"] = company
 
 
 _CLOCK_DEFAULT = datetime.now(timezone.utc)

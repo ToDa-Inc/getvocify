@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { currentItem, initialQueue, queueReducer } from "@/lib/today-queue";
+import { splitTodayItems } from "@/lib/today";
 import { useTodayCardActions, useTodayUndoClock } from "../hooks/useTodayCardActions";
 import { ContactPriorities } from "./ContactPriorities";
 import { TodayItemList } from "./TodayItemList";
@@ -34,7 +35,8 @@ export function TodayPanel() {
   const active = queue.mode === "queue";
   const done = queue.mode === "done";
   const current = currentItem(queue);
-  const canStart = listed.length > 0 && (queue.mode === "idle" || queue.mode === "done");
+  const calls = splitTodayItems(listed).calls;
+  const canStart = calls.length > 0 && (queue.mode === "idle" || queue.mode === "done");
 
   const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-3`;
 
@@ -83,12 +85,14 @@ export function TodayPanel() {
         <div className="space-y-3">
           {surface.note ? <p className={THEME_TOKENS.typography.body}>{surface.note}{surface.generatedAt ? ` · ${formatStamp(surface.generatedAt, t.product.hourLocale)}` : ""}</p> : null}
           {canStart ? (
-            <Button type="button" size="sm" onClick={() => dispatchQueue({ type: "start", items: listed })}>
+            <Button type="button" size="sm" onClick={() => dispatchQueue({ type: "start", items: calls })}>
               {t.product.startCalling}
             </Button>
           ) : null}
           {active && current ? (
             <div className={card}>
+              <p className="text-[15px] text-foreground">{current.contact_name || t.product.today_unknown_contact}</p>
+              {current.company_name ? <p className={THEME_TOKENS.typography.capsLabel}>{current.company_name}</p> : null}
               <p className="text-[15px] leading-relaxed text-foreground">{current.reason}</p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => dispatchQueue({ type: "skip" })}>

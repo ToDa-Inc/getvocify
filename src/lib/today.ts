@@ -7,6 +7,9 @@ export type TodayItem = {
   dedupe_key: string | null;
   contact_id?: string | null;
   reason: string;
+  contact_name?: string | null;
+  company_name?: string | null;
+  detail?: string | null;
   remote_id?: string | null;
   origins: string[];
   supporting: string[];
@@ -112,6 +115,20 @@ const SUPPORTING_KEYS: Record<string, string> = {
   objection_open: "today_signal_objection",
   manual_task: "today_origin_manual",
 };
+
+export function splitTodayItems(items: TodayItem[]): { calls: TodayItem[]; tasks: TodayItem[] } {
+  const calls: TodayItem[] = [];
+  const tasks: TodayItem[] = [];
+  for (const item of items) {
+    if (item.type === "manual_task") tasks.push(item);
+    else calls.push(item);
+  }
+  return { calls, tasks };
+}
+
+export function signalLabelKey(type: string): string {
+  return SUPPORTING_KEYS[type] || "today_origin_detected";
+}
 
 export function originKey(origins: string[]): "today_origin_manual" | "today_origin_detected" | "today_origin_both" {
   const manual = origins.includes("manual");

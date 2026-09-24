@@ -6,6 +6,7 @@ import {
   cardsAfterDismiss,
   crmContactsUrl,
   originKey,
+  splitTodayItems,
   supportingKeys,
   type TodayView,
   type TodayItem,
@@ -101,6 +102,13 @@ describe("today surface", () => {
     );
     assert.equal(folded.kind, "list");
     if (folded.kind === "list") assert.equal(folded.foldedCount, 3);
+    const split = splitTodayItems([
+      card.items[0],
+      { type: "manual_task", dedupe_key: null, reason: "Llamar", origins: ["manual"], supporting: [] },
+    ]);
+    assert.equal(split.calls.length, 1);
+    assert.equal(split.tasks.length, 1);
+    assert.equal(split.tasks[0].type, "manual_task");
     assert.equal(originKey(["manual"]), "today_origin_manual");
     assert.equal(originKey(["detected"]), "today_origin_detected");
     assert.equal(originKey(["detected", "manual"]), "today_origin_both");

@@ -8,7 +8,7 @@ from app.services.hoy.signals import Signal
 CATEGORY = {
     "es": {
         "price": "precio",
-        "timing": "momento",
+        "timing": "plazo",
         "authority": "decisor",
         "competitor": "competencia",
         "status_quo": "statu quo",
