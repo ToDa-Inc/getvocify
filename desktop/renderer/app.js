@@ -108,6 +108,9 @@ const contactBriefEl = document.getElementById('contact-brief');
 const homeHoyEl = document.getElementById('home-hoy');
 const notesRailEl = document.getElementById('notes-rail');
 const notesListEl = document.getElementById('notes-list');
+const reviewNoteEl = document.getElementById('review-note');
+const btnReviewRetry = document.getElementById('btn-review-retry');
+const btnReviewDashboard = document.getElementById('btn-review-dashboard');
 
 function desktop() {
   return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
@@ -127,6 +130,10 @@ let timerTick = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
 let notesCache = [];
 let reviewContext = null;
+/** Live note frozen when entering review from stop; cleared when opening another memo from the rail. */
+let reviewNoteSnapshot = null;
+/** Transcript text for retry after upload/extraction failure while on the review screen. */
+let pendingReviewTranscript = null;
 let copilotSuggestAbort = null;
 let copilotChecklistAbort = null;
 let reviewChecklistAbort = null;
@@ -625,49 +632,113 @@ async function request(path, { method = 'GET', body, token } = {}) {
 
 let stickToLive = true;
 
-function renderTranscript() {
-  const t = strings(uiLang());
-  const turns = liveNote.turns;
-  const hasContent = turns.some((turn) => turn.committed || turn.live);
-  const follow = stickToLive;
+function noteFromMemoTranscript(text) {
+  const body = String(text || '').trim();
+  if (!body) return emptyNote();
+  return { turns: [{ speaker: '', committed: body, live: '' }] };
+}
 
+function renderLiveNoteInto(container, note, { emptyMessage = '' } = {}) {
+  if (!container) return false;
+  const t = strings(uiLang());
+  const turns = note.turns;
+  const hasContent = turns.some((turn) => turn.committed || turn.live);
   if (!hasContent) {
-    transcriptEl.querySelectorAll('.v-transcript-turn').forEach((node) => node.remove());
-    if (!transcriptEl.querySelector('.empty')) {
+    container.querySelectorAll('.v-transcript-turn').forEach((node) => node.remove());
+    if (emptyMessage && !container.querySelector('.empty')) {
       const empty = document.createElement('p');
       empty.className = 'empty';
-      empty.textContent = 'Escuchando. La transcripción aparecerá aquí.';
-      transcriptEl.append(empty);
+      empty.textContent = emptyMessage;
+      container.append(empty);
     }
-  } else {
-    transcriptEl.querySelector('.empty')?.remove();
-    const rows = [...transcriptEl.querySelectorAll('.v-transcript-turn')];
-    turns.forEach((turn, index) => {
-      let row = rows[index];
-      if (!row) {
-        row = document.createElement('div');
-        row.className = 'v-transcript-turn';
-        const speaker = document.createElement('span');
-        speaker.className = 'speaker';
-        const committed = document.createElement('span');
-        committed.className = 'committed';
-        const live = document.createElement('span');
-        live.className = 'live';
-        row.append(speaker, committed, live);
-        transcriptEl.append(row);
-      }
-      const speakerEl = row.children[0];
-      const committedEl = row.children[1];
-      const liveEl = row.children[2];
-      const speakerLabel =
-        turn.speaker === 'rep' ? t.speakerYou : turn.speaker === 'prospect' ? t.speakerThem : '';
-      if (speakerEl.textContent !== speakerLabel) speakerEl.textContent = speakerLabel;
-      if (committedEl.textContent !== turn.committed) committedEl.textContent = turn.committed;
-      if (liveEl.textContent !== turn.live) liveEl.textContent = turn.live;
-    });
-    rows.slice(turns.length).forEach((node) => node.remove());
+    return false;
   }
+  container.querySelector('.empty')?.remove();
+  const rows = [...container.querySelectorAll('.v-transcript-turn')];
+  turns.forEach((turn, index) => {
+    let row = rows[index];
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'v-transcript-turn';
+      const speaker = document.createElement('span');
+      speaker.className = 'speaker';
+      const committed = document.createElement('span');
+      committed.className = 'committed';
+      const live = document.createElement('span');
+      live.className = 'live';
+      row.append(speaker, committed, live);
+      container.append(row);
+    }
+    const speakerEl = row.children[0];
+    const committedEl = row.children[1];
+    const liveEl = row.children[2];
+    const speakerLabel =
+      turn.speaker === 'rep' ? t.speakerYou : turn.speaker === 'prospect' ? t.speakerThem : '';
+    if (speakerEl.textContent !== speakerLabel) speakerEl.textContent = speakerLabel;
+    if (committedEl.textContent !== turn.committed) committedEl.textContent = turn.committed;
+    if (liveEl.textContent !== turn.live) liveEl.textContent = turn.live;
+  });
+  rows.slice(turns.length).forEach((node) => node.remove());
+  return true;
+}
 
+function paintReviewNote(note) {
+  if (!reviewNoteEl) return;
+  renderLiveNoteInto(reviewNoteEl, note);
+  reviewNoteEl.scrollTop = 0;
+}
+
+function setReviewLoading(loading) {
+  if (loading) reviewPanel.dataset.loading = 'true';
+  else delete reviewPanel.dataset.loading;
+  const summaryEl = document.getElementById('review-summary');
+  const nextEl = document.getElementById('review-next');
+  const fieldsEl = document.getElementById('review-fields');
+  const dealEl = document.getElementById('review-deal');
+  const dealsEl = document.getElementById('review-deals');
+  const checklistEl = document.getElementById('review-checklist');
+  summaryEl.classList.toggle('review-slot', loading);
+  nextEl.classList.toggle('review-slot', loading);
+  if (loading) {
+    summaryEl.value = '';
+    nextEl.value = '';
+    fieldsEl.replaceChildren();
+    for (let i = 0; i < 2; i += 1) {
+      const slot = document.createElement('div');
+      slot.className = 'review-slot';
+      fieldsEl.append(slot);
+    }
+    dealEl.textContent = '';
+    dealEl.classList.add('review-slot');
+    dealsEl.hidden = true;
+    followupEl.hidden = true;
+    if (checklistEl) checklistEl.hidden = true;
+    document.getElementById('btn-approve').hidden = true;
+    if (btnReviewDashboard) btnReviewDashboard.hidden = true;
+  } else {
+    dealEl.classList.remove('review-slot');
+  }
+}
+
+function hideReviewRetry() {
+  if (btnReviewRetry) btnReviewRetry.hidden = true;
+}
+
+function showReviewPrepareFailure() {
+  const t = strings(uiLang());
+  showError(reviewError, t.desktopPrepareFailed);
+  if (btnReviewRetry && pendingReviewTranscript) {
+    btnReviewRetry.hidden = false;
+    btnReviewRetry.textContent = t.desktopRetry;
+  }
+}
+
+function renderTranscript() {
+  const t = strings(uiLang());
+  const follow = stickToLive;
+  const hasContent = renderLiveNoteInto(transcriptEl, liveNote, {
+    emptyMessage: 'Escuchando. La transcripción aparecerá aquí.',
+  });
   if (returnLiveBtn) {
     returnLiveBtn.hidden = follow || !hasContent;
     returnLiveBtn.textContent = t.transcriptBackToLive;
@@ -928,11 +999,20 @@ function renderReview() {
   if (summaryEl.value) ctx.summary = summaryEl.value;
   if (nextEl.value) ctx.nextSteps = nextEl.value.split('\n').map((line) => line.trim()).filter(Boolean);
   const notes = notesFromPreview(ctx.preview, ctx.memo?.extraction);
+  summaryEl.classList.remove('review-slot');
+  nextEl.classList.remove('review-slot');
   summaryEl.value = ctx.summary ?? notes.summary;
   nextEl.value = (ctx.nextSteps || notes.nextSteps).join('\n');
-  summaryEl.disabled = ctx.readOnly;
-  nextEl.disabled = ctx.readOnly;
-  document.getElementById('btn-approve').hidden = ctx.readOnly;
+  summaryEl.readOnly = ctx.readOnly;
+  nextEl.readOnly = ctx.readOnly;
+  const approveBtn = document.getElementById('btn-approve');
+  approveBtn.hidden = ctx.readOnly;
+  if (btnReviewDashboard) {
+    btnReviewDashboard.hidden = !ctx.readOnly;
+    if (ctx.readOnly) {
+      btnReviewDashboard.textContent = strings(uiLang()).desktopOpenDashboard;
+    }
+  }
   const dealEl = document.getElementById('review-deal');
   const dealsEl = document.getElementById('review-deals');
   if (ctx.deal.needsDecision) {
@@ -1061,25 +1141,17 @@ followupEl.addEventListener('v-action', async (event) => {
   }
 });
 
-async function openReview(memoId, { readOnly = false } = {}) {
-  showScreen('review');
-  highlightActiveNote(memoId);
-  document.getElementById('review-status').textContent = 'Extracting CRM fields…';
-  showError(reviewError, '');
+async function populateReviewContext(memoId, { readOnly = false } = {}) {
   const token = localStorage.getItem(STORAGE.token);
+  document.getElementById('review-status').textContent = 'Extracting CRM fields…';
   const waited = await waitForReview(() => request(`/memos/${memoId}`, { token }));
   if (!waited.ok) {
     document.getElementById('review-status').textContent = '';
-    showError(reviewError, waited.error || 'Extraction failed');
-    return;
+    throw new Error(waited.error || 'Extraction failed');
   }
   const memo = waited.memo;
   let preview = {};
-  try {
-    preview = await request(`/memos/${memoId}/preview`, { token });
-  } catch (err) {
-    showError(reviewError, err.message || 'Preview failed');
-  }
+  preview = await request(`/memos/${memoId}/preview`, { token });
   const deal = pickDeal(preview.matched_deals || preview.matches || []);
   const notes = notesFromPreview(preview, memo.extraction);
   reviewContext = {
@@ -1097,34 +1169,74 @@ async function openReview(memoId, { readOnly = false } = {}) {
     nextSteps: notes.nextSteps,
     meetingChecklist: null,
   };
+  if (!reviewNoteSnapshot) {
+    paintReviewNote(noteFromMemoTranscript(memo.transcript));
+  }
   document.getElementById('review-status').textContent = readOnly
     ? ''
     : 'Review notes and fields, then approve.';
+  setReviewLoading(false);
   paintReviewChecklist(null);
   loadFollowup(memoId, token);
   renderReview();
   void loadReviewChecklist(memoId, token);
 }
 
+async function uploadAndOpenReview(transcript) {
+  const token = localStorage.getItem(STORAGE.token);
+  const uploaded = await request('/memos/upload-and-extract', {
+    method: 'POST',
+    token,
+    body: { transcript, source_type: 'meeting_transcript' },
+  });
+  void paintNotesList();
+  await populateReviewContext(uploaded.id);
+  pendingReviewTranscript = null;
+  hideReviewRetry();
+}
+
+async function openReview(memoId, { readOnly = false } = {}) {
+  showScreen('review');
+  highlightActiveNote(memoId);
+  showError(reviewError, '');
+  hideReviewRetry();
+  if (String(reviewContext?.memoId) !== String(memoId)) {
+    reviewNoteSnapshot = null;
+  }
+  setReviewLoading(true);
+  try {
+    await populateReviewContext(memoId, { readOnly });
+  } catch (err) {
+    setReviewLoading(false);
+    if (pendingReviewTranscript) {
+      showReviewPrepareFailure();
+    } else {
+      showError(reviewError, err.message || strings(uiLang()).desktopPrepareFailed);
+    }
+  }
+}
+
 async function stopAndSend() {
   const t = strings(uiLang());
   const transcript = noteUploadText(liveNote, { you: t.speakerYou, them: t.speakerThem }).trim();
+  reviewNoteSnapshot = liveNote;
   stopCapture();
   if (!transcript) {
-    showError(listenError, 'Nothing transcribed. Try again with the call unmuted.');
+    reviewNoteSnapshot = null;
+    showError(listenError, t.desktopNothingHeard);
     return;
   }
+  pendingReviewTranscript = transcript;
+  showScreen('review');
+  paintReviewNote(reviewNoteSnapshot);
+  setReviewLoading(true);
+  showError(reviewError, '');
+  hideReviewRetry();
   try {
-    const token = localStorage.getItem(STORAGE.token);
-    const uploaded = await request('/memos/upload-and-extract', {
-      method: 'POST',
-      token,
-      body: { transcript, source_type: 'meeting_transcript' },
-    });
-    void paintNotesList();
-    await openReview(uploaded.id);
-  } catch (err) {
-    showError(listenError, err.message || 'Upload failed');
+    await uploadAndOpenReview(transcript);
+  } catch {
+    setReviewLoading(false);
+    showReviewPrepareFailure();
   }
 }
 
@@ -1262,8 +1374,21 @@ assistInputEl?.addEventListener('change', () => {
 document.getElementById('btn-approve').addEventListener('click', () => {
   approveReview().catch((err) => showError(reviewError, err.message || 'Approve failed'));
 });
-document.getElementById('btn-review-back').addEventListener('click', () => {
-  showScreen('listen');
+btnReviewRetry?.addEventListener('click', () => {
+  if (!pendingReviewTranscript) return;
+  setReviewLoading(true);
+  showError(reviewError, '');
+  hideReviewRetry();
+  uploadAndOpenReview(pendingReviewTranscript).catch(() => {
+    setReviewLoading(false);
+    showReviewPrepareFailure();
+  });
+});
+
+btnReviewDashboard?.addEventListener('click', () => {
+  const memoId = reviewContext?.memoId;
+  if (!memoId) return;
+  desktop()?.shell?.openExternal(`${dashboardMemosUrl(apiBase())}/${memoId}`);
 });
 
 desktop()?.shell?.onCommand((command) => {

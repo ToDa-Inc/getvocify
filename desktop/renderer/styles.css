@@ -260,6 +260,33 @@ a, [role="button"], summary { cursor: pointer; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-top: 14px; }
 .actions .primary, .actions .danger { margin-top: 0; width: 100%; }
 
+.review-note {
+  max-height: 280px;
+  margin-bottom: var(--space-4);
+}
+
+.review-actions { margin-top: 14px; }
+.review-actions .primary { width: 100%; }
+.review-crm { margin-top: var(--space-4); }
+
+#review-panel[data-loading="true"] .review-slot {
+  min-height: 96px;
+  background: hsl(var(--muted));
+  border-radius: 12px;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+#review-panel[data-loading="true"] textarea.review-slot {
+  color: transparent;
+  border-color: transparent;
+  resize: none;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #review-panel[data-loading="true"] .review-slot { animation: none; }
+}
+
 .review-grid {
   display: grid;
   grid-template-columns: 1fr;

@@ -58,27 +58,24 @@
         </section>
 
         <section id="review-panel" hidden>
+          <div id="review-note" class="transcript review-note" aria-readonly="true"></div>
+          <label>Summary <textarea id="review-summary" rows="8"></textarea></label>
+          <label>Next steps <textarea id="review-next" rows="4" placeholder="One per line"></textarea></label>
+          <div class="card paper review-crm">
+            <p class="caps">CRM fields</p>
+            <p id="review-deal" class="muted"></p>
+            <div id="review-deals" class="deal-list" hidden></div>
+            <div id="review-fields" class="field-list"></div>
+          </div>
           <v-followup id="review-followup" hidden></v-followup>
           <div id="review-checklist" class="overlay-checklist card paper" hidden></div>
-          <div class="review-grid">
-            <div class="card paper">
-              <p class="caps">Call notes</p>
-              <label>Summary <textarea id="review-summary" rows="8"></textarea></label>
-              <label>Next steps <textarea id="review-next" rows="4" placeholder="One per line"></textarea></label>
-            </div>
-            <div class="card paper">
-              <p class="caps">CRM fields</p>
-              <p id="review-deal" class="muted"></p>
-              <div id="review-deals" class="deal-list" hidden></div>
-              <div id="review-fields" class="field-list"></div>
-            </div>
-          </div>
-          <div class="actions">
+          <div class="review-actions">
             <button id="btn-approve" class="primary" type="button">Approve to CRM</button>
-            <button id="btn-review-back" class="ghost" type="button">Back to listen</button>
+            <button id="btn-review-dashboard" class="ghost" type="button" hidden data-i18n="desktopOpenDashboard"></button>
           </div>
           <p id="review-status" class="lede"></p>
           <p id="review-error" class="error" hidden></p>
+          <button id="btn-review-retry" class="ghost" type="button" hidden data-i18n="desktopRetry"></button>
         </section>
       </main>
     </div>
