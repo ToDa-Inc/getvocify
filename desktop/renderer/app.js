@@ -8,7 +8,7 @@ import {
   startDeniedMessage,
 } from '../lib/listen-policy.js';
 import { parseHubSpotRecordPage } from '../lib/hubspot-record-page.js';
-import { reconcileTranscript, scrollFollow } from './shared/ui/transcript.js';
+import { scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
 import { composeTarget } from './shared/ui/compose.js';
 import {
@@ -70,13 +70,7 @@ import {
 } from '../lib/home-hoy.js';
 import { renderToString } from './shared/ui/html.js';
 import { applyDataI18n, strings, uiLangInput } from './shared/ui/i18n.js';
-import {
-  coalesceSpeakerParts,
-  latestTaggedTurnBody,
-  splitTaggedTranscript,
-  stripSpeakerPrefix,
-  turnRoleFromPart,
-} from '../lib/transcript-turns.js';
+import { applyChunk, emptyNote, latestFinal, noteUploadText } from '../lib/live-note.js';
 import { renderTodayCard } from './shared/ui/today-card.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
@@ -125,6 +119,7 @@ let captureStreams = [];
 let processors = [];
 let nativePcmUnsub = null;
 let transcriptState = { finalTranscript: '', interimTranscript: '' };
+let liveNote = emptyNote();
 let startedAt = 0;
 let timerTick = null;
 let permissionPoll = null;
@@ -602,25 +597,16 @@ async function request(path, { method = 'GET', body, token } = {}) {
   }
 }
 
-let transcriptView = { revision: 0, turns: [], interim: null };
 let stickToLive = true;
 
 function renderTranscript() {
-  const legacy = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
-  const next = {
-    revision: transcriptView.revision + 1,
-    turns: legacy
-      ? [{ id: 'live', text: legacy }]
-      : [],
-    interim: null,
-  };
-  transcriptView = reconcileTranscript(transcriptView, next) ?? next;
-  const follow = stickToLive;
-  const text = transcriptView.turns.map((turn) => turn.text).join(' ').trim();
-  const parts = text ? coalesceSpeakerParts(splitTaggedTranscript(text)) : [];
   const t = strings(uiLang());
-  if (!parts.length) {
-    transcriptEl.querySelectorAll('.turn').forEach((node) => node.remove());
+  const turns = liveNote.turns;
+  const hasContent = turns.some((turn) => turn.committed || turn.live);
+  const follow = stickToLive;
+
+  if (!hasContent) {
+    transcriptEl.querySelectorAll('.v-transcript-turn').forEach((node) => node.remove());
     if (!transcriptEl.querySelector('.empty')) {
       const empty = document.createElement('p');
       empty.className = 'empty';
@@ -629,31 +615,35 @@ function renderTranscript() {
     }
   } else {
     transcriptEl.querySelector('.empty')?.remove();
-    const rows = [...transcriptEl.querySelectorAll('.turn')];
-    parts.forEach((part, index) => {
-      const role = turnRoleFromPart(part);
+    const rows = [...transcriptEl.querySelectorAll('.v-transcript-turn')];
+    turns.forEach((turn, index) => {
       let row = rows[index];
       if (!row) {
         row = document.createElement('div');
-        row.className = 'turn v-transcript-turn';
-        row.append(document.createElement('span'), document.createElement('div'));
+        row.className = 'v-transcript-turn';
+        const speaker = document.createElement('span');
+        speaker.className = 'speaker';
+        const committed = document.createElement('span');
+        committed.className = 'committed';
+        const live = document.createElement('span');
+        live.className = 'live';
+        row.append(speaker, committed, live);
         transcriptEl.append(row);
       }
-      const roleClass = role === 'rep' ? 'you' : role === 'prospect' ? 'them' : '';
-      row.className = `turn v-transcript-turn${roleClass ? ` ${roleClass}` : ''}`;
-      const speaker = row.children[0];
-      speaker.className = 'speaker';
-      speaker.textContent =
-        role === 'rep' ? t.speakerYou : role === 'prospect' ? t.speakerThem : '';
-      const bubble = row.children[1];
-      bubble.className = 'bubble';
-      const body = stripSpeakerPrefix(part);
-      if (bubble.textContent !== body) bubble.textContent = body;
+      const speakerEl = row.children[0];
+      const committedEl = row.children[1];
+      const liveEl = row.children[2];
+      const speakerLabel =
+        turn.speaker === 'rep' ? t.speakerYou : turn.speaker === 'prospect' ? t.speakerThem : '';
+      if (speakerEl.textContent !== speakerLabel) speakerEl.textContent = speakerLabel;
+      if (committedEl.textContent !== turn.committed) committedEl.textContent = turn.committed;
+      if (liveEl.textContent !== turn.live) liveEl.textContent = turn.live;
     });
-    rows.slice(parts.length).forEach((node) => node.remove());
+    rows.slice(turns.length).forEach((node) => node.remove());
   }
+
   if (returnLiveBtn) {
-    returnLiveBtn.hidden = follow || !parts.length;
+    returnLiveBtn.hidden = follow || !hasContent;
     returnLiveBtn.textContent = 'Volver al directo';
   }
   if (follow) transcriptEl.scrollTop = transcriptEl.scrollHeight;
@@ -796,6 +786,7 @@ async function startListen() {
   Object.assign(liveAssistOverlay, listenAssist.overlay);
   liveAssistChecklist = listenAssist.checklist;
   transcriptState = { finalTranscript: '', interimTranscript: '' };
+  liveNote = emptyNote();
   if (listenAssist.resetSuggestDedupe) resetCopilotSuggestRequestDedupe();
   resetSuggestProfileProductContextCache();
   renderTranscript();
@@ -824,8 +815,11 @@ async function startListen() {
         audioChannel: data.audio_channel || null,
         lang: uiLang(),
       });
+      const speaker =
+        data.audio_channel === 'rep' ? 'rep' : data.audio_channel === 'prospect' ? 'prospect' : '';
+      liveNote = applyChunk(liveNote, { text, isFinal, speaker });
       if (isFinal) {
-        const latestTurn = latestTaggedTurnBody(transcriptState.finalTranscript);
+        const latestTurn = latestFinal(liveNote);
         void requestCopilotSuggest(latestTurn);
         void requestCopilotChecklist();
       }
@@ -1092,7 +1086,8 @@ async function openReview(memoId) {
 }
 
 async function stopAndSend() {
-  const transcript = `${transcriptState.finalTranscript} ${transcriptState.interimTranscript}`.trim();
+  const t = strings(uiLang());
+  const transcript = noteUploadText(liveNote, { you: t.speakerYou, them: t.speakerThem }).trim();
   stopCapture();
   statusEl.textContent = strings(uiLang()).desktopStopped;
   if (!transcript) {
@@ -1220,7 +1215,7 @@ transcriptEl.addEventListener('scroll', () => {
     scrollHeight: transcriptEl.scrollHeight,
     clientHeight: transcriptEl.clientHeight,
   }).follow;
-  if (returnLiveBtn) returnLiveBtn.hidden = stickToLive || !transcriptEl.querySelector('.turn');
+  if (returnLiveBtn) returnLiveBtn.hidden = stickToLive || !transcriptEl.querySelector('.v-transcript-turn');
 });
 returnLiveBtn?.addEventListener('click', () => {
   stickToLive = true;
@@ -1253,7 +1248,7 @@ desktop()?.shell?.onCommand((command) => {
   if (command === 'assist-on') {
     liveAssistOverlay.assistEnabled = true;
     notifyShell();
-    const latestTurn = latestTaggedTurnBody(transcriptState.finalTranscript);
+    const latestTurn = latestFinal(liveNote);
     if (latestTurn) void requestCopilotSuggest(latestTurn);
   }
   if (command === 'assist-off') {

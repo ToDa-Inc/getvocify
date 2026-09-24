@@ -262,6 +262,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 .transcript .empty { margin: auto; color: hsl(var(--muted-foreground)); font-size: 13px; text-align: center; }
+.transcript .v-transcript-turn { display: block; margin: 0 0 18px; }
+.transcript .v-transcript-turn .speaker { display: block; font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 4px; }
+.transcript .v-transcript-turn .committed { color: hsl(var(--foreground)); font-size: 16px; line-height: 1.6; }
+.transcript .v-transcript-turn .live { color: hsl(var(--muted-foreground)); font-size: 16px; line-height: 1.6; transition: opacity var(--motion-fast); }
+.transcript .v-transcript-turn .committed:not(:empty) + .live:not(:empty)::before { content: ' '; }
+@media (prefers-reduced-motion: reduce) { .transcript .v-transcript-turn .live { transition: none; } }
 .turn { display: flex; flex-direction: column; gap: 4px; max-width: 92%; }
 .turn.you { align-self: flex-start; }
 .turn.them { align-self: flex-end; align-items: flex-end; }
