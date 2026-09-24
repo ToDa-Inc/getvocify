@@ -13,11 +13,12 @@ import {
 } from './shell.js';
 
 describe('desktop shell', () => {
-  it('pins the overlay to the top-right of the work area', () => {
+  it('pins the overlay to the bottom-right of the work area', () => {
     const bounds = overlayBounds({ workArea: { x: 0, y: 25, width: 1440, height: 875 } });
-    assert.equal(bounds.width, 380);
-    assert.ok(bounds.x > 1000);
-    assert.equal(bounds.y, 41);
+    assert.equal(bounds.width, 340);
+    assert.equal(bounds.height, 64);
+    assert.equal(bounds.x, 1076);
+    assert.equal(bounds.y, 812);
   });
 
   it('widens the window for CRM review', () => {

@@ -9,15 +9,14 @@
   <body class="overlay-body">
     <div class="overlay-shell">
       <div class="overlay-pill">
-        <span class="pulse-dot live"></span>
-        <div>
-          <p class="caps" id="overlay-label" data-i18n="overlayLive"></p>
-          <p class="line" id="overlay-line" data-i18n="overlayListening"></p>
-        </div>
-        <button id="overlay-assist" type="button" data-i18n="helpOn"></button>
-        <button id="overlay-stop" class="danger" type="button" data-i18n="overlayStop"></button>
+        <button id="overlay-stop" class="record-core live" type="button" aria-label="">
+          <span class="dot"></span>
+        </button>
+        <p class="line" id="overlay-line" data-i18n="overlayListening"></p>
+        <span id="overlay-checklist" class="overlay-checklist-compact" hidden></span>
+        <button id="overlay-assist" class="ghost" type="button" data-i18n="helpOn" hidden></button>
       </div>
-      <div id="overlay-checklist" class="overlay-checklist" hidden></div>
+      <div id="overlay-checklist-detail" class="overlay-checklist" hidden></div>
     </div>
     <script type="module" src="./overlay.js"></script>
   </body>

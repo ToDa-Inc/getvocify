@@ -1,8 +1,8 @@
 import { strings } from '../renderer/shared/ui/i18n.js';
 
-export const OVERLAY_WIDTH = 380;
-export const OVERLAY_HEIGHT = 96;
-export const OVERLAY_MARGIN = 16;
+export const OVERLAY_WIDTH = 340;
+export const OVERLAY_HEIGHT = 64;
+export const OVERLAY_MARGIN = 24;
 const OVERLAY_CHECKLIST_SUMMARY = 22;
 const OVERLAY_CHECKLIST_STEP = 18;
 
@@ -17,7 +17,7 @@ export function overlayBounds({ workArea } = {}) {
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
     x: area.x + area.width - OVERLAY_WIDTH - OVERLAY_MARGIN,
-    y: area.y + OVERLAY_MARGIN,
+    y: area.y + area.height - OVERLAY_HEIGHT - OVERLAY_MARGIN,
   };
 }
 

@@ -5,15 +5,17 @@ import { renderToString } from './shared/ui/html.js';
 import { speakerRoleFromLastLine } from '../lib/transcript-turns.js';
 
 const lineEl = document.getElementById('overlay-line');
-const labelEl = document.getElementById('overlay-label');
 const checklistEl = document.getElementById('overlay-checklist');
+const checklistDetailEl = document.getElementById('overlay-checklist-detail');
 const assistBtn = document.getElementById('overlay-assist');
+const stopBtn = document.getElementById('overlay-stop');
 
 function uiLang() {
   return uiLangInput(localStorage.getItem('vocify_lang'), navigator.language);
 }
 
 applyDataI18n(document, uiLang());
+stopBtn?.setAttribute('aria-label', strings(uiLang()).overlayStop);
 
 let pillState = initialPillState();
 let tickTimer = null;
@@ -47,7 +49,6 @@ function ensurePillTick(active) {
 let lastOverlayState = null;
 
 function paintChecklist(state) {
-  if (!checklistEl) return;
   const t = strings(uiLang());
   const markup = overlayChecklistMarkup(state?.checklist, {
     kind: state?.kind,
@@ -55,12 +56,34 @@ function paintChecklist(state) {
     progressLabel: t.checklistProgress,
   });
   if (!markup) {
-    checklistEl.hidden = true;
-    checklistEl.innerHTML = '';
+    if (checklistEl) {
+      checklistEl.hidden = true;
+      checklistEl.textContent = '';
+    }
+    if (checklistDetailEl) {
+      checklistDetailEl.hidden = true;
+      checklistDetailEl.innerHTML = '';
+    }
     return;
   }
-  checklistEl.hidden = false;
-  checklistEl.innerHTML = renderToString(markup);
+
+  const checklist = state?.checklist;
+  const applicable = Number(checklist?.applicable);
+  const observedRaw = Number(checklist?.observed);
+  const observed = Number.isFinite(observedRaw) ? observedRaw : 0;
+
+  if (checklistEl) {
+    checklistEl.hidden = false;
+    checklistEl.textContent = t.checklistProgress(observed, applicable);
+  }
+
+  if (checklistDetailEl) {
+    const full = renderToString(markup);
+    checklistDetailEl.innerHTML = full;
+    checklistDetailEl.querySelector('.overlay-checklist-summary')?.remove();
+    const hasSteps = checklistDetailEl.querySelector('.overlay-checklist-step');
+    checklistDetailEl.hidden = !hasSteps;
+  }
 }
 
 function paintAssistButton(assistEnabled) {
@@ -99,20 +122,18 @@ function paintOverlay(state) {
 
   if (state?.assistEnabled === true && decision.show && decision.text) {
     lineEl.textContent = decision.text;
-    labelEl.textContent = t.sayThis;
     return;
   }
 
   if (state?.lastLine) lineEl.textContent = state.lastLine;
   else lineEl.textContent = t.overlayListening;
-  labelEl.textContent = state?.listening ? t.overlayLive : t.desktopIdle;
 }
 
 desktop()?.shell?.onOverlayState((state) => {
   paintOverlay(state);
 });
 
-document.getElementById('overlay-stop').addEventListener('click', () => {
+stopBtn?.addEventListener('click', () => {
   resetPillState();
   desktop()?.shell?.command('stop');
 });
