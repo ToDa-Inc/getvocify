@@ -35,24 +35,44 @@ async def get_brief(
             deal_id=deal_id,
         )
     else:
-        facts = _from_memos(supabase, membership.company_id, contact_id)
+        facts = _from_memos(
+            supabase,
+            membership.company_id,
+            contact_id,
+            connection_id=connection_id,
+            deal_id=deal_id,
+        )
     return prepare_brief(**facts)
 
 
-def _from_memos(supabase, company_id: str, contact_id: str) -> dict:
+def _from_memos(
+    supabase,
+    company_id: str,
+    contact_id: str,
+    *,
+    connection_id: str | None = None,
+    deal_id: str | None = None,
+) -> dict:
     try:
-        stored = (
+        query = (
             supabase.table("memos")
-            .select("id,created_at,extraction")
+            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id,crm_connection_id")
             .eq("company_id", company_id)
+            .eq("hubspot_contact_id", contact_id)
+            .order("created_at", desc=True)
             .limit(100)
-            .execute()
         )
-        rows = []
-        for row in stored.data or []:
-            extraction = row.get("extraction") or {}
-            if isinstance(extraction, dict) and str(extraction.get("contact_id") or "") == contact_id:
-                rows.append(row)
+        if connection_id:
+            query = query.eq("crm_connection_id", connection_id)
+        stored = query.execute()
+        rows = list(stored.data or [])
+        if deal_id:
+            rows = [
+                row
+                for row in rows
+                if str(row.get("hubspot_deal_id") or "") == deal_id
+                or str(row.get("matched_deal_id") or "") == deal_id
+            ]
     except Exception:
         return {"coverage": "unavailable"}
     if not rows:

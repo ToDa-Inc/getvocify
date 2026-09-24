@@ -1,6 +1,7 @@
 """F03 brief: three facts at most. Never spoken is not the same as nothing left."""
 
 import pathlib
+from types import SimpleNamespace
 
 import os
 
@@ -121,3 +122,157 @@ def test_get_brief_uses_the_loader_for_that_contact():
         briefs_api.set_brief_loader(None)
     assert body["status"] == "no_conversation"
     assert body["text"] == "Sin conversación todavía."
+
+
+class _MemoQuery:
+    def __init__(self, rows):
+        self.rows = rows
+        self.eqs = []
+        self.order_by = None
+        self.limit_n = None
+
+    def select(self, _cols):
+        return self
+
+    def eq(self, column, value):
+        self.eqs.append((column, value))
+        return self
+
+    def order(self, column, desc=False):
+        self.order_by = (column, desc)
+        return self
+
+    def limit(self, n):
+        self.limit_n = n
+        return self
+
+    def execute(self):
+        rows = list(self.rows)
+        for column, value in self.eqs:
+            rows = [row for row in rows if row.get(column) == value]
+        if self.order_by is not None:
+            column, desc = self.order_by
+            rows = sorted(rows, key=lambda row: str(row.get(column) or ""), reverse=desc)
+        if self.limit_n is not None:
+            rows = rows[: self.limit_n]
+        return SimpleNamespace(data=rows)
+
+
+class _FakeMemos:
+    def __init__(self, rows):
+        self.query = None
+        self._rows = rows
+
+    def table(self, name):
+        assert name == "memos"
+        self.query = _MemoQuery(self._rows)
+        return self.query
+
+
+def _memo(*, memo_id, created_at, contact_id, summary, deal_id=None, matched_deal_id=None, connection_id=None, extra_extraction=None):
+    extraction = {"summary": summary}
+    if extra_extraction:
+        extraction.update(extra_extraction)
+    return {
+        "id": memo_id,
+        "company_id": "co-1",
+        "created_at": created_at,
+        "hubspot_contact_id": contact_id,
+        "hubspot_deal_id": deal_id,
+        "matched_deal_id": matched_deal_id,
+        "crm_connection_id": connection_id,
+        "extraction": extraction,
+    }
+
+
+def test_from_memos_matches_the_contact_column_not_extraction():
+    matching = _memo(
+        memo_id="memo-match",
+        created_at="2026-09-02T10:00:00Z",
+        contact_id="42",
+        summary="El 2 sep hablasteis del almacén.",
+    )
+    other = _memo(
+        memo_id="memo-other",
+        created_at="2026-09-04T10:00:00Z",
+        contact_id="99",
+        summary="Esta no es la conversación.",
+        extra_extraction={"contact_id": "42"},
+    )
+    older = _memo(
+        memo_id="memo-old",
+        created_at="2026-09-01T10:00:00Z",
+        contact_id="42",
+        summary="Versión vieja.",
+    )
+    fake = _FakeMemos([other, older, matching])
+    facts = briefs_api._from_memos(fake, "co-1", "42")
+    assert facts["coverage"] == "complete"
+    assert facts["last"]["text"] == "El 2 sep hablasteis del almacén."
+    assert facts["last"]["source_ref"] == "memo-match"
+    assert ("hubspot_contact_id", "42") in fake.query.eqs
+    assert ("company_id", "co-1") in fake.query.eqs
+    assert fake.query.order_by == ("created_at", True)
+    assert fake.query.limit_n == 100
+
+
+def test_from_memos_deal_id_filters_on_the_contact_column():
+    wrong_deal = _memo(
+        memo_id="memo-wrong-deal",
+        created_at="2026-09-04T10:00:00Z",
+        contact_id="42",
+        summary="Otro deal.",
+        deal_id="D9",
+    )
+    matched = _memo(
+        memo_id="memo-matched",
+        created_at="2026-09-03T10:00:00Z",
+        contact_id="42",
+        summary="Match por matched_deal_id.",
+        matched_deal_id="D1",
+    )
+    hubspot_deal = _memo(
+        memo_id="memo-hubspot",
+        created_at="2026-09-02T10:00:00Z",
+        contact_id="42",
+        summary="Match por hubspot_deal_id.",
+        deal_id="D1",
+    )
+    fake = _FakeMemos([wrong_deal, matched, hubspot_deal])
+    facts = briefs_api._from_memos(fake, "co-1", "42", connection_id=None, deal_id="D1")
+    assert facts["last"]["text"] == "Match por matched_deal_id."
+    assert facts["last"]["source_ref"] == "memo-matched"
+
+
+def test_get_brief_filters_connection_on_the_contact_column():
+    other_connection = _memo(
+        memo_id="memo-other-crm",
+        created_at="2026-09-04T10:00:00Z",
+        contact_id="42",
+        summary="Otra conexión.",
+        connection_id="crm-B",
+    )
+    matching = _memo(
+        memo_id="memo-crm-a",
+        created_at="2026-09-02T10:00:00Z",
+        contact_id="42",
+        summary="El 2 sep hablasteis del almacén.",
+        connection_id="crm-A",
+        extra_extraction={"pain_confirmed": True},
+    )
+    fake = _FakeMemos([other_connection, matching])
+    app = FastAPI()
+    app.include_router(briefs_api.router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active",
+    )
+    app.dependency_overrides[get_supabase] = lambda: fake
+    body = TestClient(app).get(
+        "/api/v1/briefs",
+        params={"connection_id": "crm-A", "contact_id": "42"},
+    ).json()
+    assert body["status"] == "ready"
+    assert body["lines"][0]["text"] == "El 2 sep hablasteis del almacén."
+    assert body["lines"][0]["source_ref"] == "memo-crm-a"
+    assert ("crm_connection_id", "crm-A") in fake.query.eqs
+    assert ("hubspot_contact_id", "42") in fake.query.eqs
