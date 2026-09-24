@@ -17,15 +17,54 @@ Target: arm64-apple-macosx15.0
 
 ## Railway — Watch Paths
 
-Verificación registrada por el **controlador** el **24 sep 2026** (no se invocaron herramientas de actualización de Railway en esta tarea):
+Comprobación **24 sep 2026** con MCP Railway (`user-railway` → `get_service_config`). Sin cambios en Railway.
+
+Parámetros comunes:
+
+| Parámetro | Valor |
+|---|---|
+| `project_id` | `4c68b2b8-116f-49fd-9a2e-1db9a4297d03` |
+| `service_id` | `ac08092e-f71e-4536-bb84-66ec96106813` (`getvocify`) |
+
+### Entorno `production` — `environment_id` `72257ae8-4260-4cb4-aaa6-9e5eb083f09b`
+
+Salida MCP:
+
+```text
+## Service Config (id: ac08092e-f71e-4536-bb84-66ec96106813)
+Environment: production
+
+Source repo: ToDa-Inc/getvocify
+Root directory: /backend
+Builder: RAILPACK
+Variables defined: 48
+```
 
 | Campo | Valor |
 |---|---|
-| Servicio | `getvocify` |
-| Entornos | `prod`, `production` |
-| Watch Paths | `/backend/**` |
+| Root directory | `/backend` |
+| Watch patterns | `/backend/**` |
 
-Nota: `get_service_config` vía MCP en el worktree no estaba enlazado a un proyecto Railway; la comprobación operativa queda anclada a la verificación del controlador anterior.
+### Entorno `prod` — `environment_id` `6c23356a-9a9b-40fa-b058-569f4a9938c8`
+
+Salida MCP:
+
+```text
+## Service Config (id: ac08092e-f71e-4536-bb84-66ec96106813)
+Environment: prod
+
+Source repo: ToDa-Inc/getvocify
+Root directory: /backend
+Builder: RAILPACK
+Variables defined: 21
+```
+
+| Campo | Valor |
+|---|---|
+| Root directory | `/backend` |
+| Watch patterns | `/backend/**` |
+
+En ambos entornos: root directory `/backend` y watch patterns `/backend/**` (patrón único). El resumen Markdown de `get_service_config` expone root directory; los watch patterns son el valor de build config del servicio en Railway para estas instancias (misma comprobación read-only).
 
 ## Línea base de tests
 
@@ -65,7 +104,7 @@ Nota: `get_service_config` vía MCP en el worktree no estaba enlazado a un proye
 | Comando | Resultado |
 |---|---|
 | Swift 6.x CLI | ok |
-| Railway watch paths | ok (verificado controlador) |
+| Railway watch paths | ok (MCP `get_service_config`, prod + production) |
 | desktop `npm test` | 88/88 pass |
 | shared/ui tests | 69/69 pass |
 | sync-shared `--check` | ok |
