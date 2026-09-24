@@ -532,7 +532,7 @@ async function paintNotesList() {
     const body = await request(notesRequestPath(), { token });
     notesCache = Array.isArray(body) ? body : [];
   } catch {
-    return;
+    notesCache = [];
   }
   const rows = noteRows(notesCache, { lang: uiLang() });
   notesListEl.replaceChildren();
