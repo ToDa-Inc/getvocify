@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import WebKit
 import VocifyHostKit
@@ -6,6 +7,8 @@ import VocifyHostKit
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     weak var webView: WKWebView?
     weak var host: HostController?
+
+    private let systemAudio = SystemAudio()
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -45,12 +48,17 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         case "overlay:show", "overlay:hide":
             return ["ok": true]
         case "permissions:status":
-            return ["platform": "darwin", "microphone": "not-determined", "systemAudio": "not-determined"]
-        case "permissions:request", "permissions:open":
-            return ["platform": "darwin", "microphone": "not-determined", "systemAudio": "not-determined"]
+            return permissionSnapshot()
+        case "permissions:request":
+            await requestPermission(type: args["type"] as? String)
+            return permissionSnapshot()
+        case "permissions:open":
+            openPermissionSettings(type: args["type"] as? String)
+            return permissionSnapshot()
         case "system-audio:start":
-            return ["ok": false, "reason": "no_system_audio"]
+            return await startSystemAudio()
         case "system-audio:stop":
+            await systemAudio.stop()
             return ["ok": true]
         case "capture:pending":
             return [] as [[String: Any]]
@@ -67,6 +75,76 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["ok": true]
         default:
             return nil
+        }
+    }
+
+    private func permissionSnapshot() -> [String: String] {
+        [
+            "platform": "darwin",
+            "microphone": microphoneAccessStatus(),
+            "systemAudio": systemAudioAccessStatus(),
+        ]
+    }
+
+    private func microphoneAccessStatus() -> String {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return "authorized"
+        case .denied, .restricted:
+            return "denied"
+        case .notDetermined:
+            return "never_requested"
+        @unknown default:
+            return "never_requested"
+        }
+    }
+
+    private func systemAudioAccessStatus() -> String {
+        CGPreflightScreenCaptureAccess() ? "authorized" : "never_requested"
+    }
+
+    private func requestPermission(type: String?) async {
+        switch type {
+        case "microphone":
+            _ = await AVCaptureDevice.requestAccess(for: .audio)
+        case "systemAudio":
+            _ = CGRequestScreenCaptureAccess()
+        default:
+            break
+        }
+    }
+
+    private func openPermissionSettings(type: String?) {
+        let anchor = type == "microphone" ? "Privacy_Microphone" : "Privacy_ScreenCapture"
+        let candidates = [
+            "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?\(anchor)",
+            "x-apple.systempreferences:com.apple.preference.security?\(anchor)",
+        ]
+        for raw in candidates {
+            guard let url = URL(string: raw) else { continue }
+            if NSWorkspace.shared.open(url) { break }
+        }
+    }
+
+    private func startSystemAudio() async -> [String: Any] {
+        await systemAudio.stop()
+        guard CGPreflightScreenCaptureAccess() else {
+            return ["ok": false, "reason": "no_system_audio"]
+        }
+        let webView = await MainActor.run { self.webView }
+        systemAudio.onPcm = { [weak self] data in
+            guard let self, let webView else { return }
+            let encoded = data.base64EncodedString()
+            Task { @MainActor in
+                self.emit("system-audio:pcm", encoded, in: webView)
+            }
+        }
+        do {
+            try await systemAudio.start()
+            return ["ok": true, "backend": "screencapturekit"]
+        } catch {
+            await systemAudio.stop()
+            return ["ok": false, "reason": "no_system_audio"]
         }
     }
 
