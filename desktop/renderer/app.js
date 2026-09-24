@@ -317,6 +317,31 @@ function showListenDenied(reason, platform) {
   }
 }
 
+function showMeetingAudioLost() {
+  const t = strings(uiLang());
+  if (listenError) {
+    listenError.hidden = false;
+    listenError.textContent = t.desktopNoMeetingAudio;
+  }
+  if (btnOpenSettings) {
+    btnOpenSettings.textContent = t.desktopOpenSettings;
+    btnOpenSettings.hidden = false;
+    btnOpenSettings.onclick = () => {
+      desktop()?.permissions?.open(PERMISSION.systemAudio);
+    };
+  }
+  currentBackend = 'mic-only';
+  if (nativePcmUnsub) {
+    try {
+      nativePcmUnsub();
+    } catch {
+      /* ignore */
+    }
+    nativePcmUnsub = null;
+  }
+  notifyShell();
+}
+
 function formatTimer(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const mins = String(Math.floor(total / 60)).padStart(2, '0');
@@ -1081,8 +1106,9 @@ async function startListen() {
     nativePcmUnsub = native.onPcm((pcm) => send('prospect')(pcm));
     if (native.onLost) {
       nativeLostUnsub = native.onLost(() => {
-        if (!listening || currentBackend !== 'screencapturekit') return;
-        showListenDenied('no_system_audio', desktop()?.platform);
+        if (!listening) return;
+        if (currentBackend !== 'screencapturekit' && currentBackend !== 'sck') return;
+        showMeetingAudioLost();
       });
     }
   }

@@ -68,7 +68,8 @@ final class SystemAudio: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         fputs("VocifyHost system-audio: \(error.localizedDescription)\n", stderr)
         Task {
-            await stopStreamOnly()
+            guard self.stream === stream else { return }
+            self.stream = nil
             let lost: ((Error) -> Void)? = handlerQueue.sync {
                 defer {
                     pcmHandler = nil
