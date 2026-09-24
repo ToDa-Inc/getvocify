@@ -11,6 +11,18 @@ final class OverlayPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private final class OverlayNavigationDelegate: NSObject, WKNavigationDelegate {
+    weak var overlay: OverlayController?
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        overlay?.overlayPageDidStartLoading()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        overlay?.overlayPageDidFinishLoading()
+    }
+}
+
 final class OverlayController {
     weak var host: HostController?
     private var panel: OverlayPanel?
@@ -18,6 +30,9 @@ final class OverlayController {
     private weak var bridge: Bridge?
     private var uiDelegate: WebShellUIDelegate?
     private var rendererBase: URL?
+    private var navigationDelegate: OverlayNavigationDelegate?
+    private var lastOverlayState: [String: Any] = [:]
+    private var overlayPageLoaded = false
 
     func attach(bridge: Bridge, uiDelegate: WebShellUIDelegate, rendererBase: URL) {
         self.bridge = bridge
@@ -27,9 +42,23 @@ final class OverlayController {
     }
 
     func pushState(_ state: [String: Any]) {
-        guard let overlayWebView else { return }
-        bridge?.emit("overlay:state", state, in: overlayWebView)
+        lastOverlayState = state
+        emitOverlayStateIfReady()
         repositionIfVisible()
+    }
+
+    fileprivate func overlayPageDidStartLoading() {
+        overlayPageLoaded = false
+    }
+
+    fileprivate func overlayPageDidFinishLoading() {
+        overlayPageLoaded = true
+        emitOverlayStateIfReady()
+    }
+
+    private func emitOverlayStateIfReady() {
+        guard overlayPageLoaded, let overlayWebView, !lastOverlayState.isEmpty else { return }
+        bridge?.emit("overlay:state", lastOverlayState, in: overlayWebView)
     }
 
     func show() {
@@ -75,18 +104,22 @@ final class OverlayController {
         webView.autoresizingMask = [.width, .height]
         webView.setValue(false, forKey: "drawsBackground")
         webView.uiDelegate = uiDelegate
+        let navigationDelegate = OverlayNavigationDelegate()
+        navigationDelegate.overlay = self
+        webView.navigationDelegate = navigationDelegate
+        self.navigationDelegate = navigationDelegate
         panel.contentView = webView
 
         self.panel = panel
         self.overlayWebView = webView
         bridge.overlayWebView = webView
 
+        if lastOverlayState.isEmpty, let state = host?.mergedShellState(), !state.isEmpty {
+            lastOverlayState = state
+        }
+
         let page = rendererBase.appendingPathComponent("renderer/overlay.html")
         webView.load(URLRequest(url: page))
-
-        if let state = host?.mergedShellState(), !state.isEmpty {
-            bridge.emit("overlay:state", state, in: webView)
-        }
     }
 
     private func repositionIfVisible() {
