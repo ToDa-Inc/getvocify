@@ -19,7 +19,8 @@ from app.services.hoy.context import (
 
 router = APIRouter(prefix="/api/v1", tags=["contact-priorities"])
 
-_CLOCK = [datetime.now(timezone.utc)]
+_CLOCK_DEFAULT = datetime.now(timezone.utc)
+_CLOCK = [_CLOCK_DEFAULT]
 _ASSIGNED_FETCH: Callable[[dict], Callable[[dict], dict]] | None = None
 _FOLD_MEMBERS: Callable[[object, str], list[dict]] | None = None
 
@@ -35,7 +36,7 @@ def set_fold_members(loader: Callable[[object, str], list[dict]] | None) -> None
 
 
 def _now() -> datetime:
-    return _CLOCK[0]
+    return datetime.now(timezone.utc) if _CLOCK[0] is _CLOCK_DEFAULT else _CLOCK[0]
 
 
 def _observed_at(now: datetime) -> str:

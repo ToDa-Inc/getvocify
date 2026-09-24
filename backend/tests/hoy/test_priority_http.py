@@ -118,6 +118,16 @@ def setup_function():
     ])
 
 
+def test_priority_clock_advances_after_import():
+    from app.api import contact_priorities as api
+
+    api._CLOCK[0] = api._CLOCK_DEFAULT
+    first = api._now()
+    assert api._CLOCK[0] is api._CLOCK_DEFAULT
+    later = api._now()
+    assert later >= first
+
+
 def test_no_connection_is_not_an_empty_complete_list():
     STORE.tables["crm_connections"] = [{"company_id": "co-1", "status": "expired"}]
     STORE.tables["contact_priority_context"] = [
