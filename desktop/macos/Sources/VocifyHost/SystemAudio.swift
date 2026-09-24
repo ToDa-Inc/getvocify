@@ -9,10 +9,20 @@ enum SystemAudioError: Error {
 
 final class SystemAudio: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
-    var onPcm: ((Data) -> Void)?
+    private var pcmHandler: ((Data) -> Void)?
+    private var lostHandler: ((Error) -> Void)?
+    private let sampleQueue = DispatchQueue(label: "vocify.system-audio")
+    private let handlerQueue = DispatchQueue(label: "vocify.system-audio.handlers")
+
+    func setHandlers(onPcm: ((Data) -> Void)?, onLost: ((Error) -> Void)?) {
+        handlerQueue.sync {
+            pcmHandler = onPcm
+            lostHandler = onLost
+        }
+    }
 
     func start() async throws {
-        await stop()
+        await stopStreamOnly()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         guard let display = content.displays.first else { throw SystemAudioError.noDisplay }
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
@@ -27,15 +37,22 @@ final class SystemAudio: NSObject, SCStreamOutput, SCStreamDelegate {
         config.channelCount = 1
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: DispatchQueue(label: "vocify.system-audio"))
+        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
     }
 
     func stop() async {
+        await stopStreamOnly()
+        handlerQueue.sync {
+            pcmHandler = nil
+            lostHandler = nil
+        }
+    }
+
+    private func stopStreamOnly() async {
         let active = stream
         stream = nil
-        onPcm = nil
         if let active {
             try? await active.stopCapture()
         }
@@ -44,11 +61,26 @@ final class SystemAudio: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio else { return }
         guard let data = Self.s16leMono(sampleBuffer) else { return }
-        onPcm?(data)
+        let handler = handlerQueue.sync { pcmHandler }
+        handler?(data)
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         fputs("VocifyHost system-audio: \(error.localizedDescription)\n", stderr)
+        Task {
+            await stopStreamOnly()
+            let lost: ((Error) -> Void)? = handlerQueue.sync {
+                defer {
+                    pcmHandler = nil
+                    lostHandler = nil
+                }
+                return lostHandler
+            }
+            guard let lost else { return }
+            await MainActor.run {
+                lost(error)
+            }
+        }
     }
 
     private static func s16leMono(_ sampleBuffer: CMSampleBuffer) -> Data? {

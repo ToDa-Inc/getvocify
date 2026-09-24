@@ -1,6 +1,11 @@
 (() => {
   const call = (op, args = {}) => window.webkit.messageHandlers.vocify.postMessage({ op, args });
-  const listeners = { 'system-audio:pcm': new Set(), 'shell:command': new Set(), 'overlay:state': new Set() };
+  const listeners = {
+    'system-audio:pcm': new Set(),
+    'system-audio:lost': new Set(),
+    'shell:command': new Set(),
+    'overlay:state': new Set(),
+  };
   const on = (channel) => (cb) => { listeners[channel].add(cb); return () => listeners[channel].delete(cb); };
   window.__vocifyEmit = (channel, payload) => {
     const set = listeners[channel];
@@ -12,7 +17,12 @@
   };
   window.vocifyDesktop = {
     platform: 'darwin',
-    systemAudio: { start: () => call('system-audio:start'), stop: () => call('system-audio:stop'), onPcm: on('system-audio:pcm') },
+    systemAudio: {
+      start: () => call('system-audio:start'),
+      stop: () => call('system-audio:stop'),
+      onPcm: on('system-audio:pcm'),
+      onLost: on('system-audio:lost'),
+    },
     permissions: { status: () => call('permissions:status'), request: (type) => call('permissions:request', { type }), open: (type) => call('permissions:open', { type }) },
     shell: {
       setState: (state) => { call('shell:state', { state }); },

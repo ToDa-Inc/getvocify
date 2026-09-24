@@ -132,13 +132,20 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["ok": false, "reason": "no_system_audio"]
         }
         let webView = await MainActor.run { self.webView }
-        systemAudio.onPcm = { [weak self] data in
-            guard let self, let webView else { return }
-            let encoded = data.base64EncodedString()
-            Task { @MainActor in
-                self.emit("system-audio:pcm", encoded, in: webView)
+        systemAudio.setHandlers(
+            onPcm: { [weak self] data in
+                guard let self, let webView else { return }
+                let encoded = data.base64EncodedString()
+                Task { @MainActor in
+                    self.emit("system-audio:pcm", encoded, in: webView)
+                }
+            },
+            onLost: { [weak self] _ in
+                Task { @MainActor in
+                    self?.emitSystemAudioLost()
+                }
             }
-        }
+        )
         do {
             try await systemAudio.start()
             return ["ok": true, "backend": "screencapturekit"]
@@ -146,6 +153,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             await systemAudio.stop()
             return ["ok": false, "reason": "no_system_audio"]
         }
+    }
+
+    private func emitSystemAudioLost() {
+        guard let webView else { return }
+        emit("system-audio:lost", ["reason": "no_system_audio"], in: webView)
     }
 
     func emit(_ channel: String, _ payload: Any, in webView: WKWebView) {

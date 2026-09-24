@@ -129,6 +129,7 @@ let clientCaptureId = null;
 let captureStreams = [];
 let processors = [];
 let nativePcmUnsub = null;
+let nativeLostUnsub = null;
 let transcriptState = { finalTranscript: '', interimTranscript: '' };
 let liveNote = emptyNote();
 let startedAt = 0;
@@ -870,6 +871,10 @@ function stopCapture() {
     try { nativePcmUnsub(); } catch { /* ignore */ }
     nativePcmUnsub = null;
   }
+  if (nativeLostUnsub) {
+    try { nativeLostUnsub(); } catch { /* ignore */ }
+    nativeLostUnsub = null;
+  }
   const native = desktop()?.systemAudio;
   if (native?.stop) {
     Promise.resolve(native.stop()).catch(() => {});
@@ -1074,6 +1079,12 @@ async function startListen() {
     hookPcm(audioContext, system, send('prospect'));
   } else if (native?.onPcm) {
     nativePcmUnsub = native.onPcm((pcm) => send('prospect')(pcm));
+    if (native.onLost) {
+      nativeLostUnsub = native.onLost(() => {
+        if (!listening || currentBackend !== 'screencapturekit') return;
+        showListenDenied('no_system_audio', desktop()?.platform);
+      });
+    }
   }
 }
 
