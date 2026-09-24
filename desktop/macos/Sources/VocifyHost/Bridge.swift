@@ -11,6 +11,12 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private let systemAudio = SystemAudio()
     private lazy var captureStore = CaptureStore(root: CaptureStore.defaultCapturesRoot())
+    /// Serializes capture bridge ops (WK messages run on concurrent Tasks; Electron IPC is single-threaded).
+    private let captureQueue = DispatchQueue(label: "com.vocify.host.capture")
+
+    private func withCaptureSerialization<T>(_ body: () -> T) -> T {
+        captureQueue.sync(execute: body)
+    }
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -67,7 +73,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             await systemAudio.stop()
             return ["ok": true]
         case "capture:pending":
-            return ["ok": true, "items": captureStore.pending()]
+            return withCaptureSerialization { ["ok": true, "items": captureStore.pending()] }
         case "shell:state":
             if let state = args["state"] as? [String: Any] {
                 await MainActor.run {
@@ -82,15 +88,15 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             return nil
         case "capture:begin":
-            return handleCaptureBegin(args: args)
+            return withCaptureSerialization { handleCaptureBegin(args: args) }
         case "capture:append":
-            return handleCaptureAppend(args: args)
+            return withCaptureSerialization { handleCaptureAppend(args: args) }
         case "capture:channel-absent":
-            return handleCaptureChannelAbsent(args: args)
+            return withCaptureSerialization { handleCaptureChannelAbsent(args: args) }
         case "capture:confirm":
-            return handleCaptureConfirm(args: args)
+            return withCaptureSerialization { handleCaptureConfirm(args: args) }
         case "capture:discard":
-            return handleCaptureDiscard(args: args)
+            return withCaptureSerialization { handleCaptureDiscard(args: args) }
         default:
             return nil
         }
