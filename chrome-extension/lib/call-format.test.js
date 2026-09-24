@@ -10,6 +10,8 @@ import {
   formatCallDuration,
   memoBusyLabel,
   outboundActivityChrome,
+  callReviewAnchor,
+  planOutboundCallUi,
   postCallCard,
   postCallNotice,
   shouldShowContactCallCta,
@@ -614,6 +616,56 @@ describe('memoBusyLabel', () => {
     assert.equal(memoBusyLabel('extracting'), 'Extracting');
     assert.equal(memoBusyLabel('pending_review'), null);
     assert.equal(memoBusyLabel('approved'), null);
+  });
+});
+
+describe('planOutboundCallUi', () => {
+  const called = {
+    outcome: 'answered',
+    contactId: 'C-called',
+    contactName: 'Ana',
+    dealId: null,
+    processing: true,
+  };
+
+  it('opens loading on the contact that was called, not the tab open now', () => {
+    const plan = planOutboundCallUi({ lastCall: called, uiStatus: 'idle' });
+    assert.equal(plan.type, 'processing');
+    assert.equal(plan.anchor.objectType, 'contact');
+    assert.equal(plan.anchor.recordId, 'C-called');
+    assert.equal(plan.anchor.contactName, 'Ana');
+  });
+
+  it('opens review for that same contact when the memo is ready', () => {
+    const plan = planOutboundCallUi({
+      lastCall: { ...called, processing: false, memoId: 'm1', memoStatus: 'pending_review' },
+      uiStatus: 'processing',
+    });
+    assert.equal(plan.type, 'review');
+    assert.equal(plan.memoId, 'm1');
+    assert.equal(plan.anchor.recordId, 'C-called');
+  });
+
+  it('does not reopen after the user left, and ignores a call that was not answered', () => {
+    assert.equal(
+      planOutboundCallUi({
+        lastCall: { ...called, memoId: 'm1', memoStatus: 'pending_review', processing: false },
+        uiStatus: 'idle',
+        dismissed: true,
+      }).type,
+      'stay',
+    );
+    assert.equal(
+      planOutboundCallUi({ lastCall: { outcome: 'no_answer', processing: false }, uiStatus: 'idle' }).type,
+      'stay',
+    );
+  });
+
+  it('anchors a deal call on that deal', () => {
+    const anchor = callReviewAnchor({ dealId: 'D1', contactId: 'C1', dealName: 'Acme', provider: 'hubspot' });
+    assert.equal(anchor.objectType, 'deal');
+    assert.equal(anchor.recordId, 'D1');
+    assert.equal(anchor.contactId, 'C1');
   });
 });
 

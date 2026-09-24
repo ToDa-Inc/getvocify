@@ -170,6 +170,17 @@ describe('planReviewSessionLock', () => {
     assert.deepEqual(plan.context, {});
   });
 
+  it('pins an open call to the dialed contact when the live tab is someone else', () => {
+    const plan = planReviewSessionLock({
+      alreadyLocked: false,
+      liveContext: { objectType: 'contact', recordId: 'C-next' },
+      pinToCall: true,
+      anchor: { objectType: 'contact', recordId: 'C-called' },
+    });
+    assert.equal(plan.shouldLock, true);
+    assert.equal(plan.context.recordId, 'C-called');
+  });
+
   it('does not adopt a later contact or deal once the process is locked', () => {
     const plan = planReviewSessionLock({
       alreadyLocked: true,

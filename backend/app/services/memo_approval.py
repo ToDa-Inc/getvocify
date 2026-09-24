@@ -68,12 +68,20 @@ async def approve_memo_core(
     )
     if not memo_data:
         raise ValueError("Memo not found")
+    reviewed_extraction = bool(payload and payload.extraction)
     extraction_data = (
-        payload.extraction.model_dump() if payload and payload.extraction
+        payload.extraction.model_dump() if reviewed_extraction
         else memo_data.get("extraction")
     )
     if not extraction_data:
         raise ValueError("No extraction data available")
+    # Auto-approve and other unattended paths must not write lead status.
+    # A rep review sends extraction explicitly; that copy is what sync writes.
+    sync_extraction_data = extraction_data
+    if not reviewed_extraction:
+        from app.services.llm.lead_status import strip_lead_status_for_unattended_sync
+
+        sync_extraction_data = strip_lead_status_for_unattended_sync(extraction_data)
 
     logger.info(
         "📋 Approve memo core started",
@@ -132,7 +140,7 @@ async def approve_memo_core(
         except ValueError as e:
             raise ValueError(str(e)) from e
 
-    extraction = MemoExtraction(**extraction_data)
+    extraction = MemoExtraction(**sync_extraction_data)
     deal_id: Optional[str] = None
     is_new_deal = False
     contact_id: Optional[str] = None
@@ -181,6 +189,23 @@ async def approve_memo_core(
     allowed_contact_fields = (
         list(config.allowed_contact_fields) if config and config.allowed_contact_fields else None
     )
+    if (
+        reviewed_extraction
+        and crm_connection.get("provider") == "hubspot"
+    ):
+        from app.services.llm.lead_status import (
+            LEAD_STATUS_PROPERTY,
+            extraction_has_lead_status,
+        )
+
+        if extraction_has_lead_status(extraction):
+            base = list(
+                allowed_contact_fields
+                or ["firstname", "lastname", "email", "phone", "jobtitle"]
+            )
+            if LEAD_STATUS_PROPERTY not in base:
+                base.append(LEAD_STATUS_PROPERTY)
+            allowed_contact_fields = base
     allowed_company_fields = (
         list(config.allowed_company_fields) if config and config.allowed_company_fields else None
     )

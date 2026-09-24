@@ -67,6 +67,10 @@ class AvailableField(BaseModel):
         default="deals",
         description="CRM object this field belongs to",
     )
+    current_value: Optional[str] = Field(
+        default=None,
+        description="Value already on the record, when the review row should show it",
+    )
 
 
 class CallOutcomeAvailability(BaseModel):

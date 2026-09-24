@@ -87,8 +87,18 @@ export function applyProposedUpdates(extraction, updates) {
   for (const u of updates || []) {
     if (!u || isInsightsField(u.field_name)) continue;
     const val = u.new_value != null ? String(u.new_value).trim() : '';
-    if (!val) continue;
     const objectType = u.object_type || 'deals';
+
+    if (objectType === 'contacts' && u.field_name === 'hs_lead_status') {
+      const current = u.current_value != null ? String(u.current_value).trim() : '';
+      if (!val || current === val) {
+        delete contactProps.hs_lead_status;
+        continue;
+      }
+      contactProps.hs_lead_status = val;
+      continue;
+    }
+    if (!val) continue;
 
     if (objectType === 'contacts' && u.field_name !== 'contact_name') {
       contactProps[u.field_name] = u.field_type === 'number' ? (parseFloat(val) || null) : val;

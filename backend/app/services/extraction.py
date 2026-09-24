@@ -25,6 +25,12 @@ from app.services.transcript_turns import (
 logger = logging.getLogger(__name__)
 import asyncio
 from app.services.llm import JevClient, LLMClient
+from app.services.llm.lead_status import (
+    LEAD_STATUS_RULES,
+    generative_lead_status_to_drop,
+    is_lead_status_field,
+    lead_status_field_instruction,
+)
 from typing import Any, Optional
 
 
@@ -324,6 +330,32 @@ def apply_enumeration_patch(extracted: dict, patch: dict, specs: list[dict]) -> 
     return out
 
 
+def drop_abstained_fields(
+    extracted: dict,
+    names: list[str],
+    specs: Optional[list[dict]] = None,
+) -> dict:
+    """Jev declined these fields. Do not keep the generative guess."""
+    wanted = {n for n in names if n}
+    if not extracted or not wanted:
+        return extracted
+    out = dict(extracted)
+    if isinstance(out.get("contact_properties"), dict):
+        out["contact_properties"] = dict(out["contact_properties"])
+    if isinstance(out.get("company_properties"), dict):
+        out["company_properties"] = dict(out["company_properties"])
+    for spec in specs or []:
+        name = spec.get("name")
+        if name not in wanted:
+            continue
+        bag = _bag_for_object(out, spec.get("object_type") or "deals")
+        if name in bag:
+            bag[name] = None
+        if name in out and spec.get("object_type") not in (None, "deals"):
+            out[name] = None
+    return out
+
+
 def _enumeration_followup_prompt(transcript: str, specs: list[dict]) -> str:
     lines = []
     for spec in specs:
@@ -337,6 +369,9 @@ def _enumeration_followup_prompt(transcript: str, specs: list[dict]) -> str:
         )
         lines.append(f'- {obj}.{name} ({label}). Options: {opt_txt or "(none)"}')
     fields = "\n".join(lines)
+    lead_rules = ""
+    if any(is_lead_status_field(spec) for spec in specs):
+        lead_rules = f"\nLEAD STATUS:\n{LEAD_STATUS_RULES}\n"
     return f"""The first CRM pass left these enabled enumerations empty.
 Fill each from the transcript. Map described reality to the closest option — the speaker will not say the internal value.
 Null only if that topic never came up. Never write "unknown" unless they said they do not know (prefer null).
@@ -350,7 +385,7 @@ HOW TO MAP (use these even when they never say the option label):
 - They log visits in "their program" but never named HubSpot/Salesforce/etc → crm_utilizado = null
 - They did not answer hunting vs farming → vocify_team_new_business = null
 - They did not answer whether deals close after a first visit → vocify_decisions_after_contact = null
-
+{lead_rules}
 FIELDS:
 {fields}
 
@@ -552,6 +587,9 @@ class ExtractionService:
                 json_type = f'"{field_name}": string | null'
             policy = classify_fill_policy(spec)
             parts.append(fill_policy_instruction(policy))
+            lead_rules = lead_status_field_instruction(spec)
+            if lead_rules:
+                parts.append(lead_rules)
             obj = spec.get("object_type") or "deals"
             current = ((existing_values or {}).get(obj) or {}).get(field_name)
             if current is not None and str(current).strip():
@@ -807,6 +845,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             ]
 
             jev_applied = False
+            abstained: list[str] = []
             if use_jev and candidate_enums:
                 gemini_coro = self.llm.chat_json(messages, temperature=0.0)
                 jev_coro = self.jev.classify_enums(transcript, candidate_enums)
@@ -817,6 +856,11 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                     raise res_gemini
                 extracted = res_gemini
                 if isinstance(res_jev, dict) and res_jev:
+                    abstained = [
+                        str(name)
+                        for name in (res_jev.get("_abstained") or [])
+                        if name
+                    ]
                     extracted = apply_enumeration_patch(
                         extracted, res_jev, candidate_enums
                     )
@@ -829,15 +873,25 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                             fields=list(res_jev.keys()),
                         ),
                     )
+                jev_patch = res_jev if isinstance(res_jev, dict) else None
+                for name in generative_lead_status_to_drop(field_specs, jev_patch):
+                    if name not in abstained:
+                        abstained.append(name)
             else:
                 extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
             extracted = apply_fill_policies(extracted, field_specs, existing_values)
+            extracted = drop_abstained_fields(extracted, abstained, field_specs)
             extracted = drop_unspoken_numbers(extracted, transcript, field_specs)
-            pending_enums = pending_enumeration_specs(
-                extracted, field_specs, existing_values
-            )
+            abstained_names = set(abstained)
+            pending_enums = [
+                spec
+                for spec in pending_enumeration_specs(
+                    extracted, field_specs, existing_values
+                )
+                if spec.get("name") not in abstained_names
+            ]
             if pending_enums:
                 try:
                     enum_payload = await self.llm.chat_json(

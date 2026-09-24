@@ -14,6 +14,7 @@ import {
   addFieldOptionLabel,
   shouldShowCrmFieldsSection,
   crmFieldTone,
+  withLeadStatusOption,
 } from './review-insights.js';
 
 describe('visibleCrmUpdates', () => {
@@ -53,12 +54,78 @@ describe('visibleCrmUpdates', () => {
     const out = visibleCrmUpdates([
       {
         object_type: 'contacts',
+        field_name: 'jobtitle',
+        new_value: 'Retired',
+        current_value: 'Retired',
+      },
+    ]);
+    assert.equal(out.length, 0);
+  });
+
+  it('always keeps lead status, and pins a blank row when the model did not propose one', () => {
+    const unchanged = visibleCrmUpdates([
+      {
+        object_type: 'contacts',
         field_name: 'hs_lead_status',
         new_value: 'OPEN',
         current_value: 'OPEN',
       },
     ]);
-    assert.equal(out.length, 0);
+    assert.equal(unchanged.length, 1);
+
+    const pinned = withLeadStatusOption([], [{
+      name: 'hs_lead_status',
+      label: 'Lead status',
+      object_type: 'contacts',
+      type: 'enumeration',
+      current_value: 'NEW',
+      options: [
+        { value: 'NEW', label: 'New' },
+        { value: 'ATTEMPTED_TO_CONTACT', label: 'Attempted to Contact' },
+        { value: 'UNQUALIFIED', label: 'Unqualified' },
+      ],
+    }]);
+    assert.equal(visibleCrmUpdates(pinned).length, 1);
+    assert.equal(pinned[0].current_value, 'NEW');
+    assert.equal(pinned[0].new_value, '');
+    assert.equal(pinned[0].options.length, 3);
+
+    const first = withLeadStatusOption(
+      [{ object_type: 'contacts', field_name: 'jobtitle', new_value: 'Ops' }],
+      [{
+        name: 'hs_lead_status',
+        label: 'Lead status',
+        object_type: 'contacts',
+        type: 'enumeration',
+        current_value: 'NEW',
+        options: [{ value: 'NEW', label: 'New' }, { value: 'CONNECTED', label: 'Connected' }],
+      }],
+    );
+    assert.equal(first[0].field_name, 'jobtitle');
+    assert.equal(first[1].field_name, 'hs_lead_status');
+    assert.equal(crmFieldTone(first[1]), 'quiet');
+    assert.equal(crmFieldValueLabel(first[1]), 'New');
+    assert.equal(crmFieldWasLabel(first[1]), '');
+
+    const withOptions = withLeadStatusOption(
+      [{ object_type: 'contacts', field_name: 'hs_lead_status', new_value: 'CONNECTED', options: [] }],
+      [{
+        name: 'hs_lead_status',
+        label: 'Lead status',
+        object_type: 'contacts',
+        options: [{ value: 'CONNECTED', label: 'Connected' }],
+      }],
+    );
+    assert.equal(withOptions.length, 1);
+    assert.equal(withOptions[0].new_value, 'CONNECTED');
+    assert.equal(withOptions[0].options[0].value, 'CONNECTED');
+
+    const again = withLeadStatusOption(pinned, [{
+      name: 'hs_lead_status',
+      label: 'Lead status',
+      options: [{ value: 'NEW', label: 'New' }],
+    }]);
+    assert.equal(again.filter((u) => u.field_name === 'hs_lead_status').length, 1);
   });
 
   it('returns empty when the call only had a note and tasks', () => {
@@ -95,6 +162,7 @@ describe('crm field rows', () => {
     };
     assert.equal(crmFieldValueLabel(update), 'Unqualified');
     assert.equal(crmFieldWasLabel(update), 'New');
+    assert.equal(crmFieldTone(update), 'status');
     assert.equal(crmFieldInputKind(update), 'select');
   });
 

@@ -55,8 +55,14 @@ export function shouldReloadReviewPreview({
  * Review binds to the process at open — including the inbox, which has no
  * HubSpot recordId. A later focused contact/deal table must not steal it.
  */
-export function planReviewSessionLock({ alreadyLocked = false, liveContext = null } = {}) {
+export function planReviewSessionLock({
+  alreadyLocked = false,
+  liveContext = null,
+  pinToCall = false,
+  anchor = null,
+} = {}) {
   if (alreadyLocked) return { shouldLock: false };
+  if (pinToCall) return { shouldLock: true, context: anchor || {} };
   return { shouldLock: true, context: liveContext || {} };
 }
 

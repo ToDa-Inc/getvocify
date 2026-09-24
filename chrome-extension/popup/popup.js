@@ -47,10 +47,12 @@ import {
   crmFieldValueLabel,
   crmFieldWasLabel,
   formatTaskDueLabel,
+  isLeadStatusField,
   shouldCreateHubSpotNote,
   shouldShowCrmFieldsSection,
   taskRowsFromPreview,
   visibleCrmUpdates,
+  withLeadStatusOption,
 } from '../lib/review-insights.js';
 import { crmFieldsHeadingLabel, htmlToCopilotMarkdown, nextStepsHeadingLabel, renderCopilotNoteHtml, stripNextStepsSection } from '../lib/copilot-note.js';
 import { bindPreviewIds, bindPreviewToPage, formatSyncTargetLabel, needsAssociatedContactPick, associatedContactsFromContext, proposedUpdatesForPage, resolveReviewTargets } from '../lib/review-targets.js';
@@ -1482,7 +1484,6 @@ function renderState(state) {
         dealDecisionMade = true;
         lastReviewMemo = null;
         applyReviewLayout('pending_review');
-        paintDealCardPending(state.context);
         showReviewFieldsPending();
         markApproveMatching();
         resetCallInsightsUi();
@@ -1495,9 +1496,12 @@ function renderState(state) {
         const lockPlan = planReviewSessionLock({
           alreadyLocked: reviewSessionLocked,
           liveContext: state.context,
+          pinToCall: Boolean(state.reviewPinned),
+          anchor: state.reviewAnchor,
         });
         if (lockPlan.shouldLock) lockReviewSession(lockPlan.context);
         const frozen = reviewTargetContext(state.context);
+        if (!previewLoaded) paintDealCardPending(frozen);
         renderReviewRecordName(frozen, lastPreviewData);
         if (
           reviewSessionLocked &&
@@ -2138,6 +2142,7 @@ function visibleProposedUpdates(updates) {
     return editedProposedUpdates.filter(Boolean);
   }
   return (updates || []).filter((u) => {
+    if (isLeadStatusField(u)) return true;
     const key = proposedFieldKey(u);
     return !key || !omittedProposedKeys.has(key);
   });
@@ -2189,7 +2194,10 @@ async function loadPreview(memoId, dealId = null, extraction = null, contactId =
         createNewDeal,
         pageType: pageCtx?.objectType || null,
       });
-      lastPreviewData.proposed_updates = proposedUpdatesForPage(lastPreviewData);
+      lastPreviewData.proposed_updates = withLeadStatusOption(
+        proposedUpdatesForPage(lastPreviewData),
+        lastPreviewData.available_fields || [],
+      );
       if (!requestedContactId && ['deal', 'company'].includes(pageCtx?.objectType)) {
         lastPreviewData = { ...lastPreviewData, selected_contact: null };
       }
@@ -2465,7 +2473,9 @@ function createNewDealTarget() {
   loadPreview(currentMemoId, null, null, targets.contactId, { createNewDeal: true, resetEdits: true });
 }
 
-function pickContact(contactId) {
+let contactPickTimer = null;
+
+function commitContactPick(contactId) {
   userSelectedContactId = contactId;
   currentContactId = contactId;
   contactPickerOpen = false;
@@ -2477,11 +2487,25 @@ function pickContact(contactId) {
   loadPreview(currentMemoId, targets.dealId, null, targets.contactId, { resetEdits: true });
 }
 
-function renderContactRow(c) {
+function pickContact(contactId) {
+  const id = String(contactId);
+  const list = document.getElementById('contact-candidates');
+  list?.querySelectorAll('.matched-deal-item').forEach((btn) => {
+    btn.classList.toggle('is-selected', btn.dataset.contactId === id);
+  });
+  clearTimeout(contactPickTimer);
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  contactPickTimer = setTimeout(() => commitContactPick(contactId), reduce ? 0 : 160);
+}
+
+function renderContactRow(c, selectedId) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'matched-deal-item';
-  btn.innerHTML = `<strong>${escapeHtml(c.name || 'Contact')}</strong><br><span class="deal-subtitle">${escapeHtml([c.email, c.phone, c.company_name].filter(Boolean).join(' · '))}</span>`;
+  btn.dataset.contactId = String(c.contact_id);
+  if (selectedId && String(c.contact_id) === String(selectedId)) btn.classList.add('is-selected');
+  const meta = [c.email, c.phone, c.company_name].filter(Boolean).join(' · ');
+  btn.innerHTML = `<span class="matched-deal-copy"><strong class="deal-title">${escapeHtml(c.name || 'Contact')}</strong>${meta ? `<span class="deal-subtitle">${escapeHtml(meta)}</span>` : ''}</span>`;
   btn.addEventListener('click', () => pickContact(c.contact_id));
   return btn;
 }
@@ -2549,7 +2573,8 @@ function renderContactTarget(preview) {
 
   candidatesEl.style.display = pick.length ? 'block' : 'none';
   candidatesEl.innerHTML = '';
-  pick.forEach((c) => candidatesEl.appendChild(renderContactRow(c)));
+  const selectedId = currentContactId || selected?.contact_id || null;
+  pick.forEach((c) => candidatesEl.appendChild(renderContactRow(c, selectedId)));
 }
 
 function initCallInsights(preview, memoExtraction = null) {
@@ -2724,9 +2749,19 @@ function addActionItem(text = '') {
 function renderProposedUpdates(updates, availableFields) {
   if (!proposedUpdatesList) return;
   proposedUpdatesList.innerHTML = '';
-  const list = editedProposedUpdates !== null ? editedProposedUpdates : updates.map((u) => ({ ...u }));
+  const base = editedProposedUpdates !== null ? editedProposedUpdates : updates;
+  const ensured = withLeadStatusOption(
+    (Array.isArray(base) ? base : []).filter(Boolean),
+    availableFields,
+  );
+  if (editedProposedUpdates !== null) {
+    editedProposedUpdates = ensured;
+  } else if (lastPreviewData) {
+    lastPreviewData.proposed_updates = ensured;
+  }
+  const list = ensured.map((u) => (u ? { ...u } : u));
   const filteredList = visibleCrmUpdates(list);
-  const sourceList = editedProposedUpdates !== null ? editedProposedUpdates : updates;
+  const sourceList = ensured;
   const remaining = (availableFields || []).filter(
     (f) =>
       f?.name &&
@@ -2786,7 +2821,7 @@ function renderProposedUpdates(updates, availableFields) {
             <div class="custom-select" role="listbox">
               <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox"${canEdit ? '' : ' disabled'}>${escapeHtml(valueLabel)}</button>
               <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
-                <div class="custom-select-opt" data-value="" data-label="—">—</div>
+                <div class="custom-select-opt" data-value="" data-label="${isLeadStatusField(update) ? 'No change' : '—'}">${isLeadStatusField(update) ? 'No change' : '—'}</div>
                 ${(update.options || []).map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
               </div>
             </div>
@@ -2805,7 +2840,7 @@ function renderProposedUpdates(updates, availableFields) {
           ${was ? `<span class="crm-field-was">${escapeHtml(was)}</span><span class="crm-field-arrow" aria-hidden="true">→</span>` : ''}
           ${editorHtml}
         </div>
-        ${canEdit ? '<button type="button" class="action-item-remove update-action-btn remove" title="Skip this field">×</button>' : ''}
+        ${canEdit && !isLeadStatusField(update) ? '<button type="button" class="action-item-remove update-action-btn remove" title="Skip this field">×</button>' : ''}
       `;
 
       const customSelect = div.querySelector('.custom-select');

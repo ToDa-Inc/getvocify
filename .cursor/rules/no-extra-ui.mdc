@@ -1,0 +1,33 @@
+---
+description: Proporcionalidad de UI. Aplícala al añadir o modificar cualquier elemento de interfaz.
+alwaysApply: true
+---
+
+# UI proporcional
+
+Interpreta la intención de la petición, no solo su literalidad. "Que funcione
+el autofill" pide un resultado, no un componente nuevo.
+
+## Orden de decisión
+1. ¿Se resuelve sin UI nueva? (atributos, valores por defecto, detección,
+   corregir el control existente). Si sí, hazlo así.
+2. Si no, ¿lo absorbe un elemento o patrón existente? Reutilízalo.
+3. Si hace falta algo nuevo, dimensiónalo por frecuencia de uso: lo
+   ocasional es compacto y secundario; solo la acción principal es
+   protagonista.
+4. Texto de apoyo solo si, sin él, el usuario se bloquearía o se
+   equivocaría. Lo mínimo posible.
+
+## Al terminar, declara en una línea
+Qué añadiste, dónde, con qué peso visual y por qué. Si no puedes justificar
+el peso, hazlo más pequeño.
+
+## Cuándo parar y proponer antes de implementar
+Si la solución requiere una pantalla nueva, cambia un flujo, o le quita
+espacio a la acción principal (sobre todo en el popup de la extensión).
+
+## Excepciones
+Errores, estados vacíos, onboarding y acciones destructivas pueden necesitar
+más texto. Sigue aplicando brevedad y los patrones existentes.
+
+Detalle y checklist: `.cursor/skills/vocify-ux-coherence/SKILL.md`

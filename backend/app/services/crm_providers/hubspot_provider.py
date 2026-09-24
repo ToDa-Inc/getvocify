@@ -248,9 +248,12 @@ class HubSpotCRMProvider:
         allowed_company_fields: Optional[list[str]] = None,
         allowed_line_item_fields: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
+        contact_fields = list(allowed_contact_fields or [])
+        if "hs_lead_status" not in contact_fields:
+            contact_fields.append("hs_lead_status")
         return await self._schema_service().get_multi_object_field_specs(
             allowed_deal_fields=allowed_deal_fields,
-            allowed_contact_fields=allowed_contact_fields,
+            allowed_contact_fields=contact_fields,
             allowed_company_fields=allowed_company_fields,
             allowed_line_item_fields=allowed_line_item_fields,
         )

@@ -14,6 +14,12 @@ import httpx
 
 from app.config import settings
 from app.logging_config import DOMAIN_LLM, log_domain
+from app.services.llm.lead_status import (
+    is_lead_status_field,
+    lead_reach_question,
+    lead_stance_question,
+    resolve_lead_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +121,7 @@ class JevClient:
 
         questions: dict[str, dict[str, Any]] = {}
         spec_map: dict[str, dict] = {}
+        lead_status_questions: list[tuple[str, dict]] = []
 
         for spec in enum_specs:
             name = spec.get("name")
@@ -126,9 +133,25 @@ class JevClient:
 
             obj = spec.get("object_type") or "deals"
             q_id = f"{obj}__{name}"
-            spec_map[q_id] = spec
 
-            criteria: dict[str, str] = {}
+            if is_lead_status_field(spec):
+                reach_instructions, reach_criteria = lead_reach_question()
+                stance_instructions, stance_criteria = lead_stance_question()
+                questions[f"{q_id}__reach"] = {
+                    "type": "choice",
+                    "instructions": reach_instructions,
+                    "criteria": reach_criteria,
+                }
+                questions[f"{q_id}__stance"] = {
+                    "type": "choice",
+                    "instructions": stance_instructions,
+                    "criteria": stance_criteria,
+                }
+                lead_status_questions.append((q_id, spec))
+                continue
+
+            spec_map[q_id] = spec
+            criteria = {}
             for o in options[:250]:
                 if isinstance(o, dict):
                     v = str(o.get("value", ""))
@@ -166,22 +189,11 @@ class JevClient:
             "company_properties": {},
             "deals": {},
         }
+        abstained: list[str] = []
 
-        for q_id, ans in answers.items():
-            if not isinstance(ans, dict):
-                continue
-            choice = ans.get("choice")
-            conf = float(ans.get("confidence") or 0.0)
-            if not choice or choice == "not_stated" or conf < min_confidence:
-                continue
-
-            spec = spec_map.get(q_id)
-            if not spec:
-                continue
-
+        def _write(spec: dict, choice: str) -> None:
             name = spec["name"]
             obj = spec.get("object_type") or "deals"
-
             if obj == "contacts":
                 patch["contact_properties"][name] = choice
             elif obj == "companies":
@@ -190,6 +202,37 @@ class JevClient:
                 patch["deals"][name] = choice
                 patch[name] = choice
 
+        for q_id, spec in lead_status_questions:
+            reach_ans = answers.get(f"{q_id}__reach")
+            stance_ans = answers.get(f"{q_id}__stance")
+            reach_ans = reach_ans if isinstance(reach_ans, dict) else {}
+            stance_ans = stance_ans if isinstance(stance_ans, dict) else {}
+            choice = resolve_lead_status(
+                spec,
+                reach=str(reach_ans.get("choice") or ""),
+                reach_confidence=float(reach_ans.get("confidence") or 0.0),
+                stance=str(stance_ans.get("choice") or ""),
+                stance_confidence=float(stance_ans.get("confidence") or 0.0),
+            )
+            if not choice:
+                abstained.append(spec["name"])
+                continue
+            _write(spec, choice)
+
+        for q_id, ans in answers.items():
+            if not isinstance(ans, dict):
+                continue
+            spec = spec_map.get(q_id)
+            if not spec:
+                continue
+            choice = ans.get("choice")
+            conf = float(ans.get("confidence") or 0.0)
+            if not choice or choice == "not_stated" or conf < min_confidence:
+                continue
+            _write(spec, str(choice))
+
+        if abstained:
+            patch["_abstained"] = abstained
         return patch
 
     async def detect_language(

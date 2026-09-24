@@ -13,6 +13,8 @@ import {
   isCarrierHangupError,
   userFacingCallError,
   userFacingCallSetupError,
+  callReviewAnchor,
+  planOutboundCallUi,
 } from './lib/call-format.js';
 import { isUsableMicRecording } from './lib/media-stream.js';
 import { isAuthFailure, isCrmReconnectError } from './lib/auth-session.js';
@@ -116,6 +118,8 @@ let state = {
     dealId: null,
   },
   lastCall: null,
+  reviewPinned: false,
+  reviewAnchor: null,
 };
 
 /** Cached for sidePanel.open – must be called synchronously in user gesture, no await before it */
@@ -300,6 +304,8 @@ function openReviewFromMemo(memoId, memo) {
 function updateState(newState) {
   if (newState.status === 'idle' || newState.status === 'success') {
     if (newState.reviewMemo === undefined) newState.reviewMemo = null;
+    newState.reviewPinned = false;
+    newState.reviewAnchor = null;
     clearPreviewCache();
   }
 
@@ -1025,6 +1031,8 @@ function idleCall(error = null) {
 }
 
 let callStatusPollId = null;
+let outboundFlowLeftSid = null;
+let outboundReviewOpening = null;
 const CALL_STATUS_POLL_MS = 3000;
 const CALL_STATUS_POLL_MAX_MS = 4 * 60 * 1000;
 
@@ -1033,6 +1041,54 @@ function clearCallStatusPoll() {
     clearInterval(callStatusPollId);
     callStatusPollId = null;
   }
+}
+
+async function advanceOutboundCallUi(next, { autoSync = false } = {}) {
+  const plan = planOutboundCallUi({
+    lastCall: next,
+    autoSync,
+    uiStatus: state.status,
+    currentMemoId: state.currentMemoId,
+    dismissed: Boolean(outboundFlowLeftSid && outboundFlowLeftSid === next.callSid),
+  });
+  if (plan.type === 'processing') {
+    updateState({
+      lastCall: next,
+      status: 'processing',
+      processingSource: 'hubspot_call',
+      reviewPinned: true,
+      reviewAnchor: plan.anchor,
+    });
+    return;
+  }
+  if (plan.type === 'review') {
+    if (outboundReviewOpening === plan.memoId) {
+      updateState({ lastCall: next });
+      return;
+    }
+    outboundReviewOpening = plan.memoId;
+    updateState({
+      lastCall: next,
+      reviewPinned: true,
+      reviewAnchor: plan.anchor,
+    });
+    try {
+      const memo = await api.getMemo(plan.memoId);
+      if (state.lastCall?.callSid !== next.callSid) return;
+      if (outboundFlowLeftSid === next.callSid) return;
+      if (state.status === 'review' && String(state.currentMemoId) === String(plan.memoId)) return;
+      openReviewFromMemo(plan.memoId, memo);
+    } catch (_) { /* next poll retries */ }
+    finally {
+      outboundReviewOpening = null;
+    }
+    return;
+  }
+  if (plan.type === 'idle') {
+    updateState({ lastCall: next, status: 'idle', currentMemoId: null, processingSource: null });
+    return;
+  }
+  updateState({ lastCall: next });
 }
 
 function startCallStatusPoll(callSid) {
@@ -1052,7 +1108,7 @@ function startCallStatusPoll(callSid) {
       const pollOpts = { autoSync: Boolean(state.autoSyncHubspotCalls) };
       const next = applyCallPoll(state.lastCall, call, pollOpts);
       if (!next) return;
-      updateState({ lastCall: next });
+      await advanceOutboundCallUi(next, pollOpts);
       if (isCallPollTerminal({ ...call, disposition: next.disposition }, pollOpts)) {
         clearCallStatusPoll();
       }
@@ -1075,8 +1131,11 @@ function snapshotLastCall(prev) {
     callSid: prev.callSid || null,
     to: prev.to,
     callerId: prev.callerId,
-    contactId: prev.contactId,
-    dealId: prev.dealId,
+    contactId: prev.contactId || null,
+    dealId: prev.dealId || null,
+    contactName: prev.contactName || null,
+    dealName: prev.dealName || null,
+    provider: prev.provider || null,
     answeredAt: prev.answeredAt || null,
     endedAt,
     durationMs: answered && prev.answeredAt ? endedAt - prev.answeredAt : 0,
@@ -1086,7 +1145,15 @@ function snapshotLastCall(prev) {
     outcome,
     errorMessage: error,
   };
-  updateState({ call: idleCall(error), lastCall });
+  const patch = { call: idleCall(error), lastCall };
+  if (answered) {
+    outboundFlowLeftSid = null;
+    patch.status = 'processing';
+    patch.processingSource = 'hubspot_call';
+    patch.reviewPinned = true;
+    patch.reviewAnchor = callReviewAnchor(lastCall);
+  }
+  updateState(patch);
   if (lastCall.callSid) startCallStatusPoll(lastCall.callSid);
   if (state.context) {
     fetchRecordingsIfNeeded(state.context, { force: true });
@@ -1135,8 +1202,11 @@ async function startCallFlow({ to, callerId, ringbackPrimed }) {
   }
 
   const context = state.context || {};
-  const contactId = context.contactId || null;
+  const contactId = context.objectType === 'contact'
+    ? (context.recordId || context.contactId || null)
+    : (context.contactId || null);
   const dealId = context.objectType === 'deal' ? context.recordId : null;
+  outboundFlowLeftSid = null;
   clearCallStatusPoll();
   chrome.runtime.sendMessage({
     target: 'offscreen',
@@ -1162,6 +1232,9 @@ async function startCallFlow({ to, callerId, ringbackPrimed }) {
       muted: false,
       contactId,
       dealId,
+      contactName: context.contactName || null,
+      dealName: context.objectType === 'deal' ? (context.dealName || null) : null,
+      provider: context.provider || null,
     },
   });
   return { ok: true, to: target };
@@ -1205,6 +1278,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     case 'SET_STATE': {
       const newState = { ...message.state };
+      if (newState.status === 'idle' && state.lastCall?.callSid) {
+        outboundFlowLeftSid = state.lastCall.callSid;
+      }
       // When opening a memo for review, refresh context from active HubSpot tab
       if (newState.status === 'review' && newState.currentMemoId) {
         getContextTab().then((tab) => {
@@ -1419,6 +1495,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       api.getMemo(memoId)
         .then((memo) => {
+          outboundFlowLeftSid = null;
+          const fromCall = state.lastCall && String(state.lastCall.memoId) === String(memoId)
+            ? state.lastCall
+            : null;
+          updateState({
+            reviewPinned: true,
+            reviewAnchor: callReviewAnchor({
+              contactId: memo?.hubspot_contact_id || memo?.hubspotContactId || fromCall?.contactId,
+              dealId: memo?.hubspot_deal_id || memo?.hubspotDealId || memo?.matched_deal_id || fromCall?.dealId,
+              contactName: fromCall?.contactName,
+              dealName: fromCall?.dealName,
+              provider: fromCall?.provider,
+            }),
+          });
           openReviewFromMemo(memoId, memo);
           sendResponse({ ok: true });
         })
@@ -1640,6 +1730,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'DISCARD_MEMO':
       // Remember this memo so restarting the contact/deal watcher does not reopen it
       if (state.currentMemoId) ignoredCallMemoIds.add(String(state.currentMemoId));
+      if (state.lastCall?.callSid) outboundFlowLeftSid = state.lastCall.callSid;
       clearMemoPoll();
       clearCallWatch();
       updateState({ 

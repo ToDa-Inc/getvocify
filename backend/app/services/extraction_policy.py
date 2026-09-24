@@ -71,6 +71,8 @@ def classify_fill_policy(spec: dict) -> FillPolicy:
     """Return how a CRM field should be filled from a call transcript."""
     name = str(spec.get("name") or "").strip()
     name_l = name.lower()
+    if name_l in {"hs_lead_status", "leadstatus", "lead_status"}:
+        return "explicit"
     if name_l in _CALL_NOTE_NAMES:
         return "call_note"
     if name_l in _IDENTITY_NAMES or name in _IDENTITY_NAME_WRITE_KEYS:

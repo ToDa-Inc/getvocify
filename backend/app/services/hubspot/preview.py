@@ -155,6 +155,9 @@ class HubSpotPreviewService:
             allowed_fields = ["dealname", "amount", "description", "closedate"]
         if allowed_contact_fields is None:
             allowed_contact_fields = ["firstname", "lastname", "email", "phone", "jobtitle"]
+        # Lead status is always offered on review, even when the workspace
+        # has not put hs_lead_status on the editable-field allowlist.
+        contact_preview_fields = list(dict.fromkeys([*allowed_contact_fields, "hs_lead_status"]))
         if allowed_company_fields is None:
             allowed_company_fields = ["name", "domain"]
         if allowed_line_item_fields is None:
@@ -224,7 +227,7 @@ class HubSpotPreviewService:
         try:
             multi_specs = await self.schema.get_multi_object_field_specs(
                 allowed_deal_fields=preview_fields,
-                allowed_contact_fields=allowed_contact_fields,
+                allowed_contact_fields=contact_preview_fields,
                 allowed_company_fields=allowed_company_fields,
                 allowed_line_item_fields=allowed_line_item_fields,
             )
@@ -305,7 +308,7 @@ class HubSpotPreviewService:
                     selected_contact.contact_id,
                     properties=list(
                         set(
-                            allowed_contact_fields
+                            contact_preview_fields
                             + ["email", "firstname", "lastname", "phone", "jobtitle"]
                         )
                     ),
@@ -380,7 +383,7 @@ class HubSpotPreviewService:
                                     ctids[0],
                                     properties=list(
                                         set(
-                                            allowed_contact_fields
+                                            contact_preview_fields
                                             + ["email", "firstname", "lastname", "phone", "jobtitle"]
                                         )
                                     ),
@@ -430,7 +433,7 @@ class HubSpotPreviewService:
                                     ctids[0],
                                     properties=list(
                                         set(
-                                            allowed_contact_fields
+                                            contact_preview_fields
                                             + ["email", "firstname", "lastname", "phone", "jobtitle"]
                                         )
                                     ),
@@ -527,7 +530,7 @@ class HubSpotPreviewService:
         )
         contact_props = contact_properties_from_extraction(
             extraction,
-            allowed_fields=allowed_contact_fields,
+            allowed_fields=contact_preview_fields,
             identity_props=identity_props,
         )
         if has_existing_contact:
@@ -676,11 +679,11 @@ class HubSpotPreviewService:
         }
         available_fields_list: list[AvailableField] = []
         object_field_sources = (
-            [("contacts", allowed_contact_fields)]
+            [("contacts", contact_preview_fields)]
             if skip_deal
             else [
                 ("deals", allowed_fields),
-                ("contacts", allowed_contact_fields),
+                ("contacts", contact_preview_fields),
             ]
         )
         if has_existing_company or new_company:
@@ -704,12 +707,20 @@ class HubSpotPreviewService:
                 spec = field_specs_map.get(f"{object_type}:{name}") or (
                     field_specs_map.get(name, {}) if object_type == "deals" else {}
                 )
+                if name == "hs_lead_status" and not spec.get("options"):
+                    continue
+                lead_current = None
+                if name == "hs_lead_status":
+                    lead_current = _display_value(
+                        "hs_lead_status", current_contact_props.get("hs_lead_status")
+                    ) or None
                 available_fields_list.append(AvailableField(
                     name=name,
                     label=spec.get("label", name.replace("_", " ").title()),
                     type=spec.get("type", "string"),
                     options=spec.get("options"),
                     object_type=object_type,
+                    current_value=lead_current,
                 ))
 
         new_contact = None

@@ -270,6 +270,86 @@ export function isCallPollTerminal(call = {}, { autoSync = false } = {}) {
 }
 
 /**
+ * Page context for the contact/deal this call was placed on.
+ * Null when the call was not started from a CRM record.
+ */
+export function callReviewAnchor(call = {}) {
+  const contactId = call.contactId ? String(call.contactId) : null;
+  const dealId = call.dealId ? String(call.dealId) : null;
+  const provider = call.provider || null;
+  if (dealId) {
+    return {
+      objectType: 'deal',
+      recordId: dealId,
+      dealId,
+      dealName: call.dealName || null,
+      contactId,
+      contactName: call.contactName || null,
+      provider,
+    };
+  }
+  if (contactId) {
+    return {
+      objectType: 'contact',
+      recordId: contactId,
+      contactId,
+      contactName: call.contactName || null,
+      provider,
+    };
+  }
+  return null;
+}
+
+/**
+ * After hangup, open loading then review for this call.
+ * A HubSpot tab opened afterwards must not become the write target.
+ * dismissed: the user left this call's loading/review on purpose.
+ */
+export function planOutboundCallUi({
+  lastCall = null,
+  autoSync = false,
+  uiStatus = 'idle',
+  currentMemoId = null,
+  dismissed = false,
+} = {}) {
+  if (!lastCall || lastCall.outcome !== 'answered') return { type: 'stay' };
+  if (dismissed && uiStatus === 'idle') return { type: 'stay' };
+  if (uiStatus === 'success' || uiStatus === 'recording') return { type: 'stay' };
+
+  const memoId = lastCall.memoId || null;
+  const memoStatus = lastCall.memoStatus || null;
+  const anchor = callReviewAnchor(lastCall);
+  const writing = Boolean(
+    memoId
+    && memoStatus === 'pending_review'
+    && autoSync
+    && !isScreenedOut(lastCall.screeningOutcome),
+  );
+  const needsReview = Boolean(
+    memoId
+    && (memoStatus === 'pending_review' || memoStatus === 'pending_transcript')
+    && !writing,
+  );
+  const inFlight = Boolean(memoBusyLabel(memoStatus)) || (Boolean(lastCall.processing) && !memoStatus) || writing;
+
+  if (uiStatus === 'review' && memoId && String(currentMemoId) === String(memoId)) {
+    return { type: 'stay' };
+  }
+  if (needsReview && (uiStatus === 'idle' || uiStatus === 'processing')) {
+    return { type: 'review', memoId, anchor };
+  }
+  if (inFlight) {
+    if (uiStatus === 'processing') return { type: 'stay' };
+    if (uiStatus === 'idle') return { type: 'processing', anchor };
+    return { type: 'stay' };
+  }
+  if (uiStatus === 'processing' && ['approved', 'rejected', 'failed'].includes(memoStatus)) {
+    return { type: 'idle' };
+  }
+  return { type: 'stay' };
+}
+
+/**
  * Activity chrome for a Vocify outbound call. Uses memo status, not call.status.
  * dialing is not transcription.
  */

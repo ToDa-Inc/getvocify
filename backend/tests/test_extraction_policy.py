@@ -24,6 +24,11 @@ def test_identity_and_strategy_and_research_policies():
     assert classify_fill_policy({"name": "sales_motion", "label": "Sales motion", "description": "ICP fit"}) == "research"
     assert classify_fill_policy({"name": "description", "label": "Description"}) == "call_note"
     assert classify_fill_policy({"name": "amount", "label": "Amount"}) == "explicit"
+    assert classify_fill_policy({
+        "name": "hs_lead_status",
+        "label": "Lead Status",
+        "description": "Outreach status, including ICP fit notes",
+    }) == "explicit"
     assert classify_fill_policy({"name": "vocify_context_status", "label": "Vocify Context Status"}) == "strategy"
 
 

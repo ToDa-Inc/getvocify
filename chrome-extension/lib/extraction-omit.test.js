@@ -121,4 +121,39 @@ describe('applyProposedUpdates', () => {
     assert.equal(next.dealAmount, 12);
     assert.equal(next.raw_extraction.amount, 12);
   });
+
+  it('writes a new lead status and drops an unchanged or cleared one', () => {
+    const changed = applyProposedUpdates(
+      { raw_extraction: { contact_properties: { hs_lead_status: 'NEW' } } },
+      [{
+        object_type: 'contacts',
+        field_name: 'hs_lead_status',
+        current_value: 'NEW',
+        new_value: 'ATTEMPTED_TO_CONTACT',
+      }],
+    );
+    assert.equal(changed.raw_extraction.contact_properties.hs_lead_status, 'ATTEMPTED_TO_CONTACT');
+
+    const cleared = applyProposedUpdates(
+      { raw_extraction: { contact_properties: { hs_lead_status: 'UNQUALIFIED' } } },
+      [{
+        object_type: 'contacts',
+        field_name: 'hs_lead_status',
+        current_value: 'NEW',
+        new_value: '',
+      }],
+    );
+    assert.equal(cleared.raw_extraction.contact_properties.hs_lead_status, undefined);
+
+    const same = applyProposedUpdates(
+      { raw_extraction: { contact_properties: { hs_lead_status: 'NEW' } } },
+      [{
+        object_type: 'contacts',
+        field_name: 'hs_lead_status',
+        current_value: 'NEW',
+        new_value: 'NEW',
+      }],
+    );
+    assert.equal(same.raw_extraction.contact_properties.hs_lead_status, undefined);
+  });
 });

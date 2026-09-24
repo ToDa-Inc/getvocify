@@ -119,6 +119,10 @@ def start_caller_id_verification(
             raise CallerIdVerificationUnsupported(
                 IE1_VERIFIED_CALLER_ID_MESSAGE
             ) from exc
+        if _twilio_already_verified(exc):
+            return _claim_twilio_verified_number(
+                supabase, user_id, phone_number, label
+            )
         raise
 
     upsert_row: dict[str, Any] = {
@@ -308,10 +312,70 @@ def update_caller_id_label(
     return bool(res.data)
 
 
+def _twilio_already_verified(exc: TwilioRestException) -> bool:
+    if getattr(exc, "code", None) == 21450:
+        return True
+    return "already verified" in str(exc).lower()
+
+
+def _claim_twilio_verified_number(
+    supabase: Client,
+    user_id: str,
+    phone_number: str,
+    label: Optional[str],
+) -> dict[str, Any]:
+    """Twilio still has the Outgoing Caller ID after we deleted our row."""
+    found = twilio_rest().outgoing_caller_ids.list(
+        phone_number=phone_number, limit=20
+    )
+    sid = found[0].sid if found else None
+    now = datetime.now(timezone.utc).isoformat()
+    upsert_row: dict[str, Any] = {
+        "user_id": user_id,
+        "phone_number": phone_number,
+        "status": "verified",
+        "verification_sid": sid,
+        "verified_at": now,
+    }
+    if label is not None:
+        upsert_row["label"] = label
+    supabase.table("user_caller_ids").upsert(
+        upsert_row,
+        on_conflict="user_id,phone_number",
+    ).execute()
+    return {
+        "phoneNumber": phone_number,
+        "status": "verified",
+        "validationSid": sid,
+        "alreadyVerified": True,
+    }
+
+
+def _release_twilio_outgoing_caller_id(phone_number: str) -> None:
+    if calling_provider() != "twilio":
+        return
+    found = twilio_rest().outgoing_caller_ids.list(
+        phone_number=phone_number, limit=20
+    )
+    for row in found:
+        row.delete()
+
+
 def delete_caller_id(supabase: Client, user_id: str, raw_number: str) -> bool:
     phone_number = normalize_e164(
         raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
     )
+    holders = (
+        supabase.table("user_caller_ids")
+        .select("user_id")
+        .eq("phone_number", phone_number)
+        .execute()
+        .data
+    ) or []
+    if not any(row.get("user_id") == user_id for row in holders):
+        return False
+    if not any(row.get("user_id") != user_id for row in holders):
+        _release_twilio_outgoing_caller_id(phone_number)
     res = (
         supabase.table("user_caller_ids")
         .delete()

@@ -324,6 +324,34 @@ class TestStartCallerIdVerification:
 
     @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
     @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_already_verified_on_twilio_is_shown_again(self, rest, _provider):
+        from twilio.base.exceptions import TwilioRestException
+
+        rest.return_value.validation_requests.create.side_effect = TwilioRestException(
+            400,
+            "/OutgoingCallerIds.json",
+            "Unable to create record: Phone number is already verified.",
+            code=21450,
+            method="POST",
+        )
+        caller = SimpleNamespace(sid="PN-existing")
+        rest.return_value.outgoing_caller_ids.list.return_value = [caller]
+        supabase, store = fake_supabase([])
+
+        result = start_caller_id_verification(
+            supabase, "user-1", "+34600111222", label=None
+        )
+
+        assert result["alreadyVerified"] is True
+        assert result["status"] == "verified"
+        assert result["phoneNumber"] == "+34600111222"
+        assert store[0]["status"] == "verified"
+        assert store[0]["verification_sid"] == "PN-existing"
+        caller_delete = getattr(caller, "delete", None)
+        assert caller_delete is None or not getattr(caller_delete, "called", False)
+
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
+    @patch("app.services.telephony.caller_id.twilio_rest")
     def test_ireland_rejects_personal_verified_caller_id(self, rest, _provider):
         from twilio.base.exceptions import TwilioRestException
 
@@ -556,6 +584,53 @@ class TestSetDefaultCallerId:
 
 
 class TestDeleteCallerId:
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_also_removes_the_number_from_twilio(self, rest, _provider):
+        caller = MagicMock()
+        caller.sid = "PN-existing"
+        rest.return_value.outgoing_caller_ids.list.return_value = [caller]
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                }
+            ]
+        )
+
+        assert delete_caller_id(supabase, "user-1", "+34910000000") is True
+        assert store == []
+        rest.return_value.outgoing_caller_ids.list.assert_called_once_with(
+            phone_number="+34910000000", limit=20
+        )
+        caller.delete.assert_called_once_with()
+
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_keeps_twilio_verification_while_another_user_still_has_it(
+        self, rest, _provider
+    ):
+        supabase, store = fake_supabase(
+            [
+                {
+                    "user_id": "user-1",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                },
+                {
+                    "user_id": "user-2",
+                    "phone_number": "+34910000000",
+                    "status": "verified",
+                },
+            ]
+        )
+
+        assert delete_caller_id(supabase, "user-1", "+34910000000") is True
+        assert [r["user_id"] for r in store] == ["user-2"]
+        rest.return_value.outgoing_caller_ids.list.assert_not_called()
+
     def test_deletes_only_the_matching_user_row(self):
         supabase, store = fake_supabase(
             [
@@ -591,7 +666,10 @@ class TestDeleteCallerId:
         assert delete_caller_id(supabase, "user-1", "+34910000000") is False
         assert len(store) == 1
 
-    def test_resolve_still_works_after_deleting_the_default(self):
+    @patch("app.services.telephony.caller_id.calling_provider", return_value="twilio")
+    @patch("app.services.telephony.caller_id.twilio_rest")
+    def test_resolve_still_works_after_deleting_the_default(self, rest, _provider):
+        rest.return_value.outgoing_caller_ids.list.return_value = []
         supabase, _ = fake_supabase(
             [
                 {

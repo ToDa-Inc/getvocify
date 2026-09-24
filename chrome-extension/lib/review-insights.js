@@ -37,6 +37,53 @@ function valuesMatch(update) {
   return a === b;
 }
 
+export function isLeadStatusField(updateOrName) {
+  const name = typeof updateOrName === 'string'
+    ? updateOrName
+    : updateOrName?.field_name;
+  return String(name || '') === 'hs_lead_status';
+}
+
+export function withLeadStatusOption(updates, availableFields) {
+  const list = (Array.isArray(updates) ? updates : []).map((u) => (u ? { ...u } : u));
+  const field = (Array.isArray(availableFields) ? availableFields : []).find(
+    (f) => f && isLeadStatusField(f.name) && Array.isArray(f.options) && f.options.length,
+  );
+  let idx = list.findIndex((u) => u && isLeadStatusField(u));
+  if (idx === -1) {
+    if (!field) return list;
+    list.push({
+      object_type: field.object_type || 'contacts',
+      field_name: 'hs_lead_status',
+      field_label: field.label || 'Lead status',
+      field_type: field.type || 'enumeration',
+      options: field.options,
+      current_value: norm(field.current_value) || '(empty)',
+      new_value: '',
+      userAdded: true,
+    });
+    return list;
+  }
+  const row = list[idx];
+  if (field && !(Array.isArray(row.options) && row.options.length)) {
+    list[idx] = {
+      ...row,
+      options: field.options,
+      field_type: row.field_type || field.type || 'enumeration',
+      field_label: row.field_label || field.label || 'Lead status',
+    };
+  }
+  return list;
+}
+
+function leadStatusWillWrite(update) {
+  const next = norm(update?.new_value);
+  if (!next) return false;
+  const current = norm(update?.current_value);
+  if (!current || current === '(empty)') return true;
+  return current !== next;
+}
+
 export function visibleCrmUpdates(updates) {
   const list = Array.isArray(updates) ? updates : [];
   return list.filter((u) => {
@@ -44,8 +91,9 @@ export function visibleCrmUpdates(updates) {
     if (isIdentityNoiseField(u)) return false;
     if (isInsightsField(u.field_name)) return false;
     if (u.object_type === 'task') return false;
-    if (!norm(u.new_value) && !u.userAdded) return false;
-    if (valuesMatch(u) && !u.already_applied) return false;
+    const leadStatus = isLeadStatusField(u);
+    if (!norm(u.new_value) && !u.userAdded && !leadStatus) return false;
+    if (valuesMatch(u) && !u.already_applied && !leadStatus) return false;
     return true;
   });
 }
@@ -74,6 +122,13 @@ function optionLabel(options, value) {
 }
 
 export function crmFieldValueLabel(update) {
+  if (isLeadStatusField(update) && !norm(update?.new_value)) {
+    const current = norm(update?.current_value);
+    if (current && current !== '(empty)') {
+      return optionLabel(update?.options, current) || current;
+    }
+    return 'No change';
+  }
   if (Array.isArray(update?.options) && update.options.length) {
     return optionLabel(update.options, update.new_value) || '—';
   }
@@ -81,6 +136,8 @@ export function crmFieldValueLabel(update) {
 }
 
 export function crmFieldWasLabel(update) {
+  if (isLeadStatusField(update) && !leadStatusWillWrite(update)) return '';
+  if (valuesMatch(update)) return '';
   const current = update?.current_value;
   if (!norm(current) || norm(current) === '(empty)') return '';
   if (Array.isArray(update?.options) && update.options.length) {
@@ -91,6 +148,7 @@ export function crmFieldWasLabel(update) {
 
 export function crmFieldTone(update) {
   if (update?.already_applied) return 'written';
+  if (isLeadStatusField(update)) return leadStatusWillWrite(update) ? 'status' : 'quiet';
   return crmFieldWasLabel(update) ? 'override' : 'new';
 }
 
