@@ -60,6 +60,13 @@ def _cold(contact_id: str = "42") -> Signal:
     )
 
 
+def test_no_visible_signals_are_complete_coverage():
+    from app.api.today import _intelligence
+    assert _intelligence([]) == "complete"
+    assert _intelligence([{"coverage": "complete"}]) == "complete"
+    assert _intelligence([{"coverage": "partial"}]) == "partial"
+
+
 def test_the_daily_run_starts_at_the_configured_local_hour():
     before = datetime(2026, 9, 22, 5, 59, tzinfo=timezone.utc)
     at_eight = datetime(2026, 9, 22, 6, 0, tzinfo=timezone.utc)
@@ -200,8 +207,9 @@ def test_today_shows_tasks_when_a_reader_is_installed():
     finally:
         today_api.set_today_tasks(None)
     assert body["coverage"]["crm_tasks"] == "complete"
+    assert body["coverage"]["intelligence"] == "complete"
     assert body["items"][0]["remote_id"] == "task-9"
-    assert body["pulse"] is None
+    assert body["pulse"] == 1
 
 
 def test_one_local_date_survives_the_dst_change():

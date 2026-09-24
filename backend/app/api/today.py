@@ -175,7 +175,7 @@ def _signal(row: dict) -> Signal:
 
 def _intelligence(rows: list[dict]) -> str:
     if not rows:
-        return "unavailable"
+        return "complete"
     coverages = {row.get("coverage") or "unavailable" for row in rows}
     if coverages == {"complete"}:
         return "complete"
