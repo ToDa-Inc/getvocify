@@ -72,6 +72,7 @@ import { renderToString } from './shared/ui/html.js';
 import { applyDataI18n, strings, uiLangInput } from './shared/ui/i18n.js';
 import { applyChunk, emptyNote, latestFinal, noteUploadText } from '../lib/live-note.js';
 import { renderTodayCard } from './shared/ui/today-card.js';
+import { isSessionError, startScreen } from '../lib/session.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
 const STORAGE = {
@@ -120,6 +121,11 @@ let listening = false;
 let currentBackend = 'chromium';
 let audioContext = null;
 let websocket = null;
+let wsIntentionalClose = false;
+let wsReconnectAttempts = 0;
+let wsReconnectTimer = null;
+let transcriptionOffline = false;
+let clientCaptureId = null;
 let captureStreams = [];
 let processors = [];
 let nativePcmUnsub = null;
@@ -153,6 +159,11 @@ let homeHoyActed = [];
 let homeHoyFlight = false;
 let homeHoyStale = true;
 let homeHoyUndoTick = null;
+let localPendingCaptures = [];
+
+function pendingCaptureSendLabel() {
+  return uiLang() === 'en' ? 'Send' : 'Enviar';
+}
 
 function hubspotRecordPageFromLocation() {
   const params = new URLSearchParams(window.location.search);
@@ -310,6 +321,34 @@ function formatTimer(ms) {
   const mins = String(Math.floor(total / 60)).padStart(2, '0');
   const secs = String(total % 60).padStart(2, '0');
   return `${mins}:${secs}`;
+}
+
+function updateLiveChipClock() {
+  if (!liveChipEl || !listening || !timerEl) return;
+  timerEl.textContent = transcriptionOffline
+    ? strings(uiLang()).desktopOffline
+    : formatTimer(Date.now() - startedAt);
+}
+
+function loseSession() {
+  if (listening) stopCapture();
+  localStorage.removeItem(STORAGE.token);
+  localStorage.removeItem(STORAGE.refresh);
+  if (accountMenu) accountMenu.hidden = true;
+  if (sessionChip) sessionChip.textContent = '';
+  showScreen('login');
+  notifyShell();
+}
+
+async function loadLocalPendingCaptures() {
+  const cap = desktop()?.capture;
+  if (!cap?.pending) return [];
+  try {
+    const result = await cap.pending();
+    return Array.isArray(result?.items) ? result.items : [];
+  } catch {
+    return [];
+  }
 }
 
 function stopHomeHoyUndoClock() {
@@ -484,9 +523,11 @@ async function paintNotesList() {
   const token = localStorage.getItem(STORAGE.token);
   if (!token) {
     notesCache = [];
+    localPendingCaptures = [];
     notesListEl.replaceChildren();
     return;
   }
+  localPendingCaptures = await loadLocalPendingCaptures();
   try {
     const body = await request(notesRequestPath(), { token });
     notesCache = Array.isArray(body) ? body : [];
@@ -495,6 +536,36 @@ async function paintNotesList() {
   }
   const rows = noteRows(notesCache, { lang: uiLang() });
   notesListEl.replaceChildren();
+  const pendingSorted = [...localPendingCaptures].sort((a, b) => {
+    const ta = Date.parse(a.startedAt || '') || 0;
+    const tb = Date.parse(b.startedAt || '') || 0;
+    return tb - ta;
+  });
+  for (const capture of pendingSorted) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.localCapture = capture.clientCaptureId;
+    const title = document.createElement('span');
+    title.className = 'row-title';
+    title.textContent = pendingCaptureSendLabel();
+    const dot = document.createElement('span');
+    dot.className = 'pending-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    title.append(dot);
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const when = capture.startedAt
+      ? new Date(capture.startedAt).toLocaleString(uiLang() === 'en' ? 'en-GB' : 'es-ES', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '';
+    meta.textContent = when;
+    btn.append(title, meta);
+    notesListEl.append(btn);
+  }
   for (const row of rows) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -546,7 +617,7 @@ function setLiveUi(on) {
     timerEl.textContent = '00:00';
     clearInterval(timerTick);
     timerTick = setInterval(() => {
-      timerEl.textContent = formatTimer(Date.now() - startedAt);
+      updateLiveChipClock();
     }, 250);
   } else {
     clearInterval(timerTick);
@@ -613,6 +684,9 @@ async function request(path, { method = 'GET', body, token } = {}) {
       const result = await proxy({ base: apiBase(), path, method, headers, body });
       if (!result.ok) {
         const detail = typeof result.data?.detail === 'string' ? result.data.detail : result.error;
+        if (isSessionError({ status: result.status, detail })) {
+          loseSession();
+        }
         throw new Error(humanizeSaasError(null, { status: result.status, detail }));
       }
       return result.data;
@@ -625,6 +699,9 @@ async function request(path, { method = 'GET', body, token } = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = typeof data.detail === 'string' ? data.detail : `HTTP ${res.status}`;
+      if (isSessionError({ status: res.status, detail })) {
+        loseSession();
+      }
       throw new Error(detail);
     }
     return data;
@@ -797,15 +874,10 @@ function stopCapture() {
   if (native?.stop) {
     Promise.resolve(native.stop()).catch(() => {});
   }
-  if (websocket) {
-    try {
-      if (websocket.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({ type: 'CloseStream' }));
-      }
-      websocket.close();
-    } catch { /* ignore */ }
-    websocket = null;
-  }
+  closeTranscriptionWebSocket(true);
+  transcriptionOffline = false;
+  wsReconnectAttempts = 0;
+  clientCaptureId = null;
   if (audioContext) {
     audioContext.close().catch(() => {});
     audioContext = null;
@@ -816,6 +888,93 @@ function stopCapture() {
   homeHoyStale = true;
   paintHomeHoy();
   notifyShell();
+}
+
+function appendCaptureAudio(channel, pcm) {
+  const cap = desktop()?.capture;
+  if (!cap?.append || !clientCaptureId) return;
+  const storeChannel = channel === 'rep' ? 'mic' : 'system';
+  void cap.append({
+    clientCaptureId,
+    channel: storeChannel,
+    chunk: [...new Uint8Array(pcm)],
+  });
+}
+
+function clearWsReconnectTimer() {
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer);
+    wsReconnectTimer = null;
+  }
+}
+
+function closeTranscriptionWebSocket(intentional = true) {
+  wsIntentionalClose = intentional;
+  clearWsReconnectTimer();
+  if (websocket) {
+    try {
+      if (websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({ type: 'CloseStream' }));
+      }
+      websocket.close();
+    } catch { /* ignore */ }
+    websocket = null;
+  }
+}
+
+function scheduleTranscriptionReconnect() {
+  if (!listening || wsIntentionalClose || wsReconnectAttempts >= 5) return;
+  wsReconnectAttempts += 1;
+  clearWsReconnectTimer();
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectTimer = null;
+    if (!listening || wsIntentionalClose) return;
+    openTranscriptionWebSocket();
+  }, 2000);
+}
+
+function openTranscriptionWebSocket() {
+  const wsUrl = applyChannelLabelsToLiveUrl(liveTranscriptionUrl(apiBase()), ['prospect', 'rep']);
+  websocket = new WebSocket(wsUrl);
+  websocket.onopen = () => {
+    wsReconnectAttempts = 0;
+    transcriptionOffline = false;
+    updateLiveChipClock();
+  };
+  websocket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type !== 'Results') return;
+      const text = data.channel?.alternatives?.[0]?.transcript || '';
+      const isFinal = data.is_final || data.speech_final;
+      if (!text) return;
+      transcriptState = applyTranscriptUpdate(transcriptState, {
+        text,
+        isFinal,
+        audioChannel: data.audio_channel || null,
+        lang: uiLang(),
+      });
+      const speaker =
+        data.audio_channel === 'rep' ? 'rep' : data.audio_channel === 'prospect' ? 'prospect' : '';
+      liveNote = applyChunk(liveNote, { text, isFinal, speaker });
+      if (isFinal) {
+        const latestTurn = latestFinal(liveNote);
+        void requestCopilotSuggest(latestTurn);
+        void requestCopilotChecklist();
+      }
+      renderTranscript();
+    } catch { /* ignore malformed frames */ }
+  };
+  websocket.onerror = () => {
+    transcriptionOffline = true;
+    updateLiveChipClock();
+  };
+  websocket.onclose = () => {
+    if (!listening || wsIntentionalClose) return;
+    transcriptionOffline = true;
+    updateLiveChipClock();
+    scheduleTranscriptionReconnect();
+  };
 }
 
 async function startListen() {
@@ -871,6 +1030,14 @@ async function startListen() {
   }
 
   listening = true;
+  wsIntentionalClose = false;
+  wsReconnectAttempts = 0;
+  transcriptionOffline = false;
+  clientCaptureId = crypto.randomUUID();
+  const cap = desktop()?.capture;
+  if (cap?.begin) {
+    void cap.begin({ clientCaptureId, startedAt: new Date().toISOString() });
+  }
   currentBackend = nativeBackend || 'chromium';
   captureStreams = system ? [mic, system] : [mic];
   hubspotRecordPage = knownHubspotRecordPage() ?? hubspotRecordPage;
@@ -893,38 +1060,11 @@ async function startListen() {
   paintHomeHoy();
   notifyShell();
 
-  const wsUrl = applyChannelLabelsToLiveUrl(liveTranscriptionUrl(apiBase()), ['prospect', 'rep']);
-  websocket = new WebSocket(wsUrl);
-  websocket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type !== 'Results') return;
-      const text = data.channel?.alternatives?.[0]?.transcript || '';
-      const isFinal = data.is_final || data.speech_final;
-      if (!text) return;
-      transcriptState = applyTranscriptUpdate(transcriptState, {
-        text,
-        isFinal,
-        audioChannel: data.audio_channel || null,
-        lang: uiLang(),
-      });
-      const speaker =
-        data.audio_channel === 'rep' ? 'rep' : data.audio_channel === 'prospect' ? 'prospect' : '';
-      liveNote = applyChunk(liveNote, { text, isFinal, speaker });
-      if (isFinal) {
-        const latestTurn = latestFinal(liveNote);
-        void requestCopilotSuggest(latestTurn);
-        void requestCopilotChecklist();
-      }
-      renderTranscript();
-    } catch { /* ignore malformed frames */ }
-  };
-  websocket.onerror = () => {
-    showError(listenError, 'Transcription connection failed. Check API base and network.');
-  };
+  openTranscriptionWebSocket();
 
   audioContext = new AudioContext({ sampleRate: 16000 });
   const send = (channel) => (pcm) => {
+    appendCaptureAudio(channel, pcm);
     if (websocket && websocket.readyState === WebSocket.OPEN) {
       websocket.send(encodeChannelAudio(channel, pcm));
     }
@@ -1351,6 +1491,7 @@ document.getElementById('btn-new-note').addEventListener('click', () => {
 
 notesListEl?.addEventListener('click', (event) => {
   if (listening) return;
+  if (event.target.closest('button[data-local-capture]')) return;
   const btn = event.target.closest('button[data-id]');
   if (!btn) return;
   const id = btn.dataset.id;
@@ -1440,5 +1581,24 @@ desktop()?.shell?.onCommand((command) => {
 });
 
 document.getElementById('email').value = localStorage.getItem(STORAGE.email) || '';
-if (localStorage.getItem(STORAGE.token)) enterApp();
-else showScreen('login');
+
+async function boot() {
+  const token = localStorage.getItem(STORAGE.token);
+  let meOk = false;
+  if (token) {
+    try {
+      await request('/auth/me', { token });
+      meOk = true;
+    } catch {
+      meOk = false;
+    }
+  }
+  const screen = startScreen({
+    hasToken: Boolean(localStorage.getItem(STORAGE.token)),
+    meOk,
+  });
+  if (screen === 'listen') await enterApp();
+  else showScreen('login');
+}
+
+void boot();
