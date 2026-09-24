@@ -1397,8 +1397,11 @@ btnReviewRetry?.addEventListener('click', () => {
     hideReviewRetry();
     uploadAndOpenReview(transcript).catch(() => {
       setReviewLoading(false);
-      pendingReviewTranscript = transcript;
-      reviewRetryMemoId = null;
+      if (reviewRetryMemoId) {
+        pendingReviewTranscript = null;
+      } else {
+        pendingReviewTranscript = transcript;
+      }
       showReviewPrepareFailure();
     });
     return;
