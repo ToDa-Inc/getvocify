@@ -10,10 +10,44 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-playbooks-32b+")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.playbooks import router as playbooks_router
+from app.api.playbooks import router as playbooks_router, set_playbook_store
 from app.deps import get_membership
 from app.services.company import Membership
 from app.services.playbooks.imports import start_import
+from app.services.playbooks.store import MemoryPlaybookStore
+
+
+def test_import_from_another_company_is_not_found():
+    store = MemoryPlaybookStore({}, {})
+    store.save_import("co-a", {"import_id": "imp-a", "status": "ready", "draft": {"text": "secret"}}, None)
+    assert store.get_import("co-b", "imp-a") is None
+    assert store.get_import("co-a", "imp-a")["import_id"] == "imp-a"
+
+
+def test_http_get_import_from_another_company_is_not_found():
+    store = MemoryPlaybookStore({}, {})
+    set_playbook_store(store)
+    try:
+        store.save_import(
+            "co-a",
+            {"import_id": "imp-a", "status": "ready", "draft": {"text": "secret"}},
+            None,
+        )
+        app = FastAPI()
+        app.include_router(playbooks_router)
+        company = {"id": "co-b"}
+        app.dependency_overrides[get_membership] = lambda: Membership(
+            id="m", company_id=company["id"], user_id="u", role="owner", status="active",
+        )
+        client = TestClient(app)
+        other = client.get("/api/v1/playbooks/imports/imp-a")
+        assert other.status_code == 404
+        company["id"] = "co-a"
+        own = client.get("/api/v1/playbooks/imports/imp-a")
+        assert own.status_code == 200
+        assert own.json()["import_id"] == "imp-a"
+    finally:
+        set_playbook_store(None)
 
 
 def test_empty_pdf_fails_and_leaves_the_active_version():

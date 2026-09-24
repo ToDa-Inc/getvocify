@@ -105,7 +105,7 @@ async def create_import(body: ImportRequest, membership: Membership = Depends(ge
         kind=body.kind,
         payload=body.payload,
         active_version_id=body.active_version_id,
-        existing=store.get_import(body.import_id),
+        existing=store.get_import(membership.company_id, body.import_id),
         stt=stt,
     )
     if body.sales_motion_key:
@@ -137,8 +137,7 @@ async def publish_motion(sales_motion_key: str, membership: Membership = Depends
 
 @router.get("/imports/{import_id}")
 async def get_import(import_id: str, membership: Membership = Depends(get_membership)):
-    del membership
-    record = get_playbook_store().get_import(import_id)
+    record = get_playbook_store().get_import(membership.company_id, import_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Importación no encontrada")
     return record

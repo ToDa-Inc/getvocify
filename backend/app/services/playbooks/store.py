@@ -14,11 +14,14 @@ class MemoryPlaybookStore:
         self._latest = latest if latest is not None else {}
         self._activated = activated if activated is not None else {}
 
-    def get_import(self, import_id: str):
-        return self._imports.get(import_id)
+    def get_import(self, company_id: str, import_id: str):
+        record = self._imports.get(import_id)
+        if not record or record.get("company_id") != company_id:
+            return None
+        return record
 
     def save_import(self, company_id: str, record: dict, sales_motion_key: str | None) -> None:
-        self._imports[record["import_id"]] = record
+        self._imports[record["import_id"]] = {**record, "company_id": company_id}
         if sales_motion_key and record.get("status") == "ready" and not record.get("published"):
             company = self._motions.setdefault(company_id, {})
             if company.get(sales_motion_key) != "published":
@@ -64,11 +67,12 @@ class SupabasePlaybookStore:
         self.supabase = supabase
         self._activated: dict[tuple[str, str], str] = {}
 
-    def get_import(self, import_id: str):
+    def get_import(self, company_id: str, import_id: str):
         result = (
             self.supabase.table("playbook_imports")
             .select("id,status,draft,active_version_id")
             .eq("id", import_id)
+            .eq("company_id", company_id)
             .limit(1)
             .execute()
         )
