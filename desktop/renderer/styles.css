@@ -138,46 +138,33 @@ textarea {
 }
 
 button {
-  height: 44px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  font-family: inherit;
-  transition: transform var(--motion-fast), opacity var(--motion-fast);
+  height: 40px; padding: 0 16px; border: 0; border-radius: var(--radius-pill);
+  font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0.01em;
+  cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast), opacity var(--motion-fast);
 }
-
+button:focus-visible { outline: none; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring)); }
 button:active:not(:disabled) { transform: scale(0.98); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { height: 44px; width: 100%; background: hsl(var(--beige)); color: hsl(var(--cream)); }
+button.primary:hover:not(:disabled) { background: hsl(var(--beige) / 0.9); }
+button.ghost { background: transparent; color: hsl(var(--muted-foreground)); }
+button.ghost:hover:not(:disabled) { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+button.danger { background: hsl(var(--destructive)); color: #fff; }
+button.danger:hover:not(:disabled) { background: hsl(var(--destructive) / 0.9); }
+a, [role="button"], summary { cursor: pointer; }
 
-button.primary {
-  width: 100%;
-  margin-top: var(--space-4);
-  background: hsl(var(--beige));
-  color: hsl(var(--cream));
-  box-shadow: var(--shadow-glow), 0 6px 16px -8px hsl(var(--beige) / 0.45);
-}
-
-button.danger {
-  background: hsl(var(--destructive));
-  color: #fff;
-}
-
-button.ghost {
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  border: 1px solid hsl(var(--border));
-}
-
-button:disabled { opacity: 0.45; cursor: default; }
+.record-core { width: 80px; height: 80px; padding: 0; border-radius: 999px; display: grid; place-items: center;
+  background: rgb(255 255 255 / 0.7); border: 1px solid rgb(255 255 255 / 0.7); box-shadow: var(--shadow-float); }
+.record-core:hover:not(:disabled) { transform: scale(1.05); border-color: hsl(var(--beige) / 0.4); }
+.record-core .dot { width: 28px; height: 28px; border-radius: 999px; background: hsl(var(--beige)); transition: transform var(--motion-fast); }
+.record-core:hover .dot { transform: scale(1.1); }
+.record-core.live .dot { width: 16px; height: 16px; border-radius: 3px; background: hsl(var(--destructive)); }
 
 .advanced {
   margin-top: 8px;
   color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
-
-.advanced summary { cursor: pointer; }
 
 .chip {
   font-size: 10px;
