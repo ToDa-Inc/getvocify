@@ -134,6 +134,9 @@ let reviewContext = null;
 let reviewNoteSnapshot = null;
 /** Transcript text for retry after upload/extraction failure while on the review screen. */
 let pendingReviewTranscript = null;
+/** Memo on screen when review failed during load (rail or post-upload extract). */
+let reviewRetryMemoId = null;
+let reviewRetryReadOnly = false;
 let copilotSuggestAbort = null;
 let copilotChecklistAbort = null;
 let reviewChecklistAbort = null;
@@ -727,10 +730,16 @@ function hideReviewRetry() {
 function showReviewPrepareFailure() {
   const t = strings(uiLang());
   showError(reviewError, t.desktopPrepareFailed);
-  if (btnReviewRetry && pendingReviewTranscript) {
+  if (btnReviewRetry && (pendingReviewTranscript || reviewRetryMemoId)) {
     btnReviewRetry.hidden = false;
     btnReviewRetry.textContent = t.desktopRetry;
   }
+}
+
+function clearReviewRetryState() {
+  pendingReviewTranscript = null;
+  reviewRetryMemoId = null;
+  reviewRetryReadOnly = false;
 }
 
 function renderTranscript() {
@@ -1190,12 +1199,18 @@ async function uploadAndOpenReview(transcript) {
     body: { transcript, source_type: 'meeting_transcript' },
   });
   void paintNotesList();
-  await populateReviewContext(uploaded.id);
   pendingReviewTranscript = null;
+  reviewRetryMemoId = String(uploaded.id);
+  reviewRetryReadOnly = false;
+  await populateReviewContext(uploaded.id);
+  clearReviewRetryState();
   hideReviewRetry();
 }
 
 async function openReview(memoId, { readOnly = false } = {}) {
+  pendingReviewTranscript = null;
+  reviewRetryMemoId = String(memoId);
+  reviewRetryReadOnly = readOnly;
   showScreen('review');
   highlightActiveNote(memoId);
   showError(reviewError, '');
@@ -1206,13 +1221,11 @@ async function openReview(memoId, { readOnly = false } = {}) {
   setReviewLoading(true);
   try {
     await populateReviewContext(memoId, { readOnly });
-  } catch (err) {
+    clearReviewRetryState();
+    hideReviewRetry();
+  } catch {
     setReviewLoading(false);
-    if (pendingReviewTranscript) {
-      showReviewPrepareFailure();
-    } else {
-      showError(reviewError, err.message || strings(uiLang()).desktopPrepareFailed);
-    }
+    showReviewPrepareFailure();
   }
 }
 
@@ -1227,6 +1240,8 @@ async function stopAndSend() {
     return;
   }
   pendingReviewTranscript = transcript;
+  reviewRetryMemoId = null;
+  reviewRetryReadOnly = false;
   showScreen('review');
   paintReviewNote(reviewNoteSnapshot);
   setReviewLoading(true);
@@ -1375,14 +1390,22 @@ document.getElementById('btn-approve').addEventListener('click', () => {
   approveReview().catch((err) => showError(reviewError, err.message || 'Approve failed'));
 });
 btnReviewRetry?.addEventListener('click', () => {
-  if (!pendingReviewTranscript) return;
-  setReviewLoading(true);
-  showError(reviewError, '');
-  hideReviewRetry();
-  uploadAndOpenReview(pendingReviewTranscript).catch(() => {
-    setReviewLoading(false);
-    showReviewPrepareFailure();
-  });
+  if (pendingReviewTranscript) {
+    const transcript = pendingReviewTranscript;
+    setReviewLoading(true);
+    showError(reviewError, '');
+    hideReviewRetry();
+    uploadAndOpenReview(transcript).catch(() => {
+      setReviewLoading(false);
+      pendingReviewTranscript = transcript;
+      reviewRetryMemoId = null;
+      showReviewPrepareFailure();
+    });
+    return;
+  }
+  if (reviewRetryMemoId) {
+    openReview(reviewRetryMemoId, { readOnly: reviewRetryReadOnly }).catch(() => {});
+  }
 });
 
 btnReviewDashboard?.addEventListener('click', () => {
