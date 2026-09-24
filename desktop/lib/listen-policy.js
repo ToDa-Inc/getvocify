@@ -1,4 +1,5 @@
 import { strings } from '../renderer/shared/ui/i18n.js';
+import { splitTaggedTranscript, stripSpeakerPrefix, turnRoleFromPart } from './transcript-turns.js';
 
 /** HubSpot contact id for copilot suggest when the page is a contact record; never invent ids. */
 export function contactIdForListenSession(crmPageContext) {
@@ -61,6 +62,17 @@ export function applyTranscriptUpdate(state, { text, isFinal, audioChannel, lang
         : piece;
 
   if (isFinal) {
+    if (!piece) return { finalTranscript, interimTranscript: '' };
+    if (role && finalTranscript) {
+      const parts = splitTaggedTranscript(finalTranscript);
+      const last = parts[parts.length - 1] || '';
+      if (turnRoleFromPart(last) === role) {
+        const body = `${stripSpeakerPrefix(last)} ${piece}`.replace(/\s+/g, ' ').trim();
+        const label = role === 'rep' ? t.speakerYou : t.speakerThem;
+        parts[parts.length - 1] = `${label}: ${body}`;
+        return { finalTranscript: parts.join(' '), interimTranscript: '' };
+      }
+    }
     return {
       finalTranscript: tagged ? (finalTranscript ? `${finalTranscript} ${tagged}` : tagged) : finalTranscript,
       interimTranscript: '',

@@ -10,6 +10,7 @@ export type TodayItem = {
   remote_id?: string | null;
   origins: string[];
   supporting: string[];
+  open_url?: string | null;
   id?: string | null;
   version?: number | null;
   status?: string | null;
@@ -29,10 +30,10 @@ export type TodaySurface =
   | { kind: "loading" }
   | { kind: "error"; title: string }
   | { kind: "connect"; title: string; action: string | null; detail: string | null }
-  | { kind: "no-activity"; title: string }
+  | { kind: "no-activity"; title: string; actions: readonly ["today_record", "open_contacts"] }
   | { kind: "incomplete"; title: string; generatedAt: string }
   | { kind: "clear"; title: string }
-  | { kind: "list"; items: TodayItem[]; note: string | null; stale: boolean; generatedAt: string; pulse: number | null };
+  | { kind: "list"; items: TodayItem[]; note: string | null; stale: boolean; generatedAt: string; pulse: number | null; foldedCount: number };
 
 export type TodayCopy = Pick<
   ProductTranslations,
@@ -70,6 +71,7 @@ export function todaySurface(
         stale: Boolean(input.errorStatus),
         generatedAt: input.data.generated_at,
         pulse: input.data.pulse,
+        foldedCount: input.data.folded_count,
       };
     }
     if (!input.connected) {
@@ -101,7 +103,46 @@ export function todaySurface(
       detail: canConnect ? null : copy.today_connect_admin_detail,
     };
   }
-  return { kind: "no-activity", title: copy.today_no_activity };
+  return { kind: "no-activity", title: copy.today_no_activity, actions: ["today_record", "open_contacts"] };
+}
+
+const SUPPORTING_KEYS: Record<string, string> = {
+  commitment_due: "today_signal_commitment",
+  going_cold: "today_signal_cold",
+  objection_open: "today_signal_objection",
+  manual_task: "today_origin_manual",
+};
+
+export function originKey(origins: string[]): "today_origin_manual" | "today_origin_detected" | "today_origin_both" {
+  const manual = origins.includes("manual");
+  const detected = origins.some((origin) => origin !== "manual");
+  if (manual && detected) return "today_origin_both";
+  if (manual) return "today_origin_manual";
+  return "today_origin_detected";
+}
+
+export function supportingKeys(types: string[]): string[] {
+  return types.flatMap((type) => (SUPPORTING_KEYS[type] ? [SUPPORTING_KEYS[type]] : []));
+}
+
+export function contactRecordUrl(
+  provider: string | null,
+  portalId: string | null,
+  contactId: string | null,
+): string | null {
+  if (!contactId) return null;
+  const name = (provider || "").trim().toLowerCase();
+  if (name === "hubspot" && portalId) {
+    return `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`;
+  }
+  return null;
+}
+
+export function crmContactsUrl(provider: string | null, portalId: string | null): string | null {
+  const name = (provider || "").trim().toLowerCase();
+  if (name === "hubspot" && portalId) return `https://app.hubspot.com/contacts/${portalId}/objects/0-1`;
+  if (name === "pipedrive") return "https://app.pipedrive.com/persons";
+  return null;
 }
 
 export function cardsAfterDismiss(server: TodayItem[], acted: TodayItem[], nowMs: number): TodayItem[] {

@@ -65,4 +65,23 @@ describe('listen-policy', () => {
     });
     assert.equal(state.finalTranscript, 'Them: the price is too high You: we can start smaller');
   });
+
+  it('joins consecutive words from the same speaker into one turn', () => {
+    const en = { vocify_lang: 'en' };
+    let state = { finalTranscript: '', interimTranscript: '' };
+    state = applyTranscriptUpdate(state, {
+      text: 'the price',
+      isFinal: true,
+      audioChannel: 'prospect',
+      lang: en,
+    });
+    state = applyTranscriptUpdate(state, {
+      text: 'is too high',
+      isFinal: true,
+      audioChannel: 'prospect',
+      lang: en,
+    });
+    assert.equal(state.finalTranscript, 'Them: the price is too high');
+    assert.equal(state.interimTranscript, '');
+  });
 });

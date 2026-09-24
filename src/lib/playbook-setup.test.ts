@@ -16,15 +16,15 @@ describe("playbook setup", () => {
     const admin = playbookNotice("admin", empty);
     assert.equal(member.showNotice, true);
     assert.equal(member.canEdit, false);
-    assert.match(member.message, /administrador/);
+    assert.equal(member.message, "playbookNoticeAdmin");
     assert.equal(admin.canEdit, true);
-    assert.match(admin.message, /coaching/);
+    assert.equal(admin.message, "playbookNoticeStart");
   });
 
   it("keeps the notice while a draft or import exists", () => {
     const notice = playbookNotice("owner", { discovery: "draft", qualification: "importing" });
     assert.equal(notice.showNotice, true);
-    assert.match(notice.message, /pendiente de publicar/);
+    assert.equal(notice.message, "playbookNoticeDraft");
     assert.deepEqual(notice.publishedKeys, []);
   });
 
@@ -32,7 +32,7 @@ describe("playbook setup", () => {
     const notice = playbookNotice("owner", { discovery: "published", qualification: "missing" });
     assert.deepEqual(notice.publishedKeys, ["discovery"]);
     assert.equal(notice.showNotice, true);
-    assert.match(notice.message, /pendientes/);
+    assert.equal(notice.message, "playbookNoticeMissing");
   });
 
   it("a rejected publish leaves the draft, and discovery does not publish the rest", () => {
@@ -76,14 +76,14 @@ describe("playbook setup", () => {
       reason: "pdf_has_no_text",
     });
     assert.equal(failed.status, "published");
-    assert.match(failed.error || "", /PDF/);
+    assert.equal(failed.error, "playbookPdfNoText");
     const locked = motionAfterImport("published", {
       status: "failed",
       published: false,
       reason: "pdf_encrypted",
     });
     assert.equal(locked.status, "published");
-    assert.match(locked.error || "", /protegido/);
+    assert.equal(locked.error, "playbookPdfEncrypted");
     const conflict = importReview({
       status: "ready",
       published: false,
@@ -91,7 +91,7 @@ describe("playbook setup", () => {
     });
     assert.equal(conflict.canPublish, false);
     assert.equal(conflict.status, "draft");
-    assert.match(conflict.warning || "", /contradictorios/);
+    assert.equal(conflict.warning, "playbookContradiction");
     assert.equal(conflict.text.startsWith("Nunca"), true);
     const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
     assert.equal(drafted.status, "draft");

@@ -105,9 +105,43 @@ def _read_tasks(connection: dict) -> tuple[list[dict], str]:
     connection_id = str(connection.get("id") or "")
     fetch = _FETCH if _FETCH is not None else (lambda request: _http_task_page(connection, request))
     try:
-        return collect_open_tasks(provider, fetch, connection_id=connection_id)
+        tasks, coverage = collect_open_tasks(provider, fetch, connection_id=connection_id)
     except (ValueError, TimeoutError, OSError):
         return [], "unavailable"
+    if provider == "hubspot" and _FETCH is None:
+        _fill_hubspot_contacts(connection, tasks)
+    return tasks, coverage
+
+
+def _fill_hubspot_contacts(connection: dict, tasks: list[dict]) -> None:
+    """Open the person, not the task list. A failed lookup leaves the card without a link."""
+    import httpx
+
+    token = connection.get("access_token")
+    pending = [task for task in tasks if not task.get("contact_id") and task.get("remote_id")][:7]
+    if not token or not pending:
+        return
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            response = client.post(
+                "https://api.hubapi.com/crm/v4/associations/tasks/contacts/batch/read",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"inputs": [{"id": task["remote_id"]} for task in pending]},
+            )
+    except httpx.HTTPError:
+        return
+    if response.status_code >= 400:
+        return
+    found: dict[str, str] = {}
+    for row in response.json().get("results") or []:
+        task_id = str((row.get("from") or {}).get("id") or "")
+        targets = row.get("to") or []
+        object_id = targets[0].get("toObjectId") if targets else None
+        if task_id and object_id is not None:
+            found[task_id] = str(object_id)
+    for task in tasks:
+        if not task.get("contact_id"):
+            task["contact_id"] = found.get(str(task.get("remote_id") or ""))
 
 
 def _signal(row: dict) -> Signal:
@@ -148,6 +182,20 @@ async def get_today(
     accept_language: str | None = Header(default=None, alias="Accept-Language"),
 ):
     lang = "en" if (accept_language or "").lower().startswith("en") else "es"
+    now = _now()
+    if _TASKS is None:
+        try:
+            from app.services.hoy.materialize import refresh_hoy_signals
+
+            refresh_hoy_signals(
+                supabase,
+                company_id=membership.company_id,
+                user_id=membership.user_id,
+                now=now,
+                tz_name=_daily_run_timezone(membership.user_id),
+            )
+        except Exception:
+            pass
     stored = (
         supabase.table("action_signals")
         .select("*")
@@ -158,6 +206,7 @@ async def get_today(
     now = _now()
     visible = [row for row in (stored.data or []) if is_today_visible(row, now)]
     attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
+    connection = None
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
     else:
@@ -166,6 +215,9 @@ async def get_today(
             manual_tasks, task_coverage = [], "unavailable"
         else:
             manual_tasks, task_coverage = _read_tasks(connection)
+    meta = (connection or {}).get("metadata") or {}
+    portal = meta.get("portal_id") or meta.get("hub_id") or meta.get("portalId")
+    domain = str(meta.get("company_domain") or "").strip() or None
     return build_today_view(
         signals=[_signal(row) for row in visible],
         manual_tasks=manual_tasks,
@@ -173,6 +225,9 @@ async def get_today(
         coverage={"intelligence": _intelligence(visible), "crm_tasks": task_coverage},
         generated_at=now.isoformat(),
         lang=lang,
+        provider=(connection or {}).get("provider"),
+        portal_id=str(portal) if portal else None,
+        company_domain=domain,
     )
 
 

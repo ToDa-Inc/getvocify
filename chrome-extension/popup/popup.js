@@ -711,6 +711,7 @@ function paintContactBrief(state) {
     box.appendChild(row);
   }
   box.hidden = lines.length === 0;
+  document.getElementById('screen-record')?.classList.toggle('has-brief', lines.length > 0 && !captureActive);
   if (!contactId || state.isRecording || state.isCopilotListening || state.status === 'copilot' || brief || briefFlight === contactId) return;
   briefFlight = contactId;
   const connectionId = state.context.connectionId || 'hubspot';

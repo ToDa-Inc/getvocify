@@ -167,6 +167,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.services.pipedrive.exceptions import PipedriveAuthError
+
+@app.exception_handler(PipedriveAuthError)
+async def pipedrive_auth_exception_handler(request: Request, exc: PipedriveAuthError):
+    """A dead Pipedrive login must not 500 the settings page. Disconnect stays local."""
+    logging.getLogger("app.pipedrive").warning(
+        "Pipedrive auth failed on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.message,
+    )
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Pipedrive rejected the saved login. Disconnect it and connect again."},
+    )
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     """

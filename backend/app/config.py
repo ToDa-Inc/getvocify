@@ -199,7 +199,11 @@ class Settings(BaseSettings):
     # Follow-up drafts. Off does not block extraction; sent means mail-client handoff.
     FOLLOWUP_ENABLED: bool = True
     INTELLIGENCE_WORKER_PUBLISH: bool = False
-    FOLLOWUP_MODEL: Optional[str] = None  # None = the LLM router's default model
+    # Interest, objections and commitments from the transcript, once per extraction.
+    INTELLIGENCE_EXTRACT_ENABLED: bool = False
+    INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
+    # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
+    FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
 
     CALLING_PROVIDER: str = "twilio"
     TELNYX_API_KEY: Optional[str] = None

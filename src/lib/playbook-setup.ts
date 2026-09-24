@@ -22,13 +22,13 @@ export function playbookNotice(
   const canEdit = role === "owner" || role === "admin";
   let message = "";
   if (!canEdit) {
-    message = "Tu administrador debe configurar el proceso.";
+    message = "playbookNoticeAdmin";
   } else if (none) {
-    message = "Define vuestro proceso para activar el coaching.";
+    message = "playbookNoticeStart";
   } else if (anyDraft) {
-    message = "Tienes un playbook pendiente de publicar.";
+    message = "playbookNoticeDraft";
   } else if (anyMissing) {
-    message = "Falta publicar el proceso de las tipologías pendientes.";
+    message = "playbookNoticeMissing";
   }
   return {
     showNotice,
@@ -61,10 +61,10 @@ export function motionAfterImport(
 ): { status: MotionStatus; error: string | null } {
     if (record.status === "failed") {
     const error = record.reason === "pdf_encrypted"
-      ? "El PDF está protegido. Pega el texto o sube un archivo sin contraseña."
+      ? "playbookPdfEncrypted"
       : record.reason === "pdf_has_no_text"
-        ? "El PDF no tiene texto. Prueba con otro archivo o pega el texto."
-        : "No se ha podido importar.";
+        ? "playbookPdfNoText"
+        : "playbookImportFailed";
     return { status, error };
   }
   if (record.status === "ready" && record.published === false && status !== "published") {
@@ -82,7 +82,7 @@ export function importReview(record: {
   if (record.status === "ready" && contradictions.length > 0) {
     return {
       status: "draft",
-      warning: "Hay pasos contradictorios. Edita el borrador antes de publicar.",
+      warning: "playbookContradiction",
       text: record.draft?.text || "",
       canPublish: false,
     };

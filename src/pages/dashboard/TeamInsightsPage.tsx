@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
@@ -16,7 +17,10 @@ import {
   type TeamMetrics,
   type TeamRep,
 } from "@/lib/team-insights";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
+
+const field = "mt-1 block w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground";
 
 const EMPTY_FILTERS: TeamFilters = { period: "week", motion: null, userId: null };
 
@@ -52,6 +56,7 @@ export default function TeamInsightsPage() {
         meetings?: number;
         objection_categories?: ObjectionCategory[];
         reps?: TeamRep[];
+        review?: { memo_id: string; line: string }[];
       }>(adherenceQuery(filters)),
     enabled: allowed,
     retry: false,
@@ -64,9 +69,9 @@ export default function TeamInsightsPage() {
   });
   if (allowed && (query.isLoading || query.isError)) {
     return (
-      <main className="max-w-5xl mx-auto space-y-8 p-6">
-        <h1>{t.product.teamTitle}</h1>
-        <p>{query.isError ? t.product.teamReadFailed : t.product.teamLoading}</p>
+      <main className={`max-w-5xl mx-auto space-y-4 ${THEME_TOKENS.motion.fadeIn}`}>
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.teamTitle}</h1>
+        <p className={THEME_TOKENS.typography.body}>{query.isError ? t.product.teamReadFailed : t.product.teamLoading}</p>
       </main>
     );
   }
@@ -102,15 +107,16 @@ export default function TeamInsightsPage() {
   );
 
   return (
-    <main className="max-w-5xl mx-auto space-y-8 p-6">
-      <h1>{t.product.teamTitle}</h1>
+    <main className={`max-w-5xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
+      <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.teamTitle}</h1>
       {view.kind === "denied" ? <p>{view.title}</p> : null}
       {view.kind === "new" ? <p>{view.title}</p> : null}
       {allowed ? (
-        <div className="flex flex-wrap gap-4">
-          <label>
-            {t.product.teamFilterRep}{" "}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className={THEME_TOKENS.typography.capsLabel}>
+            {t.product.teamFilterRep}
             <select
+              className={field}
               value={filters.userId ?? ""}
               onChange={(event) =>
                 setFilters((prev) => ({
@@ -127,9 +133,10 @@ export default function TeamInsightsPage() {
               ))}
             </select>
           </label>
-          <label>
-            {t.product.teamFilterMotion}{" "}
+          <label className={THEME_TOKENS.typography.capsLabel}>
+            {t.product.teamFilterMotion}
             <select
+              className={field}
               value={filters.motion ?? ""}
               onChange={(event) =>
                 setFilters((prev) => ({
@@ -151,11 +158,25 @@ export default function TeamInsightsPage() {
       {view.kind === "empty" ? (
         <div>
           <p>{view.title}</p>
-          <button type="button" onClick={() => setFilters(EMPTY_FILTERS)}>{t.product.teamResetFilters}</button>
+          <button type="button" className="mt-3 rounded-full border border-border px-3 py-1.5 text-sm" onClick={() => setFilters(EMPTY_FILTERS)}>{t.product.teamResetFilters}</button>
         </div>
       ) : null}
       {view.kind === "ready" && view.metrics ? (
         <>
+          {(query.data?.review?.length ?? 0) > 0 ? (
+            <section className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-3 p-5`}>
+              <h2 className={THEME_TOKENS.typography.sectionTitle}>{t.product.teamReviewTitle}</h2>
+              <ul className="space-y-2">
+                {query.data?.review?.map((item) => (
+                  <li key={item.memo_id}>
+                    <Link className="text-[15px] leading-relaxed text-foreground" to={`/dashboard/memos/${item.memo_id}`}>
+                      {item.line}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           <TeamOverview metrics={view.metrics} reps={view.reps} />
           <AdherenceBreakdown metrics={view.metrics} />
           <ObjectionBreakdown categories={query.data?.objection_categories ?? []} />

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useAuth } from "@/features/auth";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { useLanguage } from "@/lib/i18n";
-import { cardsAfterDismiss, todaySurface, type TodayItem, type TodaySurface } from "@/lib/today";
+import { cardsAfterDismiss, crmContactsUrl, todaySurface, type TodayItem, type TodaySurface } from "@/lib/today";
 import { todayApi } from "../api";
 import { useToday } from "./useToday";
 
@@ -38,7 +38,12 @@ export function useTodayCardActions() {
   const query = useToday();
   const acted = useSyncExternalStore(subscribeActed, getActedSnapshot, getActedSnapshot);
 
-  const connected = (integrations.data ?? []).some((connection) => connection.status === "connected");
+  const connectedRow = (integrations.data ?? []).find((connection) => connection.status === "connected");
+  const connected = Boolean(connectedRow);
+  const contactsUrl = crmContactsUrl(
+    connectedRow?.provider ?? null,
+    connectedRow?.metadata?.portalId ?? null,
+  );
   const waiting = query.isLoading || integrations.isLoading;
   const surface: TodaySurface = todaySurface({
     data: query.data,
@@ -83,7 +88,7 @@ export function useTodayCardActions() {
     await query.refetch();
   }, [query]);
 
-  return { surface, listed, dismiss, undo, query };
+  return { surface, listed, dismiss, undo, query, contactsUrl, provider: connectedRow?.provider ?? null, portalId: connectedRow?.metadata?.portalId ?? null };
 }
 
 /** Re-render list rows while undo windows tick down. */

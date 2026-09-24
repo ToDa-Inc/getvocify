@@ -2244,3 +2244,32 @@ body {
   flex-direction: column;
   gap: 6px;
 }
+
+#contact-brief {
+  margin: 4px 16px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+#contact-brief p {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--foreground);
+}
+
+#contact-brief p + p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+#screen-record.has-brief .record-btn {
+  width: 44px;
+  height: 44px;
+}
+
+#screen-record.has-brief .record-icon {
+  width: 14px;
+  height: 14px;
+}

@@ -2,15 +2,16 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/lib/i18n";
 import { reportPagePresentation, type ReportSnapshot } from "@/lib/report-snapshot";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
 
 function ActivityBar({ width, label }: { width: number | null; label: string }) {
   if (width == null) return null;
   return (
     <div className="space-y-1">
-      <span>{label}</span>
-      <div className="h-2 w-full max-w-md rounded bg-muted">
-        <div className="h-2 rounded bg-primary" style={{ width: `${width}%` }} />
+      <span className={THEME_TOKENS.typography.capsLabel}>{label}</span>
+      <div className="h-2 w-full max-w-md rounded-full bg-secondary">
+        <div className="h-2 rounded-full bg-beige" style={{ width: `${width}%` }} />
       </div>
     </div>
   );
@@ -29,18 +30,18 @@ export default function ReportPage() {
 
   if (query.isPending) {
     return (
-      <main className="max-w-5xl mx-auto p-6">
-        <h1>Informe</h1>
-        <p>{t.product.reportLoading}</p>
+      <main className={`max-w-5xl mx-auto space-y-4 ${THEME_TOKENS.motion.fadeIn}`}>
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.reportTitle}</h1>
+        <p className={THEME_TOKENS.typography.body}>{t.product.reportLoading}</p>
       </main>
     );
   }
 
   if (query.isError) {
     return (
-      <main className="max-w-5xl mx-auto p-6">
-        <h1>Informe</h1>
-        <p>{t.product.reportFailed}</p>
+      <main className={`max-w-5xl mx-auto space-y-4 ${THEME_TOKENS.motion.fadeIn}`}>
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.reportTitle}</h1>
+        <p className={THEME_TOKENS.typography.body}>{t.product.reportFailed}</p>
       </main>
     );
   }
@@ -52,18 +53,16 @@ export default function ReportPage() {
   });
   const coachingText = view.coaching?.trim();
   return (
-    <main className="max-w-5xl mx-auto space-y-6 p-6">
-      <h1>Informe</h1>
-      <table>
-        <tbody>
-          {view.rows.map((row) => (
-            <tr key={row.cellKey}>
-              <th>{t.product[row.labelKey]}</th>
-              <td>{row.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <main className={`max-w-5xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
+      <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.reportTitle}</h1>
+      <dl className="grid gap-3 sm:grid-cols-2">
+        {view.rows.map((row) => (
+          <div key={row.cellKey} className="rounded-xl border border-border/70 bg-card px-4 py-3">
+            <dt className="text-[13px] text-muted-foreground">{t.product[row.labelKey]}</dt>
+            <dd className="mt-1 text-2xl tracking-tight">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
       {weekly && view.bars ? (
         <section className="space-y-4">
           <ActivityBar
@@ -75,25 +74,23 @@ export default function ReportPage() {
             label={t.product.teamActivityMeetings}
           />
           {view.activityTable ? (
-            <table>
-              <tbody>
-                {view.activityTable.map((row) => (
-                  <tr key={row.cellKey}>
-                    <th>{t.product[row.labelKey]}</th>
-                    <td>{row.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <dl className="grid gap-3 sm:grid-cols-3">
+              {view.activityTable.map((row) => (
+                <div key={row.cellKey} className="rounded-lg bg-secondary/40 px-3 py-3">
+                  <dt className={THEME_TOKENS.typography.capsLabel}>{t.product[row.labelKey]}</dt>
+                  <dd className="mt-1 text-2xl tracking-tight text-foreground">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
           ) : null}
         </section>
       ) : null}
-      {coachingText ? <p>{coachingText}</p> : null}
+      {coachingText ? <p className={THEME_TOKENS.typography.body}>{coachingText}</p> : null}
       {view.exampleLinks.length ? (
-        <ul>
+        <ul className="space-y-2">
           {view.exampleLinks.map((href) => (
             <li key={href}>
-              <Link to={href}>{href}</Link>
+              <Link className="text-sm text-beige" to={href}>{href}</Link>
             </li>
           ))}
         </ul>

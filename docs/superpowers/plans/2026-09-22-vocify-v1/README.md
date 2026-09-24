@@ -1,6 +1,6 @@
 # Vocify V1 — Planes por entrega
 
-[Plan maestro](/Users/danizal/getvocify/proposed_plan.md) · [Contratos](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-contracts.md) · [Integración y gates](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-integration-and-gates.md)
+[Plan maestro](/Users/danizal/getvocify/proposed_plan.md) · [Contratos](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-contracts.md) · [Cierre](./00-cierre.md) · [Integración y gates](/Users/danizal/getvocify/docs/superpowers/plans/2026-09-22-vocify-v1/00-integration-and-gates.md)
 
 **Estado:** en ejecución en `feat/vocify-v1`. Decisiones cerradas en [00-decisiones.md](./00-decisiones.md). F03 usa el formato mínimo. La firma de Apple queda fuera. El worker de inteligencia sigue apagado.
 

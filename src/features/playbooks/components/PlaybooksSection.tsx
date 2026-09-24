@@ -9,18 +9,15 @@ import {
   type MotionStatus,
   type PlaybookRole,
 } from "@/lib/playbook-setup";
+import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
+import { productText } from "@/lib/product-catalog";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
 
 const MOTIONS = ["discovery", "qualification", "closing"] as const;
-
-const LABEL: Record<MotionStatus, string> = {
-  missing: "Sin proceso publicado",
-  draft: "Borrador",
-  importing: "Preparando contenido",
-  published: "Activo",
-};
+const field = "block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground";
 
 function roleOf(value: string | null | undefined): PlaybookRole {
   if (value === "owner" || value === "admin" || value === "member") return value;
@@ -43,6 +40,7 @@ export default function PlaybooksSection() {
   const [versions, setVersions] = useState<Record<string, string>>({});
   const [typeKey, setTypeKey] = useState("");
   const [resumeId, setResumeId] = useState("");
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const notice = playbookNotice(role, motions);
   const keys = Array.from(new Set<string>([...MOTIONS, ...Object.keys(motions)]));
 
@@ -132,32 +130,39 @@ export default function PlaybooksSection() {
     setTypeKey("");
   }
 
+  const statusLabel: Record<MotionStatus, string> = {
+    missing: t.product.playbookStatusMissing,
+    draft: t.product.playbookStatusDraft,
+    importing: t.product.playbookStatusImporting,
+    published: t.product.playbookStatusPublished,
+  };
+
   return (
-    <div>
-      <h2 className="text-lg font-medium mb-2">Proceso comercial</h2>
+    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-5 p-6 md:p-8`}>
+      <h2 className={THEME_TOKENS.typography.sectionTitle}>{t.product.playbookTitle}</h2>
       <PlaybookSetupNotice role={role} motions={motions} />
       {notice.canEdit ? (
+        <details>
+          <summary className={`${THEME_TOKENS.typography.capsLabel} cursor-pointer`}>{t.product.playbookAddType}</summary>
         <form
-          className="mb-4 flex gap-2"
+          className="mt-3 flex flex-wrap gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             void addType();
           }}
         >
           <input
-            className="rounded-lg border border-border bg-transparent px-3 py-1 text-sm"
+            className={`${field} max-w-xs`}
             value={typeKey}
-            placeholder="Nueva tipología"
+            placeholder={t.product.playbookNewTypePlaceholder}
             onChange={(event) => setTypeKey(event.target.value)}
           />
-          <button type="submit" className="rounded-full border border-border px-3 py-1 text-sm">
-            Añadir tipología
-          </button>
+          <Button type="submit" variant="outline" size="sm">
+            {t.product.playbookAddType}
+          </Button>
         </form>
-      ) : null}
-      {notice.canEdit ? (
         <form
-          className="mb-4 flex gap-2"
+          className="mt-3 flex flex-wrap gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             const id = resumeId.trim();
@@ -191,72 +196,80 @@ export default function PlaybooksSection() {
           }}
         >
           <input
-            className="rounded-lg border border-border bg-transparent px-3 py-1 text-sm"
+            className={`${field} max-w-xs`}
             value={resumeId}
-            placeholder="ID de importación"
+            placeholder={t.product.playbookImportIdPlaceholder}
             onChange={(event) => setResumeId(event.target.value)}
           />
-          <button type="submit" className="rounded-full border border-border px-3 py-1 text-sm">
-            Continuar importación
-          </button>
+          <Button type="submit" variant="outline" size="sm">
+            {t.product.playbookResumeImport}
+          </Button>
         </form>
+        </details>
       ) : null}
       <ul className="space-y-3">
         {keys.map((key) => (
-          <li key={key} className="rounded-xl border border-border px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <span>{motionLabel(key, t.product.motions)}</span>
-              <span className="text-sm text-muted-foreground">
-                {LABEL[motions[key] || "missing"]}
-                {versions[key] ? ` · versión ${versions[key]}` : ""}
+          <li key={key} className="rounded-lg bg-secondary/40 px-4 py-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setOpenKey((current) => (current === key ? null : key))}
+            >
+              <span className="text-[15px] text-foreground">{motionLabel(key, t.product.motions)}</span>
+              <span className={THEME_TOKENS.typography.capsLabel}>
+                {statusLabel[motions[key] || "missing"]}
+                {versions[key] ? ` · ${t.product.playbookVersion.replace("{id}", versions[key])}` : ""}
               </span>
-            </div>
-            {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{errors[key]}</p> : null}
-            {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{warnings[key]}</p> : null}
-            {notice.canEdit && motions[key] !== "published" ? (
-              <div className="mt-3 space-y-2">
+            </button>
+            {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(errors[key], t.product)}</p> : null}
+            {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(warnings[key], t.product)}</p> : null}
+            {notice.canEdit && motions[key] !== "published" && openKey === key ? (
+              <div className="mt-3 space-y-3">
                 <textarea
-                  className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
+                  className={field}
                   rows={3}
                   value={text[key] || ""}
-                  placeholder="Pega cómo vendéis en esta tipología"
+                  placeholder={t.product.playbookPastePlaceholder}
                   onChange={(event) => setText((current) => ({ ...current, [key]: event.target.value }))}
                 />
                 <div className="flex flex-wrap gap-2">
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-full border border-border px-3 py-1 text-sm"
+                    variant="outline"
+                    size="sm"
                     onClick={() => void saveDraft(key, "text", text[key] || "")}
                   >
-                    Guardar borrador
-                  </button>
-                  <label className="rounded-full border border-border px-3 py-1 text-sm">
-                    Importar PDF
-                    <input
-                      type="file"
-                      accept="application/pdf,.pdf"
-                      className="sr-only"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const value = String(reader.result || "");
-                          const comma = value.indexOf(",");
-                          void saveDraft(key, "pdf", comma >= 0 ? value.slice(comma + 1) : value);
-                        };
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                  </label>
+                    {t.product.playbookSaveDraft}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" asChild>
+                    <label>
+                      {t.product.playbookImportPdf}
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const value = String(reader.result || "");
+                            const comma = value.indexOf(",");
+                            void saveDraft(key, "pdf", comma >= 0 ? value.slice(comma + 1) : value);
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                    </label>
+                  </Button>
                   {motions[key] === "draft" && canPublish[key] !== false ? (
-                    <button
+                    <Button
                       type="button"
-                      className="rounded-full border border-border px-3 py-1 text-sm"
+                      size="sm"
                       onClick={() => void publish(key)}
                     >
-                      Publicar
-                    </button>
+                      {t.product.playbookPublish}
+                    </Button>
                   ) : null}
                 </div>
               </div>

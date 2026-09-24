@@ -81,25 +81,26 @@ const SettingsLayout = () => {
         </h1>
       </div>
 
-      <InterfaceLanguageSettings />
-
       <div className={`lg:items-start ${paywalled ? "" : "lg:grid lg:grid-cols-[11.5rem_minmax(0,1fr)] lg:gap-10"}`}>
         {!paywalled && (
-          <nav
-            aria-label={t.product.settingsNavAria}
-            className="sticky top-0 z-10 flex gap-1 overflow-x-auto bg-background py-3 -mx-1 px-1 mb-6 lg:mb-0 lg:flex-col lg:overflow-visible lg:py-0"
-          >
-            {sections.map((section) => (
-              <NavLink
-                key={section.to}
-                to={section.to}
-                end={"end" in section ? section.end : false}
-                className={navClass}
-              >
-                {t.product[section.labelKey]}
-              </NavLink>
-            ))}
-          </nav>
+          <div>
+            <nav
+              aria-label={t.product.settingsNavAria}
+              className="sticky top-0 z-10 flex gap-1 overflow-x-auto bg-background py-3 -mx-1 px-1 mb-6 lg:mb-0 lg:flex-col lg:overflow-visible lg:py-0"
+            >
+              {sections.map((section) => (
+                <NavLink
+                  key={section.to}
+                  to={section.to}
+                  end={"end" in section ? section.end : false}
+                  className={navClass}
+                >
+                  {t.product[section.labelKey]}
+                </NavLink>
+              ))}
+            </nav>
+            <InterfaceLanguageSettings />
+          </div>
         )}
 
         <div className="min-w-0">

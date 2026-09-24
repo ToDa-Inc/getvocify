@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/shared/lib/api-client";
 import {
   cancelConfirm,
@@ -14,6 +14,10 @@ import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskVi
 import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
 import { askSituation } from "@/lib/ask-situation";
+import { productText } from "@/lib/product-catalog";
+import { Button } from "@/components/ui/button";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const STORAGE_KEY = "vocify-ask-turn";
 
@@ -38,14 +42,18 @@ function readStored(): StoredTurn | null {
   }
 }
 
-export default function AskPanel() {
+export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage();
   const [draft, setDraft] = useState("");
   const [read, setRead] = useState<{ coverage?: AskTurnBody["coverage"]; items?: number }>({});
   const [turnChoices, setTurnChoices] = useState<AskChoice[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<ReturnType<typeof pendingConfirmFromTurn>>(null);
   const [view, setView] = useState<AskView>(emptyAsk());
+  const [lines, setLines] = useState<{ role: "user" | "vocify"; text: string }[]>([]);
+  const [sending, setSending] = useState(false);
   const [conversationId] = useState("conv-1");
+  const scroller = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
 
   useEffect(() => {
     const stored = readStored();
@@ -101,23 +109,44 @@ export default function AskPanel() {
     return () => window.clearInterval(timer);
   }, [conversationId, view.turnId, view.status]);
 
-  async function postTurn(text: string) {
-    setTurnChoices([]);
-    const turn = await api.post<AskTurnBody>(
-      `/ask/conversations/${conversationId}/turns`,
-      { client_turn_id: crypto.randomUUID(), text },
-    );
-    const next = notePosted(viewForFollowUp(view), {
-      turnId: turn.turn_id,
-      status: turn.status,
-      text: turn.text,
+  useEffect(() => {
+    if (!view.text) return;
+    setLines((prev) => {
+      const lastUser = [...prev].reverse().find((line) => line.role === "user");
+      if (lastUser?.text === view.text) return prev;
+      const last = prev[prev.length - 1];
+      if (last?.role === "vocify") {
+        if (last.text === view.text) return prev;
+        return [...prev.slice(0, -1), { role: "vocify", text: view.text }];
+      }
+      return [...prev, { role: "vocify", text: view.text }];
     });
-    setView(next);
-    setRead({ coverage: turn.coverage, items: turn.item_count });
-    setPendingConfirm(pendingConfirmFromTurn(turn));
-    setTurnChoices(askChoices(turn));
-    if (next.turnId) {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));
+  }, [view.text]);
+
+  async function postTurn(text: string) {
+    setLines((prev) => [...prev, { role: "user", text }]);
+    setTurnChoices([]);
+    setSending(true);
+    stick.current = true;
+    try {
+      const turn = await api.post<AskTurnBody>(
+        `/ask/conversations/${conversationId}/turns`,
+        { client_turn_id: crypto.randomUUID(), text },
+      );
+      const next = notePosted(viewForFollowUp(view), {
+        turnId: turn.turn_id,
+        status: turn.status,
+        text: turn.text,
+      });
+      setView(next);
+      setRead({ coverage: turn.coverage, items: turn.item_count });
+      setPendingConfirm(pendingConfirmFromTurn(turn));
+      setTurnChoices(askChoices(turn));
+      if (next.turnId) {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));
+      }
+    } finally {
+      setSending(false);
     }
   }
 
@@ -172,77 +201,138 @@ export default function AskPanel() {
   });
 
   const choicesOpen = showAskChoices(view, turnChoices);
+  const busy = sending || view.status === "pending" || view.status === "running";
+  const phase = sending
+    ? t.product.askSending
+    : view.waitedMs >= 30000
+      ? t.product.askStillGoing
+      : read.coverage === "partial"
+        ? t.product.askPhasePartial
+        : t.product.askConsulting;
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !stick.current) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
+  }, [lines, busy, pendingConfirm, turnChoices]);
 
   return (
-    <section className="mx-auto max-w-xl px-4 py-8">
-      <h1 className="text-lg font-medium">Preguntar</h1>
-      {situation.message ? (
-        <p className="mt-4 text-sm text-muted-foreground">{situation.message}</p>
-      ) : null}
-      {view.notice ? (
-        <p className="mt-4 text-sm text-muted-foreground" role="status">{view.notice}</p>
-      ) : null}
-      {view.unread ? (
-        <p className="mt-2 text-sm" role="status">Hay una respuesta nueva</p>
-      ) : null}
-      {view.text ? <p className="mt-4 text-sm">{view.text}</p> : null}
-      {choicesOpen ? (
-        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Opciones">
-          {turnChoices.map((choice) => (
-            <button
-              key={choice.id}
-              type="button"
-              className="rounded-full border border-border px-3 py-1 text-sm"
-              onClick={() => {
-                void postTurn(choiceFollowUp(choice));
-              }}
+    <section className={embedded
+      ? "flex h-full min-h-0 flex-col"
+      : `mx-auto flex min-h-[calc(100dvh-8rem)] max-w-2xl flex-col ${THEME_TOKENS.motion.fadeIn}`}>
+      <div
+        ref={scroller}
+        className="flex-1 space-y-3 overflow-y-auto pb-4"
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          stick.current = el.scrollHeight - el.clientHeight - el.scrollTop < 48;
+        }}
+      >
+        {lines.length === 0 && situation.message ? (
+          <>
+            <p className={THEME_TOKENS.typography.body}>{productText(situation.message, t.product)}</p>
+            <p className={THEME_TOKENS.typography.capsLabel}>{t.product.askExample}</p>
+          </>
+        ) : null}
+        {lines.map((line, index) => (
+          line.role === "user" ? (
+            <p
+              key={`${line.role}-${index}`}
+              className="ml-auto max-w-[85%] rounded-2xl bg-secondary/70 px-4 py-2.5 text-[15px] leading-relaxed text-foreground"
             >
-              {choice.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {pendingConfirm ? (
-        <div className="mt-3 space-y-2">
-          <p className="text-sm text-muted-foreground">
-            {askConfirmPrompt(t.product, pendingConfirm.contactId)}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-full border border-border px-3 py-1 text-sm"
-              onClick={() => {
-                void confirmPending();
-              }}
-            >
-              {t.product.confirmAction}
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-border px-3 py-1 text-sm"
-              onClick={() => {
-                void cancelPending();
-              }}
-            >
-              {t.product.cancelAction}
-            </button>
+              {line.text}
+            </p>
+          ) : (
+            <div key={`${line.role}-${index}`} className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} max-w-[85%] px-4 py-3`}>
+              <p className="text-[15px] leading-relaxed text-foreground">{line.text}</p>
+            </div>
+          )
+        ))}
+        {busy || choicesOpen || pendingConfirm || (!busy && read.coverage === "partial") ? (
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} max-w-[85%] space-y-3 px-4 py-3`}>
+            {busy ? (
+              <p className="inline-flex items-center gap-2 text-[13px] text-muted-foreground" role="status">
+                <VocifySpinner size={12} />
+                {phase}
+              </p>
+            ) : null}
+            {!busy && read.coverage === "partial" ? (
+              <p className={THEME_TOKENS.typography.capsLabel}>{t.product.askPhasePartial}</p>
+            ) : null}
+        {view.unread && !busy ? (
+          <p className="text-sm text-beige" role="status">{t.product.askUnread}</p>
+        ) : null}
+        {choicesOpen ? (
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t.product.askChoicesLabel}>
+            {turnChoices.map((choice) => (
+              <Button
+                key={choice.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void postTurn(choiceFollowUp(choice));
+                }}
+              >
+                {choice.label}
+              </Button>
+            ))}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+        {pendingConfirm ? (
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-3 px-4 py-3`}>
+            <p className={THEME_TOKENS.typography.body}>
+              {askConfirmPrompt(t.product, pendingConfirm.contactId)}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  void confirmPending();
+                }}
+              >
+                {t.product.confirmAction}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void cancelPending();
+                }}
+              >
+                {t.product.cancelAction}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+          </div>
+        ) : null}
+      </div>
       {!choicesOpen ? (
         <form
-          className="mt-6 space-y-2"
+          className="sticky bottom-0 border-t border-border/60 bg-background pt-3"
           onSubmit={(event) => {
             event.preventDefault();
             void send();
           }}
         >
+          <div className="flex items-end gap-2 rounded-xl border border-border/70 bg-card px-3 py-2 focus-within:border-beige/40">
           <textarea
-            className="w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
-            rows={3}
+            className="block max-h-32 min-h-6 flex-1 resize-none bg-transparent py-1 text-sm text-foreground outline-none"
+            rows={1}
             value={draft}
-            placeholder="Pregunta por un contacto"
+            placeholder={t.product.askPlaceholder}
+            disabled={busy}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void send();
+              }
+            }}
           />
           <VoiceComposer
             onText={(text) => setDraft(text)}
@@ -260,13 +350,14 @@ export default function AskPanel() {
               return result.text;
             }}
           />
-          <button
+          <Button
             type="submit"
-            className="rounded-full border border-border px-3 py-1 text-sm"
-            disabled={Boolean(view.turnId && view.status !== "completed" && view.status !== "failed")}
+            size="sm"
+            disabled={busy || !draft.trim()}
           >
-            Enviar
-          </button>
+            {t.product.askSend}
+          </Button>
+          </div>
         </form>
       ) : null}
     </section>

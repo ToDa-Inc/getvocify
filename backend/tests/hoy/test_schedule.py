@@ -212,6 +212,26 @@ def test_one_local_date_survives_the_dst_change():
     assert company_local_date(nxt, "Europe/Madrid") != company_local_date(before, "Europe/Madrid")
 
 
+def test_loose_tasks_stop_at_seven_and_open_the_contact():
+    tasks = [
+        {"remote_id": str(i), "title": f"Tarea {i}", "contact_id": "c1"}
+        for i in range(9)
+    ]
+    view = build_today_view(
+        signals=[],
+        manual_tasks=tasks,
+        now=NOW,
+        coverage={"intelligence": "complete", "crm_tasks": "complete"},
+        generated_at="2026-09-22T08:00:00Z",
+        provider="hubspot",
+        portal_id="123",
+    )
+    assert len(view["items"]) == 7
+    assert view["folded_count"] == 2
+    assert view["items"][0]["open_url"] == "https://app.hubspot.com/contacts/123/record/0-1/c1"
+    assert view["items"][0]["type"] == "manual_task"
+
+
 def test_a_manual_task_merges_only_through_an_explicit_link():
     signal = _cold()
     linked, loose = attach_manual(

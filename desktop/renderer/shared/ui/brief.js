@@ -2,6 +2,7 @@
 
 /** Same string as `productCatalog.es.teamLoading`. */
 export const BRIEF_LOADING = "Leyendo…";
+export const BRIEF_EMPTY = "Nada pendiente en esta ficha.";
 
 export function visibleBrief(brief) {
   const lines = [];
@@ -35,6 +36,7 @@ export function contactBriefDisplayLines({
   const lines = briefOnContact({ objectType: "contact", captureActive: false, brief });
   if (lines.length) return lines;
   if (flightContactId === contactId) return [BRIEF_LOADING];
+  if (brief) return [BRIEF_EMPTY];
   return [];
 }
 

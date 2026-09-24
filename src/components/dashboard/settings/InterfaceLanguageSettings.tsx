@@ -10,10 +10,8 @@ export const InterfaceLanguageSettings = () => {
   const { language, setLanguage, t } = useLanguage();
 
   return (
-    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8 mb-6`}>
-      <div className="mb-4">
-        <h2 className={THEME_TOKENS.typography.sectionTitle}>{t.product.languageTitle}</h2>
-      </div>
+    <div className="mt-6">
+      <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>{t.product.languageTitle}</p>
       <div
         className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1"
         role="radiogroup"

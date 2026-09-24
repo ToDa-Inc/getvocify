@@ -65,6 +65,16 @@ describe("pre-call brief", () => {
       }),
       [],
     );
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "42",
+        captureActive: false,
+        cache: { contactId: "42", brief: { lines: [] } },
+        flightContactId: null,
+      }),
+      ["Nada pendiente en esta ficha."],
+    );
   });
 
   it("drops a stale response after the user changed contact", () => {

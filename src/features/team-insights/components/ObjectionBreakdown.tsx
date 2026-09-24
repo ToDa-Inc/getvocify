@@ -1,4 +1,5 @@
 import { useLanguage } from "@/lib/i18n";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
   objectionCategoriesEmptyMessage,
   objectionResolutionCountsText,
@@ -13,8 +14,8 @@ export function ObjectionBreakdown({ categories }: { categories: ObjectionCatego
   const visible = visibleObjectionCategories(categories, p.objections);
   const maxCount = visible.reduce((max, item) => Math.max(max, item.count), 0);
   return (
-    <section aria-labelledby="team-objections">
-      <h2 id="team-objections">{p.teamHeadingObjections}</h2>
+    <section aria-labelledby="team-objections" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-4`}>
+      <h2 id="team-objections" className={THEME_TOKENS.typography.sectionTitle}>{p.teamHeadingObjections}</h2>
       {emptyMessage ? (
         <p>{emptyMessage}</p>
       ) : (
@@ -37,17 +38,14 @@ export function ObjectionBreakdown({ categories }: { categories: ObjectionCatego
               </li>
             ))}
           </ul>
-          <table>
-            <tbody>
-              {visible.map((item) => (
-                <tr key={`table-${item.name}`}>
-                  <th scope="row">{item.name}</th>
-                  <td>{item.count}</td>
-                  <td>{objectionResolutionCountsText(item, p)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <dl className="sr-only">
+            {visible.map((item) => (
+              <div key={`table-${item.name}`}>
+                <dt>{item.name}</dt>
+                <dd>{item.count}. {objectionResolutionCountsText(item, p)}</dd>
+              </div>
+            ))}
+          </dl>
         </>
       )}
     </section>

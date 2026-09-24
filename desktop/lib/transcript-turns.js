@@ -54,6 +54,23 @@ export function stripSpeakerPrefix(part) {
   return part;
 }
 
+/** Adjacent chunks from the same speaker are one paragraph, not a new bubble. */
+export function coalesceSpeakerParts(parts) {
+  const out = [];
+  for (const part of parts) {
+    const role = turnRoleFromPart(part);
+    const prev = out[out.length - 1];
+    if (role && prev && turnRoleFromPart(prev) === role) {
+      const body = `${stripSpeakerPrefix(prev)} ${stripSpeakerPrefix(part)}`.replace(/\s+/g, ' ').trim();
+      const label = part.slice(0, part.indexOf(':'));
+      out[out.length - 1] = `${label}: ${body}`;
+    } else {
+      out.push(part);
+    }
+  }
+  return out;
+}
+
 export function latestTaggedTurnBody(finalTranscript) {
   const parts = splitTaggedTranscript(finalTranscript);
   const last = parts[parts.length - 1];

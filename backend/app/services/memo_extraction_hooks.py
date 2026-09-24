@@ -215,6 +215,12 @@ def run_post_extraction_hooks(
             extra={"memo_id": memo_id, "input_revision": input_revision},
         )
     try:
+        from app.services.intelligence.extract import schedule_intelligence
+
+        schedule_intelligence(supabase, memo_id)
+    except Exception:
+        logger.exception("post-extraction intelligence schedule failed", extra={"memo_id": memo_id})
+    try:
         _maybe_insert_meeting_proposal(
             supabase,
             memo_id=memo_id,

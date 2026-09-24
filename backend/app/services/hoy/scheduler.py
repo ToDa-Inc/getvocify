@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.hoy.reasons import reason
-from app.services.hoy.signals import Signal, rank_cards
+from app.services.hoy.signals import DEFAULT_LIMIT, Signal, rank_cards
+from app.services.hubspot.account_info import build_contact_record_url
+from app.services.pipedrive.record_urls import build_pipedrive_record_url
 
 
 def company_local_date(now: datetime, tz_name: str):
@@ -50,9 +52,12 @@ def open_manual_tasks(provider: str, payload: dict, *, connection_id: str) -> tu
             props = row.get("properties") or {}
             if str(props.get("hs_task_status") or "NOT_STARTED") not in _OPEN:
                 continue
+            title = props.get("hs_task_subject") or ""
+            if str(title).lower().startswith("(sample"):
+                continue
             items.append({
                 "remote_id": str(row["id"]),
-                "title": props.get("hs_task_subject") or "",
+                "title": title,
                 "contact_id": props.get("contact_id"),
                 "connection_id": connection_id,
                 "linked_dedupe_key": props.get("vocify_dedupe_key") or None,
@@ -216,6 +221,26 @@ def rebind_contact(rows: list[dict], *, memo_id: str, contact_id: str) -> list[d
     return kept
 
 
+def contact_record_url(
+    *,
+    provider: str | None,
+    contact_id: str | None,
+    portal_id: str | None = None,
+    company_domain: str | None = None,
+) -> str | None:
+    """Where the card opens. No contact, no link."""
+    contact = str(contact_id or "").strip()
+    if not contact:
+        return None
+    name = str(provider or "").strip().lower()
+    if name == "hubspot" and portal_id:
+        return build_contact_record_url(str(portal_id), contact)
+    domain = str(company_domain or "").strip()
+    if name == "pipedrive" and domain:
+        return build_pipedrive_record_url(domain, "person", contact)
+    return None
+
+
 def build_today_view(
     *,
     signals: list[Signal],
@@ -224,6 +249,9 @@ def build_today_view(
     coverage: dict,
     generated_at: str,
     lang: str = "es",
+    provider: str | None = None,
+    portal_id: str | None = None,
+    company_domain: str | None = None,
 ) -> dict:
     linked, loose = attach_manual(signals, manual_tasks)
     cards, folded = rank_cards(linked, now=now) if linked else ([], 0)
@@ -239,6 +267,12 @@ def build_today_view(
             "remote_id": payload.get("remote_id"),
             "origins": payload.get("origins") or ["detected"],
             "supporting": [item.type for item in card.supporting],
+            "open_url": contact_record_url(
+                provider=provider,
+                contact_id=card.primary.contact_id,
+                portal_id=portal_id,
+                company_domain=company_domain,
+            ),
         })
         if payload.get("signal_id"):
             items[-1]["id"] = payload["signal_id"]
@@ -258,10 +292,18 @@ def build_today_view(
             "remote_id": task.get("remote_id"),
             "origins": ["manual"],
             "supporting": [],
+            "open_url": contact_record_url(
+                provider=provider,
+                contact_id=task.get("contact_id"),
+                portal_id=portal_id,
+                company_domain=company_domain,
+            ),
         })
+    visible = items[:DEFAULT_LIMIT]
+    folded += len(items) - len(visible)
     complete = bool(coverage) and all(value == "complete" for value in coverage.values())
     return {
-        "items": items,
+        "items": visible,
         "pulse": len(items) if complete else None,
         "folded_count": folded,
         "generated_at": generated_at,

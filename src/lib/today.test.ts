@@ -1,7 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
-import { todaySurface, cardsAfterDismiss, type TodayView, type TodayItem } from "./today.ts";
+import {
+  todaySurface,
+  cardsAfterDismiss,
+  crmContactsUrl,
+  originKey,
+  supportingKeys,
+  type TodayView,
+  type TodayItem,
+} from "./today.ts";
 
 const copy = productCatalog.ES;
 
@@ -52,6 +60,7 @@ describe("today surface", () => {
     if (stale.kind === "list") {
       assert.equal(stale.note, copy.today_incomplete);
       assert.equal(stale.pulse, null);
+      assert.equal(stale.foldedCount, 0);
       assert.equal(stale.items[0].reason.includes("interés"), true);
     }
   });
@@ -79,7 +88,26 @@ describe("today surface", () => {
       copy,
     );
     assert.equal(surface.kind, "no-activity");
-    if (surface.kind === "no-activity") assert.equal(surface.title, copy.today_no_activity);
+    if (surface.kind === "no-activity") {
+      assert.equal(surface.title, copy.today_no_activity);
+      assert.deepEqual(surface.actions, ["today_record", "open_contacts"]);
+    }
+  });
+
+  it("keeps the folded remainder on the list and names manual versus detected", () => {
+    const folded = todaySurface(
+      { data: { ...card, folded_count: 3 }, errorStatus: null, isLoading: false, connected: true, role: "member" },
+      copy,
+    );
+    assert.equal(folded.kind, "list");
+    if (folded.kind === "list") assert.equal(folded.foldedCount, 3);
+    assert.equal(originKey(["manual"]), "today_origin_manual");
+    assert.equal(originKey(["detected"]), "today_origin_detected");
+    assert.equal(originKey(["detected", "manual"]), "today_origin_both");
+    assert.deepEqual(supportingKeys(["going_cold", "unknown"]), ["today_signal_cold"]);
+    assert.equal(crmContactsUrl("hubspot", "99"), "https://app.hubspot.com/contacts/99/objects/0-1");
+    assert.equal(crmContactsUrl("hubspot", null), null);
+    assert.equal(crmContactsUrl("pipedrive", null), "https://app.pipedrive.com/persons");
   });
 
   it("lists CRM manual tasks even when Vocify signals are absent", () => {

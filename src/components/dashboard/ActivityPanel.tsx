@@ -36,6 +36,7 @@ import {
   recordingsNeedPoll,
 } from "@/lib/recordings";
 import { formatCallerIdDisplay } from "@/lib/dial-target";
+import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -94,6 +95,7 @@ function ActivityRow({
   linkedMemo?: Memo | null;
 }) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const isRecording = item.kind === "recording";
   const recording = isRecording ? item.recording : null;
   const memo = isRecording ? null : item.memo;
@@ -163,7 +165,7 @@ function ActivityRow({
     >
       <div className="min-w-0 flex flex-col gap-0.5">
         <span className="text-[11px] text-muted-foreground">
-          {isRecording ? "Recording" : "Memo"}
+          {isRecording ? t.product.activityKindRecording : t.product.activityKindMemo}
         </span>
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[13px] text-foreground truncate">{title}</span>
@@ -209,6 +211,7 @@ function ActivityRow({
 }
 
 export function ActivityPanel() {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -315,7 +318,7 @@ export function ActivityPanel() {
     <section className="space-y-3" aria-labelledby="activity-heading">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 id="activity-heading" className={THEME_TOKENS.typography.sectionTitle}>
-          Activity
+          {t.product.recentTitle}
         </h2>
         <div className="flex items-center gap-3">
           <AuthorFilter
@@ -330,16 +333,16 @@ export function ActivityPanel() {
             to="/dashboard/memos"
             className={`${THEME_TOKENS.typography.capsLabel} text-beige hover:underline`}
           >
-            View all
+            {t.product.activityViewAll}
           </Link>
         </div>
       </div>
 
       {isError && hasRecordingsCrm ? (
         <p className="text-sm text-muted-foreground">
-          Could not load recordings.{" "}
+          {t.product.activityRecordingsFailed}{" "}
           <Link to="/dashboard/settings" className="text-beige hover:underline">
-            Check CRM settings
+            {t.product.activityCheckCrm}
           </Link>
           {error instanceof Error && error.message ? (
             <span className="block text-xs mt-1">{error.message}</span>
@@ -348,7 +351,7 @@ export function ActivityPanel() {
       ) : null}
 
       {waiting ? (
-        <VocifyLoader size="sm" label="Loading activity…" className="py-6" />
+        <VocifyLoader size="sm" label={t.product.activityLoading} className="py-6" />
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground pt-1">
           {activityEmptyMessage({

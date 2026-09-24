@@ -159,6 +159,21 @@ def load_team_reps(supabase, company_id: str) -> list[dict]:
     return sort_reps_by_name(reps)
 
 
+def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
+    """Up to three recent conversations that already have a summary. No new read."""
+    ranked: list[tuple[str, str, str]] = []
+    for memo in memos:
+        extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+        line = str((extraction or {}).get("summary") or "").strip()
+        memo_id = str(memo.get("id") or "").strip()
+        if not line or not memo_id:
+            continue
+        stamp = str(memo.get("capture_started_at") or memo.get("created_at") or "")
+        ranked.append((stamp, memo_id, line[:160]))
+    ranked.sort(reverse=True)
+    return [{"memo_id": memo_id, "line": line} for _, memo_id, line in ranked[:limit]]
+
+
 def load_team_adherence_inputs(
     supabase,
     company_id: str,
@@ -168,6 +183,7 @@ def load_team_adherence_inputs(
 ) -> dict:
     """Memos and scores for the company. Empty lists when the read fails."""
     activity_rows: list[dict] = []
+    review_source: list[dict] = []
     parts: list[dict] = []
     pattern_rows: list[dict] = []
     playbook_present = False
@@ -178,7 +194,7 @@ def load_team_adherence_inputs(
         query = (
             supabase.table("memos")
             .select(
-                "id,user_id,sales_motion_key,screening_outcome,extraction,intelligence,"
+                "id,user_id,sales_motion_key,screening_outcome,extraction,"
                 "capture_started_at,created_at"
             )
             .eq("company_id", company_id)
@@ -191,6 +207,7 @@ def load_team_adherence_inputs(
         memo_ids: list[str] = []
         for memo in memos.data or []:
             memo_ids.append(str(memo.get("id")))
+            review_source.append(memo)
             row = activity_row_from_memo(memo)
             if row is not None:
                 activity_rows.append(row)
@@ -248,6 +265,7 @@ def load_team_adherence_inputs(
         "activity_period_end": period_end,
         "pattern_rows": pattern_rows,
         "reps": reps,
+        "review": review_memos_from(review_source),
         "outcome_observations": outcome_observations,
         "outcome_user_id": filter_user,
     }
@@ -264,6 +282,7 @@ def team_adherence(
     activity_period_end: datetime | None = None,
     pattern_rows: list[dict] | None = None,
     reps: list[dict] | None = None,
+    review: list[dict] | None = None,
     outcome_observations: list[dict] | None = None,
     outcome_user_id: str | None = None,
 ) -> dict:
@@ -312,6 +331,7 @@ def team_adherence(
             end=activity_period_end,
         )
         body["reps"] = reps or []
+        body["review"] = review or []
         return with_crm_outcomes(body)
     metrics = aggregate_adherence(week_parts)
     conclusion = None
@@ -333,4 +353,5 @@ def team_adherence(
         end=activity_period_end,
     )
     body["reps"] = reps or []
+    body["review"] = review or []
     return with_crm_outcomes(body)

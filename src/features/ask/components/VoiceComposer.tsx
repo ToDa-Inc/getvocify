@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/lib/i18n";
 import {
   cancelVoice,
   idleVoice,
@@ -16,6 +18,7 @@ export default function VoiceComposer({
   onText: (text: string) => void;
   transcribe?: (blob: Blob) => Promise<string>;
 }) {
+  const { t } = useLanguage();
   const [view, setView] = useState<VoiceComposerState>(idleVoice());
   const started = useRef<number | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -106,32 +109,32 @@ export default function VoiceComposer({
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {view.composer_state === "recording" ? (
         <span className="text-sm text-muted-foreground" role="status">
-          Grabando {seconds}s
+          {t.product.askRecording.replace("{seconds}", String(seconds))}
         </span>
       ) : null}
       {view.composer_state === "transcribing" ? (
-        <span className="text-sm text-muted-foreground" role="status">Transcribiendo</span>
+        <span className="text-sm text-muted-foreground" role="status">{t.product.askTranscribing}</span>
       ) : null}
       {view.composer_state === "permission_denied" ? (
         <span className="text-sm text-muted-foreground" role="status">
-          Sin micrófono. Puedes escribir la pregunta.
+          {t.product.askNoMic}
         </span>
       ) : null}
       {view.composer_state !== "recording" ? (
-        <button type="button" className="rounded-full border border-border px-3 py-1 text-sm" onClick={() => void record()}>
-          Grabar
-        </button>
+        <Button type="button" variant="outline" size="sm" onClick={() => void record()}>
+          {t.product.askRecord}
+        </Button>
       ) : (
         <>
-          <button type="button" className="rounded-full border border-border px-3 py-1 text-sm" onClick={() => void stop()}>
-            Detener
-          </button>
-          <button type="button" className="rounded-full border border-border px-3 py-1 text-sm" onClick={cancel}>
-            Cancelar
-          </button>
+          <Button type="button" variant="outline" size="sm" onClick={() => void stop()}>
+            {t.product.askStop}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={cancel}>
+            {t.product.cancelAction}
+          </Button>
         </>
       )}
     </div>

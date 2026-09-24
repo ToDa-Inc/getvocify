@@ -26,6 +26,17 @@ export type PrioritySurface =
   | { kind: "empty"; title: string; action: string | null; contactsUrl: string | null; observedAt: string | null }
   | { kind: "list"; items: PriorityCandidate[]; note: string | null; stale: boolean; observedAt: string | null };
 
+const GENERIC_PRIORITY = new Set(["history_partial", "title_history_partial"]);
+
+export function priorityCards(items: PriorityCandidate[]): {
+  items: PriorityCandidate[];
+  note: string | null;
+} {
+  const specific = items.filter((item) => !GENERIC_PRIORITY.has(item.reason));
+  const note = items.some((item) => GENERIC_PRIORITY.has(item.reason)) ? "history_partial" : null;
+  return { items: specific.slice(0, 7), note };
+}
+
 export function prioritySurface(input: {
   data?: PriorityView | null;
   errorStatus?: number | null;

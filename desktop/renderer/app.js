@@ -71,6 +71,7 @@ import {
 import { renderToString } from './shared/ui/html.js';
 import { applyDataI18n, strings, uiLangInput } from './shared/ui/i18n.js';
 import {
+  coalesceSpeakerParts,
   latestTaggedTurnBody,
   splitTaggedTranscript,
   stripSpeakerPrefix,
@@ -616,7 +617,7 @@ function renderTranscript() {
   transcriptView = reconcileTranscript(transcriptView, next) ?? next;
   const follow = stickToLive;
   const text = transcriptView.turns.map((turn) => turn.text).join(' ').trim();
-  const parts = text ? splitTaggedTranscript(text) : [];
+  const parts = text ? coalesceSpeakerParts(splitTaggedTranscript(text)) : [];
   const t = strings(uiLang());
   if (!parts.length) {
     transcriptEl.querySelectorAll('.turn').forEach((node) => node.remove());

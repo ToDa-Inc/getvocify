@@ -11,34 +11,19 @@ export function askSituation(input: {
   items?: number;
 }): AskSituation {
   if (!input.hasTurns) {
-    return {
-      message: "Pregunta por un contacto o por lo que pasó en la última conversación.",
-      action: "ask",
-    };
+    return { message: "askEmpty", action: "ask" };
   }
   if (input.coverage === "forbidden") {
-    return {
-      message: "Falta permiso para leer esa parte del CRM.",
-      action: "retry",
-    };
+    return { message: "askForbidden", action: "retry" };
   }
   if (input.coverage === "partial") {
-    return {
-      message: "Solo se ha leído una parte. El resultado no está completo.",
-      action: "retry",
-    };
+    return { message: "askPartial", action: "retry" };
   }
   if (input.coverage === "unavailable") {
-    return {
-      message: "No se ha podido leer el CRM. Puedes reintentar.",
-      action: "retry",
-    };
+    return { message: "askUnavailable", action: "retry" };
   }
   if (input.coverage === "complete" && (input.items ?? 0) === 0) {
-    return {
-      message: "No hay resultados para esta consulta.",
-      action: "none",
-    };
+    return { message: "askNoResults", action: "none" };
   }
   return { message: "", action: "none" };
 }
