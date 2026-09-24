@@ -712,7 +712,7 @@ def test_a_transcribed_question_uses_the_same_turn_loop_as_typed_text():
         ask_api.set_ask_loop(None)
 
 
-def test_a_failed_loop_leaves_the_turn_pending():
+def test_a_failed_loop_ends_the_in_memory_turn():
     async def loop(_text: str):
         return None
 
@@ -723,8 +723,13 @@ def test_a_failed_loop_leaves_the_turn_pending():
             "/api/v1/ask/conversations/conv-1/turns",
             json={"client_turn_id": "web-fail", "text": "¿Qué sigue?"},
         )
-        assert response.status_code == 202
-        assert response.json()["status"] == "pending"
+        assert response.status_code == 200
+        assert response.json()["status"] == "failed"
         assert response.json()["text"] == "¿Qué sigue?"
+        fetched = client.get(
+            f"/api/v1/ask/conversations/conv-1/turns/{response.json()['turn_id']}"
+        )
+        assert fetched.status_code == 200
+        assert fetched.json()["status"] == "failed"
     finally:
         ask_api.set_ask_loop(None)

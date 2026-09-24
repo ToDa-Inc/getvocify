@@ -122,14 +122,14 @@ async def post_turn(
         if not turn.get("replayed"):
             turn = await _finish(turn, body.text)
             _stage_confirmation(turn, membership.user_id, conversation_id)
-            if turn.get("status") == "completed":
+            if turn.get("status") in ("completed", "failed"):
                 _store.persist_turn(
                     user_id=membership.user_id,
                     conversation_id=conversation_id,
                     turn_id=turn["turn_id"],
                     turn=turn,
                 )
-        code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
+        code = status.HTTP_200_OK if turn["status"] != "pending" else status.HTTP_202_ACCEPTED
         return JSONResponse(status_code=code, content=_public(turn))
     scoped: dict = {
         key[1:]: value
@@ -150,7 +150,7 @@ async def post_turn(
         "user_id": membership.user_id,
         "company_id": membership.company_id,
     }
-    code = status.HTTP_200_OK if turn["status"] == "completed" else status.HTTP_202_ACCEPTED
+    code = status.HTTP_200_OK if turn["status"] != "pending" else status.HTTP_202_ACCEPTED
     return JSONResponse(status_code=code, content=_public(turn))
 
 
@@ -160,7 +160,7 @@ async def _finish(turn: dict, text: str) -> dict:
         if asyncio.iscoroutine(result):
             result = await result
         if result is None:
-            return turn
+            return {**turn, "status": "failed", "text": turn["text"]}
         confirmation = None
         if hasattr(result, "text"):
             answer = public_answer(result.text)

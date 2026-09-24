@@ -32,7 +32,7 @@ def _turn_from_row(row: dict) -> dict:
         "client_turn_id": row.get("client_turn_id"),
         "text": body,
     }
-    if status != "completed":
+    if status not in ("completed", "failed"):
         return turn
     if body.startswith("{"):
         try:
@@ -84,11 +84,12 @@ class SupabaseAskStore:
         }
 
     def persist_turn(self, *, user_id, conversation_id, turn_id, turn: dict) -> None:
-        if turn.get("status") != "completed":
+        status = turn.get("status")
+        if status not in ("completed", "failed"):
             return
         (
             self.supabase.table("copilot_web_turns")
-            .update({"status": "completed", "body": _encode_completed_body(turn)})
+            .update({"status": status, "body": _encode_completed_body(turn)})
             .eq("id", turn_id)
             .eq("user_id", user_id)
             .eq("conversation_id", conversation_id)
@@ -258,7 +259,7 @@ def bind_ask_actor(user_id: str, company_id: str) -> None:
 
 
 async def live_ask_loop(text: str, confirm: bool | None = None):
-    """Same copilot loop as WhatsApp. A failure leaves the turn pending."""
+    """Same copilot loop as WhatsApp. A failure returns None so the turn can fail."""
     import logging
 
     from app.deps import get_supabase
