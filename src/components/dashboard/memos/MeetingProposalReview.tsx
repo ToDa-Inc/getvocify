@@ -64,11 +64,16 @@ export function MeetingProposalReview({
     queryIsError: query.isError,
     proposal,
   });
+  const reviewPhrases = meetingProposalView(null, {
+    surface: "review",
+    extractionPending: true,
+    lang: uiLang,
+  }).phrases;
   const view =
     surface.kind === "pending"
       ? meetingProposalView(null, { surface: "review", extractionPending: true, lang: uiLang })
       : surface.kind === "read-error"
-        ? meetingProposalReadErrorView(t.product.meetingReadFailed)
+        ? meetingProposalReadErrorView(t.product.meetingReadFailed, reviewPhrases)
         : surface.kind === "hidden"
           ? { visible: false as const }
           : meetingProposalView(proposal, { surface: "review", extractionPending: false, lang: uiLang });

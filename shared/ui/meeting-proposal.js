@@ -73,7 +73,11 @@ export function meetingProposalView(proposal, { surface = "review", extractionPe
 
 export function renderMeetingProposal(view) {
   if (!view.visible) return html``;
-  const { save: saveLabel, omit: omitLabel, reconcile: reconcileLabel } = view.phrases;
+  const { save: saveLabel, omit: omitLabel, reconcile: reconcileLabel } = view.phrases ?? {
+    save: "",
+    omit: "",
+    reconcile: "",
+  };
   return html`<section class="v-meeting-proposal">
   <p>${view.title}</p>
   ${view.startsAt ? html`<p>${view.startsAt}${view.timezone ? html` · ${view.timezone}` : ""}</p>` : ""}

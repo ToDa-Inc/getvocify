@@ -56,9 +56,11 @@ describe("meetingProposalReviewSurface", () => {
       }).kind,
       "read-error",
     );
-    const view = meetingProposalReadErrorView(productCatalog.ES.meetingReadFailed);
+    const phrases = { save: "Guardar", omit: "Omitir", reconcile: "Reconciliar" };
+    const view = meetingProposalReadErrorView(productCatalog.ES.meetingReadFailed, phrases);
     assert.equal(view.title, productCatalog.ES.meetingReadFailed);
-    assert.equal(meetingProposalReadErrorView(productCatalog.EN.meetingReadFailed).title, productCatalog.EN.meetingReadFailed);
+    assert.deepEqual(view.phrases, phrases);
+    assert.equal(meetingProposalReadErrorView(productCatalog.EN.meetingReadFailed, phrases).title, productCatalog.EN.meetingReadFailed);
     assert.equal(view.save, false);
     assert.equal(view.omit, false);
     assert.equal(view.startsAt, null);

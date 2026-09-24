@@ -23,12 +23,19 @@ export function meetingProposalReviewSurface(input: MeetingProposalReviewInput):
   return { kind: "proposal" };
 }
 
-export function meetingProposalReadErrorView(title: string) {
+export type MeetingProposalPhrases = {
+  save: string;
+  omit: string;
+  reconcile: string;
+};
+
+export function meetingProposalReadErrorView(title: string, phrases: MeetingProposalPhrases) {
   return {
     visible: true as const,
     title,
     startsAt: null,
     save: false,
     omit: false,
+    phrases,
   };
 }
