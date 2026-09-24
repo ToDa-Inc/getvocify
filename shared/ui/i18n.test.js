@@ -2,6 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveUiLang, strings, uiLangInput } from './i18n.js';
 
+test('notes rail and single-record-control keys exist in es and en', () => {
+  const keys = [
+    'desktopNewNote',
+    'desktopOpenDashboard',
+    'desktopLogout',
+    'transcriptBackToLive',
+    'desktopOpenSettings',
+    'desktopNothingHeard',
+    'desktopOffline',
+    'desktopRetry',
+    'desktopPrepareFailed',
+    'desktopNoMeetingAudio',
+  ];
+  for (const key of keys) {
+    assert.equal(typeof strings('es')[key], 'string', `es.${key}`);
+    assert.equal(typeof strings('en')[key], 'string', `en.${key}`);
+    assert.ok(strings('es')[key].length > 0, `es.${key} not empty`);
+    assert.ok(strings('en')[key].length > 0, `en.${key} not empty`);
+  }
+});
+
 test('uiLangInput forwards saved en/es and navigator for resolveUiLang', () => {
   assert.equal(resolveUiLang(uiLangInput('en', 'es-ES')), 'en');
   assert.equal(resolveUiLang(uiLangInput(null, 'en-GB')), 'en');

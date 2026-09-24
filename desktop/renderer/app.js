@@ -1,5 +1,4 @@
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio, liveTranscriptionUrl } from '../lib/channels.js';
-import { backendLabel } from '../lib/capture-labels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import {
   applyTranscriptUpdate,
@@ -39,8 +38,9 @@ import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
 import { humanizeSaasError } from '../lib/saas.js';
-import { listenPermissionGate, permissionAction, permissionCopy, PERMISSION } from '../lib/permissions.js';
+import { listenPermissionGate, PERMISSION } from '../lib/permissions.js';
 import { pickMicConstraints } from '../lib/mic-devices.js';
+import { noteRows, notesRequestPath } from '../lib/notes-list.js';
 import {
   buildApproveExtraction,
   canEditOrRemoveProposedField,
@@ -88,24 +88,26 @@ function uiLang() {
 applyDataI18n(document, uiLang());
 
 const loginPanel = document.getElementById('login-panel');
-const permissionsPanel = document.getElementById('permissions-panel');
 const listenPanel = document.getElementById('listen-panel');
 const reviewPanel = document.getElementById('review-panel');
 const loginError = document.getElementById('login-error');
 const listenError = document.getElementById('listen-error');
 const reviewError = document.getElementById('review-error');
-const statusEl = document.getElementById('status');
 const transcriptEl = document.getElementById('transcript');
 const returnLiveBtn = document.getElementById('btn-return-live');
-const btnListen = document.getElementById('btn-listen');
-const btnStop = document.getElementById('btn-stop');
-const liveDot = document.getElementById('live-dot');
-const liveLabel = document.getElementById('live-label');
+const btnRecord = document.getElementById('btn-record');
+const idleBlockEl = document.getElementById('idle-block');
+const liveChipEl = document.getElementById('live-chip');
+const assistToggleEl = document.getElementById('assist-toggle');
+const assistInputEl = document.getElementById('assist-input');
+const btnOpenSettings = document.getElementById('btn-open-settings');
 const timerEl = document.getElementById('timer');
-const backendChip = document.getElementById('backend-chip');
+const accountMenu = document.getElementById('account-menu');
 const sessionChip = document.getElementById('session-chip');
 const contactBriefEl = document.getElementById('contact-brief');
 const homeHoyEl = document.getElementById('home-hoy');
+const notesRailEl = document.getElementById('notes-rail');
+const notesListEl = document.getElementById('notes-list');
 
 function desktop() {
   return typeof window !== 'undefined' ? window.vocifyDesktop : undefined;
@@ -122,8 +124,8 @@ let transcriptState = { finalTranscript: '', interimTranscript: '' };
 let liveNote = emptyNote();
 let startedAt = 0;
 let timerTick = null;
-let permissionPoll = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
+let notesCache = [];
 let reviewContext = null;
 let copilotSuggestAbort = null;
 let copilotChecklistAbort = null;
@@ -266,14 +268,31 @@ async function requestCopilotSuggest(latestTurn) {
 }
 
 function apiBase() {
-  return (localStorage.getItem(STORAGE.api) || document.getElementById('api-base').value || PROD_API)
-    .trim()
-    .replace(/\/+$/, '');
+  return (localStorage.getItem(STORAGE.api) || PROD_API).trim().replace(/\/+$/, '');
 }
 
 function showError(el, message) {
   el.hidden = !message;
   el.textContent = message || '';
+  if (el === listenError && btnOpenSettings) btnOpenSettings.hidden = true;
+}
+
+function permissionTypeForDenyReason(reason) {
+  if (reason === 'no_mic') return PERMISSION.microphone;
+  if (reason === 'no_system_audio') return PERMISSION.systemAudio;
+  return null;
+}
+
+function showListenDenied(reason, platform) {
+  showError(listenError, startDeniedMessage(reason, { platform, lang: uiLang() }));
+  const type = permissionTypeForDenyReason(reason);
+  if (type && btnOpenSettings) {
+    btnOpenSettings.textContent = strings(uiLang()).desktopOpenSettings;
+    btnOpenSettings.hidden = false;
+    btnOpenSettings.onclick = () => {
+      desktop()?.permissions?.open(type);
+    };
+  }
 }
 
 function formatTimer(ms) {
@@ -450,10 +469,47 @@ function paintHomeBrief() {
     });
 }
 
+async function paintNotesList() {
+  if (!notesListEl) return;
+  const token = localStorage.getItem(STORAGE.token);
+  if (!token) {
+    notesCache = [];
+    notesListEl.replaceChildren();
+    return;
+  }
+  try {
+    const body = await request(notesRequestPath(), { token });
+    notesCache = Array.isArray(body) ? body : [];
+  } catch {
+    return;
+  }
+  const rows = noteRows(notesCache, { lang: uiLang() });
+  notesListEl.replaceChildren();
+  for (const row of rows) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.dataset.id = row.id;
+    const title = document.createElement('span');
+    title.className = 'row-title';
+    title.textContent = row.title;
+    if (row.pending) {
+      const dot = document.createElement('span');
+      dot.className = 'pending-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      title.append(dot);
+    }
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = `${row.when} · ${row.minutes} min`;
+    btn.append(title, meta);
+    notesListEl.append(btn);
+  }
+}
+
 function notifyShell() {
   const email = localStorage.getItem(STORAGE.email) || '';
+  if (accountMenu) accountMenu.hidden = !email;
   if (sessionChip) {
-    sessionChip.hidden = !email;
     sessionChip.textContent = email;
   }
   desktop()?.shell?.setState({
@@ -471,9 +527,11 @@ function notifyShell() {
 
 function setLiveUi(on) {
   const t = strings(uiLang());
-  liveDot.classList.toggle('live', on);
-  liveDot.classList.toggle('idle', !on);
-  liveLabel.textContent = on ? t.listenLiveStatus : t.desktopIdle;
+  btnRecord.classList.toggle('live', on);
+  btnRecord.setAttribute('aria-label', on ? t.desktopStopReview : t.listenIdleButton);
+  if (liveChipEl) liveChipEl.hidden = !on;
+  if (assistToggleEl) assistToggleEl.hidden = !on;
+  if (idleBlockEl) idleBlockEl.hidden = on;
   if (on) {
     startedAt = Date.now();
     timerEl.textContent = '00:00';
@@ -484,18 +542,26 @@ function setLiveUi(on) {
   } else {
     clearInterval(timerTick);
     timerTick = null;
+    if (assistInputEl) assistInputEl.checked = false;
   }
+}
+
+function highlightActiveNote(id) {
+  notesListEl?.querySelectorAll('button[data-id]').forEach((btn) => {
+    btn.setAttribute('aria-current', id != null && btn.dataset.id === String(id) ? 'true' : 'false');
+  });
 }
 
 function showScreen(name) {
   loginPanel.hidden = name !== 'login';
-  permissionsPanel.hidden = name !== 'permissions';
   listenPanel.hidden = name !== 'listen';
   reviewPanel.hidden = name !== 'review';
+  if (notesRailEl) notesRailEl.hidden = name === 'login';
   desktop()?.shell?.resize(name === 'review' ? 'review' : 'compact');
   if (name === 'listen') {
     paintHomeBrief();
     paintHomeHoy();
+    highlightActiveNote(null);
   } else {
     if (contactBriefEl) contactBriefEl.hidden = true;
     if (homeHoyEl) homeHoyEl.hidden = true;
@@ -512,17 +578,6 @@ function permissionGate() {
   });
 }
 
-function paintPermissionRow(row, type, status) {
-  const copy = permissionCopy(type);
-  const on = status === 'authorized';
-  row.classList.toggle('is-on', on);
-  row.querySelector('[data-title]').textContent = on ? copy.enabledLabel : copy.enableLabel;
-  row.querySelector('[data-body]').textContent = on ? copy.enabledBody : copy.enableBody;
-  const btn = row.querySelector('[data-action]');
-  btn.hidden = on;
-  btn.textContent = permissionAction(status) === 'open_settings' ? 'Open Settings' : 'Enable';
-}
-
 async function refreshPermissions() {
   const api = desktop()?.permissions;
   if (!api?.status) {
@@ -530,42 +585,13 @@ async function refreshPermissions() {
     return permissionState;
   }
   permissionState = await api.status();
-  paintPermissionRow(document.getElementById('perm-mic'), PERMISSION.microphone, permissionState.microphone);
-  paintPermissionRow(document.getElementById('perm-audio'), PERMISSION.systemAudio, permissionState.systemAudio);
-  document.getElementById('btn-permissions-continue').disabled = !permissionGate().ok;
   return permissionState;
-}
-
-function startPermissionPoll() {
-  stopPermissionPoll();
-  permissionPoll = setInterval(() => {
-    refreshPermissions().catch(() => {});
-  }, 1000);
-}
-
-function stopPermissionPoll() {
-  if (permissionPoll) clearInterval(permissionPoll);
-  permissionPoll = null;
 }
 
 async function enterApp() {
   await refreshPermissions();
-  if (!permissionGate().ok) {
-    showScreen('permissions');
-    startPermissionPoll();
-    return;
-  }
-  stopPermissionPoll();
   showScreen('listen');
-}
-
-async function handlePermissionClick(type) {
-  const api = desktop()?.permissions;
-  if (!api) return;
-  const status = type === PERMISSION.microphone ? permissionState.microphone : permissionState.systemAudio;
-  if (permissionAction(status) === 'open_settings') await api.open(type);
-  else await api.request(type);
-  await refreshPermissions();
+  void paintNotesList();
 }
 
 async function request(path, { method = 'GET', body, token } = {}) {
@@ -704,8 +730,6 @@ function stopCapture() {
     audioContext.close().catch(() => {});
     audioContext = null;
   }
-  btnListen.disabled = false;
-  btnStop.disabled = true;
   setLiveUi(false);
   desktop()?.shell?.hideOverlay();
   paintHomeBrief();
@@ -722,14 +746,7 @@ async function startListen() {
     permissionGate: permissionGate(),
   });
   if (!gate.ok) {
-    if (gate.reason === 'no_mic' || gate.reason === 'no_system_audio') {
-      showScreen('permissions');
-      startPermissionPoll();
-    }
-    showError(
-      listenError,
-      startDeniedMessage(gate.reason, { platform: desktop()?.platform, lang: uiLang() }),
-    );
+    showListenDenied(gate.reason, desktop()?.platform);
     return;
   }
   showError(listenError, '');
@@ -741,7 +758,7 @@ async function startListen() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     mic = await navigator.mediaDevices.getUserMedia(pickMicConstraints(devices));
   } catch {
-    showError(listenError, startDeniedMessage('no_mic', { platform, lang: uiLang() }));
+    showListenDenied('no_mic', platform);
     return;
   }
   const native = desktop()?.systemAudio;
@@ -762,13 +779,13 @@ async function startListen() {
       system.getVideoTracks().forEach((t) => t.stop());
     } catch {
       mic.getTracks().forEach((t) => t.stop());
-      showError(listenError, startDeniedMessage('no_system_audio', { platform, lang: uiLang() }));
+      showListenDenied('no_system_audio', platform);
       return;
     }
     if (!system.getAudioTracks().length) {
       mic.getTracks().forEach((t) => t.stop());
       system.getTracks().forEach((t) => t.stop());
-      showError(listenError, startDeniedMessage('no_system_audio', { platform, lang: uiLang() }));
+      showListenDenied('no_system_audio', platform);
       return;
     }
   }
@@ -790,11 +807,7 @@ async function startListen() {
   if (listenAssist.resetSuggestDedupe) resetCopilotSuggestRequestDedupe();
   resetSuggestProfileProductContextCache();
   renderTranscript();
-  btnListen.disabled = true;
-  btnStop.disabled = false;
   setLiveUi(true);
-  backendChip.textContent = backendLabel(currentBackend);
-  statusEl.textContent = strings(uiLang()).desktopHearing;
   desktop()?.shell?.showOverlay();
   paintHomeBrief();
   paintHomeHoy();
@@ -917,6 +930,9 @@ function renderReview() {
   const notes = notesFromPreview(ctx.preview, ctx.memo?.extraction);
   summaryEl.value = ctx.summary ?? notes.summary;
   nextEl.value = (ctx.nextSteps || notes.nextSteps).join('\n');
+  summaryEl.disabled = ctx.readOnly;
+  nextEl.disabled = ctx.readOnly;
+  document.getElementById('btn-approve').hidden = ctx.readOnly;
   const dealEl = document.getElementById('review-deal');
   const dealsEl = document.getElementById('review-deals');
   if (ctx.deal.needsDecision) {
@@ -970,12 +986,13 @@ function renderReview() {
     block.textContent = row.field_label || row.field_name;
     const input = document.createElement('input');
     input.value = row.new_value ?? '';
+    input.disabled = ctx.readOnly;
     input.addEventListener('input', () => {
       row.new_value = input.value;
     });
     block.appendChild(input);
     wrap.appendChild(block);
-    if (canEditOrRemoveProposedField(row)) {
+    if (!ctx.readOnly && canEditOrRemoveProposedField(row)) {
       const omit = document.createElement('button');
       omit.type = 'button';
       omit.className = 'ghost omit';
@@ -1044,8 +1061,9 @@ followupEl.addEventListener('v-action', async (event) => {
   }
 });
 
-async function openReview(memoId) {
+async function openReview(memoId, { readOnly = false } = {}) {
   showScreen('review');
+  highlightActiveNote(memoId);
   document.getElementById('review-status').textContent = 'Extracting CRM fields…';
   showError(reviewError, '');
   const token = localStorage.getItem(STORAGE.token);
@@ -1071,6 +1089,7 @@ async function openReview(memoId) {
     deal,
     dealId: deal.dealId,
     isNewDeal: false,
+    readOnly,
     originalUpdates: reviewFields(preview),
     updates: reviewFields(preview).map((row) => ({ ...row })),
     omittedKeys: [],
@@ -1078,7 +1097,9 @@ async function openReview(memoId) {
     nextSteps: notes.nextSteps,
     meetingChecklist: null,
   };
-  document.getElementById('review-status').textContent = 'Review notes and fields, then approve.';
+  document.getElementById('review-status').textContent = readOnly
+    ? ''
+    : 'Review notes and fields, then approve.';
   paintReviewChecklist(null);
   loadFollowup(memoId, token);
   renderReview();
@@ -1089,7 +1110,6 @@ async function stopAndSend() {
   const t = strings(uiLang());
   const transcript = noteUploadText(liveNote, { you: t.speakerYou, them: t.speakerThem }).trim();
   stopCapture();
-  statusEl.textContent = strings(uiLang()).desktopStopped;
   if (!transcript) {
     showError(listenError, 'Nothing transcribed. Try again with the call unmuted.');
     return;
@@ -1101,7 +1121,7 @@ async function stopAndSend() {
       token,
       body: { transcript, source_type: 'meeting_transcript' },
     });
-    statusEl.textContent = 'Sent to Vocify.';
+    void paintNotesList();
     await openReview(uploaded.id);
   } catch (err) {
     showError(listenError, err.message || 'Upload failed');
@@ -1144,6 +1164,7 @@ async function approveReview() {
       }),
     });
     document.getElementById('review-status').textContent = 'CRM updated.';
+    void paintNotesList();
   } catch (err) {
     showError(reviewError, err.message || 'Approve failed');
   } finally {
@@ -1155,8 +1176,6 @@ document.getElementById('btn-login').addEventListener('click', async () => {
   showError(loginError, '');
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;
-  const base = document.getElementById('api-base').value.trim() || PROD_API;
-  localStorage.setItem(STORAGE.api, base.replace(/\/+$/, ''));
   try {
     const data = await request('/auth/login', { method: 'POST', body: { email, password } });
     localStorage.setItem(STORAGE.token, data.access_token);
@@ -1182,11 +1201,12 @@ homeHoyEl?.addEventListener('click', (event) => {
 
 document.getElementById('btn-logout').addEventListener('click', () => {
   stopCapture();
-  stopPermissionPoll();
   stopHomeHoyUndoClock();
   homeHoyItems = [];
   homeHoyActed = [];
   homeHoyStale = true;
+  notesCache = [];
+  notesListEl?.replaceChildren();
   localStorage.removeItem(STORAGE.token);
   localStorage.removeItem(STORAGE.refresh);
   showScreen('login');
@@ -1196,17 +1216,18 @@ document.getElementById('btn-dashboard').addEventListener('click', () => {
   desktop()?.shell?.openExternal(dashboardMemosUrl(apiBase()));
 });
 
-document.getElementById('perm-mic').querySelector('[data-action]').addEventListener('click', () => {
-  handlePermissionClick(PERMISSION.microphone).catch(() => {});
+document.getElementById('btn-new-note').addEventListener('click', () => {
+  showScreen('listen');
 });
-document.getElementById('perm-audio').querySelector('[data-action]').addEventListener('click', () => {
-  handlePermissionClick(PERMISSION.systemAudio).catch(() => {});
-});
-document.getElementById('btn-permissions-continue').addEventListener('click', () => {
-  if (permissionGate().ok) {
-    stopPermissionPoll();
-    showScreen('listen');
-  }
+
+notesListEl?.addEventListener('click', (event) => {
+  const btn = event.target.closest('button[data-id]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const memo = notesCache.find((m) => String(m.id) === id);
+  openReview(id, { readOnly: memo?.status === 'approved' }).catch((err) =>
+    showError(reviewError, err.message || 'Could not open note'),
+  );
 });
 
 transcriptEl.addEventListener('scroll', () => {
@@ -1223,13 +1244,17 @@ returnLiveBtn?.addEventListener('click', () => {
   returnLiveBtn.hidden = true;
 });
 
-btnListen.addEventListener('click', () => {
-  startListen().catch((err) =>
-    showError(listenError, err.message || strings(uiLang()).listenCouldNotStart),
-  );
+btnRecord.addEventListener('click', () => {
+  if (listening) {
+    stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
+  } else {
+    startListen().catch((err) =>
+      showError(listenError, err.message || strings(uiLang()).listenCouldNotStart),
+    );
+  }
 });
-btnStop.addEventListener('click', () => {
-  stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
+assistInputEl?.addEventListener('change', () => {
+  desktop()?.shell?.command(assistInputEl.checked ? 'assist-on' : 'assist-off');
 });
 document.getElementById('btn-approve').addEventListener('click', () => {
   approveReview().catch((err) => showError(reviewError, err.message || 'Approve failed'));
@@ -1247,18 +1272,19 @@ desktop()?.shell?.onCommand((command) => {
   if (command === 'stop') stopAndSend().catch((err) => showError(listenError, err.message || 'Could not stop'));
   if (command === 'assist-on') {
     liveAssistOverlay.assistEnabled = true;
+    if (assistInputEl) assistInputEl.checked = true;
     notifyShell();
     const latestTurn = latestFinal(liveNote);
     if (latestTurn) void requestCopilotSuggest(latestTurn);
   }
   if (command === 'assist-off') {
     const off = turnOffLiveAssist(liveAssistOverlay);
+    if (assistInputEl) assistInputEl.checked = false;
     if (off.shouldAbortSuggest) abortCopilotSuggest();
     notifyShell();
   }
 });
 
-document.getElementById('api-base').value = localStorage.getItem(STORAGE.api) || PROD_API;
 document.getElementById('email').value = localStorage.getItem(STORAGE.email) || '';
 if (localStorage.getItem(STORAGE.token)) enterApp();
 else showScreen('login');

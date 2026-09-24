@@ -10,7 +10,8 @@ describe('companion static server', () => {
       const html = await fetch(url).then((r) => r.text());
       assert.match(html, /Vocify Companion/);
       assert.match(html, /theme\.css/);
-      assert.match(html, /Screen &amp; System Audio Recording/);
+      assert.match(html, /id="notes-rail"/);
+      assert.match(html, /id="btn-record"/);
       const overlay = await fetch(url.replace(/index\.html$/, 'overlay.html')).then((r) => r.text());
       assert.match(overlay, /data-i18n="overlayListening"/);
       const jsUrl = url.replace(/index\.html$/, 'app.js');

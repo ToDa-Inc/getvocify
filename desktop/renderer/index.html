@@ -13,117 +13,74 @@
   </head>
   <body class="paper-app">
     <div class="title-drag"></div>
-    <div class="app">
-      <header class="topbar">
-        <div class="brand-lockup">
-          <img class="brand-mark" src="./icon.png" alt="Vocify" />
-          <div>
-            <div class="wordmark">Vocify</div>
-            <p class="eyebrow">Companion</p>
+    <div class="app-shell">
+      <aside id="notes-rail" class="notes-rail" hidden>
+        <button id="btn-new-note" class="ghost rail-new" type="button" data-i18n="desktopNewNote"></button>
+        <nav id="notes-list" class="notes-list" aria-label="Notas"></nav>
+      </aside>
+      <main class="app">
+        <header class="topbar">
+          <div class="brand-lockup">
+            <img class="brand-mark" src="./icon.png" alt="Vocify" />
+            <span class="wordmark">Vocify</span>
           </div>
-        </div>
-        <span id="session-chip" class="chip" hidden></span>
-      </header>
+          <details id="account-menu" class="account-menu" hidden>
+            <summary id="session-chip" class="chip"></summary>
+            <button id="btn-dashboard" class="ghost" type="button" data-i18n="desktopOpenDashboard"></button>
+            <button id="btn-logout" class="ghost" type="button" data-i18n="desktopLogout"></button>
+          </details>
+        </header>
 
-      <section id="login-panel" class="card paper">
-        <p class="caps">Same account as the dashboard</p>
-        <h1>Sign in to <span class="accent">listen</span></h1>
-        <p class="lede">System audio is the prospect. Your mic is You. After the call, review notes and CRM fields here.</p>
-        <label>Email <input id="email" type="email" autocomplete="username" /></label>
-        <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
-        <details class="advanced">
-          <summary>Advanced</summary>
-          <label>API base <input id="api-base" type="url" placeholder="https://api.getvocify.com/api/v1" /></label>
-        </details>
-        <button id="btn-login" class="primary" type="button">Log in</button>
-        <p id="login-error" class="error" hidden></p>
-      </section>
+        <section id="login-panel" class="card paper">
+          <h1>Sign in to <span class="accent">listen</span></h1>
+          <label>Email <input id="email" type="email" autocomplete="username" /></label>
+          <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
+          <button id="btn-login" class="primary" type="button">Log in</button>
+          <p id="login-error" class="error" hidden></p>
+        </section>
 
-      <section id="permissions-panel" hidden>
-        <div class="card paper">
-          <p class="caps">macOS permissions</p>
-          <h1>Hear the call, not the <span class="accent">screen</span></h1>
-          <p class="lede">Grant microphone and system audio. Screen &amp; System Audio Recording is required so Vocify can hear Zoom, Meet, and Teams. Your screen is not captured.</p>
-          <div id="perm-mic" class="perm-row">
-            <div>
-              <p class="perm-title" data-title>Enable microphone</p>
-              <p class="muted" data-body>Vocify records your voice as You.</p>
+        <section id="listen-panel" hidden>
+          <div id="idle-block" class="idle-block">
+            <div id="home-hoy" hidden aria-label="Hoy"></div>
+            <div id="contact-brief" class="v-paper" hidden></div>
+          </div>
+          <div id="live-chip" class="live-chip" hidden><span class="pulse-dot live"></span><span id="timer">00:00</span></div>
+          <div id="transcript" class="transcript" aria-live="polite"></div>
+          <button id="btn-return-live" class="v-transcript-jump ghost" type="button" hidden data-i18n="transcriptBackToLive"></button>
+          <p id="assist-line" class="assist-line" hidden></p>
+          <div id="live-checklist" class="overlay-checklist" hidden></div>
+          <div class="record-row">
+            <button id="btn-record" class="record-core" type="button" aria-label=""><span class="dot"></span></button>
+            <label id="assist-toggle" class="assist-toggle" hidden><input type="checkbox" id="assist-input" /> <span data-i18n="helpOn"></span></label>
+          </div>
+          <p id="listen-error" class="error" hidden></p>
+          <button id="btn-open-settings" class="ghost" type="button" hidden></button>
+        </section>
+
+        <section id="review-panel" hidden>
+          <v-followup id="review-followup" hidden></v-followup>
+          <div id="review-checklist" class="overlay-checklist card paper" hidden></div>
+          <div class="review-grid">
+            <div class="card paper">
+              <p class="caps">Call notes</p>
+              <label>Summary <textarea id="review-summary" rows="8"></textarea></label>
+              <label>Next steps <textarea id="review-next" rows="4" placeholder="One per line"></textarea></label>
             </div>
-            <button type="button" class="ghost" data-action>Enable</button>
-          </div>
-          <div id="perm-audio" class="perm-row">
-            <div>
-              <p class="perm-title" data-title>Enable system audio</p>
-              <p class="muted" data-body>Hears meeting playback as Them.</p>
+            <div class="card paper">
+              <p class="caps">CRM fields</p>
+              <p id="review-deal" class="muted"></p>
+              <div id="review-deals" class="deal-list" hidden></div>
+              <div id="review-fields" class="field-list"></div>
             </div>
-            <button type="button" class="ghost" data-action>Enable</button>
           </div>
-          <p class="muted perm-hint">If the prompt does not appear, open System Settings → Privacy &amp; Security, enable Vocify, then return here.</p>
-          <button id="btn-permissions-continue" class="primary" type="button" disabled>Continue</button>
-        </div>
-      </section>
-
-      <section id="listen-panel" hidden>
-        <div id="contact-brief" class="v-paper" hidden aria-label="Antes de llamar"></div>
-        <div id="home-hoy" hidden aria-label="Hoy"></div>
-        <div class="hero-card glass">
-          <div class="live-row">
-            <span id="live-dot" class="pulse-dot idle"></span>
-            <div>
-              <p class="caps" id="live-label" data-i18n="desktopIdle"></p>
-              <p class="timer" id="timer">00:00</p>
-            </div>
-            <span id="backend-chip" class="chip subtle">Loopback</span>
+          <div class="actions">
+            <button id="btn-approve" class="primary" type="button">Approve to CRM</button>
+            <button id="btn-review-back" class="ghost" type="button">Back to listen</button>
           </div>
-          <p id="status" class="lede">Start Zoom, Meet, or Teams. Companion hears the meeting as Them.</p>
-        </div>
-
-        <div class="card paper transcript-card">
-          <div class="who">
-            <span>You</span>
-            <span class="dot"></span>
-            <span id="them-label">Them</span>
-          </div>
-          <div id="transcript" class="transcript" aria-live="polite">
-            <p class="empty">Escuchando. La transcripción aparecerá aquí.</p>
-          </div>
-          <button id="btn-return-live" class="v-transcript-jump" type="button" hidden>Volver al directo</button>
-        </div>
-
-        <div class="actions">
-          <button id="btn-listen" class="primary" type="button" data-i18n="listenIdleButton"></button>
-          <button id="btn-stop" class="danger" type="button" disabled data-i18n="desktopStopReview"></button>
-        </div>
-        <div class="actions secondary-actions">
-          <button id="btn-dashboard" class="ghost" type="button">Open dashboard</button>
-          <button id="btn-logout" class="ghost" type="button">Log out</button>
-        </div>
-        <p id="listen-error" class="error" hidden></p>
-      </section>
-
-      <section id="review-panel" hidden>
-        <v-followup id="review-followup" hidden></v-followup>
-        <div id="review-checklist" class="overlay-checklist card paper" hidden></div>
-        <div class="review-grid">
-          <div class="card paper">
-            <p class="caps">Call notes</p>
-            <label>Summary <textarea id="review-summary" rows="8"></textarea></label>
-            <label>Next steps <textarea id="review-next" rows="4" placeholder="One per line"></textarea></label>
-          </div>
-          <div class="card paper">
-            <p class="caps">CRM fields</p>
-            <p id="review-deal" class="muted"></p>
-            <div id="review-deals" class="deal-list" hidden></div>
-            <div id="review-fields" class="field-list"></div>
-          </div>
-        </div>
-        <div class="actions">
-          <button id="btn-approve" class="primary" type="button">Approve to CRM</button>
-          <button id="btn-review-back" class="ghost" type="button">Back to listen</button>
-        </div>
-        <p id="review-status" class="lede"></p>
-        <p id="review-error" class="error" hidden></p>
-      </section>
+          <p id="review-status" class="lede"></p>
+          <p id="review-error" class="error" hidden></p>
+        </section>
+      </main>
     </div>
     <script type="module" src="./app.js"></script>
   </body>
