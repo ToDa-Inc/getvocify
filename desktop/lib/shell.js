@@ -3,7 +3,6 @@ import { strings } from '../renderer/shared/ui/i18n.js';
 export const OVERLAY_WIDTH = 340;
 export const OVERLAY_HEIGHT = 64;
 export const OVERLAY_MARGIN = 24;
-const OVERLAY_CHECKLIST_SUMMARY = 22;
 const OVERLAY_CHECKLIST_STEP = 18;
 
 export const WINDOW_SIZE = {
@@ -26,7 +25,8 @@ export function overlayChecklistExtraHeight(checklist, kind) {
   const applicable = Number(checklist.applicable);
   if (!Number.isFinite(applicable) || applicable <= 0) return 0;
   const steps = Array.isArray(checklist.steps) ? checklist.steps.length : 0;
-  return OVERLAY_CHECKLIST_SUMMARY + steps * OVERLAY_CHECKLIST_STEP;
+  if (steps <= 0) return 0;
+  return steps * OVERLAY_CHECKLIST_STEP;
 }
 
 export function overlayBoundsForState(state = {}, { workArea } = {}) {
@@ -34,7 +34,7 @@ export function overlayBoundsForState(state = {}, { workArea } = {}) {
   const overlay = overlayShellState(state);
   const extra = overlayChecklistExtraHeight(overlay.checklist, overlay.kind);
   if (!extra) return base;
-  return { ...base, height: OVERLAY_HEIGHT + extra };
+  return { ...base, y: base.y - extra, height: base.height + extra };
 }
 
 export function trayMenuTemplate({ loggedIn = false, listening = false } = {}) {

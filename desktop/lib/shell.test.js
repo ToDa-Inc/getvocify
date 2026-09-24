@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   assistOverlayFields,
   dashboardOrigin,
+  OVERLAY_MARGIN,
   overlayBounds,
   overlayBoundsForState,
   overlayShellState,
@@ -91,6 +92,7 @@ describe('desktop shell', () => {
   });
 
   it('forwards checklist progress to the overlay and grows bounds when visible', () => {
+    const workArea = { x: 0, y: 25, width: 1440, height: 875 };
     const checklist = {
       observed: 1,
       applicable: 2,
@@ -102,8 +104,22 @@ describe('desktop shell', () => {
       checklist,
     });
     assert.deepEqual(overlay.checklist, checklist);
-    const compact = overlayBoundsForState({ listening: true, kind: 'meeting' });
-    const expanded = overlayBoundsForState({ listening: true, kind: 'meeting', checklist });
+
+    const compact = overlayBoundsForState({ listening: true, kind: 'meeting' }, { workArea });
+    assert.equal(compact.width, 340);
+    assert.equal(compact.height, 64);
+    const bottom = workArea.y + workArea.height - OVERLAY_MARGIN;
+    assert.equal(compact.y + compact.height, bottom);
+
+    const expanded = overlayBoundsForState({ listening: true, kind: 'meeting', checklist }, { workArea });
     assert.ok(expanded.height > compact.height);
+    assert.equal(expanded.y + expanded.height, bottom);
+    assert.equal(expanded.y, compact.y - (expanded.height - compact.height));
+
+    const progressOnly = overlayBoundsForState(
+      { listening: true, kind: 'meeting', checklist: { observed: 1, applicable: 2, steps: [] } },
+      { workArea },
+    );
+    assert.deepEqual(progressOnly, compact);
   });
 });
