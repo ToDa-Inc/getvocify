@@ -12,12 +12,19 @@ private let shellBackground = NSColor(
 
 final class HostController: ObservableObject {
     let bridge: Bridge
+    let overlay = OverlayController()
     @Published var isListening = false
+    private var shellState: [String: Any] = [:]
 
     init() {
         let bridge = Bridge()
         self.bridge = bridge
         bridge.host = self
+        overlay.host = self
+    }
+
+    func mergedShellState() -> [String: Any] {
+        shellState
     }
 
     func emitCommand(_ name: String) {
@@ -28,10 +35,18 @@ final class HostController: ObservableObject {
         emitCommand(isListening ? "stop" : "listen")
     }
 
-    func applyShellState(_ state: [String: Any]) {
-        if let listening = state["listening"] as? Bool {
+    func applyShellState(_ patch: [String: Any]) {
+        for (key, value) in patch {
+            if value is NSNull {
+                shellState.removeValue(forKey: key)
+            } else {
+                shellState[key] = value
+            }
+        }
+        if let listening = shellState["listening"] as? Bool {
             isListening = listening
         }
+        overlay.pushState(shellState)
     }
 
     func resolveRendererRoot() -> URL {
@@ -96,7 +111,7 @@ struct WebShellView: NSViewRepresentable {
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.setValue(false, forKey: "drawsBackground")
         webView.uiDelegate = context.coordinator.uiDelegate
-        host.bridge.webView = webView
+        host.bridge.mainWebView = webView
 
         container.addSubview(webView)
         NSLayoutConstraint.activate([
@@ -114,6 +129,7 @@ struct WebShellView: NSViewRepresentable {
             let base = try server.start()
             let page = base.appendingPathComponent("renderer/index.html")
             webView.load(URLRequest(url: page))
+            host.overlay.attach(bridge: host.bridge, uiDelegate: context.coordinator.uiDelegate, rendererBase: base)
         } catch {
             fputs("WebShell: failed to start renderer server: \(error)\n", stderr)
         }

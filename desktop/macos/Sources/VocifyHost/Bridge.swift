@@ -5,7 +5,8 @@ import WebKit
 import VocifyHostKit
 
 final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
-    weak var webView: WKWebView?
+    weak var mainWebView: WKWebView?
+    weak var overlayWebView: WKWebView?
     weak var host: HostController?
 
     private let systemAudio = SystemAudio()
@@ -45,7 +46,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["ok": true]
         case "shell:resize":
             return ["ok": true]
-        case "overlay:show", "overlay:hide":
+        case "overlay:show":
+            await MainActor.run { host?.overlay.show() }
+            return ["ok": true]
+        case "overlay:hide":
+            await MainActor.run { host?.overlay.hide() }
             return ["ok": true]
         case "permissions:status":
             return permissionSnapshot()
@@ -70,6 +75,10 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             return nil
         case "shell:command":
+            let name = args["name"] as? String ?? ""
+            await MainActor.run {
+                routeShellCommand(name)
+            }
             return nil
         case "capture:begin", "capture:append", "capture:channel-absent", "capture:confirm", "capture:discard":
             return ["ok": true]
@@ -131,7 +140,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         guard CGPreflightScreenCaptureAccess() else {
             return ["ok": false, "reason": "no_system_audio"]
         }
-        let webView = await MainActor.run { self.webView }
+        let webView = await MainActor.run { self.mainWebView }
         systemAudio.setHandlers(
             onPcm: { [weak self] data in
                 guard let self, let webView else { return }
@@ -156,8 +165,52 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private func emitSystemAudioLost() {
-        guard let webView else { return }
-        emit("system-audio:lost", ["reason": "no_system_audio"], in: webView)
+        guard let mainWebView else { return }
+        emit("system-audio:lost", ["reason": "no_system_audio"], in: mainWebView)
+    }
+
+    @MainActor
+    private func routeShellCommand(_ name: String) {
+        switch name {
+        case "show":
+            activateMainWindow()
+        case "dashboard":
+            openDashboard()
+        case "quit":
+            NSApp.terminate(nil)
+        case "assist-on", "assist-off":
+            emitCommand(name)
+        default:
+            activateMainWindow()
+            emitCommand(name)
+        }
+    }
+
+    @MainActor
+    private func activateMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        for window in NSApp.windows where !(window is NSPanel) {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+    }
+
+    @MainActor
+    private func openDashboard() {
+        let state = host?.mergedShellState() ?? [:]
+        let apiBase = (state["apiBase"] as? String) ?? ""
+        let trimmed = apiBase.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let origin: String
+        if trimmed.contains("localhost") || trimmed.contains("127.0.0.1") {
+            origin = "http://localhost:8080"
+        } else {
+            origin = "https://app.getvocify.com"
+        }
+        let urlString = "\(origin)/dashboard/memos"
+        guard urlString.range(of: #"^https?://"#, options: .regularExpression) != nil,
+              let url = URL(string: urlString)
+        else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func emit(_ channel: String, _ payload: Any, in webView: WKWebView) {
@@ -179,7 +232,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func emitCommand(_ name: String) {
-        guard let webView else { return }
-        emit("shell:command", name, in: webView)
+        guard let mainWebView else { return }
+        emit("shell:command", name, in: mainWebView)
     }
 }
