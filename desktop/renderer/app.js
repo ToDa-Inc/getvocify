@@ -508,10 +508,9 @@ async function paintNotesList() {
 
 function notifyShell() {
   const email = localStorage.getItem(STORAGE.email) || '';
-  if (accountMenu) accountMenu.hidden = !email;
-  if (sessionChip) {
-    sessionChip.textContent = email;
-  }
+  const loggedIn = Boolean(localStorage.getItem(STORAGE.token));
+  if (accountMenu) accountMenu.hidden = !loggedIn || !email;
+  if (sessionChip) sessionChip.textContent = loggedIn ? email : '';
   desktop()?.shell?.setState({
     listening,
     loggedIn: Boolean(localStorage.getItem(STORAGE.token)),
@@ -559,6 +558,7 @@ function showScreen(name) {
   if (notesRailEl) notesRailEl.hidden = name === 'login';
   desktop()?.shell?.resize(name === 'review' ? 'review' : 'compact');
   if (name === 'listen') {
+    if (!listening) setLiveUi(false);
     paintHomeBrief();
     paintHomeHoy();
     highlightActiveNote(null);
@@ -670,7 +670,7 @@ function renderTranscript() {
 
   if (returnLiveBtn) {
     returnLiveBtn.hidden = follow || !hasContent;
-    returnLiveBtn.textContent = 'Volver al directo';
+    returnLiveBtn.textContent = t.transcriptBackToLive;
   }
   if (follow) transcriptEl.scrollTop = transcriptEl.scrollHeight;
   notifyShell();
@@ -1209,6 +1209,8 @@ document.getElementById('btn-logout').addEventListener('click', () => {
   notesListEl?.replaceChildren();
   localStorage.removeItem(STORAGE.token);
   localStorage.removeItem(STORAGE.refresh);
+  if (accountMenu) accountMenu.hidden = true;
+  if (sessionChip) sessionChip.textContent = '';
   showScreen('login');
 });
 
@@ -1221,6 +1223,7 @@ document.getElementById('btn-new-note').addEventListener('click', () => {
 });
 
 notesListEl?.addEventListener('click', (event) => {
+  if (listening) return;
   const btn = event.target.closest('button[data-id]');
   if (!btn) return;
   const id = btn.dataset.id;
