@@ -46,4 +46,77 @@ do {
     check((parsed as? [Any])?.count == 1, "json array element count")
 }
 
+// CaptureStore — mirrors desktop/lib/capture-store.test.js
+do {
+    let root = try tempDir()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = CaptureStore(root: root)
+    try store.begin(clientCaptureId: "cap-local-1", meta: ["startedAt": "2026-09-22T08:00:00Z"])
+    _ = try store.append(clientCaptureId: "cap-local-1", channel: "mic", chunk: Data("before-ws-cut".utf8))
+    _ = try store.append(clientCaptureId: "cap-local-1", channel: "mic", chunk: Data("-after-ws-cut".utf8))
+    let view = try store.read(clientCaptureId: "cap-local-1")
+    let mic = (view["channels"] as? [String: Any])?["mic"] as? [String: Any]
+    let path = mic?["path"] as? String ?? ""
+    let audio = try String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
+    check(audio == "before-ws-cut-after-ws-cut", "capture ws cut audio preserved")
+}
+do {
+    let root = try tempDir()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = CaptureStore(root: root)
+    try store.begin(clientCaptureId: "cap-local-1", meta: ["startedAt": "2026-09-22T08:00:00Z"])
+    _ = try store.append(clientCaptureId: "cap-local-1", channel: "mic", chunk: Data("chunk-a".utf8))
+    let reopened = CaptureStore(root: root)
+    let pending = reopened.pending()
+    check(pending.count == 1, "capture restart pending count")
+    check(pending[0]["clientCaptureId"] as? String == "cap-local-1", "capture restart clientCaptureId")
+    check(pending[0]["remoteConfirmed"] as? Bool == false, "capture restart remoteConfirmed")
+    let mic = (pending[0]["channels"] as? [String: Any])?["mic"] as? [String: Any]
+    let path = mic?["path"] as? String ?? ""
+    let audio = try String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8)
+    check(audio == "chunk-a", "capture restart audio bytes")
+    var discardFailed = false
+    do {
+        try reopened.discard(clientCaptureId: "cap-local-1")
+    } catch {
+        discardFailed = error.localizedDescription.contains("confirmación remota")
+    }
+    check(discardFailed, "capture discard blocked before remote confirm")
+}
+do {
+    let root = try tempDir()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = CaptureStore(root: root)
+    try store.begin(clientCaptureId: "cap-local-1", meta: ["startedAt": "2026-09-22T08:00:00Z"])
+    _ = try store.append(clientCaptureId: "cap-local-1", channel: "mic", chunk: Data("ok".utf8))
+    let view = try store.noteChannelAbsent(clientCaptureId: "cap-local-1", channel: "system", reason: "permission")
+    check(view["audioStatus"] as? String == "partial", "capture partial audioStatus")
+    check(view["channelsComplete"] as? Bool == false, "capture partial channelsComplete")
+    let system = (view["channels"] as? [String: Any])?["system"] as? [String: Any]
+    check(system?["absent"] as? Bool == true, "capture system channel absent")
+    let micPath = ((view["channels"] as? [String: Any])?["mic"] as? [String: Any])?["path"] as? String ?? ""
+    let failing = CaptureStore(root: root, appendFile: { _, _ in
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(POSIXError.ENOSPC.rawValue), userInfo: nil)
+    })
+    var diskFull = false
+    do {
+        _ = try failing.append(clientCaptureId: "cap-local-1", channel: "mic", chunk: Data("more".utf8))
+    } catch is DiskFullError {
+        diskFull = true
+    }
+    check(diskFull, "capture disk full throws DiskFullError")
+    let kept = try String(contentsOf: URL(fileURLWithPath: micPath), encoding: .utf8)
+    check(kept == "ok", "capture disk full keeps prior audio")
+}
+do {
+    let root = try tempDir()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = CaptureStore(root: root)
+    try store.begin(clientCaptureId: "cap-local-1", meta: ["startedAt": "2026-09-22T08:00:00Z"])
+    _ = try store.append(clientCaptureId: "cap-local-1", channel: "mic", chunk: Data("ok".utf8))
+    _ = try store.confirmRemote(clientCaptureId: "cap-local-1")
+    try store.discard(clientCaptureId: "cap-local-1")
+    check(store.pending().isEmpty, "capture discard after confirm clears pending")
+}
+
 print("all checks passed")

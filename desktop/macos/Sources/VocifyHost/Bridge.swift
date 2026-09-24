@@ -10,6 +10,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     weak var host: HostController?
 
     private let systemAudio = SystemAudio()
+    private lazy var captureStore = CaptureStore(root: CaptureStore.defaultCapturesRoot())
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -66,7 +67,7 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             await systemAudio.stop()
             return ["ok": true]
         case "capture:pending":
-            return [] as [[String: Any]]
+            return ["ok": true, "items": captureStore.pending()]
         case "shell:state":
             if let state = args["state"] as? [String: Any] {
                 await MainActor.run {
@@ -80,11 +81,105 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
                 routeShellCommand(name)
             }
             return nil
-        case "capture:begin", "capture:append", "capture:channel-absent", "capture:confirm", "capture:discard":
-            return ["ok": true]
+        case "capture:begin":
+            return handleCaptureBegin(args: args)
+        case "capture:append":
+            return handleCaptureAppend(args: args)
+        case "capture:channel-absent":
+            return handleCaptureChannelAbsent(args: args)
+        case "capture:confirm":
+            return handleCaptureConfirm(args: args)
+        case "capture:discard":
+            return handleCaptureDiscard(args: args)
         default:
             return nil
         }
+    }
+
+    private func handleCaptureBegin(args: [String: Any]) -> [String: Any] {
+        let payload = args["payload"] as? [String: Any] ?? [:]
+        guard let id = payload["clientCaptureId"] as? String, !id.isEmpty else {
+            return ["ok": false, "error": "clientCaptureId required"]
+        }
+        do {
+            let manifest = try captureStore.begin(clientCaptureId: id, meta: payload)
+            return ["ok": true, "manifest": manifest]
+        } catch {
+            return ["ok": false, "error": error.localizedDescription]
+        }
+    }
+
+    private func handleCaptureAppend(args: [String: Any]) -> [String: Any] {
+        let payload = args["payload"] as? [String: Any] ?? [:]
+        guard let id = payload["clientCaptureId"] as? String else {
+            return ["ok": false, "error": "clientCaptureId required", "code": "append_failed"]
+        }
+        guard let channel = payload["channel"] as? String else {
+            return ["ok": false, "error": "channel required", "code": "append_failed"]
+        }
+        let chunk = Self.dataFromChunkPayload(payload["chunk"])
+        do {
+            let manifest = try captureStore.append(clientCaptureId: id, channel: channel, chunk: chunk)
+            return ["ok": true, "manifest": manifest]
+        } catch let error as DiskFullError {
+            return ["ok": false, "error": error.localizedDescription, "code": DiskFullError.code]
+        } catch {
+            let ns = error as NSError
+            return ["ok": false, "error": error.localizedDescription, "code": ns.userInfo["code"] as? String ?? "append_failed"]
+        }
+    }
+
+    private func handleCaptureChannelAbsent(args: [String: Any]) -> [String: Any] {
+        let payload = args["payload"] as? [String: Any] ?? [:]
+        guard let id = payload["clientCaptureId"] as? String,
+              let channel = payload["channel"] as? String
+        else {
+            return ["ok": false, "error": "clientCaptureId and channel required"]
+        }
+        do {
+            let reason = payload["reason"] as? String
+            let manifest = try captureStore.noteChannelAbsent(clientCaptureId: id, channel: channel, reason: reason)
+            return ["ok": true, "manifest": manifest]
+        } catch {
+            return ["ok": false, "error": error.localizedDescription]
+        }
+    }
+
+    private func handleCaptureConfirm(args: [String: Any]) -> [String: Any] {
+        guard let id = args["id"] as? String else {
+            return ["ok": false, "error": "id required"]
+        }
+        do {
+            let manifest = try captureStore.confirmRemote(clientCaptureId: id)
+            return ["ok": true, "manifest": manifest]
+        } catch {
+            return ["ok": false, "error": error.localizedDescription]
+        }
+    }
+
+    private func handleCaptureDiscard(args: [String: Any]) -> [String: Any] {
+        guard let id = args["id"] as? String else {
+            return ["ok": false, "error": "id required"]
+        }
+        do {
+            try captureStore.discard(clientCaptureId: id)
+            return ["ok": true]
+        } catch {
+            return ["ok": false, "error": error.localizedDescription]
+        }
+    }
+
+    private static func dataFromChunkPayload(_ value: Any?) -> Data {
+        if let bytes = value as? [Int] {
+            return Data(bytes.map { UInt8(clamping: $0) })
+        }
+        if let bytes = value as? [UInt8] {
+            return Data(bytes)
+        }
+        if let bytes = value as? [NSNumber] {
+            return Data(bytes.map { UInt8(clamping: $0.intValue) })
+        }
+        return Data()
     }
 
     private func permissionSnapshot() -> [String: String] {
