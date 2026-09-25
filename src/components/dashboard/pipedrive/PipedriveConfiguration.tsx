@@ -118,7 +118,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
 
   if (isError && !data) {
     return (
-      <p className="text-sm text-muted-foreground">Could not load Pipedrive fields. Try again in a moment.</p>
+      <p className="text-sm text-muted-foreground">Pipedrive login expired. Disconnect it and connect again.</p>
     );
   }
 

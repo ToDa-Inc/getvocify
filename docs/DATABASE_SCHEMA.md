@@ -258,3 +258,19 @@ above.
 - `memos.transcript_raw` — provider STT text; sanitize/polish write `transcript` only
 - `memos.transcript_stt_meta` — provider/model/language, raw speaker count, call date
 - `memos.pipeline_run_id` / `memos.pipeline_run_started_at` — single-flight lease
+
+## 037 — memo capture context (F01.02)
+
+`backend/migrations/037_memo_capture_context.sql` adds capture identity on `memos` (no second Interaction table). `capture_id` is `memos.id`. `client_capture_id` is unique per `user_id`. `company_id` is the session workspace and is immutable. `capture_status` (`recording`, `upload_pending`, `processing`, `complete`, `failed`) is separate from `memos.status` and maps onto the existing pipeline enum. `source` gains `desktop` and keeps `vocify_call`.
+
+## 038 — follow-up draft (F02)
+
+`backend/migrations/038_memos_followup.sql` adds `memos.followup`, `memos.followup_run_started_at` and `user_profiles.writing_samples`. `sent` means the draft was handed to the mail client, not that delivery was confirmed.
+
+## 039 — intelligence jobs (F0)
+
+`backend/migrations/039_memo_intelligence_jobs.sql` adds `memo_jobs`. One row per memo, kind and input revision. `claim_memo_job` takes a single lease. `publish_memo_job` rejects an expired run and marks an older revision `superseded` when a newer one already succeeded.
+
+## 040 — playbooks (F08)
+
+`backend/migrations/040_company_playbooks.sql` adds `playbooks` and `playbook_versions`. `publish_playbook_version` leaves one `active_version_id`. Older published versions stay readable so a meeting keeps the snapshot it started with.

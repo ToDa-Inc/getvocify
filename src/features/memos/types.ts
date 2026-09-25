@@ -309,4 +309,23 @@ export interface FieldEditState {
   confidence: number;
 }
 
+export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable";
+
+export interface FollowupView {
+  status: FollowupStatus;
+  recipientName?: string | null;
+  to?: string;
+  phone?: string;
+  subject?: string;
+  body?: string;
+  channel?: "email" | "whatsapp";
+}
+
+export interface FollowupActionPayload {
+  action: "sent" | "copied";
+  channel: "email" | "whatsapp";
+  subject: string;
+  body: string;
+}
+
 

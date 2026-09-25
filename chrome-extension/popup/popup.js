@@ -5,6 +5,15 @@
  */
 
 import { api } from '../lib/api.js';
+import {
+  briefForContact,
+  briefRequest,
+  contactBriefDisplayLines,
+  shouldApplyBriefResponse,
+} from '../shared/ui/brief.js';
+import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
+import '../shared/ui/components/v-followup.js';
+import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
 import {
   canPaintInsightsFromMemo,
@@ -56,7 +65,26 @@ import {
 } from '../lib/review-insights.js';
 import { crmFieldsHeadingLabel, htmlToCopilotMarkdown, nextStepsHeadingLabel, renderCopilotNoteHtml, stripNextStepsSection } from '../lib/copilot-note.js';
 import { bindPreviewIds, bindPreviewToPage, formatSyncTargetLabel, needsAssociatedContactPick, associatedContactsFromContext, proposedUpdatesForPage, resolveReviewTargets } from '../lib/review-targets.js';
-import { listenClickRuntimeMessage, listenUiModel, requestTabCaptureStreamId, resolveListenPhase } from '../lib/tab-capture.js';
+import {
+  classifyTabCaptureUrl,
+  listenClickRuntimeMessage,
+  listenUiModel,
+  requestTabCaptureStreamId,
+  resolveListenPhase,
+} from '../lib/tab-capture.js';
+import { copilotLiveAssistAllowed } from '../shared/ui/copilot/suggestion-state.js';
+import { overlayChecklistMarkup } from '../shared/ui/copilot/checklist.js';
+import { applyDataI18n, strings, uiLangInput } from '../shared/ui/i18n.js';
+import { renderToString } from '../shared/ui/html.js';
+import {
+  decideCopilotPillLine,
+  initialPillState,
+} from '../lib/copilot-pill-card.js';
+import {
+  copilotAssistToggleLabel,
+  isMeetingListenActive,
+  shouldShowCopilotChecklist,
+} from '../lib/copilot-meeting-ui.js';
 import {
   firstName,
   normalizeDiarizedTranscript,
@@ -105,6 +133,24 @@ import {
 import { CALL_STATES, callButtonLabel, canMute, canSendDigits, normalizeDialTarget } from '../lib/dialer.js';
 import { startLocalRingback } from '../lib/local-ringback.js';
 import { contactCallCta, contactCallHint, contactCallTooltip, describeCallState, dialerPanelMode, formatCallDuration as formatLiveDuration, memoBusyLabel, outboundActivityChrome, postCallCard, postCallNotice, shouldShowContactCallCta, userFacingCallError } from '../lib/call-format.js';
+
+let popupSavedLang = null;
+let popupSavedLangReady = false;
+
+async function loadPopupSavedLang() {
+  try {
+    const data = await chrome.storage.local.get('vocify_lang');
+    popupSavedLang = data.vocify_lang ?? null;
+  } catch {
+    popupSavedLang = null;
+  }
+  popupSavedLangReady = true;
+}
+
+function popupUiLang() {
+  const saved = popupSavedLangReady ? popupSavedLang : null;
+  return uiLangInput(saved, navigator.language);
+}
 
 function paintCallMuteButton(muted, enabled) {
   const muteBtn = document.getElementById('call-mute');
@@ -157,6 +203,8 @@ let lastPageRecordKey = null;
 let lastBgState = null;
 /** Drops an in-flight Listen start if the user hits Stop before START_TAB_CAPTURE is sent */
 let listenStartSeq = 0;
+let copilotPillState = initialPillState();
+let copilotPillTickTimer = null;
 /** Mirror dashboard HubSpotSyncPreview confidence gate */
 const CONFIDENT_MATCH_THRESHOLD = 0.7;
 /** When true, user must explicitly pick/create a deal before approve */
@@ -334,7 +382,98 @@ function clearReviewPreviewUi() {
   const reasonEl = document.getElementById('target-deal-reason');
   if (nameEl) nameEl.textContent = '';
   if (reasonEl) reasonEl.textContent = '';
+  stopFollowup();
 }
+
+const followupEl = document.getElementById('review-followup');
+const FOLLOWUP_POLL_MS = 1500;
+const FOLLOWUP_MAX_POLLS = 25;
+let followupTimer = null;
+
+function stopFollowup() {
+  clearTimeout(followupTimer);
+  followupTimer = null;
+  if (!followupEl) return;
+  followupEl.hidden = true;
+  followupEl.data = null;
+  delete followupEl.dataset.memoId;
+  const noteForm = document.getElementById('review-note');
+  if (noteForm) noteForm.hidden = true;
+}
+
+document.getElementById('review-note')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const memoId = form.dataset.memoId;
+  const field = document.getElementById('review-note-text');
+  const status = document.getElementById('review-note-status');
+  const body = noteSaveBody(
+    field?.value,
+    noteOffsetMsFromReviewAudio(document.getElementById('review-audio')),
+  );
+  if (!memoId || !body) return;
+  try {
+    await api.put(`/memos/${memoId}/annotations/note-${crypto.randomUUID()}`, body);
+    if (field) field.value = '';
+    if (status) status.textContent = 'Nota guardada';
+  } catch {
+    if (status) status.textContent = 'No se pudo guardar la nota';
+  }
+});
+
+async function loadFollowup(memoId, attempt = 0) {
+  clearTimeout(followupTimer);
+  const noteForm = document.getElementById('review-note');
+  if (noteForm && isCurrentReviewMemo(memoId)) {
+    noteForm.hidden = false;
+    noteForm.dataset.memoId = memoId;
+  }
+  if (!followupEl || !isCurrentReviewMemo(memoId)) return;
+  let view;
+  try {
+    view = await api.get(`/memos/${memoId}/followup`);
+  } catch {
+    followupEl.hidden = true;
+    return;
+  }
+  if (!isCurrentReviewMemo(memoId)) return;
+  followupEl.dataset.memoId = memoId;
+  followupEl.hidden = view.status === 'unavailable';
+  followupEl.data = view;
+  if (view.status === 'generating' && attempt < FOLLOWUP_MAX_POLLS) {
+    followupTimer = setTimeout(() => loadFollowup(memoId, attempt + 1), FOLLOWUP_POLL_MS);
+  }
+}
+
+function openFollowupTarget(url) {
+  if (url.startsWith('mailto:')) window.location.href = url;
+  else chrome.tabs.create({ url });
+}
+
+followupEl?.addEventListener('v-action', async (event) => {
+  const { action, value, element } = event.detail;
+  const memoId = element.dataset.memoId;
+  const view = element.data;
+  if (!memoId || !view) return;
+  const { subject, body } = element.value;
+  const record = (payload) => api.post(`/memos/${memoId}/followup`, payload);
+  try {
+    if (action === 'copy') {
+      await navigator.clipboard.writeText(body);
+      await record({ action: 'copied', channel: 'email', subject, body });
+      return;
+    }
+    const channel = value === 'whatsapp' ? 'whatsapp' : 'email';
+    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
+    const url = target.ok ? target.url : target.fallback;
+    if (!url) return;
+    if (!target.ok) await navigator.clipboard.writeText(body);
+    openFollowupTarget(url);
+    element.data = await record({ action: 'sent', channel, subject, body });
+  } catch (err) {
+    console.warn('[followup] action failed', err);
+  }
+});
 
 function lockReviewSession(context) {
   reviewSessionLocked = true;
@@ -545,9 +684,50 @@ function renderRecordHeader(state) {
   if (!sub) return;
   if (state.isCopilotListening || state.status === 'copilot') {
     sub.textContent = state.copilotTabTitle || getRecordDisplayName(state.context) || '';
-    return;
+  } else {
+    sub.textContent = getRecordDisplayName(state.context) || '';
   }
-  sub.textContent = getRecordDisplayName(state.context) || '';
+  paintContactBrief(state);
+}
+
+let briefCache = null;
+let briefFlight = null;
+
+function paintContactBrief(state) {
+  const box = document.getElementById('contact-brief');
+  if (!box) return;
+  const contactId = state.context?.objectType === 'contact' ? state.context.recordId : null;
+  const captureActive = Boolean(state.isRecording || state.isCopilotListening || state.status === 'copilot');
+  const lines = contactBriefDisplayLines({
+    objectType: state.context?.objectType,
+    contactId,
+    captureActive,
+    cache: briefCache,
+    flightContactId: briefFlight,
+  });
+  const brief = briefForContact(contactId, briefCache);
+  box.replaceChildren();
+  for (const line of lines) {
+    const row = document.createElement('p');
+    row.textContent = line;
+    box.appendChild(row);
+  }
+  box.hidden = lines.length === 0;
+  document.getElementById('screen-record')?.classList.toggle('has-brief', lines.length > 0 && !captureActive);
+  if (!contactId || state.isRecording || state.isCopilotListening || state.status === 'copilot' || brief || briefFlight === contactId) return;
+  briefFlight = contactId;
+  const connectionId = state.context.connectionId || 'hubspot';
+  api.get(briefRequest(contactId, connectionId)).then((body) => {
+    if (!shouldApplyBriefResponse(briefFlight, contactId)) return;
+    briefCache = { contactId, brief: body };
+    briefFlight = null;
+    paintContactBrief(state);
+  }).catch(() => {
+    if (!shouldApplyBriefResponse(briefFlight, contactId)) return;
+    briefCache = { contactId, brief: { text: 'No se pudo cargar todo.', lines: [] } };
+    briefFlight = null;
+    paintContactBrief(state);
+  });
 }
 
 function setIdleListsHidden() {
@@ -1198,6 +1378,7 @@ function renderListenButton(state) {
   const label = document.getElementById('listen-tab-label');
   if (!btn) return;
   const model = listenUiModel({
+    lang: popupUiLang(),
     listenPhase: resolveListenPhase(state),
     isCopilotListening: state.isCopilotListening,
     copilotError: state.copilotError,
@@ -1208,11 +1389,11 @@ function renderListenButton(state) {
   btn.classList.toggle('listening', active);
   btn.setAttribute('aria-pressed', active ? 'true' : 'false');
   if (label) label.textContent = model.buttonLabel;
-  btn.style.display = state.isRecording ? 'none' : '';
+  btn.style.display = state.isRecording ? 'none' : 'inline-flex';
   renderListenStatus(state, model);
 }
 
-function renderListenStatus(state, model = listenUiModel(state)) {
+function renderListenStatus(state, model = listenUiModel({ ...state, lang: popupUiLang() })) {
   const el = document.getElementById('listen-status');
   if (!el) return;
   if (state.isRecording || !model.line) {
@@ -1226,6 +1407,86 @@ function renderListenStatus(state, model = listenUiModel(state)) {
   el.dataset.phase = model.phase;
 }
 
+function extensionLiveAssistDecision(state) {
+  const callState = state?.call?.state;
+  const callActive = Boolean(callState && callState !== CALL_STATES.IDLE);
+  const captureTabUrl = state?.captureTabUrl || '';
+  const captureIsMeetingApp = classifyTabCaptureUrl(captureTabUrl).kind === 'meeting_app';
+  return copilotLiveAssistAllowed({
+    kind: state?.kind,
+    callMode: state?.callMode,
+    channel: state?.isRecording ? 'phone' : 'tab',
+    assistEnabled: state?.assistEnabled,
+    playbookReady: state?.playbookReady,
+    evidenceRefs: state?.evidenceRefs,
+    callActive,
+    captureIsMeetingApp,
+  });
+}
+
+function renderCopilotAssistToggle(state) {
+  const wrap = document.getElementById('copilot-assist-wrap');
+  const toggle = document.getElementById('copilot-assist-toggle');
+  if (!wrap || !toggle) return;
+
+  if (!isMeetingListenActive(state)) {
+    wrap.style.display = 'none';
+    return;
+  }
+
+  wrap.style.display = 'flex';
+  toggle.textContent = copilotAssistToggleLabel(Boolean(state.assistEnabled), popupUiLang());
+  toggle.setAttribute('aria-pressed', state.assistEnabled ? 'true' : 'false');
+}
+
+function renderCopilotChecklist(state) {
+  const host = document.getElementById('copilot-checklist');
+  if (!host) return;
+
+  if (!shouldShowCopilotChecklist(state, state.copilotChecklist)) {
+    host.style.display = 'none';
+    host.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+
+  const t = strings(popupUiLang());
+  const markup = overlayChecklistMarkup(state.copilotChecklist, {
+    kind: 'meeting',
+    doneLabel: t.checklistDone,
+    progressLabel: t.checklistProgress,
+  });
+  host.innerHTML = markup ? renderToString(markup) : '';
+  host.style.display = host.innerHTML ? 'block' : 'none';
+  host.hidden = !host.innerHTML;
+}
+
+function copilotListenMeetingId() {
+  return listenStartSeq > 0 ? `ext-listen-${listenStartSeq}` : null;
+}
+
+function resetCopilotPillState() {
+  copilotPillState = initialPillState();
+  if (copilotPillTickTimer) {
+    clearInterval(copilotPillTickTimer);
+    copilotPillTickTimer = null;
+  }
+}
+
+function ensureCopilotPillTick(active) {
+  if (!active) {
+    if (copilotPillTickTimer) {
+      clearInterval(copilotPillTickTimer);
+      copilotPillTickTimer = null;
+    }
+    return;
+  }
+  if (copilotPillTickTimer) return;
+  copilotPillTickTimer = setInterval(() => {
+    if (lastBgState) renderCopilotCard(lastBgState);
+  }, 1000);
+}
+
 function renderCopilotCard(state) {
   const card = document.getElementById('copilot-card');
   const say = document.getElementById('copilot-say-this');
@@ -1234,34 +1495,67 @@ function renderCopilotCard(state) {
   const err = document.getElementById('copilot-error');
   if (!card) return;
 
-  if (!state.isCopilotListening && state.listenPhase !== 'live') {
+  renderCopilotAssistToggle(state);
+
+  if (!isMeetingListenActive(state)) {
+    resetCopilotPillState();
     card.style.display = 'none';
+    renderCopilotChecklist(state);
+    return;
+  }
+
+  if (!state.isCopilotListening && state.listenPhase !== 'live' && state.listenPhase !== 'starting') {
+    resetCopilotPillState();
+    card.style.display = 'none';
+    renderCopilotChecklist(state);
+    return;
+  }
+
+  if (!extensionLiveAssistDecision(state).show) {
+    card.style.display = 'none';
+    renderCopilotChecklist(state);
+    ensureCopilotPillTick(false);
     return;
   }
 
   card.style.display = 'block';
   const suggestion = state.copilotSuggestion;
+  const pillLine = decideCopilotPillLine(
+    copilotPillState,
+    state,
+    copilotListenMeetingId(),
+    Date.now(),
+  );
+  copilotPillState = pillLine.state;
+  ensureCopilotPillTick(state.assistEnabled === true);
+
   if (err) {
     err.style.display = state.copilotError ? 'block' : 'none';
     err.textContent = state.copilotError || '';
   }
-  if (state.copilotIsLoading && !suggestion) {
-    if (say) say.textContent = 'Coaching in real time…';
-  } else if (suggestion?.say_this) {
-    if (say) say.textContent = suggestion.say_this;
-  } else if (say) {
-    say.textContent = 'Waiting for the other side to finish speaking…';
+  if (say) {
+    if (pillLine.show && pillLine.text) {
+      say.style.display = 'block';
+      say.textContent = pillLine.text;
+    } else if (state.copilotIsLoading && !suggestion) {
+      say.style.display = 'block';
+      say.textContent = strings(popupUiLang()).helpActive;
+    } else {
+      say.style.display = 'none';
+      say.textContent = '';
+    }
   }
   if (heard) {
     const turn = state.copilotLastTurn;
     heard.style.display = turn ? 'block' : 'none';
-    heard.textContent = turn ? `They said: “${turn}”` : '';
+    heard.textContent = turn ? `Dijeron: «${turn}»` : '';
   }
   if (next) {
     const q = suggestion?.next_question;
     next.style.display = q ? 'block' : 'none';
-    next.textContent = q ? `Next: ${q}` : '';
+    next.textContent = q ? `Siguiente: ${q}` : '';
   }
+  renderCopilotChecklist(state);
 }
 
 function paintLiveTranscript(state) {
@@ -1269,12 +1563,14 @@ function paintLiveTranscript(state) {
   if (state.isRecording) {
     liveTranscriptText.innerHTML = state.finalTranscript
       ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${state.interimTranscript || 'Listening...'}</span>`;
+      : `<span style="opacity:0.5">${state.interimTranscript || strings(popupUiLang()).listenLiveWaiting}</span>`;
     liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
     return;
   }
   if (state.isCopilotListening || state.status === 'copilot' || state.listenPhase === 'starting') {
+    const t = strings(popupUiLang());
     const model = listenUiModel({
+      lang: popupUiLang(),
       listenPhase: resolveListenPhase(state),
       isCopilotListening: state.isCopilotListening,
       copilotError: state.copilotError,
@@ -1283,11 +1579,11 @@ function paintLiveTranscript(state) {
     });
     liveTranscriptText.innerHTML = state.finalTranscript
       ? `${state.finalTranscript} <span style="opacity:0.5">${state.interimTranscript || ''}</span>`
-      : `<span style="opacity:0.5">${model.line || 'Capturing this tab’s audio…'}</span>`;
+      : `<span style="opacity:0.5">${model.line || t.listenStartingLine}</span>`;
     liveTranscriptContainer.scrollTop = liveTranscriptContainer.scrollHeight;
     const transcriptLabel = liveTranscriptContainer.querySelector('.transcript-label');
     if (transcriptLabel) {
-      transcriptLabel.textContent = model.live ? 'Hearing this tab' : 'Starting listen';
+      transcriptLabel.textContent = model.live ? t.listenLinePlain : t.listenStartingHeader;
     }
     renderListenStatus(state, model);
     renderCopilotCard(state);
@@ -1355,7 +1651,9 @@ function renderState(state) {
 
   if (state.isCopilotListening || state.status === 'copilot' || state.listenPhase === 'starting') {
     stopIdleContextPoll();
+    const t = strings(popupUiLang());
     const model = listenUiModel({
+      lang: popupUiLang(),
       listenPhase: resolveListenPhase(state),
       isCopilotListening: state.isCopilotListening,
       copilotError: state.copilotError,
@@ -1366,7 +1664,9 @@ function renderState(state) {
     recordButton.classList.remove('recording');
     recordButton.disabled = true;
     document.getElementById('record-status-label').textContent =
-      model.phase === 'starting' ? 'Starting' : 'Listening';
+      model.phase === 'starting'
+        ? t.listenStartingButton
+        : `${t.listenLiveStatus}…`;
     liveTranscriptContainer.style.display = 'block';
     if (idleTools) {
       idleTools.style.display = 'grid';
@@ -1386,7 +1686,7 @@ function renderState(state) {
 
   recordButton.disabled = false;
   recordButton.classList.remove('recording');
-  document.getElementById('record-status-label').textContent = 'Record';
+  document.getElementById('record-status-label').textContent = strings(popupUiLang()).listenIdleStatus;
   const dealContextBadge = document.getElementById('deal-context-badge');
   if (dealContextBadge) dealContextBadge.style.display = 'none';
 
@@ -1734,6 +2034,7 @@ function cachedReviewMemo(memoId) {
 
 async function handleReviewState(memoId, context) {
   startSessionHeartbeat();
+  loadFollowup(memoId);
   const gen = ++reviewFetchGen;
   const cached = cachedReviewMemo(memoId);
   const fromProcessing = lastRenderedStatus === 'processing' || lastBgState?.status === 'processing';
@@ -3747,6 +4048,12 @@ recordButton.addEventListener('click', async () => {
   }
 });
 
+document.getElementById('copilot-assist-toggle')?.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ type: 'TOGGLE_COPILOT_ASSIST' }).catch((err) => {
+    console.error('[Popup] toggle copilot assist failed:', err);
+  });
+});
+
 document.getElementById('listen-tab-button')?.addEventListener('click', () => {
   // Chrome drops the click gesture if GET_STATE or tabs.query run first.
   // getMediaStreamId must be the first await on Listen.
@@ -3785,13 +4092,16 @@ document.getElementById('listen-tab-button')?.addEventListener('click', () => {
   requestTabCaptureStreamId(chrome.tabCapture, captureTabId)
     .then((streamId) => {
       if (seq !== listenStartSeq) return { cancelled: true };
-      return chrome.runtime.sendMessage(listenClickRuntimeMessage({
-        isCopilotListening: false,
-        listenPhase: 'idle',
-        captureTabId,
-        streamId,
-        commandSeq: seq,
-      }));
+      return chrome.runtime.sendMessage({
+        ...listenClickRuntimeMessage({
+          isCopilotListening: false,
+          listenPhase: 'idle',
+          captureTabId,
+          streamId,
+          commandSeq: seq,
+        }),
+        uiLang: popupUiLang(),
+      });
     })
     .then((res) => {
       if (seq !== listenStartSeq || res?.cancelled) return null;
@@ -3815,7 +4125,7 @@ document.getElementById('listen-tab-button')?.addEventListener('click', () => {
         listenPhase: 'error',
         status: 'idle',
         isCopilotListening: false,
-        copilotError: err?.message || 'Could not start tab audio. Click Listen again.',
+        copilotError: err?.message || strings(popupUiLang()).listenCouldNotStartTabRetry,
       };
       renderState(lastBgState);
     });
@@ -4219,6 +4529,8 @@ document.getElementById('loading-error-logout')?.addEventListener('click', signO
 // INIT
 // ============================================
 async function init() {
+  await loadPopupSavedLang();
+  applyDataI18n(document, popupUiLang());
   showScreen('loading');
   authStatus = 'unknown';
 

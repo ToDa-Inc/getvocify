@@ -235,6 +235,51 @@ class JevClient:
             patch["_abstained"] = abstained
         return patch
 
+    async def classify_questions(
+        self,
+        state: dict[str, Any],
+        questions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Public classifier. A missing, invalid, or low-confidence answer stays on_missing, never false."""
+        meta: dict[str, dict[str, Any]] = {}
+        payload: dict[str, dict[str, Any]] = {}
+        for spec in questions:
+            name = str(spec.get("question") or "").strip()
+            if not name:
+                continue
+            allowed = [str(choice) for choice in (spec.get("allowed") or ["unknown"])]
+            on_missing = str(spec.get("on_missing") or "unknown")
+            meta[name] = {"allowed": allowed, "on_missing": on_missing}
+            payload[name] = {
+                "type": "choice",
+                "instructions": spec.get("instructions")
+                or f"Choose one of {', '.join(allowed)} for {name}. If unsure, choose {on_missing}. Do not guess.",
+                "criteria": {choice: choice for choice in allowed},
+            }
+
+        def unknown_map() -> dict[str, str]:
+            return {name: spec["on_missing"] for name, spec in meta.items()}
+
+        answers = await self._post_systemone(state, payload) if payload else None
+        if not answers:
+            return {"status": "unavailable", "answers": unknown_map()}
+
+        out: dict[str, str] = {}
+        any_unknown = False
+        for name, spec in meta.items():
+            raw = answers.get(name) if isinstance(answers, dict) else None
+            choice = raw.get("choice") if isinstance(raw, dict) else None
+            try:
+                confidence = float(raw.get("confidence") or 0.0) if isinstance(raw, dict) else 0.0
+            except (TypeError, ValueError):
+                confidence = 0.0
+            if choice not in spec["allowed"] or confidence < MIN_CONFIDENCE_THRESHOLD:
+                out[name] = spec["on_missing"]
+                any_unknown = True
+            else:
+                out[name] = str(choice)
+        return {"status": "partial" if any_unknown else "ready", "answers": out}
+
     async def detect_language(
         self,
         snippet: str,

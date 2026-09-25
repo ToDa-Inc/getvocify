@@ -1,0 +1,53 @@
+import { useLanguage } from "@/lib/i18n";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
+import {
+  objectionCategoriesEmptyMessage,
+  objectionResolutionCountsText,
+  visibleObjectionCategories,
+  type ObjectionCategory,
+} from "@/lib/team-insights";
+
+export function ObjectionBreakdown({ categories }: { categories: ObjectionCategory[] }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const emptyMessage = objectionCategoriesEmptyMessage(categories, p.objections, p.teamObjectionsEmptyWeek);
+  const visible = visibleObjectionCategories(categories, p.objections);
+  const maxCount = visible.reduce((max, item) => Math.max(max, item.count), 0);
+  return (
+    <section aria-labelledby="team-objections" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-4`}>
+      <h2 id="team-objections" className={THEME_TOKENS.typography.sectionTitle}>{p.teamHeadingObjections}</h2>
+      {emptyMessage ? (
+        <p>{emptyMessage}</p>
+      ) : (
+        <>
+          <ul className="space-y-3">
+            {visible.map((item) => (
+              <li key={item.name} className="space-y-1">
+                <div className="flex justify-between gap-4 text-sm">
+                  <span>{item.name}</span>
+                  <span>
+                    {item.count} {objectionResolutionCountsText(item, p)}
+                  </span>
+                </div>
+                <div className="relative h-4 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full bg-primary"
+                    style={{ width: maxCount > 0 ? `${(item.count / maxCount) * 100}%` : "0%" }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+          <dl className="sr-only">
+            {visible.map((item) => (
+              <div key={`table-${item.name}`}>
+                <dt>{item.name}</dt>
+                <dd>{item.count}. {objectionResolutionCountsText(item, p)}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
+    </section>
+  );
+}

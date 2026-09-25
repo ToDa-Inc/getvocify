@@ -121,6 +121,7 @@ CREATE TABLE user_profiles (
   product_context TEXT DEFAULT '',
   stt_languages TEXT[] NOT NULL DEFAULT ARRAY['es'],
   company_id UUID,
+  writing_samples JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -321,8 +322,26 @@ CREATE TABLE memos (
   processing_started_at TIMESTAMPTZ,
 
   -- Origin + WhatsApp/HubSpot-call integration fields (migrations 009-011).
-  source TEXT DEFAULT 'web' CHECK (source IN ('web', 'voice_memo', 'whatsapp', 'unipile', 'hubspot_call')),
+  source TEXT DEFAULT 'web' CHECK (source IN ('web', 'voice_memo', 'whatsapp', 'unipile', 'hubspot_call', 'vocify_call', 'desktop')),
   source_type VARCHAR(50) DEFAULT 'voice_memo',
+  client_capture_id TEXT,
+  capture_started_at TIMESTAMPTZ,
+  interaction_kind TEXT CHECK (
+    interaction_kind IS NULL OR interaction_kind IN ('call', 'meeting', 'visit', 'voice_note')
+  ),
+  sales_motion_key TEXT,
+  playbook_version_id TEXT,
+  company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
+  capture_status TEXT CHECK (
+    capture_status IS NULL OR capture_status IN ('recording', 'upload_pending', 'processing', 'complete', 'failed')
+  ),
+  capture_content_fingerprint TEXT,
+  capture_input_revision INTEGER NOT NULL DEFAULT 0,
+  audio_status TEXT,
+  capture_turns JSONB,
+  transcript_complete BOOLEAN NOT NULL DEFAULT false,
+  followup JSONB,
+  followup_run_started_at TIMESTAMPTZ,
   whatsapp_message_id TEXT,
   conversation_id UUID,
   hubspot_engagement_id TEXT,
@@ -330,6 +349,470 @@ CREATE TABLE memos (
   hubspot_contact_id TEXT,
   speechmatics_job_id TEXT
 );
+
+CREATE TABLE IF NOT EXISTS memo_jobs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID,
+  memo_id UUID NOT NULL,
+  kind TEXT NOT NULL,
+  input_revision TEXT NOT NULL,
+  revision_seq BIGINT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    status IN ('pending', 'running', 'success', 'failed', 'superseded')
+  ),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lease_until TIMESTAMPTZ,
+  run_id UUID,
+  last_error TEXT,
+  result JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (memo_id, kind, input_revision),
+  UNIQUE (memo_id, kind, revision_seq)
+);
+
+CREATE TABLE IF NOT EXISTS playbooks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL,
+  sales_motion_key TEXT NOT NULL,
+  active_version_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (company_id, sales_motion_key)
+);
+
+CREATE TABLE IF NOT EXISTS playbook_versions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  playbook_id UUID NOT NULL REFERENCES playbooks(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+  steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+  entries JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS playbook_imports (
+  id TEXT PRIMARY KEY,
+  company_id UUID,
+  playbook_id UUID,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
+  reason TEXT,
+  draft JSONB,
+  active_version_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS interaction_types (
+  company_id UUID NOT NULL,
+  type_key TEXT NOT NULL,
+  name TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  PRIMARY KEY (company_id, type_key)
+);
+
+CREATE OR REPLACE FUNCTION publish_playbook_version(p_version UUID)
+RETURNS UUID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  pb UUID;
+BEGIN
+  SELECT playbook_id INTO pb FROM playbook_versions WHERE id = p_version FOR UPDATE;
+  IF pb IS NULL THEN
+    RAISE EXCEPTION 'playbook version not found';
+  END IF;
+  PERFORM 1 FROM playbooks WHERE id = pb FOR UPDATE;
+  UPDATE playbook_versions SET status = 'published' WHERE id = p_version;
+  UPDATE playbooks SET active_version_id = p_version WHERE id = pb;
+  RETURN p_version;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION save_playbook_draft(
+  p_company UUID,
+  p_motion TEXT,
+  p_import TEXT,
+  p_payload TEXT,
+  p_contradictions JSONB DEFAULT '[]'::jsonb
+) RETURNS TEXT
+LANGUAGE plpgsql
+AS $save_draft$
+DECLARE
+  pb UUID;
+BEGIN
+  INSERT INTO playbooks (company_id, sales_motion_key)
+  VALUES (p_company, p_motion)
+  ON CONFLICT (company_id, sales_motion_key) DO NOTHING;
+
+  SELECT id INTO pb FROM playbooks
+  WHERE company_id = p_company AND sales_motion_key = p_motion;
+
+  IF EXISTS (SELECT 1 FROM playbook_imports WHERE id = p_import) THEN
+    RETURN 'ready';
+  END IF;
+
+  INSERT INTO playbook_versions (playbook_id, status, steps, entries)
+  VALUES (
+    pb,
+    'draft',
+    jsonb_build_array(jsonb_build_object(
+      'step_id', 'imported',
+      'label', left(p_payload, 80),
+      'criterion', p_payload
+    )),
+    jsonb_build_array(jsonb_build_object(
+      'entry_id', 'text:' || p_import,
+      'category', 'process',
+      'guidance', p_payload,
+      'source_ref', 'text:' || p_import
+    ))
+  );
+
+  INSERT INTO playbook_imports (
+    id, company_id, playbook_id, kind, status, draft, active_version_id
+  )
+  VALUES (
+    p_import,
+    p_company,
+    pb,
+    'text',
+    'ready',
+    jsonb_build_object(
+      'text', p_payload,
+      'source_ref', 'text:' || p_import,
+      'contradictions', COALESCE(p_contradictions, '[]'::jsonb)
+    ),
+    (SELECT active_version_id FROM playbooks WHERE id = pb)
+  );
+  RETURN 'ready';
+END;
+$save_draft$;
+
+CREATE OR REPLACE FUNCTION publish_playbook_motion(p_company UUID, p_motion TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $publish_motion$
+DECLARE
+  pb UUID;
+  ver UUID;
+BEGIN
+  SELECT id INTO pb FROM playbooks
+  WHERE company_id = p_company AND sales_motion_key = p_motion
+  FOR UPDATE;
+
+  IF pb IS NULL THEN
+    RETURN 'not_a_draft';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM playbook_imports i
+    WHERE i.playbook_id = pb
+      AND COALESCE(jsonb_array_length(i.draft->'contradictions'), 0) > 0
+      AND i.created_at = (
+        SELECT max(created_at) FROM playbook_imports WHERE playbook_id = pb
+      )
+  ) THEN
+    RETURN 'contradiction';
+  END IF;
+
+  SELECT id INTO ver FROM playbook_versions
+  WHERE playbook_id = pb AND status = 'draft'
+  ORDER BY created_at DESC
+  LIMIT 1
+  FOR UPDATE;
+
+  IF ver IS NULL THEN
+    RETURN 'not_a_draft';
+  END IF;
+
+  PERFORM publish_playbook_version(ver);
+  RETURN 'published:' || ver::text;
+END;
+$publish_motion$;
+
+CREATE OR REPLACE FUNCTION list_playbook_motions(p_company UUID)
+RETURNS TABLE (sales_motion_key TEXT, motion_status TEXT)
+LANGUAGE sql
+STABLE
+AS $list_motions$
+  SELECT motion_key AS sales_motion_key, motion_status
+  FROM (
+    SELECT p.sales_motion_key AS motion_key,
+      CASE
+        WHEN p.active_version_id IS NOT NULL THEN 'published'
+        WHEN EXISTS (
+          SELECT 1 FROM playbook_versions v
+          WHERE v.playbook_id = p.id AND v.status = 'draft'
+        ) THEN 'draft'
+        ELSE 'missing'
+      END AS motion_status
+    FROM playbooks p
+    WHERE p.company_id = p_company
+    UNION
+    SELECT t.type_key,
+      'missing'
+    FROM interaction_types t
+    WHERE t.company_id = p_company
+      AND t.active
+      AND NOT EXISTS (
+        SELECT 1 FROM playbooks p
+        WHERE p.company_id = t.company_id AND p.sales_motion_key = t.type_key
+      )
+  ) listed;
+$list_motions$;
+
+CREATE OR REPLACE FUNCTION add_interaction_type(p_company UUID, p_key TEXT, p_name TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $add_type$
+BEGIN
+  IF btrim(p_key) = '' THEN
+    RETURN 'empty';
+  END IF;
+  INSERT INTO interaction_types (company_id, type_key, name)
+  VALUES (p_company, btrim(p_key), COALESCE(NULLIF(btrim(p_name), ''), btrim(p_key)))
+  ON CONFLICT (company_id, type_key) DO NOTHING;
+  RETURN btrim(p_key);
+END;
+$add_type$;
+
+CREATE TABLE IF NOT EXISTS copilot_web_turns (
+  id TEXT PRIMARY KEY,
+  company_id UUID,
+  user_id UUID NOT NULL,
+  conversation_id TEXT NOT NULL,
+  client_turn_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  body TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, conversation_id, client_turn_id)
+);
+
+CREATE OR REPLACE FUNCTION save_ask_turn(
+  p_company UUID,
+  p_user UUID,
+  p_conversation TEXT,
+  p_client_turn TEXT,
+  p_text TEXT
+) RETURNS TABLE (turn_id TEXT, body TEXT, replayed BOOLEAN)
+LANGUAGE plpgsql
+AS $save_ask$
+DECLARE
+  existing_id TEXT;
+  new_id TEXT;
+BEGIN
+  SELECT id INTO existing_id
+  FROM copilot_web_turns
+  WHERE user_id = p_user
+    AND conversation_id = p_conversation
+    AND client_turn_id = p_client_turn;
+
+  IF existing_id IS NOT NULL THEN
+    RETURN QUERY
+    SELECT t.id, t.body, true
+    FROM copilot_web_turns t
+    WHERE t.id = existing_id;
+    RETURN;
+  END IF;
+
+  BEGIN
+    new_id := gen_random_uuid()::text;
+    INSERT INTO copilot_web_turns (
+      id, company_id, user_id, conversation_id, client_turn_id, status, body
+    )
+    VALUES (new_id, p_company, p_user, p_conversation, p_client_turn, 'pending', p_text);
+    RETURN QUERY SELECT new_id, p_text, false;
+  EXCEPTION WHEN unique_violation THEN
+    RETURN QUERY
+    SELECT t.id, t.body, true
+    FROM copilot_web_turns t
+    WHERE t.user_id = p_user
+      AND t.conversation_id = p_conversation
+      AND t.client_turn_id = p_client_turn;
+  END;
+END;
+$save_ask$;
+
+CREATE TABLE IF NOT EXISTS contact_priority_context (
+  company_id UUID NOT NULL,
+  connection_id TEXT NOT NULL,
+  contact_id TEXT NOT NULL,
+  deal_id TEXT NOT NULL DEFAULT '',
+  owner_user_id UUID,
+  owner_ambiguous BOOLEAN NOT NULL DEFAULT false,
+  coverage TEXT NOT NULL,
+  history_complete BOOLEAN NOT NULL DEFAULT false,
+  observed_at TIMESTAMPTZ,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (company_id, connection_id, contact_id, deal_id)
+);
+
+CREATE TABLE IF NOT EXISTS action_signals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  connection_id TEXT NOT NULL DEFAULT '',
+  contact_id TEXT,
+  deal_id TEXT,
+  memo_id TEXT,
+  type TEXT NOT NULL,
+  dedupe_key TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'done', 'dismissed', 'snoozed', 'resolved')),
+  version INTEGER NOT NULL DEFAULT 1,
+  snoozed_until TIMESTAMPTZ,
+  previous_status TEXT,
+  last_action_request_id TEXT,
+  last_action_at TIMESTAMPTZ,
+  undo_deadline TIMESTAMPTZ,
+  coverage TEXT NOT NULL DEFAULT 'complete',
+  observed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (company_id, user_id, connection_id, dedupe_key)
+);
+
+CREATE TABLE IF NOT EXISTS hoy_daily_runs (
+  company_id UUID NOT NULL,
+  local_date DATE NOT NULL,
+  status TEXT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (company_id, local_date)
+);
+
+CREATE TABLE IF NOT EXISTS interaction_annotations (
+  author_id UUID NOT NULL,
+  annotation_id TEXT NOT NULL,
+  company_id UUID NOT NULL,
+  client_capture_id TEXT,
+  memo_id UUID,
+  text TEXT NOT NULL,
+  offset_ms INTEGER NOT NULL CHECK (offset_ms >= 0),
+  turn_id TEXT,
+  revision INTEGER NOT NULL DEFAULT 1,
+  source_type TEXT NOT NULL DEFAULT 'human_note' CHECK (source_type = 'human_note'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (author_id, annotation_id)
+);
+
+CREATE TABLE IF NOT EXISTS interaction_patterns (
+  memo_id UUID NOT NULL,
+  pattern_id TEXT NOT NULL,
+  input_revision TEXT NOT NULL,
+  category TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  resolution TEXT NOT NULL,
+  response TEXT,
+  evidence_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  superseded BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memo_id, pattern_id, input_revision)
+);
+
+CREATE TABLE IF NOT EXISTS memo_scores (
+  memo_id UUID NOT NULL,
+  input_revision TEXT NOT NULL,
+  revision_seq BIGINT NOT NULL,
+  playbook_version_id TEXT,
+  prompt_version TEXT NOT NULL DEFAULT 'scoring_v1',
+  model_version TEXT,
+  score JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memo_id, input_revision)
+);
+
+CREATE TABLE IF NOT EXISTS meeting_proposals (
+  proposal_id TEXT NOT NULL,
+  memo_id UUID NOT NULL,
+  input_revision TEXT NOT NULL,
+  agreement TEXT NOT NULL,
+  starts_at TIMESTAMPTZ,
+  timezone TEXT,
+  precision TEXT NOT NULL,
+  decision TEXT NOT NULL DEFAULT 'pending',
+  crm_status TEXT NOT NULL DEFAULT 'not_requested',
+  evidence_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  remote_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memo_id, proposal_id, input_revision)
+);
+
+CREATE TABLE IF NOT EXISTS meeting_writes (
+  operation_key TEXT PRIMARY KEY,
+  memo_id UUID NOT NULL,
+  proposal_id TEXT NOT NULL,
+  remote_id TEXT,
+  crm_status TEXT NOT NULL,
+  stage_changed BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS post_interaction_briefs (
+  memo_id UUID NOT NULL,
+  input_revision TEXT NOT NULL,
+  revision_seq BIGINT NOT NULL,
+  status TEXT NOT NULL,
+  body JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memo_id, input_revision)
+);
+
+CREATE TABLE IF NOT EXISTS brief_preferences (
+  user_id UUID PRIMARY KEY,
+  highlight_mode TEXT NOT NULL CHECK (highlight_mode IN ('immediate', 'deferred', 'end_of_day')),
+  delay_minutes INTEGER,
+  end_of_day TIME,
+  timezone TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT NOT NULL,
+  company_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  scope TEXT NOT NULL,
+  period_start TIMESTAMPTZ NOT NULL,
+  report_type TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  snapshot JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (company_id, user_id, scope, period_start, report_type)
+);
+
+CREATE TABLE IF NOT EXISTS report_deliveries (
+  idempotency_key TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  delivery_status TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS report_notifications (
+  id TEXT PRIMARY KEY,
+  report_id TEXT NOT NULL,
+  user_id UUID NOT NULL,
+  read_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS team_outcome_observations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL,
+  connection_id TEXT NOT NULL,
+  deal_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  owner_user_id UUID,
+  attribution TEXT NOT NULL,
+  amount NUMERIC,
+  currency TEXT,
+  closed_at TIMESTAMPTZ,
+  observed_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (company_id, connection_id, deal_id, observed_at)
+);
+
+-- F01.02 / migration 037: one client capture id per author.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memos_user_client_capture_id_unique
+  ON memos (user_id, client_capture_id)
+  WHERE client_capture_id IS NOT NULL;
 
 -- 6. CRM UPDATES (audit trail) - exists in production with no versioned
 -- CREATE TABLE anywhere; only ALTER TABLEs for it exist (migrations 003, 015).

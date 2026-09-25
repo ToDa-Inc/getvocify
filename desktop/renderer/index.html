@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vocify</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" />
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./theme.css" />
+    <link rel="stylesheet" href="./shared/ui/vocify-ui.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="paper-app">
+    <div class="title-drag"></div>
+    <div class="app-shell">
+      <aside id="notes-rail" class="notes-rail" hidden>
+        <button id="btn-new-note" class="ghost v-pill v-pill--ghost rail-new" type="button" data-i18n="desktopNewNote"></button>
+        <p class="rail-heading" data-desktop-i18n="history"></p>
+        <nav id="notes-list" class="notes-list" aria-label="Notas"></nav>
+      </aside>
+      <main class="app">
+        <header class="topbar">
+          <div class="brand-lockup">
+            <img class="brand-mark" src="./icon.png" alt="Vocify" />
+            <span class="wordmark">Vocify</span>
+          </div>
+          <details id="account-menu" class="account-menu" hidden>
+            <summary id="session-chip" class="v-chip"></summary>
+            <div class="account-popover">
+            <button id="btn-dashboard" class="ghost" type="button" data-i18n="desktopOpenDashboard"></button>
+            <button id="btn-logout" class="ghost" type="button" data-i18n="desktopLogout"></button>
+            </div>
+          </details>
+        </header>
+
+        <section id="permissions-panel" class="permissions-panel" hidden>
+          <div class="card paper perm-card">
+            <p class="section-label" data-desktop-i18n="permCaps"></p>
+            <h1 data-desktop-i18n="permTitle"></h1>
+            <p class="lede" data-desktop-i18n="permLead"></p>
+            <div class="perm-row" data-perm="microphone">
+              <div>
+                <p class="perm-title" data-title></p>
+                <p class="muted perm-body" data-body></p>
+              </div>
+              <button type="button" class="v-pill v-pill--ghost" data-action></button>
+            </div>
+            <div class="perm-row" data-perm="systemAudio">
+              <div>
+                <p class="perm-title" data-title></p>
+                <p class="muted perm-body" data-body></p>
+              </div>
+              <button type="button" class="v-pill v-pill--ghost" data-action></button>
+            </div>
+            <p class="muted perm-hint" data-desktop-i18n="permHint"></p>
+            <button id="btn-permissions-continue" class="primary v-pill v-pill--primary" type="button" disabled data-desktop-i18n="permContinue"></button>
+          </div>
+        </section>
+
+        <section id="login-panel" class="card paper">
+          <h1>
+            <span data-i18n="desktopLoginLead"></span>
+            <span class="accent" data-i18n="desktopLoginAccent"></span>
+          </h1>
+          <label>
+            <span data-i18n="desktopLoginEmail"></span>
+            <input id="email" type="email" autocomplete="username" />
+          </label>
+          <label>
+            <span data-i18n="desktopLoginPassword"></span>
+            <input id="password" type="password" autocomplete="current-password" />
+          </label>
+          <button id="btn-login" class="primary" type="button" data-i18n="desktopLoginSubmit"></button>
+          <p id="login-error" class="error" hidden></p>
+        </section>
+
+        <section id="listen-panel" hidden>
+          <div id="idle-block" class="idle-block">
+            <h1 data-desktop-i18n="homeTitle"></h1>
+            <p class="lede" data-desktop-i18n="homeHint"></p>
+          </div>
+          <div id="listen-permissions" class="v-paper listen-perm-card" hidden>
+            <p class="section-label" data-desktop-i18n="permSetupTitle"></p>
+            <p class="muted listen-perm-lede" data-desktop-i18n="permSetupLead"></p>
+            <div class="perm-row" data-perm="microphone">
+              <div>
+                <p class="perm-title" data-title></p>
+                <p class="muted perm-body" data-body></p>
+              </div>
+              <button type="button" class="v-pill v-pill--ghost" data-action></button>
+            </div>
+            <div class="perm-row" data-perm="systemAudio">
+              <div>
+                <p class="perm-title" data-title></p>
+                <p class="muted perm-body" data-body></p>
+              </div>
+              <button type="button" class="v-pill v-pill--ghost" data-action></button>
+            </div>
+          </div>
+          <div class="record-row">
+            <button id="btn-record" class="record-core" type="button"><span class="dot" aria-hidden="true"></span><span id="record-label" data-desktop-i18n="listen"></span></button>
+            <label id="assist-toggle" class="assist-toggle" hidden><input type="checkbox" id="assist-input" /><span data-desktop-i18n="assist"></span></label>
+          </div>
+          <p id="record-hint" class="muted" data-desktop-i18n="ready"></p>
+          <p id="listen-error" class="error" role="status" hidden></p>
+          <button id="btn-open-settings" class="v-pill v-pill--ghost" type="button" hidden></button>
+          <div id="home-context">
+            <div id="contact-brief" class="v-paper" hidden></div>
+            <section class="today-section" aria-labelledby="today-heading">
+              <h2 id="today-heading" data-desktop-i18n="today"></h2>
+              <p id="today-status" class="muted" role="status"></p>
+              <button id="today-retry" class="ghost" type="button" hidden data-desktop-i18n="retry"></button>
+              <div id="home-hoy"></div>
+            </section>
+          </div>
+          <div id="live-chip" class="live-chip" hidden><span class="pulse-dot live"></span><span data-desktop-i18n="live"></span><span id="timer">00:00</span></div>
+          <div id="transcript" class="transcript" aria-live="polite"></div>
+          <button id="btn-return-live" class="v-transcript-jump ghost" type="button" hidden data-i18n="transcriptBackToLive"></button>
+          <p id="assist-line" class="assist-line" hidden></p>
+          <div id="live-checklist" class="overlay-checklist" hidden></div>
+        </section>
+
+        <section id="review-panel" hidden>
+          <h1 data-desktop-i18n="review"></h1>
+          <p id="review-status" class="lede" role="status"></p>
+          <p id="review-error" class="error" role="alert" hidden></p>
+          <button id="btn-review-retry" class="ghost" type="button" hidden data-i18n="desktopRetry"></button>
+          <div class="review-decision">
+            <p id="review-deal" class="muted"></p>
+            <div id="review-deals" class="deal-list" hidden></div>
+            <button id="btn-approve" class="primary" type="button" data-desktop-i18n="confirm"></button>
+            <button id="btn-review-dashboard" class="ghost" type="button" hidden data-i18n="desktopOpenDashboard"></button>
+          </div>
+          <p id="followup-error" class="error" hidden></p>
+          <button id="followup-retry" class="ghost" type="button" hidden data-desktop-i18n="retry"></button>
+          <v-followup id="review-followup" hidden></v-followup>
+          <label><span data-i18n="desktopReviewSummary"></span><textarea id="review-summary" rows="4"></textarea></label>
+          <label><span data-i18n="desktopReviewNext"></span><textarea id="review-next" rows="3"></textarea></label>
+          <details class="review-details"><summary id="review-fields-label" data-desktop-i18n="fields"></summary><div id="review-fields" class="field-list"></div></details>
+          <div id="review-checklist" class="overlay-checklist card paper" hidden></div>
+          <details class="review-details"><summary data-desktop-i18n="transcript"></summary><div id="review-note" class="transcript review-note" aria-readonly="true"></div></details>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

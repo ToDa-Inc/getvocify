@@ -8,11 +8,24 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from supabase import Client
 
-from app.deps import get_user_id
+from app.deps import get_membership, get_supabase
+from app.services.company import Membership
+from app.services.copilot.context import resolve_suggest_context
+from app.services.copilot.checklist import build_meeting_checklist
+from app.services.copilot.load_grounding import load_company_suggest_grounding, load_suggest_grounding
 from app.services.copilot.suggest import stream_objection_suggestion
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
+
+
+class ChecklistRequest(BaseModel):
+    call_mode: Literal["speakerphone", "softphone", "meeting"] = "meeting"
+    capture_id: Optional[str] = Field(default=None, max_length=128)
+    input_revision: Optional[str] = Field(default=None, max_length=128)
+    elapsed_seconds: Optional[float] = Field(default=None, ge=0)
+    finalized_turns: Optional[list[dict]] = Field(default=None)
 
 
 class SuggestRequest(BaseModel):
@@ -22,14 +35,55 @@ class SuggestRequest(BaseModel):
     language: Literal["auto", "en", "es"] = "auto"
     call_mode: Literal["speakerphone", "softphone", "meeting"] = "speakerphone"
     speaker_role: Literal["prospect", "rep", "unknown"] = "unknown"
+    capture_id: Optional[str] = Field(default=None, max_length=128)
+    contact_id: Optional[str] = Field(default=None, max_length=128)
+    request_id: Optional[str] = Field(default=None, max_length=128)
+
+
+@router.post("/checklist")
+async def meeting_playbook_checklist(
+    body: ChecklistRequest,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """Return playbook step progress for a meeting from stored observations only."""
+    del body.input_revision, body.finalized_turns, body.elapsed_seconds
+    return build_meeting_checklist(
+        supabase,
+        user_id=membership.user_id,
+        company_id=membership.company_id,
+        call_mode=body.call_mode,
+        capture_id=body.capture_id,
+    )
 
 
 @router.post("/suggest")
 async def suggest_objection_handling(
     body: SuggestRequest,
-    _user_id: str = Depends(get_user_id),
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
+
+    context = resolve_suggest_context(
+        body.contact_id,
+        call_mode=body.call_mode,
+    )
+    if body.capture_id:
+        grounding = load_suggest_grounding(
+            supabase,
+            user_id=membership.user_id,
+            company_id=membership.company_id,
+            capture_id=body.capture_id,
+            context=context,
+        )
+    else:
+        grounding = load_company_suggest_grounding(
+            supabase,
+            company_id=membership.company_id,
+            call_mode=body.call_mode,
+            context=context,
+        )
 
     async def event_gen():
         async for event in stream_objection_suggestion(
@@ -39,7 +93,14 @@ async def suggest_objection_handling(
             language=body.language,
             call_mode=body.call_mode,
             speaker_role=body.speaker_role,
+            grounding=grounding,
+            context=context,
         ):
+            if event.get("type") == "result":
+                if body.capture_id:
+                    event = {**event, "capture_id": body.capture_id}
+                if body.request_id:
+                    event = {**event, "request_id": body.request_id}
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         yield "data: {\"type\": \"done\"}\n\n"
 

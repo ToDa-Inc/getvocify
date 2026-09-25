@@ -7,6 +7,8 @@ from typing import Optional, List, Literal, Any
 from datetime import datetime
 from uuid import UUID
 
+from app.models.intelligence import IntelligenceV1
+
 
 # Universal normalization: LLM often returns null or {} instead of []/{}.
 # These mappings define how to coerce invalid values per field type.
@@ -86,6 +88,9 @@ class MemoExtraction(BaseModel):
 
     # Raw extraction for dynamic fields
     raw_extraction: Optional[dict] = Field(default_factory=dict)
+
+    # Typed intelligence. Absent on legacy memos. null is unknown, not false.
+    intelligence: Optional[IntelligenceV1] = None
 
     @model_validator(mode="before")
     @classmethod

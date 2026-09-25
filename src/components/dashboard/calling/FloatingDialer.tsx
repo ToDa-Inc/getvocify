@@ -10,18 +10,24 @@ import {
   floatingDialerChrome,
   type CallState,
 } from "@/lib/dial-target";
+import type { DialerFocus } from "@/features/calling/DialerFocusProvider";
+import { TodayDialerCards } from "@/features/today/components/TodayDialerCards";
 import { DashboardDialer } from "./DashboardDialer";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCallStateChange?: (state: CallState) => void;
+  focusContact?: DialerFocus | null;
+  onFocusHandled?: () => void;
 };
 
 export const FloatingDialer = ({
   open,
   onOpenChange,
   onCallStateChange,
+  focusContact = null,
+  onFocusHandled,
 }: Props) => {
   const { config, isLoading } = useCallingConfig();
   const [live, setLive] = useState<{ state: CallState; elapsed: string }>({
@@ -88,14 +94,19 @@ export const FloatingDialer = ({
               Cargando…
             </p>
           ) : enabled ? (
-            <DashboardDialer
-              callerIds={config?.callerIds || []}
-              onRequestClose={() => onOpenChange(false)}
-              onLiveChange={(next) => {
-                setLive(next);
-                onCallStateChange?.(next.state);
-              }}
-            />
+            <>
+              <DashboardDialer
+                callerIds={config?.callerIds || []}
+                focusContact={focusContact}
+                onFocusHandled={onFocusHandled}
+                onRequestClose={() => onOpenChange(false)}
+                onLiveChange={(next) => {
+                  setLive(next);
+                  onCallStateChange?.(next.state);
+                }}
+              />
+              {live.state === CALL_STATES.IDLE ? <TodayDialerCards /> : null}
+            </>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
               Las llamadas no están configuradas.{" "}

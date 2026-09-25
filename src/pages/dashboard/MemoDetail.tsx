@@ -7,6 +7,13 @@ import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
+import { FollowupCard } from "@/components/dashboard/FollowupCard";
+import { MemoMeetingChecklist } from "@/components/dashboard/memos/MemoMeetingChecklist";
+import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
+import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
+import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
+import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteractionBrief";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
@@ -167,6 +174,13 @@ const MemoDetail = () => {
       audio.play().catch(console.error);
     }
     setIsPlaying(!isPlaying);
+  };
+
+  const playMemoAtOffset = (offsetMs: number) => {
+    if (!memo?.audioUrl) return;
+    audio.currentTime = offsetMs / 1000;
+    audio.play().catch(console.error);
+    setIsPlaying(true);
   };
 
   const formatDuration = (seconds: number) => {
@@ -404,6 +418,8 @@ const MemoDetail = () => {
         </p>
       </div>
 
+      {id ? <MemoMeetingChecklist memoId={id} /> : null}
+
       {extractionFailed && isOwnMemo && (
         <div className="mb-8 p-6 rounded-[2rem] border-2 border-destructive/30 bg-destructive/5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex items-start gap-4 flex-1">
@@ -541,6 +557,27 @@ const MemoDetail = () => {
                 </Button>
               </div>
             ) : null}
+            {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
+              <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} />
+            ) : null}
+            {isOwnMemo && id ? (
+              <InteractionObjections
+                memoId={id}
+                canPlaySpan={false}
+                offsetMs={Math.round(currentTime * 1000)}
+              />
+            ) : null}
+            {isOwnMemo && id ? (
+              <MeetingProposalReview
+                memoId={id}
+                extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
+              />
+            ) : null}
+            {isOwnMemo && id ? (
+              <PostInteractionBrief memoId={id} onPlay={memo.audioUrl ? playMemoAtOffset : undefined} />
+            ) : null}
+            {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
+            {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
                 key={id || ""}

@@ -106,16 +106,25 @@ describe('canStartTabCapture', () => {
 });
 
 describe('startDeniedMessage', () => {
+  const en = { vocify_lang: 'en' };
+  const es = { vocify_lang: 'es' };
+
   it('explains a missing stream id without sending the user to the offscreen picker', () => {
-    assert.match(startDeniedMessage('no_stream_id'), /Focus the call tab/i);
+    assert.match(startDeniedMessage('no_stream_id', en), /Focus the call tab/i);
   });
 
   it('asks the user to hang up before listening during a call', () => {
-    assert.match(startDeniedMessage('call_in_progress'), /Hang up the call/i);
+    assert.match(startDeniedMessage('call_in_progress', en), /Hang up the call/i);
+    assert.match(startDeniedMessage('call_in_progress', es), /Cuelga la llamada/i);
   });
 
   it('names Zoom/Meet/Teams as unsupported instead of failing silently', () => {
-    assert.match(startDeniedMessage('unsupported_meeting_tab'), /not Zoom, Meet, or Teams/i);
+    assert.match(startDeniedMessage('unsupported_meeting_tab', en), /not Zoom, Meet, or Teams/i);
+  });
+
+  it('localizes capture_failed for en and es', () => {
+    assert.match(startDeniedMessage('capture_failed', en), /Could not start tab audio/i);
+    assert.match(startDeniedMessage('capture_failed', es), /No se pudo iniciar el audio de la pestaña/i);
   });
 });
 
@@ -135,34 +144,52 @@ describe('listen status model', () => {
   });
 
   it('does not claim live until capture is confirmed', () => {
-    const starting = listenUiModel({ listenPhase: 'starting' });
+    const starting = listenUiModel({ lang: 'es', listenPhase: 'starting' });
     assert.equal(starting.phase, 'starting');
     assert.equal(starting.live, false);
-    assert.match(starting.line, /Capturing/i);
-    assert.equal(starting.buttonLabel, 'Starting…');
+    assert.match(starting.line, /Capturando/i);
+    assert.equal(starting.buttonLabel, 'Empezando…');
   });
 
   it('says listening and waiting for speech when connected with no transcript yet', () => {
     const live = listenUiModel({
+      lang: 'es',
       listenPhase: 'live',
       isCopilotListening: true,
       tabTitle: 'Acme deal',
       heardAnything: false,
     });
     assert.equal(live.live, true);
-    assert.match(live.statusLabel, /waiting for speech/i);
-    assert.match(live.line, /not your mic/i);
+    assert.match(live.statusLabel, /esperando voz/i);
+    assert.match(live.line, /no tu micrófono/i);
   });
 
   it('shows a not-listening error in the panel instead of hiding it', () => {
     const err = listenUiModel({
+      lang: 'es',
       listenPhase: 'error',
-      copilotError: startDeniedMessage('no_stream_id'),
+      copilotError: startDeniedMessage('no_stream_id', { vocify_lang: 'en' }),
     });
     assert.equal(err.phase, 'error');
     assert.equal(err.live, false);
     assert.match(err.line, /Focus the call tab/i);
-    assert.equal(err.buttonLabel, 'Listen to tab');
+    assert.equal(err.buttonLabel, 'Escuchar pestaña');
+    assert.equal(err.statusLabel, 'Sin escucha');
+    assert.equal(err.header, 'Listo para grabar');
+  });
+
+  it('returns English labels when lang is en', () => {
+    const idle = listenUiModel({ lang: 'en', listenPhase: 'idle' });
+    assert.equal(idle.buttonLabel, 'Listen to tab');
+    assert.equal(idle.statusLabel, 'Record');
+    const live = listenUiModel({
+      lang: 'en',
+      listenPhase: 'live',
+      isCopilotListening: true,
+      heardAnything: true,
+    });
+    assert.equal(live.buttonLabel, 'Stop listening');
+    assert.equal(live.statusLabel, 'Listening');
   });
 
   it('falls back to live/error when listenPhase is missing from an older state payload', () => {
@@ -340,10 +367,17 @@ describe('isSessionEndingCaptureTrack', () => {
 });
 
 describe('applyTranscriptUpdate', () => {
+  const en = { vocify_lang: 'en' };
+
   it('appends finals and clears interim', () => {
     const next = applyTranscriptUpdate(
       { finalTranscript: 'hello', interimTranscript: 'wor', finalWords: [] },
-      { text: 'world', isFinal: true, words: [{ text: 'world', speaker: null, is_punct: false }] }
+      {
+        text: 'world',
+        isFinal: true,
+        words: [{ text: 'world', speaker: null, is_punct: false }],
+        lang: en,
+      },
     );
     assert.equal(next.finalTranscript, 'hello world');
     assert.equal(next.interimTranscript, '');
@@ -353,7 +387,7 @@ describe('applyTranscriptUpdate', () => {
   it('replaces interim without touching finals', () => {
     const next = applyTranscriptUpdate(
       { finalTranscript: 'hello', interimTranscript: 'w', finalWords: [] },
-      { text: 'world', isFinal: false }
+      { text: 'world', isFinal: false, lang: en },
     );
     assert.equal(next.finalTranscript, 'hello');
     assert.equal(next.interimTranscript, 'world');
@@ -365,11 +399,13 @@ describe('applyTranscriptUpdate', () => {
       text: 'the price is too high for us',
       isFinal: true,
       audioChannel: 'prospect',
+      lang: en,
     });
     state = applyTranscriptUpdate(state, {
       text: 'we can start with a smaller seat count',
       isFinal: true,
       audioChannel: 'rep',
+      lang: en,
     });
     assert.equal(
       state.finalTranscript,
@@ -381,7 +417,7 @@ describe('applyTranscriptUpdate', () => {
   it('does not put rep interim into the prospect coaching buffer', () => {
     const next = applyTranscriptUpdate(
       { finalTranscript: 'Them: hello', prospectFinal: 'hello', prospectInterim: '', interimTranscript: '' },
-      { text: 'let me explain', isFinal: false, audioChannel: 'rep' }
+      { text: 'let me explain', isFinal: false, audioChannel: 'rep', lang: en },
     );
     assert.equal(next.prospectFinal, 'hello');
     assert.equal(next.prospectInterim, '');
@@ -391,7 +427,7 @@ describe('applyTranscriptUpdate', () => {
   it('treats unlabeled audio as prospect for the coaching buffer without adding Them/You tags', () => {
     const next = applyTranscriptUpdate(
       { finalTranscript: '', prospectFinal: '', interimTranscript: '' },
-      { text: 'price is a problem for the team', isFinal: true }
+      { text: 'price is a problem for the team', isFinal: true, lang: en },
     );
     assert.equal(next.finalTranscript, 'price is a problem for the team');
     assert.equal(next.prospectFinal, 'price is a problem for the team');

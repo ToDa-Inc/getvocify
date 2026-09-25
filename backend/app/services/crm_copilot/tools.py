@@ -292,6 +292,15 @@ def expire_stale_focus(copilot: dict, now: Optional[datetime] = None) -> None:
         clear_focus(copilot)
 
 
+def provider_ready(provider: str | None) -> str:
+    name = (provider or "").strip().lower()
+    if name == "hubspot":
+        return "ready"
+    if not name:
+        return "missing"
+    return "unavailable"
+
+
 def _bundle(ctx: CopilotContext) -> HubSpotBundle:
     if ctx.hs is not None:
         return ctx.hs
@@ -300,8 +309,9 @@ def _bundle(ctx: CopilotContext) -> HubSpotBundle:
     conn = resolve_sync_connection_prefer_hubspot(ctx.supabase, ctx.user_id)
     if not conn:
         raise ValueError("No CRM connected")
-    if (conn.get("provider") or "").lower() != "hubspot":
-        raise ValueError("WhatsApp CRM copilot currently supports HubSpot only")
+    if provider_ready(conn.get("provider")) != "ready":
+        ctx.artifacts["crm_coverage"] = "unavailable"
+        raise ValueError("crm_unavailable")
     ctx.hs = HubSpotBundle.from_provider(build_crm_provider(ctx.supabase, conn))
     return ctx.hs
 
@@ -423,6 +433,32 @@ async def _associated_company(contact_id: str, hs: HubSpotBundle) -> Optional[di
         return {"id": ids[0], "company_id": ids[0]}
 
 
+async def _one_engagement(hs: HubSpotBundle, to_type: str, oid: str) -> Optional[dict]:
+    spec = {
+        "calls": ("hs_call_title", "hs_call_body", "hs_timestamp"),
+        "emails": ("hs_email_subject", "hs_email_text", "hs_timestamp"),
+        "meetings": ("hs_meeting_title", "hs_meeting_body", "hs_timestamp"),
+    }.get(to_type)
+    if not spec:
+        return None
+    title_key, body_key, ts_key = spec
+    row = await hs.client.get(
+        f"/crm/v3/objects/{to_type}/{oid}",
+        params={"properties": ",".join(spec)},
+    )
+    props = (row or {}).get("properties") or {}
+    title = str(props.get(title_key) or "").strip()
+    body = _plain_note_body(str(props.get(body_key) or ""))
+    if not title and not body:
+        return None
+    return {
+        "id": str((row or {}).get("id") or oid),
+        "title": title,
+        "body": body,
+        "timestamp": props.get(ts_key),
+    }
+
+
 async def _list_engagements(hs: HubSpotBundle, from_type: str, from_id: str, to_type: str) -> list:
     spec = {
         "calls": ("hs_call_title", "hs_call_body", "hs_timestamp"),
@@ -470,6 +506,15 @@ async def _hydrate_contact(contact_id: str, hs: HubSpotBundle, obj: Any = None) 
         brief["company"] = company
     if calls:
         brief["calls"] = calls
+    from app.services.crm_providers.hubspot_provider import read_emails
+
+    connection = getattr(hs, "connection", None) or {}
+    brief["emails"] = await read_emails(
+        lambda: hs.associations.get_associations("contacts", contact_id, "emails"),
+        lambda oid: _one_engagement(hs, "emails", oid),
+        connection_id=str(connection.get("id") or "hubspot"),
+        observed_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    )
     return brief
 
 
@@ -482,6 +527,38 @@ async def execute_tool(name: str, args: dict, ctx: Any) -> dict:
 
 
 async def _execute(name: str, args: dict, ctx: Any) -> dict:
+    if name == "get_team_metrics":
+        from app.deps import get_supabase
+        from app.services.crm_copilot import web_sessions as ask_sessions
+        from app.services.team_insights.aggregate import (
+            TeamAccessError,
+            authorized_scope,
+            load_team_adherence_inputs,
+            team_adherence,
+        )
+
+        role = getattr(ctx, "role", None) or "member"
+        try:
+            scope = authorized_scope(
+                role=role,
+                requested_user_id=args.get("user_id"),
+                instruction=str(args.get("instruction") or ""),
+            )
+        except TeamAccessError:
+            return {"ok": False, "error": "forbidden"}
+        company_id = getattr(ctx, "company_id", None) or ask_sessions._actor.get("company_id")
+        supabase = getattr(ctx, "supabase", None) or get_supabase()
+        if not company_id or supabase is None:
+            return {"ok": True, "scope": scope}
+        motion = str(args.get("motion") or "").strip() or None
+        inputs = load_team_adherence_inputs(
+            supabase,
+            str(company_id),
+            user_id=scope.get("user_id"),
+            motion=motion,
+        )
+        metrics = team_adherence(role=role, **inputs)
+        return {"ok": True, "scope": scope, "metrics": metrics, "source": "team_adherence"}
     if name == "load_skill":
         skill = str(args.get("name") or "")
         body = SKILL_BODIES.get(skill)

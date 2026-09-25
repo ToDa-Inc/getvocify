@@ -196,6 +196,14 @@ class Settings(BaseSettings):
     CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
+    # Follow-up drafts. Off does not block extraction; sent means mail-client handoff.
+    FOLLOWUP_ENABLED: bool = True
+    INTELLIGENCE_WORKER_PUBLISH: bool = False
+    # Interest, objections and commitments from the transcript, once per extraction.
+    INTELLIGENCE_EXTRACT_ENABLED: bool = False
+    INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
+    # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
+    FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
 
     CALLING_PROVIDER: str = "twilio"
     TELNYX_API_KEY: Optional[str] = None

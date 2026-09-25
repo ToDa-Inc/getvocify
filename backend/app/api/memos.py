@@ -21,6 +21,8 @@ from app.services.activity_scope import (
     readable_memo_or_none,
     resolve_list_user_ids,
 )
+from app.services.captures import insert_memo_row
+from app.services.followup import schedule_followup
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
 from app.services.extraction import ExtractionService
@@ -293,6 +295,19 @@ async def extract_memo_async(
                 datetime.utcnow().isoformat(),
             ),
         )
+        schedule_followup(supabase, memo_id)
+        from app.services.memo_extraction_hooks import run_post_extraction_hooks
+
+        run_post_extraction_hooks(
+            supabase,
+            memo_id=memo_id,
+            extraction=extraction.model_dump(),
+        )
+        from app.services.intelligence.worker import record_enqueue
+        record_enqueue(
+            supabase,
+            {"id": memo_id, "user_id": user_id, "extraction": extraction.model_dump()},
+        )
         persist_pipeline_meta(
             supabase,
             memo_id,
@@ -534,16 +549,17 @@ async def upload_memo(
         transcript_raw = transcript.strip()
         transcript = await sanitize_user_transcript(transcript_raw, user_id, supabase)
         estimated_duration = len(transcript) / 15  # rough: ~15 chars/sec speech
-        result = supabase.table("memos").insert({
+        created = insert_memo_row(supabase, {
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "extracting",
             "transcript": transcript,
             "processing_started_at": datetime.utcnow().isoformat(),
-        }).execute()
+            "source_type": "voice_memo",
+        })
         
-        memo_id = result.data[0]["id"]
+        memo_id = created["id"]
         await start_extraction_from_transcript(
             str(memo_id),
             user_id,
@@ -587,14 +603,15 @@ async def upload_memo(
             extra=log_domain(DOMAIN_MEMO, "upload", user_id=user_id, has_transcript=False, audio_len=len(audio_bytes)),
         )
         estimated_duration = len(audio_bytes) / (1024 * 1024) * 60
-        result = supabase.table("memos").insert({
+        created = insert_memo_row(supabase, {
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "uploading",
-        }).execute()
+            "source_type": "voice_memo",
+        })
         
-        memo_id = result.data[0]["id"]
+        memo_id = created["id"]
         logger.info(
             "✅ Upload memo created (audio)",
             extra=log_domain(DOMAIN_MEMO, "upload_complete", memo_id=memo_id, user_id=user_id),
@@ -654,7 +671,7 @@ async def upload_transcript_only(
     }
 
     estimated_duration = len(transcript) / 15
-    result = supabase.table("memos").insert({
+    created = insert_memo_row(supabase, {
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
@@ -662,9 +679,9 @@ async def upload_transcript_only(
         "transcript": transcript,
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
-    }).execute()
+    })
     
-    memo_id = result.data[0]["id"]
+    memo_id = created["id"]
     await start_extraction_from_transcript(
         str(memo_id),
         user_id,
@@ -711,19 +728,21 @@ async def upload_transcript_and_extract(
     }
 
     estimated_duration = len(transcript) / 15
-    result = supabase.table("memos").insert({
+    source_type = body.source_type or "voice_memo"
+    if source_type not in ("voice_memo", "meeting_transcript"):
+        source_type = "voice_memo"
+
+    created = insert_memo_row(supabase, {
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
         "status": "extracting",
         "transcript": transcript,
+        "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
-    }).execute()
+    })
 
-    memo_id = result.data[0]["id"]
-    source_type = body.source_type or "voice_memo"
-    if source_type not in ("voice_memo", "meeting_transcript"):
-        source_type = "voice_memo"
+    memo_id = created["id"]
 
     await start_extraction_from_transcript(
         str(memo_id),
@@ -2009,6 +2028,20 @@ async def re_extract_memo(
         run=run_record(run_id, "re_extract", started_at, t0, "ok"),
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
+    schedule_followup(supabase, str(memo_id))
+    from app.services.memo_extraction_hooks import run_post_extraction_hooks
+
+    run_post_extraction_hooks(
+        supabase,
+        memo_id=str(memo_id),
+        extraction=extraction.model_dump(),
+        memo=memo_data,
+    )
+    from app.services.intelligence.worker import record_enqueue
+    record_enqueue(
+        supabase,
+        {"id": str(memo_id), "user_id": user_id, "extraction": extraction.model_dump()},
+    )
     release_pipeline_run(supabase, str(memo_id), run_id)
 
     updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()

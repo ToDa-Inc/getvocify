@@ -18,17 +18,8 @@
 }
 
 :root {
-  --beige: hsl(35, 25%, 35%);
-  --beige-light: hsl(35, 20%, 50%);
-  --beige-dark: hsl(35, 30%, 25%);
-  --cream: hsl(40, 33%, 96%);
-  --foreground: hsl(30, 12%, 12%);
-  --muted: hsl(30, 6%, 42%);
-  --border: hsl(38, 16%, 84%);
   --hairline: rgba(71, 67, 42, 0.12);
-  --secondary: hsl(38, 25%, 88%);
   --hover-fill: color-mix(in srgb, var(--beige) 8%, #fff);
-  --success: #346538;
   --radius: 12px;
   --shadow-soft: 0 1px 2px rgba(40, 30, 20, 0.04);
   --shadow-large: 0 16px 40px -22px rgba(40, 30, 20, 0.22);
@@ -109,13 +100,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .screen,
-  #contact-candidates { animation: none; }
+  .screen { animation: none; }
   .record-btn,
   .btn,
   .memo-item,
-  .update-item,
-  .matched-deal-item::before { transition: none !important; }
+  .update-item { transition: none !important; }
   .mini-spinner { animation: none; }
   .live-loader span { animation: none; height: 16px; opacity: 0.55; }
 }
@@ -925,7 +914,6 @@ body {
   border: 1.5px solid var(--hairline);
   background: #fff;
   box-sizing: border-box;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .matched-deal-item:hover { background: var(--hover-fill); border-color: var(--beige-light); }
 .matched-deal-item.is-selected {
@@ -1452,24 +1440,6 @@ body {
 .crm-field-row.is-written {
   background: #f8f6f2;
   border-color: rgba(120, 113, 108, 0.22);
-}
-.crm-field-row.is-quiet,
-.crm-field-row.is-status {
-  background: #fff;
-}
-.crm-field-row.is-quiet .crm-field-label,
-.crm-field-row.is-status .crm-field-label {
-  color: var(--muted);
-}
-.crm-field-row.is-quiet .custom-select-trigger,
-.crm-field-row.is-status .custom-select-trigger {
-  color: var(--foreground);
-  border-color: var(--border);
-  background: #fff;
-}
-.crm-field-row.is-status .crm-field-was,
-.crm-field-row.is-quiet .crm-field-was {
-  color: var(--muted);
 }
 .crm-field-label {
   flex: 0 0 108px;
@@ -2274,6 +2244,32 @@ body {
   flex-direction: column;
   gap: 6px;
 }
-#contact-candidates {
-  animation: slideDown 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+
+#contact-brief {
+  margin: 4px 16px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+#contact-brief p {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--foreground);
+}
+
+#contact-brief p + p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+#screen-record.has-brief .record-btn {
+  width: 44px;
+  height: 44px;
+}
+
+#screen-record.has-brief .record-icon {
+  width: 14px;
+  height: 14px;
 }

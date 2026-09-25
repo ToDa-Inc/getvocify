@@ -1,4 +1,15 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { productCatalog, type ProductTranslations } from './product-catalog';
+import { setApiRequestLanguage, type ApiRequestLanguage } from '@/shared/lib/api-request-language';
+import {
+  appLanguageToPersistFromVisit,
+  htmlLang,
+  publicPathForLanguage,
+  readStoredAppLanguage,
+  resolveAppLanguage,
+  shouldRewritePathForLanguage,
+  writeStoredAppLanguage,
+} from './app-language';
 
 export type Language = 'EN' | 'ES';
 
@@ -190,7 +201,8 @@ const translations = {
         "The copilot handles the rest",
         "Your team just sells"
       ]
-    }
+    },
+    product: productCatalog.EN,
   },
   ES: {
     nav: {
@@ -373,32 +385,50 @@ const translations = {
         "El copiloto se encarga del resto",
         "Tu equipo solo vende"
       ]
-    }
+    },
+    product: productCatalog.ES,
   }
 };
 
+export type { ProductTranslations };
+
+export { translations };
+
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
+
+function apiLanguageFromAppLanguage(lang: Language): ApiRequestLanguage {
+  return lang === 'EN' ? 'en' : 'es';
+}
 
 export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [language, setLanguage] = useState<Language>('ES');
 
-  // Detect language from URL on mount
   useEffect(() => {
     const path = window.location.pathname;
-    if (path.startsWith('/en')) {
-      setLanguage('EN');
-    } else {
-      setLanguage('ES');
+    const stored = readStoredAppLanguage();
+    const resolved = resolveAppLanguage({ stored, path });
+    const toPersist = appLanguageToPersistFromVisit({ stored, path });
+    if (toPersist) {
+      writeStoredAppLanguage(toPersist);
     }
+    setLanguage(resolved);
+    setApiRequestLanguage(apiLanguageFromAppLanguage(resolved));
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = htmlLang(language);
+  }, [language]);
 
   const t = translations[language];
 
   const handleSetLanguage = (lang: Language) => {
     setLanguage(lang);
-    // Update URL without full refresh
-    const newPath = lang === 'EN' ? '/en' : '/';
-    window.history.pushState({}, '', newPath);
+    writeStoredAppLanguage(lang);
+    setApiRequestLanguage(apiLanguageFromAppLanguage(lang));
+    const path = window.location.pathname;
+    if (shouldRewritePathForLanguage(path)) {
+      window.history.pushState({}, '', publicPathForLanguage(lang));
+    }
   };
 
   return (

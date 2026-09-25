@@ -1,0 +1,175 @@
+"""F15 adherence is pooled. A missing playbook does not invent a performance number."""
+
+import os
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
+os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-team-agg-32")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-team-agg-32")
+
+from datetime import datetime, timezone
+
+from app.services.team_insights.aggregate import activity_counts, team_adherence
+
+_WEEK_START = datetime(2026, 9, 21, 22, 0, tzinfo=timezone.utc)
+_WEEK_END = datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc)
+
+
+def _part(met: int, missed: int, *, observed_at: str = "2026-09-22T10:00:00Z") -> dict:
+    return {
+        "met_steps": met,
+        "missed_steps": missed,
+        "unknown_steps": 0,
+        "not_applicable_steps": 0,
+        "observed_at": observed_at,
+    }
+
+
+def test_two_reps_pool_to_two_of_ten_not_the_average_of_their_rates():
+    metrics = team_adherence(
+        role="admin",
+        parts=[_part(1, 0), _part(1, 8)],
+        playbook_present=True,
+        sample_size=10,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["met_steps"] == 2
+    assert metrics["applicable_steps"] == 10
+    assert metrics["adherence"] == 0.2
+    assert metrics["adherence"] != (1 + (1 / 9)) / 2
+
+
+def test_without_a_playbook_there_is_no_invented_performance():
+    metrics = team_adherence(role="owner", parts=[_part(1, 0)], playbook_present=False, sample_size=10)
+    assert metrics["adherence"] is None
+    assert metrics["coverage"] is None
+    assert metrics["conclusion"] is None
+
+
+def test_meeting_agreed_does_not_increment_crm_won():
+    rows = [
+        {
+            "screening": "connected",
+            "meeting_agreed": True,
+            "observed_at": "2026-09-22T11:00:00Z",
+        },
+    ]
+    metrics = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=False,
+        sample_size=0,
+        activity_rows=rows,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+        outcome_observations=[],
+    )
+    assert metrics["meetings"] == 1
+    assert metrics["won"] is None
+    assert metrics["lost"] is None
+
+
+def test_voicemail_and_connected_activity_reach_adherence_json():
+    rows = [
+        {"screening": "voicemail", "observed_at": "2026-09-22T09:00:00Z"},
+        {"screening": "voicemail", "observed_at": "2026-09-22T10:00:00Z"},
+        {"screening": "connected", "meeting_agreed": True, "observed_at": "2026-09-22T11:00:00Z"},
+    ]
+    assert activity_counts(rows, start=_WEEK_START, end=_WEEK_END) == {
+        "attempts": 3,
+        "connected": 1,
+        "meetings": 1,
+    }
+    metrics = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=False,
+        sample_size=0,
+        activity_rows=rows,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["attempts"] == 3
+    assert metrics["connected"] == 1
+    assert metrics["meetings"] == 1
+    assert metrics["adherence"] is None
+
+
+def test_adherence_uses_only_scores_in_the_madrid_week():
+    metrics = team_adherence(
+        role="admin",
+        parts=[_part(1, 0), _part(1, 8, observed_at="2026-09-15T10:00:00Z")],
+        playbook_present=True,
+        sample_size=2,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["met_steps"] == 1
+    assert metrics["applicable_steps"] == 1
+    assert metrics["adherence"] == 1.0
+
+
+def test_adherence_with_no_scores_in_week_is_null_not_zero():
+    metrics = team_adherence(
+        role="admin",
+        parts=[_part(1, 8, observed_at="2026-09-15T10:00:00Z")],
+        playbook_present=True,
+        sample_size=1,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["adherence"] is None
+    assert metrics["met_steps"] == 0
+    assert metrics["applicable_steps"] == 0
+
+
+def test_sample_limited_when_week_has_one_to_four_scored_conversations():
+    parts = [_part(1, 0, observed_at=f"2026-09-22T1{i}:00:00Z") for i in range(4)]
+    metrics = team_adherence(
+        role="admin",
+        parts=parts,
+        playbook_present=True,
+        sample_size=4,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert metrics["sample_limited"] is True
+    assert metrics["conclusion"] is None
+    assert metrics["met_steps"] == 4
+
+
+def test_sample_limited_false_with_zero_or_five_or_more_scored_in_week():
+    empty = team_adherence(
+        role="admin",
+        parts=[],
+        playbook_present=True,
+        sample_size=0,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert empty["sample_limited"] is False
+
+    five = team_adherence(
+        role="admin",
+        parts=[_part(1, 0, observed_at=f"2026-09-22T1{i}:00:00Z") for i in range(5)],
+        playbook_present=True,
+        sample_size=5,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+    )
+    assert five["sample_limited"] is False
+    assert five["met_steps"] == 5
+
+
+def test_activity_counts_ignore_out_of_week_and_missing_observed_at():
+    rows = [
+        {"screening": "connected", "observed_at": "2026-09-22T10:00:00Z"},
+        {"screening": "voicemail", "observed_at": "2026-09-20T10:00:00Z"},
+        {"screening": "connected", "meeting_agreed": True},
+    ]
+    assert activity_counts(rows, start=_WEEK_START, end=_WEEK_END) == {
+        "attempts": 1,
+        "connected": 1,
+        "meetings": 0,
+    }

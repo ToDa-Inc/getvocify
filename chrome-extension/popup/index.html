@@ -4,10 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vocify</title>
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="type.css">
   <link rel="stylesheet" href="copilot.css">
   <link rel="stylesheet" href="work.css">
+  <link rel="stylesheet" href="../shared/ui/vocify-ui.css">
 </head>
 <body>
   <div id="app">
@@ -24,13 +26,20 @@
         </div>
       </div>
 
+      <div id="contact-brief" hidden></div>
+
       <div class="main-actions">
         <div class="record-container">
           <button id="record-button" class="record-btn" aria-label="Record a voice memo">
             <div class="record-icon"></div>
           </button>
-          <p id="record-status-label" class="record-label">Record</p>
+          <p id="record-status-label" class="record-label" data-i18n="listenIdleStatus"></p>
         </div>
+
+        <button type="button" id="listen-tab-button" class="btn-secondary-hero" aria-pressed="false">
+          <span id="listen-tab-label"></span>
+        </button>
+        <p id="listen-status" class="listen-status" hidden></p>
 
         <div class="idle-tools">
           <button id="paste-transcript-toggle" type="button" class="tool-btn">
@@ -95,17 +104,21 @@
       </section>
 
       <div id="live-transcript-container" class="transcript-container" style="display: none;">
-        <p class="transcript-label">Transcribing live...</p>
+        <p class="transcript-label" data-i18n="transcribing"></p>
         <div id="live-transcript-text" class="transcript-text"></div>
       </div>
 
-      <div id="copilot-card" class="copilot-card" style="display: none;">
-        <p class="caps-label copilot-kicker">Say this</p>
-        <p id="copilot-say-this" class="copilot-say-this">Waiting for the other side to finish speaking…</p>
-        <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
-        <p id="copilot-next" class="copilot-next" style="display: none;"></p>
-        <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+      <div id="copilot-assist-wrap" class="copilot-assist-wrap" style="display: none;">
+        <div id="copilot-card" class="copilot-card" style="display: none;">
+          <p class="caps-label copilot-kicker" data-i18n="sayThis"></p>
+          <p id="copilot-say-this" class="copilot-say-this" data-i18n="waitingForThem"></p>
+          <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
+          <p id="copilot-next" class="copilot-next" style="display: none;"></p>
+          <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+        </div>
+        <button type="button" id="copilot-assist-toggle" class="copilot-assist-toggle" data-i18n="helpOn"></button>
       </div>
+      <div id="copilot-checklist" class="copilot-checklist-host" style="display: none;" hidden></div>
 
       <div id="paste-transcript-section" class="paste-transcript-section" style="display: none;">
         <textarea id="paste-transcript-input" class="transcript-textarea" rows="5" placeholder="Paste your transcript here..."></textarea>
@@ -186,6 +199,15 @@
           <p id="review-record-name" class="review-record-name" style="display: none;"></p>
         </div>
       </div>
+
+      <v-followup id="review-followup" hidden></v-followup>
+      <form id="review-note" hidden>
+        <label>Nota
+          <textarea id="review-note-text" rows="2"></textarea>
+        </label>
+        <button type="submit">Guardar nota</button>
+        <p id="review-note-status"></p>
+      </form>
 
       <div id="review-loading-section" class="review-loading" style="display: none;">
         <div class="live-loader" aria-hidden="true">

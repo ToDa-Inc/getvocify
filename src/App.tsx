@@ -17,6 +17,8 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
+import TeamInsightsPage from "./pages/dashboard/TeamInsightsPage";
+import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
@@ -31,6 +33,8 @@ import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
 import CallingSection from "./pages/dashboard/settings/CallingSection";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
+import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
+import PlaybooksSection from "./features/playbooks/components/PlaybooksSection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -168,11 +172,16 @@ const App = () => (
                 <Route path="calling" element={<CallingSection />} />
                 <Route path="offer" element={<OfferSection />} />
                 <Route path="glossary" element={<GlossarySection />} />
+                <Route path="brief" element={<BriefHighlightSection />} />
+                <Route path="playbooks" element={<PlaybooksSection />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
               </Route>
+              <Route path="insights" element={<TeamInsightsPage />} />
+              <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
+              <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
               <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />

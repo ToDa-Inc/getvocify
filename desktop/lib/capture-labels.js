@@ -1,0 +1,19 @@
+export function backendLabel(backend) {
+  switch (backend) {
+    case 'pipewire':
+      return 'PipeWire loopback';
+    case 'pulse':
+      return 'PulseAudio monitor';
+    case 'ffmpeg-pulse':
+      return 'FFmpeg Pulse monitor';
+    case 'chromium':
+      return 'Chromium loopback';
+    case 'sck':
+    case 'screencapturekit':
+      return 'ScreenCaptureKit';
+    case 'mic-only':
+      return 'Microphone only';
+    default:
+      return 'system audio';
+  }
+}

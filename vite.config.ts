@@ -5,9 +5,10 @@ import { componentTagger } from "lovable-tagger";
 
 import { reticle } from '@reticlehq/vite-plugin';
 
-// Vercel injects VITE_API_URL for Production. Force the staging API when this
-// branch builds so staging.getvocify.com cannot silently talk to prod.
-if (process.env.VERCEL_GIT_COMMIT_REF === "staging") {
+// Production Vercel sets VITE_API_URL to the prod API. On the staging branch
+// build, force the staging Railway API so the dashboard cannot hit prod.
+const vercelBranch = decodeURIComponent(process.env.VERCEL_GIT_COMMIT_REF ?? "");
+if (vercelBranch === "staging") {
   process.env.VITE_API_URL = "https://getvocify-staging.up.railway.app/api/v1";
 }
 
@@ -21,6 +22,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@shared": path.resolve(__dirname, "./shared"),
     },
   },
 }));
