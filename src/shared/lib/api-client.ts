@@ -8,6 +8,7 @@
  * - File upload support
  */
 
+import { resolveApiBase } from '@/lib/app-url';
 import {
   createRefreshGate,
   isAccessTokenFresh,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/auth-session';
 import { acceptLanguageRequestHeader } from './api-request-language';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
+const API_BASE = resolveApiBase();
 const REFRESH_KEY = 'vocify_refresh';
 const REFRESH_LOCK = 'vocify-auth-refresh';
 const REQUEST_TIMEOUT_MS = 20_000;
