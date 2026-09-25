@@ -33,6 +33,88 @@ def setup_function():
     ask_api.set_ask_loop(None)
 
 
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeTable:
+    def __init__(self, db):
+        self.db = db
+        self._filters = []
+        self._payload = None
+
+    def select(self, _cols):
+        return self
+
+    def update(self, payload):
+        self._payload = payload
+        return self
+
+    def eq(self, col, val):
+        self._filters.append((col, val))
+        return self
+
+    def limit(self, _n):
+        return self
+
+    def execute(self):
+        if self._payload is not None:
+            turn_id = next(v for c, v in self._filters if c == "id")
+            row = self.db.rows[turn_id]
+            row.update(self._payload)
+            return _Result([dict(row)])
+        turn_id = next(v for c, v in self._filters if c == "id")
+        user_id = next(v for c, v in self._filters if c == "user_id")
+        conversation_id = next(v for c, v in self._filters if c == "conversation_id")
+        row = self.db.rows.get(turn_id)
+        if not row or row["user_id"] != user_id or row["conversation_id"] != conversation_id:
+            return _Result([])
+        return _Result([dict(row)])
+
+
+class _FakeRPC:
+    def __init__(self, db, params):
+        self.db = db
+        self.params = params
+
+    def execute(self):
+        key = (
+            self.params["p_user"],
+            self.params["p_conversation"],
+            self.params["p_client_turn"],
+        )
+        existing = self.db.by_client.get(key)
+        if existing:
+            row = self.db.rows[existing]
+            return _Result([{"turn_id": existing, "body": row["body"], "replayed": True}])
+        turn_id = f"turn-{len(self.db.rows) + 1}"
+        self.db.rows[turn_id] = {
+            "id": turn_id,
+            "user_id": self.params["p_user"],
+            "conversation_id": self.params["p_conversation"],
+            "client_turn_id": self.params["p_client_turn"],
+            "status": "pending",
+            "body": self.params["p_text"],
+        }
+        self.db.by_client[key] = turn_id
+        return _Result(
+            [{"turn_id": turn_id, "body": self.params["p_text"], "replayed": False}]
+        )
+
+
+class FakeSupabase:
+    def __init__(self):
+        self.rows = {}
+        self.by_client = {}
+
+    def rpc(self, _name, params):
+        return _FakeRPC(self, params)
+
+    def table(self, _name):
+        return _FakeTable(self)
+
+
 def test_a_stored_turn_replays_the_same_id_for_the_callers_company():
     class Store:
         def __init__(self):
@@ -311,6 +393,7 @@ def test_the_web_turn_runs_the_loop_once_and_keeps_an_empty_read():
             json={"client_turn_id": "web-loop", "text": "otra"},
         )
         assert first.status_code == 200
+        assert first.json()["status"] == "completed"
         assert first.json()["text"] == "Marina queda el jueves."
         assert first.json()["coverage"] == "complete"
         assert first.json()["item_count"] == 0
@@ -398,84 +481,6 @@ def test_a_choices_turn_returns_both_labels_in_the_public_payload():
 def test_supabase_store_persists_a_finished_turn_and_replay_skips_the_loop():
     from app.services.crm_copilot.web_sessions import SupabaseAskStore
 
-    class _Result:
-        def __init__(self, data):
-            self.data = data
-
-    class _FakeTable:
-        def __init__(self, db):
-            self.db = db
-            self._filters = []
-            self._payload = None
-
-        def select(self, _cols):
-            return self
-
-        def update(self, payload):
-            self._payload = payload
-            return self
-
-        def eq(self, col, val):
-            self._filters.append((col, val))
-            return self
-
-        def limit(self, _n):
-            return self
-
-        def execute(self):
-            if self._payload is not None:
-                turn_id = next(v for c, v in self._filters if c == "id")
-                row = self.db.rows[turn_id]
-                row.update(self._payload)
-                return _Result([dict(row)])
-            turn_id = next(v for c, v in self._filters if c == "id")
-            user_id = next(v for c, v in self._filters if c == "user_id")
-            conversation_id = next(v for c, v in self._filters if c == "conversation_id")
-            row = self.db.rows.get(turn_id)
-            if not row or row["user_id"] != user_id or row["conversation_id"] != conversation_id:
-                return _Result([])
-            return _Result([dict(row)])
-
-    class _FakeRPC:
-        def __init__(self, db, params):
-            self.db = db
-            self.params = params
-
-        def execute(self):
-            key = (
-                self.params["p_user"],
-                self.params["p_conversation"],
-                self.params["p_client_turn"],
-            )
-            existing = self.db.by_client.get(key)
-            if existing:
-                row = self.db.rows[existing]
-                return _Result([{"turn_id": existing, "body": row["body"], "replayed": True}])
-            turn_id = f"turn-{len(self.db.rows) + 1}"
-            self.db.rows[turn_id] = {
-                "id": turn_id,
-                "user_id": self.params["p_user"],
-                "conversation_id": self.params["p_conversation"],
-                "client_turn_id": self.params["p_client_turn"],
-                "status": "pending",
-                "body": self.params["p_text"],
-            }
-            self.db.by_client[key] = turn_id
-            return _Result(
-                [{"turn_id": turn_id, "body": self.params["p_text"], "replayed": False}]
-            )
-
-    class FakeSupabase:
-        def __init__(self):
-            self.rows = {}
-            self.by_client = {}
-
-        def rpc(self, _name, params):
-            return _FakeRPC(self, params)
-
-        def table(self, _name):
-            return _FakeTable(self)
-
     calls = []
 
     async def loop(_text: str) -> dict:
@@ -512,6 +517,32 @@ def test_supabase_store_persists_a_finished_turn_and_replay_skips_the_loop():
         assert body["status"] == "completed"
         assert body["text"] == "Marina queda el jueves."
         assert body["choices"][0]["id"] == "c1"
+    finally:
+        ask_api.set_ask_store(None)
+        ask_api.set_ask_loop(None)
+
+
+def test_supabase_store_persists_a_failed_turn():
+    from app.services.crm_copilot.web_sessions import SupabaseAskStore
+
+    async def loop(_text: str):
+        return None
+
+    ask_api.set_ask_store(SupabaseAskStore(FakeSupabase()))
+    ask_api.set_ask_loop(loop)
+    try:
+        client = _client("user-a")
+        response = client.post(
+            "/api/v1/ask/conversations/conv-1/turns",
+            json={"client_turn_id": "web-fail-db", "text": "¿Qué sigue?"},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "failed"
+        fetched = client.get(
+            f"/api/v1/ask/conversations/conv-1/turns/{response.json()['turn_id']}"
+        )
+        assert fetched.status_code == 200
+        assert fetched.json()["status"] == "failed"
     finally:
         ask_api.set_ask_store(None)
         ask_api.set_ask_loop(None)
