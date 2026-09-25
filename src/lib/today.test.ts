@@ -5,6 +5,7 @@ import {
   todaySurface,
   cardsAfterDismiss,
   crmContactsUrl,
+  crmTasksUrl,
   originKey,
   splitTodayItems,
   supportingKeys,
@@ -101,7 +102,7 @@ describe("today surface", () => {
       copy,
     );
     assert.equal(folded.kind, "list");
-    if (folded.kind === "list") assert.equal(folded.foldedCount, 3);
+    if (folded.kind === "list") assert.equal(folded.foldedCount, 0);
     const split = splitTodayItems([
       card.items[0],
       { type: "manual_task", dedupe_key: null, reason: "Llamar", origins: ["manual"], supporting: [] },
@@ -116,9 +117,11 @@ describe("today surface", () => {
     assert.equal(crmContactsUrl("hubspot", "99"), "https://app.hubspot.com/contacts/99/objects/0-1");
     assert.equal(crmContactsUrl("hubspot", null), null);
     assert.equal(crmContactsUrl("pipedrive", null), "https://app.pipedrive.com/persons");
+    assert.equal(crmTasksUrl("hubspot", "99"), "https://app.hubspot.com/contacts/99/objects/0-27/views/all/list");
+    assert.equal(crmTasksUrl("pipedrive", null), "https://app.pipedrive.com/activities");
   });
 
-  it("lists CRM manual tasks even when Vocify signals are absent", () => {
+  it("hides CRM manual tasks until they are useful in Hoy", () => {
     const crmOnly: TodayView = {
       items: [{
         type: "manual_task",
@@ -138,11 +141,7 @@ describe("today surface", () => {
       { data: crmOnly, errorStatus: null, isLoading: false, connected: true, role: "member" },
       copy,
     );
-    assert.equal(surface.kind, "list");
-    if (surface.kind === "list") {
-      assert.equal(surface.items[0].remote_id, "task-9");
-      assert.deepEqual(surface.items[0].origins, ["manual"]);
-    }
+    assert.equal(surface.kind, "clear");
   });
 
   it("tells a member to wait for an admin when the CRM is disconnected", () => {

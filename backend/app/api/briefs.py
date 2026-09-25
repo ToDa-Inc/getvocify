@@ -38,6 +38,7 @@ async def get_brief(
         facts = _from_memos(
             supabase,
             membership.company_id,
+            membership.user_id,
             contact_id,
             connection_id=connection_id,
             deal_id=deal_id,
@@ -48,6 +49,7 @@ async def get_brief(
 def _from_memos(
     supabase,
     company_id: str,
+    user_id: str,
     contact_id: str,
     *,
     connection_id: str | None = None,
@@ -56,14 +58,21 @@ def _from_memos(
     try:
         query = (
             supabase.table("memos")
-            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
-            .eq("company_id", company_id)
+            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id,connection_id")
+            .eq("user_id", user_id)
             .eq("hubspot_contact_id", contact_id)
+            .or_(f"company_id.eq.{company_id},company_id.is.null")
             .order("created_at", desc=True)
             .limit(100)
         )
         stored = query.execute()
         rows = list(stored.data or [])
+        if connection_id:
+            rows = [
+                row
+                for row in rows
+                if not row.get("connection_id") or str(row.get("connection_id")) == str(connection_id)
+            ]
         if deal_id:
             rows = [
                 row

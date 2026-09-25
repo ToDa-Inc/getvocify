@@ -15,11 +15,14 @@ import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskCh
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
 import { askSituation } from "@/lib/ask-situation";
 import { productText } from "@/lib/product-catalog";
+import { Check, PaperPlaneTilt, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const STORAGE_KEY = "vocify-ask-turn";
+const CONVERSATION_KEY = "vocify-ask-conversation";
 
 type StoredTurn = { conversationId: string; turnId: string };
 
@@ -27,11 +30,24 @@ type AskTurnBody = {
   turn_id: string;
   status: AskSnapshot["status"];
   text: string;
+  question?: string | null;
   coverage?: "complete" | "partial" | "forbidden" | "unavailable" | null;
   item_count?: number;
   confirmation?: AskTurnConfirmation | null;
   choices?: AskChoice[];
 };
+
+function readConversationId(): string {
+  try {
+    const existing = sessionStorage.getItem(CONVERSATION_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    sessionStorage.setItem(CONVERSATION_KEY, id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
 
 function readStored(): StoredTurn | null {
   try {
@@ -51,7 +67,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
   const [view, setView] = useState<AskView>(emptyAsk());
   const [lines, setLines] = useState<{ role: "user" | "vocify"; text: string }[]>([]);
   const [sending, setSending] = useState(false);
-  const [conversationId] = useState("conv-1");
+  const [conversationId] = useState(readConversationId);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -70,6 +86,12 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
           status: turn.status,
           text: turn.text,
         }));
+        const question = (turn.question || "").trim();
+        const answer = (turn.text || "").trim();
+        const restored: { role: "user" | "vocify"; text: string }[] = [];
+        if (question) restored.push({ role: "user", text: question });
+        if (answer && turn.status !== "pending") restored.push({ role: "vocify", text: answer });
+        if (restored.length > 0) setLines(restored);
         setRead({ coverage: turn.coverage, items: turn.item_count });
         setPendingConfirm(pendingConfirmFromTurn(turn));
         setTurnChoices(askChoices(turn));
@@ -285,26 +307,13 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
             <p className={THEME_TOKENS.typography.body}>
               {askConfirmPrompt(t.product, pendingConfirm.contactId)}
             </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => {
-                  void confirmPending();
-                }}
-              >
-                {t.product.confirmAction}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void cancelPending();
-                }}
-              >
-                {t.product.cancelAction}
-              </Button>
+            <div className="flex items-center gap-0.5">
+              <IconAction label={t.product.confirmAction} onClick={() => void confirmPending()}>
+                <Check size={16} weight="light" />
+              </IconAction>
+              <IconAction label={t.product.cancelAction} tone="danger" onClick={() => void cancelPending()}>
+                <X size={16} weight="light" />
+              </IconAction>
             </div>
           </div>
         ) : null}
@@ -350,13 +359,14 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
               return result.text;
             }}
           />
-          <Button
-            type="submit"
-            size="sm"
+          <IconAction
+            label={t.product.askSend}
             disabled={busy || !draft.trim()}
+            pending={sending}
+            onClick={() => void send()}
           >
-            {t.product.askSend}
-          </Button>
+            <PaperPlaneTilt size={16} weight="light" />
+          </IconAction>
           </div>
         </form>
       ) : null}

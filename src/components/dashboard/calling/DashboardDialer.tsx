@@ -43,6 +43,7 @@ import {
   normalizeDialTarget,
   type CallState,
 } from "@/lib/dial-target";
+import type { DialerFocus } from "@/features/calling/DialerFocusProvider";
 
 type TelnyxCall = {
   id?: string;
@@ -83,6 +84,8 @@ type Props = {
   callerIds: CallerId[];
   onLiveChange?: (live: LiveInfo) => void;
   onRequestClose?: () => void;
+  focusContact?: DialerFocus | null;
+  onFocusHandled?: () => void;
 };
 
 async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
@@ -98,7 +101,13 @@ async function fetchCarrierDisposition(callSid: string | null): Promise<string |
   return latest.disposition || null;
 }
 
-export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Props) => {
+export const DashboardDialer = ({
+  callerIds,
+  onLiveChange,
+  onRequestClose,
+  focusContact = null,
+  onFocusHandled,
+}: Props) => {
   const { t } = useLanguage();
   const callCopy = t.product;
   const verified = callerIds.filter(
@@ -144,6 +153,31 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   useEffect(() => {
     searchRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!focusContact?.contactId || state !== CALL_STATES.IDLE) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const results = await crmApi.searchContacts(focusContact.contactId);
+        if (cancelled) return;
+        const hit =
+          results.find((row: ContactHit) => row.contact_id === focusContact.contactId) ?? results[0];
+        if (!hit) return;
+        const dest = dialTargetFromContact(hit);
+        if (!dest) return;
+        const name = hit.name || focusContact.name || hit.contact_id;
+        setSelected({ contactId: hit.contact_id, name, phone: dest });
+        setQuery(name);
+        setHits(results);
+      } finally {
+        if (!cancelled) onFocusHandled?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focusContact?.contactId, focusContact?.name, onFocusHandled, state]);
 
   useEffect(() => {
     if (!answeredAt || state !== CALL_STATES.ACTIVE) return;

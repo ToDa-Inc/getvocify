@@ -66,8 +66,14 @@ async def test_the_copilot_tool_refuses_a_member_and_ignores_a_widen_instruction
     )
     assert refused == {"ok": False, "error": "forbidden"}
 
+    from app.services.crm_copilot import web_sessions as ask_sessions
+
     class Admin:
         role = "admin"
+        company_id = "co-1"
+        supabase = object()
+
+    ask_sessions.bind_ask_actor("user-a", "co-1")
 
     allowed = await execute_tool(
         "get_team_metrics",
@@ -76,4 +82,7 @@ async def test_the_copilot_tool_refuses_a_member_and_ignores_a_widen_instruction
     )
     assert allowed["ok"] is True
     assert allowed["scope"] == {"scope": "user", "user_id": "user-b"}
+    assert allowed["source"] == "team_adherence"
+    assert "metrics" in allowed
+    assert "met_steps" in allowed["metrics"]
     assert "met_steps" not in allowed

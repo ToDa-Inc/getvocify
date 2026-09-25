@@ -10,6 +10,7 @@ import {
   floatingDialerChrome,
   type CallState,
 } from "@/lib/dial-target";
+import type { DialerFocus } from "@/features/calling/DialerFocusProvider";
 import { TodayDialerCards } from "@/features/today/components/TodayDialerCards";
 import { DashboardDialer } from "./DashboardDialer";
 
@@ -17,12 +18,16 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCallStateChange?: (state: CallState) => void;
+  focusContact?: DialerFocus | null;
+  onFocusHandled?: () => void;
 };
 
 export const FloatingDialer = ({
   open,
   onOpenChange,
   onCallStateChange,
+  focusContact = null,
+  onFocusHandled,
 }: Props) => {
   const { config, isLoading } = useCallingConfig();
   const [live, setLive] = useState<{ state: CallState; elapsed: string }>({
@@ -92,6 +97,8 @@ export const FloatingDialer = ({
             <>
               <DashboardDialer
                 callerIds={config?.callerIds || []}
+                focusContact={focusContact}
+                onFocusHandled={onFocusHandled}
                 onRequestClose={() => onOpenChange(false)}
                 onLiveChange={(next) => {
                   setLive(next);

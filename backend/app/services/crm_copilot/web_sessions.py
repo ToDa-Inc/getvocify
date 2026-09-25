@@ -162,6 +162,7 @@ def accept_turn(store: dict, *, conversation_id: str, client_turn_id: str, text:
         "status": "pending",
         "client_turn_id": client_turn_id,
         "text": text,
+        "question": text,
         "replayed": False,
     }
     store[key] = turn

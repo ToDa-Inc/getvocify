@@ -94,6 +94,7 @@ def _public(turn: dict) -> dict:
         "status": turn["status"],
         "client_turn_id": turn["client_turn_id"],
         "text": turn["text"],
+        "question": turn.get("question"),
         "coverage": turn.get("coverage"),
         "item_count": turn.get("item_count"),
         "confirmation": turn.get("confirmation"),
@@ -160,7 +161,7 @@ async def _finish(turn: dict, text: str) -> dict:
         if asyncio.iscoroutine(result):
             result = await result
         if result is None:
-            return {**turn, "status": "failed", "text": turn["text"]}
+            return {**turn, "status": "failed", "text": turn["text"], "question": turn.get("question") or text}
         confirmation = None
         if hasattr(result, "text"):
             answer = public_answer(result.text)
@@ -170,7 +171,7 @@ async def _finish(turn: dict, text: str) -> dict:
             envelope = result.get("envelope")
             confirmation = result.get("confirmation")
             choices = result.get("choices")
-        updated = {**turn, "status": "completed", "text": answer}
+        updated = {**turn, "status": "completed", "text": answer, "question": turn.get("question") or text}
         if confirmation:
             updated["confirmation"] = confirmation
         if choices:

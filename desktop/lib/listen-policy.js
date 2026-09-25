@@ -10,10 +10,12 @@ export function contactIdForListenSession(crmPageContext) {
   return id || null;
 }
 
-export function buildListenSession({ callMode = 'meeting', crmPageContext = null } = {}) {
+export function buildListenSession({ callMode = 'meeting', crmPageContext = null, captureId = null } = {}) {
+  const id = captureId != null ? String(captureId).trim() : '';
   return {
     callMode,
     contactId: contactIdForListenSession(crmPageContext),
+    ...(id ? { captureId: id, capture_id: id } : {}),
   };
 }
 

@@ -1,5 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
+import { TodayCardActions } from "@/features/today/components/TodayCardActions";
 import { priorityCards, prioritySurface } from "@/lib/contact-priorities";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
@@ -17,6 +19,7 @@ function PriorityList({
   copy: ProductTranslations;
   card: string;
 }) {
+  const dialer = useOptionalDialerFocus();
   const shown = priorityCards(surface.items);
   const note = surface.note || shown.note;
   return (
@@ -25,8 +28,18 @@ function PriorityList({
       {surface.stale ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.contactPrioritiesStale}</p> : null}
       {shown.items.map((item) => (
         <li key={item.id} className={card}>
-          <p className="text-[15px] leading-relaxed text-foreground">{productText(item.reason, copy)}</p>
-          {item.next_action ? <p className={THEME_TOKENS.typography.body}>{productText(item.next_action, copy)}</p> : null}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[15px] text-foreground">{item.contact_name || copy.today_unknown_contact}</p>
+              <p className="text-[15px] leading-relaxed text-foreground">{productText(item.reason, copy)}</p>
+              {item.next_action ? <p className={THEME_TOKENS.typography.body}>{productText(item.next_action, copy)}</p> : null}
+            </div>
+            {item.contact_id && dialer ? (
+              <TodayCardActions
+                onCall={() => dialer.openForContact({ contactId: item.contact_id, name: item.contact_name ?? null })}
+              />
+            ) : null}
+          </div>
         </li>
       ))}
     </ul>

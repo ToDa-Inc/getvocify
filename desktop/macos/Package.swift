@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     targets: [
         .target(name: "VocifyHostKit"),
-        .executableTarget(name: "VocifyHost", dependencies: ["VocifyHostKit"], resources: [.copy("bridge.js")]),
+        .executableTarget(name: "VocifyHost", dependencies: ["VocifyHostKit"]),
         .executableTarget(name: "VocifyHostChecks", dependencies: ["VocifyHostKit"]),
     ]
 )

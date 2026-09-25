@@ -8,7 +8,9 @@ describe('companion static server', () => {
     const url = await listenLocal(server);
     try {
       const html = await fetch(url).then((r) => r.text());
-      assert.match(html, /Vocify Companion/);
+      assert.match(html, /Vocify/);
+      assert.match(html, /class="app-shell"/);
+      assert.match(html, /id="account-menu"/);
       assert.match(html, /theme\.css/);
       assert.match(html, /id="notes-rail"/);
       assert.match(html, /id="btn-record"/);

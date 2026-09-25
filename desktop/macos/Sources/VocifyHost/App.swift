@@ -12,9 +12,9 @@ struct VocifyHostApp: App {
     var body: some Scene {
         WindowGroup {
             WebShellView(host: host)
-                .frame(minWidth: 720, minHeight: 600)
+                .frame(minWidth: 880, minHeight: 640)
         }
-        .defaultSize(width: 900, height: 720)
+        .defaultSize(width: 1040, height: 760)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appInfo) {

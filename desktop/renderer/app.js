@@ -1,3 +1,4 @@
+import { desktopCopy } from '../lib/desktop-copy.js';
 import { applyChannelLabelsToLiveUrl, encodeChannelAudio, liveTranscriptionUrl } from '../lib/channels.js';
 import { pcmFromAudioBuffer } from '../lib/pcm.js';
 import {
@@ -38,7 +39,7 @@ import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
 import { humanizeSaasError } from '../lib/saas.js';
-import { listenPermissionGate, PERMISSION } from '../lib/permissions.js';
+import { listenPermissionGate, PERMISSION, permissionAction } from '../lib/permissions.js';
 import { pickMicConstraints } from '../lib/mic-devices.js';
 import { noteRows, notesRequestPath } from '../lib/notes-list.js';
 import {
@@ -69,10 +70,11 @@ import {
   todayItemToCard,
 } from '../lib/home-hoy.js';
 import { renderToString } from './shared/ui/html.js';
-import { applyDataI18n, strings, uiLangInput } from './shared/ui/i18n.js';
+import { applyDataI18n, strings, uiLangInput, resolveUiLang } from './shared/ui/i18n.js';
 import { applyChunk, emptyNote, latestFinal, noteUploadText } from '../lib/live-note.js';
 import { renderTodayCard } from './shared/ui/today-card.js';
 import { isSessionError, startScreen } from '../lib/session.js';
+import { completeDesktopCapture, reserveDesktopCapture } from '../lib/capture-upload.js';
 
 const PROD_API = 'https://api.getvocify.com/api/v1';
 const STORAGE = {
@@ -83,20 +85,26 @@ const STORAGE = {
 };
 
 function uiLang() {
-  return uiLangInput(localStorage.getItem('vocify_lang'), navigator.language);
+  return resolveUiLang(uiLangInput(localStorage.getItem('vocify_lang'), navigator.language));
 }
 
 applyDataI18n(document, uiLang());
+document.documentElement.lang = uiLang();
+for (const el of document.querySelectorAll('[data-desktop-i18n]')) el.textContent = desktopCopy(uiLang())[el.dataset.desktopI18n] || '';
+const copy = () => desktopCopy(uiLang());
 
 const loginPanel = document.getElementById('login-panel');
+const permissionsPanel = document.getElementById('permissions-panel');
 const listenPanel = document.getElementById('listen-panel');
 const reviewPanel = document.getElementById('review-panel');
+const listenPermissionsEl = document.getElementById('listen-permissions');
 const loginError = document.getElementById('login-error');
 const listenError = document.getElementById('listen-error');
 const reviewError = document.getElementById('review-error');
 const transcriptEl = document.getElementById('transcript');
 const returnLiveBtn = document.getElementById('btn-return-live');
 const btnRecord = document.getElementById('btn-record');
+const recordHint = document.getElementById('record-hint');
 const idleBlockEl = document.getElementById('idle-block');
 const liveChipEl = document.getElementById('live-chip');
 const assistToggleEl = document.getElementById('assist-toggle');
@@ -135,8 +143,10 @@ let liveNote = emptyNote();
 let startedAt = 0;
 let timerTick = null;
 let permissionState = { platform: desktop()?.platform, microphone: 'never_requested', systemAudio: 'never_requested' };
+let permissionPoll = null;
 let notesCache = [];
 let reviewContext = null;
+let reviewLoadGeneration = 0;
 /** Live note frozen when entering review from stop; cleared when opening another memo from the rail. */
 let reviewNoteSnapshot = null;
 /** Transcript text for retry after upload/extraction failure while on the review screen. */
@@ -144,6 +154,9 @@ let pendingReviewTranscript = null;
 /** Memo on screen when review failed during load (rail or post-upload extract). */
 let reviewRetryMemoId = null;
 let reviewRetryReadOnly = false;
+/** Server capture id when complete failed after stop (same memo, no duplicate upload). */
+let reviewRetryCaptureId = null;
+let reviewRetryDurationSec = null;
 let copilotSuggestAbort = null;
 let copilotChecklistAbort = null;
 let reviewChecklistAbort = null;
@@ -160,7 +173,11 @@ let homeHoyActed = [];
 let homeHoyFlight = false;
 let homeHoyStale = true;
 let homeHoyUndoTick = null;
+let homeHoyError = false;
+let homeHoyCoverage = null;
 let localPendingCaptures = [];
+/** Server memo id from POST /captures during an active listen session. */
+let serverCaptureMemoId = null;
 
 function pendingCaptureSendLabel() {
   return uiLang() === 'en' ? 'Send' : 'Enviar';
@@ -306,15 +323,18 @@ function permissionTypeForDenyReason(reason) {
 }
 
 function showListenDenied(reason, platform) {
-  showError(listenError, startDeniedMessage(reason, { platform, lang: uiLang() }));
   const type = permissionTypeForDenyReason(reason);
-  if (type && btnOpenSettings) {
-    btnOpenSettings.textContent = strings(uiLang()).desktopOpenSettings;
-    btnOpenSettings.hidden = false;
-    btnOpenSettings.onclick = () => {
-      desktop()?.permissions?.open(type);
-    };
+  if (type && needsMacPermissions()) {
+    showError(listenError, '');
+    if (btnOpenSettings) btnOpenSettings.hidden = true;
+    void refreshPermissions().then(() => {
+      paintListenPermissionGate();
+      showScreen('permissions');
+      startPermissionPoll();
+    });
+    return;
   }
+  showError(listenError, startDeniedMessage(reason, { platform, lang: uiLang() }));
 }
 
 function showMeetingAudioLost() {
@@ -391,54 +411,49 @@ function paintHomeHoy() {
   if (!homeHoyEl || listenPanel.hidden) return;
   const token = localStorage.getItem(STORAGE.token);
   const nowMs = Date.now();
-  const listed = homeHoyListedItems(homeHoyItems, homeHoyActed, nowMs);
-  const cards = homeHoyCardsForDisplay({
-    captureActive: listening,
-    cards: listed.map(todayItemToCard),
-  });
-
+  const cards = homeHoyCardsForDisplay({captureActive: listening, cards: homeHoyListedItems(homeHoyItems, homeHoyActed, nowMs).map(todayItemToCard)});
   homeHoyEl.replaceChildren();
-  if (!token || !cards.length) {
-    homeHoyEl.hidden = true;
-    stopHomeHoyUndoClock();
-  } else {
+  homeHoyEl.hidden = listening;
+  const status = document.getElementById('today-status');
+  const incomplete = homeHoyCoverage && (!Object.keys(homeHoyCoverage).length || Object.values(homeHoyCoverage).some(value => value !== 'complete'));
+  status.textContent = homeHoyError ? copy().todayError : homeHoyStale ? copy().loading : incomplete ? copy().incomplete : cards.length ? '' : `${copy().empty} ${copy().emptyHint}`;
+  status.hidden = !status.textContent;
+  document.getElementById('today-retry').hidden = !homeHoyError && !incomplete;
+  for (const card of cards) {
     const t = strings(uiLang());
-    for (const card of cards) {
-      const wrap = document.createElement('div');
-      wrap.innerHTML = renderToString(
-        renderTodayCard(card, { now: nowMs, dismiss: t.dismiss, undo: t.undo }),
-      );
-      homeHoyEl.append(wrap.firstElementChild ?? wrap);
-    }
-    homeHoyEl.hidden = false;
-    const undoOpen = cards.some(
-      (card) => card.undoDeadline != null && Date.parse(card.undoDeadline) >= nowMs,
-    );
-    if (undoOpen) startHomeHoyUndoClock();
-    else stopHomeHoyUndoClock();
+    const wrap = document.createElement('div');
+    wrap.innerHTML = renderToString(renderTodayCard(card, {now: nowMs, dismiss:t.dismiss, undo:t.undo}));
+    const article = wrap.firstElementChild;
+    if (!card.canDismiss) article.querySelector('[data-action="dismiss"]')?.remove();
+    const identity = document.createElement('p'); identity.className = 'today-identity'; identity.textContent = card.contactName || copy().unnamed;
+    if (card.companyName) {const company=document.createElement('span');company.className='today-company';company.textContent=card.companyName;identity.append(company);}
+    article.prepend(identity);
+    const actions=document.createElement('div'); actions.className='today-actions';
+    if (card.openUrl) {
+      const open=document.createElement('button'); open.type='button'; open.className='primary'; open.textContent=copy().open;
+      open.addEventListener('click',()=>desktop()?.shell?.openExternal(card.openUrl)); actions.append(open);
+    } else {const hint=document.createElement('span');hint.className='muted';hint.textContent=copy().noTarget;actions.append(hint);}
+    for (const action of article.querySelectorAll('button[data-action]')) {action.className='ghost'; actions.append(action);}
+    article.append(actions);homeHoyEl.append(article);
   }
-
-  if (
-    shouldFetchHomeHoy({
-      token,
-      captureActive: listening,
-      inFlight: homeHoyFlight,
-      stale: homeHoyStale,
-    })
-  ) {
-    homeHoyFlight = true;
-    request(homeHoyRequestPath(), { token })
-      .then((body) => {
-        homeHoyItems = Array.isArray(body?.items) ? body.items : [];
-        homeHoyFlight = false;
-        homeHoyStale = false;
-        paintHomeHoy();
-      })
-      .catch(() => {
-        homeHoyFlight = false;
-      });
+  if (cards.some(card => card.undoDeadline && Date.parse(card.undoDeadline)>=nowMs)) startHomeHoyUndoClock(); else stopHomeHoyUndoClock();
+  if (shouldFetchHomeHoy({token,captureActive:listening,inFlight:homeHoyFlight,stale:homeHoyStale}) && !homeHoyError) {
+    homeHoyFlight=true;
+    request(homeHoyRequestPath(),{token}).then(body=>{
+      if (localStorage.getItem(STORAGE.token)!==token) return;
+      homeHoyItems=Array.isArray(body?.items)?body.items:[];
+      homeHoyCoverage=body?.coverage || {};
+      homeHoyFlight=false;homeHoyStale=false;paintHomeHoy();
+    }).catch(()=>{
+      if (localStorage.getItem(STORAGE.token)!==token) return;
+      homeHoyFlight=false;homeHoyError=true;paintHomeHoy();
+    });
   }
 }
+
+document.getElementById('today-retry').addEventListener('click',()=>{
+  homeHoyError=false;homeHoyStale=true;paintHomeHoy();
+});
 
 async function dismissHomeHoyCard(cardEl) {
   const id = cardEl?.dataset?.id;
@@ -468,7 +483,7 @@ async function dismissHomeHoyCard(cardEl) {
     ];
     paintHomeHoy();
   } catch {
-    /* failed dismiss leaves the card */
+    showError(listenError, copy().todayError);
   }
 }
 
@@ -492,7 +507,7 @@ async function undoHomeHoyCard(cardEl) {
     homeHoyStale = true;
     paintHomeHoy();
   } catch {
-    /* keep card as-is */
+    showError(listenError, copy().todayError);
   }
 }
 
@@ -538,7 +553,7 @@ function paintHomeBrief() {
     })
     .catch(() => {
       if (homeBriefFlight !== contactId) return;
-      homeBriefCache = { contactId, brief: { text: 'No se pudo cargar todo.', lines: [] } };
+      homeBriefCache = { contactId, brief: { text: copy().briefError, lines: [] } };
       homeBriefFlight = null;
       paintHomeBrief();
     });
@@ -607,8 +622,16 @@ async function paintNotesList() {
     }
     const meta = document.createElement('span');
     meta.className = 'meta';
-    meta.textContent = `${row.when} · ${row.minutes} min`;
+    meta.textContent = [row.when, row.durationLabel].filter(Boolean).join(' · ');
     btn.append(title, meta);
+    if (row.statusLabel) {
+      const state = document.createElement('span');
+      state.className = 'note-status';
+      state.textContent = row.statusLabel;
+      btn.append(state);
+    }
+    const labelParts = [row.title, row.when, row.durationLabel, row.statusLabel].filter(Boolean);
+    if (labelParts.length) btn.setAttribute('aria-label', labelParts.join(', '));
     notesListEl.append(btn);
   }
 }
@@ -616,7 +639,10 @@ async function paintNotesList() {
 function notifyShell() {
   const email = localStorage.getItem(STORAGE.email) || '';
   const loggedIn = Boolean(localStorage.getItem(STORAGE.token));
-  if (accountMenu) accountMenu.hidden = !loggedIn || !email;
+  if (accountMenu) {
+    accountMenu.hidden = !loggedIn;
+    if (!loggedIn) accountMenu.open = false;
+  }
   if (sessionChip) sessionChip.textContent = loggedIn ? email : '';
   desktop()?.shell?.setState({
     listening,
@@ -634,10 +660,15 @@ function notifyShell() {
 function setLiveUi(on) {
   const t = strings(uiLang());
   btnRecord.classList.toggle('live', on);
-  btnRecord.setAttribute('aria-label', on ? t.desktopStopReview : t.listenIdleButton);
+  listenPanel?.classList.toggle('is-live', on);
+  btnRecord.setAttribute('aria-label', on ? copy().stop : copy().listen);
+  document.getElementById('record-label').textContent = on ? copy().stop : copy().listen;
+  document.getElementById('home-context').hidden = on;
+  document.getElementById('record-hint').hidden = on;
   if (liveChipEl) liveChipEl.hidden = !on;
   if (assistToggleEl) assistToggleEl.hidden = !on;
   if (idleBlockEl) idleBlockEl.hidden = on;
+  if (!on && transcriptEl) transcriptEl.replaceChildren();
   if (on) {
     startedAt = Date.now();
     timerEl.textContent = '00:00';
@@ -660,12 +691,15 @@ function highlightActiveNote(id) {
 
 function showScreen(name) {
   loginPanel.hidden = name !== 'login';
+  if (permissionsPanel) permissionsPanel.hidden = name !== 'permissions';
   listenPanel.hidden = name !== 'listen';
   reviewPanel.hidden = name !== 'review';
-  if (notesRailEl) notesRailEl.hidden = name === 'login';
+  if (notesRailEl) notesRailEl.hidden = name === 'login' || name === 'permissions';
+  if (accountMenu) accountMenu.hidden = name === 'login' || !localStorage.getItem(STORAGE.token);
   desktop()?.shell?.resize(name === 'review' ? 'review' : 'compact');
   if (name === 'listen') {
     if (!listening) setLiveUi(false);
+    paintListenPermissionGate();
     paintHomeBrief();
     paintHomeHoy();
     highlightActiveNote(null);
@@ -685,19 +719,112 @@ function permissionGate() {
   });
 }
 
+function needsMacPermissions() {
+  const platform = permissionState.platform || desktop()?.platform;
+  return platform === 'darwin';
+}
+
+function permissionRowCopy(type, on) {
+  const c = copy();
+  if (type === PERMISSION.microphone) {
+    return {
+      title: on ? c.permMicOn : c.permMicEnable,
+      body: on ? c.permMicOnBody : c.permMicBody,
+    };
+  }
+  return {
+    title: on ? c.permAudioOn : c.permAudioEnable,
+    body: on ? c.permAudioOnBody : c.permAudioBody,
+  };
+}
+
+function paintPermissionRow(row, type, status) {
+  if (!row) return;
+  const on = status === 'authorized';
+  const labels = permissionRowCopy(type, on);
+  row.classList.toggle('is-on', on);
+  row.querySelector('[data-title]').textContent = labels.title;
+  row.querySelector('[data-body]').textContent = labels.body;
+  const btn = row.querySelector('[data-action]');
+  if (!btn) return;
+  btn.hidden = on;
+  const action = permissionAction(status);
+  btn.textContent = action === 'open_settings' ? copy().permOpenSettings : copy().permEnable;
+  btn.dataset.permType = type;
+}
+
+function paintAllPermissionRows() {
+  for (const row of document.querySelectorAll('.perm-row[data-perm]')) {
+    const type = row.dataset.perm === 'microphone' ? PERMISSION.microphone : PERMISSION.systemAudio;
+    const status =
+      type === PERMISSION.microphone ? permissionState.microphone : permissionState.systemAudio;
+    paintPermissionRow(row, type, status);
+  }
+  const cont = document.getElementById('btn-permissions-continue');
+  if (cont) cont.disabled = !permissionGate().ok;
+  paintListenPermissionGate();
+}
+
+function paintListenPermissionGate() {
+  const mac = needsMacPermissions();
+  const gateOk = permissionGate().ok;
+  if (listenPermissionsEl) listenPermissionsEl.hidden = !mac || gateOk || listening;
+  if (recordHint) recordHint.hidden = mac && !gateOk;
+  if (btnRecord) btnRecord.disabled = mac && !gateOk && !listening;
+}
+
+function startPermissionPoll() {
+  stopPermissionPoll();
+  permissionPoll = setInterval(() => {
+    refreshPermissions().catch(() => {});
+  }, 1000);
+}
+
+function stopPermissionPoll() {
+  if (permissionPoll) clearInterval(permissionPoll);
+  permissionPoll = null;
+}
+
 async function refreshPermissions() {
   const api = desktop()?.permissions;
   if (!api?.status) {
     permissionState = { platform: desktop()?.platform, microphone: 'authorized', systemAudio: 'authorized' };
+    paintAllPermissionRows();
     return permissionState;
   }
   permissionState = await api.status();
+  paintAllPermissionRows();
+  if (permissionGate().ok && permissionsPanel && !permissionsPanel.hidden) {
+    stopPermissionPoll();
+    showScreen('listen');
+    setLiveUi(false);
+    void paintNotesList();
+  }
   return permissionState;
+}
+
+async function handlePermissionClick(type) {
+  const api = desktop()?.permissions;
+  if (!api) return;
+  const status = type === PERMISSION.microphone ? permissionState.microphone : permissionState.systemAudio;
+  if (permissionAction(status) === 'open_settings') await api.open(type);
+  else await api.request(type);
+  await refreshPermissions();
 }
 
 async function enterApp() {
   await refreshPermissions();
+  if (needsMacPermissions() && !permissionGate().ok) {
+    showScreen('permissions');
+    startPermissionPoll();
+    notifyShell();
+    return;
+  }
+  stopPermissionPoll();
   showScreen('listen');
+  setLiveUi(false);
+  paintListenPermissionGate();
+  notifyShell();
   void paintNotesList();
 }
 
@@ -710,7 +837,7 @@ async function request(path, { method = 'GET', body, token } = {}) {
       const result = await proxy({ base: apiBase(), path, method, headers, body });
       if (!result.ok) {
         const detail = typeof result.data?.detail === 'string' ? result.data.detail : result.error;
-        if (isSessionError({ status: result.status, detail })) {
+        if (path !== '/auth/login' && isSessionError({ status: result.status, detail })) {
           loseSession();
         }
         throw new Error(humanizeSaasError(null, { status: result.status, detail }));
@@ -725,7 +852,7 @@ async function request(path, { method = 'GET', body, token } = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = typeof data.detail === 'string' ? data.detail : `HTTP ${res.status}`;
-      if (isSessionError({ status: res.status, detail })) {
+      if (path !== '/auth/login' && isSessionError({ status: res.status, detail })) {
         loseSession();
       }
       throw new Error(detail);
@@ -818,6 +945,8 @@ function setReviewLoading(loading) {
     dealEl.classList.add('review-slot');
     dealsEl.hidden = true;
     followupEl.hidden = true;
+    document.getElementById('followup-error').hidden = true;
+    document.getElementById('followup-retry').hidden = true;
     if (checklistEl) checklistEl.hidden = true;
     document.getElementById('btn-approve').hidden = true;
     if (btnReviewDashboard) btnReviewDashboard.hidden = true;
@@ -843,14 +972,14 @@ function clearReviewRetryState() {
   pendingReviewTranscript = null;
   reviewRetryMemoId = null;
   reviewRetryReadOnly = false;
+  reviewRetryCaptureId = null;
+  reviewRetryDurationSec = null;
 }
 
 function renderTranscript() {
   const t = strings(uiLang());
   const follow = stickToLive;
-  const hasContent = renderLiveNoteInto(transcriptEl, liveNote, {
-    emptyMessage: 'Escuchando. La transcripción aparecerá aquí.',
-  });
+  const hasContent = renderLiveNoteInto(transcriptEl, liveNote, { emptyMessage: '' });
   if (returnLiveBtn) {
     returnLiveBtn.hidden = follow || !hasContent;
     returnLiveBtn.textContent = t.transcriptBackToLive;
@@ -908,6 +1037,7 @@ function stopCapture() {
   transcriptionOffline = false;
   wsReconnectAttempts = 0;
   clientCaptureId = null;
+  serverCaptureMemoId = null;
   if (audioContext) {
     audioContext.close().catch(() => {});
     audioContext = null;
@@ -1064,9 +1194,11 @@ async function startListen() {
   wsReconnectAttempts = 0;
   transcriptionOffline = false;
   clientCaptureId = crypto.randomUUID();
+  const captureStartedAt = new Date().toISOString();
+  serverCaptureMemoId = null;
   const cap = desktop()?.capture;
   if (cap?.begin) {
-    void cap.begin({ clientCaptureId, startedAt: new Date().toISOString() });
+    void cap.begin({ clientCaptureId, startedAt: captureStartedAt });
   }
   currentBackend = nativeBackend || 'chromium';
   captureStreams = system ? [mic, system] : [mic];
@@ -1075,6 +1207,28 @@ async function startListen() {
     callMode: 'meeting',
     crmPageContext: hubspotRecordPage,
   });
+  const activeClientCaptureId = clientCaptureId;
+  const token = localStorage.getItem(STORAGE.token);
+  void reserveDesktopCapture(
+    (path, opts) => request(path, { ...opts, token }),
+    {
+      clientCaptureId: activeClientCaptureId,
+      startedAt: captureStartedAt,
+    },
+  )
+    .then((data) => {
+      if (!listening || clientCaptureId !== activeClientCaptureId) return;
+      serverCaptureMemoId = data.capture_id;
+      listenSession = buildListenSession({
+        callMode: 'meeting',
+        crmPageContext: hubspotRecordPage,
+        captureId: data.capture_id,
+      });
+      void requestCopilotChecklist();
+    })
+    .catch(() => {
+      /* mic capture continues; live checklist stays on company playbook until reserve succeeds */
+    });
   const listenAssist = beginMeetingListenAssist({ createMeetingId: () => crypto.randomUUID() });
   liveAssistMeetingId = listenAssist.meetingId;
   Object.assign(liveAssistOverlay, listenAssist.overlay);
@@ -1202,7 +1356,7 @@ function renderReview() {
   const dealEl = document.getElementById('review-deal');
   const dealsEl = document.getElementById('review-deals');
   if (ctx.deal.needsDecision) {
-    dealEl.textContent = 'Pick the HubSpot deal for this call.';
+    dealEl.textContent = copy().selectDeal;
     dealsEl.hidden = false;
     dealsEl.innerHTML = '';
     for (const match of ctx.deal.matches || []) {
@@ -1233,14 +1387,14 @@ function renderReview() {
       ctx.isNewDeal = true;
     });
     const text = document.createElement('span');
-    text.textContent = 'Create a new deal';
+    text.textContent = copy().newDeal;
     create.append(text, radio);
     dealsEl.appendChild(create);
   } else {
     dealsEl.hidden = true;
     dealEl.textContent = ctx.deal.selected
-      ? `Matched: ${ctx.deal.selected.deal_name || ctx.deal.selected.deal_id}`
-      : 'No confident deal match — Approve can still update the contact.';
+      ? `${copy().matched}: ${ctx.deal.selected.deal_name || ctx.deal.selected.deal_id}`
+      : copy().noDeal;
   }
 
   const fieldsEl = document.getElementById('review-fields');
@@ -1262,7 +1416,7 @@ function renderReview() {
       const omit = document.createElement('button');
       omit.type = 'button';
       omit.className = 'ghost omit';
-      omit.textContent = 'Omit';
+      omit.textContent = copy().omit;
       omit.addEventListener('click', () => {
         const key = proposedFieldKey(row);
         if (key) ctx.omittedKeys.push(key);
@@ -1274,8 +1428,9 @@ function renderReview() {
     fieldsEl.appendChild(wrap);
   }
   if (!ctx.updates.length) {
-    fieldsEl.innerHTML = '<p class="muted">No field updates extracted.</p>';
+    const empty=document.createElement('p');empty.className='muted';empty.textContent=copy().noFields;fieldsEl.append(empty);
   }
+  document.getElementById('review-fields-label').textContent = `${copy().fields} · ${ctx.updates.length}`;
   paintReviewChecklist(ctx.meetingChecklist);
 }
 
@@ -1289,9 +1444,14 @@ async function loadFollowup(memoId, token, attempt = 0) {
   try {
     view = await request(`/memos/${memoId}/followup`, { token });
   } catch {
+    if (reviewContext?.memoId !== memoId) return;
     followupEl.hidden = true;
+    showError(document.getElementById('followup-error'), copy().followupError);
+    document.getElementById('followup-retry').hidden = false;
     return;
   }
+  document.getElementById('followup-error').hidden = true;
+  document.getElementById('followup-retry').hidden = true;
   if (reviewContext?.memoId !== memoId) return;
   followupEl.hidden = view.status === 'unavailable';
   followupEl.data = view;
@@ -1323,14 +1483,16 @@ followupEl.addEventListener('v-action', async (event) => {
     if (!opened?.ok) return;
     element.data = await record({ action: 'sent', channel, subject, body });
   } catch (err) {
-    showError(reviewError, err.message || 'Follow-up failed');
+    showError(reviewError, err.message || copy().followupError);
   }
 });
 
 async function populateReviewContext(memoId, { readOnly = false } = {}) {
+  const generation = ++reviewLoadGeneration;
   const token = localStorage.getItem(STORAGE.token);
-  document.getElementById('review-status').textContent = 'Extracting CRM fields…';
+  document.getElementById('review-status').textContent = copy().preparing;
   const waited = await waitForReview(() => request(`/memos/${memoId}`, { token }));
+  if (generation !== reviewLoadGeneration) return;
   if (!waited.ok) {
     document.getElementById('review-status').textContent = '';
     throw new Error(waited.error || 'Extraction failed');
@@ -1338,6 +1500,8 @@ async function populateReviewContext(memoId, { readOnly = false } = {}) {
   const memo = waited.memo;
   let preview = {};
   preview = await request(`/memos/${memoId}/preview`, { token });
+  if (generation !== reviewLoadGeneration) return;
+  readOnly = readOnly || memo.status === 'approved';
   const deal = pickDeal(preview.matched_deals || preview.matches || []);
   const notes = notesFromPreview(preview, memo.extraction);
   reviewContext = {
@@ -1359,8 +1523,8 @@ async function populateReviewContext(memoId, { readOnly = false } = {}) {
     paintReviewNote(noteFromMemoTranscript(memo.transcript));
   }
   document.getElementById('review-status').textContent = readOnly
-    ? ''
-    : 'Review notes and fields, then approve.';
+    ? copy().saved
+    : copy().needsReview;
   setReviewLoading(false);
   paintReviewChecklist(null);
   loadFollowup(memoId, token);
@@ -1368,18 +1532,34 @@ async function populateReviewContext(memoId, { readOnly = false } = {}) {
   void loadReviewChecklist(memoId, token);
 }
 
-async function uploadAndOpenReview(transcript) {
+async function uploadAndOpenReview(
+  transcript,
+  { note = liveNote, durationSec = null, captureId = null } = {},
+) {
   const token = localStorage.getItem(STORAGE.token);
-  const uploaded = await request('/memos/upload-and-extract', {
-    method: 'POST',
-    token,
-    body: { transcript, source_type: 'meeting_transcript' },
-  });
+  const authedRequest = (path, opts) => request(path, { ...opts, token });
+  let memoId = null;
+  if (captureId) {
+    const completed = await completeDesktopCapture(authedRequest, {
+      captureId,
+      transcript,
+      duration: durationSec,
+      turns: note?.turns ?? [],
+    });
+    memoId = completed.memo_id || completed.capture_id;
+  } else {
+    const uploaded = await request('/memos/upload-and-extract', {
+      method: 'POST',
+      token,
+      body: { transcript, source_type: 'meeting_transcript' },
+    });
+    memoId = uploaded.id;
+  }
   void paintNotesList();
   pendingReviewTranscript = null;
-  reviewRetryMemoId = String(uploaded.id);
+  reviewRetryMemoId = String(memoId);
   reviewRetryReadOnly = false;
-  await populateReviewContext(uploaded.id);
+  await populateReviewContext(memoId);
   clearReviewRetryState();
   hideReviewRetry();
 }
@@ -1408,8 +1588,12 @@ async function openReview(memoId, { readOnly = false } = {}) {
 
 async function stopAndSend() {
   const t = strings(uiLang());
-  const transcript = noteUploadText(liveNote, { you: t.speakerYou, them: t.speakerThem }).trim();
-  reviewNoteSnapshot = liveNote;
+  const noteForUpload = liveNote;
+  const transcript = noteUploadText(noteForUpload, { you: t.speakerYou, them: t.speakerThem }).trim();
+  const durationSec =
+    startedAt > 0 ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : null;
+  const reservedCaptureId = serverCaptureMemoId;
+  reviewNoteSnapshot = noteForUpload;
   stopCapture();
   if (!transcript) {
     reviewNoteSnapshot = null;
@@ -1419,13 +1603,19 @@ async function stopAndSend() {
   pendingReviewTranscript = transcript;
   reviewRetryMemoId = null;
   reviewRetryReadOnly = false;
+  reviewRetryCaptureId = reservedCaptureId;
+  reviewRetryDurationSec = durationSec;
   showScreen('review');
   paintReviewNote(reviewNoteSnapshot);
   setReviewLoading(true);
   showError(reviewError, '');
   hideReviewRetry();
   try {
-    await uploadAndOpenReview(transcript);
+    await uploadAndOpenReview(transcript, {
+      note: noteForUpload,
+      durationSec,
+      captureId: reservedCaptureId,
+    });
   } catch {
     setReviewLoading(false);
     showReviewPrepareFailure();
@@ -1433,7 +1623,9 @@ async function stopAndSend() {
 }
 
 async function approveReview() {
-  if (!reviewContext) return;
+  if (!reviewContext || reviewContext.readOnly) return;
+  if (reviewContext.deal.needsDecision && !reviewContext.dealId && !reviewContext.isNewDeal) { showError(reviewError, copy().confirmFirst); return; }
+  const approvingContext = reviewContext;
   showError(reviewError, '');
   const summary = document.getElementById('review-summary').value;
   const nextSteps = document.getElementById('review-next').value
@@ -1467,14 +1659,35 @@ async function approveReview() {
         skipDeal: Boolean(reviewContext.preview?.skip_deal) && !reviewContext.dealId && !reviewContext.isNewDeal,
       }),
     });
-    document.getElementById('review-status').textContent = 'CRM updated.';
+    if (reviewContext !== approvingContext) return;
+    reviewContext.readOnly = true;
+    document.getElementById('review-status').textContent = copy().saved;
+    renderReview();
     void paintNotesList();
   } catch (err) {
-    showError(reviewError, err.message || 'Approve failed');
+    showError(reviewError, err.message || copy().confirmError);
   } finally {
     document.getElementById('btn-approve').disabled = false;
   }
 }
+
+document.getElementById('btn-permissions-continue')?.addEventListener('click', () => {
+  if (permissionGate().ok) {
+    stopPermissionPoll();
+    showScreen('listen');
+    setLiveUi(false);
+    void paintNotesList();
+  }
+});
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('.perm-row [data-action]');
+  if (!btn || btn.hidden) return;
+  const type = btn.dataset.permType;
+  if (type === PERMISSION.microphone || type === PERMISSION.systemAudio) {
+    handlePermissionClick(type).catch(() => {});
+  }
+});
 
 document.getElementById('btn-login').addEventListener('click', async () => {
   showError(loginError, '');
@@ -1505,8 +1718,10 @@ homeHoyEl?.addEventListener('click', (event) => {
 
 document.getElementById('btn-logout').addEventListener('click', () => {
   stopCapture();
+  stopPermissionPoll();
   stopHomeHoyUndoClock();
   homeHoyItems = [];
+  homeHoyError = false; homeHoyCoverage = null; homeHoyFlight = false;
   homeHoyActed = [];
   homeHoyStale = true;
   notesCache = [];
@@ -1516,6 +1731,7 @@ document.getElementById('btn-logout').addEventListener('click', () => {
   if (accountMenu) accountMenu.hidden = true;
   if (sessionChip) sessionChip.textContent = '';
   showScreen('login');
+  notifyShell();
 });
 
 document.getElementById('btn-dashboard').addEventListener('click', () => {
@@ -1565,7 +1781,7 @@ assistInputEl?.addEventListener('change', () => {
   desktop()?.shell?.command(assistInputEl.checked ? 'assist-on' : 'assist-off');
 });
 document.getElementById('btn-approve').addEventListener('click', () => {
-  approveReview().catch((err) => showError(reviewError, err.message || 'Approve failed'));
+  approveReview().catch((err) => showError(reviewError, err.message || copy().confirmError));
 });
 btnReviewRetry?.addEventListener('click', () => {
   if (pendingReviewTranscript) {
@@ -1573,7 +1789,11 @@ btnReviewRetry?.addEventListener('click', () => {
     setReviewLoading(true);
     showError(reviewError, '');
     hideReviewRetry();
-    uploadAndOpenReview(transcript).catch(() => {
+    uploadAndOpenReview(transcript, {
+      note: reviewNoteSnapshot || liveNote,
+      durationSec: reviewRetryDurationSec,
+      captureId: reviewRetryCaptureId,
+    }).catch(() => {
       setReviewLoading(false);
       if (reviewRetryMemoId) {
         pendingReviewTranscript = null;
@@ -1638,4 +1858,19 @@ async function boot() {
   else showScreen('login');
 }
 
+window.__vocifyBooted = true;
 void boot();
+
+document.addEventListener('click', (event) => {
+  if (accountMenu && !accountMenu.contains(event.target)) accountMenu.open = false;
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && accountMenu?.open) {
+    accountMenu.open = false;
+    sessionChip.focus();
+  }
+});
+
+document.getElementById('followup-retry').addEventListener('click', () => {
+  if (reviewContext) void loadFollowup(reviewContext.memoId, localStorage.getItem(STORAGE.token));
+});

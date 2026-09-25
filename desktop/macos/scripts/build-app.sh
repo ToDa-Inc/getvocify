@@ -28,9 +28,13 @@ app="$root/Vocify.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$root/.build/release/VocifyHost" "$app/Contents/MacOS/VocifyHost"
+cp "$root/Sources/VocifyHost/bridge.js" "$app/Contents/Resources/bridge.js"
 cp "$root/Info.plist" "$app/Contents/Info.plist"
 cp "$root/build/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 rsync -a --delete "$desktop/renderer/" "$app/Contents/Resources/renderer/"
+rsync -a --delete --exclude '*.test.js' "$desktop/lib/" "$app/Contents/Resources/lib/"
+# desktop/lib imports ../../shared/ui, which the page resolves as /shared/ui.
+rsync -a --delete --exclude '*.test.js' "$desktop/../shared/ui/" "$app/Contents/Resources/shared/ui/"
 
 codesign --force --deep --sign - --entitlements "$root/VocifyHost.entitlements" "$app"
 echo "$app"

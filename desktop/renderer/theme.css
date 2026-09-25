@@ -1,3 +1,4 @@
+@font-face { font-family: "Geist"; src: url("./fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
 /*
   Vocify Companion theme tokens.
   Source of truth for color, type, radius, and materials.
@@ -10,11 +11,16 @@
   --input: 0 0% 100%;
   --ring: 35 25% 35%;
   --hairline: 38 18% 28% / 0.12;
+  --sidebar-background: 40 25% 94%;
+  --sidebar-accent: 38 20% 88%;
+  --sidebar-border: 38 20% 85%;
 
-  --font-sans: ui-sans-serif, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
   --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
+  --shadow-soft: 0 2px 8px rgb(0 0 0 / 0.04);
+  --shadow-medium: 0 4px 16px rgb(0 0 0 / 0.06);
   --shadow-card: 0 12px 34px -24px hsla(35, 30%, 15%, 0.4);
   --shadow-float: 0 22px 60px -30px hsla(35, 30%, 15%, 0.45);
   --shadow-glow: inset 0 1px 0 rgb(255 255 255 / 0.22);

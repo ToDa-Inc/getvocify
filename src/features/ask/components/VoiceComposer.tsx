@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Microphone, Square, X } from "@phosphor-icons/react";
+import { IconAction } from "@/components/ui/icon-action";
 import { useLanguage } from "@/lib/i18n";
 import {
   cancelVoice,
@@ -108,35 +109,42 @@ export default function VoiceComposer({
     finish(new Blob(chunks.current, { type: "audio/webm" }));
   }
 
+  const status =
+    view.composer_state === "recording"
+      ? t.product.askRecording.replace("{seconds}", String(seconds))
+      : view.composer_state === "transcribing"
+        ? t.product.askTranscribing
+        : view.composer_state === "permission_denied"
+          ? t.product.askNoMic
+          : null;
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {view.composer_state === "recording" ? (
-        <span className="text-sm text-muted-foreground" role="status">
-          {t.product.askRecording.replace("{seconds}", String(seconds))}
+    <div className="flex shrink-0 items-center gap-0.5">
+      {status ? (
+        <span className="sr-only" role="status">
+          {status}
         </span>
+      ) : null}
+      {view.composer_state !== "recording" && view.composer_state !== "transcribing" ? (
+        <IconAction label={t.product.askRecord} onClick={() => void record()}>
+          <Microphone size={16} weight="light" />
+        </IconAction>
+      ) : null}
+      {view.composer_state === "recording" ? (
+        <>
+          <IconAction label={t.product.askStop} onClick={() => void stop()}>
+            <Square size={16} weight="fill" />
+          </IconAction>
+          <IconAction label={t.product.cancelAction} tone="danger" onClick={cancel}>
+            <X size={16} weight="light" />
+          </IconAction>
+        </>
       ) : null}
       {view.composer_state === "transcribing" ? (
-        <span className="text-sm text-muted-foreground" role="status">{t.product.askTranscribing}</span>
+        <IconAction label={t.product.askTranscribing} disabled pending>
+          <Microphone size={16} weight="light" />
+        </IconAction>
       ) : null}
-      {view.composer_state === "permission_denied" ? (
-        <span className="text-sm text-muted-foreground" role="status">
-          {t.product.askNoMic}
-        </span>
-      ) : null}
-      {view.composer_state !== "recording" ? (
-        <Button type="button" variant="outline" size="sm" onClick={() => void record()}>
-          {t.product.askRecord}
-        </Button>
-      ) : (
-        <>
-          <Button type="button" variant="outline" size="sm" onClick={() => void stop()}>
-            {t.product.askStop}
-          </Button>
-          <Button type="button" variant="ghost" size="sm" onClick={cancel}>
-            {t.product.cancelAction}
-          </Button>
-        </>
-      )}
     </div>
   );
 }

@@ -1,7 +1,13 @@
 /** Desktop home Hoy: same cards as the dialer, hidden while listening. */
 
 export function todayItemToCard(item) {
+  let openUrl = null;
+  try { const url = new URL(item.open_url); if (["https:", "http:"].includes(url.protocol)) openUrl = url.href; } catch {}
   return {
+    contactName: item.contact_name || "",
+    companyName: item.company_name || "",
+    openUrl,
+    canDismiss: Boolean(item.id && item.version != null),
     id: item.id,
     reason: item.reason,
     status: item.status ?? 'pending',

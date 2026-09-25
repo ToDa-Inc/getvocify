@@ -66,15 +66,16 @@ export function todaySurface(
 ): TodaySurface {
   if (input.data) {
     const incomplete = !sourcesComplete(input.data.coverage);
-    if (input.data.items.length > 0) {
+    const items = todayConversationItems(input.data.items);
+    if (items.length > 0) {
       return {
         kind: "list",
-        items: input.data.items,
+        items,
         note: incomplete || input.errorStatus ? copy.today_incomplete : null,
         stale: Boolean(input.errorStatus),
         generatedAt: input.data.generated_at,
         pulse: input.data.pulse,
-        foldedCount: input.data.folded_count,
+        foldedCount: 0,
       };
     }
     if (!input.connected) {
@@ -115,6 +116,11 @@ const SUPPORTING_KEYS: Record<string, string> = {
   objection_open: "today_signal_objection",
   manual_task: "today_origin_manual",
 };
+
+/** Vocify signals and commitments — not raw CRM task rows (hidden in UI until linked to contacts). */
+export function todayConversationItems(items: TodayItem[]): TodayItem[] {
+  return items.filter((item) => item.type !== "manual_task");
+}
 
 export function splitTodayItems(items: TodayItem[]): { calls: TodayItem[]; tasks: TodayItem[] } {
   const calls: TodayItem[] = [];
@@ -161,6 +167,17 @@ export function crmContactsUrl(provider: string | null, portalId: string | null)
   if (name === "pipedrive") return "https://app.pipedrive.com/persons";
   return null;
 }
+
+export function crmTasksUrl(provider: string | null, portalId: string | null): string | null {
+  const name = (provider || "").trim().toLowerCase();
+  if (name === "hubspot" && portalId) {
+    return `https://app.hubspot.com/contacts/${portalId}/objects/0-27/views/all/list`;
+  }
+  if (name === "pipedrive") return "https://app.pipedrive.com/activities";
+  return null;
+}
+
+export const TODAY_TASKS_VISIBLE = 3;
 
 export function cardsAfterDismiss(server: TodayItem[], acted: TodayItem[], nowMs: number): TodayItem[] {
   const actedById = new Map(acted.filter((item) => item.id).map((item) => [item.id as string, item]));

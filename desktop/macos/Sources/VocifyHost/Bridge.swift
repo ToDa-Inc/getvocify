@@ -33,8 +33,21 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         let args = body["args"] as? [String: Any] ?? [:]
         Task {
             let result = await handle(op: op, args: args)
-            replyHandler(result, nil)
+            let safe = Self.webKitSafe(result)
+            await MainActor.run {
+                replyHandler(safe, nil)
+            }
         }
+    }
+
+    /// WK only accepts property-list values. A raw JSON object from URLSession is not one.
+    static func webKitSafe(_ value: Any?) -> Any {
+        guard let value, JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let parsed = try? JSONSerialization.jsonObject(with: data) else {
+            return [:]
+        }
+        return parsed
     }
 
     func handle(op: String, args: [String: Any]) async -> Any? {
@@ -315,21 +328,31 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func emit(_ channel: String, _ payload: Any, in webView: WKWebView) {
-        let channelJSON = (try? JSONSerialization.data(withJSONObject: channel))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\(channel)\""
-        let payloadJS: String
-        if JSONSerialization.isValidJSONObject(payload),
-           let data = try? JSONSerialization.data(withJSONObject: payload),
-           let json = String(data: data, encoding: .utf8) {
-            payloadJS = json
-        } else if let text = payload as? String,
-                  let data = try? JSONSerialization.data(withJSONObject: text),
-                  let json = String(data: data, encoding: .utf8) {
-            payloadJS = json
-        } else {
-            payloadJS = "null"
-        }
+        let channelJSON = Self.jsonLiteral(channel)
+        let payloadJS = Self.jsonLiteral(forPayload: payload)
         webView.evaluateJavaScript("window.__vocifyEmit(\(channelJSON), \(payloadJS))")
+    }
+
+    /// NSJSONSerialization throws NSException (not Swift errors) for top-level strings; never pass those through.
+    private static func jsonLiteral(_ text: String) -> String {
+        guard let data = try? JSONEncoder().encode(text),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        return encoded
+    }
+
+    private static func jsonLiteral(forPayload payload: Any) -> String {
+        if let text = payload as? String {
+            return jsonLiteral(text)
+        }
+        let safe = webKitSafe(payload)
+        guard JSONSerialization.isValidJSONObject(safe),
+              let data = try? JSONSerialization.data(withJSONObject: safe),
+              let json = String(data: data, encoding: .utf8) else {
+            return "null"
+        }
+        return json
     }
 
     func emitCommand(_ name: String) {

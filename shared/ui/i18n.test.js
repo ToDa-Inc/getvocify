@@ -4,6 +4,15 @@ import { resolveUiLang, strings, uiLangInput } from './i18n.js';
 
 test('notes rail and single-record-control keys exist in es and en', () => {
   const keys = [
+    'desktopLoginLead',
+    'desktopLoginAccent',
+    'desktopLoginEmail',
+    'desktopLoginPassword',
+    'desktopLoginSubmit',
+    'desktopReviewSummary',
+    'desktopReviewNext',
+    'desktopReviewCrm',
+    'desktopReviewApprove',
     'desktopNewNote',
     'desktopOpenDashboard',
     'desktopLogout',

@@ -27,6 +27,7 @@ import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
 import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
+import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
@@ -98,6 +99,7 @@ const DashboardLayout = () => {
   };
 
   return (
+    <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
         <div
@@ -297,14 +299,36 @@ const DashboardLayout = () => {
       ) : null}
 
       {showDialer ? (
-        <FloatingDialer
+        <DialerChrome
           open={dialerOpen}
           onOpenChange={setDialerOpen}
           onCallStateChange={setCallState}
         />
       ) : null}
     </div>
+    </DialerFocusProvider>
   );
 };
+
+function DialerChrome({
+  open,
+  onOpenChange,
+  onCallStateChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCallStateChange: (state: CallState) => void;
+}) {
+  const { focus, clearFocus } = useDialerFocus();
+  return (
+    <FloatingDialer
+      open={open}
+      onOpenChange={onOpenChange}
+      onCallStateChange={onCallStateChange}
+      focusContact={focus}
+      onFocusHandled={clearFocus}
+    />
+  );
+}
 
 export default DashboardLayout;

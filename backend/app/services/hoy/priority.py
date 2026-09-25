@@ -82,10 +82,16 @@ def rank_candidates(candidates: list[dict], now: datetime, recent_days: int = 14
             reason = "followup_pending"
             next_action = "resume_contact"
         identity = candidate_id(raw["connection_id"], raw["contact_id"], raw.get("deal_id"))
+        contact_name = raw.get("contact_name")
+        if not contact_name:
+            first = str(raw.get("firstname") or "").strip()
+            last = str(raw.get("lastname") or "").strip()
+            contact_name = " ".join(part for part in (first, last) if part).strip() or None
         ranked.append({
             "id": identity,
             "connection_id": raw["connection_id"],
             "contact_id": raw["contact_id"],
+            "contact_name": contact_name,
             "deal_id": raw.get("deal_id"),
             "tier": tier,
             "reason": reason,

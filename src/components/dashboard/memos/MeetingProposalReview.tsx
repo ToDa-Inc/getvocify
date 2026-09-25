@@ -80,8 +80,12 @@ export function MeetingProposalReview({
 
   const markup = useMemo(() => {
     if (!view.visible) return "";
-    return renderToString(renderMeetingProposal(view));
-  }, [view]);
+    const safe = {
+      ...view,
+      phrases: view.phrases ?? reviewPhrases,
+    };
+    return renderToString(renderMeetingProposal(safe));
+  }, [view, reviewPhrases]);
 
   const handleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {

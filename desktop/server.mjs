@@ -9,8 +9,10 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 function safeJoin(urlPath) {
   const decoded = decodeURIComponent((urlPath || '/').split('?')[0]);
   const rel = decoded === '/' ? '/renderer/index.html' : decoded;
-  const resolved = path.resolve(root, `.${rel}`);
-  if (!resolved.startsWith(root)) return null;
+  const base = rel.startsWith('/shared/') ? path.resolve(root, '..', 'shared') : root;
+  const relative = rel.startsWith('/shared/') ? rel.slice('/shared'.length) : rel;
+  const resolved = path.resolve(base, `.${relative}`);
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) return null;
   return resolved;
 }
 

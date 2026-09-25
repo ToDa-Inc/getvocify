@@ -4,6 +4,7 @@ export type PriorityCandidate = {
   id: string;
   connection_id: string;
   contact_id: string;
+  contact_name?: string | null;
   deal_id?: string | null;
   reason: string;
   next_action?: string | null;

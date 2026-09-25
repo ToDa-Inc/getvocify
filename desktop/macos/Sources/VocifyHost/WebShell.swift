@@ -100,8 +100,7 @@ struct WebShellView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = false
 
-        if let scriptURL = Bundle.module.url(forResource: "bridge", withExtension: "js"),
-           let source = try? String(contentsOf: scriptURL, encoding: .utf8) {
+        if let source = HostBridgeScript.source() {
             let script = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
             config.userContentController.addUserScript(script)
         }

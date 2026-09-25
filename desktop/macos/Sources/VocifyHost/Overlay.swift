@@ -58,7 +58,9 @@ final class OverlayController {
 
     private func emitOverlayStateIfReady() {
         guard overlayPageLoaded, let overlayWebView, !lastOverlayState.isEmpty else { return }
-        bridge?.emit("overlay:state", lastOverlayState, in: overlayWebView)
+        let payload = Bridge.webKitSafe(lastOverlayState)
+        guard let state = payload as? [String: Any], !state.isEmpty else { return }
+        bridge?.emit("overlay:state", state, in: overlayWebView)
     }
 
     func show() {
@@ -93,8 +95,7 @@ final class OverlayController {
 
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = false
-        if let scriptURL = Bundle.module.url(forResource: "bridge", withExtension: "js"),
-           let source = try? String(contentsOf: scriptURL, encoding: .utf8) {
+        if let source = HostBridgeScript.source() {
             let script = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
             config.userContentController.addUserScript(script)
         }

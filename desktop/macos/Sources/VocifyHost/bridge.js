@@ -1,5 +1,8 @@
 (() => {
-  const call = (op, args = {}) => window.webkit.messageHandlers.vocify.postMessage({ op, args });
+  const call = (op, args = {}) => {
+    const result = window.webkit.messageHandlers.vocify.postMessage({ op, args });
+    return result ?? Promise.resolve(undefined);
+  };
   const listeners = {
     'system-audio:pcm': new Set(),
     'system-audio:lost': new Set(),

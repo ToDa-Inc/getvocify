@@ -38,9 +38,13 @@ def _hubspot(payload: dict, *, connection_id: str, observed_at: str) -> dict:
     items = []
     for row in payload.get("results") or []:
         props = row.get("properties") or {}
+        first = str(props.get("firstname") or "").strip()
+        last = str(props.get("lastname") or "").strip()
+        contact_name = " ".join(part for part in (first, last) if part).strip() or None
         items.append({
             "contact_id": str(row["id"]),
             "deal_id": props.get("deal_id") or None,
+            "contact_name": contact_name,
             "owner_email": props.get("owner_email"),
             "owner_name": props.get("owner_name"),
             "last_call_at": props.get("last_call_at"),
@@ -68,9 +72,11 @@ def _pipedrive(payload: dict, *, connection_id: str, observed_at: str) -> dict:
         else:
             owner_email = None
             owner_name = None
+        contact_name = str(row.get("name") or "").strip() or None
         items.append({
             "contact_id": str(row["id"]),
             "deal_id": str(row["deal_id"]) if row.get("deal_id") else None,
+            "contact_name": contact_name,
             "owner_email": owner_email,
             "owner_name": owner_name,
             "last_call_at": row.get("last_activity_date"),
@@ -163,7 +169,10 @@ def connection_assigned_fetch(
 
 def assigned_request(provider: str, cursor: str | None) -> dict:
     if provider == "hubspot":
-        body = {"limit": 100, "properties": ["email", "hubspot_owner_id", "notes_last_contacted"]}
+        body = {
+            "limit": 100,
+            "properties": ["email", "firstname", "lastname", "hubspot_owner_id", "notes_last_contacted"],
+        }
         if cursor:
             body["after"] = cursor
         return {"method": "POST", "path": "/crm/v3/objects/contacts/search", "json": body}

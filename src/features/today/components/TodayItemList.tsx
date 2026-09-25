@@ -1,8 +1,15 @@
-import { Button } from "@/components/ui/button";
+import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { contactRecordUrl, signalLabelKey, splitTodayItems, supportingKeys, type TodayItem } from "@/lib/today";
+import {
+  contactRecordUrl,
+  signalLabelKey,
+  todayConversationItems,
+  supportingKeys,
+  type TodayItem,
+} from "@/lib/today";
+import { TodayCardActions } from "./TodayCardActions";
 
 type Props = {
   items: TodayItem[];
@@ -17,6 +24,14 @@ function openHref(item: TodayItem, provider: string | null, portalId: string | n
   return item.open_url || contactRecordUrl(provider, portalId, item.contact_id ?? null);
 }
 
+function openDialer(
+  dialer: ReturnType<typeof useOptionalDialerFocus>,
+  item: TodayItem,
+) {
+  if (!dialer || !item.contact_id) return;
+  dialer.openForContact({ contactId: item.contact_id, name: item.contact_name ?? null });
+}
+
 function CallCard({
   item,
   provider,
@@ -24,6 +39,7 @@ function CallCard({
   compact,
   onDismiss,
   onUndo,
+  onCall,
 }: {
   item: TodayItem;
   provider: string | null;
@@ -31,6 +47,7 @@ function CallCard({
   compact?: boolean;
   onDismiss: (item: TodayItem) => void;
   onUndo: (item: TodayItem) => void;
+  onCall: (item: TodayItem) => void;
 }) {
   const { t } = useLanguage();
   const href = openHref(item, provider, portalId);
@@ -41,108 +58,60 @@ function CallCard({
 
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] text-foreground">{name}</p>
-          {item.company_name ? <p className={`mt-0.5 truncate ${THEME_TOKENS.typography.capsLabel}`}>{item.company_name}</p> : null}
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
+            <p className="truncate text-[15px] text-foreground">{name}</p>
+            <span className={`max-w-[9rem] truncate text-right ${THEME_TOKENS.typography.capsLabel}`}>{label}</span>
+            {item.company_name ? (
+              <p className={`col-span-2 truncate ${THEME_TOKENS.typography.capsLabel}`}>{item.company_name}</p>
+            ) : null}
+          </div>
+          <p className={compact ? "mt-2 text-[13px] leading-snug text-foreground" : "mt-3 text-[15px] leading-relaxed text-foreground"}>{item.reason}</p>
+          {item.detail ? <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>“{item.detail}”</p> : null}
+          {extras.length > 0 ? (
+            <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
+          ) : null}
         </div>
-        <span className={`shrink-0 ${THEME_TOKENS.typography.capsLabel}`}>{label}</span>
-      </div>
-      <p className={compact ? "mt-2 text-[13px] leading-snug text-foreground" : "mt-3 text-[15px] leading-relaxed text-foreground"}>{item.reason}</p>
-      {item.detail ? <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>“{item.detail}”</p> : null}
-      {extras.length > 0 ? (
-        <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
-      ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        {href ? (
-          <a className="text-sm text-beige" href={href} target="_blank" rel="noreferrer">
-            {t.product.today_open}
-          </a>
-        ) : null}
-        {item.id && item.status !== "dismissed" ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => void onDismiss(item)}>
-            {t.product.dismiss}
-          </Button>
-        ) : null}
-        {undoOpen ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => void onUndo(item)}>
-            {t.product.undo}
-          </Button>
-        ) : null}
+        <TodayCardActions
+          onCall={item.contact_id ? () => onCall(item) : undefined}
+          crmHref={href}
+          onDismiss={item.id && item.status !== "dismissed" ? () => void onDismiss(item) : undefined}
+          onUndo={undoOpen ? () => void onUndo(item) : undefined}
+        />
       </div>
     </li>
   );
 }
 
-function TaskRow({
-  item,
-  provider,
-  portalId,
-}: {
-  item: TodayItem;
-  provider: string | null;
-  portalId: string | null;
-}) {
-  const { t } = useLanguage();
-  const href = openHref(item, provider, portalId);
-  const titledByName = Boolean(item.contact_name);
+export function TodayItemList({
+  items,
+  onDismiss,
+  onUndo,
+  provider = null,
+  portalId = null,
+  compact,
+}: Props) {
+  const dialer = useOptionalDialerFocus();
+  const calls = todayConversationItems(items);
+  const call = (item: TodayItem) => openDialer(dialer, item);
+
+  if (calls.length === 0) return null;
 
   return (
-    <li className="flex items-center justify-between gap-3 px-4 py-3">
-      <div className="min-w-0">
-        <p className="truncate text-[15px] text-foreground">{titledByName ? item.contact_name : item.reason}</p>
-        {titledByName ? <p className={`truncate ${THEME_TOKENS.typography.body}`}>{item.reason}</p> : null}
-        {item.company_name ? <p className={THEME_TOKENS.typography.capsLabel}>{item.company_name}</p> : null}
-      </div>
-      {href ? (
-        <a className="shrink-0 text-sm text-beige" href={href} target="_blank" rel="noreferrer">
-          {t.product.today_open}
-        </a>
-      ) : null}
-    </li>
-  );
-}
-
-export function TodayItemList({ items, onDismiss, onUndo, provider = null, portalId = null, compact }: Props) {
-  const { t } = useLanguage();
-  const { calls, tasks } = splitTodayItems(items);
-  if (calls.length === 0 && tasks.length === 0) return null;
-
-  return (
-    <div className={compact ? "space-y-3" : "space-y-6"}>
-      {calls.length > 0 ? (
-        <div className="space-y-2">
-          <h3 className={THEME_TOKENS.typography.capsLabel}>{t.product.today_calls}</h3>
-          <ul className="space-y-2">
-            {calls.map((item) => (
-              <CallCard
-                key={item.id ?? item.dedupe_key ?? item.reason}
-                item={item}
-                provider={provider}
-                portalId={portalId}
-                compact={compact}
-                onDismiss={onDismiss}
-                onUndo={onUndo}
-              />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      {tasks.length > 0 ? (
-        <div className="space-y-2">
-          <h3 className={THEME_TOKENS.typography.capsLabel}>{t.product.today_tasks}</h3>
-          <ul className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} divide-y divide-border/60`}>
-            {tasks.map((item) => (
-              <TaskRow
-                key={item.remote_id ?? item.reason}
-                item={item}
-                provider={provider}
-                portalId={portalId}
-              />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </div>
+    <ul className={compact ? "space-y-2" : "space-y-3"}>
+      {calls.map((item) => (
+        <CallCard
+          key={item.id ?? item.dedupe_key ?? item.reason}
+          item={item}
+          provider={provider}
+          portalId={portalId}
+          compact={compact}
+          onDismiss={onDismiss}
+          onUndo={onUndo}
+          onCall={call}
+        />
+      ))}
+    </ul>
   );
 }

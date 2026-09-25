@@ -528,7 +528,14 @@ async def execute_tool(name: str, args: dict, ctx: Any) -> dict:
 
 async def _execute(name: str, args: dict, ctx: Any) -> dict:
     if name == "get_team_metrics":
-        from app.services.team_insights.aggregate import TeamAccessError, authorized_scope
+        from app.deps import get_supabase
+        from app.services.crm_copilot import web_sessions as ask_sessions
+        from app.services.team_insights.aggregate import (
+            TeamAccessError,
+            authorized_scope,
+            load_team_adherence_inputs,
+            team_adherence,
+        )
 
         role = getattr(ctx, "role", None) or "member"
         try:
@@ -539,7 +546,19 @@ async def _execute(name: str, args: dict, ctx: Any) -> dict:
             )
         except TeamAccessError:
             return {"ok": False, "error": "forbidden"}
-        return {"ok": True, "scope": scope}
+        company_id = getattr(ctx, "company_id", None) or ask_sessions._actor.get("company_id")
+        supabase = getattr(ctx, "supabase", None) or get_supabase()
+        if not company_id or supabase is None:
+            return {"ok": True, "scope": scope}
+        motion = str(args.get("motion") or "").strip() or None
+        inputs = load_team_adherence_inputs(
+            supabase,
+            str(company_id),
+            user_id=scope.get("user_id"),
+            motion=motion,
+        )
+        metrics = team_adherence(role=role, **inputs)
+        return {"ok": True, "scope": scope, "metrics": metrics, "source": "team_adherence"}
     if name == "load_skill":
         skill = str(args.get("name") or "")
         body = SKILL_BODIES.get(skill)
