@@ -21,7 +21,9 @@ import {
   stopMediaStream,
 } from '../live-stt';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888/api/v1';
+import { resolveApiBase } from '@/lib/app-url';
+
+const API_URL = resolveApiBase();
 const WS_BASE = API_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '');
 
 /**
