@@ -156,6 +156,7 @@ _cors_origins = [
     "https://getvocify.com",
     "https://www.getvocify.com",
     "https://app.getvocify.com",
+    "https://staging.getvocify.com",
 ]
 app.add_middleware(
     CORSMiddleware,
