@@ -39,7 +39,12 @@ import { liveAssistOverlayFromCopilotPayload } from '../lib/live-assist-overlay.
 import { assistOverlayFields, dashboardMemosUrl, overlaySnippet } from '../lib/shell.js';
 import { liveAssistKind } from './shared/ui/copilot/suggestion-state.js';
 import { humanizeSaasError } from '../lib/saas.js';
-import { listenPermissionGate, PERMISSION, permissionAction } from '../lib/permissions.js';
+import {
+  applyPermissionSnapshot,
+  listenPermissionGate,
+  PERMISSION,
+  permissionAction,
+} from '../lib/permissions.js';
 import { pickMicConstraints } from '../lib/mic-devices.js';
 import { noteRows, notesRequestPath } from '../lib/notes-list.js';
 import {
@@ -82,6 +87,7 @@ const STORAGE = {
   refresh: 'vocify_refresh',
   api: 'vocify_api_base',
   email: 'vocify_email',
+  macPermissionsReady: 'vocify_mac_permissions_ready',
 };
 
 function uiLang() {
@@ -329,8 +335,7 @@ function showListenDenied(reason, platform) {
     if (btnOpenSettings) btnOpenSettings.hidden = true;
     void refreshPermissions().then(() => {
       paintListenPermissionGate();
-      showScreen('permissions');
-      startPermissionPoll();
+      syncPermissionPoll();
     });
     return;
   }
@@ -700,6 +705,7 @@ function showScreen(name) {
   if (name === 'listen') {
     if (!listening) setLiveUi(false);
     paintListenPermissionGate();
+    syncPermissionPoll();
     paintHomeBrief();
     paintHomeHoy();
     highlightActiveNote(null);
@@ -785,21 +791,35 @@ function stopPermissionPoll() {
   permissionPoll = null;
 }
 
+function markMacPermissionsReadyIfNeeded() {
+  if (permissionGate().ok) {
+    localStorage.setItem(STORAGE.macPermissionsReady, '1');
+  }
+}
+
+function syncPermissionPoll() {
+  const mac = needsMacPermissions();
+  const onListen = listenPanel && !listenPanel.hidden;
+  if (mac && onListen && !permissionGate().ok) startPermissionPoll();
+  else stopPermissionPoll();
+}
+
 async function refreshPermissions() {
   const api = desktop()?.permissions;
   if (!api?.status) {
-    permissionState = { platform: desktop()?.platform, microphone: 'authorized', systemAudio: 'authorized' };
+    permissionState = applyPermissionSnapshot(null, { platform: desktop()?.platform || 'darwin' });
+    permissionState.microphone = 'authorized';
+    permissionState.systemAudio = 'authorized';
     paintAllPermissionRows();
+    markMacPermissionsReadyIfNeeded();
+    syncPermissionPoll();
     return permissionState;
   }
-  permissionState = await api.status();
+  const raw = await api.status();
+  permissionState = applyPermissionSnapshot(raw, { platform: desktop()?.platform || 'darwin' });
   paintAllPermissionRows();
-  if (permissionGate().ok && permissionsPanel && !permissionsPanel.hidden) {
-    stopPermissionPoll();
-    showScreen('listen');
-    setLiveUi(false);
-    void paintNotesList();
-  }
+  markMacPermissionsReadyIfNeeded();
+  syncPermissionPoll();
   return permissionState;
 }
 
@@ -814,13 +834,6 @@ async function handlePermissionClick(type) {
 
 async function enterApp() {
   await refreshPermissions();
-  if (needsMacPermissions() && !permissionGate().ok) {
-    showScreen('permissions');
-    startPermissionPoll();
-    notifyShell();
-    return;
-  }
-  stopPermissionPoll();
   showScreen('listen');
   setLiveUi(false);
   paintListenPermissionGate();

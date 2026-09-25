@@ -14,6 +14,8 @@ final class HostController: ObservableObject {
     let bridge: Bridge
     let overlay = OverlayController()
     @Published var isListening = false
+    /// Main window loads the web dashboard (app.getvocify.com) instead of bundled `desktop/renderer`.
+    @Published var usesWebDashboard = false
     private var shellState: [String: Any] = [:]
 
     init() {
@@ -49,6 +51,31 @@ final class HostController: ObservableObject {
         overlay.pushState(shellState)
     }
 
+    /// Entry URL for the React dashboard. Set `VOCIFY_USE_LOCAL_RENDERER=1` to use bundled vanilla renderer.
+    func resolveWebDashboardEntry() -> URL? {
+        if ProcessInfo.processInfo.environment["VOCIFY_USE_LOCAL_RENDERER"] == "1" {
+            return nil
+        }
+        let origin: String
+        if let env = ProcessInfo.processInfo.environment["VOCIFY_WEB_ORIGIN"], !env.isEmpty {
+            origin = env.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else if let plist = Bundle.main.infoDictionary?["VocifyWebOrigin"] as? String, !plist.isEmpty {
+            origin = plist.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else {
+            origin = "https://app.getvocify.com"
+        }
+        let path: String
+        if let env = ProcessInfo.processInfo.environment["VOCIFY_WEB_PATH"], !env.isEmpty {
+            path = env.hasPrefix("/") ? env : "/\(env)"
+        } else if let plist = Bundle.main.infoDictionary?["VocifyWebPath"] as? String, !plist.isEmpty {
+            path = plist.hasPrefix("/") ? plist : "/\(plist)"
+        } else {
+            path = "/dashboard/memos"
+        }
+        guard let url = URL(string: "\(origin)\(path)") else { return nil }
+        return url
+    }
+
     func resolveRendererRoot() -> URL {
         if let raw = ProcessInfo.processInfo.environment["VOCIFY_RENDERER_ROOT"], !raw.isEmpty {
             return URL(fileURLWithPath: raw, isDirectory: true).standardizedFileURL
@@ -70,6 +97,14 @@ final class HostController: ObservableObject {
 }
 
 final class WebShellUIDelegate: NSObject, WKUIDelegate {
+    private func trustedMediaCaptureHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if h == "127.0.0.1" || h == "localhost" { return true }
+        if h == "app.getvocify.com" || h == "staging.getvocify.com" { return true }
+        if h.hasSuffix(".getvocify.com") { return true }
+        return false
+    }
+
     func webView(
         _ webView: WKWebView,
         requestMediaCapturePermissionFor origin: WKSecurityOrigin,
@@ -77,7 +112,7 @@ final class WebShellUIDelegate: NSObject, WKUIDelegate {
         type: WKMediaCaptureType,
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
-        if origin.host == "127.0.0.1" {
+        if trustedMediaCaptureHost(origin.host) {
             decisionHandler(.grant)
         } else {
             decisionHandler(.deny)
@@ -126,9 +161,15 @@ struct WebShellView: NSViewRepresentable {
         context.coordinator.server = server
         do {
             let base = try server.start()
-            let page = base.appendingPathComponent("renderer/index.html")
-            webView.load(URLRequest(url: page))
             host.overlay.attach(bridge: host.bridge, uiDelegate: context.coordinator.uiDelegate, rendererBase: base)
+            if let dashboard = host.resolveWebDashboardEntry() {
+                host.usesWebDashboard = true
+                webView.load(URLRequest(url: dashboard))
+            } else {
+                host.usesWebDashboard = false
+                let page = base.appendingPathComponent("renderer/index.html")
+                webView.load(URLRequest(url: page))
+            }
         } catch {
             fputs("WebShell: failed to start renderer server: \(error)\n", stderr)
         }

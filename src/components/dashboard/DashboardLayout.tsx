@@ -31,6 +31,8 @@ import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFo
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
+import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
+import { isDesktopHost } from "@/lib/desktop-host";
 
 const navItems = [
   { icon: Home, labelKey: "navHome" as const, path: "/dashboard" },
@@ -85,7 +87,7 @@ const DashboardLayout = () => {
     const state = location.state as { ask?: boolean } | null;
     if (state?.ask) setAskOpen(true);
   }, [location.state]);
-  const showDialer = !paywalled && companyCanUseDialer(user?.company);
+  const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
 
   if (paywalled && location.pathname !== BILLING_PATH) {
     return <Navigate to={BILLING_PATH} replace />;
@@ -100,6 +102,7 @@ const DashboardLayout = () => {
 
   return (
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
+    <DesktopShellBridge />
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
         <div

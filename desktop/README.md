@@ -2,7 +2,28 @@
 
 Desktop app for [Vocify](https://github.com/ToDa-Inc/getvocify): Granola-style **system audio + mic**, dashboard UI, tray, always-on-top overlay. Talks to the production API at **https://api.getvocify.com/api/v1**.
 
-## Run on your Mac
+## macOS native app (`desktop/macos`)
+
+The shipped **Vocify.app** loads the **same React dashboard** as [app.getvocify.com](https://app.getvocify.com) inside `WKWebView` (sidebar, memos, settings). Native code only handles permissions, ScreenCaptureKit, overlay, and `window.vocifyDesktop`.
+
+```bash
+cd desktop/macos && bash scripts/build-app.sh
+open Vocify.app
+```
+
+**Dev against local Vite:** run `npm run dev` in the repo root, then:
+
+```bash
+VOCIFY_WEB_ORIGIN=http://localhost:8080 open Vocify.app/Contents/MacOS/VocifyHost
+```
+
+**Fallback** to the bundled vanilla renderer (Electron parity / offline UI work):
+
+```bash
+VOCIFY_USE_LOCAL_RENDERER=1 open Vocify.app/Contents/MacOS/VocifyHost
+```
+
+## Run on your Mac (Electron)
 
 ```bash
 git clone https://github.com/ToDa-Inc/getvocify-desktop.git

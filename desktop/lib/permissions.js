@@ -17,6 +17,15 @@ export function listenPermissionGate({ platform, microphone, systemAudio } = {})
   return { ok: true };
 }
 
+/** Normalize native/Electron permission snapshots for the renderer gate. */
+export function applyPermissionSnapshot(raw, { platform = 'darwin' } = {}) {
+  return {
+    platform: String(raw?.platform || platform),
+    microphone: normalizeAccessStatus(raw?.microphone),
+    systemAudio: normalizeAccessStatus(raw?.systemAudio),
+  };
+}
+
 export function permissionAction(status, { deniedOpensSettings = true } = {}) {
   if (status === 'authorized') return 'none';
   if (status === 'denied' && deniedOpensSettings) return 'open_settings';

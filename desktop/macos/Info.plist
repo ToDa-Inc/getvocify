@@ -26,5 +26,9 @@
   <string>Vocify oye el audio de Zoom, Meet o Teams. La pantalla no se guarda.</string>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Vocify oye el audio de Zoom, Meet o Teams. La pantalla no se guarda.</string>
+  <key>VocifyWebOrigin</key>
+  <string>https://app.getvocify.com</string>
+  <key>VocifyWebPath</key>
+  <string>/dashboard/memos</string>
 </dict>
 </plist>

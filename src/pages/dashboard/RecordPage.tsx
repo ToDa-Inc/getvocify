@@ -3,8 +3,10 @@ import { ArrowLeft } from "lucide-react";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { ROUTES } from "@/shared/lib/constants";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { isDesktopHost } from "@/lib/desktop-host";
 
 const RecordPage = () => {
+  const inDesktopApp = isDesktopHost();
   const navigate = useNavigate();
 
   return (
@@ -22,17 +24,9 @@ const RecordPage = () => {
           New <span className={THEME_TOKENS.typography.accentTitle}>Memo</span>
         </h1>
         <p className={THEME_TOKENS.typography.body}>
-          Record a voice memo or import a meeting transcript. For Zoom, Meet, or Teams
-          system audio (Granola-style, no meeting bot), run the{" "}
-          <a
-            href="https://github.com/ToDa-Inc/getvocify-desktop"
-            className="underline underline-offset-2 hover:text-beige"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Vocify Companion
-          </a>
-          .
+          {inDesktopApp
+            ? "Record a meeting with mic and system audio, or import a transcript."
+            : "Record a voice memo or import a meeting transcript. For Zoom, Meet, or Teams system audio (Granola-style, no meeting bot), use the Vocify Mac app."}
         </p>
       </div>
 

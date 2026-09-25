@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyPermissionSnapshot,
   listenPermissionGate,
   normalizeAccessStatus,
   permissionAction,
@@ -9,6 +10,19 @@ import {
 } from './permissions.js';
 
 describe('permissions', () => {
+  it('normalizes native permission snapshots', () => {
+    assert.deepEqual(applyPermissionSnapshot({ microphone: 'authorized', systemAudio: 'granted' }), {
+      platform: 'darwin',
+      microphone: 'authorized',
+      systemAudio: 'authorized',
+    });
+    assert.deepEqual(applyPermissionSnapshot(null), {
+      platform: 'darwin',
+      microphone: 'never_requested',
+      systemAudio: 'never_requested',
+    });
+  });
+
   it('maps Electron/TCC statuses', () => {
     assert.equal(normalizeAccessStatus('granted'), 'authorized');
     assert.equal(normalizeAccessStatus('denied'), 'denied');

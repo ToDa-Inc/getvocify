@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Foundation
+import ScreenCaptureKit
 import WebKit
 import VocifyHostKit
 
@@ -73,13 +74,13 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             await MainActor.run { host?.overlay.hide() }
             return ["ok": true]
         case "permissions:status":
-            return permissionSnapshot()
+            return await permissionSnapshot()
         case "permissions:request":
             await requestPermission(type: args["type"] as? String)
-            return permissionSnapshot()
+            return await permissionSnapshot()
         case "permissions:open":
             openPermissionSettings(type: args["type"] as? String)
-            return permissionSnapshot()
+            return await permissionSnapshot()
         case "system-audio:start":
             return await startSystemAudio()
         case "system-audio:stop":
@@ -201,11 +202,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         return Data()
     }
 
-    private func permissionSnapshot() -> [String: String] {
+    private func permissionSnapshot() async -> [String: String] {
         [
             "platform": "darwin",
             "microphone": microphoneAccessStatus(),
-            "systemAudio": systemAudioAccessStatus(),
+            "systemAudio": await systemAudioAccessStatus(),
         ]
     }
 
@@ -222,8 +223,15 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
-    private func systemAudioAccessStatus() -> String {
-        CGPreflightScreenCaptureAccess() ? "authorized" : "never_requested"
+    private func systemAudioAccessStatus() async -> String {
+        if CGPreflightScreenCaptureAccess() { return "authorized" }
+        do {
+            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+            if CGPreflightScreenCaptureAccess() { return "authorized" }
+        } catch {
+            fputs("VocifyHost permission probe: \(error.localizedDescription)\n", stderr)
+        }
+        return "never_requested"
     }
 
     private func requestPermission(type: String?) async {
@@ -311,6 +319,11 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
 
     @MainActor
     private func openDashboard() {
+        if host?.usesWebDashboard == true, let url = host?.resolveWebDashboardEntry() {
+            mainWebView?.load(URLRequest(url: url))
+            activateMainWindow()
+            return
+        }
         let state = host?.mergedShellState() ?? [:]
         let apiBase = (state["apiBase"] as? String) ?? ""
         let trimmed = apiBase.trimmingCharacters(in: CharacterSet(charactersIn: "/"))

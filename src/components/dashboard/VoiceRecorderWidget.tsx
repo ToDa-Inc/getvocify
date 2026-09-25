@@ -31,6 +31,7 @@ import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
+import { DESKTOP_SHELL_EVENTS, isDesktopHost } from "@/lib/desktop-host";
 
 export interface VoiceRecorderWidgetProps {
   /** Callback fired with the created memo ID when recording/import succeeds */
@@ -141,6 +142,28 @@ export const VoiceRecorderWidget = ({
       stopTranscription();
     }
   };
+
+  const recordToggleRef = useRef(handleRecordToggle);
+  recordToggleRef.current = handleRecordToggle;
+
+  useEffect(() => {
+    if (!isDesktopHost()) return;
+    const onListen = () => {
+      void recordToggleRef.current();
+    };
+    const onStop = () => {
+      if (state === "recording") {
+        stopRecording();
+        stopTranscription();
+      }
+    };
+    window.addEventListener(DESKTOP_SHELL_EVENTS.listen, onListen);
+    window.addEventListener(DESKTOP_SHELL_EVENTS.stop, onStop);
+    return () => {
+      window.removeEventListener(DESKTOP_SHELL_EVENTS.listen, onListen);
+      window.removeEventListener(DESKTOP_SHELL_EVENTS.stop, onStop);
+    };
+  }, [state, stopRecording, stopTranscription]);
 
   // Re-record / reset state
   const handleReRecord = () => {

@@ -10,9 +10,26 @@ public final class RendererServer {
         self.root = root.standardizedFileURL
     }
 
+    /// Stable loopback port so WKWebView localStorage survives relaunch (same origin).
+    private static let preferredPort: UInt16 = 47_891
+
     public func start() throws -> URL {
+        if let url = try? startListener(fixedPort: Self.preferredPort) {
+            return url
+        }
+        return try startListener(fixedPort: nil)
+    }
+
+    private func startListener(fixedPort: UInt16?) throws -> URL {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
+        if let fixedPort {
+            parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
+                host: .ipv4(.loopback),
+                port: NWEndpoint.Port(rawValue: fixedPort)!
+            )
+        } else {
+            parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
+        }
         let listener = try NWListener(using: parameters)
 
         let sem = DispatchSemaphore(value: 0)
