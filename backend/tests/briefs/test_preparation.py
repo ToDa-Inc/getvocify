@@ -206,12 +206,13 @@ def test_from_memos_matches_the_contact_column_not_extraction():
         summary="Versión vieja.",
     )
     fake = _FakeMemos([other, older, matching])
-    facts = briefs_api._from_memos(fake, "co-1", "42")
+    facts = briefs_api._from_memos(fake, "co-1", "42", connection_id="crm-A")
     assert facts["coverage"] == "complete"
     assert facts["last"]["text"] == "El 2 sep hablasteis del almacén."
     assert facts["last"]["source_ref"] == "memo-match"
     assert ("hubspot_contact_id", "42") in fake.query.eqs
     assert ("company_id", "co-1") in fake.query.eqs
+    assert ("crm_connection_id", "crm-A") not in fake.query.eqs
     assert fake.query.order_by == ("created_at", True)
     assert fake.query.limit_n == 100
 
@@ -245,12 +246,12 @@ def test_from_memos_deal_id_filters_on_the_contact_column():
 
 
 def test_get_brief_filters_connection_on_the_contact_column():
-    other_connection = _memo(
-        memo_id="memo-other-crm",
+    other_contact = _memo(
+        memo_id="memo-other-contact",
         created_at="2026-09-04T10:00:00Z",
-        contact_id="42",
-        summary="Otra conexión.",
-        connection_id="crm-B",
+        contact_id="99",
+        summary="Otro contacto.",
+        connection_id="crm-A",
     )
     matching = _memo(
         memo_id="memo-crm-a",
@@ -260,7 +261,7 @@ def test_get_brief_filters_connection_on_the_contact_column():
         connection_id="crm-A",
         extra_extraction={"pain_confirmed": True},
     )
-    fake = _FakeMemos([other_connection, matching])
+    fake = _FakeMemos([other_contact, matching])
     app = FastAPI()
     app.include_router(briefs_api.router)
     app.dependency_overrides[get_membership] = lambda: Membership(
@@ -274,5 +275,5 @@ def test_get_brief_filters_connection_on_the_contact_column():
     assert body["status"] == "ready"
     assert body["lines"][0]["text"] == "El 2 sep hablasteis del almacén."
     assert body["lines"][0]["source_ref"] == "memo-crm-a"
-    assert ("crm_connection_id", "crm-A") in fake.query.eqs
+    assert ("crm_connection_id", "crm-A") not in fake.query.eqs
     assert ("hubspot_contact_id", "42") in fake.query.eqs

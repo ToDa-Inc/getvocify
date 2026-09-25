@@ -56,14 +56,12 @@ def _from_memos(
     try:
         query = (
             supabase.table("memos")
-            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id,crm_connection_id")
+            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
             .eq("company_id", company_id)
             .eq("hubspot_contact_id", contact_id)
             .order("created_at", desc=True)
             .limit(100)
         )
-        if connection_id:
-            query = query.eq("crm_connection_id", connection_id)
         stored = query.execute()
         rows = list(stored.data or [])
         if deal_id:
