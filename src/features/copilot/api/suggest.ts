@@ -1,8 +1,6 @@
 import type { SuggestRequest, SuggestStreamEvent } from "../types";
 
-import { resolveApiBase } from "@/lib/app-url";
-
-const API_BASE = resolveApiBase();
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8888/api/v1";
 
 function getAuthToken(): string | null {
   const stored = localStorage.getItem("vocify_token");
