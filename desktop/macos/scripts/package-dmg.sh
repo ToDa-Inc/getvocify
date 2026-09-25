@@ -13,12 +13,16 @@ if [[ ! -d "$app" ]]; then
 fi
 
 if [[ ! -f "$bg" ]]; then
-  mkdir -p "$(dirname "$bg")"
   draw="$root/scripts/draw-dmg-background.swift"
   if [[ ! -f "$draw" ]]; then
-    echo "Missing $bg and $draw — cannot generate DMG background." >&2
+    echo "Missing $bg — add desktop/build/dmg-background.png or commit $draw to generate it." >&2
     exit 1
   fi
+  if [[ ! -f "$logo" ]]; then
+    echo "Missing logo $logo — cannot generate DMG background." >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$bg")"
   swift "$draw" "$logo" "$bg"
 fi
 
@@ -29,16 +33,28 @@ dmg="$desktop/dist/Vocify-${version}.dmg"
 rm -f "$dmg"
 
 stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
+rw="$(mktemp -t vocify-rw).dmg"
+device=""
+trap 'rm -rf "$stage"; rm -f "$rw"' EXIT
 
 cp -R "$app" "$stage/Vocify.app"
 ln -sf /Applications "$stage/Applications"
 mkdir -p "$stage/.background"
 cp "$bg" "$stage/.background/background.png"
 
-packaging_path="finder-branded"
-rw="$(mktemp -t vocify-rw).dmg"
-trap 'rm -rf "$stage"; rm -f "$rw"' EXIT
+emit_srcfolder_fallback() {
+  local reason="$1"
+  rm -f "$rw" "$dmg"
+  if [[ -n "${device:-}" ]]; then
+    hdiutil detach "$device" >/dev/null 2>&1 || hdiutil detach "$device" -force >/dev/null 2>&1 || true
+    device=""
+  fi
+  hdiutil create -volname "$volname" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
+  echo "packaging_path=srcfolder-fallback" >&2
+  echo "finder_layout_applied=no" >&2
+  echo "$reason" >&2
+  echo "$dmg"
+}
 
 hdiutil create -srcfolder "$stage" -volname "$volname" -fs HFS+ -format UDRW -ov "$rw" >/dev/null
 
@@ -48,13 +64,25 @@ if attach_out="$(hdiutil attach -readwrite -noverify -noautoopen "$rw" 2>&1)"; t
   attach_ok=1
 fi
 
-if [[ "$attach_ok" -eq 1 ]]; then
-  mount_point="$(echo "$attach_out" | awk '/\/Volumes\// {print $NF; exit}')"
-  device="$(echo "$attach_out" | awk '/\/Volumes\// {print $1; exit}')"
+if [[ "$attach_ok" -ne 1 ]]; then
+  if echo "$attach_out" | grep -qi "Operation not permitted"; then
+    emit_srcfolder_fallback "Finder layout skipped (hdiutil attach not permitted in this environment)."
+    exit 0
+  fi
+  echo "$attach_out" >&2
+  exit 1
+fi
 
-  if [[ -n "${mount_point:-}" && -n "${device:-}" ]]; then
-    layout_applied=no
-    if osascript <<EOF
+mount_point="$(echo "$attach_out" | awk '/\/Volumes\// {print $NF; exit}')"
+device="$(echo "$attach_out" | awk '/\/Volumes\// {print $1; exit}')"
+
+if [[ -z "${mount_point:-}" || -z "${device:-}" ]]; then
+  echo "hdiutil attach succeeded but mount point was not parsed." >&2
+  echo "$attach_out" >&2
+  exit 1
+fi
+
+if osascript <<EOF
 with timeout of 120 seconds
   tell application "Finder"
     tell disk "$volname"
@@ -70,35 +98,25 @@ with timeout of 120 seconds
       end tell
       set position of item "Vocify.app" of container window to {140, 190}
       set position of item "Applications" of container window to {400, 190}
+      close
+      open
       update without registering applications
+      delay 2
     end tell
   end tell
 end timeout
 EOF
-    then
-      layout_applied=yes
-    else
-      echo "Finder layout AppleScript failed (run from Terminal.app with Automation access to Finder)." >&2
-    fi
-    hdiutil detach "$device" >/dev/null 2>&1 || hdiutil detach "$device" -force >/dev/null 2>&1 || true
-    hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$dmg" >/dev/null
-    rm -f "$rw"
-    echo "packaging_path=$packaging_path" >&2
-    echo "finder_layout_applied=$layout_applied" >&2
-    echo "$dmg"
-    exit 0
-  fi
+then
+  sync "$mount_point"
+  hdiutil detach "$device" >/dev/null
+  device=""
+  hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$dmg" >/dev/null
+  rm -f "$rw"
+  echo "packaging_path=finder-branded" >&2
+  echo "finder_layout_applied=yes" >&2
+  echo "$dmg"
+  exit 0
 fi
 
-if echo "$attach_out" | grep -qi "Operation not permitted"; then
-  packaging_path="srcfolder-fallback"
-else
-  echo "$attach_out" >&2
-  exit 1
-fi
-
-rm -f "$rw"
-hdiutil create -volname "$volname" -srcfolder "$stage" -ov -format UDZO "$dmg" >/dev/null
-echo "packaging_path=$packaging_path" >&2
-echo "Finder icon layout skipped (hdiutil attach not permitted in this environment)." >&2
-echo "$dmg"
+emit_srcfolder_fallback "Finder layout AppleScript failed — produced unbranded DMG via srcfolder (run from Terminal.app with Automation access to Finder for a branded layout)."
+exit 0
