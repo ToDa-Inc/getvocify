@@ -8,8 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.memos import _require_readable_memo
-from app.api.today import require_rep_workspace
-from app.deps import get_membership, get_supabase, get_user_id
+from app.deps import get_membership, get_supabase, get_user_id, require_rep_workspace
 from app.models.followup import FollowupActionRequest
 from app.services.company import Membership
 from app.services.followup import schedule_followup
@@ -51,12 +50,13 @@ async def list_followups(
         .eq("user_id", membership.user_id)
         .or_(f"company_id.eq.{membership.company_id},company_id.is.null")
         .in_("followup->>status", list(wanted))
+        .neq("status", "rejected")
         .gte("created_at", (_now() - LIST_WINDOW).isoformat())
         .order("created_at", desc=True)
         .limit(LIST_LIMIT)
         .execute()
     ).data or []
-    return [pending_row(memo) for memo in rows if (memo.get("followup") or {}).get("status") in wanted]
+    return [pending_row(memo) for memo in rows]
 
 
 @router.get("/{memo_id}/followup")

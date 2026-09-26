@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timedelta
 from typing import Literal, Optional
 
+from app.services.hoy.names import clean_name
+
 PROMPT_VERSION = "followup_v1"
 STALE_GENERATING = timedelta(minutes=2)
 MAX_SUBJECT = 160
@@ -134,11 +136,6 @@ def listable_statuses(raw: str) -> tuple[str, ...]:
     return wanted
 
 
-def _clean(value) -> Optional[str]:
-    text = " ".join(str(value or "").split())
-    return text or None
-
-
 def pending_row(memo: dict) -> dict:
     """One draft the author still has to act on, as the rep home lists it."""
     current = memo.get("followup") or {}
@@ -148,8 +145,8 @@ def pending_row(memo: dict) -> dict:
     return {
         "memo_id": memo.get("id"),
         "contact_id": memo.get("hubspot_contact_id") or None,
-        "contact_name": _clean(extraction.get("contactName")),
-        "company_name": _clean(extraction.get("companyName")),
+        "contact_name": clean_name(extraction.get("contactName")),
+        "company_name": clean_name(extraction.get("companyName")),
         "subject": subject,
         "status": status,
         "generated_at": current.get("ready_at") or current.get("started_at") or None,

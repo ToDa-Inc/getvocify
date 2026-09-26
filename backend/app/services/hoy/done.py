@@ -4,22 +4,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.services.hoy.upcoming import local_midnight, parse_at
+from app.services.hoy.materialize import as_dt
+from app.services.hoy.names import NamePair, lookup
+from app.services.hoy.upcoming import local_midnight
 
 LIMIT = 50
 SIGNAL_DONE = frozenset({"resolved", "done"})
 CALL_DONE = frozenset({"connected"})
 
-Names = tuple[dict[str, tuple[str | None, str | None]], dict[str, tuple[str | None, str | None]]]
+Names = tuple[dict[str, NamePair], dict[str, NamePair]]
 
 
 def _name(names: Names, memo_id, contact_id) -> str | None:
-    by_memo, by_contact = names
-    found = by_memo.get(str(memo_id)) if memo_id else None
-    if found and found[0]:
-        return found[0]
-    found = by_contact.get(str(contact_id)) if contact_id else None
-    return found[0] if found else None
+    return lookup(names, memo_id, contact_id)[0]
 
 
 def _signal_done_by_rep(row: dict) -> bool:
@@ -48,7 +45,7 @@ def done_today(
     start = local_midnight(now, tz_name)
 
     def today(value) -> datetime | None:
-        at = parse_at(value)
+        at = as_dt(value)
         return at if at is not None and start <= at <= now else None
 
     found: list[tuple[datetime, dict]] = []
@@ -77,7 +74,7 @@ def done_today(
     for call in calls:
         if today(call.get("created_at")) is None or call.get("call_disposition") not in CALL_DONE:
             continue
-        at = parse_at(call.get("answered_at")) or parse_at(call.get("created_at"))
+        at = as_dt(call.get("answered_at")) or as_dt(call.get("created_at"))
         memo_id = call.get("memo_id") or None
         found.append((at, {
             "kind": "call",

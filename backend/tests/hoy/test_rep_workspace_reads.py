@@ -55,6 +55,18 @@ def _instant(value):
     return value
 
 
+def _top_level(expression: str) -> list[str]:
+    parts, depth, current = [], 0, ""
+    for char in expression:
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+            continue
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        current += char
+    return [*parts, current]
+
+
 class _Query:
     def __init__(self, store: "_Store", name: str):
         self._store = store
@@ -92,9 +104,14 @@ class _Query:
         self._filters.append(keep)
         return self
 
+    def neq(self, column, value):
+        self._log("neq", column, value)
+        self._filters.append(lambda row: _read(row, column) is not None and _read(row, column) != value)
+        return self
+
     def or_(self, expression):
         self._log("or", expression)
-        clauses = [clause.split(".", 2) for clause in expression.split(",")]
+        clauses = [clause.split(".", 2) for clause in _top_level(expression)]
 
         def keep(row):
             for column, op, value in clauses:
@@ -103,6 +120,9 @@ class _Query:
                     return True
                 if op == "is" and value == "null" and current is None:
                     return True
+                if op == "not" and value.startswith("in.(") and current is not None:
+                    if current not in value[4:-1].split(","):
+                        return True
             return False
 
         self._filters.append(keep)
@@ -152,7 +172,7 @@ class _Store:
 def _clock(monkeypatch):
     feature_flags.clear_cache()
     monkeypatch.setattr(brief_preferences, "_supabase", None)
-    monkeypatch.setattr(followup_api, "_now", lambda: NOW, raising=False)
+    monkeypatch.setattr(followup_api, "_now", lambda: NOW)
     monkeypatch.setattr(memos_api, "load_viewer_scope", lambda _supabase, _user_id: (None, [], {}))
     today_api._CLOCK[0] = NOW
     yield
@@ -283,6 +303,14 @@ def test_flag_off_hides_the_three_reads():
         assert response.json() == {"detail": "Not Found"}, path
 
 
+def test_rep_workspace_guard_lives_in_deps():
+    from app.deps import REP_WORKSPACE_FLAG, require_rep_workspace
+
+    assert REP_WORKSPACE_FLAG == FLAG
+    assert followup_api.require_rep_workspace is require_rep_workspace
+    assert today_api.require_rep_workspace is require_rep_workspace
+
+
 def test_flag_on_serves_the_three_reads():
     client = _client(_Store())
     for path in ("/api/v1/followups", "/api/v1/today/upcoming", "/api/v1/today/done"):
@@ -355,6 +383,16 @@ def test_followups_window_is_seven_days_newest_first():
     assert [row["memo_id"] for row in rows] == [_uuid(3), _uuid(2)]
 
 
+def test_followups_skip_rejected_memos():
+    store = _Store()
+    store.tables["memos"] = [
+        _memo(1, followup=_ready(), status="rejected"),
+        _memo(2, followup=_ready(), status="pending_review"),
+    ]
+    rows = _client(store).get("/api/v1/followups").json()
+    assert [row["memo_id"] for row in rows] == [_uuid(2)]
+
+
 def test_followups_rejects_sent_and_unknown_status():
     client = _client(_Store())
     assert client.get("/api/v1/followups?status=sent").status_code == 422
@@ -392,6 +430,33 @@ def test_memos_without_status_is_unchanged():
         (_uuid(2), "approved"),
         (_uuid(3), "failed"),
     ]
+    memo_calls = [entry[1:] for entry in store.log if entry[0] == "memos"]
+    assert memo_calls == [
+        ("order", "created_at", True),
+        ("limit", 20),
+        ("offset", 0),
+        ("eq", "user_id", REP),
+    ]
+
+
+def test_memos_reached_only_drops_calls_nobody_answered():
+    store = _Store()
+    store.tables["memos"] = [
+        _memo(1, status="pending_review", screening_outcome="voicemail", created_at="2026-09-26T09:00:00+00:00"),
+        _memo(2, status="pending_review", screening_outcome="no_response", created_at="2026-09-26T08:30:00+00:00"),
+        _memo(3, status="pending_review", screening_outcome=None, created_at="2026-09-26T08:00:00+00:00"),
+        _memo(4, status="pending_review", screening_outcome="connected", created_at="2026-09-26T07:00:00+00:00"),
+    ]
+    response = _client(store).get("/api/v1/memos?status=pending_review&reached_only=true")
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [_uuid(3), _uuid(4)]
+
+
+def test_memos_reached_only_false_is_unchanged():
+    store = _Store()
+    store.tables["memos"] = [_memo(1, screening_outcome="voicemail")]
+    response = _client(store).get("/api/v1/memos?reached_only=false")
+    assert [row["id"] for row in response.json()] == [_uuid(1)]
     memo_calls = [entry[1:] for entry in store.log if entry[0] == "memos"]
     assert memo_calls == [
         ("order", "created_at", True),
@@ -476,6 +541,34 @@ def test_upcoming_lists_the_same_commitment_once():
     store.tables["memos"] = [_with_commitments(1, [repeated, dict(repeated)])]
     rows = _client(store).get("/api/v1/today/upcoming").json()
     assert [row["text"] for row in rows] == ["Enviar el caso"]
+
+
+def test_upcoming_uses_hoy_key_when_commitments_have_no_id():
+    store = _Store()
+    first = {**_commitment("2026-09-28T10:00:00+02:00", "Enviar el caso"), "id": None}
+    same_day = {**_commitment("2026-09-28T17:00:00+02:00", "Enviar el dossier"), "id": None}
+    other_kind = {**_commitment("2026-09-28T12:00:00+02:00", "Llamar a Marta"), "id": None, "kind": "call"}
+    store.tables["memos"] = [_with_commitments(1, [first, same_day, other_kind])]
+    rows = _client(store).get("/api/v1/today/upcoming").json()
+    assert [row["text"] for row in rows] == ["Enviar el caso", "Llamar a Marta"]
+
+
+def test_upcoming_reads_the_memos_hoy_reads():
+    store = _Store()
+    oldest = _with_commitments(
+        99, [_commitment("2026-09-28T10:00:00+02:00", "Fuera de las 40")],
+        created_at=(NOW - timedelta(days=20)).isoformat(),
+    )
+    recent = [_memo(n, created_at=(NOW - timedelta(hours=n)).isoformat()) for n in range(1, 41)]
+    store.tables["memos"] = [oldest, *recent]
+    assert _client(store).get("/api/v1/today/upcoming").json() == []
+    memo_calls = [entry[1:] for entry in store.log if entry[0] == "memos"]
+    assert memo_calls == [
+        ("eq", "user_id", REP),
+        ("or", f"company_id.eq.{COMPANY},company_id.is.null"),
+        ("order", "created_at", True),
+        ("limit", 40),
+    ]
 
 
 def test_upcoming_newest_conversation_with_the_contact_decides():

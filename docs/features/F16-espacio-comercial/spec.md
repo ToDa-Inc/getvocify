@@ -163,6 +163,7 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 - `status`: uno o varios separados por comas, entre `ready` (por defecto), `generating` («Escribiendo el seguimiento…») y `unavailable` (el borrador falló o salió vacío: «No se pudo redactar»). Son los valores guardados en `memos.followup.status`. `sent` no se acepta porque va a Hecho hoy. Otro valor → 422.
 - **Solo el autor** (`memos.user_id`), también para owner/admin, porque solo el autor envía (`api/followup.py`).
 - **Ventana:** conversaciones creadas en los últimos 7 días (`memos.created_at`), de la más reciente a la más antigua, con un máximo de 50.
+- Una conversación rechazada (`memos.status = rejected`) no sale aunque su borrador siga listo.
 - Un borrador copiado pero no enviado sigue en `ready`. Enviado desde Gmail o desde la extensión pasa a `sent` y desaparece.
 - Fila: `{memo_id, contact_id, contact_name, company_name, subject, status, generated_at}`.
   - `contact_id` = `hubspot_contact_id`.
@@ -173,14 +174,15 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 **Filtro `status` en `GET /api/v1/memos`**
 - Opcional. Admite los estados de `MEMO_PIPELINE_STATUSES` (`app/services/captures.py`); otro valor → 422. Sin `status`, la respuesta es idéntica a la actual.
 - **No va detrás del flag.** Es un filtro genérico e inocuo sobre un listado que ya existe y respeta las mismas reglas de visibilidad (`scope`, autor).
-- Es un filtro exacto sobre la columna: `pending_review` también incluye las notas de buzón o sin respuesta (`screeningOutcome`), que nunca se autoaprueban. Quien pinte «por revisar» tiene que descartarlas.
+- Es un filtro exacto sobre la columna: `pending_review` también incluye las notas de buzón o sin respuesta (`screeningOutcome`), que nunca se autoaprueban.
+- `reached_only=true` (opcional, por defecto `false`, tampoco detrás del flag) las descarta: quita las notas con `screening_outcome` `voicemail` o `no_response` y conserva las que no tienen `screening_outcome` (notas de voz, reuniones, llamadas sin clasificar). Es lo que pide «por revisar»: `?status=pending_review&reached_only=true`. Sin el parámetro, la consulta no cambia.
 
 **`GET /api/v1/today/upcoming?days=7`**
 - `days` entre 1 y 14 (por defecto 7); fuera de ese rango → 422.
 - **Ventana:** desde mañana a las 00:00 hasta las 00:00 del día `mañana + days`, sin incluirlo; es decir, `days` días naturales empezando mañana. Lo que vence hoy o antes no sale: ya lo enseña Hoy (`commitment_due`).
-- **Fuente:** compromisos C04 (`extraction.intelligence.commitments`, con `due_at` y `text`) de las conversaciones del propio comercial de los últimos 60 días (máx. 500).
-- **Misma regla que Hoy:** por contacto (`hubspot_contact_id`, o la propia conversación si no tiene contacto) solo cuenta la conversación más reciente (`capture_started_at` o `created_at`). Si esa conversación marca `deal_closed`, no sale nada. Así Próximas no promete algo que Hoy no vaya a enseñar ese día.
-- **Sin duplicados:** un compromiso se identifica por su `id` (`com-…`) o, si no lo tiene, por tipo + `due_at` + texto.
+- **Fuente:** las mismas conversaciones de las que Hoy saca sus señales: las 40 más recientes del propio comercial (`read_hoy_memos` en `app/services/hoy/materialize.py`), y de ellas los compromisos C04 (`extraction.intelligence.commitments`, con `due_at` y `text`).
+- **Misma regla que Hoy, con el mismo código** (`fresh_signals`): por contacto (`hubspot_contact_id`, o la propia conversación si no tiene contacto) solo cuenta la conversación más reciente (`capture_started_at` o `created_at`). Si esa conversación marca `deal_closed`, no sale nada. Así Próximas no promete algo que Hoy no vaya a enseñar ese día.
+- **Sin duplicados, con la clave de Hoy:** `commitment:{memo_id}:{tipo}:{fecha de due_at}`. Dos compromisos del mismo tipo el mismo día en la misma conversación son una sola fila (la primera), igual que una sola tarjeta en Hoy; tengan o no `id`.
 - Fila: `{memo_id, contact_id, contact_name, company_name, text, due_at, precision, crm_task_id}`.
   - `precision` = `temporal_precision` del modelo (`date` | `time`), o `null` si falta.
   - `crm_task_id` = `commitment.crm_task_id` (E2), o `null` si falta.
@@ -216,8 +218,11 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 | `/followups` | `status=generating,unavailable` | Salen los dos, con `subject: null` |
 | `/followups` | Conversación de hace más de 7 días | No sale |
 | `/followups` | `status=sent` o desconocido | 422 |
+| `/followups` | Conversación rechazada con borrador listo | No sale |
 | `/memos` | `status=pending_review` | Solo las notas en ese estado |
 | `/memos` | Sin `status` | Mismas filas y misma consulta que hoy |
+| `/memos` | `reached_only=true` | Sin buzón ni sin respuesta; salen las conectadas y las que no tienen `screening_outcome` |
+| `/memos` | `reached_only=false` | Mismas filas y misma consulta que sin el parámetro |
 | `/memos` | Estado desconocido | 422 |
 | `upcoming` | Compromiso hoy a las 23:30 (Madrid) | No sale |
 | `upcoming` | Compromiso mañana a las 00:30 (Madrid) | Sale |
@@ -226,6 +231,8 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 | `upcoming` | Con `crm_task_id` / sin él | En la fila / `null` |
 | `upcoming` | Compromiso de otro comercial | No sale |
 | `upcoming` | Mismo compromiso repetido en la conversación | Una sola fila |
+| `upcoming` | Sin `id`: dos del mismo tipo el mismo día, y otro de otro tipo | Dos filas: la primera del par y la del otro tipo (clave de Hoy) |
+| `upcoming` | Compromiso en una conversación más antigua que las 40 últimas | No sale (misma ventana que Hoy) |
 | `upcoming` | Conversación más reciente con el mismo contacto, sin compromisos | El compromiso anterior no sale (regla de Hoy) |
 | `upcoming` | `days=0` o `days=15` | 422 |
 | `done` | Señal resuelta ayer a las 23:59 (Madrid) | No sale |
