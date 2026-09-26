@@ -416,6 +416,39 @@ async def test_materialize_after_auto_approve_inserts_signal():
     assert row["payload"]["reason"] == "Confirma: reunión jue 1 oct, 11:00 con Marina · etapa → Meeting booked"
 
 
+class _NoMemoConnectionQuery(_Query):
+    def select(self, *cols, **_k):
+        if self._name == "memos" and "connection_id" in ",".join(cols):
+            raise RuntimeError("column memos.connection_id does not exist")
+        return self
+
+
+class _RealMemosStore(_Store):
+    def table(self, name):
+        return _NoMemoConnectionQuery(self, name)
+
+
+@pytest.mark.asyncio
+async def test_materialize_selects_only_real_memo_columns():
+    memo = _memo()
+    memo.pop("connection_id")
+    store = _RealMemosStore(
+        memos=[memo],
+        meeting_proposals=[_proposal()],
+        company_feature_flags=[*_flags(True), *_stage_flags(True)],
+        action_signals=[],
+    )
+    first, second = _materialize_patches(_deal())
+    with first, second:
+        ok = await confirmations.materialize_confirm_after_auto_approve(
+            store, memo_id=MEMO, user_id=USER, company_id=COMPANY,
+        )
+    assert ok is True
+    [row] = store.tables["action_signals"]
+    assert row["type"] == CONFIRM_TYPE
+    assert row["connection_id"] == ""
+
+
 @pytest.mark.asyncio
 async def test_re_auto_approve_never_reopens_a_resolved_signal():
     applied = _signal_row(status="resolved", version=4)
@@ -489,6 +522,53 @@ async def test_materialize_failure_never_breaks_auto_approve():
         assert await auto_sync.maybe_auto_approve_hubspot_call(store, MEMO, USER) is True
     approve.assert_awaited_once()
     materialize.assert_awaited_once()
+
+
+async def _auto_approve_during_c04(flags: list[dict]) -> tuple[bool, list[str]]:
+    """Auto-approve while this memo's C04 run is still going; returns (c04 done at approve, order)."""
+    from app.services.hubspot import auto_sync
+
+    store, config = _auto_sync_env(toggle=True)
+    store.tables["company_feature_flags"] = flags
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def _c04():
+        await release.wait()
+        order.append("c04")
+
+    c04 = asyncio.get_running_loop().create_task(_c04(), name=f"intelligence:{MEMO}")
+    seen: list[bool] = []
+
+    async def _approve(*_a, **_k):
+        seen.append(c04.done())
+        order.append("approve")
+
+    asyncio.get_running_loop().call_later(0.05, release.set)
+    with patch(
+        "app.services.crm_config.CRMConfigurationService.get_configuration",
+        new_callable=AsyncMock, return_value=config,
+    ), patch("app.services.memo_approval.approve_memo_core", side_effect=_approve), patch(
+        "app.services.hoy.confirmations.materialize_confirm_after_auto_approve", new_callable=AsyncMock,
+    ):
+        assert await auto_sync.maybe_auto_approve_hubspot_call(store, MEMO, USER) is True
+    await c04
+    return seen[0], order
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag", ["COMMITMENT_TASKS_ENABLED", CONFIRM_FLAG])
+async def test_auto_approve_waits_for_the_running_c04(flag):
+    done, order = await _auto_approve_during_c04([{"company_id": COMPANY, "flag": flag, "enabled": True}])
+    assert done is True
+    assert order == ["c04", "approve"]
+
+
+@pytest.mark.asyncio
+async def test_flags_off_auto_approve_does_not_wait_for_c04():
+    done, order = await _auto_approve_during_c04([])
+    assert done is False
+    assert order == ["approve", "c04"]
 
 
 # --- Acción confirm (HTTP) --------------------------------------------------

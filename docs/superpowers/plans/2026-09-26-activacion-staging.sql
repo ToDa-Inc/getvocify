@@ -31,10 +31,18 @@ ON CONFLICT (company_id, flag) DO UPDATE
 --   ('70b7ffd2-c360-4d4f-a339-4affec769f7a', 'REPORTING_DAILY_EMAIL_ENABLED', true)
 -- ON CONFLICT (company_id, flag) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW();
 
+-- HOY_NO_REPLY_ENABLED se deja APAGADO: lee los emails del CRM y la app de HubSpot aún no
+-- pide el scope `sales-email-read`; encendido, Hoy mostraría «emails: sin acceso».
+
 COMMIT;
 
 -- =============================================================================
 -- Inversa: volver al valor global (DELETE por flag)
+-- Ojo: el DELETE borra la fila, no restaura el valor anterior. Si alguno de estos flags ya
+-- tenía una fila propia antes de ejecutar este script (p. ej. enabled = false a propósito),
+-- ese valor se pierde. Antes de activar, guarda las filas actuales con:
+--   SELECT flag, enabled FROM company_feature_flags
+--   WHERE company_id = '70b7ffd2-c360-4d4f-a339-4affec769f7a';
 -- =============================================================================
 -- DELETE FROM company_feature_flags
 -- WHERE company_id = '70b7ffd2-c360-4d4f-a339-4affec769f7a'

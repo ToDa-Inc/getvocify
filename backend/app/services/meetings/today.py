@@ -115,7 +115,7 @@ def collect_meeting_today(
 def _read_memos(supabase, *, company_id: str, user_id: str) -> list[dict]:
     stored = (
         supabase.table("memos")
-        .select("id,hubspot_contact_id,hubspot_deal_id,connection_id,created_at,approved_at")
+        .select("id,hubspot_contact_id,hubspot_deal_id,created_at,approved_at")
         .eq("user_id", user_id)
         .or_(f"company_id.eq.{company_id},company_id.is.null")
         .order("created_at", desc=True)

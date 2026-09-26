@@ -7,19 +7,23 @@
 -- =============================================================================
 -- Objetivo 1 · Vocify en cada interacción
 -- % de conversaciones con inteligencia C04 vigente, por canal
--- «Vigente» = status ready, prompt_version actual y input_revision presente.
+-- Cuenta C04 con status ready o partial (partial también tiene hechos con evidencia: dolor,
+-- reunión). 'intelligence_v3' es PROMPT_VERSION de backend/app/services/intelligence/extract.py:
+-- SQL no puede leer esa constante, así que al subir de versión hay que cambiarla aquí.
+-- «Vigente» en la app también exige input_revision == revision_for_memo(memo), un hash que
+-- calcula Python; en SQL solo se comprueba que exista, así que esto es un techo, no el dato exacto.
 -- =============================================================================
 SELECT
   COALESCE(interaction_kind, 'unknown') AS channel,
   COUNT(*) AS conversations,
   COUNT(*) FILTER (
-    WHERE extraction->'intelligence'->>'status' = 'ready'
+    WHERE extraction->'intelligence'->>'status' IN ('ready', 'partial')
       AND extraction->'intelligence'->>'prompt_version' = 'intelligence_v3'
       AND COALESCE(extraction->'intelligence'->>'input_revision', '') <> ''
-  ) AS with_current_intelligence,
+  ) AS with_intelligence,
   ROUND(
     100.0 * COUNT(*) FILTER (
-      WHERE extraction->'intelligence'->>'status' = 'ready'
+      WHERE extraction->'intelligence'->>'status' IN ('ready', 'partial')
         AND extraction->'intelligence'->>'prompt_version' = 'intelligence_v3'
         AND COALESCE(extraction->'intelligence'->>'input_revision', '') <> ''
     ) / NULLIF(COUNT(*), 0),
@@ -69,22 +73,30 @@ WHERE company_id = :company_id
 
 -- =============================================================================
 -- Objetivo 4 · Coaching
--- Adherencia semanal (desde memo_scores) y briefs posteriores vistos
+-- Adherencia por semana (lunes a domingo, hora de Madrid) de las últimas 8 semanas.
+-- Un memo reevaluado tiene una fila por input_revision: solo cuenta la más reciente.
 -- =============================================================================
+WITH latest AS (
+  SELECT DISTINCT ON (ms.memo_id)
+    ms.memo_id,
+    ms.created_at,
+    ms.score
+  FROM memo_scores ms
+  JOIN memos m ON m.id = ms.memo_id
+  WHERE m.company_id = :company_id
+  ORDER BY ms.memo_id, ms.created_at DESC, ms.revision_seq DESC
+)
 SELECT
-  ROUND(
-    AVG((score->>'adherence')::numeric) FILTER (
-      WHERE score->>'adherence' IS NOT NULL
-        AND created_at >= date_trunc('week', NOW() AT TIME ZONE 'Europe/Madrid')
-    ),
-    3
-  ) AS weekly_adherence_avg,
-  COUNT(*) FILTER (
-    WHERE created_at >= date_trunc('week', NOW() AT TIME ZONE 'Europe/Madrid')
-  ) AS scores_this_week
-FROM memo_scores ms
-JOIN memos m ON m.id = ms.memo_id
-WHERE m.company_id = :company_id;
+  date_trunc('week', created_at AT TIME ZONE 'Europe/Madrid')::date AS week_start_madrid,
+  COUNT(*) AS scored_memos,
+  COUNT(*) FILTER (WHERE score->>'adherence' IS NOT NULL) AS with_adherence,
+  ROUND(AVG((score->>'adherence')::numeric) FILTER (WHERE score->>'adherence' IS NOT NULL), 3)
+    AS adherence_avg
+FROM latest
+WHERE created_at >= (date_trunc('week', NOW() AT TIME ZONE 'Europe/Madrid') - INTERVAL '7 weeks')
+                    AT TIME ZONE 'Europe/Madrid'
+GROUP BY 1
+ORDER BY 1 DESC;
 
 -- No hay columna de «visto» en post_interaction_briefs (solo memo_id, input_revision,
 -- status, body, created_at). No se puede medir briefs posteriores vistos sin instrumentar UI.

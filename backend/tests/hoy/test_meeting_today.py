@@ -212,6 +212,32 @@ def test_accepted_proposal_is_materialized():
     assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
 
 
+class _NoMemoConnectionQuery(_Query):
+    def select(self, *cols, **_k):
+        if self._name == "memos" and "connection_id" in ",".join(cols):
+            raise RuntimeError("column memos.connection_id does not exist")
+        return self
+
+
+class _RealMemosStore(_Store):
+    def table(self, name: str):
+        return _NoMemoConnectionQuery(self, name)
+
+
+def test_memos_read_selects_only_real_columns():
+    store = _RealMemosStore()
+    memo = _memo()
+    memo.pop("connection_id")
+    store.tables["memos"] = [memo]
+    store.tables["meeting_proposals"] = [_proposal(decision="accepted")]
+    store.tables["action_signals"] = []
+    store.tables["company_feature_flags"] = [{"company_id": COMPANY, "flag": MEETINGS_FLAG, "enabled": True}]
+    feature_flags.clear_cache()
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
+    [row] = store.tables["action_signals"]
+    assert row["connection_id"] == ""
+
+
 def test_latest_revision_of_a_proposal_wins():
     store = _Store()
     store.tables["memos"] = [_memo()]

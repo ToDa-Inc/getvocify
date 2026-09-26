@@ -1,4 +1,9 @@
-"""E9 harmony: one conversation, all outputs show the same facts (call and WhatsApp)."""
+"""E9 harmony: one conversation through the real pipeline; every output must show the same facts.
+
+Each channel enters the way production does (dialer call webhook, WhatsApp voice note) and every
+stage after that is production code. Only external IO is faked: the models (LLM), speech to text,
+the CRM's HTTP API, WhatsApp delivery, and the database (tests/e2e/fake_db.py).
+"""
 
 from __future__ import annotations
 
@@ -6,9 +11,10 @@ import asyncio
 import copy
 import json
 import os
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
@@ -16,39 +22,45 @@ os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-harmony-e2e-32
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-harmony-e2e-32")
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from app.config import settings
+from app.api import briefs as briefs_api
+from app.api import memos as memos_api
+from app.api import today as today_api
+from app.deps import get_membership, get_supabase
 from app.models.memo import MemoExtraction
-from app.services import feature_flags
+from app.services import feature_flags, memo_approval
 from app.services import followup as followup_svc
-from app.services.briefs.v2 import prepare_brief_v2
-from app.services.coaching.briefs import aggregate_brief
-from app.services.commitment_tasks import commitment_tasks, sync_plan
-from app.services.followup_logic import c04_facts
-from app.services.hoy.confirmations import build_confirm_signal, pending_confirm_parts
-from app.services.hoy.materialize import day_end, fresh_signals
-from app.services.hoy.reasons import reason
-from app.services.intelligence.extract import PROMPT_VERSION, shape_intelligence
-from app.services.intelligence.worker import revision_for_memo
-from app.services.meetings.today import (
-    MEETINGS_FLAG,
-    meeting_today_signal,
-    refresh_meeting_today,
-)
-from app.services.memo_extraction_hooks import refresh_meeting_proposal, run_post_extraction_hooks
-from app.services.reporting.aggregate import build_snapshot
-from app.services.team_insights.objections import objection_counts
+from app.services.company import Membership
+from app.services.hoy import confirmations
+from app.services.hoy.confirmations import CONFIRM_TYPE, DealSnapshot, run_confirm_write
+from app.services.hubspot.types import SyncResult
+from app.services.intelligence.extract import PROMPT_PATH, is_current
+from app.services.meetings import accept as meetings_accept
+from app.services.meetings.accept import accept_meeting_proposal
+from app.services.meetings.proposals import latest_proposal
+from app.services.reporting.periodic import ensure_self_weekly_report, ensure_team_weekly_report
+from app.services.reporting.weekly import week_bounds
+from app.services.team_insights.aggregate import load_team_adherence_inputs, team_adherence
+from app.services.telephony import call_processor
 from app.services.whatsapp import processor as whatsapp_processor
 
-COMPANY = "co-harmony"
-USER = "user-harmony"
-MEMO_ID = "e9999999-9999-9999-9999-999999999999"
+from tests.e2e.fake_db import FakeDB
+
+COMPANY = "c0000000-0000-4000-8000-0000000000e9"
+USER = "a0000000-0000-4000-8000-0000000000e9"
+CONNECTION = "b0000000-0000-4000-8000-0000000000e9"
+CONFIG_ID = "d0000000-0000-4000-8000-0000000000e9"
 CONTACT = "42"
 DEAL = "deal-1"
-CONNECTION = "conn-harmony"
+CALL_SID = "CA-harmony"
 TZ = "Europe/Madrid"
-NOW = datetime(2026, 9, 24, 8, 0, tzinfo=timezone.utc)  # 10:00 Madrid, meeting day
-CAPTURE = "2026-09-22T10:00:00+02:00"
+MADRID = ZoneInfo(TZ)
+
+CAPTURED = datetime(2026, 9, 22, 8, 0, tzinfo=timezone.utc)  # martes 10:00 Madrid
+NOW = datetime(2026, 9, 24, 8, 0, tzinfo=timezone.utc)  # jueves 10:00 Madrid, día del compromiso
+REPORT_NOW = datetime(2026, 9, 25, 17, 0, tzinfo=timezone.utc)  # viernes 19:00 Madrid, informe semanal
 
 TRANSCRIPT = (
     "Rep: Hola Marina, ¿cómo lleváis el seguimiento?\n"
@@ -59,524 +71,468 @@ TRANSCRIPT = (
     "Rep: Perfecto, quedamos el jueves a las 11 para la demo.\n"
     "Them: De acuerdo."
 )
-
 PAIN_QUOTE = "Se nos quedan leads sin llamar los viernes"
 OBJECTION_QUOTE = "Está caro para lo que ofrecéis"
 COMMITMENT_TEXT = "llamar el jueves"
-COMMITMENT_DUE = "2026-09-24T09:00:00+02:00"
-MEETING_START = "2026-09-24T11:00:00+02:00"
+COMMITMENT_DAY = "2026-09-24"
+MEETING_AT = datetime(2026, 9, 24, 11, 0, tzinfo=MADRID)
+BOOKED_STAGE = "appointmentscheduled"
 
-PLAYBOOK_ENTRIES = [
-    {"entry_id": "price-1", "category": "price", "guidance": "compáralo con un comercial más.", "source_ref": "pb:1"},
-]
-PLAYBOOK_STEPS = [
-    {"step_id": "pitch", "label": "Pitch", "criterion": "Explicó el producto"},
-    {"step_id": "qualify", "label": "Cualificar", "criterion": "Confirmó decisor y presupuesto"},
-]
-BOOKED_LABELS = {"appointmentscheduled": "Meeting booked", "qualifiedtobuy": "Qualified"}
-CRM_CONFIG = SimpleNamespace(
-    meeting_booked_pipeline_id="default",
-    meeting_booked_stage_id="appointmentscheduled",
+C04_ANSWER = {
+    "interest": "high",
+    "pain_confirmed": True,
+    "pain_quote": PAIN_QUOTE,
+    "objections": [{"category": "price", "resolution": "open", "quote": OBJECTION_QUOTE}],
+    "commitments": [{
+        "kind": "call",
+        "origin": "prospect_request",
+        "text": COMMITMENT_TEXT,
+        "quote": "llámame el jueves para seguir",
+        "due_at": COMMITMENT_DAY,
+    }],
+    "meeting": {
+        "agreed": True,
+        "starts_at": MEETING_AT.isoformat(),
+        "quote": "quedamos el jueves a las 11 para la demo",
+    },
+}
+EXTRACTION_ANSWER = {
+    "summary": "Marina dudó por el precio y pidió que la llamaran el jueves.",
+    "contactName": "Marina",
+    "companyName": "Acme",
+    "painPoints": ["Leads sin llamar los viernes"],
+    "objections": [OBJECTION_QUOTE],
+    "nextSteps": ["Llamar el jueves"],
+}
+FOLLOWUP_ANSWER = {"subject": "Seguimiento", "body": "Hola Marina, hablamos el jueves.", "language": "es"}
+
+PLAYBOOK_ID = "e0000000-0000-4000-8000-0000000000e9"
+PLAYBOOK_VERSION = {
+    "id": "f0000000-0000-4000-8000-0000000000e9",
+    "playbook_id": PLAYBOOK_ID,
+    "status": "published",
+    "steps": [{"step_id": "pitch", "label": "Pitch", "criterion": "Explicó el producto"}],
+    "entries": [{"entry_id": "price-1", "category": "price", "guidance": "compáralo con un comercial más.",
+                 "source_ref": "pb:1"}],
+}
+
+FLAGS = (
+    "INTELLIGENCE_EXTRACT_ENABLED", "FOLLOWUP_ENABLED", "COMMITMENT_TASKS_ENABLED", "BRIEF_V2_ENABLED",
+    "HOY_CONFIRMATIONS_ENABLED", "HOY_MEETINGS_ENABLED", "DEAL_STAGE_CONFIRM_ENABLED",
+    "REPORTING_WEEKLY_ENABLED", "REPORTING_TEAM_ENABLED", "TEAM_COMPETITORS_ENABLED",
 )
-
-LISTA2_FLAGS = (
-    ("COMMITMENT_TASKS_ENABLED", True),
-    ("BRIEF_V2_ENABLED", True),
-    ("HOY_CONFIRMATIONS_ENABLED", True),
-    ("HOY_MEETINGS_ENABLED", True),
-    ("DEAL_STAGE_CONFIRM_ENABLED", True),
-    ("TEAM_COMPETITORS_ENABLED", True),
-    ("INTELLIGENCE_EXTRACT_ENABLED", True),
-    ("FOLLOWUP_ENABLED", True),
-)
-
-
-class _Result:
-    def __init__(self, data):
-        self.data = data
-
-
-def _matches(row: dict, column: str, value) -> bool:
-    if "->>" in column:
-        base, key = column.split("->>", 1)
-        stored = (row.get(base) or {}).get(key)
-        return str(stored).lower() == str(value).lower() if stored is not None else False
-    return row.get(column) == value
-
-
-class _Query:
-    def __init__(self, store: "_Store", name: str):
-        self._store = store
-        self._name = name
-        self._filters: list = []
-        self._in_filters: list = []
-        self._op: str | None = None
-        self._payload = None
-        self._limit = None
-
-    def select(self, *_a, **_k):
-        return self
-
-    def eq(self, column, value):
-        self._filters.append((column, value))
-        return self
-
-    def in_(self, column, values):
-        self._in_filters.append((column, list(values)))
-        return self
-
-    def limit(self, n):
-        self._limit = n
-        return self
-
-    def order(self, *_a, **_k):
-        return self
-
-    def or_(self, _expr):
-        return self
-
-    def insert(self, payload):
-        self._op, self._payload = "insert", payload
-        return self
-
-    def upsert(self, payload, **_k):
-        self._op, self._payload = "upsert", payload
-        return self
-
-    def update(self, payload):
-        self._op, self._payload = "update", payload
-        return self
-
-    def delete(self):
-        self._op = "delete"
-        return self
-
-    def execute(self):
-        table = self._store.tables.setdefault(self._name, [])
-        rows = list(table)
-        for column, value in self._filters:
-            rows = [row for row in rows if _matches(row, column, value)]
-        for column, values in self._in_filters:
-            allowed = {str(v) for v in values}
-            rows = [row for row in rows if str(row.get(column) or "") in allowed]
-        if self._op == "upsert":
-            key_cols = ("company_id", "user_id", "connection_id", "dedupe_key")
-            match = next(
-                (row for row in table if all(row.get(c) == self._payload.get(c) for c in key_cols)),
-                None,
-            )
-            if match:
-                match.update(copy.deepcopy(self._payload))
-            else:
-                row = copy.deepcopy(self._payload)
-                row.setdefault("id", f"sig-{len(table) + 1}")
-                row.setdefault("version", 1)
-                row.setdefault("status", "pending")
-                table.append(row)
-            return _Result([self._payload])
-        if self._op == "update":
-            updated = []
-            for row in table:
-                if all(_matches(row, c, v) for c, v in self._filters):
-                    row.update(copy.deepcopy(self._payload))
-                    updated.append(row)
-            return _Result(updated)
-        if self._op == "insert":
-            payload = self._payload
-            if isinstance(payload, list):
-                table.extend(copy.deepcopy(payload))
-            else:
-                table.append(copy.deepcopy(payload))
-            return _Result([payload] if not isinstance(payload, list) else payload)
-        if self._op == "delete":
-            gone = [row for row in table if row in rows]
-            self._store.tables[self._name] = [row for row in table if row not in gone]
-            return _Result(gone)
-        if self._limit is not None:
-            rows = rows[: self._limit]
-        return _Result(copy.deepcopy(rows))
-
-
-class _Store:
-    def __init__(self):
-        self.tables: dict[str, list] = {
-            "company_feature_flags": [
-                {"company_id": COMPANY, "flag": flag, "enabled": enabled}
-                for flag, enabled in LISTA2_FLAGS
-            ],
-            "memos": [],
-            "memo_scores": [],
-            "meeting_proposals": [],
-            "interaction_patterns": [],
-            "post_interaction_briefs": [],
-            "action_signals": [],
-            "user_profiles": [{"id": USER, "full_name": "Lucía Pérez", "writing_samples": []}],
-        }
-
-    def table(self, name: str):
-        return _Query(self, name)
 
 
 class FakeLLM:
+    """The models. C04 and the follow-up draft answer as the real ones would for this call."""
+
     def __init__(self):
-        self.messages = None
+        self.calls: list[dict] = []
 
-    async def chat_json(self, messages, **_kwargs):
-        self.messages = messages
-        return {"subject": "Seguimiento comercial", "body": "Hola Marina, quedamos el jueves a las 11.", "language": "es"}
+    async def chat_json(self, messages, **kwargs):
+        kind = "c04" if messages[0]["content"] == PROMPT_PATH.read_text(encoding="utf-8") else "followup"
+        self.calls.append({"kind": kind, "messages": copy.deepcopy(messages), **kwargs})
+        return copy.deepcopy(C04_ANSWER if kind == "c04" else FOLLOWUP_ANSWER)
 
-
-def _raw_c04():
-    return {
-        "interest": "high",
-        "pain_confirmed": True,
-        "pain_quote": PAIN_QUOTE,
-        "objections": [{"category": "price", "resolution": "open", "quote": OBJECTION_QUOTE}],
-        "commitments": [{
-            "kind": "call",
-            "origin": "prospect_request",
-            "text": COMMITMENT_TEXT,
-            "quote": "llámame el jueves para seguir",
-            "due_at": COMMITMENT_DUE,
-        }],
-        "meeting": {
-            "agreed": True,
-            "starts_at": MEETING_START,
-            "quote": "quedamos el jueves a las 11 para la demo",
-        },
-    }
+    def context(self, kind: str) -> dict:
+        [call] = [c for c in self.calls if c["kind"] == kind]
+        return json.loads(call["messages"][1]["content"])
 
 
-def _base_memo(*, channel: str) -> dict:
-    kind = "visit" if channel == "whatsapp" else "call"
-    source = "whatsapp" if channel == "whatsapp" else "vocify_call"
-    return {
-        "id": MEMO_ID,
-        "user_id": USER,
-        "company_id": COMPANY,
-        "hubspot_contact_id": CONTACT,
-        "hubspot_deal_id": DEAL,
-        "matched_deal_id": DEAL,
-        "connection_id": CONNECTION,
-        "playbook_version_id": "pv-1",
-        "timezone": TZ,
-        "transcript": TRANSCRIPT,
-        "capture_started_at": CAPTURE,
-        "created_at": CAPTURE,
-        "interaction_kind": kind,
-        "source": source,
-        "status": "pending_review",
-        "screening_outcome": None,
-        "extraction": {
-            "summary": "Marina dudó por el precio y pidió seguimiento.",
-            "contactName": "Marina",
-            "dealStage": "qualifiedtobuy",
-            "nextSteps": [],
-        },
-    }
+class FakeExtraction:
+    """The CRM-field extraction model."""
+
+    def __init__(self, *_a, **_k):
+        pass
+
+    async def extract(self, *_a, **_k):
+        return MemoExtraction(**copy.deepcopy(EXTRACTION_ANSWER))
 
 
-def _with_intelligence(memo: dict) -> dict:
-    shaped = shape_intelligence(memo, _raw_c04())
-    obj_ev = shaped["objections"][0]["evidence_refs"][0]
-    shaped["playbook_observations"] = [
-        {"step_id": "pitch", "status": "met", "evidence_refs": [obj_ev]},
-        {"step_id": "qualify", "status": "missed", "evidence_refs": []},
-    ]
-    out = copy.deepcopy(memo)
-    out["extraction"] = {**out["extraction"], "intelligence": shaped}
-    return out
+class FakeHubSpot:
+    """HubSpot's HTTP API as seen through the provider, the meeting writer and the task search."""
+
+    def __init__(self):
+        self.stage = "qualifiedtobuy"
+        self.tasks: dict[str, dict] = {}
+        self.syncs: list[dict] = []
+        self.meetings: list[dict] = []
+
+    async def sync_memo(self, **kwargs):
+        self.syncs.append(kwargs)
+        ids = {}
+        for task in kwargs.get("commitment_tasks") or []:
+            task_id = f"task-{len(self.tasks) + 1}"
+            self.tasks[task_id] = {"subject": task.text, "due_date": task.due_date, "contact_id": CONTACT}
+            ids[task.commitment_id] = task_id
+        extraction = kwargs.get("extraction")
+        if "dealstage" in (kwargs.get("allowed_fields") or []) and getattr(extraction, "dealStage", None):
+            self.stage = extraction.dealStage
+        return SyncResult(memo_id=kwargs["memo_id"], success=True, contact_id=CONTACT, deal_id=DEAL,
+                          commitment_task_ids=ids)
+
+    def task_page(self, request: dict) -> dict:
+        assert request["path"] == "/crm/v3/objects/tasks/search"
+        return {"results": [
+            {"id": task_id, "properties": {"hs_task_subject": t["subject"], "hs_task_status": "NOT_STARTED",
+                                           "contact_id": t["contact_id"]}}
+            for task_id, t in self.tasks.items()
+        ]}
+
+    def writer(self, *_a, **_k):
+        crm = self
+
+        class _Writer:
+            def create(self, operation_key: str, proposal: dict) -> str:
+                crm.meetings.append({"operation_key": operation_key, **copy.deepcopy(proposal)})
+                return f"meeting-{len(crm.meetings)}"
+
+            def reconcile(self, _operation_key: str):
+                return None
+
+            def change_stage(self, mapping) -> bool:
+                crm.stage = mapping.get("stage_id") if isinstance(mapping, dict) else mapping
+                return True
+
+        return _Writer()
+
+    async def deal_snapshot(self, _supabase, *, memo: dict, company_id: str):
+        del memo, company_id
+        return DealSnapshot(provider="hubspot", pipeline_id="default", stage_id=self.stage,
+                            stage_labels={BOOKED_STAGE: "Meeting booked", "qualifiedtobuy": "Qualified"})
 
 
-def _scoreable_extraction(memo: dict) -> dict:
-    extraction = copy.deepcopy(memo["extraction"])
-    extraction["objections"] = [{"text": OBJECTION_QUOTE, "category": "price"}]
-    return extraction
+class FakeWhatsApp:
+    def __init__(self):
+        self.sent: list[str] = []
+
+    async def send_text(self, _to, text, **_k):
+        self.sent.append(text)
 
 
-async def _whatsapp_capture(store: _Store) -> dict:
-    inserted: list[dict] = []
+def _database() -> FakeDB:
+    return FakeDB(
+        clock=CAPTURED,
+        emails={USER: "lucia@acme.test"},
+        companies=[{"id": COMPANY, "name": "Acme", "product_context": "", "glossary": []}],
+        company_members=[{"id": "m-1", "company_id": COMPANY, "user_id": USER, "role": "owner",
+                          "status": "active", "created_at": "2026-01-01T00:00:00+00:00"}],
+        user_profiles=[{"id": USER, "full_name": "Lucía Pérez", "company_name": "Vocify", "glossary": [],
+                        "stt_languages": ["es"], "writing_samples": []}],
+        company_feature_flags=[{"company_id": COMPANY, "flag": flag, "enabled": True} for flag in FLAGS],
+        crm_connections=[{"id": CONNECTION, "company_id": COMPANY, "user_id": USER, "provider": "hubspot",
+                          "status": "connected", "access_token": "token", "metadata": {"portal_id": "1"}}],
+        crm_configurations=[{"id": CONFIG_ID, "connection_id": CONNECTION, "auto_sync_hubspot_calls": True,
+                             "auto_create_contacts": False, "auto_create_companies": False,
+                             "meeting_booked_pipeline_id": "default", "meeting_booked_stage_id": BOOKED_STAGE}],
+        playbooks=[{"id": PLAYBOOK_ID, "company_id": COMPANY, "sales_motion_key": "outbound",
+                    "active_version_id": PLAYBOOK_VERSION["id"],
+                    "playbook_versions": [{"status": "published"}]}],
+        playbook_versions=[copy.deepcopy(PLAYBOOK_VERSION)],
+        outbound_calls=[{"id": "oc-1", "user_id": USER, "carrier_call_id": CALL_SID, "to_number": "+34600000000",
+                         "hubspot_contact_id": CONTACT, "hubspot_deal_id": DEAL, "recording_duration": 95,
+                         "status": "completed"}],
+    )
 
-    class _Memos:
-        def select(self, *_a, **_k):
-            return self
 
-        def eq(self, *_a, **_k):
-            return self
+@dataclass
+class World:
+    channel: str
+    db: FakeDB
+    llm: FakeLLM
+    crm: FakeHubSpot
+    whatsapp: FakeWhatsApp
+    memo_id: str = ""
+    confirm_writes: list = field(default_factory=list)
 
-        def limit(self, *_a, **_k):
-            return self
+    @property
+    def memo(self) -> dict:
+        [memo] = self.db.rows("memos", id=self.memo_id)
+        return memo
 
-        def insert(self, row):
-            inserted.append(dict(row))
-            store.tables["memos"] = [{"id": MEMO_ID, **row}]
-            return self
-
-        def execute(self):
-            if inserted:
-                return SimpleNamespace(data=[{"id": MEMO_ID, **inserted[-1]}])
-            return SimpleNamespace(data=list(store.tables.get("memos") or []))
-
-    class _DB:
-        def table(self, name):
-            if name == "memos":
-                return _Memos()
-            return store.table(name)
-
-    class _Extraction:
-        async def extract(self, *_a, **_k):
-            return MemoExtraction(summary="Visita a Marina: duda por precio.")
-
-    class _Glossary:
-        def __init__(self, *_a, **_k):
-            pass
-
-        async def get_user_glossary(self, _user_id):
-            return []
-
-    with patch.object(whatsapp_processor, "get_field_specs", return_value=None), patch.object(
-        whatsapp_processor, "GlossaryService", _Glossary
-    ), patch.object(whatsapp_processor, "ExtractionService", _Extraction), patch.object(
-        whatsapp_processor, "with_author_company", lambda _s, row: row
-    ), patch(
-        "app.services.extraction_context.load_product_context", return_value=""
-    ), patch(
-        "app.services.session_entities.load_stt_profile", return_value={}
-    ), patch(
-        "app.services.transcript_sanitize.prepare_transcript_for_extraction",
-        lambda transcript, *_a, **_k: (transcript, ""),
-    ), patch(
-        "app.services.transcript_sanitize.schedule_transcript_polish", lambda *_a, **_k: None
-    ), patch(
-        "app.services.followup.schedule_followup", lambda *_a, **_k: False
-    ), patch(
-        "app.services.pipeline_lease.update_memo_row", lambda *_a, **_k: None
-    ), patch(
-        "app.services.intelligence.worker.record_enqueue", lambda *_a, **_k: None
-    ), patch(
-        "app.services.memo_extraction_hooks.run_post_extraction_hooks", lambda *_a, **_k: None
-    ), patch(
-        "app.services.hubspot.auto_sync.maybe_auto_approve_hubspot_call",
-        new=AsyncMockFalse(),
-    ):
-        memo_id, _ = await whatsapp_processor._extract_and_create_memo(
-            _DB(), USER, TRANSCRIPT, "wamid-harmony", None, None
+    def client(self, *routers) -> TestClient:
+        app = FastAPI()
+        for router in routers:
+            app.include_router(router)
+        app.dependency_overrides[get_membership] = lambda: Membership(
+            id="m-1", company_id=COMPANY, user_id=USER, role="owner", status="active",
         )
-        await asyncio.gather(*list(whatsapp_processor._POST_EXTRACTION_TASKS), return_exceptions=True)
-
-    assert memo_id == MEMO_ID
-    row = store.tables["memos"][0]
-    assert row["interaction_kind"] == "visit"
-    assert row["source"] == "whatsapp"
-    row.update({
-        "id": MEMO_ID,
-        "company_id": COMPANY,
-        "hubspot_contact_id": CONTACT,
-        "hubspot_deal_id": DEAL,
-        "connection_id": CONNECTION,
-        "playbook_version_id": "pv-1",
-        "timezone": TZ,
-        "transcript": TRANSCRIPT,
-        "capture_started_at": CAPTURE,
-    })
-    return row
+        app.dependency_overrides[get_supabase] = lambda: self.db
+        return TestClient(app)
 
 
-class AsyncMockFalse:
-    async def __call__(self, *_a, **_k):
-        return False
+def _install_io_fakes(monkeypatch, crm: FakeHubSpot, llm: FakeLLM, confirm_writes: list) -> None:
+    async def _fresh(_supabase, connection):
+        return connection
+
+    async def _stt(*_a, **_k):
+        return SimpleNamespace(text=TRANSCRIPT, confidence=0.93, diarization={}, channels=1)
+
+    async def _nothing(*_a, **_k):
+        return {}
+
+    async def _no_specs(*_a, **_k):
+        return None
+
+    monkeypatch.setattr("app.services.llm.LLMClient", lambda *_a, **_k: llm)
+    monkeypatch.setattr(memos_api, "ExtractionService", FakeExtraction)
+    monkeypatch.setattr(whatsapp_processor, "ExtractionService", FakeExtraction)
+    monkeypatch.setattr(call_processor, "transcribe_audio", _stt)
+    monkeypatch.setattr(call_processor, "log_call_engagement", _nothing)
+    monkeypatch.setattr(memos_api, "_curated_field_specs_for_primary_crm", _no_specs)
+    monkeypatch.setattr(whatsapp_processor, "get_field_specs", _no_specs)
+    monkeypatch.setattr("app.services.extraction_context.load_existing_crm_values", _nothing)
+    monkeypatch.setattr("app.services.transcript_sanitize.schedule_transcript_polish", lambda *_a, **_k: None)
+    monkeypatch.setattr(memo_approval, "ensure_hubspot_connection_tokens_fresh", _fresh)
+    monkeypatch.setattr(memo_approval, "build_crm_provider", lambda *_a, **_k: crm)
+    monkeypatch.setattr(confirmations, "fetch_deal_snapshot", crm.deal_snapshot)
+    monkeypatch.setattr(meetings_accept, "writer_from_connection", crm.writer)
+    monkeypatch.setattr(today_api, "_FETCH", crm.task_page)
+    monkeypatch.setattr(today_api, "schedule_confirm_write", lambda _s, sid, deadline: confirm_writes.append((sid, deadline)))
+    monkeypatch.setattr(today_api, "_CLOCK", [NOW])
+    monkeypatch.setattr(briefs_api, "_now", lambda: NOW)
 
 
-@pytest.fixture(autouse=True)
-def fresh_flags():
+async def _settle() -> None:
+    """Wait for every background task the entry started (C04, hooks, follow-up, auto-approve)."""
+    me = asyncio.current_task()
+    for _ in range(100):
+        pending = [t for t in asyncio.all_tasks() if t is not me and not t.done()]
+        if not pending:
+            return
+        await asyncio.wait(pending, timeout=5)
+    raise AssertionError("background work never settled")
+
+
+async def _call(world: World) -> None:
+    [call_row] = world.db.rows("outbound_calls", carrier_call_id=CALL_SID)
+    memo_id, created = await call_processor.initiate_vocify_call_memo(world.db, call_row)
+    assert created
+    world.memo_id = memo_id
+    await call_processor.process_vocify_call_background(memo_id, USER, CALL_SID, b"RIFF", 95.0, world.db)
+    await _settle()
+
+
+async def _whatsapp(world: World) -> None:
+    memo_id, _ = await whatsapp_processor._extract_and_create_memo(world.db, USER, TRANSCRIPT, "wamid-harmony", None)
+    assert memo_id
+    world.memo_id = str(memo_id)
+    await _settle()
+    tap = SimpleNamespace(button_id=f"approve:{memo_id}", from_phone="+34600000001", chat_id=None, account_id=None)
+    await whatsapp_processor._handle_button_reply(world.db, tap, world.whatsapp, USER)
+    await _settle()
+
+
+def _confirm_in_hoy(world: World) -> None:
+    """The rep taps Confirmar on the Hoy card; the write runs once the undo window is over."""
+    view = world.client(today_api.router).get("/api/v1/today").json()
+    [card] = [item for item in view["items"] if item["type"] == CONFIRM_TYPE]
+    assert card["reason"] == "Confirma: reunión jue 24 sep, 11:00 con Marina · etapa → Meeting booked"
+    response = world.client(today_api.router).post(
+        f"/api/v1/today/{card['id']}/resolve",
+        json={"action": "confirm", "request_id": "tap-1", "expected_version": card["version"]},
+    )
+    assert response.status_code == 200, response.text
+    [(scheduled, deadline)] = world.confirm_writes
+    after = datetime.fromisoformat(str(deadline).replace("Z", "+00:00")) + timedelta(seconds=1)
+    assert asyncio.run(run_confirm_write(world.db, scheduled, now=after)) == "applied"
+
+
+def _accept_in_review(world: World) -> None:
+    """WhatsApp memos have no Hoy confirmation: the rep accepts the meeting in the review."""
+    proposal = latest_proposal(world.db.rows("meeting_proposals", memo_id=world.memo_id))
+    accept_meeting_proposal(world.db, company_id=COMPANY, memo_id=world.memo_id, decision="accept",
+                            proposal_id=proposal["proposal_id"])
+
+
+@pytest.fixture(params=["call", "whatsapp"])
+def world(request, monkeypatch) -> World:
     feature_flags.clear_cache()
     followup_svc._live.clear()
-    settings.FOLLOWUP_ENABLED = True
-    settings.INTELLIGENCE_EXTRACT_ENABLED = True
-    yield
-    feature_flags.clear_cache()
-
-
-def _accept_meeting(store: _Store, memo: dict) -> dict:
-    revision = revision_for_memo(memo)
-    rows = store.tables["meeting_proposals"]
-    assert rows, "meeting proposal expected from hooks"
-    latest = max(rows, key=lambda row: row.get("created_at") or "")
-    latest["decision"] = "accepted"
-    latest["crm_status"] = "succeeded"
-    return latest
-
-
-async def _run_pipeline(store: _Store, memo: dict) -> tuple[dict, FakeLLM]:
-    memo = _with_intelligence(memo)
-    store.tables["memos"] = [memo]
-
-    extraction = _scoreable_extraction(memo)
-    run_post_extraction_hooks(store, memo_id=MEMO_ID, memo=memo, extraction=extraction)
-
-    memo = _with_intelligence(store.tables["memos"][0])
-    store.tables["memos"] = [memo]
-    refresh_meeting_proposal(store, memo)
-
-    connection = {"provider": "hubspot", "company_id": COMPANY}
-    plan = sync_plan(store, memo=memo, connection=connection, extraction=MemoExtraction(**memo["extraction"]), reviewed=False)
-    assert plan is not None
-    tasks, _ = plan
-    assert len(tasks) == 1
-    assert tasks[0].text == "Llamar el jueves"
-    assert tasks[0].due_date == "2026-09-24"
-
-    llm = FakeLLM()
-    await followup_svc.ensure_followup(store, MEMO_ID, llm=llm)
-    assert memo["followup"]["status"] == "ready"
-
-    proposal = _accept_meeting(store, memo)
-    store.tables["company_feature_flags"].append({"company_id": COMPANY, "flag": MEETINGS_FLAG, "enabled": True})
-    feature_flags.clear_cache()
-    refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=TZ)
-
-    from app.services.hoy.confirmations import DealSnapshot
-
-    deal = DealSnapshot(provider="hubspot", pipeline_id="default", stage_id="qualifiedtobuy", stage_labels=BOOKED_LABELS)
-    pending = pending_confirm_parts(
-        memo=memo,
-        proposal_rows=[{**proposal, "decision": "pending"}],
-        config=CRM_CONFIG,
-        deal=deal,
-        supabase=store,
-        company_id=COMPANY,
-    )
-    if pending is not None:
-        signal = build_confirm_signal(pending, tz_name=TZ)
-        store.table("action_signals").upsert(
-            {
-                "company_id": COMPANY,
-                "user_id": USER,
-                "connection_id": CONNECTION,
-                "contact_id": CONTACT,
-                "deal_id": DEAL,
-                "memo_id": MEMO_ID,
-                "type": signal.type,
-                "dedupe_key": signal.dedupe_key,
-                "payload": signal.payload,
-                "status": "pending",
-                "coverage": "complete",
-            },
-            on_conflict="company_id,user_id,connection_id,dedupe_key",
-        ).execute()
-
-    return memo, llm
-
-
-def _assert_harmony(store: _Store, memo: dict, llm: FakeLLM | None = None):
-    intel = memo["extraction"]["intelligence"]
-    assert intel["prompt_version"] == PROMPT_VERSION
-    assert intel["input_revision"] == revision_for_memo(memo)
-
-    tasks = commitment_tasks(memo, tz_name=TZ)
-    assert tasks and tasks[0].text == "Llamar el jueves"
-    assert tasks[0].due_date == "2026-09-24"
-
-    end = day_end(NOW, TZ)
-    signals = fresh_signals([memo], now=NOW, day_end=end)
-    commitment = next(s for s in signals if s.type == "commitment_due")
-    assert commitment.payload["text"] == COMMITMENT_TEXT
-    assert commitment.due_at.date().isoformat() == "2026-09-24"
-    assert "llam" in reason(commitment).lower()
-
-    objection = next(s for s in signals if s.type == "objection_open")
-    assert objection.payload["category"] == "price"
-    assert "caro" in objection.payload["quote"].lower()
-
-    meeting_rows = store.tables["action_signals"]
-    meeting_sig = next((r for r in meeting_rows if r.get("type") == "meeting_today"), None)
-    assert meeting_sig is not None
-    assert meeting_sig["payload"]["starts_at"] == MEETING_START
-    pure = meeting_today_signal(
-        store.tables["meeting_proposals"][0], memo, now=NOW, tz_name=TZ
-    )
-    assert pure is not None
-    assert pure.due_at.hour == 11
-
-    brief = prepare_brief_v2(
-        coverage="complete",
-        memos=[memo],
-        tz_name=TZ,
-        now=NOW,
-        playbook_entries=PLAYBOOK_ENTRIES,
-        playbook_steps=PLAYBOOK_STEPS,
-    )
-    hook = brief["lines"][0]
-    assert PAIN_QUOTE in hook["text"]
-    why = next(line for line in brief["lines"] if line["type"] == "why")
-    assert "llam" in why["text"].lower()
-    say = next(line for line in brief["lines"] if line["type"] == "say")
-    assert say["text"] == "Precio: compáralo con un comercial más."
-
-    if llm is not None:
-        ctx = json.loads(llm.messages[1]["content"])
-        facts = c04_facts(intel, TZ)
-        assert ctx["pain_quote"] == facts["pain_quote"] == PAIN_QUOTE
-        assert ctx["commitments"][0]["text"] == facts["commitments"][0]["text"] == COMMITMENT_TEXT
-        assert tasks[0].text.lower() == COMMITMENT_TEXT.lower()
-        assert ctx["commitments"][0]["day"] == facts["commitments"][0]["day"]
-        assert ctx["meeting"]["time"] == facts["meeting"]["time"] == "11:00"
-
-    score_row = store.tables["memo_scores"][0]["score"]
-    assert score_row["value"] is not None
-    patterns = store.tables["interaction_patterns"]
-    assert any(p.get("category") == "price" for p in patterns)
-    brief_post = aggregate_brief(
-        screening=None,
-        score=score_row,
-        patterns=patterns,
-        playbook_present=True,
-        job_error=False,
-        input_revision=score_row["input_revision"],
-        audio_available=True,
-    )
-    assert brief_post["status"] == "ready"
-    assert score_row["value"] is not None
-
-    confirm = next((r for r in meeting_rows if r.get("type") == "confirm_pending"), None)
-    assert confirm is not None
-    assert confirm["status"] == "pending"
-    assert "reunión" in confirm["payload"]["reason"].lower() or "meeting" in confirm["payload"]["reason"].lower()
-
-    objections_team = objection_counts(
-        [{"category": "price", "kind": "objection", "superseded": False, "observed_at": CAPTURE}],
-        start=datetime(2026, 9, 21, 22, 0, tzinfo=timezone.utc),
-        end=datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc),
-    )
-    assert objections_team[0]["name"] == "price"
-
-    snapshot = build_snapshot(
-        scope="self",
-        period_start="2026-09-21T22:00:00Z",
-        period_end="2026-09-28T22:00:00Z",
-        timezone=TZ,
-        interactions=[{
-            "captured_at": CAPTURE,
-            "connected": True,
-            "meeting_agreed": True,
-            "memo_id": MEMO_ID,
-        }],
-        outcomes={"coverage": "complete", "won": 0, "lost": 0},
-        adherence_parts=[{"met_steps": 1, "missed_steps": 1, "unknown_steps": 0, "not_applicable_steps": 0}],
-        channels={"call": 0, "visit": 1} if memo.get("interaction_kind") == "visit" else {"call": 1, "visit": 0},
-    )
-    assert snapshot["metrics"]["meetings_agreed"] == 1
-    assert snapshot["metrics"]["adherence"] == 0.5
-
-
-@pytest.mark.parametrize("channel", ["call", "whatsapp"])
-def test_harmony_all_surfaces_share_commitment_facts(channel):
-    store = _Store()
-    if channel == "whatsapp":
-        memo = asyncio.run(_whatsapp_capture(store))
+    db = _database()
+    crm, llm, confirm_writes = FakeHubSpot(), FakeLLM(), []
+    _install_io_fakes(monkeypatch, crm, llm, confirm_writes)
+    world = World(channel=request.param, db=db, llm=llm, crm=crm, whatsapp=FakeWhatsApp(),
+                  confirm_writes=confirm_writes)
+    asyncio.run(_call(world) if world.channel == "call" else _whatsapp(world))
+    db.clock = NOW
+    if world.channel == "call":
+        _confirm_in_hoy(world)
     else:
-        memo = _base_memo(channel=channel)
-        store.tables["memos"] = [memo]
+        _accept_in_review(world)
+    yield world
+    feature_flags.clear_cache()
+    followup_svc._live.clear()
 
-    memo, llm = asyncio.run(_run_pipeline(store, memo))
-    _assert_harmony(store, memo, llm)
+
+def _local(value) -> datetime:
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(MADRID)
+
+
+def _hoy(world: World) -> dict:
+    return world.client(today_api.router).get("/api/v1/today").json()
+
+
+def _brief(world: World) -> dict:
+    response = world.client(briefs_api.router).get(
+        "/api/v1/briefs", params={"connection_id": CONNECTION, "contact_id": CONTACT, "deal_id": DEAL},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _reports(world: World) -> tuple[dict, dict]:
+    ensure_self_weekly_report(world.db, company_id=COMPANY, user_id=USER, timezone=TZ, now=REPORT_NOW)
+    ensure_team_weekly_report(world.db, company_id=COMPANY, user_id=USER, timezone=TZ, now=REPORT_NOW)
+    [mine] = world.db.rows("reports", scope="self")
+    [team] = world.db.rows("reports", scope="team")
+    return mine["snapshot"], team["snapshot"]
+
+
+def _team_panel(world: World) -> dict:
+    start, end = week_bounds(REPORT_NOW, TZ)
+    inputs = {**load_team_adherence_inputs(world.db, COMPANY), "activity_period_start": start,
+              "activity_period_end": end}
+    return team_adherence(role="owner", **inputs)
+
+
+def _c04(world: World) -> dict:
+    memo = world.memo
+    assert is_current(memo)
+    return memo["extraction"]["intelligence"]
+
+
+WHATSAPP_NO_SCREENING = pytest.mark.xfail(
+    strict=True,
+    reason="WhatsApp memos have no screening_outcome, so the weekly report and Team never count them",
+)
+NO_MOTION = (
+    "dialer and WhatsApp memos pin no playbook_version_id / sales_motion_key, so the brief has no "
+    "playbook line and the post-call brief has no playbook"
+)
+PATTERNS_OTHER = (
+    "interaction_patterns come from the field extraction's plain-string objections (category 'other'); "
+    "C04's category 'price' never reaches Team or the report"
+)
+
+
+def test_one_c04_run_is_current_for_the_stored_conversation(world):
+    intel = _c04(world)
+    assert [c["kind"] for c in world.llm.calls].count("c04") == 1
+    assert intel["commitments"][0]["text"] == COMMITMENT_TEXT
+    assert intel["objections"][0]["category"] == "price"
+    assert intel["meeting"]["agreed"] is True
+
+
+def test_commitment_date_is_the_same_in_c04_crm_task_hoy_brief_and_followup(world):
+    [commitment] = _c04(world)["commitments"]
+    assert _local(commitment["due_at"]).date().isoformat() == COMMITMENT_DAY
+
+    [task] = world.crm.tasks.values()
+    assert task["subject"].lower() == COMMITMENT_TEXT
+    assert task["due_date"] == COMMITMENT_DAY
+    assert commitment["crm_task_id"] in world.crm.tasks
+
+    view = _hoy(world)
+    [row] = world.db.rows("action_signals", type="commitment_due")
+    assert row["payload"]["text"] == COMMITMENT_TEXT
+    assert _local(row["payload"]["due_at"]).date().isoformat() == COMMITMENT_DAY
+    [shown] = [item for item in view["items"] if str(item.get("contact_id")) == CONTACT]
+    assert shown["dedupe_key"] == row["dedupe_key"]
+    assert shown["crm_task_id"] == commitment["crm_task_id"]
+
+    why = next(line for line in _brief(world)["lines"] if line["type"] == "why")
+    assert why["text"] == "Pidió que la llamaras hoy."
+    assert _local(why["observed_at"]).date().isoformat() == COMMITMENT_DAY
+
+    draft = world.llm.context("followup")
+    assert draft["commitments"] == [{"text": COMMITMENT_TEXT, "origin": "prospect_request",
+                                     "day": "Thursday 2026-09-24"}]
+    assert world.memo["followup"]["status"] == "ready"
+
+
+def test_meeting_is_the_same_in_c04_proposal_crm_hoy_and_followup(world):
+    meeting = _c04(world)["meeting"]
+    assert _local(meeting["starts_at"]) == MEETING_AT
+
+    [proposal] = world.db.rows("meeting_proposals", memo_id=world.memo_id)
+    assert proposal["evidence_refs"] == meeting["evidence_refs"]
+    assert _local(proposal["starts_at"]) == MEETING_AT
+    assert proposal["decision"] == "accepted"
+
+    [written] = world.crm.meetings
+    assert written["proposal_id"] == proposal["proposal_id"]
+    assert _local(written["starts_at"]) == MEETING_AT
+
+    _hoy(world)
+    [today] = world.db.rows("action_signals", type="meeting_today")
+    assert today["payload"]["proposal_id"] == proposal["proposal_id"]
+    assert _local(today["payload"]["starts_at"]) == MEETING_AT
+
+    assert world.llm.context("followup")["meeting"] == {"day": "Thursday 2026-09-24", "time": "11:00"}
+
+
+def test_only_the_auto_approved_call_confirms_meeting_and_stage_from_hoy(world):
+    if world.channel == "whatsapp":
+        assert world.db.rows("action_signals", type=CONFIRM_TYPE) == []
+        return
+    [row] = world.db.rows("action_signals", type=CONFIRM_TYPE)
+    proposal = latest_proposal(world.db.rows("meeting_proposals", memo_id=world.memo_id))
+    assert row["payload"]["meeting"]["proposal_id"] == proposal["proposal_id"]
+    assert _local(row["payload"]["meeting"]["starts_at"]) == MEETING_AT
+    assert row["payload"]["write_applied"] is True
+    assert world.crm.stage == BOOKED_STAGE
+
+
+def test_meeting_counted_in_report_and_team(world, request):
+    if world.channel == "whatsapp":
+        request.applymarker(WHATSAPP_NO_SCREENING)
+    mine, team = _reports(world)
+    assert mine["metrics"]["meetings_agreed"] == 1
+    assert team["metrics"]["meetings_agreed"] == 1
+    assert _team_panel(world)["meetings"] == 1
+
+
+def test_pain_quote_is_the_same_in_c04_brief_hook_and_followup(world):
+    assert _c04(world)["pain_confirmed"] is True
+    [hook] = [line for line in _brief(world)["lines"] if line["type"] == "hook"]
+    assert hook["text"] == f"22 sep: «{PAIN_QUOTE}»"
+    assert world.llm.context("followup")["pain_quote"] == PAIN_QUOTE
+
+
+def test_price_objection_is_the_same_in_c04_and_hoy(world):
+    [objection] = _c04(world)["objections"]
+    _hoy(world)
+    [row] = world.db.rows("action_signals", type="objection_open")
+    assert row["payload"]["category"] == objection["category"] == "price"
+    assert OBJECTION_QUOTE.lower() in row["payload"]["quote"].lower()
+
+
+@pytest.mark.xfail(strict=True, reason=PATTERNS_OTHER)
+def test_price_objection_reaches_team_and_report(world):
+    mine, team = _reports(world)
+    assert [o["name"] for o in mine["objections"]] == ["price"]
+    assert [o["name"] for o in team["objections"]] == ["price"]
+    assert [o["name"] for o in _team_panel(world)["objection_categories"]] == ["price"]
+
+
+@pytest.mark.xfail(strict=True, reason=f"{NO_MOTION}; {PATTERNS_OTHER}")
+def test_price_objection_reaches_the_post_call_brief(world):
+    [brief] = world.db.rows("post_interaction_briefs", memo_id=world.memo_id)
+    assert brief["status"] == "ready"
+    categories = [s.get("category") for s in brief["body"].get("sections") or []]
+    assert "price" in categories
+
+
+@pytest.mark.xfail(strict=True, reason=NO_MOTION)
+def test_brief_says_the_playbook_line_for_the_price_objection(world):
+    says = [line["text"] for line in _brief(world)["lines"] if line["type"] == "say"]
+    assert says == ["Precio: compáralo con un comercial más."]
+
+
+def test_adherence_is_the_same_in_score_report_and_team(world):
+    [score] = world.db.rows("memo_scores", memo_id=world.memo_id)
+    mine, team = _reports(world)
+    panel = _team_panel(world)
+    assert score["score"]["adherence"] == mine["metrics"]["adherence"] == team["metrics"]["adherence"] \
+        == panel["adherence"]
