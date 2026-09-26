@@ -725,4 +725,35 @@ describe("home selection", () => {
     assert.equal(snoozeUntil(Date.parse("2026-09-29T00:30:00+02:00"), TZ), "2026-09-29T22:00:00.000Z");
     assert.equal(snoozeUntil(Date.parse("2026-09-29T23:30:00+02:00"), TZ), "2026-09-29T22:00:00.000Z");
   });
+
+  it("locks selection while on a call", () => {
+    const rows = homeRows(day);
+    const start = refresh(initialHomeSelection, rows);
+    const live = homeSelection(start, { type: "call" });
+    assert.equal(live.mode, "calling");
+    assert.equal(selectedKey(homeSelection(live, { type: "select", key: "hoy:sig-4" }), rows), "hoy:sig-3");
+    assert.equal(selectedKey(homeSelection(live, { type: "next" }), rows), "hoy:sig-3");
+    assert.equal(selectedKey(homeSelection(live, { type: "skip" }), rows), "hoy:sig-3");
+  });
+
+  it("opens review after a connected call and n moves to the next row", () => {
+    const rows = homeRows(day);
+    const start = refresh(initialHomeSelection, rows);
+    const live = homeSelection(start, { type: "call" });
+    const review = homeSelection(live, { type: "call_ended", memoId: "memo-1", screeningOutcome: "connected" });
+    assert.equal(review.mode, "review");
+    assert.equal(review.memoId, "memo-1");
+    const next = homeSelection(review, { type: "reviewed" });
+    assert.equal(selectedKey(next, rows), "hoy:sig-4");
+  });
+
+  it("advances on voicemail without review", () => {
+    const rows = homeRows(home({ today: view([card(1), card(2)]) }));
+    const start = refresh(initialHomeSelection, rows);
+    const live = homeSelection(start, { type: "call" });
+    const next = homeSelection(live, { type: "call_ended", memoId: "memo-vm", screeningOutcome: "voicemail" });
+    assert.equal(next.mode, "queue");
+    assert.equal(selectedKey(next, rows), "hoy:sig-2");
+    assert.equal(next.lastOutcome, "no_answer");
+  });
 });

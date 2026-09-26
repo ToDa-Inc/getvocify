@@ -24,11 +24,17 @@ describe("contact panel primary action", () => {
     assert.equal(panelPrimary({ ...base, phone: null }), "open");
     assert.equal(panelPrimary({ ...base, canDial: false }), "open");
     assert.equal(panelPrimary({ ...base, contactId: null }), "open");
+    assert.equal(panelPrimary({ ...base, canPlace: false }), "open");
   });
 
   it("confirms a confirmation, and offers nothing when it can neither call nor open", () => {
     assert.equal(panelPrimary({ ...base, kind: "confirm" }), "confirm");
     assert.equal(panelPrimary({ ...base, canDial: false, crmHref: null }), null);
+  });
+
+  it("sends a ready follow-up and opens the CRM without a verified caller id", () => {
+    assert.equal(panelPrimary({ ...base, kind: "followup", followupReady: true }), "send");
+    assert.equal(panelPrimary({ ...base, canPlace: false }), "open");
   });
 });
 

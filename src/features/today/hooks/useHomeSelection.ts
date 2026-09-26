@@ -4,6 +4,7 @@ import {
   holdOrder,
   homeRows,
   homeSelection,
+  homeSelectionLocked,
   initialHomeSelection,
   selectedRow,
   type HomeOrder,
@@ -13,6 +14,8 @@ import {
 } from "@shared/ui/home.js";
 import { HOME_KEYS, queueKeyAction } from "@shared/ui/queue.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
+import type { CallEndedPayload } from "@/features/calling/DialerFocusProvider";
+import type { CallEndedEvent } from "@/lib/today-queue";
 
 function useWideScreen() {
   const subscribe = useCallback((onStore: () => void) => {
@@ -38,19 +41,33 @@ export function useHomeSelection(
   const column = useHomeColumn();
   const wide = useWideScreen();
   const orderRef = useRef<HomeOrder | null>(null);
-  const held = useMemo(() => holdOrder(orderRef.current, view), [view]);
+  const frozenViewRef = useRef<HomeView | null>(null);
+  const [selection, dispatchSelection] = useReducer(homeSelection, initialHomeSelection);
+
+  const held = useMemo(() => {
+    if (selection.mode === "calling" || selection.mode === "review") {
+      if (frozenViewRef.current) {
+        return { view: frozenViewRef.current, order: orderRef.current };
+      }
+    }
+    return holdOrder(orderRef.current, view);
+  }, [view, selection.mode]);
+
   const stable = held.view;
 
   useEffect(() => {
+    if (selection.mode === "calling" || selection.mode === "review") {
+      if (!frozenViewRef.current) frozenViewRef.current = stable;
+      return;
+    }
+    frozenViewRef.current = null;
     orderRef.current = held.order;
-  }, [held]);
+  }, [held.order, selection.mode, stable]);
 
   const rows = useMemo(
     () => homeRows(stable, { needsOkOpen: open.needsOkOpen, groupOpen: open.groupOpen }),
     [stable, open.needsOkOpen, open.groupOpen],
   );
-
-  const [selection, dispatchSelection] = useReducer(homeSelection, initialHomeSelection);
 
   useEffect(() => {
     dispatchSelection({ type: "rows", rows, wide });
@@ -59,10 +76,15 @@ export function useHomeSelection(
   const row = useMemo(() => selectedRow(selection, rows), [selection, rows]);
   const selectedKey = row?.key ?? null;
   const sheetOpen = Boolean(row) && !wide;
+  const locked = homeSelectionLocked(selection);
 
-  const select = useCallback((key: string) => {
-    dispatchSelection({ type: "select", key });
-  }, []);
+  const select = useCallback(
+    (key: string) => {
+      if (locked) return;
+      dispatchSelection({ type: "select", key });
+    },
+    [locked],
+  );
 
   const clear = useCallback(() => {
     dispatchSelection({ type: "exit" });
@@ -71,6 +93,18 @@ export function useHomeSelection(
   const moveNext = useCallback(() => dispatchSelection({ type: "next" }), []);
   const movePrev = useCallback(() => dispatchSelection({ type: "prev" }), []);
   const skip = useCallback(() => dispatchSelection({ type: "skip" }), []);
+  const startCall = useCallback(() => dispatchSelection({ type: "call" }), []);
+  const finishReview = useCallback(() => dispatchSelection({ type: "reviewed" }), []);
+
+  const onCallEnded = useCallback((payload: CallEndedPayload) => {
+    const event: CallEndedEvent = {
+      callSid: payload.callSid,
+      memoId: payload.memoId,
+      screeningOutcome: payload.screeningOutcome,
+      callStatus: payload.callStatus,
+    };
+    dispatchSelection({ type: "call_ended", ...event });
+  }, []);
 
   const primaryRef = useRef(onPrimary);
   primaryRef.current = onPrimary;
@@ -91,6 +125,10 @@ export function useHomeSelection(
         if (row) primaryRef.current(row);
         return;
       }
+      if (action === "reviewed") {
+        finishReview();
+        return;
+      }
       if (action === "next") moveNext();
       else if (action === "prev") movePrev();
       else if (action === "skip") skip();
@@ -98,7 +136,7 @@ export function useHomeSelection(
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [column, selection.mode, row, moveNext, movePrev, skip, clear]);
+  }, [column, selection.mode, row, moveNext, movePrev, skip, clear, startCall, finishReview]);
 
   return {
     view: stable,
@@ -107,8 +145,12 @@ export function useHomeSelection(
     selectedKey,
     wide,
     sheetOpen,
+    locked,
     select,
     clear,
+    startCall,
+    onCallEnded,
+    finishReview,
     selection: selection as HomeSelection,
   };
 }

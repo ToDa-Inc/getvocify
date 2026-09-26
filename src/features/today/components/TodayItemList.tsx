@@ -23,6 +23,10 @@ export type HomeCards = {
   onSelect: (item: TodayItem) => void;
   canDial: boolean;
   now: number;
+  locked?: boolean;
+  inCallKey?: string | null;
+  inCallElapsed?: string | null;
+  rowNotes?: Record<string, string>;
 };
 
 type Props = {
@@ -47,16 +51,30 @@ function openDialer(
   dialer.openForContact({ contactId: item.contact_id, name: item.contact_name ?? null });
 }
 
-function CardBody({ item, compact }: { item: TodayItem; compact?: boolean }) {
+function CardBody({
+  item,
+  compact,
+  inCall,
+  inCallElapsed,
+  note,
+}: {
+  item: TodayItem;
+  compact?: boolean;
+  inCall?: boolean;
+  inCallElapsed?: string | null;
+  note?: string | null;
+}) {
   const { t } = useLanguage();
   const name = item.contact_name || t.product.today_unknown_contact;
-  const label = productText(signalLabelKey(item.type), t.product);
+  const label = inCall
+    ? `● ${t.product.home_in_call}${inCallElapsed ? ` · ${inCallElapsed}` : ""}`
+    : note ?? productText(signalLabelKey(item.type), t.product);
   const extras = supportingKeys(item.supporting);
   return (
     <div className="min-w-0 flex-1">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
         <p className="truncate text-[15px] text-foreground">{name}</p>
-        <span className={`max-w-[9rem] truncate text-right ${THEME_TOKENS.typography.capsLabel}`}>{label}</span>
+        <span className={`max-w-[9rem] truncate text-right ${THEME_TOKENS.typography.capsLabel} ${inCall ? "text-beige" : ""}`}>{label}</span>
         {item.company_name ? (
           <p className={`col-span-2 truncate ${THEME_TOKENS.typography.capsLabel}`}>{item.company_name}</p>
         ) : null}
@@ -130,6 +148,10 @@ function HomeCallCard({
 
   const fade = `transition-[border-color,box-shadow,opacity] duration-150 ${leaving ? "opacity-0" : "opacity-100"}`;
   const canCall = Boolean(item.contact_id) && home.canDial;
+  const key = itemKey(item);
+  const inCall = home.inCallKey === key;
+  const note = home.rowNotes?.[key] ?? null;
+  const blocked = home.locked && !inCall;
 
   return (
     <li
@@ -138,7 +160,8 @@ function HomeCallCard({
       tabIndex={settled ? undefined : 0}
       aria-current={selected || undefined}
       aria-hidden={leaving || undefined}
-      onClick={settled ? undefined : () => home.onSelect(item)}
+      title={blocked ? t.product.home_in_call : undefined}
+      onClick={settled || blocked ? undefined : () => home.onSelect(item)}
       onFocus={
         settled
           ? undefined
@@ -163,7 +186,7 @@ function HomeCallCard({
         </>
       ) : (
         <>
-          <CardBody item={item} />
+          <CardBody item={item} inCall={inCall} inCallElapsed={home.inCallElapsed} note={note} />
           {canCall ? (
             <span
               className={`absolute bottom-2.5 right-3 transition-opacity duration-150 xl:opacity-0 xl:group-hover:opacity-100 xl:group-focus-within:opacity-100 ${

@@ -321,6 +321,7 @@ const DashboardLayout = () => {
           open={dialerOpen}
           onOpenChange={setDialerOpen}
           onCallStateChange={setCallState}
+          panelPlacement={homeColumn}
         />
       ) : null}
     </div>
@@ -333,12 +334,14 @@ function DialerChrome({
   open,
   onOpenChange,
   onCallStateChange,
+  panelPlacement,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCallStateChange: (state: CallState) => void;
+  panelPlacement: boolean;
 }) {
-  const { focus, clearFocus } = useDialerFocus();
+  const { focus, clearFocus, reportLive, reportEnded } = useDialerFocus();
   return (
     <FloatingDialer
       open={open}
@@ -346,6 +349,9 @@ function DialerChrome({
       onCallStateChange={onCallStateChange}
       focusContact={focus}
       onFocusHandled={clearFocus}
+      placement={panelPlacement ? "panel" : "floating"}
+      onLiveReport={reportLive}
+      onCallEnded={reportEnded}
     />
   );
 }

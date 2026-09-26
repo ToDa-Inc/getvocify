@@ -1,5 +1,5 @@
 import "@shared/ui/components/v-followup.js";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { composeTarget } from "@shared/ui/compose.js";
@@ -19,7 +19,13 @@ function openTarget(url: string) {
 }
 
 /** The follow-up draft on the memo review, for the memo's author. */
-export function FollowupCard({ memoId }: { memoId: string }) {
+export function FollowupCard({
+  memoId,
+  onPrimaryAction,
+}: {
+  memoId: string;
+  onPrimaryAction?: (run: () => void) => void;
+}) {
   const { language, t } = useLanguage();
   const queryClient = useQueryClient();
   const uiLang = htmlLang(language);
@@ -59,11 +65,30 @@ export function FollowupCard({ memoId }: { memoId: string }) {
     [memoId, queryClient, t.product],
   );
 
-  const ref = useVElement(data, onAction);
+  const setElement = useVElement(data, onAction);
+  const elementRef = useRef<FollowupElement | null>(null);
+  const bindRef = useCallback(
+    (node: FollowupElement | null) => {
+      elementRef.current = node;
+      setElement(node);
+    },
+    [setElement],
+  );
+
+  const triggerSend = useCallback(() => {
+    const element = elementRef.current;
+    if (!element || !data || data.status !== "ready") return;
+    void onAction({ action: "send", value: "email", element });
+  }, [data, onAction]);
+
+  useEffect(() => {
+    onPrimaryAction?.(triggerSend);
+  }, [onPrimaryAction, triggerSend]);
+
   if (!data || data.status === "unavailable") return null;
   return (
     <div className="mb-4">
-      <v-followup ref={ref} lang={uiLang} />
+      <v-followup ref={bindRef} lang={uiLang} />
     </div>
   );
 }

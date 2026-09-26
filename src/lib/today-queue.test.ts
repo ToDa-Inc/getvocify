@@ -1,6 +1,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { initialQueue, queueReducer, todayQueueStart, todayQueueStep } from "./today-queue.ts";
+import { initialHomeSelection, homeSelection, homeRows, selectedRow } from "../../shared/ui/home.js";
+import {
+  homeQueueCallEnded,
+  homeQueueReviewed,
+  homeQueueStartCall,
+  homeQueueLocked,
+  homeQueueInReview,
+  todayQueueStart,
+  todayQueueStep,
+  initialQueue,
+  queueReducer,
+} from "./today-queue.ts";
 import type { TodayItem } from "./today.ts";
 
 const item = (reason: string, key: string): TodayItem => ({
@@ -10,6 +21,10 @@ const item = (reason: string, key: string): TodayItem => ({
   origins: ["detected"],
   supporting: [],
 });
+
+const rowKeys = ["hoy:a", "hoy:b", "hoy:c"];
+const inQueue = { mode: "queue" as const, items: rowKeys, index: 0, touched: true };
+const calling = { mode: "calling" as const, items: rowKeys, index: 0, touched: true };
 
 describe("today queue adapter", () => {
   it("start then skip advances; exit returns to idle", () => {
@@ -36,5 +51,67 @@ describe("today queue adapter", () => {
     state = queueReducer(state, { type: "start", items });
     assert.equal(state.mode, "queue");
     assert.equal(state.index, 0);
+  });
+});
+
+describe("home queue call lifecycle", () => {
+  it("enters calling from queue and locks selection", () => {
+    const next = homeQueueStartCall(inQueue);
+    assert.equal(next.mode, "calling");
+    assert.equal(homeQueueLocked(next), true);
+    assert.equal(homeQueueLocked(homeSelection(next, { type: "next" })), true);
+    assert.equal(homeSelection(next, { type: "next" }).index, 0);
+  });
+
+  it("opens review after a conversation ends", () => {
+    const next = homeQueueCallEnded(calling, {
+      memoId: "memo-1",
+      screeningOutcome: "connected",
+    });
+    assert.equal(next.mode, "review");
+    assert.equal(next.memoId, "memo-1");
+    assert.equal(next.index, 0);
+    assert.equal(homeQueueInReview(next), true);
+  });
+
+  it("advances on voicemail or no response without review", () => {
+    const voicemail = homeQueueCallEnded(calling, {
+      memoId: "memo-vm",
+      screeningOutcome: "voicemail",
+    });
+    assert.equal(voicemail.mode, "queue");
+    assert.equal(voicemail.index, 1);
+    assert.equal(voicemail.lastOutcome, "no_answer");
+
+    const quiet = homeQueueCallEnded(calling, {
+      memoId: "memo-nr",
+      screeningOutcome: "no_response",
+    });
+    assert.equal(quiet.mode, "queue");
+    assert.equal(quiet.index, 1);
+    assert.equal(quiet.lastOutcome, "no_answer");
+  });
+
+  it("stays on the same contact when the call failed", () => {
+    const next = homeQueueCallEnded(calling, { callStatus: "failed", memoId: "memo-x" });
+    assert.equal(next.mode, "queue");
+    assert.equal(next.index, 0);
+    assert.equal(next.lastOutcome, "failed");
+  });
+
+  it("moves to the next row when review finishes with n", () => {
+    const review = homeQueueCallEnded(calling, { memoId: "memo-1" });
+    const next = homeQueueReviewed(review);
+    assert.equal(next.mode, "queue");
+    assert.equal(next.index, 1);
+    assert.equal(homeQueueInReview(next), false);
+  });
+
+  it("leaves nothing selected when n is pressed on the last row in review", () => {
+    const last = { mode: "calling" as const, items: rowKeys, index: 2, touched: true };
+    const review = homeQueueCallEnded(last, { memoId: "memo-9" });
+    const next = homeQueueReviewed(review);
+    assert.equal(next.mode, "done");
+    assert.equal(selectedRow(next, []), null);
   });
 });

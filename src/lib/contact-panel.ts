@@ -1,7 +1,7 @@
 /** Rules of the rep home's contact panel. The panel only paints what these return. */
 
 export type PanelRowKind = "meeting" | "confirm" | "followup" | "review" | "call";
-export type PanelPrimary = "confirm" | "call" | "open" | null;
+export type PanelPrimary = "confirm" | "call" | "open" | "send" | null;
 
 /**
  * One main action. `phone` is `undefined` while unknown and `null` once the CRM returned the
@@ -11,17 +11,22 @@ export function panelPrimary({
   kind,
   contactId,
   canDial,
+  canPlace = true,
   phone,
   crmHref,
+  followupReady,
 }: {
   kind: PanelRowKind;
   contactId: string | null;
   canDial: boolean;
+  canPlace?: boolean;
   phone: string | null | undefined;
   crmHref: string | null;
+  followupReady?: boolean;
 }): PanelPrimary {
   if (kind === "confirm") return "confirm";
-  if (contactId && canDial && phone !== null) return "call";
+  if (followupReady && (kind === "followup" || kind === "call")) return "send";
+  if (contactId && canDial && canPlace && phone !== null) return "call";
   return crmHref ? "open" : null;
 }
 

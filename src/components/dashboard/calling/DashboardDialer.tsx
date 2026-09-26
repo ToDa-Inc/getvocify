@@ -78,6 +78,16 @@ type SelectedTarget = {
 type LiveInfo = {
   state: CallState;
   elapsed: string;
+  contact?: DialerFocus | null;
+  callSid?: string | null;
+};
+
+type CallEndedInfo = {
+  callSid: string | null;
+  memoId?: string | null;
+  screeningOutcome?: string | null;
+  callStatus?: "failed";
+  durationSeconds?: number | null;
 };
 
 type Props = {
@@ -86,6 +96,8 @@ type Props = {
   onRequestClose?: () => void;
   focusContact?: DialerFocus | null;
   onFocusHandled?: () => void;
+  compact?: boolean;
+  onCallEnded?: (payload: CallEndedInfo) => void;
 };
 
 async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
@@ -107,6 +119,8 @@ export const DashboardDialer = ({
   onRequestClose,
   focusContact = null,
   onFocusHandled,
+  compact = false,
+  onCallEnded,
 }: Props) => {
   const { t } = useLanguage();
   const callCopy = t.product;
@@ -143,7 +157,12 @@ export const DashboardDialer = ({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef(query);
   const onLiveChangeRef = useRef(onLiveChange);
+  const onCallEndedRef = useRef(onCallEnded);
+  const wasInCallRef = useRef(false);
+  const callFailedRef = useRef(false);
+  const endedReportedRef = useRef(false);
   onLiveChangeRef.current = onLiveChange;
+  onCallEndedRef.current = onCallEnded;
   queryRef.current = query;
 
   useEffect(() => {
@@ -235,8 +254,43 @@ export const DashboardDialer = ({
   }, [state, callCopy]);
 
   useEffect(() => {
-    onLiveChangeRef.current?.({ state, elapsed });
-  }, [state, elapsed]);
+    const contact =
+      selected?.contactId != null
+        ? { contactId: selected.contactId, name: selected.name }
+        : focusContact;
+    onLiveChangeRef.current?.({ state, elapsed, contact, callSid: callSidRef.current });
+    if (state !== CALL_STATES.IDLE) {
+      wasInCallRef.current = true;
+      endedReportedRef.current = false;
+      return;
+    }
+    if (!wasInCallRef.current || endedReportedRef.current) return;
+    wasInCallRef.current = false;
+    endedReportedRef.current = true;
+    const sid = callSidRef.current;
+    const failed = callFailedRef.current;
+    callFailedRef.current = false;
+    void (async () => {
+      let payload: CallEndedInfo = {
+        callSid: sid,
+        callStatus: failed ? "failed" : undefined,
+      };
+      if (sid && !failed) {
+        try {
+          const call = await callsApi.getCall(sid);
+          payload = {
+            callSid: sid,
+            memoId: call.memoId ?? null,
+            screeningOutcome: call.screeningOutcome ?? null,
+            durationSeconds: call.durationSeconds ?? null,
+          };
+        } catch {
+          /* still report the hangup */
+        }
+      }
+      onCallEndedRef.current?.(payload);
+    })();
+  }, [state, elapsed, selected, focusContact]);
 
   useEffect(() => {
     return () => {
@@ -484,6 +538,7 @@ export const DashboardDialer = ({
         return;
       }
       if (isVoiceAccessTokenError(err)) destroyDevice();
+      callFailedRef.current = true;
       setError(userFacingCallError(err, callCopy));
       pendingMissRef.current = false;
       hangup();
@@ -575,6 +630,53 @@ export const DashboardDialer = ({
         : state === CALL_STATES.IDLE
           ? outcome || callCopy.dialReadyToCall
           : callButtonLabel(state);
+    const failedLabel = outcome && state === CALL_STATES.IDLE ? outcome : label;
+
+    if (compact && inCall) {
+      return (
+        <div className="select-none">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 text-[10px] font-medium text-muted-foreground">
+              {contactInitials(selected?.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-foreground">{selected?.name}</p>
+              <p className="mt-0.5 text-[11px] tabular-nums text-beige">{label}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {state === CALL_STATES.ACTIVE ? (
+                <button
+                  type="button"
+                  aria-label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic}
+                  aria-pressed={muted}
+                  onClick={toggleMute}
+                  className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                    muted
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                  }`}
+                >
+                  {muted ? (
+                    <MicrophoneSlash size={15} weight="light" />
+                  ) : (
+                    <Microphone size={15} weight="light" />
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => hangup()}
+                aria-label={callCopy.panel_hang_up}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] text-destructive hover:bg-destructive/10"
+              >
+                <PhoneDisconnect size={15} weight="light" />
+                {callCopy.panel_hang_up}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="select-none">
@@ -589,7 +691,7 @@ export const DashboardDialer = ({
             <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
               {selected ? formatCallerIdDisplay(selected.phone) : ""}
             </p>
-            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
+            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{failedLabel}</p>
           </div>
         </div>
 

@@ -142,43 +142,112 @@ export const initialHomeSelection = { mode: "idle", items: [], touched: false };
 
 /**
  * The home is the F06 queue: its items are the row keys and its index is the selected row.
- * Idle or done means nothing is selected. Enter does not start a call here; T5 wires calling.
+ * Idle or done means nothing is selected. Calling locks the selection; review keeps n from F06.
  */
 export function homeSelection(state, event) {
   const items = state.items || [];
-  const at = (index, touched = true) => ({ mode: "queue", items, index, touched });
+  const at = (index, touched = true, extra = {}) => ({ mode: "queue", items, index, touched, ...extra });
+  const locked = state.mode === "calling";
   switch (event.type) {
     case "rows":
       return refreshSelection(state, event.rows, event.wide);
     case "select": {
+      if (locked) return state;
       const index = items.indexOf(event.key);
       return index < 0 ? state : at(index);
     }
     case "next":
+      if (locked) return state;
       if (state.mode === "queue") return at(Math.min(state.index + 1, items.length - 1));
       return items.length ? at(0) : { ...state, touched: true };
     case "prev":
+      if (locked) return state;
       if (state.mode === "queue") return at(Math.max(state.index - 1, 0));
       return items.length ? at(items.length - 1) : { ...state, touched: true };
     case "skip":
-    case "exit": {
+      if (locked) return state;
       if (state.mode !== "queue") return { ...state, touched: true };
-      const next = queueReducer(state, { type: event.type });
-      return { ...next, items, touched: true };
+      return { ...queueReducer(state, { type: "skip" }), items, touched: true };
+    case "exit": {
+      if (locked) return state;
+      if (state.mode !== "queue") return { ...state, touched: true };
+      return { ...queueReducer(state, { type: "exit" }), items, touched: true };
+    }
+    case "call":
+      if (state.mode !== "queue") return state;
+      return { ...state, mode: "calling", touched: true };
+    case "call_ended": {
+      if (state.mode !== "calling") return state;
+      const next = queueReducer(
+        { mode: "calling", items, index: state.index },
+        { type: "call_ended", memoId: event.memoId, screeningOutcome: event.screeningOutcome, callStatus: event.callStatus },
+      );
+      if (next.mode === "review") {
+        return {
+          mode: "review",
+          items,
+          index: state.index,
+          touched: true,
+          memoId: next.memoId,
+          callSid: event.callSid ?? state.callSid,
+        };
+      }
+      if (next.mode === "queue") {
+        const advanced = next.index !== state.index;
+        return {
+          mode: "queue",
+          items,
+          index: next.index,
+          touched: true,
+          lastOutcome: event.callStatus === "failed" ? "failed" : advanced ? "no_answer" : undefined,
+          callSid: event.callSid ?? state.callSid,
+        };
+      }
+      if (next.mode === "done") {
+        return { mode: "done", items, touched: true, callSid: event.callSid ?? state.callSid };
+      }
+      return state;
+    }
+    case "reviewed": {
+      if (state.mode !== "review") return state;
+      const next = queueReducer({ mode: "review", items, index: state.index }, { type: "reviewed" });
+      if (next.mode === "queue") {
+        return next.index < items.length
+          ? at(next.index, true, { memoId: undefined, callSid: undefined })
+          : { mode: "done", items, touched: true };
+      }
+      return { mode: "done", items, touched: true };
     }
     default:
       return state;
   }
 }
 
+export function homeSelectionLocked(state) {
+  return state.mode === "calling";
+}
+
+export function homeSelectionInReview(state) {
+  return state.mode === "review";
+}
+
 function refreshSelection(state, rows, wide) {
   const keys = rows.map((row) => row.key);
   const touched = Boolean(state.touched);
   const idle = { mode: "idle", items: keys, touched };
+  if (state.mode === "calling" || state.mode === "review") {
+    const index = followingKey(state.items, state.index, keys);
+    if (index < 0) {
+      return state.mode === "review"
+        ? { mode: "done", items: keys, touched: true }
+        : { mode: "calling", items: keys, index: Math.min(state.index, Math.max(keys.length - 1, 0)), touched: true, memoId: state.memoId, callSid: state.callSid };
+    }
+    return { ...state, items: keys, index };
+  }
   if (state.mode === "queue") {
     if (!touched && !wide) return idle;
     const index = followingKey(state.items, state.index, keys);
-    return index < 0 ? idle : { mode: "queue", items: keys, index, touched };
+    return index < 0 ? idle : { mode: "queue", items: keys, index, touched, lastOutcome: state.lastOutcome };
   }
   if (touched || !wide || !keys.length) return { ...idle, mode: state.mode === "done" ? "done" : "idle" };
   const firstCall = rows.findIndex((row) => row.kind === "call");
@@ -198,7 +267,7 @@ function followingKey(previous, index, keys) {
 }
 
 export function selectedRow(state, rows) {
-  if (state.mode !== "queue") return null;
+  if (!["queue", "calling", "review"].includes(state.mode)) return null;
   const key = state.items[state.index];
   return rows.find((row) => row.key === key) ?? null;
 }
