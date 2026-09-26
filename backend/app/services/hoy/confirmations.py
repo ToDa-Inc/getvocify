@@ -234,7 +234,7 @@ async def materialize_confirm_after_auto_approve(
     try:
         memo_rows = (
             supabase.table("memos")
-            .select("id,company_id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,extraction,connection_id")
+            .select("id,company_id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,extraction")
             .eq("id", memo_id)
             .limit(1)
             .execute()
