@@ -12,6 +12,7 @@ import {
   homeRows,
   homeSelection,
   initialHomeSelection,
+  meetingEntry,
   NEEDS_OK_VISIBLE,
   REVIEW_LIMIT,
   selectedRow,
@@ -513,6 +514,14 @@ describe("composeHome meetings", () => {
       ["c4", "08:00", true],
     ]);
     assert.equal(items[2].item.detail, "acordada el 24 sep");
+  });
+
+  it("reads the meeting hour in the rep's zone sent by /today", () => {
+    const entry = meetingEntry(
+      { type: "meeting_today", due_at: "2026-09-29T09:00:00+00:00", precision: "time", timezone: TZ },
+      { locale: "es-ES", timeZone: "UTC", now: NOW },
+    );
+    assert.equal(entry.time, "11:00");
   });
 });
 

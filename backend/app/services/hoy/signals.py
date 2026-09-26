@@ -6,12 +6,12 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 Interest = Literal["high", "medium", "low", "none"]
-SignalType = Literal["commitment_due", "no_reply", "going_cold", "objection_open", "confirm_pending"]
+SignalType = Literal["commitment_due", "no_reply", "going_cold", "objection_open", "confirm_pending", "meeting_today"]
 CommitmentKind = Literal["call", "email", "send", "meeting", "other"]
 
 COLD_AFTER = timedelta(days=10)
 WARM: frozenset[str] = frozenset({"high", "medium"})
-TIER: dict[str, int] = {"commitment_due": 0, "no_reply": 1, "going_cold": 2, "objection_open": 3}
+TIER: dict[str, int] = {"commitment_due": 0, "meeting_today": 0, "no_reply": 1, "going_cold": 2, "objection_open": 3}
 DEFAULT_LIMIT = 7
 
 
@@ -132,6 +132,9 @@ def _rank_key(signal: Signal, now: datetime) -> tuple:
         if signal.due_at is None:
             return (tier, 1, float("inf"))
         return (tier, 0 if signal.due_at < now else 1, signal.due_at.timestamp())
+    if signal.type == "meeting_today":
+        due = signal.due_at.timestamp() if signal.due_at else float("inf")
+        return (tier, 0, due)
     if signal.type == "no_reply":
         return (tier, 0, datetime.fromisoformat(str(signal.payload["email_at"]).replace("Z", "+00:00")).timestamp())
     if signal.type == "going_cold":

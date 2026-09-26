@@ -26,7 +26,8 @@ from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal, commitment_task_links
-from app.services.hoy.materialize import read_hoy_memos
+from app.services.hoy.materialize import read_hoy_memos, refresh_hoy_signals
+from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
 from app.services.hoy.names import NamePair, memo_directory
 from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
 from app.services.hoy.visibility import is_today_visible
@@ -313,19 +314,28 @@ async def get_today(
             rep_timezone(membership.user_id),
             background,
         )
+    tz_name = rep_timezone(membership.user_id)
     if _TASKS is None:
         try:
-            from app.services.hoy.materialize import refresh_hoy_signals
-
             refresh_hoy_signals(
                 supabase,
                 company_id=membership.company_id,
                 user_id=membership.user_id,
                 now=now,
-                tz_name=rep_timezone(membership.user_id),
+                tz_name=tz_name,
             )
         except Exception:
             pass
+    try:
+        refresh_meeting_today(
+            supabase,
+            company_id=membership.company_id,
+            user_id=membership.user_id,
+            now=now,
+            tz_name=tz_name,
+        )
+    except Exception:
+        pass
     stored = (
         supabase.table("action_signals")
         .select("*")
@@ -344,6 +354,8 @@ async def get_today(
         row for row in visible
         if row.get("type") != CONFIRM_TYPE or confirm_enabled
     ]
+    if not is_enabled(supabase, membership.company_id, MEETINGS_FLAG):
+        visible = [row for row in visible if row.get("type") != MEETING_TYPE]
     attempt_daily_run_claim(supabase, membership.company_id, now, rep_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:

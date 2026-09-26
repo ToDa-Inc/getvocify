@@ -3,6 +3,7 @@ import {
   BRIEF_LOADING,
   briefRequest,
   panelBrief,
+  playbookGapLine,
   visibleBrief,
   type BriefPayload,
   type BriefRow,
@@ -11,7 +12,17 @@ import {
 import { api } from "@/shared/lib/api-client";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
-export function BriefLines({ brief, loadingText, compact }: { brief: PanelBrief; loadingText: string; compact?: boolean }) {
+export function BriefLines({
+  brief,
+  loadingText,
+  compact,
+  hideLabel = false,
+}: {
+  brief: PanelBrief;
+  loadingText: string;
+  compact?: boolean;
+  hideLabel?: boolean;
+}) {
   const bodyClass = compact ? "text-[12px] leading-snug text-muted-foreground" : "text-[15px] leading-relaxed text-foreground";
   const chipClass = compact
     ? "v-chip mt-1 inline-flex w-fit rounded-full border border-border bg-cream px-2 py-0.5 text-[11px] text-muted-foreground"
@@ -38,7 +49,7 @@ export function BriefLines({ brief, loadingText, compact }: { brief: PanelBrief;
           {row.text}
         </p>
       ))}
-      {brief.label ? <span className={chipClass}>{brief.label}</span> : null}
+      {brief.label && !hideLabel ? <span className={chipClass}>{brief.label}</span> : null}
     </div>
   );
 }
@@ -48,7 +59,15 @@ function isV2(payload: BriefPayload): boolean {
   return Object.prototype.hasOwnProperty.call(payload, "label");
 }
 
-export function ContactBrief({ contactId, compact = false }: { contactId: string; compact?: boolean }) {
+export function ContactBrief({
+  contactId,
+  compact = false,
+  meetingPrep = false,
+}: {
+  contactId: string;
+  compact?: boolean;
+  meetingPrep?: boolean;
+}) {
   const query = useQuery({
     queryKey: ["brief", contactId],
     queryFn: () => api.get<BriefPayload>(briefRequest(contactId)),
@@ -84,10 +103,15 @@ export function ContactBrief({ contactId, compact = false }: { contactId: string
   }
 
   const brief = panelBrief({ contactId, cache: { contactId, brief: query.data }, flightContactId: null });
-  if (!brief.rows.length && !brief.notice && !brief.label) return null;
+  const playbookGap = meetingPrep ? playbookGapLine(query.data.missing_steps) : null;
+  const label = meetingPrep ? null : brief.label;
+  if (!brief.rows.length && !brief.notice && !label && !playbookGap) return null;
   return (
     <section aria-label="Antes de llamar" className="space-y-1">
-      <BriefLines brief={brief} loadingText={BRIEF_LOADING} compact={compact} />
+      {playbookGap ? (
+        <p className={compact ? "text-[12px] text-muted-foreground" : THEME_TOKENS.typography.body}>{playbookGap}</p>
+      ) : null}
+      <BriefLines brief={brief} loadingText={BRIEF_LOADING} compact={compact} hideLabel={meetingPrep} />
     </section>
   );
 }

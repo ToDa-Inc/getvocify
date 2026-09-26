@@ -326,3 +326,14 @@ def test_v2_module_stays_read_only_without_a_model():
     text = (root / "v2.py").read_text(encoding="utf-8").lower()
     assert "openai" not in text
     assert "invoke_llm" not in text
+
+
+def test_missing_steps_lists_the_missed_playbook_steps_next_to_the_label():
+    intel = _current_intelligence(playbook_observations=OBSERVATIONS)
+    memo = _memo(extraction={"summary": "x", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, playbook_steps=PLAYBOOK_STEPS)
+    assert brief["label"] == "Pitch hecho · falta cualificar"
+    assert brief["missing_steps"] == ["cualificar"]
+
+    without_steps = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert without_steps["missing_steps"] == []

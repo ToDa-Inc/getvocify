@@ -86,6 +86,14 @@ function clean(value) {
   return text || null;
 }
 
+/** From brief v2 `missing_steps`: «Falta del playbook: decisor, presupuesto». None → null. */
+export function playbookGapLine(missingSteps) {
+  if (!Array.isArray(missingSteps)) return null;
+  const missed = missingSteps.map(clean).filter(Boolean);
+  if (!missed.length) return null;
+  return `Falta del playbook: ${missed.join(", ")}`;
+}
+
 export function briefRequest(contactId, connectionId) {
   const params = new URLSearchParams({
     contact_id: contactId,

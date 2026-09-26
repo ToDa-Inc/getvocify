@@ -6,6 +6,7 @@ import {
   firstName,
   historyRequest,
   initials,
+  meetingCardLine,
   panelHeaderSubtitle,
   panelMeetingLine,
   panelFilledPill,
@@ -127,6 +128,17 @@ describe("contact panel header copy", () => {
   it("formats the meeting line without duplicating «Hoy» when there is no time", () => {
     assert.equal(panelMeetingLine(null, copy), "Hoy · sin hora");
     assert.equal(panelMeetingLine("11:30", copy), "Reunión hoy 11:30");
+  });
+
+  it("writes the Hoy meeting card as «Reunión hoy 11:00 · Marina (Acme)», omitting what is missing", () => {
+    const entry = (contact_name: string | null, company_name: string | null) => ({
+      time: "11:00",
+      item: { contact_name, company_name },
+    });
+    assert.equal(meetingCardLine(entry("Marina", "Acme"), copy), "Reunión hoy 11:00 · Marina (Acme)");
+    assert.equal(meetingCardLine(entry("Marina", null), copy), "Reunión hoy 11:00 · Marina");
+    assert.equal(meetingCardLine(entry(null, "Acme"), copy), "Reunión hoy 11:00 · Acme");
+    assert.equal(meetingCardLine(entry("  ", null), copy), "Reunión hoy 11:00");
   });
 });
 

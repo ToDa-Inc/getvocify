@@ -10,6 +10,7 @@ import {
   briefRows,
   contactBriefDisplayLines,
   panelBrief,
+  playbookGapLine,
   shouldApplyBriefResponse,
 } from "./brief.js";
 import { HOY_SIGNAL_COPY } from "./hoy-copy.js";
@@ -210,5 +211,16 @@ describe("contact panel brief", () => {
     assert.equal(view.label, "Pitch hecho · falta cualificar");
     assert.equal(briefRows({ status: "ready", lines: [], label: "   " }).label, null);
     assert.equal(briefRows({ status: "ready", lines: [] }).label, null);
+  });
+
+  it("builds the playbook gap line from the brief's missing steps", () => {
+    assert.equal(
+      playbookGapLine(["decisor", "presupuesto"]),
+      "Falta del playbook: decisor, presupuesto",
+    );
+    assert.equal(playbookGapLine([" decisor ", ""]), "Falta del playbook: decisor");
+    assert.equal(playbookGapLine([]), null);
+    assert.equal(playbookGapLine(undefined), null);
+    assert.equal(playbookGapLine("Pitch hecho · falta decisor"), null);
   });
 });
