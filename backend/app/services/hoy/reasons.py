@@ -71,6 +71,11 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
         if origin == "rep_promise":
             return f"You promised to {what}."
         return f"They asked: {what}."
+    if signal.type == "meeting_today":
+        title = " ".join(str(payload.get("title") or "").split())
+        if title:
+            return title
+        return "Reunión acordada" if lang == "es" else "Meeting agreed"
     if signal.type == "no_reply":
         return _no_reply(payload, lang)
     if signal.type == "going_cold":
@@ -84,6 +89,23 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
     if lang == "es":
         return f"Quedó una objeción de {label} sin cerrar."
     return f"An open {label} objection."
+
+
+def meeting_detail(payload: dict, *, lang: str = "es") -> str | None:
+    """When the meeting was accepted, not when it starts. We do not know CRM moves."""
+    raw = payload.get("accepted_at") or payload.get("accepted_date")
+    if not raw:
+        return None
+    try:
+        accepted = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            accepted = datetime.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return None
+    lang = _lang(lang)
+    when = f"{accepted.day} {MONTH[lang][accepted.month - 1]}"
+    return f"acordada el {when}" if lang == "es" else f"agreed on {when}"
 
 
 def _no_reply(payload: dict, lang: str) -> str:

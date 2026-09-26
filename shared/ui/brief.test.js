@@ -10,6 +10,7 @@ import {
   briefRows,
   contactBriefDisplayLines,
   panelBrief,
+  playbookGapLine,
   shouldApplyBriefResponse,
 } from "./brief.js";
 
@@ -170,5 +171,14 @@ describe("contact panel brief", () => {
     assert.equal(view.label, "Pitch hecho · falta cualificar");
     assert.equal(briefRows({ status: "ready", lines: [], label: "   " }).label, null);
     assert.equal(briefRows({ status: "ready", lines: [] }).label, null);
+  });
+
+  it("builds the playbook gap line from a brief label", () => {
+    assert.equal(
+      playbookGapLine("Pitch hecho · falta decisor · falta presupuesto"),
+      "Falta del playbook: decisor, presupuesto",
+    );
+    assert.equal(playbookGapLine("Pitch hecho"), null);
+    assert.equal(playbookGapLine(null), null);
   });
 });

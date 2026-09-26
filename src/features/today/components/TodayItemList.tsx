@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { Phone } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { itemKey } from "@shared/ui/home.js";
@@ -92,6 +93,22 @@ function CardBody({
         <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
       ) : null}
     </div>
+  );
+}
+
+function MeetingCard({ item, compact }: { item: TodayItem; compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
+      <button type="button" className="w-full text-left" onClick={() => setOpen((value) => !value)}>
+        <CardBody item={item} compact={compact} quoted={false} />
+      </button>
+      {open && item.contact_id ? (
+        <div className="mt-3 border-t border-border/60 pt-3">
+          <ContactBrief contactId={item.contact_id} compact meetingPrep />
+        </div>
+      ) : null}
+    </li>
   );
 }
 
@@ -296,6 +313,12 @@ export function TodayItemList({
             onConfirm={onConfirm}
             onReview={onReview}
             onUndo={onUndo}
+          />
+        ) : item.type === "meeting_today" ? (
+          <MeetingCard
+            key={item.id ?? item.dedupe_key ?? item.reason}
+            item={item}
+            compact={compact}
           />
         ) : (
           <CallCard

@@ -144,6 +144,7 @@ export function todaySurface(
 
 const SUPPORTING_KEYS: Record<string, string> = {
   commitment_due: "today_signal_commitment",
+  meeting_today: "today_signal_meeting",
   no_reply: "today_signal_no_reply",
   going_cold: "today_signal_cold",
   objection_open: "today_signal_objection",

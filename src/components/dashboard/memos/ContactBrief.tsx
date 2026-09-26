@@ -3,6 +3,7 @@ import {
   BRIEF_LOADING,
   briefRequest,
   panelBrief,
+  playbookGapLine,
   visibleBrief,
   type BriefPayload,
   type BriefRow,
@@ -48,7 +49,15 @@ function isV2(payload: BriefPayload): boolean {
   return Object.prototype.hasOwnProperty.call(payload, "label");
 }
 
-export function ContactBrief({ contactId, compact = false }: { contactId: string; compact?: boolean }) {
+export function ContactBrief({
+  contactId,
+  compact = false,
+  meetingPrep = false,
+}: {
+  contactId: string;
+  compact?: boolean;
+  meetingPrep?: boolean;
+}) {
   const query = useQuery({
     queryKey: ["brief", contactId],
     queryFn: () => api.get<BriefPayload>(briefRequest(contactId)),
@@ -84,9 +93,13 @@ export function ContactBrief({ contactId, compact = false }: { contactId: string
   }
 
   const brief = panelBrief({ contactId, cache: { contactId, brief: query.data }, flightContactId: null });
-  if (!brief.rows.length && !brief.notice && !brief.label) return null;
+  const playbookGap = meetingPrep ? playbookGapLine(brief.label) : null;
+  if (!brief.rows.length && !brief.notice && !brief.label && !playbookGap) return null;
   return (
     <section aria-label="Antes de llamar" className="space-y-1">
+      {playbookGap ? (
+        <p className={compact ? "text-[12px] text-muted-foreground" : THEME_TOKENS.typography.body}>{playbookGap}</p>
+      ) : null}
       <BriefLines brief={brief} loadingText={BRIEF_LOADING} compact={compact} />
     </section>
   );

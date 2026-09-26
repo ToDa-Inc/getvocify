@@ -396,3 +396,15 @@ Con `DEAL_STAGE_CONFIRM_ENABLED`, la autoaprobación no mueve la etapa ni acepta
 | Deshacer ≤ 5 s | Reabre la señal; CRM intacto | `test_undo_within_window_clears_the_pending_write` |
 | Pipedrive / Salesforce | Sin snapshot, sin señal de etapa | `test_non_hubspot_connections_get_no_deal_snapshot` |
 | Flag `HOY_CONFIRMATIONS_ENABLED` apagado | Comportamiento anterior | `test_flag_off_hides_confirm_and_rejects_action` |
+
+### Addendum E5 — Reunión aceptada en Hoy el día acordado (26 sep 2026)
+
+Con `HOY_MEETINGS_ENABLED`, una propuesta **aceptada** (`decision = accepted`) cuyo `starts_at` cae hoy en la zona del comercial materializa `meeting_today` en Hoy (detalle en addendum E5 de `07-f05-hoy.md`). La aceptación no cambia: sigue siendo revisión o confirmación E7; Hoy solo **lee** propuestas ya aceptadas.
+
+| Caso | Resultado esperado | Test |
+|---|---|---|
+| Aceptada, hora hoy | Tarjeta con hora | `test_accepted_with_time_today_is_a_signal` |
+| Aceptada, solo día hoy | Tarjeta sin hora | `test_date_only_today_has_no_time_precision` |
+| Aceptada, otro día | Sin tarjeta | `test_yesterday_and_tomorrow_are_out` |
+| Omitida o pendiente | Sin tarjeta | `test_omitted_and_pending_stay_out` |
+| Flag apagado | Sin lectura ni señal | `test_flag_off_today_is_unchanged` |

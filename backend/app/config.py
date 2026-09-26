@@ -234,6 +234,8 @@ class Settings(BaseSettings):
     HOY_NO_REPLY_ENABLED: bool = False
     # One-click confirm in Hoy after CRM auto-approve (stage and/or meeting). Per company.
     HOY_CONFIRMATIONS_ENABLED: bool = False
+    # Accepted F14 meetings with starts_at today in Hoy. Per company.
+    HOY_MEETINGS_ENABLED: bool = False
     # Rep workspace (F16): /dashboard becomes the rep's home. Per company.
     REP_WORKSPACE_ENABLED: bool = False
     # Pre-call brief v2: hook, why, say and playbook progress label from C04. Per company.

@@ -75,6 +75,22 @@ function clean(value) {
   return text || null;
 }
 
+/** From brief v2 `label`: «Falta del playbook: decisor, presupuesto». No label → null. */
+export function playbookGapLine(label) {
+  const text = clean(label);
+  if (!text) return null;
+  const missed = text
+    .split("·")
+    .map((part) => part.trim())
+    .map((part) => {
+      const match = part.match(/^falta\s+(.+)$/i);
+      return match ? match[1] : null;
+    })
+    .filter(Boolean);
+  if (!missed.length) return null;
+  return `Falta del playbook: ${missed.join(", ")}`;
+}
+
 export function briefRequest(contactId, connectionId) {
   const params = new URLSearchParams({
     contact_id: contactId,

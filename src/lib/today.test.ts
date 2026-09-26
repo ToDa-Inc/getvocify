@@ -179,6 +179,14 @@ describe("today surface", () => {
   });
 });
 
+describe("meeting today labels", () => {
+  it("uses the same meeting pill in ES and EN", () => {
+    assert.equal(signalLabelKey("meeting_today"), "today_signal_meeting");
+    assert.equal(productCatalog.ES.today_signal_meeting, "Reunión hoy");
+    assert.equal(productCatalog.EN.today_signal_meeting, "Meeting today");
+  });
+});
+
 describe("dismiss stays undoable", () => {
   it("product catalog differs on dismiss and undo between EN and ES", () => {
     assert.notEqual(productCatalog.EN.dismiss, productCatalog.ES.dismiss);

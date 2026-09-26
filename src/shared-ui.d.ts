@@ -24,6 +24,7 @@ declare module "@shared/ui/brief.js" {
     flightContactId: string | null;
     failedContactId?: string | null;
   }): PanelBrief;
+  export function playbookGapLine(label: string | null | undefined): string | null;
 }
 
 declare module "@shared/ui/queue.js" {

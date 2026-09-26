@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.hoy.confirm_copy import DEFAULT_TZ, confirm_reason, failed_detail
-from app.services.hoy.reasons import reason
+from app.services.hoy.reasons import meeting_detail, reason
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, rank_cards
 from app.services.hubspot.account_info import build_contact_record_url
 from app.services.pipedrive.record_urls import build_pipedrive_record_url
@@ -335,6 +335,12 @@ def build_today_view(
                 company_domain=company_domain,
             ),
         })
+        if card.primary.type == "meeting_today":
+            items[-1]["due_at"] = payload.get("starts_at") or (card.primary.due_at.isoformat() if card.primary.due_at else None)
+            items[-1]["precision"] = payload.get("precision")
+            detail = meeting_detail(payload, lang=lang)
+            if detail:
+                items[-1]["detail"] = detail
         if task_links.get(card.primary.dedupe_key):
             items[-1]["crm_task_id"] = task_links[card.primary.dedupe_key][0]
         if payload.get("contact_name"):
