@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
+import { AdherenceTrend } from "@/features/team-insights/components/AdherenceTrend";
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
 import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
@@ -178,7 +179,9 @@ export default function TeamInsightsPage() {
             </section>
           ) : null}
           <TeamOverview metrics={view.metrics} reps={view.reps} />
-          <AdherenceBreakdown metrics={view.metrics} />
+          <AdherenceBreakdown metrics={view.metrics}>
+            <AdherenceTrend filters={filters} />
+          </AdherenceBreakdown>
           <ObjectionBreakdown categories={query.data?.objection_categories ?? []} />
           <OutcomeBreakdown
             metrics={view.metrics}

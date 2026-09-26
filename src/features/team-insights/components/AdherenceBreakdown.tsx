@@ -1,10 +1,11 @@
+import type { ReactNode } from "react";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { adherenceBarRatio, type TeamMetrics } from "@/lib/team-insights";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-3`;
 
-export function AdherenceBreakdown({ metrics }: { metrics: TeamMetrics }) {
+export function AdherenceBreakdown({ metrics, children }: { metrics: TeamMetrics; children?: ReactNode }) {
   const { t } = useLanguage();
   const p = t.product;
   const label =
@@ -34,6 +35,7 @@ export function AdherenceBreakdown({ metrics }: { metrics: TeamMetrics }) {
       {metrics.sampleLimited ? (
         <p>{p.sampleLimited}</p>
       ) : null}
+      {children}
     </section>
   );
 }

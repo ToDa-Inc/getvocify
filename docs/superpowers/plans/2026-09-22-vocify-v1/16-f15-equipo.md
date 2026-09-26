@@ -384,6 +384,97 @@ Sin owner inequívoco -> Sin atribución resuelta
 
 - [ ] Preparar un commit revisable de esta tarea dentro de la entrega, con archivos explícitos y referencia `F15.04`; documentar en el mismo commit/PR decisiones, pruebas y limitaciones.
 
+### F15.05 — Informe de equipo por email para owner/admin (decisión 2026-09-26)
+
+**Motivo:** F15.04 pide reutilizar C18 con `scope: team`; no existía. A §7.2 y §8: reportes programados al manager con analíticas de equipo, email como canal principal y campana como secundario.
+
+**Flag:** `REPORTING_TEAM_ENABLED`, por empresa con `feature_flags.is_enabled`, apagado por defecto. Apagado: no se genera ni se envía, la campana no lista informes de equipo y las preferencias no traen `team`.
+
+**Destinatarios:** miembros activos con rol owner o admin en el momento de generar, con `report_preferences.team_enabled` (por defecto `true`). Un informe por destinatario con la clave única de 048 (`user_id` = destinatario, `scope = 'team'`, `report_type = 'weekly'`).
+
+**Frecuencia:** semanal, mismo periodo y hora que el semanal personal de F13.04 (lunes–viernes, a partir del viernes 18:00 en la zona del destinatario). No hay diario de equipo en V1: el panel ya cubre el día y un segundo email diario al manager es ruido. Queda como decisión de producto abierta.
+
+**Datos, sin segundo agregador:** `team_adherence` (lo mismo que sirve `GET /team/adherence`) con el periodo de la semana y sin filtros de comercial ni tipología: intentos, conversaciones conectadas, reuniones acordadas, adherencia `met_steps / applicable_steps` con muestra y objeciones por categoría. La serie diaria usa `activity_counts` día a día, la misma función. Sin LLM: la frase es «Tu equipo esta semana: N llamadas conectadas y M reuniones acordadas.»
+
+- Cierres CRM: la lectura de outcomes del panel no está acotada al periodo, así que el informe los muestra como «No disponible» con `coverage.crm_outcomes: "unavailable"`. No se presentan cierres de la semana que no se pueden fechar.
+- Sin ranking: las cifras del equipo no llevan desglose por comercial. La única excepción es la adherencia por semana (corrección de abajo), detrás de su propio flag, por orden alfabético y nunca ordenada por nota.
+- Semana sin actividad del equipo: sin informe.
+
+**Permisos, reevaluados tres veces:** (1) al generar, con el rol actual de `company_members` y `assert_team_reader`; (2) justo antes de enviar, se relee `company_members`: si ya no es owner/admin activo de esa empresa, no se envía y no se guarda entrega; (3) al leer `GET /reports/{id}`, un informe de equipo exige ser el destinatario y owner/admin actual de la misma empresa; si no, 404 sin cifras ni destinatarios. La campana tampoco lo lista si el rol ya no es owner/admin.
+
+**Email:** asunto «Tu equipo esta semana», la frase, tabla (adherencia como «18 de 24 pasos»), hasta tres objeciones y «Ver informe».
+
+**Casos que deben fallar antes de implementar:**
+
+| Caso | Resultado exigido |
+|---|---|
+| Misma semana en panel e informe | Mismos intentos, conectadas, reuniones, adherencia y objeciones. |
+| Member | Ni se genera para él ni lo lee por ID (404). |
+| Admin pierde el rol entre generar y enviar | No se envía. |
+| Admin de otra empresa abre el ID | 404. |
+| Flag apagado | Nada generado; campana sin informes de equipo. |
+| `team_enabled` apagado | Sin informe para esa persona. |
+| Sin playbook | Adherencia `null`, «No disponible». |
+| Snapshot | Sin claves por comercial, salvo `adherence_trend` con el flag de evolución; nunca `user_id`. |
+
+### Addendum — evolución de adherencia por comercial (decisión 2026-09-26)
+
+**Motivo:** A §7.4 marca la adherencia al playbook «y su evolución en el tiempo» como una de las conclusiones más fuertes para el manager: es la cifra que el head of sales reporta hacia arriba. `GET /team/adherence` solo da la semana en curso; no había forma de ver si un comercial mejora o empeora. Decisión del founder: solo owner/admin, evolución semanal por comercial dentro de Equipo. El comercial no ve notas ni scores (`PLAN_INTEGRACION.md` §5).
+
+**Flag:** `TEAM_ADHERENCE_TREND_ENABLED`, por empresa con `feature_flags.is_enabled`, apagado por defecto. Se evalúa en cada petición con la empresa de la membresía, antes que el rol. Apagado: `GET /team/adherence/trend` responde 404 igual que una ruta inexistente y la UI no pinta nada nuevo. Quien consuma la agregación fuera del endpoint (informe de equipo) debe comprobar el mismo flag.
+
+**Agregación (sin LLM, sin migración):** `team_insights/adherence_trend.py: adherence_trend(supabase, company_id, *, role, weeks=8, now=None, user_id=None, motion=None, tz_name="Europe/Madrid")`. Lee memos y `memo_scores`; no escribe nada.
+
+- **Semana:** lunes–domingo local. No existe zona horaria de empresa en BD; se usa Europe/Madrid, igual que el resto de Equipo (`madrid_week_bounds`). `tz_name` queda como parámetro para cuando exista.
+- **Ventana:** las últimas 8 semanas, contando la semana en curso (marcada `in_progress`). `weeks` admite 1–12.
+- **Instante de la conversación:** `capture_started_at`, si no `created_at` del memo. Es cuándo trabajó el comercial; una re-puntuación posterior no mueve la conversación de semana. (El bloque de la semana en curso usa la fecha del score; en el borde de la semana ambos pueden diferir en una conversación.)
+- **Qué es una conversación:** un memo del comercial en la ventana, salvo `screening_outcome` buzón/sin respuesta y memos `failed`. Mismo ámbito de empresa que `/team/adherence` (miembros activos; memos antiguos sin `company_id` de miembros cuentan).
+- **Score vigente:** por memo, la fila de `memo_scores` con mayor `revision_seq`. Una conversación cuenta una vez aunque se haya puntuado varias.
+- **Cobertura, contada aparte y nunca como 0:** `scored` (score `ready`/`partial`), `without_playbook` (score `unavailable` o motivo `missing_playbook`) y `without_score` (sin fila, pendiente o fallido). `interactions = scored + without_playbook + without_score`.
+- **Adherencia:** la de F09/C14: se suman `met/missed/unknown/not_applicable` de los scores y se aplica `compute_adherence`. `met_steps / applicable_steps`, `null` sin denominador; `unknown` va a cobertura, no es incumplido. El equipo suma conteos, no promedia porcentajes de comerciales.
+- **Proceso, no resultado:** `crm_outcome`, meeting acordado o deal ganado no entran. Una llamada fácil con reunión no sube la serie.
+- **Estado por semana:** `gap` (ninguna conversación: hueco, no 0 %), `unscored` (conversaciones sin pasos evaluables: se dice cuántas y por qué) y `scored`. `sample_limited` con 1–4 conversaciones puntuadas.
+- **Versión de playbook:** cada conversación se mide contra la `playbook_version_id` con que se puntuó. `playbook_version_ids` lista las de la semana; `new_playbook_version` marca la primera semana en que una tipología aparece con una versión distinta a la usada antes en la ventana.
+- **Orden:** fila de equipo (solo sin filtro de comercial) y comerciales en orden alfabético (`load_team_reps`). Nunca por adherencia, sin «mejor/peor».
+- **Filtros:** `user_id` y `motion`, los mismos del panel. Un `user_id` que no es miembro activo de la empresa no devuelve filas.
+- **Lectura fallida** de memos o scores: `coverage: "unavailable"` sin cifras. Memos paginados de 1000 en 1000; scores por lotes de 200 IDs.
+
+```json
+{"coverage":"complete","timezone":"Europe/Madrid","weeks":[{"week_start":"2026-09-21","week_end":"2026-09-27","in_progress":true}],"team":{"weeks":[{"week_start":"2026-09-21","state":"scored","interactions":3,"scored":2,"without_playbook":1,"without_score":0,"met_steps":2,"applicable_steps":10,"unknown_steps":0,"not_applicable_steps":0,"adherence":0.2,"coverage":1.0,"sample_limited":true,"playbook_version_ids":["pv-1"],"new_playbook_version":false}]},"reps":[{"user_id":"u-a","name":"Ana","weeks":[]}]}
+```
+
+**Endpoint:** `GET /api/v1/team/adherence/trend?weeks=&user_id=&motion=`. Rol leído de `company_members` en cada petición (`get_membership`); member → 403 sin cifras.
+
+**UI:** dentro de la tarjeta de Adherencia existente, bajo la cifra de la semana: «Últimas 8 semanas», una fila por serie (Equipo primero, luego comerciales por nombre) con 8 barras mínimas de altura = adherencia, hueco punteado para `gap`, marca neutra para `unscored`, y el último «N de M» en texto. «Ver detalle» (`<details>`) abre la tabla equivalente: semana × serie con «N de M», «Sin conversaciones» o «Sin puntuar (K)», y «Proceso actualizado» donde cambia la versión. Una línea de muestra limitada si alguna semana la tiene. Carga: nada (reservar altura haría saltar la tarjeta en toda empresa con el flag apagado, que es el valor por defecto); error o `coverage: unavailable`: una línea «No se pudo cargar la evolución»; ventana sin conversaciones: «Sin conversaciones en estas semanas». Flag apagado (404): nada. Sin pantalla nueva.
+
+**Casos que deben fallar antes de implementar:**
+
+| Caso | Resultado exigido |
+|---|---|
+| Flag apagado | 404 como ruta inexistente; la UI no pinta nada. |
+| Member con flag encendido | 403 sin cifras. |
+| Semana sin conversaciones | `state: gap`, adherencia `null`, no 0 %. |
+| Conversaciones sin playbook publicado | `without_playbook` contado, adherencia `null`, `state: unscored`. |
+| Conversación sin score (pendiente/fallido/sin fila) | `without_score`, no incumplido. |
+| Solo `unknown` | Adherencia `null`, cobertura 0, no 0 %. |
+| A 1/1 y B 1/9 la misma semana | Equipo 2/10, no 55,6 %. |
+| Misma conversación puntuada dos veces | Cuenta una vez con la revisión de mayor `revision_seq`. |
+| Versión de playbook cambia en la ventana | Cada conversación con su versión; `new_playbook_version` en la semana del cambio. |
+| Misma evidencia, resultado CRM distinto | Misma adherencia. |
+| Buzón / sin respuesta / memo fallido | Fuera de todo recuento. |
+| Domingo 23:30 y lunes 00:30 locales (con cambio de hora) | Semanas distintas según Europe/Madrid. |
+| Semana en curso | Incluida y `in_progress`. |
+| 1–4 conversaciones puntuadas | `sample_limited`. |
+| Lectura de memos o scores falla | `coverage: unavailable`, sin cifras. |
+| Más de 1000 conversaciones en la ventana | Todas contadas. |
+| Filtro de comercial / `user_id` ajeno | Solo su fila y sin fila de equipo / ninguna fila. |
+| Orden | Equipo, luego alfabético; nunca por adherencia. |
+| Comercial sin conversaciones en 8 semanas | Fila con 8 huecos. |
+
+**Corrección a F15.05 (decisión del founder, 2026-09-26):** el informe de equipo semanal lleva la adherencia por semana por comercial. Solo si `TEAM_ADHERENCE_TREND_ENABLED` está encendido para la empresa, además de `REPORTING_TEAM_ENABLED`. Últimas 4 semanas, con la fila Equipo primero y los comerciales por orden alfabético. Celdas «9 de 12», «—» si es un hueco, «Sin puntuar», y un «*» con nota si hay menos de 5 puntuadas. El snapshot guarda nombres, nunca `user_id`. Email y página muestran la misma tabla. Si la lectura falla o no está completa, el informe sale sin ese bloque.
+
+**Fuera de alcance / decisiones abiertas:** zona horaria por empresa; umbral de muestra distinto de 5; que el vacío «No hay datos para estos filtros» de la semana en curso oculte también la evolución de un comercial sin actividad esta semana.
+
 ## Verificación integrada y criterios de salida adicionales
 
 Owner abre equipo, filtra periodo/tipología y ve actividad, adherencia, objeciones y outcomes. Amplía un dato hasta fuente; pregunta mismo dato al chat y genera reporte. Member no accede por URL/API/chat. Probar deal múltiples responsables y monedas.
