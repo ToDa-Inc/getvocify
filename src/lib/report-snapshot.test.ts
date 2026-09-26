@@ -4,6 +4,7 @@ import { productCatalog } from "./product-catalog.ts";
 import {
   bellActivityText,
   bellCount,
+  channelsText,
   nullableMetricLabel,
   reportAdherenceTrend,
   reportPagePresentation,
@@ -11,6 +12,83 @@ import {
   reportTitleKey,
   snapshotMetricCells,
 } from "./report-snapshot.ts";
+
+const channelCopy = {
+  call: { one: productCatalog.ES.reportChannelCallOne, other: productCatalog.ES.reportChannelCallOther },
+  meeting: { one: productCatalog.ES.reportChannelMeetingOne, other: productCatalog.ES.reportChannelMeetingOther },
+  visit: { one: productCatalog.ES.reportChannelVisitOne, other: productCatalog.ES.reportChannelVisitOther },
+};
+
+const channelCopyEn = {
+  call: { one: productCatalog.EN.reportChannelCallOne, other: productCatalog.EN.reportChannelCallOther },
+  meeting: { one: productCatalog.EN.reportChannelMeetingOne, other: productCatalog.EN.reportChannelMeetingOther },
+  visit: { one: productCatalog.EN.reportChannelVisitOne, other: productCatalog.EN.reportChannelVisitOther },
+};
+
+function snapshotWithChannels(channels: Record<string, number> | undefined) {
+  return {
+    metrics: {
+      attempts: 0,
+      connected_calls: 0,
+      meetings_agreed: 0,
+      deals_won: null as number | null,
+      adherence: null as number | null,
+      ...(channels !== undefined ? { channels } : {}),
+    },
+    coverage: { crm_outcomes: "unavailable" },
+    coaching: null,
+  };
+}
+
+describe("report channels line", () => {
+  it("names each channel above zero in order, ES", () => {
+    assert.equal(
+      channelsText(snapshotWithChannels({ call: 3, meeting: 1, visit: 2 }), channelCopy),
+      "3 llamadas · 1 reunión · 2 visitas",
+    );
+  });
+
+  it("names each channel above zero in order, EN", () => {
+    assert.equal(
+      channelsText(snapshotWithChannels({ call: 3, meeting: 1, visit: 2 }), channelCopyEn),
+      "3 calls · 1 meeting · 2 visits",
+    );
+  });
+
+  it("omits channels at zero", () => {
+    assert.equal(
+      channelsText(snapshotWithChannels({ call: 0, meeting: 0, visit: 1 }), channelCopy),
+      "1 visita",
+    );
+  });
+
+  it("returns null when all channels are zero", () => {
+    assert.equal(channelsText(snapshotWithChannels({ call: 0, meeting: 0, visit: 0 }), channelCopy), null);
+  });
+
+  it("returns null without metrics.channels", () => {
+    assert.equal(channelsText(snapshotWithChannels(undefined), channelCopy), null);
+  });
+
+  it("uses singular forms", () => {
+    assert.equal(
+      channelsText(snapshotWithChannels({ call: 1, meeting: 2, visit: 0 }), channelCopy),
+      "1 llamada · 2 reuniones",
+    );
+    assert.equal(
+      channelsText(snapshotWithChannels({ call: 1, meeting: 2, visit: 0 }), channelCopyEn),
+      "1 call · 2 meetings",
+    );
+  });
+
+  it("surfaces the line in reportPagePresentation", () => {
+    const view = reportPagePresentation(snapshotWithChannels({ call: 2, meeting: 0, visit: 1 }), {
+      unavailable: productCatalog.ES.unavailable,
+      channelCopy,
+    });
+    assert.equal(view.channelsLine, "2 llamadas · 1 visita");
+  });
+});
 
 describe("report adherence trend", () => {
   const cell = (state: string, met = 0, applicable = 0, sample_limited = false) => ({ state, met, applicable, sample_limited });

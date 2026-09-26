@@ -96,6 +96,11 @@ export default function ReportPage() {
   const view = reportPagePresentation(snapshot, {
     unavailable: t.product.unavailable,
     stepsTemplate: t.product.reportAdherenceSteps,
+    channelCopy: {
+      call: { one: t.product.reportChannelCallOne, other: t.product.reportChannelCallOther },
+      meeting: { one: t.product.reportChannelMeetingOne, other: t.product.reportChannelMeetingOther },
+      visit: { one: t.product.reportChannelVisitOne, other: t.product.reportChannelVisitOther },
+    },
   });
   const trend = reportAdherenceTrend(snapshot, {
     team: t.product.teamTitle,
@@ -125,6 +130,7 @@ export default function ReportPage() {
           </div>
         ))}
       </dl>
+      {view.channelsLine ? <p className="text-[13px] text-muted-foreground">{view.channelsLine}</p> : null}
       {snapshot.sample_limited ? <p className="text-[13px] text-muted-foreground">{t.product.sampleLimited}</p> : null}
       {view.days.length ? <DayTable days={view.days} locale={locale} /> : null}
       {trend ? (

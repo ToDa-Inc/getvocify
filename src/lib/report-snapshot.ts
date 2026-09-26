@@ -11,6 +11,8 @@ export type ReportDay = {
 
 export type ReportObjection = { name: string; count: number };
 
+export type ReportChannelCounts = Partial<Record<"call" | "meeting" | "visit", number>>;
+
 export type ReportSnapshot = {
   metrics: {
     attempts: number;
@@ -18,6 +20,7 @@ export type ReportSnapshot = {
     meetings_agreed: number;
     deals_won: number | null;
     adherence: number | null;
+    channels?: ReportChannelCounts;
   };
   coverage: { crm_outcomes: string; objections?: string };
   coaching: string | null;
@@ -142,15 +145,40 @@ export type ReportPageDay = {
   covered: boolean;
 };
 
+export type ReportChannelCopy = {
+  call: { one: string; other: string };
+  meeting: { one: string; other: string };
+  visit: { one: string; other: string };
+};
+
+const CHANNEL_ORDER = ["call", "meeting", "visit"] as const;
+
+function channelPart(count: number, words: { one: string; other: string }): string {
+  return count === 1 ? words.one : words.other.replace("{count}", String(count));
+}
+
+/** Same breakdown as backend `channels_text` / email «Conversaciones» row. */
+export function channelsText(snapshot: ReportSnapshot, copy: ReportChannelCopy): string | null {
+  const channels = snapshot.metrics.channels;
+  if (!channels || typeof channels !== "object") return null;
+  const parts = CHANNEL_ORDER.flatMap((key) => {
+    const count = Number(channels[key] ?? 0);
+    if (count < 1) return [];
+    return [channelPart(count, copy[key])];
+  });
+  return parts.length ? parts.join(" · ") : null;
+}
+
 export function reportPagePresentation(
   snapshot: ReportSnapshot,
-  options: { unavailable: string; stepsTemplate?: string },
+  options: { unavailable: string; stepsTemplate?: string; channelCopy?: ReportChannelCopy },
 ): {
   rows: ReportPageRow[];
   days: ReportPageDay[];
   objections: ReportObjection[] | null;
   coaching: string | null;
   exampleLinks: string[];
+  channelsLine: string | null;
 } {
   const cells = snapshotMetricCells(snapshot, options.unavailable, options.stepsTemplate);
   const rows: ReportPageRow[] = (Object.keys(METRIC_LABEL_KEYS) as ReportMetricCellKey[]).map((cellKey) => ({
@@ -170,6 +198,7 @@ export function reportPagePresentation(
     objections: snapshot.objections?.length ? snapshot.objections : null,
     coaching: snapshot.coaching,
     exampleLinks: reportExampleLinks(snapshot),
+    channelsLine: options.channelCopy ? channelsText(snapshot, options.channelCopy) : null,
   };
 }
 
