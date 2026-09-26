@@ -15,4 +15,8 @@ Quedan de la corrección de errores de la revisión reunión-vs-código.
    ```
 
    Los memos antiguos solo la tendrán si se corre `scripts/backfill_intelligence.py <user_id> [limit]`, que tiene coste de LLM. Probar antes con pocos memos.
-4. **Permiso de emails en HubSpot (`sales-email-read`).** Sin él, la tarjeta de Hoy «no te ha respondido» (`HOY_NO_REPLY_ENABLED`) nunca sale y Ask tampoco puede leer el contenido de los emails. Añadirlo primero en la configuración de la app en el portal de desarrollador de HubSpot (si solo se añade en `HUBSPOT_OAUTH_SCOPES` y no en la app, el OAuth falla para todos). Después, añadirlo en `backend/app/services/hubspot/oauth.py` y que cada cliente reconecte HubSpot. En Pipedrive haría falta `mail:read`.
+4. **Permiso de emails en HubSpot (`sales-email-read`).** Sin él, la tarjeta de Hoy «no te ha respondido» (`HOY_NO_REPLY_ENABLED`) nunca sale y Ask tampoco puede leer el contenido de los emails. Ya está como opcional en `hubspot-app/src/app/app-hsmeta.json` y en `HUBSPOT_OPTIONAL_SCOPES` (commit local, sin subir). Orden:
+   1. `cd hubspot-app && hs project upload` (cuenta de desarrollador de HubSpot).
+   2. Después, push del commit y merge a producción.
+   3. Cada cliente pulsa «Refresh permissions» en Integraciones (nunca desconectar: borra su configuración CRM).
+   En Pipedrive haría falta `mail:read`.

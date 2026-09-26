@@ -28,7 +28,9 @@
         "crm.schemas.deals.read",
         "crm.schemas.line_items.read"
       ],
-      "optionalScopes": [],
+      "optionalScopes": [
+        "sales-email-read"
+      ],
       "conditionallyRequiredScopes": []
     },
     "permittedUrls": {
