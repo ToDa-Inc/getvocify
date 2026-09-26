@@ -38,7 +38,6 @@ async def get_brief(
         facts = _from_memos(
             supabase,
             membership.company_id,
-            membership.user_id,
             contact_id,
             connection_id=connection_id,
             deal_id=deal_id,
@@ -49,30 +48,24 @@ async def get_brief(
 def _from_memos(
     supabase,
     company_id: str,
-    user_id: str,
     contact_id: str,
     *,
     connection_id: str | None = None,
     deal_id: str | None = None,
 ) -> dict:
+    """memos has no CRM connection column; the contact id and the company scope the read."""
+    del connection_id
     try:
         query = (
             supabase.table("memos")
-            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id,connection_id")
-            .eq("user_id", user_id)
+            .select("id,created_at,extraction,hubspot_contact_id,hubspot_deal_id,matched_deal_id")
+            .eq("company_id", company_id)
             .eq("hubspot_contact_id", contact_id)
-            .or_(f"company_id.eq.{company_id},company_id.is.null")
             .order("created_at", desc=True)
             .limit(100)
         )
         stored = query.execute()
         rows = list(stored.data or [])
-        if connection_id:
-            rows = [
-                row
-                for row in rows
-                if not row.get("connection_id") or str(row.get("connection_id")) == str(connection_id)
-            ]
         if deal_id:
             rows = [
                 row
@@ -90,7 +83,8 @@ def _from_memos(
         extraction = {}
     pending = _first_text(extraction.get("next_steps") or extraction.get("nextSteps"))
     objection = _first_text(extraction.get("objections"))
-    pain = bool(extraction.get("pain_confirmed"))
+    intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
+    pain = intelligence.get("pain_confirmed") is True or extraction.get("pain_confirmed") is True
     summary = extraction.get("summary") or ""
     return {
         "coverage": "complete",

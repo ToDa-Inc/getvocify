@@ -245,6 +245,18 @@ def test_from_memos_deal_id_filters_on_the_contact_column():
     assert facts["last"]["source_ref"] == "memo-matched"
 
 
+def test_pain_confirmed_is_read_where_intelligence_stores_it():
+    confirmed = _memo(
+        memo_id="memo-pain",
+        created_at="2026-09-02T10:00:00Z",
+        contact_id="42",
+        summary="Les cuesta cuadrar el stock.",
+        extra_extraction={"intelligence": {"pain_confirmed": True}},
+    )
+    facts = briefs_api._from_memos(_FakeMemos([confirmed]), "co-1", "42")
+    assert facts["pain_confirmed"] is True
+
+
 def test_get_brief_filters_connection_on_the_contact_column():
     other_contact = _memo(
         memo_id="memo-other-contact",
