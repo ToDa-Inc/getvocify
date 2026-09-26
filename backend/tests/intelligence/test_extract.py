@@ -150,6 +150,28 @@ def test_a_commitment_without_an_offset_or_a_real_day_is_dropped():
     assert shape_intelligence(MEMO, _commitment("2026-02-30"))["commitments"] == []
 
 
+def test_a_commitment_where_no_day_was_said_is_kept_without_a_date():
+    [item] = shape_intelligence(MEMO, _commitment(None))["commitments"]
+    assert item["text"] == "enviar el caso de logística"
+    assert item["due_at"] is None
+    assert item["temporal_precision"] == "unknown"
+
+
+def test_an_undated_commitment_never_reaches_hoy():
+    from datetime import datetime
+
+    from app.services.hoy.materialize import day_end
+    from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
+
+    shaped = shape_intelligence(MEMO, _commitment(None))
+    touch = touch_from_intelligence(
+        memo_id="memo-1", contact_id="c-1", deal_id=None,
+        at=datetime.fromisoformat("2026-09-22T10:00:00+02:00"), intelligence=shaped,
+    )
+    later = datetime.fromisoformat("2026-12-01T09:00:00+01:00")
+    assert not signals_for_contact([touch], now=later, day_end=day_end(later, "Europe/Madrid"))
+
+
 def test_an_unknown_timezone_falls_back_to_madrid():
     kept = shape_intelligence({**MEMO, "timezone": "Mars/Base"}, _commitment("2026-09-24"))
     assert kept["commitments"][0]["due_at"] == "2026-09-24T00:00:00+02:00"

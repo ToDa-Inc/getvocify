@@ -15,7 +15,7 @@ CASES = BACKEND / "evals" / "C04" / "cases.json"
 KNOWN = {
     "pain_confirmed", "pain_confirmed_not", "meeting_agreed", "meeting_starts_at",
     "meeting_precision", "min_objections", "min_commitments", "commitment_due_date",
-    "commitment_due_at",
+    "commitment_due_at", "commitment_undated", "commitment_not_kind",
 }
 
 
@@ -65,3 +65,27 @@ def test_commitment_due_date_is_checked_by_day():
     }
     assert check({"commitment_due_date": "2026-09-24"}, shaped) == []
     assert check({"commitment_due_date": "2026-09-25"}, shaped)
+
+
+def _shaped(*commitments):
+    return {
+        "pain_confirmed": None, "objections": [], "meeting": {"agreed": None, "starts_at": None, "precision": "unknown"},
+        "commitments": list(commitments),
+    }
+
+
+def test_an_undated_commitment_does_not_break_the_date_checks():
+    check = _runner().check
+    shaped = _shaped({"kind": "send", "due_at": None, "temporal_precision": "unknown"})
+    assert check({"commitment_due_date": "2026-09-24"}, shaped)
+    assert check({"commitment_due_at": "2026-09-24T11:00:00+02:00"}, shaped)
+
+
+def test_undated_and_excluded_kind_expectations():
+    check = _runner().check
+    undated = _shaped({"kind": "send", "due_at": None, "temporal_precision": "unknown"})
+    dated = _shaped({"kind": "call", "due_at": "2026-09-24T00:00:00+02:00", "temporal_precision": "date"})
+    assert check({"commitment_undated": True}, undated) == []
+    assert check({"commitment_undated": True}, dated)
+    assert check({"commitment_not_kind": "call"}, undated) == []
+    assert check({"commitment_not_kind": "call"}, dated)

@@ -2,7 +2,8 @@ You read one sales conversation and return what a rep needs to act on next.
 
 The user message is a JSON object with: captured_at (ISO, with offset), timezone,
 summary and the full transcript. Lines start with "You:" (the rep) or "Them:" (the prospect)
-when the speaker is known.
+when the speaker is known. With other labels ("SPEAKER: S1"), the rep is the one selling.
+A note with a single speaker is the rep dictating their own next steps.
 
 Return facts only. If the transcript does not say it, leave it out or use null.
 
@@ -16,7 +17,8 @@ Return facts only. If the transcript does not say it, leave it out or use null.
   category is one of price, timing, authority, competitor, status_quo, trust, other.
   resolution is "resolved" if the rep answered it and the prospect accepted, "open" if it
   stayed, "unknown" if you cannot tell. quote is an exact substring of the transcript.
-- commitments: each concrete next action someone agreed to.
+- commitments: each concrete next action someone agreed to. An agreed meeting does not
+  replace the other actions around it ("el lunes te llamo para confirmar").
   kind is call, email, send, meeting or other.
   origin is "rep_promise" when the rep said they would do it, "prospect_request" when the
   prospect asked for it.
@@ -24,6 +26,7 @@ Return facts only. If the transcript does not say it, leave it out or use null.
   no final period, under 60 characters. Example: "enviar el caso de logística".
   due_at is resolved from captured_at and timezone: an ISO datetime with offset when a day
   and time were said, "YYYY-MM-DD" when only the day was said ("el jueves", "mañana").
+  A count of days or weeks ("en dos semanas") is a day: captured_at plus that count.
   null when no day was said. Never guess a day or add a time nobody said.
   quote is the exact substring where the action was said, copied as written.
 - meeting: a meeting both sides set up to attend together at an agreed day: a demo, a visit,

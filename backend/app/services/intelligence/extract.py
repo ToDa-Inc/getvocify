@@ -117,10 +117,11 @@ def shape_intelligence(memo: dict, raw: dict) -> dict:
     for item in raw.get("commitments") or []:
         if not isinstance(item, dict):
             continue
-        due, precision = _commitment_due(item.get("due_at"), memo.get("timezone"))
+        undated = item.get("due_at") is None
+        due, precision = (None, "unknown") if undated else _commitment_due(item.get("due_at"), memo.get("timezone"))
         text = " ".join(str(item.get("text") or "").split()).rstrip(".")
         ref = _evidence(memo_id, item.get("quote"), transcript)
-        if not due or not text or ref is None:
+        if not (due or undated) or not text or ref is None:
             continue
         evidence[ref["id"]] = ref
         commitments.append({

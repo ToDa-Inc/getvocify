@@ -39,13 +39,19 @@ def check(expect: dict, shaped: dict) -> list[str]:
     if len(shaped["commitments"]) < expect.get("min_commitments", 0):
         failures.append(f"commitments: expected at least {expect['min_commitments']}, got {len(shaped['commitments'])}")
     if "commitment_due_date" in expect:
-        days = [item["due_at"][:10] for item in shaped["commitments"]]
+        days = [item["due_at"][:10] for item in shaped["commitments"] if item.get("due_at")]
         if expect["commitment_due_date"] not in days:
             failures.append(f"commitment_due_date: expected {expect['commitment_due_date']!r}, got {days!r}")
     if "commitment_due_at" in expect:
         timed = [item["due_at"] for item in shaped["commitments"] if item.get("temporal_precision") == "time"]
         if expect["commitment_due_at"] not in timed:
             failures.append(f"commitment_due_at: expected {expect['commitment_due_at']!r}, got {timed!r}")
+    if expect.get("commitment_undated") and not any(item.get("due_at") is None for item in shaped["commitments"]):
+        failures.append("commitment_undated: expected a commitment without a day")
+    if "commitment_not_kind" in expect:
+        kinds = [item.get("kind") for item in shaped["commitments"]]
+        if expect["commitment_not_kind"] in kinds:
+            failures.append(f"commitment_not_kind: {expect['commitment_not_kind']!r} must not be a commitment, got {kinds!r}")
     return failures
 
 
