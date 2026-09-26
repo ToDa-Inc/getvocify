@@ -111,13 +111,15 @@ async def test_delete_own_number():
             }
         ]
     )
-    result = await remove_caller_id(
-        phone_number="+34910000000",
-        supabase=supabase,
-        user_id="user-1",
-    )
+    with patch("app.services.telephony.caller_id._release_twilio_outgoing_caller_id") as release:
+        result = await remove_caller_id(
+            phone_number="+34910000000",
+            supabase=supabase,
+            user_id="user-1",
+        )
     assert result == {"ok": True}
     assert store == []
+    release.assert_called_once_with("+34910000000")
 
 
 @pytest.mark.asyncio

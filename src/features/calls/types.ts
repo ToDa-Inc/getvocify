@@ -7,6 +7,8 @@ export type CallerId = {
   isDefault: boolean;
   verifiedAt: string | null;
   source?: 'user' | 'twilio';
+  callBlocked?: boolean;
+  notice?: string | null;
 };
 
 export type CallingProvider = 'twilio' | 'telnyx';

@@ -111,7 +111,7 @@ export const DashboardDialer = ({
   const { t } = useLanguage();
   const callCopy = t.product;
   const verified = callerIds.filter(
-    (c) => c.status === "verified" && c.source !== "twilio",
+    (c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked,
   );
   const defaultFrom =
     verified.find((c) => c.isDefault)?.phoneNumber || verified[0]?.phoneNumber || "";

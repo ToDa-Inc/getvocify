@@ -31,7 +31,9 @@ from app.services.unipile import UnipileClient, parse_unipile_webhook
 from app.services.unipile.webhook_parser import normalize_unipile_payload
 from app.services.unipile.webhook_signature import verify_unipile_webhook_signature
 from app.services.telephony.caller_id import (
+    ES_MOBILE_CALL_BLOCKED_SPOKEN,
     CallerIdNotVerified,
+    CallerIdRangeRestricted,
     mark_caller_id_failed,
     mark_caller_id_verified,
     resolve_caller_id,
@@ -650,6 +652,9 @@ async def twilio_voice(request: Request):
             default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE,
         )
         caller_id = resolve_caller_id(supabase, user_id, params.get("CallerId") or None)
+    except CallerIdRangeRestricted as e:
+        logger.warning("Twilio voice webhook rejected: %s", e)
+        return _reject_twiml(ES_MOBILE_CALL_BLOCKED_SPOKEN)
     except (InvalidPhoneNumber, CallerIdNotVerified) as e:
         logger.warning("Twilio voice webhook rejected: %s", e)
         return _reject_twiml("Número no válido o identificador no verificado.")

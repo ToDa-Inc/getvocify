@@ -243,6 +243,41 @@ Kept deliberately, because several of them are load-bearing in shipped code and 
 7. **Steal one thing from Telnyx regardless:** direct-to-bucket recording delivery is a better
    design than our download-and-store hop. Check whether Twilio has an equivalent.
 
+## Action #2 as implemented (2026-09-26)
+
+Server-side in `backend/app/services/telephony/caller_id.py`; the client is never trusted.
+Global flag `CALLING_ES_CLI_GATE_ENABLED` (default on) — global rather than per-company
+because it is law for every tenant, not a plan feature; the flag exists only as an incident
+kill switch.
+
+| Range (E.164) | Verification (add / Telnyx confirm) | Call time (`resolve_caller_id`) | Source |
+|---|---|---|---|
+| `+346…`, `+347…` (Spanish mobile) | **Rejected** before any provider call, 422, no row written | Existing verified rows keep dialing until `CALLING_ES_MOBILE_CALL_BLOCK_FROM` (default **2026-10-17**, Europe/Madrid), then rejected with a specific message. With no preference, the next verified non-blocked number is used | TDF/149/2025 Art. 9.1; SETID Res. 14-04-2026 apartado sexto |
+| `+34400…` | **Rejected**, 422 | Never blocked — 400 is the one range sanctioned for commercial calls | SETID Res. apartados segundo.1, tercero.1, cuarto.1 |
+| Everything else (`+349…`, `+348…`, non-Spanish) | Unchanged | Unchanged | — |
+
+Existing records are never deleted or modified by the gate. The API lists them with
+`callBlocked` and a Spanish `notice`; the user can still remove them.
+
+Interpretations chosen where the docs are silent or ambiguous:
+
+1. **Which 7xx.** The Spanish plan attributes 71–74 to mobile and 70 to personal numbering.
+   The whole `+347` block is gated (conservative, and matches "6xx/7xx" above).
+2. **Existing verified mobiles.** Action #2 only says "gate at verification time". Art. 9 has
+   applied since 2025-06-07, but a hard call-time block on deploy would break SDRs mid-week
+   without warning. Chosen: block new verifications now, block existing mobiles at call time
+   from 2026-10-17 (the date BYO-CLI becomes structurally incompatible for in-scope callers),
+   with an in-list notice until then. To block immediately, set
+   `CALLING_ES_MOBILE_CALL_BLOCK_FROM` to today.
+3. **Destination-agnostic.** A Spanish mobile is gated regardless of where the call goes; the
+   rule is about using Spanish mobile numbering for commercial calls, not about the callee.
+4. **Not implemented: "only 400 from 2026-10-17" for every non-400 CLI.** Sexto read alone
+   would block Spanish landlines too. This document and
+   [`regulatory/spain-cli-tdf149-2025.md`](regulatory/spain-cli-tdf149-2025.md) conclude the
+   400 mandate most likely does not bind B2B callers (Primero.2), and item 3 above is still
+   with counsel. If counsel says Sexto governs, landline CLIs to Spain need the same
+   call-time block.
+
 One thing worth internalising from how this went: we nearly migrated carriers on the strength
 of an unsourced forum answer, and the question that actually mattered was answerable by reading
 HubSpot's own country-support page. Check what the market leader ships before assuming a

@@ -124,7 +124,10 @@ Do these first; they are cheap and two of them can invalidate later work.
 Safe to execute now regardless of the gate outcome. The current UI invites SDRs to verify a
 personal Spanish mobile, which is prohibited and will fail silently.
 
-- [ ] **1.1 — Gate Spanish mobile verification in the UI and API.** In
+- [x] **1.1 — Gate Spanish mobile verification in the UI and API.** *(Done 2026-09-26 in the
+  API and dashboard; rule and interpretations in
+  [`DECISION.md` → "Action #2 as implemented"](../../telephony/DECISION.md). The
+  `chrome-extension/lib/dialer.js` mirror was not added — the server rejects regardless.)* In
   `backend/app/services/telephony/caller_id.py`, reject `start_caller_id_verification` for
   `+34` numbers in mobile ranges (6xx/7xx) with an explanatory error rather than calling
   Twilio. Surface it in the side panel with copy explaining the legal reason, not a generic

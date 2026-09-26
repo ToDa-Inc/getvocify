@@ -14,6 +14,8 @@ import { callerIdOtpVisible, callerIdSetupPhase } from "@/lib/dial-target";
 
 const POLL_MS = 3000;
 const POLL_MAX_MS = 120_000;
+// Server rejects these (Orden TDF/149/2025 art. 9, SETID 400); only hides the profile hint.
+const ES_RESTRICTED_CLI = /^\+34(?:[67]|400)/;
 
 export const CallerIdSettings = () => {
   const { user } = useAuth();
@@ -80,7 +82,10 @@ export const CallerIdSettings = () => {
 
   const whatsappPhone = user?.phone || "";
   const whatsappUnused =
-    Boolean(whatsappPhone) && !ids.some((c) => c.phoneNumber === whatsappPhone);
+    Boolean(whatsappPhone) &&
+    !ES_RESTRICTED_CLI.test(whatsappPhone) &&
+    !ids.some((c) => c.phoneNumber === whatsappPhone);
+  const callableCount = ids.filter((c) => c.status === "verified" && !c.callBlocked).length;
 
   const handleVerify = async () => {
     const raw = number.trim();
@@ -216,7 +221,7 @@ export const CallerIdSettings = () => {
         <Input
           value={number}
           onChange={(e) => setNumber(e.target.value)}
-          placeholder="+34 600 111 222"
+          placeholder="+34 910 111 222"
           className="rounded-full h-11"
         />
         <Button
@@ -262,12 +267,14 @@ export const CallerIdSettings = () => {
       {ids.length > 0 && (
         <ul className="space-y-3">
           {ids.map((row) => {
-            const ready = row.status === "verified";
-            const statusLabel = ready
-              ? row.isDefault
-                ? "Ready · default"
-                : "Ready"
-              : "Waiting for the code";
+            const ready = row.status === "verified" && !row.callBlocked;
+            const statusLabel = row.callBlocked
+              ? null
+              : ready
+                ? row.isDefault
+                  ? "Ready · default"
+                  : "Ready"
+                : "Waiting for the code";
             return (
               <li
                 key={row.phoneNumber}
@@ -276,12 +283,10 @@ export const CallerIdSettings = () => {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground">{row.phoneNumber}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {row.label ? `${row.label} · ${statusLabel}` : statusLabel}
+                    {[row.label, statusLabel, row.notice].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                {ready &&
-                !row.isDefault &&
-                ids.filter((item) => item.status === "verified").length > 1 ? (
+                {ready && !row.isDefault && callableCount > 1 ? (
                   <Button
                     type="button"
                     variant="ghost"

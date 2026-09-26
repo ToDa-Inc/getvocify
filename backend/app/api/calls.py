@@ -38,6 +38,7 @@ from app.services.telephony.caller_id import (
     start_caller_id_verification,
     update_caller_id_label,
     CallerIdNotVerified,
+    CallerIdRangeRestricted,
     CallerIdVerificationUnsupported,
 )
 from app.services.telephony.provider import calling_provider
@@ -252,7 +253,7 @@ async def create_caller_id(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
-    except CallerIdVerificationUnsupported as e:
+    except (CallerIdRangeRestricted, CallerIdVerificationUnsupported) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
@@ -287,6 +288,10 @@ async def confirm_caller_id(
     except InvalidPhoneNumber as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except CallerIdRangeRestricted as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
     except CallerIdNotVerified as e:
         raise HTTPException(
