@@ -58,11 +58,11 @@ describe("today card", () => {
     const en = strings("en");
     const es = strings("es");
     const enMarkup = renderToString(
-      renderTodayCard(pending, { now: 0, dismiss: en.dismiss, undo: en.undo }),
+      renderTodayCard(pending, { now: 0, dismiss: en.dismiss, undo: en.undo, confirm: en.confirm, review: en.review }),
     );
     assert.match(enMarkup, />Dismiss</);
     const esMarkup = renderToString(
-      renderTodayCard(pending, { now: 0, dismiss: es.dismiss, undo: es.undo }),
+      renderTodayCard(pending, { now: 0, dismiss: es.dismiss, undo: es.undo, confirm: es.confirm, review: es.review }),
     );
     assert.match(esMarkup, />Descartar</);
   });
@@ -83,6 +83,8 @@ describe("today card", () => {
         now: Date.parse("2026-09-22T10:00:06Z"),
         dismiss: es.dismiss,
         undo: es.undo,
+        confirm: es.confirm,
+        review: es.review,
       }),
     );
     assert.equal(markup.includes(es.undo), false);

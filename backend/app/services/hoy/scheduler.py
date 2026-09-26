@@ -249,6 +249,39 @@ def contact_record_url(
     return None
 
 
+def confirm_item(row: dict, *, provider: str | None = None, portal_id: str | None = None, company_domain: str | None = None) -> dict:
+    """One confirm_pending row as a Today item."""
+    payload = dict(row.get("payload") or {})
+    item = {
+        "type": "confirm_pending",
+        "dedupe_key": row.get("dedupe_key"),
+        "contact_id": row.get("contact_id"),
+        "connection_id": row.get("connection_id"),
+        "reason": payload.get("reason") or "",
+        "detail": payload.get("detail"),
+        "memo_id": row.get("memo_id"),
+        "origins": ["detected"],
+        "supporting": [],
+        "open_url": contact_record_url(
+            provider=provider,
+            contact_id=row.get("contact_id"),
+            portal_id=portal_id,
+            company_domain=company_domain,
+        ),
+    }
+    if payload.get("contact_name"):
+        item["contact_name"] = payload["contact_name"]
+    if row.get("id"):
+        item["id"] = row["id"]
+        item["version"] = row.get("version")
+        item["status"] = row.get("status") or "pending"
+        if row.get("undo_deadline"):
+            item["undo_deadline"] = row.get("undo_deadline")
+        if row.get("last_action_request_id"):
+            item["last_action_request_id"] = row.get("last_action_request_id")
+    return item
+
+
 def build_today_view(
     *,
     signals: list[Signal],
@@ -261,6 +294,7 @@ def build_today_view(
     portal_id: str | None = None,
     company_domain: str | None = None,
     task_links: dict[str, list[str]] | None = None,
+    confirm_rows: list[dict] | None = None,
 ) -> dict:
     """task_links: signal key -> CRM task ids written for that commitment. Those tasks are
     the commitment, so they never show as manual tasks; the card carries the first id."""
@@ -318,6 +352,11 @@ def build_today_view(
                 company_domain=company_domain,
             ),
         })
+    confirm_items = [
+        confirm_item(row, provider=provider, portal_id=portal_id, company_domain=company_domain)
+        for row in (confirm_rows or [])
+    ]
+    items = confirm_items + items
     visible = items[:DEFAULT_LIMIT]
     folded += len(items) - len(visible)
     complete = bool(coverage) and all(value == "complete" for value in coverage.values())

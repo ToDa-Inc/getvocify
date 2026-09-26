@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 
 UNDO_WINDOW = timedelta(seconds=5)
-_STATUS = {"resolve": "resolved", "dismiss": "dismissed", "snooze": "snoozed"}
+_STATUS = {"resolve": "resolved", "dismiss": "dismissed", "snooze": "snoozed", "confirm": "resolved"}
 
 
 class ActionError(Exception):

@@ -240,7 +240,7 @@ async def maybe_auto_approve_hubspot_call(
     fetched = (
         supabase.table("memos")
         .select(
-            "id,status,source,hubspot_contact_id,hubspot_deal_id,"
+            "id,status,source,company_id,hubspot_contact_id,hubspot_deal_id,"
             "matched_deal_id,screening_outcome"
         )
         .eq("id", memo_id)
@@ -278,4 +278,17 @@ async def maybe_auto_approve_hubspot_call(
         "CRM auto-approved",
         extra=log_domain(DOMAIN_MEMO, "crm_auto_approved", memo_id=memo_id),
     )
+    company_id = str(data.get("company_id") or "")
+    if company_id:
+        from app.services.hoy.confirmations import materialize_confirm_after_auto_approve
+
+        try:
+            await materialize_confirm_after_auto_approve(
+                supabase, memo_id=memo_id, user_id=user_id, company_id=company_id
+            )
+        except Exception:
+            logger.exception(
+                "confirm_pending materialize failed",
+                extra=log_domain(DOMAIN_MEMO, "confirm_materialize_failed", memo_id=memo_id),
+            )
     return True

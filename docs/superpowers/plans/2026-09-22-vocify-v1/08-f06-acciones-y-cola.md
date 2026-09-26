@@ -402,3 +402,23 @@ C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision
 | Pipedrive con hora | `due_date`/`due_time` en UTC. |
 | Tarea creada | Su id queda en el compromiso (`crm_task_id`). |
 | C04 con compromiso sin día | Se conserva con `due_at` null; uno mal formado se descarta. |
+
+### Addendum E7 — confirmación de un clic (26 sep 2026)
+
+Tras una autoaprobación del CRM (`auto_sync_hubspot_calls`), si queda una etapa sugerida distinta de la actual (con `DEAL_STAGE_CONFIRM_ENABLED`) o una propuesta de reunión acordada sin aceptar, Hoy materializa una señal `type: confirm_pending` (una por memo, `dedupe_key: confirm:{memo_id}`). Flag `HOY_CONFIRMATIONS_ENABLED` por empresa; apagado: no se materializa y `POST /today/{id}/resolve` con `action: confirm` responde 404.
+
+`POST /today/{id}/resolve` acepta `action: confirm` solo en señales `confirm_pending`. Marca la señal como `resolved` con ventana de deshacer de 5 s (F06). La escritura en el CRM (etapa vía `write_confirmed_stage`, reunión vía `accept_meeting_proposal`) se aplaza hasta que venza el plazo de deshacer; deshacer solo reabre la señal. Dos confirmaciones idempotentes escriben una vez (`write_applied` en el payload).
+
+| Caso | Comportamiento esperado |
+|---|---|
+| Autoaprobación, etapa sugerida distinta | Señal `confirm_pending` |
+| Etapa igual a la actual | Sin señal |
+| Reunión acordada sin aceptar | Señal |
+| Reunión aceptada u omitida | Sin señal |
+| Etapa + reunión | Una señal con las dos partes en `reason`/`detail` |
+| Sin autoaprobación | Sin señal nueva |
+| `confirm` escribe etapa y reunión como la revisión | Una sola escritura por parte |
+| Deshacer dentro de 5 s | Señal `pending`; sin escritura CRM |
+| `confirm` en otra señal | 422 |
+| Flag apagado | Sin señal; `confirm` → 404 |
+| Hecho hoy | Fila `kind: confirmation` |

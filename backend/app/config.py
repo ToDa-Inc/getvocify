@@ -230,6 +230,8 @@ class Settings(BaseSettings):
     INTELLIGENCE_EXTRACT_ENABLED: bool = False
     # Hoy card «no te ha respondido»: reads the rep's CRM emails. HubSpot needs sales-email-read.
     HOY_NO_REPLY_ENABLED: bool = False
+    # One-click confirm in Hoy after CRM auto-approve (stage and/or meeting). Per company.
+    HOY_CONFIRMATIONS_ENABLED: bool = False
     # Rep workspace (F16): /dashboard becomes the rep's home. Per company.
     REP_WORKSPACE_ENABLED: bool = False
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"

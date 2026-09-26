@@ -54,8 +54,9 @@ def done_today(
         if at is None or not _signal_done_by_rep(row):
             continue
         memo_id = row.get("memo_id") or None
+        kind = "confirmation" if row.get("type") == "confirm_pending" else "signal"
         found.append((at, {
-            "kind": "signal",
+            "kind": kind,
             "contact_name": _name(names, memo_id, row.get("contact_id")),
             "contact_id": row.get("contact_id") or None,
             "at": at.isoformat(),

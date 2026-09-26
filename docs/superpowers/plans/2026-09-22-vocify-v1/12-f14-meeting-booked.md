@@ -382,3 +382,15 @@ Ejecutar los comandos desde `/Users/danizal/getvocify`, salvo el `cd` explícito
 ## Handoff a la siguiente entrega
 
 F11 muestra la propuesta/resultado vigente; F13 cuenta acuerdos confirmados sin confundir escritura con venta. F15 observa resultados CRM por otro contrato independiente.
+
+### Addendum E7 — confirmación en Hoy tras autoaprobación (26 sep 2026)
+
+Con `DEAL_STAGE_CONFIRM_ENABLED`, la autoaprobación no mueve la etapa ni acepta la reunión. E7 (flag `HOY_CONFIRMATIONS_ENABLED`) materializa `confirm_pending` en Hoy: el comercial confirma en un clic lo que la revisión habría escrito — reunión con `accept_meeting_proposal`, etapa con `write_confirmed_stage` (mismo camino que la revisión con `stage_confirm`). El enganche de materialización vive en `hubspot/auto_sync.py` (autoaprobación HubSpot); Pipedrive/Salesforce no tienen autoaprobación equivalente hoy.
+
+| Caso | Comportamiento esperado |
+|---|---|
+| Autoaprobación HubSpot + reunión pendiente | Señal con `reason`/`detail` y `memo_id` |
+| Autoaprobación + etapa distinta | `detail`: «Etapa → …» |
+| Confirmar | Acepta reunión y/o escribe etapa (idempotente) |
+| Deshacer ≤ 5 s | Reabre señal; CRM intacto |
+| Flag `HOY_CONFIRMATIONS_ENABLED` apagado | Comportamiento anterior |

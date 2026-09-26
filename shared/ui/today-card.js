@@ -83,11 +83,15 @@ function dedupe(cards) {
   return out;
 }
 
-export function renderTodayCard(card, { now, dismiss, undo }) {
+export function renderTodayCard(card, { now, dismiss, undo, confirm, review }) {
   const undoOpen = card.undoDeadline != null && Date.parse(card.undoDeadline) >= now;
+  const isConfirm = card.type === "confirm_pending";
   return html`<article class="v-today-card" data-id="${card.id}" tabindex="-1">
   <p>${card.reason}</p>
-  ${card.status === "pending" ? html`<button type="button" data-action="dismiss">${dismiss}</button>` : ""}
+  ${card.detail ? html`<p class="v-today-card-detail">${card.detail}</p>` : ""}
+  ${card.status === "pending" && isConfirm ? html`<button type="button" data-action="confirm">${confirm}</button>` : ""}
+  ${card.status === "pending" && isConfirm && card.memoId ? html`<button type="button" data-action="review">${review}</button>` : ""}
+  ${card.status === "pending" && !isConfirm ? html`<button type="button" data-action="dismiss">${dismiss}</button>` : ""}
   ${undoOpen ? html`<button type="button" data-action="undo">${undo}</button>` : ""}
 </article>`;
 }
