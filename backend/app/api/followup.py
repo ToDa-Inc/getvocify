@@ -4,22 +4,59 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.memos import _require_readable_memo
-from app.deps import get_supabase, get_user_id
+from app.api.today import require_rep_workspace
+from app.deps import get_membership, get_supabase, get_user_id
 from app.models.followup import FollowupActionRequest
+from app.services.company import Membership
 from app.services.followup import schedule_followup
 from app.services.followup_logic import (
+    LIST_LIMIT,
+    LIST_WINDOW,
     apply_action,
     followup_view,
     is_eligible,
+    listable_statuses,
     next_voice_samples,
+    pending_row,
     should_generate,
 )
 
 router = APIRouter(prefix="/api/v1/memos", tags=["followup"])
+listing = APIRouter(prefix="/api/v1", tags=["followup"])
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@listing.get("/followups")
+async def list_followups(
+    status_filter: str = Query("ready", alias="status"),
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+) -> list[dict]:
+    """Drafts the caller wrote and has not sent. Author only, managers included: only the author sends."""
+    require_rep_workspace(supabase, membership.company_id)
+    try:
+        wanted = listable_statuses(status_filter)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    rows = (
+        supabase.table("memos")
+        .select("id,hubspot_contact_id,extraction,followup,created_at")
+        .eq("user_id", membership.user_id)
+        .or_(f"company_id.eq.{membership.company_id},company_id.is.null")
+        .in_("followup->>status", list(wanted))
+        .gte("created_at", (_now() - LIST_WINDOW).isoformat())
+        .order("created_at", desc=True)
+        .limit(LIST_LIMIT)
+        .execute()
+    ).data or []
+    return [pending_row(memo) for memo in rows if (memo.get("followup") or {}).get("status") in wanted]
 
 
 @router.get("/{memo_id}/followup")
