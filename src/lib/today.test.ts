@@ -123,6 +123,16 @@ describe("today surface", () => {
     assert.equal(crmTasksUrl("pipedrive", null), "https://app.pipedrive.com/activities");
   });
 
+  it("labels the rep home's priority cards without adding supporting badges", () => {
+    assert.equal(signalLabelKey("pain_confirmed"), "today_signal_pain");
+    assert.equal(signalLabelKey("uncalled"), "today_signal_uncalled");
+    assert.deepEqual(supportingKeys(["pain_confirmed", "uncalled"]), []);
+    assert.equal(copy.today_signal_pain, "Dolor confirmado");
+    assert.equal(copy.today_signal_uncalled, "Sin llamar");
+    assert.equal(productCatalog.EN.today_signal_pain, "Confirmed pain");
+    assert.equal(productCatalog.EN.today_signal_uncalled, "Not called yet");
+  });
+
   it("hides CRM manual tasks until they are useful in Hoy", () => {
     const crmOnly: TodayView = {
       items: [{

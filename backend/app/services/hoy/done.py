@@ -57,6 +57,7 @@ def done_today(
         found.append((at, {
             "kind": "signal",
             "contact_name": _name(names, memo_id, row.get("contact_id")),
+            "contact_id": row.get("contact_id") or None,
             "at": at.isoformat(),
             "memo_id": memo_id,
         }))
@@ -68,6 +69,7 @@ def done_today(
         found.append((at, {
             "kind": "followup",
             "contact_name": _name(names, memo.get("id"), memo.get("hubspot_contact_id")),
+            "contact_id": memo.get("hubspot_contact_id") or None,
             "at": at.isoformat(),
             "memo_id": memo.get("id"),
         }))
@@ -79,6 +81,7 @@ def done_today(
         found.append((at, {
             "kind": "call",
             "contact_name": _name(names, memo_id, call.get("hubspot_contact_id")),
+            "contact_id": call.get("hubspot_contact_id") or None,
             "at": at.isoformat(),
             "memo_id": memo_id,
         }))

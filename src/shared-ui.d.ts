@@ -19,6 +19,71 @@ declare module "@shared/ui/compose.js" {
   }): ComposeResult;
 }
 
+declare module "@shared/ui/home.js" {
+  type TodayItem = import("@/lib/today").TodayItem;
+  type TodayView = import("@/lib/today").TodayView;
+  type FollowupRow = import("@/lib/today").FollowupRow;
+  type UpcomingRow = import("@/lib/today").UpcomingRow;
+  type DoneRow = import("@/lib/today").DoneRow;
+  type PriorityView = import("@/lib/contact-priorities").PriorityView;
+
+  export const HOME_CAP: number;
+  export const NEEDS_OK_VISIBLE: number;
+  export const REVIEW_LIMIT: number;
+  export const FOLLOWUP_POLL_MS: number;
+  export const FOLLOWUP_POLL_FOR_MS: number;
+
+  export type HomeNeedsOkRow =
+    | { kind: "confirm"; item: TodayItem; action: "confirm" }
+    | { kind: "confirm_group"; count: number; items: TodayItem[]; action: "expand" }
+    | { kind: "followup"; memoId: string; name: string | null; subject: string | null; status: FollowupRow["status"]; action: "open" | null }
+    | { kind: "review"; memoId: string; name: string | null; action: "review" };
+
+  export type HomeSection =
+    | { id: "meetings"; items: { item: TodayItem; time: string | null; past: boolean }[] }
+    | { id: "needs_ok"; rows: HomeNeedsOkRow[]; shown: HomeNeedsOkRow[]; more: number }
+    | { id: "calls"; items: { source: "today" | "priority"; item: TodayItem }[] }
+    | { id: "upcoming"; rows: (UpcomingRow & { inCrm: boolean; when: string | null })[] }
+    | { id: "done"; rows: { kind: string; name: string | null; contactId: string | null; at: string; memoId: string | null; time: string | null }[]; count: number };
+
+  export type HomeState = "loading" | "error" | "connect" | "no_assigned" | "clear" | "day";
+
+  export type HomeView = {
+    state: HomeState;
+    canManage: boolean;
+    incompleteAt: string | null;
+    pulse: { calls: number; savedTo: string | null } | null;
+    folded: { count: number; after: "meetings" | "needs_ok" | "calls" | null } | null;
+    sections: HomeSection[];
+  };
+
+  /** `undefined` = still loading, `null` = the read failed. */
+  export function composeHome(input: {
+    today: TodayView | null | undefined;
+    todayStale: boolean;
+    acted: TodayItem[];
+    priorities: PriorityView | null | undefined;
+    followups: FollowupRow[] | null | undefined;
+    reviews: { id: string; extraction?: { contactName?: string | null } | null }[] | null | undefined;
+    upcoming: UpcomingRow[] | null | undefined;
+    done: DoneRow[] | null | undefined;
+    connected: boolean | undefined;
+    role: string | null | undefined;
+    crm: string | null;
+    now: number;
+    locale: string;
+    timeZone?: string;
+  }): HomeView;
+
+  export function followupPoll(
+    rows: FollowupRow[] | null | undefined,
+    since: number | null,
+    now: number,
+  ): { interval: number | false; since: number | null };
+
+  export function afterActionError(error: unknown): { forget: string | null; refetch: true } | null;
+}
+
 declare namespace JSX {
   interface IntrinsicElements {
     "v-followup": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
