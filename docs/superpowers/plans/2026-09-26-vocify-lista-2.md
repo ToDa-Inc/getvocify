@@ -226,7 +226,7 @@ Cada entrega dice qué resulta: qué es verdad cuando termina.
 - **Por qué:** la visita presencial es uno de los tres canales de captura. Hoy `whatsapp/processor.py` extrae en línea (`extract_memo`, ~L1790) y no llama a `run_post_extraction_hooks`. Una visita no tiene inteligencia, nota del playbook, brief posterior ni reunión detectada.
 - **Qué:**
   - Tras la extracción, WhatsApp llama a `run_post_extraction_hooks` igual que `api/memos.py` (~L302), en segundo plano para no retrasar la respuesta.
-  - `interaction_kind` se estampa en todas las capturas, en `services/captures.py` y en los puntos de inserción: dialer y HubSpot → `call`, WhatsApp → `in_person`, desktop de reunión → `meeting` (ya existe).
+  - `interaction_kind` se estampa en todas las capturas, en `services/captures.py` y en los puntos de inserción: dialer y HubSpot → `call`, WhatsApp → `visit` (el valor que ya admite la base de datos), desktop de reunión → `meeting` (ya existe).
   - Los informes y Equipo cuentan por canal: «llamadas, reuniones y visitas».
 - **Archivos:** `services/whatsapp/processor.py`, `services/captures.py`, `services/hubspot/call_processor.py`, `services/reporting/*` (el recuento).
 - **UI:** ninguna.
@@ -236,7 +236,7 @@ Cada entrega dice qué resulta: qué es verdad cuando termina.
   - WhatsApp dispara los hooks una vez, y reintentar no los duplica.
   - Un fallo en los hooks no rompe la respuesta de WhatsApp.
   - `interaction_kind` correcto por origen.
-  - Nota sin contacto encontrado: hooks sin propuesta de reunión.
+  - Nota sin contacto encontrado: los hooks corren y la propuesta de reunión sigue la regla vigente de F14 (con acuerdo y evidencia, sí; sin acuerdo, no).
   - Los informes cuentan visitas.
 - **Resulta:** una visita por WhatsApp produce lo mismo que una llamada y aparece en Hoy, en el coaching y en los informes.
 
