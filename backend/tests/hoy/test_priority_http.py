@@ -28,6 +28,14 @@ class _Result:
         self.data = data
 
 
+class _AnyOf:
+    def __init__(self, values):
+        self.values = set(values)
+
+    def __eq__(self, other):
+        return other in self.values
+
+
 class _Query:
     def __init__(self, store, name: str):
         self._store = store
@@ -42,6 +50,20 @@ class _Query:
 
     def eq(self, column, value):
         self._filters.append((column, value))
+        return self
+
+    def in_(self, column, values):
+        self._filters.append((column, _AnyOf(values)))
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def delete(self):
+        self._delete = True
+        return self
+
+    def limit(self, *_args, **_kwargs):
         return self
 
     def upsert(self, payload, on_conflict=None):
@@ -67,7 +89,10 @@ class _Query:
             return _Result([])
         rows = list(self._rows)
         for column, value in self._filters:
-            rows = [row for row in rows if row.get(column) == value]
+            rows = [row for row in rows if value == row.get(column)]
+        if getattr(self, "_delete", False):
+            self._store.tables[self._name] = [row for row in self._rows if row not in rows]
+            return _Result([])
         return _Result(rows)
 
 
@@ -188,10 +213,12 @@ def test_empty_cache_with_hubspot_token_fetches_once_and_cached_rows_skip_crm():
 
     def handler(request: Request) -> Response:
         calls.append(str(request.url))
+        if request.url.path == "/crm/v3/owners":
+            return Response(200, json={"results": [{"id": "101", "email": "ana@vocify.test"}]})
         return Response(
             200,
             json={
-                "results": [{"id": "77", "properties": {"owner_email": "ana@vocify.test", "last_call_at": None}}],
+                "results": [{"id": "77", "properties": {"hubspot_owner_id": "101", "notes_last_contacted": None}}],
             },
         )
 
@@ -207,8 +234,8 @@ def test_empty_cache_with_hubspot_token_fetches_once_and_cached_rows_skip_crm():
     }]
     http = _client("user-a")
     first = http.get("/api/v1/contact-priorities").json()
-    assert len(calls) == 1
-    assert "contacts/search" in calls[0]
+    assert len(calls) == 2
+    assert "contacts/search" in calls[1]
     assert first["items"][0]["contact_id"] == "77"
     assert STORE.tables["contact_priority_context"]
 
@@ -239,9 +266,9 @@ def test_a_complete_empty_crm_is_not_the_same_as_no_priority_candidates():
 
     STORE.tables["contact_priority_context"] = [_row(
         contact_id="9",
+        observed_at="2026-09-22T09:50:00Z",
         payload={"meeting_agreed": True, "pain_confirmed": True, "pain_at": "2026-09-20T10:00:00Z"},
     )]
-    api.set_assigned_fetch_factory(None)
     none_now = _client("user-a").get("/api/v1/contact-priorities").json()
     assert none_now["items"] == []
     assert none_now["title"] == "title_none_now"
@@ -268,15 +295,101 @@ def test_forbidden_fetch_is_not_an_empty_complete_list():
     assert STORE.tables["contact_priority_context"] == []
 
 
+def test_a_crm_server_error_is_unavailable_not_a_crash():
+    client = httpx.Client(transport=MockTransport(lambda _request: Response(500, json={"message": "boom"})))
+    api.set_assigned_fetch_factory(lambda connection: connection_assigned_fetch(connection, client=client))
+    STORE.tables["crm_connections"] = [{
+        "id": "crm-A",
+        "company_id": "co-1",
+        "status": "connected",
+        "provider": "hubspot",
+        "access_token": "pat-test",
+    }]
+    response = _client("user-a").get("/api/v1/contact-priorities")
+    assert response.status_code == 200
+    assert response.json()["coverage"] == "unavailable"
+
+
+def test_an_expired_hubspot_token_is_refreshed_before_reading(monkeypatch):
+    seen_tokens: list[str | None] = []
+
+    def handler(request: Request) -> Response:
+        seen_tokens.append(request.headers.get("Authorization"))
+        if request.url.path == "/crm/v3/owners":
+            return Response(200, json={"results": [{"id": "101", "email": "ana@vocify.test"}]})
+        return Response(200, json={"results": []})
+
+    monkeypatch.setattr(
+        "app.services.hubspot.oauth.refresh_hubspot_tokens",
+        lambda _refresh: {"access_token": "new-token", "expires_in": 1800},
+    )
+    client = httpx.Client(transport=MockTransport(handler))
+    api.set_assigned_fetch_factory(lambda connection: connection_assigned_fetch(connection, client=client))
+    STORE.tables["crm_connections"] = [{
+        "id": "crm-A",
+        "company_id": "co-1",
+        "status": "connected",
+        "provider": "hubspot",
+        "access_token": "old-token",
+        "refresh_token": "refresh-me",
+        "token_expires_at": "2026-09-22T08:00:00Z",
+    }]
+    _client("user-a").get("/api/v1/contact-priorities")
+    assert seen_tokens
+    assert set(seen_tokens) == {"Bearer new-token"}
+
+
+def test_pain_heard_on_a_vocify_call_ranks_the_contact_first():
+    STORE.tables["crm_connections"] = [{"company_id": "co-1", "status": "connected", "provider": "hubspot"}]
+    STORE.tables["contact_priority_context"] = [
+        _row(contact_id="7", observed_at="2026-09-22T09:50:00Z", payload={"contacted": False}),
+        _row(contact_id="42", observed_at="2026-09-22T09:50:00Z", payload={"contacted": True}),
+    ]
+    STORE.tables["memos"] = [
+        {"id": "memo-1", "company_id": "co-1", "hubspot_contact_id": "42", "created_at": "2026-09-21T10:00:00Z",
+         "extraction": {"intelligence": {"pain_confirmed": True}}},
+        {"id": "memo-x", "company_id": "co-2", "hubspot_contact_id": "7", "created_at": "2026-09-21T10:00:00Z",
+         "extraction": {"intelligence": {"pain_confirmed": True}}},
+    ]
+    body = _client("user-a").get("/api/v1/contact-priorities").json()
+    assert [row["contact_id"] for row in body["items"]] == ["42", "7"]
+    assert body["items"][0]["reason"] == "pain_agree_next_step"
+    assert body["items"][0]["evidence_refs"] == ["memo-1"]
+    assert body["items"][1]["reason"] == "no_calls_logged"
+
+
+def test_a_stale_cache_answers_at_once_and_refreshes_behind():
+    calls: list[str] = []
+
+    def handler(request: Request) -> Response:
+        calls.append(request.url.path)
+        if request.url.path == "/crm/v3/owners":
+            return Response(200, json={"results": [{"id": "101", "email": "ana@vocify.test"}]})
+        return Response(200, json={"results": [{"id": "77", "properties": {"hubspot_owner_id": "101"}}]})
+
+    client = httpx.Client(transport=MockTransport(handler))
+    api.set_assigned_fetch_factory(lambda connection: connection_assigned_fetch(connection, client=client))
+    STORE.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot", "access_token": "pat-test",
+    }]
+    STORE.tables["contact_priority_context"] = [_row(contact_id="5", observed_at="2026-09-22T07:00:00Z")]
+    body = _client("user-a").get("/api/v1/contact-priorities").json()
+    assert [row["contact_id"] for row in body["items"]] == ["5"]
+    assert body["stale"] is True
+    assert "/crm/v3/objects/contacts/search" in calls
+    assert [row["contact_id"] for row in STORE.tables["contact_priority_context"]] == ["77"]
+
+
 def test_a_folded_unfinished_page_is_what_the_route_returns():
     page = parse_assigned_page(
         "hubspot",
         {
-            "results": [{"id": "42", "properties": {"owner_email": "ana@vocify.test"}}],
+            "results": [{"id": "42", "properties": {"hubspot_owner_id": "101"}}],
             "paging": {"next": {"after": "100"}},
         },
         connection_id="crm-A",
         observed_at="2026-09-22T09:00:00Z",
+        owner_emails={"101": "ana@vocify.test"},
     )
     STORE.tables["crm_connections"] = [{"company_id": COMPANY, "status": "connected"}]
     STORE.tables["contact_priority_context"] = fold_context(

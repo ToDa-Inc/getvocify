@@ -7,6 +7,7 @@ import {
   crmContactsUrl,
   crmTasksUrl,
   originKey,
+  signalLabelKey,
   splitTodayItems,
   supportingKeys,
   type TodayView,
@@ -114,6 +115,7 @@ describe("today surface", () => {
     assert.equal(originKey(["detected"]), "today_origin_detected");
     assert.equal(originKey(["detected", "manual"]), "today_origin_both");
     assert.deepEqual(supportingKeys(["going_cold", "unknown"]), ["today_signal_cold"]);
+    assert.equal(signalLabelKey("no_reply"), "today_signal_no_reply");
     assert.equal(crmContactsUrl("hubspot", "99"), "https://app.hubspot.com/contacts/99/objects/0-1");
     assert.equal(crmContactsUrl("hubspot", null), null);
     assert.equal(crmContactsUrl("pipedrive", null), "https://app.pipedrive.com/persons");

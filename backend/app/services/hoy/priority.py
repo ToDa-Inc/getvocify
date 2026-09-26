@@ -59,7 +59,7 @@ def rank_candidates(candidates: list[dict], now: datetime, recent_days: int = 14
         last_call = raw.get("last_call_at")
         pain_at = _as_dt(raw.get("pain_at"))
         recent_pain = bool(raw.get("pain_confirmed") and pain_at and now - pain_at <= window)
-        never_called = last_call is None
+        never_called = raw["contacted"] is False if "contacted" in raw else last_call is None
         scheduled = _as_dt(raw.get("scheduled_at"))
         if scheduled and scheduled > now:
             tier = 4

@@ -6,5 +6,6 @@ export function useContactPriorities() {
     queryKey: contactPriorityKeys.list(),
     queryFn: () => contactPrioritiesApi.list(),
     placeholderData: (previous) => previous,
+    refetchInterval: (query) => (query.state.data?.stale ? 5000 : false),
   });
 }

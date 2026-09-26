@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.services.hoy.assigned import collect_assigned, connection_assigned_fetch
-from app.services.hoy.priority import empty_priority_copy, rank_candidates
+from app.services.hoy.priority import _as_dt, empty_priority_copy, rank_candidates
+
+CONTEXT_MAX_AGE = timedelta(minutes=30)
+
+
+def is_stale(rows: list[dict], observed_at: str, max_age: timedelta = CONTEXT_MAX_AGE) -> bool:
+    stamps = [_as_dt(row["observed_at"]) for row in rows if row.get("observed_at")]
+    if not stamps:
+        return True
+    return _as_dt(observed_at) - max(stamps) > max_age
 
 
 def build_priority_page(
@@ -37,8 +46,7 @@ def build_priority_page(
     for row in snapshot.get("candidates") or []:
         if row.get("owner_ambiguous"):
             continue
-        owner = row.get("owner_user_id")
-        if owner and owner != user_id:
+        if row.get("owner_user_id") != user_id:
             continue
         visible.append(row)
 
@@ -161,6 +169,24 @@ def persist_context_rows(supabase, rows: list[dict]) -> None:
     ).execute()
 
 
+def delete_context_rows(supabase, company_id: str, rows: list[dict]) -> None:
+    """Contacts a complete read no longer returns were reassigned or deleted in the CRM."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        groups.setdefault((row["connection_id"], row.get("deal_id") or ""), []).append(str(row["contact_id"]))
+    for (connection_id, deal_id), contact_ids in groups.items():
+        for start in range(0, len(contact_ids), 200):
+            (
+                supabase.table("contact_priority_context")
+                .delete()
+                .eq("company_id", company_id)
+                .eq("connection_id", connection_id)
+                .eq("deal_id", deal_id)
+                .in_("contact_id", contact_ids[start:start + 200])
+                .execute()
+            )
+
+
 def maybe_refresh_assigned_context(
     supabase,
     company_id: str,
@@ -170,9 +196,10 @@ def maybe_refresh_assigned_context(
     *,
     observed_at: str,
     fetch_factory: Callable[[dict], Callable[[dict], dict]] = connection_assigned_fetch,
+    max_age: timedelta = CONTEXT_MAX_AGE,
 ) -> tuple[list[dict], dict | None]:
-    """Fetch assigned contacts once when the cache is empty and the CRM token is live."""
-    if rows:
+    """Read assigned contacts when the cache is empty or older than max_age and the CRM token is live."""
+    if not is_stale(rows, observed_at, max_age):
         return rows, None
     token = str(connection.get("access_token") or "").strip()
     provider = str(connection.get("provider") or "").strip().lower()
@@ -180,7 +207,24 @@ def maybe_refresh_assigned_context(
         return rows, None
     connection_id = str(connection.get("id") or "")
     fetch = fetch_factory(connection)
-    page = collect_assigned(provider, fetch, connection_id=connection_id, observed_at=observed_at)
+    page = collect_assigned(
+        provider,
+        fetch,
+        connection_id=connection_id,
+        observed_at=observed_at,
+        member_emails={str(member.get("email") or "") for member in members},
+    )
+    if page.get("coverage") == "complete" and not page.get("next_cursor"):
+        others = [row for row in rows if row.get("connection_id") != connection_id]
+        folded = fold_context(company_id=company_id, pages=[page], members=members, previous=others)
+        kept = {_row_key(row) for row in folded}
+        delete_context_rows(
+            supabase,
+            company_id,
+            [row for row in rows if row.get("connection_id") == connection_id and _row_key(row) not in kept],
+        )
+        persist_context_rows(supabase, folded)
+        return folded, None
     folded = fold_context(company_id=company_id, pages=[page], members=members, previous=rows)
     if folded:
         persist_context_rows(supabase, folded)
@@ -247,7 +291,7 @@ def load_context(supabase, company_id: str) -> tuple[bool, list[dict], str | Non
     """A company is connected only when a CRM row is status=connected. Expired tokens are not an empty list."""
     connections = (
         supabase.table("crm_connections")
-        .select("id,status,company_id,provider,metadata,access_token")
+        .select("id,status,company_id,provider,metadata,access_token,refresh_token,token_expires_at")
         .eq("company_id", company_id)
         .execute()
     )

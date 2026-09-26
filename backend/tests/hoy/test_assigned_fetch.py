@@ -33,13 +33,14 @@ def test_hubspot_search_uses_bearer_and_403_yields_forbidden_with_no_items():
         fetch,
         connection_id="crm-A",
         observed_at="2026-09-22T09:00:00Z",
+        member_emails={"ana@vocify.test"},
     )
     assert result["coverage"] == "forbidden"
     assert result["items"] == []
     assert seen == [
         (
-            "POST",
-            "https://api.hubapi.com/crm/v3/objects/contacts/search",
+            "GET",
+            "https://api.hubapi.com/crm/v3/owners?limit=100",
             "Bearer pat-test",
         ),
     ]

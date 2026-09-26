@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
-from app.services.company import Membership
+from app.services.company import CompanyService, Membership
 from app.services.coaching.brief_preferences import read_preference
+from app.services.feature_flags import is_enabled
 from app.services.hoy.actions import ActionError, apply_action, undo_action
+from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
+from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal
 from app.services.hoy.visibility import is_today_visible
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_HOY_TZ = "Europe/Madrid"
+NO_REPLY_MAX_AGE = timedelta(hours=1)
 
 
 def _daily_run_timezone(user_id: str) -> str:
@@ -44,6 +52,109 @@ def set_today_fetch(fetch) -> None:
     """fetch(request) -> CRM page. None uses the connection token."""
     global _FETCH
     _FETCH = fetch
+
+
+_NO_REPLY_FETCH = None
+_NO_REPLY_REP_EMAIL = None
+_NO_REPLY_RUNS: dict[tuple[str, str], tuple[datetime, str]] = {}
+_NO_REPLY_REFRESHING: set[tuple[str, str]] = set()
+
+
+def set_no_reply_fetch(factory) -> None:
+    """factory(connection) -> fetch(request). None uses the connection token with 429 retries."""
+    global _NO_REPLY_FETCH
+    _NO_REPLY_FETCH = factory
+
+
+def set_no_reply_rep_email(loader) -> None:
+    """loader(supabase, company_id, user_id) -> email. None reads Supabase auth."""
+    global _NO_REPLY_REP_EMAIL
+    _NO_REPLY_REP_EMAIL = loader
+
+
+def reset_no_reply_runs() -> None:
+    _NO_REPLY_RUNS.clear()
+    _NO_REPLY_REFRESHING.clear()
+
+
+def _rep_email(supabase, company_id: str, user_id: str) -> str | None:
+    if _NO_REPLY_REP_EMAIL is not None:
+        return _NO_REPLY_REP_EMAIL(supabase, company_id, user_id)
+    return CompanyService(supabase)._auth_emails_by_ids([user_id]).get(user_id) or None
+
+
+def _live_connection(supabase, company_id: str) -> dict | None:
+    stored = (
+        supabase.table("crm_connections")
+        .select("id,status,provider,access_token,refresh_token,token_expires_at,metadata,company_id")
+        .eq("company_id", company_id)
+        .execute()
+    )
+    return next((row for row in stored.data or [] if row.get("status") == "connected"), None)
+
+
+def _lazy_fetch(factory, connection: dict):
+    built: list = []
+
+    def fetch(request: dict) -> dict:
+        if not built:
+            built.append(factory(connection))
+        return built[0](request)
+
+    return fetch
+
+
+def _refresh_no_reply_sync(supabase, company_id: str, user_id: str, connection: dict, now: datetime, tz_name: str) -> str:
+    hubspot = str(connection.get("provider") or "").lower() == "hubspot"
+    result = refresh_no_reply(
+        supabase,
+        company_id=company_id,
+        user_id=user_id,
+        rep_email=_rep_email(supabase, company_id, user_id) if hubspot else None,
+        connection=connection,
+        fetch=_lazy_fetch(_NO_REPLY_FETCH or connection_assigned_fetch, connection),
+        now=now,
+        tz_name=tz_name,
+    )
+    return result["coverage"]
+
+
+async def _run_no_reply(supabase, company_id: str, user_id: str, now: datetime, tz_name: str) -> str:
+    try:
+        connection = _live_connection(supabase, company_id)
+        if connection is None:
+            coverage = "unavailable"
+        else:
+            if str(connection.get("provider") or "").lower() == "hubspot":
+                connection = await fresh_connection(supabase, connection)
+            coverage = await run_in_threadpool(
+                _refresh_no_reply_sync, supabase, company_id, user_id, connection, now, tz_name,
+            )
+    except Exception:
+        logger.exception("no_reply refresh failed for company %s", company_id)
+        coverage = "unavailable"
+    _NO_REPLY_RUNS[(company_id, user_id)] = (now, coverage)
+    return coverage
+
+
+async def _no_reply_behind(supabase, company_id: str, user_id: str, now: datetime, tz_name: str) -> None:
+    try:
+        await _run_no_reply(supabase, company_id, user_id, now, tz_name)
+    finally:
+        _NO_REPLY_REFRESHING.discard((company_id, user_id))
+
+
+async def _no_reply_coverage(supabase, company_id: str, user_id: str, now: datetime, tz_name: str, background: BackgroundTasks) -> str:
+    """First read of the process runs now. A stale one answers with the last coverage and reads after the response."""
+    key = (company_id, user_id)
+    cached = _NO_REPLY_RUNS.get(key)
+    if cached is None:
+        return await _run_no_reply(supabase, company_id, user_id, now, tz_name)
+    read_at, coverage = cached
+    if now - read_at >= NO_REPLY_MAX_AGE and key not in _NO_REPLY_REFRESHING:
+        _NO_REPLY_REFRESHING.add(key)
+        background.add_task(_no_reply_behind, supabase, company_id, user_id, now, tz_name)
+    return coverage
 
 
 def _connection(supabase, company_id: str) -> dict | None:
@@ -184,12 +295,23 @@ def _intelligence(rows: list[dict]) -> str:
 
 @router.get("/today")
 async def get_today(
+    background: BackgroundTasks,
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
     accept_language: str | None = Header(default=None, alias="Accept-Language"),
 ):
     lang = "en" if (accept_language or "").lower().startswith("en") else "es"
     now = _now()
+    email_coverage = None
+    if is_enabled(supabase, membership.company_id, NO_REPLY_FLAG):
+        email_coverage = await _no_reply_coverage(
+            supabase,
+            membership.company_id,
+            membership.user_id,
+            now,
+            _daily_run_timezone(membership.user_id),
+            background,
+        )
     if _TASKS is None:
         try:
             from app.services.hoy.materialize import refresh_hoy_signals
@@ -225,11 +347,14 @@ async def get_today(
     meta = (connection or {}).get("metadata") or {}
     portal = meta.get("portal_id") or meta.get("hub_id") or meta.get("portalId")
     domain = str(meta.get("company_domain") or "").strip() or None
+    coverage = {"intelligence": _intelligence(visible), "crm_tasks": task_coverage}
+    if email_coverage is not None:
+        coverage["crm_emails"] = email_coverage
     view = build_today_view(
         signals=[_signal(row) for row in visible],
         manual_tasks=manual_tasks,
         now=now,
-        coverage={"intelligence": _intelligence(visible), "crm_tasks": task_coverage},
+        coverage=coverage,
         generated_at=now.isoformat(),
         lang=lang,
         provider=(connection or {}).get("provider"),

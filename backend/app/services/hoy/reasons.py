@@ -1,7 +1,7 @@
 """The most-read sentence in the product, written once, server-side."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from app.services.hoy.signals import Signal
 
@@ -25,6 +25,13 @@ CATEGORY = {
         "other": "other",
     },
 }
+
+
+MONTH = {
+    "es": ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"),
+    "en": ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
+}
+SUBJECT_MAX = 60
 
 
 def _lang(lang: str) -> str:
@@ -64,6 +71,8 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
         if origin == "rep_promise":
             return f"You promised to {what}."
         return f"They asked: {what}."
+    if signal.type == "no_reply":
+        return _no_reply(payload, lang)
     if signal.type == "going_cold":
         days = payload["days_silent"]
         if lang == "es":
@@ -75,3 +84,17 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
     if lang == "es":
         return f"Quedó una objeción de {label} sin cerrar."
     return f"An open {label} objection."
+
+
+def _no_reply(payload: dict, lang: str) -> str:
+    sent = date.fromisoformat(payload["email_date"])
+    subject = " ".join(str(payload.get("subject") or "").split())
+    if len(subject) > SUBJECT_MAX:
+        subject = subject[:SUBJECT_MAX - 1].rstrip() + "…"
+    if lang == "es":
+        when = f"{sent.day} {MONTH['es'][sent.month - 1]}"
+        quoted = f" («{subject}»)" if subject else ""
+        return f"Le escribiste el {when}{quoted} y no ha respondido."
+    when = f"{MONTH['en'][sent.month - 1]} {sent.day}"
+    quoted = f' ("{subject}")' if subject else ""
+    return f"You emailed on {when}{quoted} and got no reply."

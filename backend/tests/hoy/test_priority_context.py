@@ -39,13 +39,18 @@ MEMBERS = [
 ]
 
 
+OWNERS = {"101": "ana@vocify.test", "103": "sam@vocify.test"}
+
+
 def _page(provider: str, payload: dict, connection_id: str, observed_at: str = "2026-09-22T09:00:00Z") -> dict:
-    return parse_assigned_page(provider, payload, connection_id=connection_id, observed_at=observed_at)
+    return parse_assigned_page(
+        provider, payload, connection_id=connection_id, observed_at=observed_at, owner_emails=OWNERS,
+    )
 
 
 def test_an_unfinished_page_from_either_crm_is_not_never_called():
     hubspot = _page("hubspot", {
-        "results": [{"id": "42", "properties": {"owner_email": "ana@vocify.test"}}],
+        "results": [{"id": "42", "properties": {"hubspot_owner_id": "101"}}],
         "paging": {"next": {"after": "100"}},
     }, "crm-A")
     pipedrive = _page("pipedrive", {
@@ -62,7 +67,7 @@ def test_an_unfinished_page_from_either_crm_is_not_never_called():
 
 def test_an_ambiguous_email_stays_out_and_a_shared_name_does_not_assign():
     ambiguous = _page("hubspot", {
-        "results": [{"id": "42", "properties": {"owner_email": "sam@vocify.test", "owner_name": "Ana Lopez"}}],
+        "results": [{"id": "42", "properties": {"hubspot_owner_id": "103", "firstname": "Ana", "lastname": "Lopez"}}],
     }, "crm-A")
     named = _page("pipedrive", {
         "data": [{"id": 9, "owner_id": {"email": "other@example.com", "name": "Ana Lopez"}}],
@@ -87,7 +92,7 @@ def test_an_ambiguous_email_stays_out_and_a_shared_name_does_not_assign():
 def test_a_failed_refresh_keeps_the_previous_time():
     first = fold_context(
         company_id=COMPANY,
-        pages=[_page("hubspot", {"results": [{"id": "42", "properties": {"owner_email": "ana@vocify.test", "last_call_at": None}}]}, "crm-A")],
+        pages=[_page("hubspot", {"results": [{"id": "42", "properties": {"hubspot_owner_id": "101", "notes_last_contacted": None}}]}, "crm-A")],
         members=MEMBERS,
     )
     failed = _page("hubspot", {"error_kind": "timeout"}, "crm-A", observed_at="2026-09-22T12:00:00Z")
@@ -186,8 +191,8 @@ def test_postgres_keeps_one_row_per_connection_and_the_old_timestamp():
         first = fold_context(
             company_id=COMPANY,
             pages=[
-                _page("hubspot", {"results": [{"id": "42", "properties": {"owner_email": "ana@vocify.test"}}]}, "crm-A"),
-                _page("pipedrive", {"data": [{"id": 42, "owner_id": {"email": "ana@vocify.test"}}]}, "crm-B"),
+                _page("hubspot", {"results": [{"id": "42", "properties": {"hubspot_owner_id": "101"}}]}, "crm-A"),
+                _page("pipedrive", {"data": [{"id": 42, "owner_id": 101}]}, "crm-B"),
             ],
             members=MEMBERS,
         )
@@ -213,21 +218,40 @@ def test_postgres_keeps_one_row_per_connection_and_the_old_timestamp():
         _stop(proc, datadir)
 
 
+HUBSPOT_OWNERS = {"results": [{"id": "101", "email": "ana@vocify.test"}]}
+PIPEDRIVE_USERS = {"data": [{"id": 4, "email": "ana@vocify.test"}]}
+
+
+def _hubspot_fetch(contact_pages: list[dict], calls: list[dict] | None = None):
+    def fetch(request):
+        if calls is not None:
+            calls.append(request)
+        if request["path"] == "/crm/v3/owners":
+            return HUBSPOT_OWNERS
+        return contact_pages.pop(0)
+
+    return fetch
+
+
 def test_both_providers_walk_pages_and_a_timeout_does_not_replace_the_cache():
     hubspot_pages = [
-        {"results": [{"id": "1", "properties": {"owner_email": "ana@vocify.test"}}], "paging": {"next": {"after": "100"}}},
-        {"results": [{"id": "2", "properties": {"owner_email": "ana@vocify.test"}}]},
+        {"results": [{"id": "1", "properties": {"hubspot_owner_id": "101"}}], "paging": {"next": {"after": "100"}}},
+        {"results": [{"id": "2", "properties": {"hubspot_owner_id": "101"}}]},
     ]
-    calls = []
+    calls: list[dict] = []
+    members = {"ana@vocify.test"}
 
-    def fetch_hubspot(request):
-        calls.append(request)
-        return hubspot_pages.pop(0)
-
-    collected = collect_assigned("hubspot", fetch_hubspot, connection_id="crm-A", observed_at="2026-09-22T09:00:00Z")
-    assert calls[0]["path"] == "/crm/v3/objects/contacts/search"
-    assert "after" not in calls[0]["json"]
-    assert calls[1]["json"]["after"] == "100"
+    collected = collect_assigned(
+        "hubspot", _hubspot_fetch(hubspot_pages, calls),
+        connection_id="crm-A", observed_at="2026-09-22T09:00:00Z", member_emails=members,
+    )
+    searches = [call for call in calls if call["path"] == "/crm/v3/objects/contacts/search"]
+    id_filters = [
+        [flt for flt in search["json"]["filterGroups"][0]["filters"] if flt["propertyName"] == "hs_object_id"]
+        for search in searches
+    ]
+    assert id_filters[0] == []
+    assert id_filters[1] == [{"propertyName": "hs_object_id", "operator": "GT", "value": "1"}]
     assert collected["coverage"] == "complete"
     assert [item["contact_id"] for item in collected["items"]] == ["1", "2"]
     rows = fold_context(company_id=COMPANY, pages=[collected], members=MEMBERS)
@@ -235,23 +259,29 @@ def test_both_providers_walk_pages_and_a_timeout_does_not_replace_the_cache():
 
     pipedrive_pages = [
         {"data": [{"id": 7, "owner_id": 4}], "additional_data": {"next_cursor": "p2"}},
-        {"data": [{"id": 8, "owner_id": {"email": "ana@vocify.test"}}]},
+        {"data": [{"id": 8, "owner_id": 4}]},
     ]
 
     def fetch_pipedrive(request):
+        if request["path"] == "/users":
+            return PIPEDRIVE_USERS
         assert request["path"] == "/persons"
         assert request["version"] == "v2"
         return pipedrive_pages.pop(0)
 
-    pipedrive = collect_assigned("pipedrive", fetch_pipedrive, connection_id="crm-B", observed_at="2026-09-22T09:00:00Z")
+    pipedrive = collect_assigned(
+        "pipedrive", fetch_pipedrive,
+        connection_id="crm-B", observed_at="2026-09-22T09:00:00Z", member_emails=members,
+    )
     assert [item["contact_id"] for item in pipedrive["items"]] == ["7", "8"]
-    assert pipedrive["items"][0]["owner_email"] is None
+    assert pipedrive["items"][0]["owner_email"] == "ana@vocify.test"
 
     stopped = collect_assigned(
         "hubspot",
-        lambda _request: {"results": [{"id": "42", "properties": {}}], "paging": {"next": {"after": "9"}}},
+        _hubspot_fetch([{"results": [{"id": "42", "properties": {"hubspot_owner_id": "101"}}], "paging": {"next": {"after": "9"}}}]),
         connection_id="crm-A",
         observed_at="2026-09-22T12:00:00Z",
+        member_emails=members,
         max_pages=1,
     )
     assert stopped["coverage"] == "partial"
@@ -264,11 +294,16 @@ def test_both_providers_walk_pages_and_a_timeout_does_not_replace_the_cache():
     previous = fold_context(company_id=COMPANY, pages=[collected], members=MEMBERS)
 
     def fail_second(request):
-        if request["json"].get("after"):
+        if request["path"] == "/crm/v3/owners":
+            return HUBSPOT_OWNERS
+        if len(request["json"]["filterGroups"][0]["filters"]) > 1:
             raise TimeoutError("crm")
-        return {"results": [{"id": "9", "properties": {}}], "paging": {"next": {"after": "1"}}}
+        return {"results": [{"id": "9", "properties": {"hubspot_owner_id": "101"}}], "paging": {"next": {"after": "1"}}}
 
-    failed = collect_assigned("hubspot", fail_second, connection_id="crm-A", observed_at="2026-09-22T12:00:00Z")
+    failed = collect_assigned(
+        "hubspot", fail_second,
+        connection_id="crm-A", observed_at="2026-09-22T12:00:00Z", member_emails=members,
+    )
     kept = fold_context(company_id=COMPANY, pages=[failed], members=MEMBERS, previous=previous)
     assert kept[0]["observed_at"] == "2026-09-22T09:00:00Z"
     assert failed["items"] == []

@@ -19,6 +19,7 @@ export type PriorityView = {
   action: string | null;
   contacts_url?: string | null;
   observed_at?: string | null;
+  stale?: boolean;
 };
 
 export type PrioritySurface =

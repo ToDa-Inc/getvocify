@@ -283,6 +283,8 @@ def build_today_view(
                 company_domain=company_domain,
             ),
         })
+        if payload.get("contact_name"):
+            items[-1]["contact_name"] = payload["contact_name"]
         if payload.get("signal_id"):
             items[-1]["id"] = payload["signal_id"]
             items[-1]["version"] = payload.get("version")
