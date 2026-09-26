@@ -139,6 +139,7 @@ class HubSpotPreviewService:
         skip_deal: bool = False,
         stage_confirm: bool = False,
         meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         """
         Build a preview from the same allowlist, stage-resolution, and validation
@@ -279,7 +280,19 @@ class HubSpotPreviewService:
 
         # Next steps → HubSpot tasks on the deal, or the contact when contact-only
         next_steps = extraction.nextSteps or []
-        if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
+        for i, task in enumerate(commitment_tasks or []):
+            proposed_updates.append(ProposedUpdate(
+                field_name=f"next_step_task_{i}",
+                field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
+                current_value=None,
+                new_value=task.text,
+                extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                object_type="task",
+                due_date=task.due_date,
+            ))
+        if commitment_tasks is not None:
+            next_steps = []
+        elif not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
             hs_next = extraction.raw_extraction["hs_next_step"]
             next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
         for i, step in enumerate(next_steps):

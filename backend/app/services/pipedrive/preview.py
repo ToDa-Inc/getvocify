@@ -58,6 +58,7 @@ class PipedrivePreviewService:
         skip_deal: bool = False,
         stage_confirm: bool = False,
         meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         if allowed_fields is None:
             allowed_fields = list(DEFAULT_DEAL_FIELDS)
@@ -176,17 +177,22 @@ class PipedrivePreviewService:
                 ),
             )
 
-        for i, step in enumerate(extraction.nextSteps or []):
-            if not str(step).strip():
+        if commitment_tasks is not None:
+            task_rows = [(task.text, task.due_date) for task in commitment_tasks]
+        else:
+            task_rows = [(str(step).strip(), None) for step in extraction.nextSteps or []]
+        for i, (text, due_date) in enumerate(task_rows):
+            if not text:
                 continue
             proposed_updates.append(
                 ProposedUpdate(
                     field_name=f"next_step_task_{i}",
                     field_label="Next step",
                     current_value=None,
-                    new_value=str(step).strip(),
+                    new_value=text,
                     extraction_confidence=extraction.confidence.get("fields", {}).get("nextSteps", 0.8),
                     object_type="task",
+                    due_date=due_date,
                 )
             )
 

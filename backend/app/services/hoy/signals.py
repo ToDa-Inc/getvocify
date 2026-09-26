@@ -78,7 +78,7 @@ def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetim
                 "commitment_due",
                 due_at=commitment.due_at,
                 payload={"kind": commitment.kind, "origin": commitment.origin, "text": commitment.text},
-                dedupe_key=f"commitment:{last.memo_id}:{commitment.kind}:{commitment.due_at.date().isoformat()}",
+                dedupe_key=commitment_key(last.memo_id, commitment.kind, commitment.due_at),
                 **base,
             ))
 
@@ -102,6 +102,28 @@ def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetim
             **base,
         ))
     return out
+
+
+def commitment_key(memo_id: str, kind: str, due_at: datetime) -> str:
+    return f"commitment:{memo_id}:{kind}:{due_at.date().isoformat()}"
+
+
+def commitment_task_links(memos: list[dict]) -> dict[str, list[str]]:
+    """Signal key -> CRM task ids written for that commitment (extraction.intelligence.commitments[].crm_task_id)."""
+    links: dict[str, list[str]] = {}
+    for memo in memos:
+        extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+        intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
+        for item in intelligence.get("commitments") or []:
+            if not isinstance(item, dict) or not item.get("crm_task_id") or not isinstance(item.get("due_at"), str):
+                continue
+            try:
+                due = datetime.fromisoformat(item["due_at"].replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            key = commitment_key(str(memo.get("id") or ""), item.get("kind") or "other", due)
+            links.setdefault(key, []).append(str(item["crm_task_id"]))
+    return links
 
 
 def _rank_key(signal: Signal, now: datetime) -> tuple:

@@ -453,6 +453,9 @@ def _parse_date_from_text(text: str) -> Optional[datetime]:
     return None
 
 
+_COMMITMENT_TASK_TYPE = {"call": "CALL", "email": "EMAIL", "send": "EMAIL"}
+
+
 def _normalize_task_subject(subject: str) -> str:
     return " ".join((subject or "").lower().split())
 
@@ -735,6 +738,47 @@ class HubSpotTasksService:
             )
 
         return result
+
+    async def create_commitment_tasks(
+        self,
+        tasks: list,
+        *,
+        deal_id: Optional[str] = None,
+        contact_id: Optional[str] = None,
+        company_id: Optional[str] = None,
+        hubspot_owner_id: Optional[str] = None,
+        existing_subjects: Optional[set[str]] = None,
+        summary: Optional[str] = None,
+    ) -> tuple[TaskBatchResult, dict[str, str]]:
+        """One task per C04 commitment, with its text and due date. HubSpot needs a date: undated uses the default."""
+        result = TaskBatchResult()
+        ids: dict[str, str] = {}
+        seen = set(existing_subjects or set())
+        for task in tasks:
+            norm = _normalize_task_subject(task.text)
+            if norm in seen:
+                result.skipped.append(TaskSkip(reason="duplicate", step=task.text, subject=task.text))
+                continue
+            task_id = await self.create_task(
+                subject=task.text,
+                due_date=task.due_at or _default_task_due_in_days(3),
+                deal_id=deal_id,
+                contact_id=contact_id,
+                company_id=company_id,
+                body=build_task_body(step=task.text, summary=summary, formatted_subject=task.text),
+                hubspot_owner_id=hubspot_owner_id,
+                task_type=_COMMITMENT_TASK_TYPE.get(task.kind, "TODO"),
+            )
+            if task_id:
+                result.created_ids.append(task_id)
+                ids[task.commitment_id] = task_id
+                seen.add(norm)
+            else:
+                result.skipped.append(TaskSkip(
+                    reason="hubspot_error", step=task.text, subject=task.text,
+                    error="HubSpot API returned no task id",
+                ))
+        return result, ids
 
     async def list_tasks_for_deal(
         self,

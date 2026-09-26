@@ -237,4 +237,6 @@ class SyncResult(BaseModel):
     tasks_requested_count: int = 0
     tasks_created_count: int = 0
     tasks_warning: Optional[str] = None
+    # commitment id -> CRM task id, stored on the memo's commitments; not part of the response.
+    commitment_task_ids: dict[str, str] = Field(default_factory=dict, exclude=True)
 

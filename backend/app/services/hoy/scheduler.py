@@ -260,7 +260,13 @@ def build_today_view(
     provider: str | None = None,
     portal_id: str | None = None,
     company_domain: str | None = None,
+    task_links: dict[str, list[str]] | None = None,
 ) -> dict:
+    """task_links: signal key -> CRM task ids written for that commitment. Those tasks are
+    the commitment, so they never show as manual tasks; the card carries the first id."""
+    task_links = task_links or {}
+    written = {task_id for ids in task_links.values() for task_id in ids}
+    manual_tasks = [task for task in manual_tasks if str(task.get("remote_id") or "") not in written]
     linked, loose = attach_manual(signals, manual_tasks)
     cards, folded = rank_cards(linked, now=now) if linked else ([], 0)
     items = []
@@ -283,6 +289,8 @@ def build_today_view(
                 company_domain=company_domain,
             ),
         })
+        if task_links.get(card.primary.dedupe_key):
+            items[-1]["crm_task_id"] = task_links[card.primary.dedupe_key][0]
         if payload.get("contact_name"):
             items[-1]["contact_name"] = payload["contact_name"]
         if payload.get("signal_id"):

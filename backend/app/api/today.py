@@ -18,7 +18,7 @@ from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
-from app.services.hoy.signals import Signal
+from app.services.hoy.signals import Signal, commitment_task_links
 from app.services.hoy.visibility import is_today_visible
 
 logger = logging.getLogger(__name__)
@@ -350,6 +350,9 @@ async def get_today(
     coverage = {"intelligence": _intelligence(visible), "crm_tasks": task_coverage}
     if email_coverage is not None:
         coverage["crm_emails"] = email_coverage
+    memos = _user_memos(supabase, membership.user_id)
+    signal_keys = {row.get("dedupe_key") for row in stored.data or []}
+    task_links = {key: ids for key, ids in commitment_task_links(memos).items() if key in signal_keys}
     view = build_today_view(
         signals=[_signal(row) for row in visible],
         manual_tasks=manual_tasks,
@@ -360,8 +363,9 @@ async def get_today(
         provider=(connection or {}).get("provider"),
         portal_id=str(portal) if portal else None,
         company_domain=domain,
+        task_links=task_links,
     )
-    _stamp_contact_names(view, visible, _memo_directory(supabase, membership.user_id))
+    _stamp_contact_names(view, visible, _memo_directory(memos))
     return view
 
 
@@ -370,8 +374,8 @@ def _clean_name(value) -> str | None:
     return text or None
 
 
-def _memo_directory(supabase, user_id: str) -> tuple[dict[str, tuple[str | None, str | None]], dict[str, tuple[str | None, str | None]]]:
-    """Names already extracted on the memo. A failed read leaves the card unnamed."""
+def _user_memos(supabase, user_id: str) -> list[dict]:
+    """A failed read leaves cards unnamed and CRM tasks unlinked."""
     try:
         stored = (
             supabase.table("memos")
@@ -380,10 +384,15 @@ def _memo_directory(supabase, user_id: str) -> tuple[dict[str, tuple[str | None,
             .execute()
         )
     except Exception:
-        return {}, {}
+        return []
+    return stored.data or []
+
+
+def _memo_directory(memos: list[dict]) -> tuple[dict[str, tuple[str | None, str | None]], dict[str, tuple[str | None, str | None]]]:
+    """Names already extracted on the memo."""
     by_memo: dict[str, tuple[str | None, str | None]] = {}
     by_contact: dict[str, tuple[str | None, str | None]] = {}
-    for memo in stored.data or []:
+    for memo in memos:
         extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
         pair = (_clean_name(extraction.get("contactName")), _clean_name(extraction.get("companyName")))
         if memo.get("id"):
