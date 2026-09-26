@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from "react";
 import {
   HOME_WIDE_PX,
   holdOrder,
@@ -38,13 +38,12 @@ export function useHomeSelection(
   const column = useHomeColumn();
   const wide = useWideScreen();
   const orderRef = useRef<HomeOrder | null>(null);
-  const [stable, setStable] = useState(view);
+  const held = useMemo(() => holdOrder(orderRef.current, view), [view]);
+  const stable = held.view;
 
   useEffect(() => {
-    const next = holdOrder(orderRef.current, view);
-    orderRef.current = next.order;
-    setStable(next.view);
-  }, [view]);
+    orderRef.current = held.order;
+  }, [held]);
 
   const rows = useMemo(
     () => homeRows(stable, { needsOkOpen: open.needsOkOpen, groupOpen: open.groupOpen }),
