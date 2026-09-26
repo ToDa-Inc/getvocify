@@ -44,6 +44,37 @@ export function shouldApplyBriefResponse(flightContactId, responseContactId) {
   return Boolean(flightContactId) && flightContactId === responseContactId;
 }
 
+export const BRIEF_MAX_LINES = 3;
+
+/** Panel rows: at most three facts. "Could not load everything" is a notice, not a fact. */
+export function briefRows(brief) {
+  const notice = clean(brief?.notice);
+  const rows = [];
+  const text = clean(brief?.text);
+  if (text && text !== notice) rows.push({ text, playbook: false });
+  for (const line of brief?.lines || []) {
+    const lineText = clean(line?.text);
+    if (lineText) rows.push({ text: lineText, playbook: line.source === "playbook" });
+  }
+  return { notice, rows: rows.slice(0, BRIEF_MAX_LINES), label: clean(brief?.label) };
+}
+
+/** What the contact panel paints for the selected contact. Only that contact's read, never the previous one. */
+export function panelBrief({ contactId, cache, flightContactId, failedContactId = null }) {
+  const empty = { notice: null, rows: [], label: null };
+  if (!contactId) return { state: "none", ...empty };
+  const brief = briefForContact(contactId, cache);
+  if (brief) return { state: "ready", ...briefRows(brief) };
+  if (flightContactId === contactId) return { state: "loading", ...empty };
+  if (failedContactId === contactId) return { state: "failed", ...empty };
+  return { state: "none", ...empty };
+}
+
+function clean(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || null;
+}
+
 export function briefRequest(contactId, connectionId) {
   const params = new URLSearchParams({
     contact_id: contactId,

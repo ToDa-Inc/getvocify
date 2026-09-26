@@ -64,10 +64,40 @@ export const QUEUE_KEYS = {
   review: { n: "reviewed", Escape: "exit" },
 };
 
-/** Map a keyboard event to a queue action for the current mode. */
-export function queueKeyAction(mode, key, { metaKey = false, ctrlKey = false } = {}) {
-  if (metaKey || ctrlKey) return null;
-  const map = QUEUE_KEYS[mode];
+const MOVES = { ArrowDown: "next", j: "next", ArrowUp: "prev", k: "prev" };
+
+/** The rep home is the queue: F06 keys plus moving the selection. Nothing moves during a call. */
+export const HOME_KEYS = {
+  idle: { ...MOVES, Escape: "exit" },
+  done: { ...MOVES, Escape: "exit" },
+  queue: { ...QUEUE_KEYS.queue, ...MOVES },
+  review: { ...QUEUE_KEYS.review, ...MOVES },
+};
+
+const EDITABLE = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+const ACTIVATES_ON_ENTER = new Set(["BUTTON", "A"]);
+
+function tagOf(target) {
+  return String(target?.tagName || "").toUpperCase();
+}
+
+function roleOf(target) {
+  return typeof target?.getAttribute === "function" ? target.getAttribute("role") : null;
+}
+
+/** Map a keyboard event to a queue action for the current mode. Typing and browser shortcuts never trigger one. */
+export function queueKeyAction(
+  mode,
+  key,
+  { metaKey = false, ctrlKey = false, altKey = false, target = null } = {},
+  keys = QUEUE_KEYS,
+) {
+  if (metaKey || ctrlKey || altKey) return null;
+  if (EDITABLE.has(tagOf(target)) || target?.isContentEditable) return null;
+  if (key === "Enter" && (ACTIVATES_ON_ENTER.has(tagOf(target)) || ["button", "link"].includes(roleOf(target)))) {
+    return null;
+  }
+  const map = keys[mode];
   if (!map) return null;
   return map[key] ?? null;
 }

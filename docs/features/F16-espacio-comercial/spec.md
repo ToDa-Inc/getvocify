@@ -329,6 +329,93 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 | Descartada con «Deshacer» vencido | La tarjeta sale | — |
 | 409 al resolver o deshacer | Se olvida el resultado local y se relee `/today` | — |
 
+### Addendum T4 — panel de contacto, selección y teclado (26 sep 2026)
+
+**Filas.** Se recorren en el orden en que se ven: reuniones → Falta tu OK (las visibles; al desplegar «{n} más», también las nuevas) → A quién llamar. No son filas: la fila agrupada de confirmaciones (no es un contacto) ni una tarjeta resuelta mientras dura su «Deshacer». Las reglas son puras (`shared/ui/home.js`: `homeRows`, `homeSelection`, `holdOrder`).
+
+**La casa es la cola.** La selección es el estado de `queueReducer` (F06) con las filas como `items`: el índice es la fila seleccionada. `s` es `skip` (en la última fila, sin selección, como en F06); `Esc` es `exit`; `n` solo actúa en revisión (T5). ↑/↓ y j/k mueven sin dar la vuelta; sin selección, ↓ elige la primera fila y ↑ la última. En T4 `Enter` no pasa la cola a `calling`: llama con el dialer flotante de hoy y la selección sigue libre (la llamada en la cola es T5).
+
+**Selección inicial.** Desde 1280 px, mientras el comercial no haya tocado la selección, queda seleccionada la primera tarjeta de A quién llamar; si no hay llamadas, la primera fila. Por debajo de 1280 px no se selecciona nada hasta que el comercial elige. Tras `Esc`, un refresco no vuelve a seleccionar.
+
+**Teclado.** Solo con el flag y en la casa. Ninguna tecla actúa dentro de un input, textarea, select o contenteditable, ni con ⌘, Ctrl o Alt. `Enter` sobre un botón o enlace con el foco no hace nada más: ya lo activa el navegador. Con Preguntar abierto, `Enter` no actúa (el panel no se ve). `Esc` cierra Preguntar; si no está abierto, quita la selección, y eso cierra el `Sheet`.
+
+**`Enter` = la acción principal del panel.**
+- Confirmación seleccionada → Confirmar.
+- Si no: con contacto, dialer disponible y sin que el CRM diga que no tiene teléfono → llamar.
+- Si no: «Abrir en el CRM» si hay enlace; si no, nada.
+
+**Resolver** (descartar, posponer, confirmar): la selección pasa a la siguiente fila válida; si no hay, a la anterior; si no queda ninguna, sin selección. La tarjeta se convierte en la fila «Descartada · Deshacer» (o «Pospuesta · Deshacer») con un colapso de altura medida (`exitMotion`); con movimiento reducido, solo opacidad. A los 5 s se va con un fundido de 150 ms. «Posponer a mañana» es `snooze` hasta las 00:00 de mañana en la zona del navegador.
+
+**Refresco sin saltos.** Lo que ya estaba conserva su sitio aunque el servidor cambie el orden; lo nuevo entra al final de su sección con un fundido; lo que desaparece se funde en 150 ms y, si estaba seleccionado, la selección pasa a la siguiente fila válida.
+
+**Panel** (`ContactPanel`, el mismo fijo o en `Sheet`):
+- **Cabecera:** iniciales, nombre y «cargo · empresa» si el CRM los da. ↗ «Abrir en el CRM» si hay enlace. ✕ solo en `Sheet`.
+- **Reunión seleccionada:** «Reunión hoy 11:30» (o «Hoy · sin hora») y, debajo, `detail` tal cual («Falta del playbook: …»), encima de «Antes de llamar».
+- **Confirmación seleccionada:** su texto, `detail`, «Confirmar» (`outline`, con la pista ↵) y «Revisar» si trae `memo_id`. Sin pastilla de llamar.
+- **Antes de llamar:** `/briefs` para ese contacto. Como mucho 3 líneas de hechos; «No se pudo cargar todo.» es un aviso y no cuenta en las 3. `label` → `.v-chip`; una línea con `source: "playbook"` → filete bronce. Cargando: «Leyendo…». Lectura caída (red, 401): «No se pudo cargar todo.». La respuesta guarda el contacto pedido y solo se pinta si es el seleccionado.
+- **Acción principal, solo una:**
+  - «Llamar a {nombre}» (pastilla llena, pista ↵). {nombre} es el nombre de pila.
+  - Si no se puede llamar, «Abrir en el CRM» ocupa la misma pastilla y la ↗ de la cabecera no se repite.
+  - Debajo, a 12 px, el teléfono que devuelve el CRM para ese contacto (la búsqueda del dialer). Nunca el de otro resultado.
+  - «Posponer a mañana» · «Descartar» solo en tarjetas de `/today` con id: no en las de prioridad ni en confirmaciones.
+- **Follow-up pendiente:** si `/followups` trae uno de ese contacto o la fila es un follow-up. «asunto» · listo · Abrir (a `MemoDetail`); redactándose o fallido, con los textos de Falta tu OK.
+- **Por revisar seleccionada:** la misma fila («Conversación con {nombre} sin guardar en el CRM») y «Revisar».
+- **Conversaciones:** solo con HubSpot. `GET /memos?hubspot_contact_id=&reached_only=true&limit=3`, sin `scope`: solo las del propio comercial, también si es owner/admin. El bloque no sale si el CRM no es HubSpot, mientras carga ni si no hay ninguna.
+  - Cada fila: «fecha · tipo · duración» + resumen (2 líneas como mucho). Clic → `MemoDetail`.
+  - El tipo sale de `interactionKind`, un campo nuevo y de solo lectura en la respuesta de memos (`interaction_kind_of`). Si no se reconoce: «Conversación».
+  - Duración en minutos, solo si es mayor que 0.
+- **Cambio de contacto:** fundido de 150 ms, sin deslizar.
+
+**Columna derecha** (`DashboardLayout`, flag encendido y `/dashboard`):
+- Desde 1280 px, una columna de 400 px con el panel. Sin selección, no hay columna.
+- Preguntar ocupa su lugar; al cerrarlo vuelve el contacto que había.
+- Por debajo de 1280 px, Preguntar se abre como hoy y el panel va en un `Sheet` no modal de 400 px: la lista sigue usable y un clic en otra tarjeta cambia el contacto.
+- Fuera de `/dashboard`, o con el flag apagado, nada cambia.
+
+**Tarjetas con el flag encendido:**
+- Sin botones fijos. Clic o foco = seleccionar.
+- Icono de teléfono de 36 px: desde 1280 px, al pasar el ratón o con el foco; por debajo, siempre. Nunca en la seleccionada desde 1280 px. Solo con contacto y dialer.
+- La seleccionada lleva borde bronce/45.
+- Con el flag apagado, `CallCard` y `TodayPanel` no cambian.
+
+**Copy fuera de §12:** `panel_meeting_today`, `panel_brief_failed`, `panel_followup_ready`, `panel_kind_call`, `panel_kind_meeting`, `panel_kind_visit`, `panel_kind_conversation`, `panel_minutes`, `home_card_dismissed`, `home_card_snoozed`. «Leyendo…» reutiliza `teamLoading`, el mismo texto que `BRIEF_LOADING`. El ✕ del `Sheet` reutiliza `cancelAction`, como el de Preguntar.
+
+**Fuera de T4:** dialer anclado, «En llamada», «Después de la llamada», borrador dentro del panel, bloqueo de la selección durante la llamada y «sin número verificado» (T5).
+
+**Edge cases (cada fila tiene su test; la última columna dice dónde, o «Navegador» si solo se ve pintado)**
+
+| Caso | Comportamiento esperado | Test |
+|---|---|---|
+| ↑/↓, j/k con y sin selección | Mueven; sin selección, la primera o la última fila | `queue.test.js`, `home.test.js` |
+| Tecla dentro de input, textarea, select o contenteditable | Ninguna acción | `queue.test.js` |
+| ⌘, Ctrl o Alt | Ninguna acción | `queue.test.js` |
+| `Enter`, `s`, `n`, `Esc` | Mismo significado que F06 | `queue.test.js` |
+| `Enter` con el foco en un botón o enlace | Solo lo activa el navegador | `queue.test.js` |
+| Carga desde 1280 px con reuniones y Falta tu OK | Seleccionada la primera tarjeta de A quién llamar | `home.test.js` |
+| Carga por debajo de 1280 px | Nada seleccionado | `home.test.js` |
+| Sin llamadas | Seleccionada la primera fila | `home.test.js` |
+| `Esc` y refresco | Sigue sin selección | `home.test.js` |
+| Orden de navegación | Reunión → Falta tu OK → llamadas; en los extremos se queda | `home.test.js` |
+| Confirmaciones agrupadas; tarjeta en su «Deshacer» | No son filas | `home.test.js` |
+| «{n} más» desplegado | Sus filas se recorren | `home.test.js` |
+| Resolver la seleccionada | La siguiente; en la última, la anterior; si no queda nada, sin selección | `home.test.js` |
+| `s` en la última fila | Sin selección (F06) | `home.test.js` |
+| Refresco con una fila nueva y el orden cambiado | Lo de antes en su sitio, lo nuevo al final, la selección igual | `home.test.js` |
+| Contacto borrado en el CRM (desaparece al refrescar) | Si estaba seleccionado, pasa al siguiente; fundido de 150 ms | `home.test.js`, `today-card.test.js`; fundido: Navegador |
+| Posponer a mañana | `snooze` hasta las 00:00 de mañana | `home.test.js` |
+| Brief cargando / lectura caída / parcial / sin conversación | «Leyendo…» / «No se pudo cargar todo.» / aviso + líneas / «Sin conversación todavía.» | `brief.test.js` |
+| Cambio rápido entre tarjetas | Nunca el brief del contacto anterior | `brief.test.js` |
+| `label` y línea de playbook; más de 3 líneas | Chip y filete; 3 líneas | `brief.test.js` |
+| Acción principal | Llamar / Abrir en el CRM (sin teléfono, sin dialer, sin contacto) / Confirmar / ninguna | `contact-panel.test.ts` |
+| Teléfono de otro resultado de búsqueda | No se enseña | `contact-panel.test.ts` |
+| CRM sin filtro por contacto (Pipedrive, Salesforce) | Sin bloque de conversaciones | `contact-panel.test.ts` |
+| Owner/admin que vende | Historial solo con sus conversaciones; Equipo en el menú | `contact-panel.test.ts`, `nav.test.ts` |
+| Tipo y duración de una conversación | Llamada / Reunión / Visita / Conversación; «14 min»; sin duración si es 0 | `contact-panel.test.ts`, `test_memo_interaction_kind.py` |
+| 1024 px | Lista a todo el ancho; panel en `Sheet` al seleccionar; icono de teléfono siempre visible | Navegador |
+| Preguntar abierto desde 1280 px | Ocupa la columna; al cerrarlo vuelve el contacto | Navegador |
+| Colapso al resolver; movimiento reducido | Altura medida / solo opacidad | Navegador |
+| Flag apagado | `/dashboard`, `CallCard` y `TodayPanel` como hoy | Navegador (sin cambios en esos caminos) |
+
 ## 8. Dependencias
 
 - **Existentes:** F05 (`/today`), F06 (acciones, deshacer, cola), F03 (`/briefs`), F02 (follow-up), F04 (`/contact-priorities`), F07 (Preguntar), F13 (campana e informes), F15 (Equipo).

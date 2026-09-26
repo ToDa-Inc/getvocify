@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
@@ -31,7 +31,8 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, navItemsFor, type NavItemId } from "@/lib/nav";
+import { isManagerRole, navItemsFor, usesRepHome, type NavItemId } from "@/lib/nav";
+import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
@@ -50,6 +51,7 @@ const DashboardLayout = () => {
   const [dialerOpen, setDialerOpen] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   const [callState, setCallState] = useState<CallState>(CALL_STATES.IDLE);
+  const [columnNode, setColumnNode] = useState<HTMLElement | null>(null);
   const location = useLocation();
   const { t } = useLanguage();
   const { user, logout } = useAuth();
@@ -65,6 +67,12 @@ const DashboardLayout = () => {
     if (state?.ask) setAskOpen(true);
   }, [location.state]);
   const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
+  const homeColumn = usesRepHome(user?.company) && location.pathname === "/dashboard";
+  const closeAsk = useCallback(() => setAskOpen(false), []);
+  const column = useMemo(
+    () => ({ target: homeColumn ? columnNode : null, askOpen, closeAsk, canDial: showDialer }),
+    [homeColumn, columnNode, askOpen, closeAsk, showDialer],
+  );
 
   if (paywalled && location.pathname !== BILLING_PATH) {
     return <Navigate to={BILLING_PATH} replace />;
@@ -79,6 +87,7 @@ const DashboardLayout = () => {
 
   return (
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
+    <HomeColumnContext.Provider value={column}>
     <DesktopShellBridge />
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
@@ -267,14 +276,32 @@ const DashboardLayout = () => {
           </div>
         </header>
 
-        <main className="flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
-          <Outlet />
-        </main>
+        {homeColumn ? (
+          <div className="flex min-h-0 flex-1">
+            <main className="min-w-0 flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
+              <Outlet />
+            </main>
+            <div
+              ref={setColumnNode}
+              className={
+                askOpen
+                  ? "hidden w-[400px] shrink-0 xl:block"
+                  : "hidden w-[400px] shrink-0 overflow-y-auto border-l border-border/70 bg-card xl:block empty:hidden"
+              }
+            />
+          </div>
+        ) : (
+          <main className="flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
+            <Outlet />
+          </main>
+        )}
       </div>
 
       {askOpen ? (
         <aside
-          className="fixed inset-y-0 right-0 z-30 flex w-full max-w-md flex-col border-l border-border bg-background"
+          className={`fixed inset-y-0 right-0 z-30 flex w-full max-w-md flex-col border-l border-border bg-background ${
+            homeColumn ? "xl:top-14 xl:w-[400px] xl:max-w-none" : ""
+          }`}
           aria-label={t.product.askTitle}
         >
           <div className="flex items-center justify-between px-4 py-3">
@@ -297,6 +324,7 @@ const DashboardLayout = () => {
         />
       ) : null}
     </div>
+    </HomeColumnContext.Provider>
     </DialerFocusProvider>
   );
 };

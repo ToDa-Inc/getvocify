@@ -7,8 +7,15 @@ import {
   FOLLOWUP_POLL_MS,
   followupPoll,
   HOME_CAP,
+  HOME_WIDE_PX,
+  holdOrder,
+  homeRows,
+  homeSelection,
+  initialHomeSelection,
   NEEDS_OK_VISIBLE,
   REVIEW_LIMIT,
+  selectedRow,
+  snoozeUntil,
 } from "./home.js";
 
 const NOW = Date.parse("2026-09-29T08:30:00+02:00");
@@ -574,5 +581,148 @@ describe("composeHome actions", () => {
     const outcome = afterActionError({ status: 409, data: { detail: { id: "sig-1", status: "resolved", version: 3 } } });
     const forgotten = acted.filter((item) => item.id !== outcome.forget);
     assert.deepEqual(callContacts(composeHome(input({ today, acted: forgotten }))), ["c2"]);
+  });
+});
+describe("home selection", () => {
+  const home = (overrides) => composeHome(input(overrides));
+  const keys = (rows) => rows.map((row) => row.key);
+  const refresh = (state, rows, wide = true) => homeSelection(state, { type: "rows", rows, wide });
+  const selectedKey = (state, rows) => selectedRow(state, rows)?.key ?? null;
+  const day = home({
+    today: view([meeting(1), confirmation(2), card(3), card(4)]),
+    followups: [followup(5)],
+    reviews: [review(6)],
+    priorities: priorities([priority(7)]),
+  });
+
+  it("walks meetings, then Falta tu OK, then calls, in the order they are painted", () => {
+    const rows = homeRows(day);
+    assert.deepEqual(keys(rows), ["hoy:sig-1", "hoy:sig-2", "followup:f5", "review:r6", "hoy:sig-3", "hoy:sig-4", "priority:conn:c7:"]);
+    assert.deepEqual(rows.map((row) => row.kind), ["meeting", "confirm", "followup", "review", "call", "call", "call"]);
+    assert.deepEqual(rows.map((row) => row.contactId), ["c1", "c2", "c5", null, "c3", "c4", "c7"]);
+  });
+
+  it("skips the grouped confirmations and a card waiting on its undo", () => {
+    const grouped = home({
+      today: view([confirmation(1), confirmation(2), confirmation(3), card(4)]),
+      acted: [{ ...card(5), status: "dismissed", version: 2, undo_deadline: new Date(NOW + 3000).toISOString() }],
+    });
+    assert.deepEqual(keys(homeRows(grouped)), ["hoy:sig-4"]);
+    assert.deepEqual(keys(homeRows(grouped, { groupOpen: true })), ["hoy:sig-1", "hoy:sig-2", "hoy:sig-3", "hoy:sig-4"]);
+  });
+
+  it("walks the rows «{n} más» reveals only once it is open", () => {
+    const many = home({ followups: [followup(1), followup(2), followup(3), followup(4)] });
+    assert.deepEqual(keys(homeRows(many)), ["followup:f1", "followup:f2", "followup:f3"]);
+    assert.deepEqual(keys(homeRows(many, { needsOkOpen: true })), ["followup:f1", "followup:f2", "followup:f3", "followup:f4"]);
+  });
+
+  it("selects the first call on a wide screen, even under meetings and Falta tu OK", () => {
+    const rows = homeRows(day);
+    assert.equal(HOME_WIDE_PX, 1280);
+    assert.equal(selectedKey(refresh(initialHomeSelection, rows), rows), "hoy:sig-3");
+    assert.equal(selectedRow(refresh(initialHomeSelection, rows), rows).item.contact_id, "c3");
+  });
+
+  it("selects nothing below 1280 px until the rep picks a row", () => {
+    const rows = homeRows(day);
+    const narrow = refresh(initialHomeSelection, rows, false);
+    assert.equal(selectedKey(narrow, rows), null);
+    assert.equal(selectedKey(homeSelection(narrow, { type: "select", key: "review:r6" }), rows), "review:r6");
+  });
+
+  it("selects the first row when there is nobody to call", () => {
+    const rows = homeRows(home({ today: view([meeting(1)]), followups: [followup(2)] }));
+    assert.equal(selectedKey(refresh(initialHomeSelection, rows), rows), "hoy:sig-1");
+    assert.equal(selectedKey(refresh(initialHomeSelection, []), []), null);
+  });
+
+  it("stays unselected after Escape, whatever the next refresh brings", () => {
+    const rows = homeRows(day);
+    const cleared = homeSelection(refresh(initialHomeSelection, rows), { type: "exit" });
+    assert.equal(selectedKey(cleared, rows), null);
+    assert.equal(selectedKey(refresh(cleared, rows), rows), null);
+    assert.equal(selectedKey(refresh(cleared, homeRows(home({ today: view([card(9)]) }))), rows), null);
+  });
+
+  it("moves with next and prev without wrapping; with nothing selected, down is the first row and up the last", () => {
+    const rows = homeRows(day);
+    const none = homeSelection(refresh(initialHomeSelection, rows), { type: "exit" });
+    assert.equal(selectedKey(homeSelection(none, { type: "next" }), rows), "hoy:sig-1");
+    assert.equal(selectedKey(homeSelection(none, { type: "prev" }), rows), "priority:conn:c7:");
+    const first = homeSelection(none, { type: "next" });
+    assert.equal(selectedKey(homeSelection(first, { type: "prev" }), rows), "hoy:sig-1");
+    const last = homeSelection(none, { type: "prev" });
+    assert.equal(selectedKey(homeSelection(last, { type: "next" }), rows), "priority:conn:c7:");
+    assert.equal(selectedKey(homeSelection(first, { type: "next" }), rows), "hoy:sig-2");
+  });
+
+  it("skips to the next row, and past the last one leaves nothing selected as F06 does", () => {
+    const rows = homeRows(day);
+    const start = refresh(initialHomeSelection, rows);
+    assert.equal(selectedKey(homeSelection(start, { type: "skip" }), rows), "hoy:sig-4");
+    const last = homeSelection(start, { type: "select", key: "priority:conn:c7:" });
+    const skipped = homeSelection(last, { type: "skip" });
+    assert.equal(selectedKey(skipped, rows), null);
+    assert.equal(selectedKey(refresh(skipped, rows), rows), null);
+  });
+
+  it("moves to the next row when the selected card is resolved, to the previous one at the end, and to nothing when none is left", () => {
+    const before = home({ today: view([card(1), card(2), card(3)]) });
+    const start = refresh(initialHomeSelection, homeRows(before));
+    const resolvedAt = new Date(NOW + 4000).toISOString();
+    const settle = (n) => ({ ...card(n), status: "dismissed", version: 2, undo_deadline: resolvedAt });
+
+    const afterFirst = homeRows(home({ today: view([card(1), card(2), card(3)]), acted: [settle(1)] }));
+    assert.equal(selectedKey(refresh(start, afterFirst), afterFirst), "hoy:sig-2");
+
+    const atLast = homeSelection(start, { type: "select", key: "hoy:sig-3" });
+    const afterLast = homeRows(home({ today: view([card(1), card(2), card(3)]), acted: [settle(3)] }));
+    assert.equal(selectedKey(refresh(atLast, afterLast), afterLast), "hoy:sig-2");
+
+    const only = refresh(initialHomeSelection, homeRows(home({ today: view([card(1)]) })));
+    const nothing = homeRows(home({ today: view([card(1)]), acted: [settle(1)] }));
+    assert.equal(selectedKey(refresh(only, nothing), nothing), null);
+  });
+
+  it("moves on when the selected contact disappears on refresh (deleted in the CRM)", () => {
+    const start = homeSelection(refresh(initialHomeSelection, homeRows(home({ today: view([card(1), card(2), card(3)]) }))), {
+      type: "select",
+      key: "hoy:sig-2",
+    });
+    const gone = homeRows(home({ today: view([card(1), card(3), card(4)]) }));
+    assert.equal(selectedKey(refresh(start, gone), gone), "hoy:sig-3");
+    const tail = homeSelection(start, { type: "select", key: "hoy:sig-3" });
+    const newAfter = homeRows(home({ today: view([card(1), card(2), card(5)]) }));
+    assert.equal(selectedKey(refresh(tail, newAfter), newAfter), "hoy:sig-5");
+  });
+
+  it("keeps what was there in place on refresh, adds what is new at the end of its section and keeps the selection", () => {
+    const first = home({ today: view([meeting(1), card(2), card(3), card(4)]), followups: [followup(5), followup(6)] });
+    const held = holdOrder(null, first);
+    assert.deepEqual(held.view, first);
+    const start = homeSelection(refresh(initialHomeSelection, homeRows(held.view)), { type: "select", key: "hoy:sig-3" });
+
+    const reordered = home({
+      today: view([meeting(1), card(7), card(4), card(3), card(2)]),
+      followups: [followup(8), followup(6), followup(5)],
+    });
+    const next = holdOrder(held.order, reordered);
+    assert.deepEqual(callContacts(next.view), ["c2", "c3", "c4", "c7"]);
+    assert.deepEqual(section(next.view, "needs_ok").rows.map((row) => row.memoId), ["f5", "f6", "f8"]);
+    assert.deepEqual(section(next.view, "needs_ok").shown.map((row) => row.memoId), ["f5", "f6", "f8"]);
+    const rows = homeRows(next.view);
+    assert.equal(selectedKey(refresh(start, rows), rows), "hoy:sig-3");
+
+    const dropped = holdOrder(next.order, home({ today: view([meeting(1), card(4), card(2)]) }));
+    assert.deepEqual(callContacts(dropped.view), ["c2", "c4"]);
+  });
+
+  it("snoozes until midnight tomorrow in the given zone, across a clock change", () => {
+    assert.equal(snoozeUntil(NOW, TZ), "2026-09-29T22:00:00.000Z");
+    assert.equal(snoozeUntil(Date.parse("2026-10-24T12:00:00+02:00"), TZ), "2026-10-24T22:00:00.000Z");
+    assert.equal(snoozeUntil(Date.parse("2026-10-25T12:00:00+01:00"), TZ), "2026-10-25T23:00:00.000Z");
+    assert.equal(snoozeUntil(Date.parse("2026-09-29T00:30:00+02:00"), TZ), "2026-09-29T22:00:00.000Z");
+    assert.equal(snoozeUntil(Date.parse("2026-09-29T23:30:00+02:00"), TZ), "2026-09-29T22:00:00.000Z");
   });
 });
