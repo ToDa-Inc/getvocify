@@ -397,6 +397,9 @@ class HubSpotSyncService:
             else:
                 existing = []
             subjects = {_normalize_task_subject(t.get("subject", "")) for t in existing}
+            existing_ids = {
+                _normalize_task_subject(t.get("subject", "")): str(t["id"]) for t in existing if t.get("id")
+            }
             async with self.crm_updates.track(
                 memo_id=str(memo_id),
                 user_id=user_id,
@@ -411,6 +414,7 @@ class HubSpotSyncService:
                     company_id=company_id,
                     hubspot_owner_id=hubspot_owner_id,
                     existing_subjects=subjects,
+                    existing_ids=existing_ids,
                     summary=extraction.summary,
                 )
                 result.commitment_task_ids = ids

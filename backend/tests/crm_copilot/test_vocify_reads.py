@@ -457,3 +457,15 @@ async def test_priorities_without_a_crm_are_unavailable_not_empty(monkeypatch):
     result = await execute_tool("get_call_priorities", {}, _ctx(_priority_store(connected=False), "rep-a"))
     assert result["coverage"] == "unavailable"
     assert result["items"] == []
+
+
+def test_undated_commitments_never_push_dated_ones_out_of_the_first_five():
+    from types import SimpleNamespace
+
+    undated = [{"kind": "other", "text": f"tarea {i}", "due_at": None} for i in range(5)]
+    dated = {"kind": "call", "text": "llamar el jueves", "due_at": "2026-09-24T00:00:00+02:00"}
+    row = {"id": "m1", "extraction": {"intelligence": {"commitments": [*undated, dated]}}}
+    out = vocify_reads._conversation(row, SimpleNamespace(author_name=lambda _uid: None))
+    assert len(out["commitments"]) == 5
+    assert out["commitments"][0] == {"text": "llamar el jueves", "due_at": "2026-09-24T00:00:00+02:00"}
+    assert [c["text"] for c in out["commitments"][1:]] == ["tarea 0", "tarea 1", "tarea 2", "tarea 3"]

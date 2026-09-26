@@ -12,7 +12,6 @@ from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase, require_rep_workspace
 from app.services.company import CompanyService, Membership
-from app.services.coaching.brief_preferences import read_preference
 from app.services.feature_flags import is_enabled
 from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
@@ -24,21 +23,12 @@ from app.services.hoy.materialize import read_hoy_memos
 from app.services.hoy.names import NamePair, memo_directory
 from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
 from app.services.hoy.visibility import is_today_visible
+from app.services.rep_timezone import rep_timezone
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_HOY_TZ = "Europe/Madrid"
 NO_REPLY_MAX_AGE = timedelta(hours=1)
 
-
-def _daily_run_timezone(user_id: str) -> str:
-    try:
-        tz = read_preference(user_id).get("timezone")
-        if tz:
-            return tz
-    except Exception:
-        pass
-    return _DEFAULT_HOY_TZ
 
 router = APIRouter(prefix="/api/v1", tags=["today"])
 
@@ -313,7 +303,7 @@ async def get_today(
             membership.company_id,
             membership.user_id,
             now,
-            _daily_run_timezone(membership.user_id),
+            rep_timezone(membership.user_id),
             background,
         )
     if _TASKS is None:
@@ -325,7 +315,7 @@ async def get_today(
                 company_id=membership.company_id,
                 user_id=membership.user_id,
                 now=now,
-                tz_name=_daily_run_timezone(membership.user_id),
+                tz_name=rep_timezone(membership.user_id),
             )
         except Exception:
             pass
@@ -338,7 +328,7 @@ async def get_today(
     )
     now = _now()
     visible = [row for row in (stored.data or []) if is_today_visible(row, now)]
-    attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
+    attempt_daily_run_claim(supabase, membership.company_id, now, rep_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
@@ -434,7 +424,7 @@ async def get_today_upcoming(
     return upcoming_commitments(
         read_hoy_memos(supabase, company_id=membership.company_id, user_id=membership.user_id),
         now=now,
-        tz_name=_daily_run_timezone(membership.user_id),
+        tz_name=rep_timezone(membership.user_id),
         days=days,
     )
 
@@ -443,7 +433,7 @@ async def get_today_upcoming(
 async def get_today_done(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
     require_rep_workspace(supabase, membership.company_id)
     now = _now()
-    tz_name = _daily_run_timezone(membership.user_id)
+    tz_name = rep_timezone(membership.user_id)
     since = local_midnight(now, tz_name).isoformat()
     signals = (
         supabase.table("action_signals")

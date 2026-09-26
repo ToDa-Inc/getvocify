@@ -1,7 +1,7 @@
 """HubSpot with COMMITMENT_TASKS_ENABLED: review rows and tasks come from C04 commitments."""
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -10,6 +10,7 @@ import pytest
 from app.models.memo import MemoExtraction
 from app.services.commitment_tasks import CommitmentTask
 from app.services.hubspot import sync as sync_module
+from app.services.hubspot import tasks as tasks_module
 from app.services.hubspot.sync import HubSpotSyncService
 from app.services.hubspot.tasks import HubSpotTasksService
 from tests.hubspot.test_stage_confirm import EXISTING, _Anything, _Schema, _SyncDeals, _preview, _svc
@@ -36,6 +37,7 @@ async def test_review_rows_come_from_the_commitments():
     assert [r.due_date for r in rows] == ["2026-09-29", "2026-09-24", None]
     assert rows[0].field_label == "Next Step (Task)"
     assert rows[1].field_label == "Next Step 2 (Task)"
+    assert [r.commitment_id for r in rows] == ["com-1", "com-2", "com-3"]
 
 
 @pytest.mark.asyncio
@@ -44,6 +46,7 @@ async def test_without_commitment_tasks_the_rows_are_the_next_steps_of_before():
     off = await _preview(_svc(), extraction=LEGACY, create_new_deal=True, commitment_tasks=None)
     assert [r.model_dump() for r in _task_rows(off)] == [r.model_dump() for r in _task_rows(before)]
     assert [r.new_value for r in _task_rows(before)] == ["Llamada con Ana"]
+    assert [r.commitment_id for r in _task_rows(before)] == [None]
 
 
 @pytest.mark.asyncio
@@ -117,15 +120,14 @@ async def _sync(extraction, *, tasks, commitment_tasks=None, deal_id="D1"):
 
 
 @pytest.mark.asyncio
-async def test_tasks_are_written_with_the_commitment_text_and_date():
+async def test_tasks_are_written_with_the_commitment_text_and_date(monkeypatch):
+    monkeypatch.setattr(tasks_module, "_task_tz_now", lambda: datetime(2026, 9, 22, 10, 0, tzinfo=MADRID))
     tasks = _Tasks()
     result, updates = await _sync(MemoExtraction(), tasks=tasks, commitment_tasks=[TIMED, DAY, UNDATED])
     assert [c["subject"] for c in tasks.created] == [TIMED.text, DAY.text, UNDATED.text]
     assert tasks.created[0]["due"] == TIMED.due_at
     assert tasks.created[1]["due"] == DAY.due_at
-    default = tasks.created[2]["due"]
-    assert (default.hour, default.minute) == (9, 0)
-    assert default.date() == (datetime.now(MADRID) + timedelta(days=3)).date()
+    assert tasks.created[2]["due"] == datetime(2026, 9, 25, 9, 0, tzinfo=MADRID)
     assert [c["type"] for c in tasks.created] == ["CALL", "EMAIL", "TODO"]
     assert result.commitment_task_ids == {"com-1": "T-1", "com-2": "T-2", "com-3": "T-3"}
     assert result.tasks_requested_count == 3
@@ -156,7 +158,29 @@ async def test_an_existing_deal_is_not_merged_and_a_same_subject_is_not_duplicat
     tasks = _Tasks(existing=["enviar el caso de logística"])
     result, _ = await _sync(MemoExtraction(), tasks=tasks, commitment_tasks=[TIMED, DAY])
     assert [c["subject"] for c in tasks.created] == [TIMED.text]
-    assert result.commitment_task_ids == {"com-1": "T-1"}
+    assert result.commitment_task_ids == {"com-1": "T-1", "com-2": "old-0"}
+
+
+@pytest.mark.asyncio
+async def test_a_retry_after_a_failed_write_relinks_the_tasks_it_already_created():
+    class _Failed(_Updates):
+        async def get_memo_updates(self, _memo_id):
+            return [{"action_type": "create_tasks", "status": "failed", "data": {}}]
+
+    tasks = _Tasks(existing=[TIMED.text, DAY.text])
+    svc = HubSpotSyncService(
+        client=None, contacts=_Anything(), companies=_Anything(), deals=_SyncDeals(_Schema(), EXISTING),
+        associations=_Anything(), tasks=tasks, crm_updates=_Failed(), supabase=object(),
+    )
+    result = await svc.sync_memo(
+        memo_id=uuid4(), user_id="u-1", connection_id="conn-1",
+        extraction=MemoExtraction(contactName="Ana Pérez", nextSteps=["Llamar a Ana el jueves"]), deal_id="D1",
+        allowed_fields=["amount"], allowed_contact_fields=[], allowed_company_fields=[],
+        allowed_line_item_fields=[], create_note=False, commitment_tasks=[TIMED, DAY],
+    )
+    assert result.success, result.error
+    assert [c["subject"] for c in tasks.created] == ["Llamada con Ana"]
+    assert result.commitment_task_ids == {"com-1": "old-0", "com-2": "old-1"}
 
 
 @pytest.mark.asyncio

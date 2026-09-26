@@ -22,7 +22,6 @@ from app.services import feature_flags, memo_approval
 from app.services.coaching import brief_preferences
 from app.services.crm_providers.hubspot_provider import HubSpotCRMProvider
 from app.services.crm_providers.pipedrive_provider import PipedriveCRMProvider
-from app.services.crm_providers.salesforce_provider import SalesforceCRMProvider
 from app.services.hubspot.types import SyncResult
 from app.services.intelligence.extract import PROMPT_VERSION
 from app.services.intelligence.worker import revision_for_memo
@@ -144,19 +143,26 @@ def test_kept_rows_match_by_text_and_edited_rows_stay_next_steps():
     kept, extraction = ct.split_reviewed(tasks, reviewed)
     assert [t.commitment_id for t in kept] == ["com-2"]
     assert extraction.nextSteps == ["Llamar a Ana el viernes"]
-    assert extraction.raw_extraction["nextStepSchedules"] == ["viernes"]
+    assert extraction.raw_extraction["nextStepSchedules"] == [""]
 
 
-def test_a_row_whose_date_the_rep_changed_stays_a_next_step_with_that_date():
-    tasks = ct.commitment_tasks(_memo(), tz_name="Europe/Madrid")
+def test_a_schedule_never_overrides_a_kept_commitment():
+    tasks = ct.commitment_tasks(_memo([DAY, UNDATED]), tz_name="Europe/Madrid")
     reviewed = MemoExtraction(
         nextSteps=["Enviar el caso de logística", "Preparar la propuesta"],
-        raw_extraction={"nextStepSchedules": ["2026-09-25", ""]},
+        raw_extraction={"nextStepSchedules": ["2026-09-25", "2026-09-26"]},
     )
     kept, extraction = ct.split_reviewed(tasks, reviewed)
-    assert [t.commitment_id for t in kept] == ["com-3"]
-    assert extraction.nextSteps == ["Enviar el caso de logística"]
-    assert extraction.raw_extraction["nextStepSchedules"] == ["2026-09-25"]
+    assert [t.commitment_id for t in kept] == ["com-2", "com-3"]
+    assert [t.due_at for t in kept] == [datetime(2026, 9, 24, 9, 0, tzinfo=MADRID), None]
+    assert extraction.nextSteps == []
+    assert extraction.raw_extraction["nextStepSchedules"] == []
+
+
+def test_stored_v2_intelligence_is_no_longer_current():
+    memo = _memo()
+    memo["extraction"]["intelligence"]["prompt_version"] = "intelligence_v2"
+    assert ct.commitment_tasks(memo, tz_name="Europe/Madrid") is None
 
 
 # --- Preview kwargs (endpoint) -------------------------------------------------
@@ -215,11 +221,16 @@ def test_flag_off_preview_gets_no_commitment_kwargs():
     assert ct.preview_kwargs(db, memo=_memo(), connection={"provider": "hubspot"}) == {}
 
 
-def test_flag_on_preview_gets_the_commitment_tasks_for_every_crm():
+def test_flag_on_preview_gets_the_commitment_tasks_for_hubspot_and_pipedrive():
     db = _DB(company_feature_flags=FLAG_ON)
-    for provider in ("hubspot", "pipedrive", "salesforce"):
+    for provider in ("hubspot", "pipedrive"):
         kwargs = ct.preview_kwargs(db, memo=_memo(), connection={"provider": provider})
         assert [t.commitment_id for t in kwargs["commitment_tasks"]] == ["com-1", "com-2", "com-3"]
+
+
+def test_salesforce_review_is_as_before_with_the_flag_on():
+    db = _DB(company_feature_flags=FLAG_ON)
+    assert ct.preview_kwargs(db, memo=_memo(), connection={"provider": "salesforce"}) == {}
 
 
 def test_flag_on_preview_without_current_c04_keeps_next_steps():
@@ -239,8 +250,8 @@ class _Recorder:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cls", [HubSpotCRMProvider, PipedriveCRMProvider, SalesforceCRMProvider])
-async def test_every_crm_passes_commitment_tasks_to_its_review(cls):
+@pytest.mark.parametrize("cls", [HubSpotCRMProvider, PipedriveCRMProvider])
+async def test_hubspot_and_pipedrive_pass_commitment_tasks_to_their_review(cls):
     recorder = _Recorder()
     provider = object.__new__(cls)
     provider._preview_service = lambda: recorder
@@ -383,6 +394,83 @@ async def test_reviewed_approval_stores_task_ids_on_the_reviewed_copy(monkeypatc
     assert update["extraction"]["nextSteps"] == ["Llamar el martes a las 18:00"]
     commitments = update["extraction"]["intelligence"]["commitments"]
     assert [c.get("crm_task_id") for c in commitments] == ["T-1", None, None]
+
+
+def _legacy_memo():
+    """Two commitments plus the legacy nextSteps and their schedule hints the extraction stored."""
+    memo = _memo([DAY, UNDATED], next_steps=("Mandar el caso", "Preparar propuesta"))
+    memo["extraction"]["raw_extraction"] = {"nextStepSchedules": ["2026-09-25", "2026-09-26"]}
+    memo["extraction"]["intelligence"]["input_revision"] = revision_for_memo(memo)
+    return memo
+
+
+def _dashboard_payload(memo, row_texts):
+    """buildApproveExtraction (src/lib/extraction-omit.ts): memo.extraction with nextSteps
+    replaced by the row texts; raw_extraction.nextStepSchedules is left as stored."""
+    extraction = copy.deepcopy(memo["extraction"])
+    extraction["nextSteps"] = list(row_texts)
+    return ApproveMemoRequest(extraction=MemoExtraction(**extraction), deal_id="D1")
+
+
+def _extension_payload(memo, rows):
+    """chrome-extension buildApproveExtraction: nextSteps and nextStepSchedules from the rows
+    (text, preview due date), which taskRowsFromPreview takes from the commitment rows."""
+    extraction = copy.deepcopy(memo["extraction"])
+    extraction["nextSteps"] = [text for text, _due in rows]
+    extraction["raw_extraction"] = {
+        **extraction.get("raw_extraction", {}),
+        "nextStepSchedules": [due or "" for _text, due in rows],
+    }
+    return ApproveMemoRequest(extraction=MemoExtraction(**extraction), deal_id="D1")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_review_with_untouched_rows_keeps_both_commitments(monkeypatch):
+    memo = _legacy_memo()
+    db, provider = _approve_env(monkeypatch, memo=memo, task_ids={"com-2": "T-2", "com-3": "T-3"})
+    payload = _dashboard_payload(memo, ["Enviar el caso de logística", "Preparar la propuesta"])
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", payload)
+    call = provider.calls[0]
+    assert [t.commitment_id for t in call["commitment_tasks"]] == ["com-2", "com-3"]
+    assert [t.due_at for t in call["commitment_tasks"]] == [datetime(2026, 9, 24, 9, 0, tzinfo=MADRID), None]
+    assert call["extraction"].nextSteps == []
+    [(_table, update)] = [u for u in db.updates if u[0] == "memos"]
+    assert [c.get("crm_task_id") for c in update["extraction"]["intelligence"]["commitments"]] == ["T-2", "T-3"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_review_edited_row_is_a_next_step_without_a_stale_date(monkeypatch):
+    memo = _legacy_memo()
+    db, provider = _approve_env(monkeypatch, memo=memo)
+    payload = _dashboard_payload(memo, ["Enviar el caso de logística y precios", "Preparar la propuesta"])
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", payload)
+    call = provider.calls[0]
+    assert [t.commitment_id for t in call["commitment_tasks"]] == ["com-3"]
+    assert call["extraction"].nextSteps == ["Enviar el caso de logística y precios"]
+    assert call["extraction"].raw_extraction["nextStepSchedules"] == [""]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_review_removed_row_is_not_created(monkeypatch):
+    memo = _legacy_memo()
+    db, provider = _approve_env(monkeypatch, memo=memo)
+    payload = _dashboard_payload(memo, ["Preparar la propuesta"])
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", payload)
+    call = provider.calls[0]
+    assert [t.commitment_id for t in call["commitment_tasks"]] == ["com-3"]
+    assert call["extraction"].nextSteps == []
+
+
+@pytest.mark.asyncio
+async def test_extension_review_keeps_every_commitment_with_its_date(monkeypatch):
+    memo = _legacy_memo()
+    db, provider = _approve_env(monkeypatch, memo=memo)
+    payload = _extension_payload(memo, [("Enviar el caso de logística", "2026-09-24"), ("Preparar la propuesta", None)])
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", payload)
+    call = provider.calls[0]
+    assert [t.commitment_id for t in call["commitment_tasks"]] == ["com-2", "com-3"]
+    assert [t.due_at for t in call["commitment_tasks"]] == [datetime(2026, 9, 24, 9, 0, tzinfo=MADRID), None]
+    assert call["extraction"].nextSteps == []
 
 
 @pytest.mark.asyncio

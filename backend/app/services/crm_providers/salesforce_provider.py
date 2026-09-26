@@ -103,12 +103,10 @@ class SalesforceCRMProvider:
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
         stage_confirm: bool = False,
-        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
         # Salesforce opportunities use a flat picklist (StageName), not pipeline+stage IDs.
         del default_pipeline_id, default_stage_id
         del stage_confirm  # DEAL_STAGE_CONFIRM_ENABLED covers HubSpot and Pipedrive only
-        del commitment_tasks  # no Salesforce task write path yet
         del create_note  # Salesforce path does not create HubSpot-style notes here
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
         del contact_id, company_id  # HubSpot contact-first anchors; not used for SF yet
@@ -176,7 +174,6 @@ class SalesforceCRMProvider:
         skip_deal: bool = False,
         stage_confirm: bool = False,
         meeting_booked_stage: Optional[dict[str, str]] = None,
-        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         del default_pipeline_id, default_stage_id
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
@@ -190,7 +187,6 @@ class SalesforceCRMProvider:
             selected_deal_id=selected_deal_id,
             allowed_fields=allowed_fields,
             default_stage_name=default_stage_name,
-            commitment_tasks=commitment_tasks,
         )
 
     async def find_matching_deals(

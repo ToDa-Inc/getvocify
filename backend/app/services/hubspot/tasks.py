@@ -748,15 +748,20 @@ class HubSpotTasksService:
         company_id: Optional[str] = None,
         hubspot_owner_id: Optional[str] = None,
         existing_subjects: Optional[set[str]] = None,
+        existing_ids: Optional[dict[str, str]] = None,
         summary: Optional[str] = None,
     ) -> tuple[TaskBatchResult, dict[str, str]]:
-        """One task per C04 commitment, with its text and due date. HubSpot needs a date: undated uses the default."""
+        """One task per C04 commitment, with its text and due date. HubSpot needs a date: undated uses the default.
+        A task with the same subject already on the target is that commitment's task (existing_ids:
+        normalized subject -> id), which also makes a retry after a failed write relink instead of duplicate."""
         result = TaskBatchResult()
         ids: dict[str, str] = {}
         seen = set(existing_subjects or set())
         for task in tasks:
             norm = _normalize_task_subject(task.text)
             if norm in seen:
+                if (existing_ids or {}).get(norm):
+                    ids[task.commitment_id] = existing_ids[norm]
                 result.skipped.append(TaskSkip(reason="duplicate", step=task.text, subject=task.text))
                 continue
             task_id = await self.create_task(

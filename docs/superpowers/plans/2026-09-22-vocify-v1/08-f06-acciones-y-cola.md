@@ -344,7 +344,7 @@ F03, si se aprueba, puede enriquecer la tarjeta con brief; no altera reducer ni 
 
 **Flag:** `COMMITMENT_TASKS_ENABLED`, por empresa con `feature_flags.is_enabled` (sin fila, manda el global de `config.py`, apagado). Apagado: filas de revisión y tareas salen de `nextSteps` exactamente como antes.
 
-**Cuándo mandan los compromisos:** flag encendido y C04 vigente en el memo (`intelligence.extract.is_current`: mismo `prompt_version` e `input_revision`). Sin C04 vigente (memo sin inteligencia, de otra revisión, o ya aprobado tras revisión), `nextSteps` como antes. Con C04 vigente y ningún compromiso, no hay filas de tarea: C04 no encontró acciones y `nextSteps` no las suple.
+**Cuándo mandan los compromisos:** flag encendido y C04 vigente en el memo (`intelligence.extract.is_current`: mismo `prompt_version` e `input_revision`). Sin C04 vigente (memo sin inteligencia, de otra revisión, de un prompt anterior, o ya aprobado tras revisión), `nextSteps` como antes. Con C04 vigente y ningún compromiso, no hay filas de tarea: C04 no encontró acciones y `nextSteps` no las suple.
 
 **Qué compromisos:** los que tiene que hacer el comercial. En C04 los dos `origin` ya son acciones del comercial: `rep_promise` (lo prometió él) y `prospect_request` (el prospecto le pidió que lo hiciera); Hoy los lee igual («Le prometiste…», «Te pidió…»). Lo que el prospecto dice que hará él mismo («te llamo yo», «te paso el contrato») no es un compromiso: no tiene `origin` posible y el caso de eval `c04_prospect_calls_back_is_not_a_rep_commitment` lo vigila. Paso 0 encontró uno real mal etiquetado como `rep_promise`: si el modelo se equivoca así, esa acción acaba como tarea del comercial.
 
@@ -358,16 +358,17 @@ F03, si se aprueba, puede enriquecer la tarjeta con brief; no altera reducer ni 
 | `date` | Ese día a las 9:00 en la zona del comercial: la de Hoy (preferencia del usuario, por defecto `Europe/Madrid`). |
 | `unknown` (`due_at` null) | Sin fecha. HubSpot exige `hs_timestamp`: se escribe el valor por defecto de siempre (+3 días, 9:00) y la fila de revisión va sin fecha, como ya pasaba con un `nextStep` sin fecha. Pipedrive: actividad sin `due_date`. |
 
-C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision: "unknown"`), como ya decía el contrato (`00-contracts.md`: `due_at nullable`). Antes se descartaban. El prompt `intelligence_v2` añade tres líneas por fallos reales de Paso 0: con etiquetas genéricas («SPEAKER: S1») el comercial es quien vende y una nota de un solo hablante es el comercial dictando; una reunión acordada no sustituye las otras acciones («el lunes te llamo para confirmar»); «en dos semanas» es un día (captured_at más ese plazo). Hoy los sigue ignorando porque no vencen. Un `due_at` mal formado (sin zona, día imposible, texto libre) se sigue descartando.
+C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision: "unknown"`), como ya decía el contrato (`00-contracts.md`: `due_at nullable`). Antes se descartaban. El prompt pasa a `intelligence_v3` (`intelligence_v2.md` no se toca; un prompt publicado nunca se edita) con tres líneas más por fallos reales de Paso 0: con etiquetas genéricas («SPEAKER: S1») el comercial es quien vende y una nota de un solo hablante es el comercial dictando; una reunión acordada no sustituye las otras acciones («el lunes te llamo para confirmar»); «en dos semanas» es un día (captured_at más ese plazo). Los memos con C04 de `intelligence_v2` dejan de estar vigentes: con el flag encendido vuelven a `nextSteps` (Hoy, Ask y el resto no miran la versión y siguen leyendo su C04). Los compromisos sin día: Hoy los sigue ignorando porque no vencen. Un `due_at` mal formado (sin zona, día imposible, texto libre) se sigue descartando.
 
-**Revisión (filas `next_step_task_i`):** una fila por compromiso, en el orden de C04, con `due_date` = día de la tarea. En HubSpot, Pipedrive y Salesforce.
+**Revisión (filas `next_step_task_i`):** una fila por compromiso, en el orden de C04, con `due_date` = día de la tarea y `commitment_id`. En HubSpot y Pipedrive. La extensión toma de esas filas el número de tareas y sus fechas; sin filas con `commitment_id`, las filas de siempre.
 
 **Aprobación:**
 - Sin revisión (auto-aprobación, WhatsApp, Ask): se escriben todos los compromisos.
-- Con revisión: se escriben los compromisos cuya fila conservó el comercial, casados por texto (sin distinguir mayúsculas ni espacios). Una fila quitada no se crea. Una fila editada (texto o fecha) o añadida por el comercial se escribe como un `nextStep` de siempre: en HubSpot con la fecha que eligió; en Pipedrive sin fecha, como ya pasaba con cualquier `nextStep`.
-- HubSpot: con compromisos no se usa la fusión con las tareas del deal (reescribe texto y fecha). Se evita duplicar por asunto contra las tareas ya asociadas, y la idempotencia de reintentos (`crm_updates.create_tasks`) es la de siempre.
+- Con revisión: una fila cuyo texto es el de un compromiso (sin distinguir mayúsculas ni espacios) es ese compromiso, con su fecha y su `crm_task_id`. Un compromiso sin fila lo quitó el comercial: no se crea. Una fila editada o añadida se escribe como un `nextStep` de siempre, con la fecha que saque su texto (o el valor por defecto).
+- `raw_extraction.nextStepSchedules` no cuenta en este modo: ningún cliente edita hoy la fecha de una tarea en la revisión, y el dashboard reenvía las fechas antiguas de `nextSteps` sin tocarlas.
+- HubSpot: con compromisos no se usa la fusión con las tareas del deal (reescribe texto y fecha). Una tarea ya asociada con el mismo asunto es la del compromiso: no se duplica y su id queda en el compromiso, así un reintento tras un fallo a medias vuelve a enlazar en vez de crear. La idempotencia de reintentos (`crm_updates.create_tasks`) es la de siempre.
 - Pipedrive: `due_date` y `due_time` en UTC, como pide su API.
-- Salesforce: las filas salen, pero Salesforce no tiene todavía escritura de tareas (no existía). No encender el flag en empresas con Salesforce hasta tenerla.
+- Salesforce: fuera de este modo (no tiene escritura de tareas). Con el flag encendido, revisión y sync son los de siempre.
 
 **Vínculo con Hoy:** al aprobar, cada tarea creada deja su id en su compromiso (`extraction.intelligence.commitments[i].crm_task_id`). Sin migración: el memo es la Interaction. Hoy lo usa según el addendum E2 de `07-f05-hoy.md`.
 
@@ -384,10 +385,13 @@ C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision
 | C04 vigente sin compromisos | Ninguna fila de tarea. |
 | El comercial quita una fila | Esa tarea no se crea; las demás sí, con su fecha. |
 | El comercial edita el texto de una fila | Se crea con su texto, como un `nextStep`. |
-| El comercial cambia la fecha de una fila | Se crea como un `nextStep` (en HubSpot, con la fecha que eligió). |
+| Revisión del dashboard: textos intactos, `nextStepSchedules` antiguos | Los compromisos se crean con su fecha, no con la antigua. |
+| Revisión de la extensión | Filas y fechas de los compromisos; se crean todos los conservados. |
 | Aprobación sin revisión | Se escriben todos los compromisos. |
-| HubSpot, Pipedrive y Salesforce | Construyen las filas desde los compromisos. |
-| HubSpot, deal existente con tareas | Sin fusión; no duplica una tarea con el mismo asunto. |
+| HubSpot y Pipedrive | Construyen las filas desde los compromisos. |
+| Salesforce con el flag encendido | Revisión y sync como antes. |
+| Memo con C04 de un prompt anterior | Filas y tareas de `nextSteps`. |
+| HubSpot, deal existente con tareas | Sin fusión; no duplica una tarea con el mismo asunto y enlaza su id. |
 | Pipedrive con hora | `due_date`/`due_time` en UTC. |
 | Tarea creada | Su id queda en el compromiso (`crm_task_id`). |
 | C04 con compromiso sin día | Se conserva con `due_at` null; uno mal formado se descarta. |

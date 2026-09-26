@@ -289,6 +289,7 @@ class HubSpotPreviewService:
                 extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
                 object_type="task",
                 due_date=task.due_date,
+                commitment_id=task.commitment_id,
             ))
         if commitment_tasks is not None:
             next_steps = []

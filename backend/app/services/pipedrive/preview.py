@@ -178,10 +178,10 @@ class PipedrivePreviewService:
             )
 
         if commitment_tasks is not None:
-            task_rows = [(task.text, task.due_date) for task in commitment_tasks]
+            task_rows = [(task.text, task.due_date, task.commitment_id) for task in commitment_tasks]
         else:
-            task_rows = [(str(step).strip(), None) for step in extraction.nextSteps or []]
-        for i, (text, due_date) in enumerate(task_rows):
+            task_rows = [(str(step).strip(), None, None) for step in extraction.nextSteps or []]
+        for i, (text, due_date, commitment_id) in enumerate(task_rows):
             if not text:
                 continue
             proposed_updates.append(
@@ -193,6 +193,7 @@ class PipedrivePreviewService:
                     extraction_confidence=extraction.confidence.get("fields", {}).get("nextSteps", 0.8),
                     object_type="task",
                     due_date=due_date,
+                    commitment_id=commitment_id,
                 )
             )
 

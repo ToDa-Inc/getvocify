@@ -225,6 +225,17 @@ export function taskRowsFromPreview({
 } = {}) {
   const previewTasks = (Array.isArray(proposedUpdates) ? proposedUpdates : [])
     .filter((u) => u && String(u.field_name || '').startsWith('next_step_task_'));
+  // Commitment rows (COMMITMENT_TASKS_ENABLED) are the tasks: their count and dates, never the legacy nextSteps'.
+  if (previewTasks.some((u) => u.commitment_id)) {
+    return previewTasks
+      .map((u, i) => ({
+        id: i + 1,
+        text: String(u.new_value || '').trim(),
+        checked: true,
+        dueDate: isoDateOrNull(u.due_date),
+      }))
+      .filter((row) => row.text);
+  }
   const dueForIndex = (i) => isoDateOrNull(
     dueDatesByIndex[i]
     || previewTasks[i]?.due_date

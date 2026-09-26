@@ -47,7 +47,6 @@ class SalesforcePreviewService:
         selected_deal_id: Optional[str],
         allowed_fields: Optional[list[str]],
         default_stage_name: Optional[str] = None,
-        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         if allowed_fields is None:
             allowed_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
@@ -171,19 +170,6 @@ class SalesforcePreviewService:
                         extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
                     ),
                 )
-
-        for i, task in enumerate(commitment_tasks or []):
-            proposed_updates.append(
-                ProposedUpdate(
-                    field_name=f"next_step_task_{i}",
-                    field_label="Next step",
-                    current_value=None,
-                    new_value=task.text,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("nextSteps", 0.8),
-                    object_type="task",
-                    due_date=task.due_date,
-                )
-            )
 
         proposed_field_names = {
             u.field_name
