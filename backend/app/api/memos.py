@@ -21,8 +21,9 @@ from app.services.activity_scope import (
     readable_memo_or_none,
     resolve_list_user_ids,
 )
-from app.services.captures import insert_memo_row
+from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row
 from app.services.followup import schedule_followup
+from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
 from app.services.extraction import ExtractionService
@@ -772,6 +773,8 @@ async def list_memos(
     hubspot_contact_id: Optional[str] = None,
     scope: str = Query("me"),
     author_user_id: Optional[str] = None,
+    memo_status: Optional[str] = Query(None, alias="status"),
+    reached_only: bool = False,
 ):
     """
     List memos.
@@ -782,9 +785,19 @@ async def list_memos(
     Optional HubSpot filters (for the extension on a deal/contact page):
     - hubspot_deal_id: memos from calls on that deal, or approved against it
     - hubspot_contact_id: memos from calls on that contact
+
+    Optional status: exact pipeline status (e.g. pending_review). Screened-out
+    calls (voicemail, no answer) are pending_review too; reached_only=true
+    drops them and keeps memos with no screening outcome.
     """
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    status_value = (memo_status if isinstance(memo_status, str) else "").strip() or None
+    if status_value and status_value not in MEMO_PIPELINE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown memo status",
+        )
     membership, members, authors = load_viewer_scope(supabase, user_id)
     role = membership.role if membership else None
     scope_value = scope if isinstance(scope, str) else getattr(scope, "default", None)
@@ -828,6 +841,12 @@ async def list_memos(
         q = q.or_(f"hubspot_deal_id.eq.{deal_id},matched_deal_id.eq.{deal_id}")
     elif contact_id:
         q = q.eq("hubspot_contact_id", contact_id)
+    if status_value:
+        q = q.eq("status", status_value)
+    if reached_only is True:
+        # Repeated `or` params are ANDed by PostgREST, so this composes with the deal filter.
+        unreached = ",".join(sorted(SKIPPED_SCREENING))
+        q = q.or_(f"screening_outcome.is.null,screening_outcome.not.in.({unreached})")
 
     result = q.execute()
     memos = [

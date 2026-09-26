@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timedelta
 from typing import Literal, Optional
 
+from app.services.hoy.names import clean_name
+
 PROMPT_VERSION = "followup_v1"
 STALE_GENERATING = timedelta(minutes=2)
 MAX_SUBJECT = 160
@@ -14,6 +16,10 @@ NO_EDIT_THRESHOLD = 0.02      # a fixed typo still counts as "sent as drafted"
 VOICE_SAMPLE_MIN_EDIT = 0.05  # only bodies the rep actually reshaped teach us their voice
 MAX_VOICE_SAMPLES = 5
 SKIPPED_SCREENING = frozenset({"voicemail", "no_response"})
+# Sent drafts belong to «Hecho hoy», not to the pending list.
+LISTABLE_STATUSES = ("ready", "generating", "unavailable")
+LIST_WINDOW = timedelta(days=7)
+LIST_LIMIT = 50
 
 
 def is_eligible(memo: dict) -> bool:
@@ -118,3 +124,30 @@ def followup_view(memo: dict, *, scheduled: bool = False) -> dict:
     if status == "sent":
         view["channel"] = current.get("channel") or "email"
     return view
+
+
+def listable_statuses(raw: str) -> tuple[str, ...]:
+    wanted = tuple(dict.fromkeys(part.strip() for part in (raw or "").split(",") if part.strip()))
+    if not wanted:
+        return ("ready",)
+    unknown = [value for value in wanted if value not in LISTABLE_STATUSES]
+    if unknown:
+        raise ValueError(f"status must be one of {', '.join(LISTABLE_STATUSES)}")
+    return wanted
+
+
+def pending_row(memo: dict) -> dict:
+    """One draft the author still has to act on, as the rep home lists it."""
+    current = memo.get("followup") or {}
+    extraction = memo.get("extraction") or {}
+    status = current.get("status")
+    subject = (current.get("final_subject") or current.get("subject") or None) if status == "ready" else None
+    return {
+        "memo_id": memo.get("id"),
+        "contact_id": memo.get("hubspot_contact_id") or None,
+        "contact_name": clean_name(extraction.get("contactName")),
+        "company_name": clean_name(extraction.get("companyName")),
+        "subject": subject,
+        "status": status,
+        "generated_at": current.get("ready_at") or current.get("started_at") or None,
+    }

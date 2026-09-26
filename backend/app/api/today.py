@@ -6,19 +6,23 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app.deps import get_membership, get_supabase
+from app.deps import get_membership, get_supabase, require_rep_workspace
 from app.services.company import CompanyService, Membership
 from app.services.coaching.brief_preferences import read_preference
 from app.services.feature_flags import is_enabled
 from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
+from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal
+from app.services.hoy.materialize import read_hoy_memos
+from app.services.hoy.names import NamePair, memo_directory
+from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
 from app.services.hoy.visibility import is_today_visible
 
 logger = logging.getLogger(__name__)
@@ -365,12 +369,7 @@ async def get_today(
     return view
 
 
-def _clean_name(value) -> str | None:
-    text = " ".join(str(value or "").split())
-    return text or None
-
-
-def _memo_directory(supabase, user_id: str) -> tuple[dict[str, tuple[str | None, str | None]], dict[str, tuple[str | None, str | None]]]:
+def _memo_directory(supabase, user_id: str) -> tuple[dict[str, NamePair], dict[str, NamePair]]:
     """Names already extracted on the memo. A failed read leaves the card unnamed."""
     try:
         stored = (
@@ -381,17 +380,7 @@ def _memo_directory(supabase, user_id: str) -> tuple[dict[str, tuple[str | None,
         )
     except Exception:
         return {}, {}
-    by_memo: dict[str, tuple[str | None, str | None]] = {}
-    by_contact: dict[str, tuple[str | None, str | None]] = {}
-    for memo in stored.data or []:
-        extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-        pair = (_clean_name(extraction.get("contactName")), _clean_name(extraction.get("companyName")))
-        if memo.get("id"):
-            by_memo[str(memo["id"])] = pair
-        contact_id = memo.get("hubspot_contact_id")
-        if contact_id and pair[0]:
-            by_contact[str(contact_id)] = pair
-    return by_memo, by_contact
+    return memo_directory(stored.data or [])
 
 
 def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict, dict]) -> None:
@@ -418,6 +407,67 @@ _CLOCK = [_CLOCK_DEFAULT]
 
 def _now() -> datetime:
     return datetime.now(timezone.utc) if _CLOCK[0] is _CLOCK_DEFAULT else _CLOCK[0]
+
+
+@router.get("/today/upcoming")
+async def get_today_upcoming(
+    days: int = Query(DEFAULT_DAYS),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    require_rep_workspace(supabase, membership.company_id)
+    if not MIN_DAYS <= days <= MAX_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"days must be between {MIN_DAYS} and {MAX_DAYS}",
+        )
+    now = _now()
+    return upcoming_commitments(
+        read_hoy_memos(supabase, company_id=membership.company_id, user_id=membership.user_id),
+        now=now,
+        tz_name=_daily_run_timezone(membership.user_id),
+        days=days,
+    )
+
+
+@router.get("/today/done")
+async def get_today_done(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
+    require_rep_workspace(supabase, membership.company_id)
+    now = _now()
+    tz_name = _daily_run_timezone(membership.user_id)
+    since = local_midnight(now, tz_name).isoformat()
+    signals = (
+        supabase.table("action_signals")
+        .select("*")
+        .eq("company_id", membership.company_id)
+        .eq("user_id", membership.user_id)
+        .gte("last_action_at", since)
+        .execute()
+    )
+    # sent_at is always written as UTC isoformat, so the text comparison on the JSON field holds.
+    followups = (
+        supabase.table("memos")
+        .select("id,hubspot_contact_id,followup")
+        .eq("user_id", membership.user_id)
+        .or_(f"company_id.eq.{membership.company_id},company_id.is.null")
+        .gte("followup->>sent_at", since)
+        .execute()
+    )
+    calls = (
+        supabase.table("outbound_calls")
+        .select("memo_id,hubspot_contact_id,call_disposition,answered_at,created_at")
+        .eq("user_id", membership.user_id)
+        .gte("created_at", since)
+        .execute()
+    )
+    return done_today(
+        signals=signals.data or [],
+        followups=followups.data or [],
+        calls=calls.data or [],
+        names=_memo_directory(supabase, membership.user_id),
+        now=now,
+        tz_name=tz_name,
+    )
 
 
 class ResolveBody(BaseModel):

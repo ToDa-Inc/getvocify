@@ -8,7 +8,10 @@ from zoneinfo import ZoneInfo
 from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
 
 
-def _as_dt(value) -> datetime | None:
+HOY_MEMO_LIMIT = 40
+
+
+def as_dt(value) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -72,7 +75,7 @@ def fresh_signals(memos: list[dict], *, now: datetime, day_end: datetime) -> lis
             "objections": _objections(extraction, intelligence),
             "commitments": _commitments(intelligence),
         }
-        at = _as_dt(memo.get("capture_started_at") or memo.get("created_at"))
+        at = as_dt(memo.get("capture_started_at") or memo.get("created_at"))
         contact = memo.get("hubspot_contact_id") or memo.get("contact_id")
         touch = touch_from_intelligence(
             memo_id=str(memo.get("id") or ""),
@@ -128,17 +131,23 @@ def persist_new_signals(supabase, *, company_id: str, user_id: str, signals: lis
     return written
 
 
+def read_hoy_memos(supabase, *, company_id: str, user_id: str) -> list[dict]:
+    """The rep's newest memos: the only window Hoy materializes signals from."""
+    stored = (
+        supabase.table("memos")
+        .select("id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at")
+        .eq("user_id", user_id)
+        .or_(f"company_id.eq.{company_id},company_id.is.null")
+        .order("created_at", desc=True)
+        .limit(HOY_MEMO_LIMIT)
+        .execute()
+    )
+    return list(stored.data or [])
+
+
 def refresh_hoy_signals(supabase, *, company_id: str, user_id: str, now: datetime, tz_name: str) -> int:
     try:
-        stored = (
-            supabase.table("memos")
-            .select("id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at")
-            .eq("user_id", user_id)
-            .or_(f"company_id.eq.{company_id},company_id.is.null")
-            .order("created_at", desc=True)
-            .limit(40)
-            .execute()
-        )
+        memos = read_hoy_memos(supabase, company_id=company_id, user_id=user_id)
         existing = (
             supabase.table("action_signals")
             .select("dedupe_key")
@@ -148,7 +157,7 @@ def refresh_hoy_signals(supabase, *, company_id: str, user_id: str, now: datetim
         )
     except Exception:
         return 0
-    signals = fresh_signals(list(stored.data or []), now=now, day_end=day_end(now, tz_name))
+    signals = fresh_signals(memos, now=now, day_end=day_end(now, tz_name))
     known = {str(row.get("dedupe_key") or "") for row in (existing.data or [])}
     try:
         return persist_new_signals(

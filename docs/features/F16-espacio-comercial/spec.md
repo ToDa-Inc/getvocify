@@ -153,6 +153,99 @@ Cada fila tiene su test en la tarea indicada (`design.md` §14).
 
 Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el CRM ni crean un camino de procesamiento paralelo. Todo sigue saliendo de `memos` (Interaction), `action_signals` y `outbound_calls`.
 
+### Addendum T2 — lecturas (26 sep 2026)
+
+**Flag.** `/followups`, `/today/upcoming` y `/today/done` van detrás de `REP_WORKSPACE_ENABLED`. Apagado, responden 404 `{"detail": "Not Found"}`, igual que una ruta que no existe. El flag se comprueba antes que los parámetros: con el flag apagado, un `status` desconocido o un `days` fuera de rango también dan 404. Las tres devuelven una lista JSON.
+
+**Zona horaria.** La del comercial, con el mismo helper que ya usa Hoy (`brief_preferences.timezone`; por defecto `Europe/Madrid`). «Hoy» y «mañana» son días naturales en esa zona, también en los cambios de hora.
+
+**`GET /api/v1/followups?status=ready`**
+- `status`: uno o varios separados por comas, entre `ready` (por defecto), `generating` («Escribiendo el seguimiento…») y `unavailable` (el borrador falló o salió vacío: «No se pudo redactar»). Son los valores guardados en `memos.followup.status`. `sent` no se acepta porque va a Hecho hoy. Otro valor → 422.
+- **Solo el autor** (`memos.user_id`), también para owner/admin, porque solo el autor envía (`api/followup.py`).
+- **Ventana:** conversaciones creadas en los últimos 7 días (`memos.created_at`), de la más reciente a la más antigua, con un máximo de 50.
+- Una conversación rechazada (`memos.status = rejected`) no sale aunque su borrador siga listo.
+- Un borrador copiado pero no enviado sigue en `ready`. Enviado desde Gmail o desde la extensión pasa a `sent` y desaparece.
+- Fila: `{memo_id, contact_id, contact_name, company_name, subject, status, generated_at}`.
+  - `contact_id` = `hubspot_contact_id`.
+  - Nombre y empresa salen de `extraction.contactName` / `companyName`, igual que en las tarjetas de Hoy.
+  - `subject` (asunto final, o el del borrador) solo va relleno en `ready`; en los demás estados es `null`.
+  - `generated_at` = `ready_at` y, si falta, `started_at`.
+
+**Filtro `status` en `GET /api/v1/memos`**
+- Opcional. Admite los estados de `MEMO_PIPELINE_STATUSES` (`app/services/captures.py`); otro valor → 422. Sin `status`, la respuesta es idéntica a la actual.
+- **No va detrás del flag.** Es un filtro genérico e inocuo sobre un listado que ya existe y respeta las mismas reglas de visibilidad (`scope`, autor).
+- Es un filtro exacto sobre la columna: `pending_review` también incluye las notas de buzón o sin respuesta (`screeningOutcome`), que nunca se autoaprueban.
+- `reached_only=true` (opcional, por defecto `false`, tampoco detrás del flag) las descarta: quita las notas con `screening_outcome` `voicemail` o `no_response` y conserva las que no tienen `screening_outcome` (notas de voz, reuniones, llamadas sin clasificar). Es lo que pide «por revisar»: `?status=pending_review&reached_only=true`. Sin el parámetro, la consulta no cambia.
+
+**`GET /api/v1/today/upcoming?days=7`**
+- `days` entre 1 y 14 (por defecto 7); fuera de ese rango → 422.
+- **Ventana:** desde mañana a las 00:00 hasta las 00:00 del día `mañana + days`, sin incluirlo; es decir, `days` días naturales empezando mañana. Lo que vence hoy o antes no sale: ya lo enseña Hoy (`commitment_due`).
+- **Fuente:** las mismas conversaciones de las que Hoy saca sus señales: las 40 más recientes del propio comercial (`read_hoy_memos` en `app/services/hoy/materialize.py`), y de ellas los compromisos C04 (`extraction.intelligence.commitments`, con `due_at` y `text`).
+- **Misma regla que Hoy, con el mismo código** (`fresh_signals`): por contacto (`hubspot_contact_id`, o la propia conversación si no tiene contacto) solo cuenta la conversación más reciente (`capture_started_at` o `created_at`). Si esa conversación marca `deal_closed`, no sale nada. Así Próximas no promete algo que Hoy no vaya a enseñar ese día.
+- **Sin duplicados, con la clave de Hoy:** `commitment:{memo_id}:{tipo}:{fecha de due_at}`. Dos compromisos del mismo tipo el mismo día en la misma conversación son una sola fila (la primera), igual que una sola tarjeta en Hoy; tengan o no `id`.
+- Fila: `{memo_id, contact_id, contact_name, company_name, text, due_at, precision, crm_task_id}`.
+  - `precision` = `temporal_precision` del modelo (`date` | `time`), o `null` si falta.
+  - `crm_task_id` = `commitment.crm_task_id` (E2), o `null` si falta.
+  - Orden: por `due_at`.
+
+**`GET /api/v1/today/done`**
+- Desde la medianoche local del comercial hasta ahora. De lo más reciente a lo más antiguo, con un máximo de 50.
+- Fila: `{kind, contact_name, at, memo_id}`.
+  - `contact_name` sale del nombre extraído en la conversación: la de la fila o, si no, otra del mismo contacto, como en las tarjetas de Hoy. Si no hay ninguna, `null`.
+  - `memo_id` puede ser `null`.
+  - `kind` es extensible: E7 añadirá `confirmation`.
+- **Qué cuenta como «hecho»:**
+  - `signal`: una señal de Hoy **que el comercial resolvió hoy**: `status = resolved`, con `last_action_at` de hoy.
+    - «Descartado» no es «hecho», y pospuesto tampoco.
+    - Las resoluciones automáticas (el contacto respondió, la señal dejó de aplicar) no escriben `last_action_at`, así que no cuentan.
+    - Tampoco cuentan si antes hubo, ese mismo día, una acción del comercial que no era resolver: una deshecha (`undo_deadline` vacío) o una posposición (`previous_status = snoozed`).
+    - `at` = `last_action_at`.
+  - `followup`: `memos.followup.status = sent` con `sent_at` de hoy. Copiar no cuenta. `at` = `sent_at`.
+  - `call`: una llamada del dialer (`outbound_calls`) hecha hoy (`created_at`) con `call_disposition = connected`, es decir, con conversación.
+    - No cuentan buzón, sin respuesta, comunicando, no contesta, fallida ni cancelada.
+    - Tampoco la que aún no se ha clasificado: aparece al terminar de procesarse.
+    - `at` = `answered_at` o, si falta, `created_at`.
+
+**Edge cases (cada fila tiene su test en `backend/tests/hoy/test_rep_workspace_reads.py`; las filas hermanas comparten test)**
+
+| Lectura | Caso | Comportamiento esperado |
+|---|---|---|
+| Las tres | Flag apagado | 404 en `/followups`, `/today/upcoming` y `/today/done`, también con un `status` desconocido o un `days` fuera de rango |
+| Las tres | Flag encendido y sin datos | 200 con `[]` |
+| `/followups` | Follow-up listo de un miembro, pedido por su owner | No sale en la lista del owner; sí en la del autor |
+| `/followups` | Enviado (Gmail, extensión) o generándose | No sale con `status=ready` |
+| `/followups` | Copiado sin enviar | Sale en `ready` |
+| `/followups` | `status=generating,unavailable` | Salen los dos, con `subject: null` |
+| `/followups` | Conversación de hace más de 7 días | No sale |
+| `/followups` | `status=sent` o desconocido | 422 |
+| `/followups` | Conversación rechazada con borrador listo | No sale |
+| `/memos` | `status=pending_review` | Solo las notas en ese estado |
+| `/memos` | Sin `status` | Mismas filas y misma consulta que hoy |
+| `/memos` | `reached_only=true` | Sin buzón ni sin respuesta; salen las conectadas y las que no tienen `screening_outcome` |
+| `/memos` | `reached_only=false` | Mismas filas y misma consulta que sin el parámetro |
+| `/memos` | Estado desconocido | 422 |
+| `upcoming` | Compromiso hoy a las 23:30 (Madrid) | No sale |
+| `upcoming` | Compromiso mañana a las 00:30 (Madrid) | Sale |
+| `upcoming` | Último día de la ventana a las 23:59 / día siguiente a las 00:00 | El primero sale; el segundo no |
+| `upcoming` | Comercial en `Atlantic/Canary` | La ventana sigue su zona, no la de Madrid |
+| `upcoming` | Con `crm_task_id` / sin él | En la fila / `null` |
+| `upcoming` | Compromiso de otro comercial | No sale |
+| `upcoming` | Mismo compromiso repetido en la conversación | Una sola fila |
+| `upcoming` | Sin `id`: dos del mismo tipo el mismo día, y otro de otro tipo | Dos filas: la primera del par y la del otro tipo (clave de Hoy) |
+| `upcoming` | Compromiso en una conversación más antigua que las 40 últimas | No sale (misma ventana que Hoy) |
+| `upcoming` | Conversación más reciente con el mismo contacto, sin compromisos | El compromiso anterior no sale (regla de Hoy) |
+| `upcoming` | `days=0` o `days=15` | 422 |
+| `done` | Señal resuelta ayer a las 23:59 (Madrid) | No sale |
+| `done` | Señal resuelta hoy a las 00:01 (Madrid) | Sale |
+| `done` | Señal descartada o pospuesta hoy | No sale |
+| `done` | Señal resuelta por el sistema, o tras deshacer o posponer hoy | No sale |
+| `done` | Follow-up enviado hoy | Sale como `followup`, con `memo_id` y nombre |
+| `done` | Follow-up enviado ayer o solo copiado | No sale |
+| `done` | Llamada con buzón, sin respuesta o sin clasificar | No sale |
+| `done` | Llamada conectada hoy | Sale como `call`, con el nombre de su conversación |
+| `done` | Datos de otro comercial | No salen |
+| `done` | Más de 50 filas | 50, de la más reciente a la más antigua |
+
 ## 8. Dependencias
 
 - **Existentes:** F05 (`/today`), F06 (acciones, deshacer, cola), F03 (`/briefs`), F02 (follow-up), F04 (`/contact-priorities`), F07 (Preguntar), F13 (campana e informes), F15 (Equipo).
