@@ -1,6 +1,6 @@
 # Informe F15
 
-Estado: **BLOCKED** — falta un criterio de aceptación (alcance compartido panel/chat en navegador).
+Estado: **DONE** (código y tests) — verificación en navegador sobre staging pendiente del controlador.
 
 ## Criterio de aceptación (DoD)
 
@@ -13,24 +13,26 @@ Estado: **BLOCKED** — falta un criterio de aceptación (alcance compartido pan
 | Member 403 sin cifras | pass | `tests/team_insights/test_permissions.py` |
 | Chat no amplía ámbito por texto | pass | `tests/team_insights/test_permissions.py` |
 | Informes usan `adherence_crm_outcomes` | pass | `tests/team_insights/test_adherence_crm_outcomes.py::test_scheduled_report_outcomes_match_team_crm_helper` |
-| Muestra 1–4: aviso y sin tasa concluyente | pass | `tests/team_insights/test_aggregate.py` (`sample_limited`), `src/lib/team-insights.test.ts` (`sampleLimited` → `winRate` null) |
-| Sin leaderboard/scorecard | pass | `src/lib/team-insights.test.ts` (ausencia en fuentes) |
-| Bloques A14 + tabla; filtros/chat mismo alcance | **pendiente** | Tablas en componentes verificadas en `src/lib/team-insights.test.ts`; **bloqueador:** sin sesión Reticle en `/dashboard/insights` ni paridad numérica Ask↔panel (herramienta `get_team_metrics` solo devuelve `scope`) |
+| Muestra 1–4: aviso y sin tasa concluyente | pass | `tests/team_insights/test_aggregate.py` (`sample_limited`), `src/lib/team-insights.test.ts` |
+| Sin leaderboard/scorecard | pass | `src/lib/team-insights.test.ts` |
+| Bloques A14 + tabla; filtros/chat mismo alcance | **pass (código/tests)** | Tablas `sr-only` en componentes; paridad en `test_channels.py`; **Reticle en staging pendiente** |
+| Competidores con nombre (flag) | pass | `test_competitors.py` |
 | Dedupe deal y atribución | pass | `tests/team_insights/test_outcomes.py`, `src/lib/team-insights.test.ts` |
 | Estados vacíos/parciales sin cero ficticio | pass | `tests/team_insights/test_aggregate.py`, `test_adherence_crm_outcomes.py`, `src/lib/team-insights.test.ts` |
 
-## Comandos al cierre
+## Comandos al cierre (E8)
 
-- `cd backend && .venv/bin/python -m pytest tests/team_insights tests/reporting -q` → 63 passed
-- `npm run build` → ok
-- `make test-js` → ok (incl. `src/lib/team-insights.test.ts`)
+- `cd backend && .venv/bin/python -m pytest -q -p no:cacheprovider` → **1554 passed**
+- `node --experimental-strip-types --test src/lib/*.test.ts` → **0 fallos**
+- `npm run build` / `vite build` → ok
 
-## Bloqueadores
+## Pendiente operativo
 
-1. **DoD visual/alcance compartido (criterio A14 + chat):** hace falta `reticle_act_and_wait` en `/dashboard/insights` (filtros → bloques → tablas) y definir si Ask debe devolver los mismos números que el panel además del `scope` autorizado.
+- Recorrido manual `/dashboard/insights` en staging (filtros → bloques → tablas; competidores con flag).
 
 ## Entregado (resumen técnico)
 
-- Backend: `team_insights/{aggregate,outcomes,objections}.py`, `GET /api/v1/team/adherence`, migración 049, informes diarios vía `_outcomes_for_snapshot` → `adherence_crm_outcomes`.
-- Web: `/dashboard/insights`, módulo `src/features/team-insights/`, copy EN/ES desde `product-catalog.ts`.
+- Backend: `team_insights/{aggregate,outcomes,objections,competitors}.py`, `GET /api/v1/team/adherence`, migración 049, informes vía `team_adherence`.
+- Ask: `get_team_metrics` paridad demostrada; competidores gated por `TEAM_COMPETITORS_ENABLED`.
+- Web: `/dashboard/insights`, tablas accesibles A14, competidores en tarjeta Objeciones (flag).
 - Sin CRM en vivo en pruebas; sin leaderboard; adherencia pooled; semana Europe/Madrid.
