@@ -121,10 +121,28 @@ async def test_an_extracted_note_runs_the_hooks_once_then_auto_approve(calls):
     ]
 
 
-async def test_the_reply_does_not_wait_for_the_hooks(calls):
+async def test_memo_creation_returns_before_the_hooks_run(calls):
     memo_id, _ = await _create(_DB())
     assert memo_id == MEMO_ID
     assert calls == []
+    await _drain()
+    assert [name for name, *_ in calls] == ["hooks", "auto_approve"]
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "app.services.pipeline_lease.update_memo_row",
+        "app.services.transcript_sanitize.schedule_transcript_polish",
+        "app.services.followup.schedule_followup",
+    ],
+)
+async def test_hooks_still_run_when_a_step_after_the_insert_fails(monkeypatch, calls, target):
+    def broken(*_a, **_k):
+        raise RuntimeError("step down")
+
+    monkeypatch.setattr(target, broken)
+    await _create(_DB())
     await _drain()
     assert [name for name, *_ in calls] == ["hooks", "auto_approve"]
 

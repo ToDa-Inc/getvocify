@@ -71,6 +71,52 @@ def test_voicemail_and_no_answer_never_count():
     assert _channels(memos) == {"call": 0, "meeting": 0, "visit": 0}
 
 
+def test_a_dialer_call_without_screening_yet_does_not_count():
+    memos = [
+        _memo("transcribing", source="vocify_call", screening_outcome=None, status="processing"),
+        _memo("failed", source="vocify_call", screening_outcome=None, status="failed"),
+    ]
+    assert _channels(memos) == {"call": 0, "meeting": 0, "visit": 0}
+
+
+class _RecordingQuery:
+    def __init__(self, log: list):
+        self.log = log
+
+    def __getattr__(self, name):
+        def record(*args, **_kwargs):
+            self.log.append((name, *args))
+            return self
+
+        return record
+
+    def execute(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(data=[])
+
+
+class _RecordingDB:
+    def __init__(self):
+        self.log: list = []
+
+    def table(self, name):
+        self.log.append(("table", name))
+        return _RecordingQuery(self.log)
+
+
+@pytest.mark.parametrize("member_ids", [[REP], []])
+def test_the_team_memo_read_is_bounded_by_the_period(member_ids):
+    from app.services.reporting.channels import load_team_channel_memos
+
+    db = _RecordingDB()
+    assert load_team_channel_memos(db, COMPANY, member_ids, start=START, end=END) == []
+    gte = [entry for entry in db.log if entry[0] == "gte"]
+    lt = [entry for entry in db.log if entry[0] == "lt"]
+    assert gte == [("gte", "created_at", START.isoformat())]
+    assert len(lt) == 1 and lt[0][1] == "created_at" and lt[0][2] > END.isoformat()
+
+
 def test_a_voice_note_is_not_a_conversation():
     assert _channels([_memo("note", interaction_kind="voice_note")]) == {"call": 0, "meeting": 0, "visit": 0}
 

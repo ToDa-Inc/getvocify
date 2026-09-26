@@ -191,7 +191,7 @@ def _team_has_activity(body: dict) -> bool:
 
 def _team_channels(supabase, company_id: str, inputs: dict, *, start: datetime, end: datetime) -> dict | None:
     member_ids = [str(rep["userId"]) for rep in inputs.get("reps") or [] if rep.get("userId")]
-    memos = load_team_channel_memos(supabase, company_id, member_ids)
+    memos = load_team_channel_memos(supabase, company_id, member_ids, start=start, end=end)
     return None if memos is None else interaction_channels(memos, start=start, end=end)
 
 

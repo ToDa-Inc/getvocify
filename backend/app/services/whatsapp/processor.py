@@ -2251,13 +2251,14 @@ async def _extract_and_create_memo(
         if not r.data:
             return None, None
         memo_id = r.data[0]["id"]
+        extraction_data = extraction.model_dump() if hasattr(extraction, "model_dump") else extraction
+        # Redelivery takes the idempotent exit, so a later failure here must not cost the memo its hooks.
+        _schedule_post_extraction(supabase, str(memo_id), user_id, extraction_data)
         from app.services.pipeline_lease import update_memo_row
 
         update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
         schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
         schedule_followup(supabase, str(memo_id))
-        extraction_data = extraction.model_dump() if hasattr(extraction, "model_dump") else extraction
-        _schedule_post_extraction(supabase, str(memo_id), user_id, extraction_data)
         from app.services.intelligence.worker import record_enqueue
         record_enqueue(
             supabase,
