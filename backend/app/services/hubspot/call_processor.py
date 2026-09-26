@@ -27,6 +27,7 @@ from app.services.hubspot.calls import (
     get_call_engagement,
     parse_hubspot_timestamp_ms,
 )
+from app.services.captures import with_author_company
 from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
@@ -99,7 +100,7 @@ async def initiate_hubspot_call_memo(
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        ins = supabase.table("memos").insert(row).execute()
+        ins = supabase.table("memos").insert(with_author_company(supabase, row)).execute()
     except Exception as insert_exc:
         # Lost a race against a redelivered HubSpot webhook for the same
         # call_id (unique index from migration 009) - the other request

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
 from supabase import Client
+
+logger = logging.getLogger(__name__)
 
 INTERACTION_KINDS = frozenset({"call", "meeting", "visit", "voice_note"})
 CAPTURE_STATUSES = (
@@ -105,9 +108,23 @@ def content_fingerprint(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def with_author_company(supabase: Client, row: dict[str, Any]) -> dict[str, Any]:
+    """company_id is immutable once set, so it has to be stamped at insert. A failed lookup never blocks capture."""
+    if row.get("company_id") or not row.get("user_id"):
+        return row
+    from app.services import company
+
+    try:
+        company_id = company.get_company_id_for_user(supabase, str(row["user_id"]))
+    except Exception as exc:
+        logger.warning("memo company lookup failed for %s: %s", row.get("user_id"), exc)
+        return row
+    return {**row, "company_id": company_id} if company_id else row
+
+
 def insert_memo_row(supabase: Client, payload: dict[str, Any]) -> dict:
     """Shared memo insert. source_type is always persisted."""
-    row = dict(payload)
+    row = with_author_company(supabase, dict(payload))
     source_type = str(row.get("source_type") or "voice_memo").strip() or "voice_memo"
     row["source_type"] = source_type
     result = supabase.table("memos").insert(row).execute()

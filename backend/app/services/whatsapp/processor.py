@@ -21,6 +21,7 @@ from app.services.crm_providers import (
     resolve_sync_connection,
     resolve_sync_connection_prefer_hubspot,
 )
+from app.services.captures import with_author_company
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
@@ -2191,7 +2192,7 @@ async def _extract_and_create_memo(
         if conversation_id:
             insert["conversation_id"] = conversation_id
         try:
-            r = supabase.table("memos").insert(insert).execute()
+            r = supabase.table("memos").insert(with_author_company(supabase, insert)).execute()
         except Exception as insert_exc:
             # Lost a race against a redelivered webhook for the same message_id
             # (see migrations/016_whatsapp_message_id_unique.sql) - the other

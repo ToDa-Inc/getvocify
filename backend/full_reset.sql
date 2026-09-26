@@ -257,6 +257,12 @@ CREATE TABLE crm_configurations (
   on_hold_lead_status_value TEXT,
   auto_sync_hubspot_calls BOOLEAN NOT NULL DEFAULT false,
 
+  -- F14 (migration 052): stage for a saved booked meeting. NULL = never move a stage.
+  meeting_booked_pipeline_id TEXT,
+  meeting_booked_stage_id TEXT,
+  CONSTRAINT crm_configurations_meeting_booked_stage_check
+    CHECK (meeting_booked_stage_id IS NULL OR meeting_booked_pipeline_id IS NOT NULL),
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   
@@ -744,8 +750,13 @@ CREATE TABLE IF NOT EXISTS meeting_writes (
   proposal_id TEXT NOT NULL,
   remote_id TEXT,
   crm_status TEXT NOT NULL,
-  stage_changed BOOLEAN NOT NULL DEFAULT false
+  stage_changed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_meeting_writes_created_at
+  ON meeting_writes (created_at)
+  WHERE stage_changed;
 
 CREATE TABLE IF NOT EXISTS post_interaction_briefs (
   memo_id UUID NOT NULL,
@@ -793,6 +804,16 @@ CREATE TABLE IF NOT EXISTS report_notifications (
   user_id UUID NOT NULL,
   read_at TIMESTAMPTZ
 );
+
+-- F13.04 / migration 053: per-person report opt-outs. No row = all on. Service role only.
+CREATE TABLE IF NOT EXISTS report_preferences (
+  user_id UUID PRIMARY KEY,
+  daily_enabled BOOLEAN NOT NULL DEFAULT true,
+  weekly_enabled BOOLEAN NOT NULL DEFAULT true,
+  team_enabled BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE report_preferences ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS team_outcome_observations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

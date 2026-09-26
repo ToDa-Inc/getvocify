@@ -5,6 +5,7 @@ Application configuration from environment variables
 import json
 import os
 import tempfile
+from datetime import date
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -63,6 +64,12 @@ class Settings(BaseSettings):
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8
+    # Ask (web + WhatsApp): team metrics, conversations, objections, priorities and Pipedrive reads.
+    ASK_VOCIFY_DATA_TOOLS_ENABLED: bool = False
+    # Team view: weekly playbook adherence per rep (GET /team/adherence/trend). Owner/admin only.
+    TEAM_ADHERENCE_TREND_ENABLED: bool = False
+    # Web Ask: «¿a quién llamo hoy?» returns the priority contacts with a Call action. Needs the data tools.
+    ASK_CALL_ACTIONS_ENABLED: bool = False
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
     TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
@@ -194,13 +201,32 @@ class Settings(BaseSettings):
     # Play the AEPD recording disclosure to the called party before bridging.
     # Off by default; flip on per environment. The whisper route stays mounted.
     CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
+    # Spain: Orden TDF/149/2025 art. 9 bars +34 6/7 mobiles for commercial
+    # calls; +34 400 cannot receive the verification call. Global because it is
+    # law for every tenant, not a plan feature. See docs/telephony/DECISION.md.
+    CALLING_ES_CLI_GATE_ENABLED: bool = True
+    # Already-verified Spanish mobiles stop dialing from this Europe/Madrid date
+    # (Resolución SETID 14-04-2026, apartado sexto).
+    CALLING_ES_MOBILE_CALL_BLOCK_FROM: date = date(2026, 10, 17)
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
     # Follow-up drafts. Off does not block extraction; sent means mail-client handoff.
     FOLLOWUP_ENABLED: bool = True
+    # Daily report email, per company. The report is still generated and listed in the bell when off.
+    REPORTING_DAILY_EMAIL_ENABLED: bool = False
+    # Deal stage chosen by the rep on memo review; accepting a meeting no longer moves it. Per company.
+    DEAL_STAGE_CONFIRM_ENABLED: bool = False
+    # Reports (F13.04 / F15.05), per company. Weekly personal report, Friday 18:00 local.
+    REPORTING_WEEKLY_ENABLED: bool = False
+    # Weekly team report by email for owner/admin, from the same aggregate as the team panel.
+    REPORTING_TEAM_ENABLED: bool = False
+    # Bell also lists what Vocify did on its own (CRM writes, meeting stage moves) and why.
+    NOTIFICATIONS_ACTIVITY_ENABLED: bool = False
     INTELLIGENCE_WORKER_PUBLISH: bool = False
     # Interest, objections and commitments from the transcript, once per extraction.
     INTELLIGENCE_EXTRACT_ENABLED: bool = False
+    # Hoy card «no te ha respondido»: reads the rep's CRM emails. HubSpot needs sales-email-read.
+    HOY_NO_REPLY_ENABLED: bool = False
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
