@@ -100,8 +100,27 @@ Sin esto, cada feature reinventa la rueda y la calidad diverge.
 | F0.2 | **Pipeline de extracción v1** | Etapas: STT (Speechmatics, ya existe) → extracción estructurada (JSON schema por tipo de interacción) → router de acciones. Idempotente, reintentable, con cola. |
 | F0.3 | **Golden dataset + eval harness** | 50–100 interacciones reales anonimizadas de los betas (con permiso/DPA), con extracciones esperadas anotadas a mano por los founders. Runner de evals (puede ser pytest + LLM-as-judge para campos abiertos). ESTE es el activo que hace posible el trabajo de cirujano en IA. |
 | F0.4 | **Instrumentación de los 4 KPIs** | % campos CRM rellenos, horas admin ahorradas (calculadas por actividad), time-to-value, y hueco preparado para adherencia (llega con C1). Dashboard interno simple. |
-| F0.5 | **Feature flags** | Por cliente/usuario. Simple (tabla + check), no hace falta LaunchDarkly. |
+| F0.5 | **Feature flags** | Por cliente/usuario. Simple (tabla + check), no hace falta LaunchDarkly. Por empresa: hecho (ver abajo). Por usuario: pendiente. |
 | F0.6 | **Decisión build vs. buy para A3/A4** | Spike de 1 día con Recall.ai (bot API + Desktop SDK): coste por hora de grabación vs. volumen de los 16 betas. Decisión documentada en `docs/features/A3/design.md`. |
+
+### Activar un flag para un cliente
+
+El valor global sale de `backend/app/config.py` (env). Una fila en `company_feature_flags` lo sobrescribe para esa empresa; sin fila, manda el global. El backend lo lee con `app.services.feature_flags.is_enabled(supabase, company_id, "FLAG")`. Solo service role (SQL editor de Supabase); no hay UI ni escritura desde cliente. El cambio tarda hasta 1 minuto en aplicarse (caché por proceso).
+
+```sql
+SELECT id, name FROM companies WHERE name ILIKE '%acme%';
+
+INSERT INTO company_feature_flags (company_id, flag, enabled)
+VALUES ('<company_id>', 'INTELLIGENCE_EXTRACT_ENABLED', true)
+ON CONFLICT (company_id, flag) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now();
+
+-- volver al valor global
+DELETE FROM company_feature_flags WHERE company_id = '<company_id>' AND flag = 'INTELLIGENCE_EXTRACT_ENABLED';
+```
+
+Hoy por empresa: `REPORTING_DAILY_EMAIL_ENABLED` (email del informe diario; apagado, el informe se genera y sale en la campana, pero no se envía), `INTELLIGENCE_EXTRACT_ENABLED`, `ASK_VOCIFY_DATA_TOOLS_ENABLED` y `ASK_CALL_ACTIONS_ENABLED` (botón Llamar en «¿a quién llamo hoy?» de Ask; necesita también `ASK_VOCIFY_DATA_TOOLS_ENABLED`, ver F07.06). `TEAM_ADHERENCE_TREND_ENABLED`: evolución semanal de adherencia por comercial en Equipo, solo owner/admin; apagado, `GET /team/adherence/trend` da 404 y la tarjeta de Adherencia no cambia (addendum de `16-f15-equipo.md`). `REPORTING_WEEKLY_ENABLED`: informe semanal personal (viernes 18:00 local, email «Tu semana en Vocify»), F13.04. `REPORTING_TEAM_ENABLED`: informe semanal de equipo por email solo para owner/admin, F15.05. `NOTIFICATIONS_ACTIVITY_ENABLED`: la campana lista también lo que Vocify hizo solo en el CRM, F13.04. `HOY_NO_REPLY_ENABLED`: aviso de Hoy «no te ha respondido» (F05.05; en HubSpot necesita el permiso `sales-email-read`). `DEAL_STAGE_CONFIRM_ENABLED`: el comercial confirma la etapa del deal en la revisión de la nota y aceptar una reunión no la mueve (addendum de `12-f14-meeting-booked.md`). Un flag nuevo solo necesita que su punto de uso llame a `is_enabled` con el `company_id`.
+
+`HOY_NO_REPLY_ENABLED` (F05.05, tarjeta «no te ha respondido» en Hoy): lee los emails del comercial en HubSpot. HubSpot exige el scope `sales-email-read`, que todavía no está en `HUBSPOT_OAUTH_SCOPES`. Sin ese scope, `coverage.crm_emails` sale `forbidden` y Hoy muestra «Información incompleta». En Pipedrive siempre sale `unavailable`. Enciéndelo solo en portales HubSpot que hayan concedido el scope.
 
 ---
 
