@@ -21,6 +21,7 @@ COMPANY = "88888888-8888-8888-8888-888888888888"
 AT_CUTOFF = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
 MEMO_COLUMNS = {
     "id", "company_id", "user_id", "screening_outcome", "extraction", "capture_started_at", "created_at",
+    "source", "source_type", "interaction_kind",
 }
 
 

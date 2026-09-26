@@ -56,6 +56,10 @@ ALTER TABLE memos ADD COLUMN score jsonb;
 -- backfill: source='whatsapp' → 'voice_note'; source IN ('vocify_call','hubspot_call') → 'call'
 ```
 
+**Hecho (26 sep 2026, E1):** la columna es `memos.interaction_kind` (`call | meeting | visit | voice_note`, migración 037).
+- Toda captura la estampa al insertar con `captures.interaction_kind_for(source, source_type, existing)`: WhatsApp → `visit`, no `voice_note`.
+- Las filas antiguas se leen con el mismo helper como fallback (`interaction_kind_of`), sin backfill.
+
 ---
 
 ## 3. Los dos huecos reales: `action_signals` y `interaction_patterns`
