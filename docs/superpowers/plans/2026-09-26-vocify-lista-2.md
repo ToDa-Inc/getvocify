@@ -94,6 +94,31 @@
 | Follow-up | Editar hasta que aprende su estilo | Su estilo desde el primer día (E6) |
 | Coaching | Llega solo (según su preferencia) | Igual, también por las visitas (E1) |
 
+### 1.4 Cambio de enfoque (decisión del founder, 26 sep): Vocify es el espacio de trabajo del comercial
+
+Hasta ahora la idea era que el comercial casi no entrara en Vocify: todo pasaba por la extensión, el CRM y los emails (`EXPERIENCIA_PRODUCTO.md`: «por encima, un solo gesto»). Con Hoy, las preparaciones, las confirmaciones, los follow-ups y Ask, **el comercial va a pasar tiempo dentro de Vocify e interactuar con él**. Eso cambia el esquema:
+
+- **Vocify tiene una casa para el comercial:** una pantalla principal, sencilla, bonita y ordenada, donde ve y trabaja su día. Incluye:
+  - las reuniones de hoy;
+  - a quién llamar y por qué;
+  - las confirmaciones pendientes;
+  - los follow-ups por enviar;
+  - las próximas tareas;
+  - lo hecho hoy.
+- **Desde esa casa se hace todo sin saltar de pantalla:** preparar (brief), llamar (dialer), confirmar, enviar el follow-up y preguntar a Ask.
+- **Lo que no cambia:**
+  - Menos clics y lo esencial primero.
+  - Sin paneles de analítica para el comercial.
+  - Peso visual proporcional a la frecuencia de uso.
+  - Estados vacíos, de carga y de error diseñados.
+  - La referencia de calidad sigue siendo Granola.
+- **Las superficies se reparten el trabajo:**
+  - la extensión sigue siendo el sitio para preparar una llamada desde el CRM;
+  - el desktop captura reuniones (Dani);
+  - el dashboard pasa a ser el sitio donde el comercial organiza su día.
+
+Esto se concreta en la entrega **E10** (diseño primero, aprobado por el founder antes de construir) y en que las piezas de UI de E3–E7 se colocan dentro de ese espacio, no repartidas por pantallas sueltas.
+
 ---
 
 ## 2. Principios de arquitectura (se aplican a todas las entregas)
@@ -377,6 +402,27 @@ Cada entrega dice qué resulta: qué es verdad cuando termina.
 - **Actualización del estado** en `MASTER_PLAN.md` y `PENDIENTES.md`.
 - **Resulta:** una prueba automática que falla si una pieza deja de enseñar lo mismo que las demás, y una forma de medir cada objetivo con datos reales.
 
+### E10 · El espacio de trabajo del comercial (objetivo 3 y adopción)
+- **Por qué:** el comercial va a vivir en Vocify (sección 1.4). Hoy el dashboard está pensado para entrar poco: pantallas sueltas (Hoy, memos, dialer, Ask, Ajustes) sin una casa que ordene el día.
+- **Fase de diseño (antes de construir, la aprueba el founder):**
+  - análisis del dashboard, la extensión y el desktop actuales (rutas, navegación, componentes, tokens y copy);
+  - diseño en `docs/features/F16-espacio-comercial/` (`spec.md` + `design.md`);
+  - el recorrido del día con sus momentos críticos;
+  - la estructura de la casa del comercial (vista de manager aparte);
+  - dónde va cada pieza de E3–E7, con su peso visual;
+  - navegación simplificada, estados vacío, carga y error, teclado y transiciones;
+  - qué componentes se reutilizan y qué archivos se tocan;
+  - el cambio en `EXPERIENCIA_PRODUCTO.md`.
+- **Fase de construcción:**
+  - la casa del comercial en el dashboard (Hoy como pantalla principal, con sus secciones);
+  - el panel de contacto con brief, historial y follow-up sin salir de la casa;
+  - el dialer integrado;
+  - la navegación ajustada.
+
+  Todo detrás de `REP_WORKSPACE_ENABLED`, y la vista actual se queda para quien no tenga el flag.
+- **Verificación:** navegador sobre staging con tu sesión, recorriendo el día del comercial (sección 1.2).
+- **Resulta:** el comercial abre Vocify y en una pantalla ve y trabaja su día, bonita, ordenada y sin buscar nada.
+
 ---
 
 ## 5. Orden de ejecución
@@ -385,11 +431,14 @@ Máximo dos entregas a la vez (regla del plan maestro), elegidas para no tocar l
 
 | Ola | Entregas | Por qué juntas |
 |---|---|---|
-| 1 | E1 (pipeline) + E2 (compromisos) | Son los cimientos: sin ellos, todo lo demás enseña datos incompletos. |
-| 2 | E3 (brief v2) + E6 (follow-up) | Consumen los hechos de la ola 1; no comparten archivos. |
-| 3 | E4 (cold call) + E7 (confirmaciones) | E4 amplía el brief; E7 añade un motivo a Hoy. |
-| 4 | E5 (reuniones en Hoy) + E8 (Equipo) | E5 reutiliza el brief de E3 y E4. |
-| 5 | E9 (armonía, salud y activación) | Cierre sobre todo lo anterior. |
+| 1 | E1 (pipeline) + E2 (compromisos), y en paralelo el **diseño de E10** (sin código) | Los cimientos son solo backend; el diseño no toca código. |
+| — | **Aprobación del diseño de E10 por el founder** | Regla del repo: una pantalla nueva o un cambio de flujo se propone antes de construirse. |
+| 2 | E10 (construcción de la casa del comercial) + E6 (follow-up) | Las piezas de UI siguientes se colocan dentro de la casa. |
+| 3 | E3 (brief v2) + E7 (confirmaciones) | Se enchufan a la casa y al panel de contacto. |
+| 4 | E4 (cold call) + E5 (reuniones en Hoy) | E4 amplía el brief; E5 lo reutiliza. |
+| 5 | E8 (Equipo) + E9 (armonía, salud y activación) | Cierre sobre todo lo anterior. |
+
+Las entregas en paralelo trabajan en ramas y carpetas separadas (`.worktrees/l2-eN`, rama `l2/eN`) y se integran en `feat/lista-2`, creada desde `origin/staging`. La rama `staging` local no se sube, porque lleva el commit del permiso de HubSpot pendiente de `hs project upload`. Lo integrado se sube a `staging` con `git push origin feat/lista-2:staging`.
 
 **Gates de cada entrega:**
 - addendum escrito antes del código;
