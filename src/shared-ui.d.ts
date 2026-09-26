@@ -136,14 +136,34 @@ declare module "@shared/ui/home.js" {
     | { key: string; kind: "review"; contactId: string | null; name: string | null; entry: Extract<HomeNeedsOkRow, { kind: "review" }> }
     | { key: string; kind: "call"; source: "today" | "priority"; contactId: string | null; name: string | null; item: TodayItem };
 
-  export type HomeSelection = { mode: string; items: string[]; index?: number; touched: boolean };
+  export type HomeSelection = {
+    mode: string;
+    items: string[];
+    index?: number;
+    touched: boolean;
+    memoId?: string;
+    callSid?: string | null;
+    lastOutcome?: string;
+    lastCall?: { key: string; outcome: "no_answer" | "failed" };
+  };
   export type HomeSelectionEvent =
     | { type: "rows"; rows: HomeRow[]; wide: boolean }
     | { type: "select"; key: string }
     | { type: "next" }
     | { type: "prev" }
     | { type: "skip" }
-    | { type: "exit" };
+    | { type: "exit" }
+    | { type: "call"; key?: string }
+    | {
+        type: "call_ended";
+        answered?: boolean;
+        memoId?: string | null;
+        screeningOutcome?: string | null;
+        callStatus?: "failed";
+        callSid?: string | null;
+      }
+    | { type: "call_resolved"; outcome: "no_answer" | "failed"; callSid?: string | null }
+    | { type: "reviewed" };
   export type HomeOrder = Record<string, string[]>;
 
   export const initialHomeSelection: HomeSelection;
@@ -151,6 +171,8 @@ declare module "@shared/ui/home.js" {
   export function needsOkKey(entry: HomeNeedsOkRow): string;
   export function homeRows(view: HomeView, open?: { needsOkOpen?: boolean; groupOpen?: boolean }): HomeRow[];
   export function homeSelection(state: HomeSelection, event: HomeSelectionEvent): HomeSelection;
+  export function homeSelectionLocked(state: HomeSelection): boolean;
+  export function homeSelectionInReview(state: HomeSelection): boolean;
   export function selectedRow(state: HomeSelection, rows: HomeRow[]): HomeRow | null;
   export function holdOrder(order: HomeOrder | null, view: HomeView): { view: HomeView; order: HomeOrder };
   export function snoozeUntil(now: number, timeZone?: string): string;

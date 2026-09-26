@@ -1,7 +1,8 @@
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HomeRow } from "@shared/ui/home.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
+import { useCallingConfig } from "@/features/calls/useCallingConfig";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import {
   contactPhone,
@@ -33,23 +34,35 @@ export function panelCrmHref(
   return openUrl || contactRecordUrl(provider, portalId, row.contactId);
 }
 
+function verifiedCallerIds(callerIds: { status?: string; source?: string; callBlocked?: boolean }[]) {
+  return callerIds.filter(
+    (entry) => entry.status === "verified" && entry.source !== "twilio" && !entry.callBlocked,
+  );
+}
+
 export function usePanelPrimary(
   row: HomeRow | null,
   {
     provider,
     portalId,
+    inReview = false,
   }: {
     provider: string | null;
     portalId: string | null;
+    inReview?: boolean;
   },
 ) {
   const column = useHomeColumn();
   const dialer = useOptionalDialerFocus();
+  const { config } = useCallingConfig();
   const queryClient = useQueryClient();
   const canDial = column?.canDial ?? false;
+  const canPlace = verifiedCallerIds(config?.callerIds ?? []).length > 0;
   const contactId = row?.contactId ?? null;
   const kind = row ? panelRowKind(row) : "call";
   const crmHref = row ? panelCrmHref(row, provider, portalId) : null;
+  const sendRef = useRef<(() => void) | null>(null);
+  const [followupReady, setFollowupReady] = useState(false);
 
   const phoneQuery = useQuery({
     queryKey: [HOME_PANEL_PHONE_KEY, contactId],
@@ -61,7 +74,16 @@ export function usePanelPrimary(
   const contact: ContactHit | null = exactContact(phoneQuery.data, contactId);
   const phone = contactPhone(phoneQuery.data, contactId);
   const primary: PanelPrimary = row
-    ? panelPrimary({ kind, contactId, canDial, phone, crmHref })
+    ? panelPrimary({
+        kind,
+        contactId,
+        canDial,
+        canPlace,
+        phone,
+        crmHref,
+        followupReady,
+        inReview,
+      })
     : null;
 
   const fetchPhoneFor = useCallback(
@@ -76,6 +98,11 @@ export function usePanelPrimary(
     },
     [canDial, queryClient],
   );
+
+  const registerSend = useCallback((run: (() => void) | null) => {
+    sendRef.current = run;
+    setFollowupReady(Boolean(run));
+  }, []);
 
   const runPrimary = useCallback(
     async (
@@ -98,14 +125,21 @@ export function usePanelPrimary(
         kind: activeKind,
         contactId: activeContactId,
         canDial,
+        canPlace,
         phone: activePhone,
         crmHref: activeCrm,
+        followupReady: followupReady && active.key === row?.key,
+        inReview: inReview && active.key === row?.key,
       });
       if (activePrimary === "confirm" && active.kind === "confirm") {
         await actions.confirm(active.item);
         return;
       }
-      if (activePrimary === "call" && activeContactId && canDial && dialer) {
+      if (activePrimary === "send") {
+        sendRef.current?.();
+        return;
+      }
+      if (activePrimary === "call" && activeContactId && canDial && canPlace && dialer) {
         dialer.openForContact({ contactId: activeContactId, name: active.name ?? null });
         return;
       }
@@ -116,8 +150,8 @@ export function usePanelPrimary(
       if (active.kind === "review") actions.openMemo(active.entry.memoId);
       else if (active.kind === "followup" && active.entry.action) actions.openMemo(active.entry.memoId);
     },
-    [canDial, contactId, dialer, fetchPhoneFor, phone, portalId, provider, row],
+    [canDial, canPlace, contactId, dialer, fetchPhoneFor, followupReady, inReview, phone, portalId, provider, row],
   );
 
-  return { primary, phone, contact, crmHref, canDial, kind, runPrimary, phoneQuery };
+  return { primary, phone, contact, crmHref, canDial, canPlace, kind, runPrimary, phoneQuery, registerSend };
 }

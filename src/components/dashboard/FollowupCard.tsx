@@ -1,5 +1,5 @@
 import "@shared/ui/components/v-followup.js";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { composeTarget } from "@shared/ui/compose.js";
@@ -18,8 +18,17 @@ function openTarget(url: string) {
   else window.open(url, "_blank", "noopener");
 }
 
-/** The follow-up draft on the memo review, for the memo's author. */
-export function FollowupCard({ memoId }: { memoId: string }) {
+/**
+ * The follow-up draft on the memo review, for the memo's author. `onSendReady` receives a send
+ * that presses the card's own primary pill (its channel), or null when there is nothing to send.
+ */
+export function FollowupCard({
+  memoId,
+  onSendReady,
+}: {
+  memoId: string;
+  onSendReady?: (send: (() => void) | null) => void;
+}) {
   const { language, t } = useLanguage();
   const queryClient = useQueryClient();
   const uiLang = htmlLang(language);
@@ -59,11 +68,32 @@ export function FollowupCard({ memoId }: { memoId: string }) {
     [memoId, queryClient, t.product],
   );
 
-  const ref = useVElement(data, onAction);
+  const setElement = useVElement(data, onAction);
+  const elementRef = useRef<FollowupElement | null>(null);
+  const bindRef = useCallback(
+    (node: FollowupElement | null) => {
+      elementRef.current = node;
+      setElement(node);
+    },
+    [setElement],
+  );
+
+  const canSend = data?.status === "ready" && Boolean(data.to || data.phone);
+
+  useEffect(() => {
+    if (!onSendReady) return;
+    onSendReady(
+      canSend
+        ? () => elementRef.current?.querySelector<HTMLButtonElement>('[data-action="send"].v-pill--primary')?.click()
+        : null,
+    );
+    return () => onSendReady(null);
+  }, [onSendReady, canSend]);
+
   if (!data || data.status === "unavailable") return null;
   return (
     <div className="mb-4">
-      <v-followup ref={ref} lang={uiLang} />
+      <v-followup ref={bindRef} lang={uiLang} />
     </div>
   );
 }

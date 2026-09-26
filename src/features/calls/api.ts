@@ -30,6 +30,10 @@ export const callsApi = {
     callDisposition?: string | null;
     status?: string | null;
     errorMessage?: string | null;
+    memoId?: string | null;
+    memoStatus?: string | null;
+    screeningOutcome?: string | null;
+    durationSeconds?: number | null;
   }> => api.get(`/calls/${encodeURIComponent(callSid)}`),
 
   listCallerIds: (): Promise<{ callerIds: CallingConfig['callerIds'] }> =>

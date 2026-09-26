@@ -8,6 +8,7 @@ import {
   initials,
   panelHeaderSubtitle,
   panelMeetingLine,
+  panelFilledPill,
   panelPrimary,
   showsHistory,
 } from "./contact-panel.ts";
@@ -24,11 +25,39 @@ describe("contact panel primary action", () => {
     assert.equal(panelPrimary({ ...base, phone: null }), "open");
     assert.equal(panelPrimary({ ...base, canDial: false }), "open");
     assert.equal(panelPrimary({ ...base, contactId: null }), "open");
+    assert.equal(panelPrimary({ ...base, canPlace: false }), "open");
   });
 
   it("confirms a confirmation, and offers nothing when it can neither call nor open", () => {
     assert.equal(panelPrimary({ ...base, kind: "confirm" }), "confirm");
     assert.equal(panelPrimary({ ...base, canDial: false, crmHref: null }), null);
+  });
+
+  it("sends a ready follow-up and opens the CRM without a verified caller id", () => {
+    assert.equal(panelPrimary({ ...base, kind: "followup", followupReady: true }), "send");
+    assert.equal(panelPrimary({ ...base, canPlace: false }), "open");
+  });
+
+  it("keeps Call on a call row even when that contact has a ready follow-up", () => {
+    assert.equal(panelPrimary({ ...base, followupReady: true }), "call");
+  });
+
+  it("after the call, sends the ready follow-up and otherwise offers no call", () => {
+    assert.equal(panelPrimary({ ...base, inReview: true, followupReady: true }), "send");
+    assert.equal(panelPrimary({ ...base, inReview: true }), null);
+    assert.equal(panelPrimary({ ...base, kind: "followup" }), "call");
+  });
+});
+
+describe("contact panel filled pill", () => {
+  it("fills exactly one pill: the follow-up's own send, else review and save, else the panel's action", () => {
+    assert.equal(panelFilledPill({ primary: "send", inReview: true, reviewSave: true }), "followup");
+    assert.equal(panelFilledPill({ primary: "send", inReview: false, reviewSave: false }), "followup");
+    assert.equal(panelFilledPill({ primary: null, inReview: true, reviewSave: true }), "review_save");
+    assert.equal(panelFilledPill({ primary: null, inReview: true, reviewSave: false }), null);
+    assert.equal(panelFilledPill({ primary: "call", inReview: false, reviewSave: false }), "primary");
+    assert.equal(panelFilledPill({ primary: "open", inReview: false, reviewSave: false }), "primary");
+    assert.equal(panelFilledPill({ primary: "confirm", inReview: false, reviewSave: false }), null);
   });
 });
 

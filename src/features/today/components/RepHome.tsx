@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Microphone } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { afterActionError, composeHome, itemKey, type HomeRow, type HomeView } from "@shared/ui/home.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
+import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
+import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
+import { homeQueueNextRow } from "@/lib/today-queue";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { useAuth } from "@/features/auth";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
-import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { useLanguage } from "@/lib/i18n";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -16,6 +18,7 @@ import type { TodayItem } from "@/lib/today";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 import { useHomeReads } from "../hooks/useHomeReads";
 import { useHomeSelection } from "../hooks/useHomeSelection";
+import { useAfterCall } from "../hooks/useAfterCall";
 import { usePanelPrimary } from "../hooks/usePanelPrimary";
 import { forgetActed, useTodayCardActions } from "../hooks/useTodayCardActions";
 import { ContactPanel } from "./ContactPanel";
@@ -63,7 +66,9 @@ export function RepHome() {
   const copy = t.product;
   const { user } = useAuth();
   const column = useHomeColumn();
+  const dialer = useOptionalDialerFocus();
   const panelRef = useRef<ReturnType<typeof usePanelPrimary> | null>(null);
+  const [rowNotes, setRowNotes] = useState<Record<string, string>>({});
   const {
     query,
     acted,
@@ -143,18 +148,64 @@ export function RepHome() {
 
   const {
     view: home,
+    rows,
     row: selectedRow,
     selectedKey,
     wide,
     sheetOpen,
+    locked,
     select,
     clear,
+    lockOnCall,
+    onCallEnded,
+    resolveCall,
+    finishReview,
+    selection,
   } = useHomeSelection(homeRaw, { needsOkOpen, groupOpen: confirmGroupOpen }, onPrimary);
+
+  const callPhase = dialer?.phase ?? "idle";
+  const onCall = callPhase === "dialing" || callPhase === "in_call";
+  const callContactId = dialer?.activeContact?.contactId ?? null;
+  useEffect(() => {
+    if (!onCall || !callContactId || locked) return;
+    const key =
+      selectedRow?.contactId === callContactId
+        ? selectedRow.key
+        : (rows.find((row) => row.kind === "call" && row.contactId === callContactId) ??
+            rows.find((row) => row.contactId === callContactId))?.key;
+    if (key) lockOnCall(key);
+  }, [onCall, callContactId, locked, rows, selectedRow, lockOnCall]);
+
+  const lastEnded = dialer?.lastEnded ?? null;
+  const clearEnded = dialer?.clearEnded;
+  useEffect(() => {
+    if (!lastEnded) return;
+    onCallEnded(lastEnded);
+    clearEnded?.();
+  }, [lastEnded, clearEnded, onCallEnded]);
+
+  // A dialer torn down mid-call goes idle without an end report; never leave the home locked.
+  useEffect(() => {
+    if (locked && callPhase === "idle") onCallEnded({ callSid: null, answered: false });
+  }, [locked, callPhase, onCallEnded]);
+
+  const lastCall = selection.lastCall;
+  useEffect(() => {
+    if (lastCall?.outcome !== "no_answer") return;
+    const stamp = new Intl.DateTimeFormat(copy.hourLocale, { hour: "numeric", minute: "2-digit" }).format(new Date());
+    setRowNotes((prev) => ({ ...prev, [lastCall.key]: copy.panel_no_answer.replace("{time}", stamp) }));
+  }, [lastCall, copy.hourLocale, copy.panel_no_answer]);
+
+  const inReview = selection.mode === "review";
+  const callSummary = useAfterCall(selection.callSid ?? null, inReview, resolveCall);
+  const nextRow = useMemo(() => (inReview ? homeQueueNextRow(selection, rows) : null), [inReview, selection, rows]);
 
   const panel = usePanelPrimary(selectedRow, {
     provider: provider ?? null,
     portalId: portalId ?? null,
+    inReview,
   });
+
   panelRef.current = panel;
   const onDismiss = (item: TodayItem) => void settle(() => dismiss(item));
   const onConfirm = (item: TodayItem) => void settle(() => confirm(item));
@@ -192,11 +243,18 @@ export function RepHome() {
     onSelect: select,
   };
 
+  const inCallKey = locked ? selectedKey : null;
+  const crmName = provider ? CRM_PROVIDER_CONFIGS[provider as CRMProvider]?.name ?? null : null;
+
   const homeCards: HomeCards = {
     selectedKey,
     onSelect: (item) => select(itemKey(item)),
     canDial: column?.canDial ?? false,
     now,
+    locked,
+    inCallKey,
+    inCallElapsed: dialer?.liveElapsed ?? null,
+    rowNotes,
   };
 
   const connectionId =
@@ -322,6 +380,16 @@ export function RepHome() {
         sheet={sheetOpen}
         onClose={clear}
         panel={panel}
+        call={{
+          onCall,
+          inReview,
+          failed: selection.mode === "queue" && selection.lastOutcome === "failed",
+          summary: callSummary,
+          memoId: callSummary?.memoId ?? selection.memoId ?? null,
+          crmName,
+          nextRow,
+          onNext: finishReview,
+        }}
         actions={{
           onConfirm,
           onDismiss,

@@ -8,16 +8,19 @@ import { snoozeUntil, type HomeRow } from "@shared/ui/home.js";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { Sheet, SheetPortal } from "@/components/ui/sheet";
+import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { BriefLines } from "@/components/dashboard/memos/ContactBrief";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
 import type { Memo } from "@/features/memos/types";
 import { api } from "@/shared/lib/api-client";
+import { afterCallLine, type CallSummary } from "@/lib/after-call";
 import {
   conversationLine,
   firstName,
   historyRequest,
   initials,
   panelHeaderSubtitle,
+  panelFilledPill,
   panelMeetingLine,
   showsHistory,
 } from "@/lib/contact-panel";
@@ -29,6 +32,18 @@ import type { usePanelPrimary } from "../hooks/usePanelPrimary";
 import { panelRowKind } from "../hooks/usePanelPrimary";
 
 type PanelState = ReturnType<typeof usePanelPrimary>;
+
+/** The call as the panel sees it: in flight, just failed, or after hanging up (review). */
+export type PanelCall = {
+  onCall: boolean;
+  inReview: boolean;
+  failed: boolean;
+  summary: CallSummary | undefined;
+  memoId: string | null;
+  crmName: string | null;
+  nextRow: HomeRow | null;
+  onNext: () => void;
+};
 
 type PanelActions = {
   onConfirm: (item: TodayItem) => void;
@@ -70,19 +85,22 @@ function PanelBody({
   onClose,
   actions,
   panel,
+  call,
 }: {
   row: HomeRow;
   sheet: boolean;
   onClose?: () => void;
   actions: PanelActions;
   panel: PanelState;
+  call: PanelCall;
 }) {
   const { t } = useLanguage();
   const copy = t.product;
   const kind = panelRowKind(row);
   const contactId = row.contactId;
   const name = panelName(row, copy);
-  const { primary, phone, contact, crmHref } = panel;
+  const { primary, phone, contact, crmHref, registerSend } = panel;
+  const { inReview, onCall } = call;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const companyName = row.kind === "call" || row.kind === "meeting" ? row.item.company_name : null;
   const subtitle = panelHeaderSubtitle(
@@ -122,6 +140,9 @@ function PanelBody({
     ? row.entry
     : followupForContact(actions.followups, contactId);
   const followupMemoId = followup ? ("memoId" in followup ? followup.memoId : followup.memo_id) : null;
+  const memoIdForFollowup = inReview ? call.memoId : followupMemoId;
+  const line = inReview ? afterCallLine(call.summary, call.crmName) : null;
+  const filled = panelFilledPill({ primary, inReview, reviewSave: line?.kind === "review" });
 
   const onPrimary = () => {
     void panel.runPrimary({
@@ -182,7 +203,7 @@ function PanelBody({
         </div>
       ) : null}
 
-      {row.kind === "review" ? (
+      {row.kind === "review" && !inReview ? (
         <div className="mt-6">
           <button type="button" className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => actions.onOpenMemo(row.entry.memoId)}>
             {copy.home_review}
@@ -190,25 +211,52 @@ function PanelBody({
         </div>
       ) : null}
 
-      {kind !== "confirm" && contactId ? (
+      {line ? (
+        <div className="mt-6">
+          {line.kind === "processing" ? (
+            <p className={THEME_TOKENS.typography.body}>{copy.panel_processing}</p>
+          ) : line.kind === "review" ? (
+            filled === "review_save" ? (
+              <Button
+                type="button"
+                className="h-11 w-full rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige-dark"
+                onClick={() => actions.onOpenMemo(line.memoId)}
+              >
+                {copy.panel_review_save}
+              </Button>
+            ) : (
+              <button type="button" className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => actions.onOpenMemo(line.memoId)}>
+                {copy.panel_review_save}
+              </button>
+            )
+          ) : (
+            <p className={THEME_TOKENS.typography.body}>
+              {line.kind === "saved"
+                ? line.minutes
+                  ? copy.panel_call_duration_saved.replace("{minutes}", String(line.minutes)).replace("{crm}", call.crmName ?? "")
+                  : copy.panel_saved.replace("{crm}", call.crmName ?? "")
+                : copy.panel_call_duration.replace("{minutes}", String(line.minutes))}
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {kind !== "confirm" && contactId && !inReview ? (
         <section className="mt-6" aria-label={copy.panel_before_call}>
           <p className={`mb-2.5 ${THEME_TOKENS.typography.capsLabel}`}>{copy.panel_before_call}</p>
           <BriefLines brief={brief} loadingText={copy.teamLoading || BRIEF_LOADING} />
         </section>
       ) : null}
 
-      {primary && row.kind !== "confirm" ? (
+      {filled === "primary" && !onCall ? (
         <div className="mt-5">
+          {call.failed ? <p className="mb-2 text-[12px] text-destructive">{copy.panel_call_failed}</p> : null}
           <Button
             type="button"
             className="h-11 w-full justify-between rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige-dark"
             onClick={onPrimary}
           >
-            <span>
-              {primary === "call"
-                ? copy.panel_call.replace("{name}", first || name)
-                : copy.today_open}
-            </span>
+            <span>{primary === "call" ? copy.panel_call.replace("{name}", first || name) : copy.today_open}</span>
             <span className="text-[13px] opacity-70">↵</span>
           </Button>
           {primary === "call" && phone ? (
@@ -232,7 +280,15 @@ function PanelBody({
         </div>
       ) : null}
 
-      {followup ? (
+      {memoIdForFollowup && (row.kind === "followup" || inReview) ? (
+        <>
+          <hr className="my-5 border-0 border-t border-[hsl(var(--hairline))]" />
+          <section aria-label={copy.panel_followup}>
+            <p className={`mb-2 ${THEME_TOKENS.typography.capsLabel}`}>{copy.panel_followup}</p>
+            <FollowupCard memoId={memoIdForFollowup} onSendReady={registerSend} />
+          </section>
+        </>
+      ) : followup ? (
         <>
           <hr className="my-5 border-0 border-t border-[hsl(var(--hairline))]" />
           <section>
@@ -261,6 +317,19 @@ function PanelBody({
             </div>
           </section>
         </>
+      ) : null}
+
+      {inReview && call.nextRow ? (
+        <div className="mt-5">
+          <button
+            type="button"
+            className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+            onClick={call.onNext}
+          >
+            {copy.panel_next.replace("{name}", panelName(call.nextRow, copy))}
+            <span className="ml-2 opacity-70">n</span>
+          </button>
+        </div>
       ) : null}
 
       {showsHistory(actions.provider) && contactId && historyQuery.data && historyQuery.data.length > 0 ? (
@@ -304,19 +373,31 @@ export function ContactPanel({
   onClose,
   actions,
   panel,
+  call,
 }: {
   row: HomeRow | null;
   sheet: boolean;
   onClose?: () => void;
   actions: PanelActions;
   panel: PanelState;
+  call: PanelCall;
 }) {
   const column = useHomeColumn();
   const { t } = useLanguage();
   const target = column?.target;
   if (!row) return null;
 
-  const body = <PanelBody row={row} sheet={sheet} onClose={onClose} actions={actions} panel={panel} key={row.key} />;
+  const body = (
+    <PanelBody
+      row={row}
+      sheet={sheet}
+      onClose={onClose}
+      actions={actions}
+      panel={panel}
+      call={call}
+      key={row.key}
+    />
+  );
 
   if (sheet) {
     return (

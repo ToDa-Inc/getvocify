@@ -416,6 +416,51 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 | Colapso al resolver; movimiento reducido | Altura medida / solo opacidad | Navegador |
 | Flag apagado | `/dashboard`, `CallCard` y `TodayPanel` como hoy | Navegador (sin cambios en esos caminos) |
 
+### Addendum T5 — dialer anclado y después de la llamada (26 sep 2026)
+
+**Dialer.** Una sola instancia montada en `DashboardLayout`. Prop `placement: "floating" | "panel"`: solo cambia clases/posición; **nunca** portal ni segunda instancia. En `/dashboard` con `REP_WORKSPACE_ENABLED` y columna de panel visible (≥ 1280 px) → `panel` (barra de cristal al pie del panel, §4.4). En cualquier otra ruta, sin panel o con el flag apagado → `floating` como hoy; **la llamada sigue** al cambiar de ruta. El contenedor del dialer no se desmonta nunca mientras está montado (minimizar a media llamada no cuelga).
+
+**Estado de llamada** (`DialerFocusProvider`): expone `phase` (`idle` | `dialing` | `in_call` | `ended` | `failed`), contacto activo (solo cuando la llamada arranca, no al abrir el dialer), `callSid`, inicio (para el tiempo) y el último `call_ended`. `DashboardDialer` lo alimenta.
+
+**Cola en la casa.** `Enter` con acción «Llamar» abre el dialer con el contacto; la selección pasa a `calling` (bloqueada) cuando el dialer sale de `idle`, sobre la fila del contacto en llamada. Si el dialer vuelve a `idle` sin llamar, no hay bloqueo. Durante la llamada: clic en otra tarjeta no cambia la selección; ↑/↓/j/k/s tampoco; tooltip «En llamada» en la tarjeta en curso con «● En llamada · mm:ss» en bronce. Preguntar sustituye al contenido del panel; la barra de llamada sigue en el pie. La lista **no se reordena** en `calling` ni en `review` (`holdOrder` congelado).
+
+**Fin de llamada** (`call_ended`, lógica pura en `shared/ui/home.js` + `src/lib/today-queue.ts`, misma que F06):
+- Contestada → `review` en la misma fila con «Procesando la llamada…» mientras llegan `memoId` y `screening_outcome`.
+- Buzón / sin respuesta (`voicemail`, `no_response`, conocido al colgar o al procesarse) → avanza a la siguiente fila; la tarjeta se queda con «Sin respuesta · hh:mm»; no hay panel «Después».
+- No conecta o fallida (incluido «no contesta» del operador antes de descolgar) → se queda en la misma fila; «Llamada fallida» en el panel, visible con el panel fijo o en hoja.
+
+**Después de la llamada** (`ContactPanel`, modo `review`): `GET /calls/{call_sid}` (existente), con la misma cadencia y límite que el sondeo de follow-ups de la casa (5 s, 2 min). Una línea: «Llamada de {n} min · ✓ Guardado en {CRM}» (solo con memo `approved`), o «Procesando la llamada…», o pastilla «Revisar y guardar» si `memoStatus` es `pending_review`. Confirmación E7 **solo si llega** en los datos (no rompe si falta). `FollowupCard` dentro del panel; «Enviar» es la acción principal cuando el borrador está listo: es la pastilla del propio `FollowupCard` (el panel no pinta otra) y «Revisar y guardar» pasa a acción de texto. Una sola pastilla llena. «Siguiente: {nombre}  n» como acción de texto; `n` → `reviewed` y selecciona la siguiente fila válida. Procesado > 60 s: se queda «Procesando…» y `n` funciona igual.
+
+**Panel · follow-up en Falta tu OK.** Fila de follow-up seleccionada: el mismo `FollowupCard` en el panel (sustituye «Abrir»); acción principal «Enviar» cuando está listo. En una fila de llamada la acción sigue siendo «Llamar», aunque ese contacto tenga un follow-up listo.
+
+**Sin número verificado.** Si el plan permite dialer pero no hay caller ID verificado, la acción principal es «Abrir en el CRM» (vía `usePanelPrimary`, única fuente).
+
+**Reticle.** `src/reticle-dev.ts` registra fase, contacto y `callSid` del dialer (patrón existente).
+
+**Edge cases (cada fila tiene su test; la última columna dice dónde, o «Navegador»)**
+
+| Caso | Comportamiento esperado | Test |
+|---|---|---|
+| Contacto sin teléfono | Acción principal «Abrir en el CRM» | `contact-panel.test.ts` |
+| Dialer no disponible / sin número verificado | Sin «Llamar»; «Abrir en el CRM» | `contact-panel.test.ts` |
+| No conecta | «Llamada fallida» en el panel; tarjeta se queda seleccionada | `today-queue.test.ts`, `home.test.js`, Navegador |
+| Clic en otra tarjeta durante la llamada | Selección no cambia | `home.test.js` |
+| Cambio de ruta durante la llamada | Dialer vuelve a flotante; llamada sigue; misma instancia | `dial-placement.test.ts` |
+| Preguntar durante la llamada | Preguntar sustituye al panel; barra en el pie | Navegador |
+| Procesado > 60 s | «Procesando la llamada…»; `n` funciona | `today-queue.test.ts`, `after-call.test.ts`, Navegador |
+| Autoaprobación + confirmación E7 | Confirmación en el panel si llega en los datos | Navegador |
+| Buzón / sin respuesta | Selección avanza; nota en tarjeta; sin «Después» | `today-queue.test.ts`, `home.test.js`, `after-call.test.ts` |
+| Conversación con memo | `review`; follow-up en panel; `n` siguiente | `today-queue.test.ts`, `home.test.js` |
+| Llamada fallida | Misma fila; `lastOutcome: failed` | `today-queue.test.ts` |
+| Selección bloqueada en llamada | move/skip/select ignorados | `home.test.js` |
+| `n` tras colgar | `reviewed` → siguiente fila | `home.test.js` |
+| Flag apagado | Dialer, `CallCard` y `TodayPanel` como hoy | `dial-placement.test.ts` (montaje), Navegador |
+| Dialer abierto sin llamar | Sin bloqueo; selección libre | `home.test.js` (solo `call` bloquea), Navegador |
+| Follow-up listo en fila de llamada | Acción principal «Llamar» | `contact-panel.test.ts` |
+| Una sola pastilla llena | «Enviar» del follow-up, si no «Revisar y guardar», si no la del panel | `contact-panel.test.ts` |
+| Guardado en CRM | Solo con memo `approved` | `after-call.test.ts` |
+| Panel < 1280 px | Dialer flotante como hoy | Navegador |
+
 ## 8. Dependencias
 
 - **Existentes:** F05 (`/today`), F06 (acciones, deshacer, cola), F03 (`/briefs`), F02 (follow-up), F04 (`/contact-priorities`), F07 (Preguntar), F13 (campana e informes), F15 (Equipo).
