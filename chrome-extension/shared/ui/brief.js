@@ -1,4 +1,5 @@
 // The pre-call list. Empty labels are not rows.
+import { HOY_SIGNAL_COPY, PRIORITY_REASON_LABEL } from "./hoy-copy.js";
 
 /** Same string as `productCatalog.es.teamLoading`. */
 export const BRIEF_LOADING = "Leyendo…";
@@ -8,9 +9,19 @@ export function visibleBrief(brief) {
   const lines = [];
   if (brief.text) lines.push(brief.text);
   for (const line of brief.lines || []) {
-    if (line.text) lines.push(line.text);
+    const text = lineText(line);
+    if (text) lines.push(text);
   }
   return lines;
+}
+
+/** A line's text, or a Hoy reason key worded with the Hoy card's label. */
+function lineText(line) {
+  const key = PRIORITY_REASON_LABEL[line?.reason];
+  if (!key) return line?.text || null;
+  const label = HOY_SIGNAL_COPY.es[key];
+  const since = clean(line.since);
+  return since ? `${label} desde el ${since}` : label;
 }
 
 export function briefForContact(contactId, cached) {
@@ -53,8 +64,8 @@ export function briefRows(brief) {
   const text = clean(brief?.text);
   if (text && text !== notice) rows.push({ text, playbook: false });
   for (const line of brief?.lines || []) {
-    const lineText = clean(line?.text);
-    if (lineText) rows.push({ text: lineText, playbook: line.source === "playbook" });
+    const rowText = clean(lineText(line));
+    if (rowText) rows.push({ text: rowText, playbook: line.source === "playbook" });
   }
   return { notice, rows: rows.slice(0, BRIEF_MAX_LINES), label: clean(brief?.label) };
 }

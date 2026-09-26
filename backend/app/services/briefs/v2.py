@@ -237,8 +237,7 @@ def prepare_brief_v2(
     playbook_steps: list[dict] | None = None,
     playbook_entries: list[dict] | None = None,
     cold_profile: dict | None = None,
-    hoy_why: dict | None = None,
-    sales_motion_key: str | None = None,
+    hoy_priority: dict | None = None,
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     failed = coverage in {"partial", "unavailable"}
@@ -255,9 +254,7 @@ def prepare_brief_v2(
             profile=cold_profile,
             tz_name=tz_name,
             crm_task=crm_task,
-            hoy_why=hoy_why,
-            playbook_steps=playbook_steps,
-            sales_motion_key=sales_motion_key,
+            hoy_priority=hoy_priority,
         )
 
     if not is_current(latest):

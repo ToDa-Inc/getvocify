@@ -5,101 +5,64 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.services.briefs.cold_call import translate_crm_source
+from app.services.briefs.cold_call import hubspot_source_label
 
 logger = logging.getLogger(__name__)
 
-HUBSPOT_PROFILE_PROPERTIES = [
-    "jobtitle",
-    "company",
-    "createdate",
-    "hs_analytics_source",
-    "hs_lead_source",
-]
-
-_PROFILE_READER = None
+HUBSPOT_PROFILE_PROPERTIES = ["jobtitle", "company", "createdate", "hs_analytics_source"]
 
 
 class ContactProfileReadFailed(Exception):
     """CRM contact properties could not be read."""
 
 
-def set_contact_profile_reader(reader) -> None:
-    """reader(connection, contact_id) -> profile dict. None uses the live CRM."""
-    global _PROFILE_READER
-    _PROFILE_READER = reader
-
-
-def read_contact_profile(connection: dict, contact_id: str) -> dict | None:
-    """Best-effort contact profile for the brief. None when the CRM cannot answer."""
-    if _PROFILE_READER is not None:
-        return _PROFILE_READER(connection, contact_id)
+def read_contact_profile(supabase, connection: dict, contact_id: str) -> dict | None:
+    """Contact profile for the brief. None when the CRM has no profile read (Salesforce and others)."""
     provider = str(connection.get("provider") or "").strip().lower()
     if provider not in {"hubspot", "pipedrive"}:
         return None
     try:
-        return asyncio.run(_live_profile(connection, contact_id, provider))
-    except ContactProfileReadFailed:
-        raise
+        if provider == "hubspot":
+            return asyncio.run(_hubspot_profile(supabase, connection, contact_id))
+        return asyncio.run(_pipedrive_profile(supabase, connection, contact_id))
     except Exception as exc:
         logger.warning("brief contact profile read failed", exc_info=True)
         raise ContactProfileReadFailed from exc
 
 
-async def _live_profile(connection: dict, contact_id: str, provider: str) -> dict | None:
-    if provider == "hubspot":
-        return await _hubspot_profile(connection, contact_id)
-    return await _pipedrive_profile(connection, contact_id)
+def _clean(value) -> str | None:
+    return " ".join(str(value or "").split()) or None
 
 
-async def _hubspot_profile(connection: dict, contact_id: str) -> dict | None:
+async def _hubspot_profile(supabase, connection: dict, contact_id: str) -> dict:
     from app.services.crm_copilot.tools import HubSpotBundle
     from app.services.crm_providers import build_crm_provider
 
-    provider = build_crm_provider(None, connection)
-    hs = HubSpotBundle.from_provider(provider)
-    try:
-        obj = await hs.contacts.get(contact_id, properties=HUBSPOT_PROFILE_PROPERTIES)
-    except Exception as exc:
-        raise ContactProfileReadFailed from exc
+    hs = HubSpotBundle.from_provider(build_crm_provider(supabase, connection))
+    obj = await hs.contacts.get(contact_id, properties=HUBSPOT_PROFILE_PROPERTIES)
     props = getattr(obj, "properties", None) or (obj.get("properties") if isinstance(obj, dict) else {}) or {}
-    company = " ".join(str(props.get("company") or "").split()) or None
-    source = translate_crm_source(
-        provider="hubspot",
-        analytics_source=props.get("hs_analytics_source"),
-        lead_source=props.get("hs_lead_source"),
-    )
-    created = props.get("createdate")
     profile = {
-        "jobtitle": " ".join(str(props.get("jobtitle") or "").split()) or None,
-        "company_name": company,
-        "source_label": source,
-        "created_at": created,
+        "jobtitle": _clean(props.get("jobtitle")),
+        "company_name": _clean(props.get("company")),
+        "source_label": hubspot_source_label(props.get("hs_analytics_source")),
+        "created_at": props.get("createdate"),
         "source_ref": contact_id,
     }
-    motion = " ".join(str(props.get("sales_motion_key") or "").split()) or None
-    if motion:
-        profile["sales_motion_key"] = motion
     return {key: value for key, value in profile.items() if value is not None}
 
 
-async def _pipedrive_profile(connection: dict, contact_id: str) -> dict | None:
+async def _pipedrive_profile(supabase, connection: dict, contact_id: str) -> dict:
+    """Pipedrive has no documented lead-origin field on a person, so there is no origin part."""
     from app.services.crm_copilot.pipedrive_reads import PipedriveReader
     from app.services.crm_providers import build_crm_provider
 
-    provider = build_crm_provider(None, connection)
-    reader = PipedriveReader.from_provider(provider)
-    try:
-        brief = await reader.hydrate_contact(contact_id, ctx=None)
-    except Exception as exc:
-        raise ContactProfileReadFailed from exc
+    reader = PipedriveReader.from_provider(build_crm_provider(supabase, connection))
+    brief = await reader.hydrate_contact(contact_id, ctx=None)
     org = brief.get("company") if isinstance(brief.get("company"), dict) else {}
     fields = brief.get("fields") if isinstance(brief.get("fields"), dict) else {}
-    source = translate_crm_source(provider="pipedrive", analytics_source=None, lead_source=fields.get("label"))
     profile = {
-        "jobtitle": brief.get("jobtitle"),
-        "company_name": org.get("name") or brief.get("company_name"),
-        "source_label": source,
+        "jobtitle": _clean(brief.get("jobtitle")),
+        "company_name": _clean(org.get("name") or brief.get("company_name")),
         "created_at": fields.get("add_time"),
         "source_ref": contact_id,
     }

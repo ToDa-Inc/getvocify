@@ -1,3 +1,5 @@
+import { HOY_SIGNAL_COPY } from "../../shared/ui/hoy-copy.js";
+
 export const productCatalog = {
   EN: {
     hourLocale: "en-GB",
@@ -186,8 +188,8 @@ export const productCatalog = {
     today_signal_cold: "Going cold",
     today_signal_objection: "Open objection",
     today_signal_no_reply: "No reply",
-    today_signal_pain: "Confirmed pain",
-    today_signal_uncalled: "Not called yet",
+    today_signal_pain: HOY_SIGNAL_COPY.en.today_signal_pain,
+    today_signal_uncalled: HOY_SIGNAL_COPY.en.today_signal_uncalled,
     home_meetings: "Today's meetings",
     home_needs_ok: "Needs your OK",
     home_calls: "Who to call",
@@ -595,8 +597,8 @@ export const productCatalog = {
     today_signal_cold: "Enfriamiento",
     today_signal_objection: "Objeción abierta",
     today_signal_no_reply: "Sin respuesta",
-    today_signal_pain: "Dolor confirmado",
-    today_signal_uncalled: "Sin llamar",
+    today_signal_pain: HOY_SIGNAL_COPY.es.today_signal_pain,
+    today_signal_uncalled: HOY_SIGNAL_COPY.es.today_signal_uncalled,
     home_meetings: "Reuniones de hoy",
     home_needs_ok: "Falta tu OK",
     home_calls: "A quién llamar",

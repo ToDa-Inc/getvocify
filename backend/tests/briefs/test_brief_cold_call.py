@@ -1,4 +1,4 @@
-"""E4 cold-call brief: who, why and open for contacts without memos."""
+"""E4 cold-call brief: who and why for contacts without memos."""
 
 import os
 from datetime import datetime, timezone
@@ -8,162 +8,131 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-brief-cold-32b")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-brief-cold-32b")
 
-from app.services.briefs.cold_call import prepare_cold_brief_v2
-from app.services.briefs.v2 import prepare_brief_v2
-from app.services.hoy.reasons import priority_reason_text
+import pytest
+
+from app.services.briefs import cold_call
+from app.services.briefs.cold_call import hubspot_source_label, prepare_cold_brief_v2
 
 TZ = "Europe/Madrid"
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
+UNCALLED = {"reason": "no_calls_logged", "source_ref": "hubspot:42:", "observed_at": "2026-09-26T08:00:00Z"}
 
-OPENING_STEPS = [
-    {
-        "step_id": "opening",
-        "label": "Apertura",
-        "criterion": "Saluda y pide permiso",
-        "reference_phrase": "Hola, soy Toni de Vocify. ¿Te pillo en mal momento?",
-    },
-    {"step_id": "pitch", "label": "Pitch", "criterion": "Explicó el producto"},
-]
+
+def _brief(**kwargs):
+    base = {"coverage": "complete", "profile": None, "tz_name": TZ, "crm_task": None, "hoy_priority": None}
+    base.update(kwargs)
+    return prepare_cold_brief_v2(**base)
 
 
 def test_who_line_with_role_company_source_and_created_date():
     profile = {
         "jobtitle": "Directora comercial",
         "company_name": "Acme",
-        "source_label": "lead de formulario web",
+        "source_label": "búsqueda orgánica",
         "created_at": "2026-09-03T08:00:00+02:00",
     }
-    brief = prepare_cold_brief_v2(
-        coverage="complete",
-        profile=profile,
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why=None,
-        playbook_steps=[],
-        sales_motion_key=None,
-    )
+    brief = _brief(profile=profile)
     assert brief["lines"][0] == {
         "type": "who",
-        "text": "Directora comercial en Acme · lead de formulario web, 3 sep",
+        "text": "Directora comercial en Acme · búsqueda orgánica, 3 sep",
         "source_ref": None,
         "observed_at": "2026-09-03T08:00:00+02:00",
     }
 
 
 def test_who_line_omits_missing_parts():
-    brief = prepare_cold_brief_v2(
-        coverage="complete",
-        profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why=None,
-        playbook_steps=[],
-        sales_motion_key=None,
-    )
-    assert brief["lines"][0]["text"] == "AE en Acme"
+    assert _brief(profile={"jobtitle": "AE", "company_name": "Acme"})["lines"][0]["text"] == "AE en Acme"
 
-    empty = prepare_cold_brief_v2(
-        coverage="complete",
-        profile={},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why=None,
-        playbook_steps=[],
-        sales_motion_key=None,
-    )
+    empty = _brief(profile={})
     assert empty["status"] == "no_conversation"
     assert empty["text"] == "Sin conversación todavía."
 
 
 def test_why_prefers_crm_task_over_hoy_priority():
-    brief = prepare_cold_brief_v2(
-        coverage="complete",
+    brief = _brief(
         profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
         crm_task={"text": "Llamar el jueves", "source_ref": "task-1", "observed_at": None},
-        hoy_why={"text": "Nuevo, sin llamar desde el 3 sep", "source_ref": "prio-1", "observed_at": None},
-        playbook_steps=[],
-        sales_motion_key=None,
+        hoy_priority=UNCALLED,
     )
-    assert brief["lines"][1]["type"] == "why"
-    assert brief["lines"][1]["text"] == "Llamar el jueves"
+    assert brief["lines"][1] == {"type": "why", "text": "Llamar el jueves", "source_ref": "task-1", "observed_at": None}
 
 
-def test_why_uses_hoy_priority_when_no_crm_task():
-    brief = prepare_cold_brief_v2(
-        coverage="complete",
-        profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why={"text": "Nuevo, sin llamar desde el 3 sep", "source_ref": "prio-1", "observed_at": None},
-        playbook_steps=[],
-        sales_motion_key=None,
+def test_why_carries_the_hoy_reason_key_and_created_day_not_a_sentence():
+    brief = _brief(
+        profile={"jobtitle": "AE", "company_name": "Acme", "created_at": "2026-09-03T08:00:00+02:00"},
+        hoy_priority=UNCALLED,
     )
-    assert brief["lines"][1]["text"] == "Nuevo, sin llamar desde el 3 sep"
+    assert brief["lines"][1] == {
+        "type": "why",
+        "text": None,
+        "reason": "no_calls_logged",
+        "since": "3 sep",
+        "source_ref": "hubspot:42:",
+        "observed_at": "2026-09-26T08:00:00Z",
+    }
 
 
-def test_open_line_uses_playbook_opening_reference_phrase():
-    brief = prepare_cold_brief_v2(
-        coverage="complete",
-        profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why={"text": "Nuevo, sin llamar desde el 3 sep", "source_ref": "prio-1", "observed_at": None},
-        playbook_steps=OPENING_STEPS,
-        sales_motion_key="outbound",
+def test_uncalled_without_created_date_has_no_since():
+    brief = _brief(profile={"jobtitle": "AE"}, hoy_priority=UNCALLED)
+    assert brief["lines"][1]["reason"] == "no_calls_logged"
+    assert brief["lines"][1]["since"] is None
+
+
+def test_pain_reason_never_carries_a_since_date():
+    brief = _brief(
+        profile={"created_at": "2026-09-03T08:00:00+02:00"},
+        hoy_priority={**UNCALLED, "reason": "pain_agree_next_step"},
     )
-    opening = brief["lines"][-1]
-    assert opening["type"] == "open"
-    assert opening["text"] == "Hola, soy Toni de Vocify. ¿Te pillo en mal momento?"
-    assert opening["source"] == "playbook"
+    why = brief["lines"][1]
+    assert (why["reason"], why["since"]) == ("pain_agree_next_step", None)
 
 
-def test_no_open_line_without_opening_step_or_motion():
-    brief = prepare_cold_brief_v2(
-        coverage="complete",
-        profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why={"text": "Nuevo, sin llamar desde el 3 sep", "source_ref": "prio-1", "observed_at": None},
-        playbook_steps=[{"step_id": "pitch", "label": "Pitch", "criterion": "Explicó el producto"}],
-        sales_motion_key="outbound",
-    )
-    assert [line["type"] for line in brief["lines"]] == ["who", "why"]
+@pytest.mark.parametrize("reason", ["followup_pending", "scheduled_no_early_call", "history_partial", ""])
+def test_reasons_without_a_hoy_card_label_give_no_why_line(reason):
+    brief = _brief(profile={"jobtitle": "AE"}, hoy_priority={**UNCALLED, "reason": reason})
+    assert [line["type"] for line in brief["lines"]] == ["who"]
 
-    no_motion = prepare_cold_brief_v2(
-        coverage="complete",
-        profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why={"text": "Nuevo, sin llamar desde el 3 sep", "source_ref": "prio-1", "observed_at": None},
-        playbook_steps=OPENING_STEPS,
-        sales_motion_key=None,
-    )
-    assert [line["type"] for line in no_motion["lines"]] == ["who", "why"]
+
+def test_hoy_reason_alone_is_a_brief_not_no_conversation():
+    brief = _brief(profile={}, hoy_priority=UNCALLED)
+    assert brief["status"] == "ready"
+    assert [line["type"] for line in brief["lines"]] == ["why"]
+
+
+def test_there_is_no_opening_line_until_the_playbook_models_one():
+    assert not hasattr(cold_call, "open_line")
+    brief = _brief(profile={"jobtitle": "AE"}, hoy_priority=UNCALLED)
+    assert "open" not in {line["type"] for line in brief["lines"]}
 
 
 def test_partial_read_keeps_verified_lines_and_notice():
-    brief = prepare_cold_brief_v2(
-        coverage="partial",
-        profile={"jobtitle": "AE", "company_name": "Acme"},
-        tz_name=TZ,
-        crm_task=None,
-        hoy_why=None,
-        playbook_steps=[],
-        sales_motion_key=None,
-    )
+    brief = _brief(coverage="partial", profile={"jobtitle": "AE", "company_name": "Acme"})
     assert brief["status"] == "partial"
     assert brief["notice"] == "No se pudo cargar todo."
     assert brief["lines"]
 
 
-def test_priority_reason_text_for_uncalled_contact():
-    text = priority_reason_text(
-        "no_calls_logged",
-        created_at="2026-09-03T08:00:00+02:00",
-        tz_name=TZ,
-    )
-    assert text == "Nuevo, sin llamar desde el 3 sep"
+@pytest.mark.parametrize(
+    ("value", "label"),
+    [
+        ("ORGANIC_SEARCH", "búsqueda orgánica"),
+        ("PAID_SEARCH", "búsqueda de pago"),
+        ("EMAIL_MARKETING", "email marketing"),
+        ("SOCIAL_MEDIA", "redes sociales"),
+        ("REFERRALS", "referido"),
+        ("OTHER_CAMPAIGNS", "otra campaña"),
+        ("DIRECT_TRAFFIC", "tráfico directo"),
+        ("OFFLINE", "fuente offline"),
+        ("PAID_SOCIAL", "redes de pago"),
+    ],
+)
+def test_hubspot_analytics_source_documented_values(value, label):
+    assert hubspot_source_label(value) == label
+
+
+@pytest.mark.parametrize("value", ["WEBFORM", "AI_REFERRALS", "something", "", None])
+def test_unknown_hubspot_source_is_omitted(value):
+    assert hubspot_source_label(value) is None
 
 
 def test_contacts_with_memos_still_use_e3_brief():

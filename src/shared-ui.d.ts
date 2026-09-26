@@ -11,7 +11,7 @@ declare module "@shared/ui/brief.js" {
     text?: string | null;
     notice?: string | null;
     label?: string | null;
-    lines?: { type?: string; text?: string | null; source?: string | null }[];
+    lines?: { type?: string; text?: string | null; source?: string | null; reason?: string | null; since?: string | null }[];
   };
   export type BriefRow = { text: string; playbook: boolean };
   export type BriefRows = { notice: string | null; rows: BriefRow[]; label: string | null };

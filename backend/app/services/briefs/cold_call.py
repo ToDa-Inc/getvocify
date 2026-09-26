@@ -1,4 +1,4 @@
-"""Cold-call brief lines from CRM profile, Hoy priority and playbook. No model call."""
+"""Cold-call brief lines from the CRM profile and the Hoy priority reason. No model call."""
 
 from __future__ import annotations
 
@@ -13,39 +13,18 @@ HUBSPOT_ANALYTICS_SOURCE = {
     "REFERRALS": "referido",
     "OTHER_CAMPAIGNS": "otra campaña",
     "DIRECT_TRAFFIC": "tráfico directo",
-    "OFFLINE": "lead offline",
+    "OFFLINE": "fuente offline",
     "PAID_SOCIAL": "redes de pago",
 }
-HUBSPOT_LEAD_SOURCE = {
-    "WEBFORM": "formulario web",
-    "IMPORT": "importación",
-    "WALK_IN": "visita",
-    "TRADE_SHOW": "feria",
-    "REFERRAL": "referido",
-    "COLD_CALL": "llamada en frío",
-    "EMAIL": "email",
-    "ADVERTISEMENT": "anuncio",
-}
+# Priority reasons a Hoy card labels (shared/ui/hoy-copy.js). Others have no card wording to reuse.
+HOY_CARD_REASONS = frozenset({"no_calls_logged", "pain_agree_next_step"})
 
 
-def translate_crm_source(*, provider: str | None, analytics_source, lead_source) -> str | None:
-    """Known CRM origin values in short Spanish; unknown values are omitted."""
-    name = (provider or "").strip().lower()
-    if name == "hubspot":
-        for value in (lead_source, analytics_source):
-            if not value:
-                continue
-            key = str(value).strip().upper()
-            label = HUBSPOT_LEAD_SOURCE.get(key) or HUBSPOT_ANALYTICS_SOURCE.get(key)
-            if label:
-                return f"lead de {label}" if key in HUBSPOT_LEAD_SOURCE else label
+def hubspot_source_label(value) -> str | None:
+    """Documented `hs_analytics_source` values in short Spanish; anything else is omitted."""
+    if not value:
         return None
-    if name == "pipedrive":
-        if lead_source:
-            text = " ".join(str(lead_source).split())
-            return f"lead de {text.lower()}" if text else None
-        return None
-    return None
+    return HUBSPOT_ANALYTICS_SOURCE.get(str(value).strip().upper())
 
 
 def who_line(profile: dict | None, *, tz_name: str) -> dict | None:
@@ -58,20 +37,21 @@ def who_line(profile: dict | None, *, tz_name: str) -> dict | None:
     day = _day_label(created, tz_name) if created else None
 
     head = f"{role} en {company}" if role and company else role or company
-    tail_parts = []
-    if source:
-        tail_parts.append(source)
-    if day:
-        tail_parts.append(day)
-    if not head and not tail_parts:
+    tail = ", ".join(part for part in (source, day) if part)
+    if not head and not tail:
         return None
-    text = head
-    if tail_parts:
-        text = f"{head} · {', '.join(tail_parts)}" if head else ", ".join(tail_parts)
+    text = f"{head} · {tail}" if head and tail else head or tail
     return _line("who", text, source_ref=profile.get("source_ref"), observed_at=created)
 
 
-def why_line_cold(*, crm_task: dict | None, hoy_why: dict | None) -> dict | None:
+def why_line_cold(
+    *,
+    crm_task: dict | None,
+    hoy_priority: dict | None,
+    created_at=None,
+    tz_name: str,
+) -> dict | None:
+    """The CRM task, else the Hoy reason key. The client words the key with Hoy's own copy."""
     if crm_task and crm_task.get("text"):
         return _line(
             "why",
@@ -79,29 +59,18 @@ def why_line_cold(*, crm_task: dict | None, hoy_why: dict | None) -> dict | None
             source_ref=crm_task.get("source_ref"),
             observed_at=crm_task.get("observed_at"),
         )
-    if hoy_why and hoy_why.get("text"):
-        return _line(
-            "why",
-            str(hoy_why["text"]),
-            source_ref=hoy_why.get("source_ref"),
-            observed_at=hoy_why.get("observed_at"),
-        )
-    return None
-
-
-def open_line(steps: list[dict] | None, *, sales_motion_key: str | None) -> dict | None:
-    if not sales_motion_key or not steps:
+    reason = str((hoy_priority or {}).get("reason") or "")
+    if reason not in HOY_CARD_REASONS:
         return None
-    for step in steps:
-        if not isinstance(step, dict):
-            continue
-        if str(step.get("step_id") or "") != "opening":
-            continue
-        phrase = " ".join(str(step.get("reference_phrase") or step.get("reference") or "").split())
-        if not phrase:
-            continue
-        return _line("open", phrase, source="playbook", source_ref=step.get("step_id"))
-    return None
+    since = _day_label(created_at, tz_name) if reason == "no_calls_logged" and created_at else None
+    return {
+        "type": "why",
+        "text": None,
+        "reason": reason,
+        "since": since,
+        "source_ref": hoy_priority.get("source_ref"),
+        "observed_at": hoy_priority.get("observed_at"),
+    }
 
 
 def prepare_cold_brief_v2(
@@ -110,9 +79,7 @@ def prepare_cold_brief_v2(
     profile: dict | None,
     tz_name: str,
     crm_task: dict | None = None,
-    hoy_why: dict | None = None,
-    playbook_steps: list[dict] | None = None,
-    sales_motion_key: str | None = None,
+    hoy_priority: dict | None = None,
 ) -> dict:
     failed = coverage in {"partial", "unavailable"}
     notice = "No se pudo cargar todo." if failed else None
@@ -123,12 +90,14 @@ def prepare_cold_brief_v2(
     who = who_line(profile, tz_name=tz_name)
     if who:
         lines.append(who)
-    why = why_line_cold(crm_task=crm_task, hoy_why=hoy_why)
+    why = why_line_cold(
+        crm_task=crm_task,
+        hoy_priority=hoy_priority,
+        created_at=(profile or {}).get("created_at"),
+        tz_name=tz_name,
+    )
     if why:
         lines.append(why)
-    opening = open_line(playbook_steps, sales_motion_key=sales_motion_key)
-    if opening:
-        lines.append(opening)
     lines = lines[:MAX_LINES]
 
     if coverage == "partial":

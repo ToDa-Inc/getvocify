@@ -181,36 +181,46 @@ C04 no vigente o flag apagado: exactamente el brief de F03 (22 sep), con el mism
 
 ### Addendum E4 — brief cold call (26 sep 2026)
 
-Con `BRIEF_V2_ENABLED` encendido y **sin memos** del contacto, el brief devuelve como mucho tres líneas deterministas (sin LLM), sin `label`:
+Con `BRIEF_V2_ENABLED` encendido y **sin memos** del contacto, el brief devuelve como mucho dos líneas deterministas (sin LLM), sin `label`:
 
-1. **Quién es** (`who`): cargo · empresa · origen y fecha de alta del CRM, p. ej. «Directora comercial en Acme · lead de formulario web, 3 sep». Omite las partes que falten; si no hay ninguna, no hay línea. Lectura de propiedades reutilizando la capa de Ask (`crm_copilot` en HubSpot, `pipedrive_reads.py` en Pipedrive). Salesforce u otros: sin línea «quién es», sin romper.
-2. **Por qué llamas** (`why`): tarea abierta del CRM (misma lectura que E3) → motivo de prioridad de Hoy (`priority_reason` en `hoy/reasons.py`, p. ej. «Nuevo, sin llamar desde el 3 sep»). No se redacta otra frase.
-3. **Cómo abrir** (`open`): paso con `step_id == "opening"` del playbook publicado del `sales_motion_key` del contacto, con su `reference_phrase` (`source: "playbook"`). Sin motion claro, sin paso de apertura o sin frase → sin línea.
+1. **Quién es** (`who`): cargo · empresa · origen y fecha de alta del CRM, p. ej. «Directora comercial en Acme · búsqueda orgánica, 3 sep». Omite las partes que falten; si no hay ninguna, no hay línea. Lectura de propiedades reutilizando la capa de Ask (`HubSpotBundle.contacts.get` en HubSpot, `PipedriveReader.hydrate_contact` en Pipedrive), con el `supabase` del endpoint para que un token refrescado se guarde. Salesforce u otros: sin línea «quién es», sin romper.
+   - **Origen:** solo HubSpot `hs_analytics_source` con sus valores documentados (`ORGANIC_SEARCH` búsqueda orgánica, `PAID_SEARCH` búsqueda de pago, `EMAIL_MARKETING` email marketing, `SOCIAL_MEDIA` redes sociales, `REFERRALS` referido, `OTHER_CAMPAIGNS` otra campaña, `DIRECT_TRAFFIC` tráfico directo, `OFFLINE` fuente offline, `PAID_SOCIAL` redes de pago). Valor desconocido → se omite. Pipedrive no tiene un campo de origen documentado en la persona: sin origen.
+2. **Por qué llamas** (`why`): tarea abierta del CRM (misma lectura que E3) → motivo de prioridad de Hoy. El motivo se calcula solo sobre las filas de este contacto en `contact_priority_context` con el mismo ranking de Hoy (`rank_candidates`), sin leer la página de la empresa. La API no redacta frase: devuelve la clave (`reason`) y, en `no_calls_logged`, el día de alta (`since`, zona del comercial). `shared/ui/brief.js` la formatea con la misma copia que las tarjetas de Hoy (`shared/ui/hoy-copy.js`, que `product-catalog.ts` reexporta): «Sin llamar desde el 3 sep», «Sin llamar» sin fecha, «Dolor confirmado». Motivos sin etiqueta de tarjeta en Hoy (`followup_pending`, etc.) → sin línea.
+3. **Cómo abrir — PENDIENTE.** No hay fuente real: los pasos del playbook solo tienen `step_id`, `label` y `criterion` (sin paso de apertura ni frase de referencia) y un contacto sin conversaciones no tiene `sales_motion_key`. Necesita (a) un paso de apertura con frase de referencia en el modelo de playbook y (b) un tipo de venta para contactos sin conversaciones. Hasta entonces, no hay línea `open`.
 
-Sin ningún dato del CRM ni líneas: «Sin conversación todavía.» (misma frase que F03). Fechas en la zona del comercial (`rep_timezone`). Origen CRM: traduce valores conocidos de HubSpot (`hs_analytics_source`, `hs_lead_source`) y Pipedrive; valor desconocido → omítelo.
+Sin ningún dato del CRM ni líneas: «Sin conversación todavía.» (misma frase que F03). Fechas en la zona del comercial (`rep_timezone`).
 
-**Lectura parcial:** error al leer propiedades del contacto, playbook o tareas CRM → `partial` + aviso + líneas verificadas. Sin CRM conectado para propiedades no es parcial (solo no hay línea «quién es»).
+**Lectura parcial:** error al leer propiedades del contacto, la prioridad de Hoy o las tareas CRM → `partial` + aviso + líneas verificadas. Sin CRM conectado no es parcial (solo no hay línea «quién es»).
 
-Contacto **con** conversación: sin cambios respecto al addendum E3.
+Contacto **con** conversación: sin cambios respecto al addendum E3 (y no se lee el perfil CRM).
 
 | Caso | Resultado exigido |
 |---|---|
 | HubSpot con cargo, empresa, origen y alta | Línea who completa |
 | Solo cargo y empresa | Who sin origen ni fecha |
-| Pipedrive con job_title, org y add_time | Línea who con partes disponibles |
+| HubSpot con `hs_analytics_source` desconocido | Origen omitido |
+| HubSpot con solo `hs_lead_source` | Sin origen (no se lee) |
+| Pipedrive con job_title, org, label y add_time | Who con cargo, empresa y fecha; sin origen |
 | Sin propiedades CRM | Sin línea who |
 | Salesforce u otro CRM | Sin línea who; brief no rompe |
+| Sin CRM conectado | «Sin conversación todavía.», no parcial |
+| Perfil HubSpot leído con el `supabase` del endpoint | Token refrescado persistido |
 | Tarea CRM abierta | Why con la tarea, antes que Hoy |
-| Sin tarea, prioridad `no_calls_logged` con alta | «Nuevo, sin llamar desde el {día mes}» |
+| Sin tarea, prioridad `no_calls_logged` con alta | `reason` + `since`; se pinta «Sin llamar desde el {día mes}» |
+| `no_calls_logged` sin alta | «Sin llamar» |
+| `pain_agree_next_step` | «Dolor confirmado», sin fecha |
+| Motivo sin etiqueta de tarjeta Hoy | Sin línea why |
+| Contacto fuera del top 20 de Hoy | Mismo motivo (se calcula sobre su fila) |
+| Fila de prioridad de otro comercial | Mismo motivo |
 | Sin tarea ni motivo Hoy | Sin línea why |
-| Playbook con paso opening y reference_phrase | Línea open con `source: "playbook"` |
-| Sin playbook, sin motion o sin paso opening | Sin línea open |
+| Cómo abrir | PENDIENTE: nunca hay línea open |
 | Ningún dato | «Sin conversación todavía.» |
-| Error lectura contacto CRM | `partial` + notice + líneas verificadas |
-| Error lectura playbook con who verificada | `partial` + notice |
+| Error lectura contacto CRM | `partial` + notice + motivo Hoy verificado |
+| Error lectura prioridad Hoy | `partial` + notice + who verificada |
 | Flag apagado, contacto sin conversación | Igual que fixture pre-E3 |
-| Contacto con conversación C04 vigente | Sin cambios E3 |
-| Mismo payload en todas las superficies | `shared/ui/brief.js` formatea open con filete playbook |
+| Contacto con conversación C04 vigente | Payload idéntico a E3; perfil CRM no leído |
+| Textos de Hoy | «Sin llamar» / «Dolor confirmado» sin cambios en las tarjetas |
+| Mismo payload en todas las superficies | `shared/ui/brief.js` formatea el motivo igual en panel, ficha y extensión |
 
 ### Criterio de aceptación (Definition of Done)
 

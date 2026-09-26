@@ -1,7 +1,7 @@
 """The most-read sentence in the product, written once, server-side."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from app.services.hoy.signals import Signal
 
@@ -84,53 +84,6 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
     if lang == "es":
         return f"Quedó una objeción de {label} sin cerrar."
     return f"An open {label} objection."
-
-
-def priority_reason_text(
-    reason: str,
-    *,
-    created_at,
-    tz_name: str = "Europe/Madrid",
-    lang: str = "es",
-) -> str | None:
-    """Priority-card copy for the brief. Same wording Hoy will reuse server-side."""
-    lang = _lang(lang)
-    if reason == "no_calls_logged":
-        if created_at:
-            day = _priority_day_label(created_at, tz_name)
-            if day:
-                return f"Nuevo, sin llamar desde el {day}" if lang == "es" else f"New, not called since {day}"
-        return "Sin llamar" if lang == "es" else "Not called yet"
-    if reason == "pain_agree_next_step":
-        return "Confirmó el problema y falta el siguiente paso." if lang == "es" else "Confirmed the problem; next step pending."
-    if reason == "followup_pending":
-        return "Quedó un seguimiento pendiente." if lang == "es" else "Follow-up still pending."
-    return None
-
-
-def _priority_day_label(value, tz_name: str) -> str | None:
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-    try:
-        zone = ZoneInfo(str(tz_name or "Europe/Madrid"))
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = ZoneInfo("Europe/Madrid")
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if not text:
-            return None
-        try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    local = parsed.astimezone(zone)
-    return f"{local.day} {MONTH['es'][local.month - 1]}"
 
 
 def _no_reply(payload: dict, lang: str) -> str:
