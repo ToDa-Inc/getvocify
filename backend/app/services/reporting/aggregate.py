@@ -14,6 +14,7 @@ def build_snapshot(
     interactions: list[dict],
     outcomes: dict,
     adherence_parts: list[dict] | None = None,
+    channels: dict[str, int] | None = None,
 ) -> dict:
     attempts = 0
     connected = 0
@@ -40,19 +41,22 @@ def build_snapshot(
     adherence = None
     if adherence_parts:
         adherence = aggregate_adherence(adherence_parts)["adherence"]
+    metrics = {
+        "attempts": attempts,
+        "connected_calls": connected,
+        "meetings_agreed": meetings,
+        "deals_won": deals_won,
+        "deals_lost": deals_lost,
+        "adherence": adherence,
+    }
+    if channels is not None:
+        metrics["channels"] = dict(channels)
     return {
         "scope": scope,
         "period_start": period_start,
         "period_end": period_end,
         "timezone": timezone,
-        "metrics": {
-            "attempts": attempts,
-            "connected_calls": connected,
-            "meetings_agreed": meetings,
-            "deals_won": deals_won,
-            "deals_lost": deals_lost,
-            "adherence": adherence,
-        },
+        "metrics": metrics,
         "coverage": {"crm_outcomes": coverage},
         "examples": examples,
         "coaching": None,

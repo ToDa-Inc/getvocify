@@ -27,7 +27,7 @@ from app.services.hubspot.calls import (
     get_call_engagement,
     parse_hubspot_timestamp_ms,
 )
-from app.services.captures import with_author_company
+from app.services.captures import interaction_kind_for, with_author_company
 from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
@@ -94,6 +94,7 @@ async def initiate_hubspot_call_memo(
         "audio_duration": 0.0,
         "status": "transcribing",
         "source": "hubspot_call",
+        "interaction_kind": interaction_kind_for("hubspot_call", None, None),
         "hubspot_engagement_id": cid,
         "hubspot_deal_id": str(d) if d else None,
         "hubspot_contact_id": str(ct) if ct else None,

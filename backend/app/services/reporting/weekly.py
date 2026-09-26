@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.reporting.aggregate import build_snapshot
+from app.services.reporting.channels import interaction_channels
 from app.services.reporting.daily_snapshot import _interaction_from_memo
 from app.services.team_insights.aggregate import activity_counts, activity_row_from_memo
 from app.services.team_insights.objections import objection_counts
@@ -103,6 +104,7 @@ def weekly_self_snapshot(
         interactions=interactions,
         outcomes=outcomes,
         adherence_parts=None,
+        channels=interaction_channels(memos, start=period_start, end=period_end),
     )
     activity = [row for memo in memos if (row := activity_row_from_memo(memo)) is not None]
     objections = _objections(pattern_rows, start=period_start, end=period_end)
@@ -147,6 +149,7 @@ def team_snapshot(
     period_end: datetime,
     timezone: str,
     generated_at: datetime,
+    channels: dict[str, int] | None = None,
 ) -> dict:
     """C18 shape from the team panel aggregate. No per-rep numbers, names or example conversations."""
     adherence = team_body.get("adherence")
@@ -155,6 +158,17 @@ def team_snapshot(
         if adherence is not None
         else None
     )
+    metrics = {
+        "attempts": int(team_body.get("attempts") or 0),
+        "connected_calls": int(team_body.get("connected") or 0),
+        "meetings_agreed": int(team_body.get("meetings") or 0),
+        # The panel's CRM read is not scoped to a period, so a weekly close count is not available.
+        "deals_won": None,
+        "deals_lost": None,
+        "adherence": adherence,
+    }
+    if channels is not None:
+        metrics["channels"] = dict(channels)
     return {
         "scope": "team",
         "report_type": "weekly",
@@ -162,15 +176,7 @@ def team_snapshot(
         "period_end": period_end.isoformat(),
         "timezone": timezone,
         "generated_at": _aware(generated_at).isoformat(),
-        "metrics": {
-            "attempts": int(team_body.get("attempts") or 0),
-            "connected_calls": int(team_body.get("connected") or 0),
-            "meetings_agreed": int(team_body.get("meetings") or 0),
-            # The panel's CRM read is not scoped to a period, so a weekly close count is not available.
-            "deals_won": None,
-            "deals_lost": None,
-            "adherence": adherence,
-        },
+        "metrics": metrics,
         "adherence_steps": steps,
         "sample_limited": bool(team_body.get("sample_limited")),
         "coverage": {"crm_outcomes": "unavailable", "objections": "complete"},

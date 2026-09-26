@@ -9,6 +9,7 @@ from typing import Callable
 
 from app.config import settings
 from app.services.feature_flags import is_enabled
+from app.services.reporting.channels import interaction_channels, load_team_channel_memos
 from app.services.reporting.daily_snapshot import (
     _load_memos_for_user,
     _load_outcome_observations,
@@ -188,6 +189,12 @@ def _team_has_activity(body: dict) -> bool:
     )
 
 
+def _team_channels(supabase, company_id: str, inputs: dict, *, start: datetime, end: datetime) -> dict | None:
+    member_ids = [str(rep["userId"]) for rep in inputs.get("reps") or [] if rep.get("userId")]
+    memos = load_team_channel_memos(supabase, company_id, member_ids)
+    return None if memos is None else interaction_channels(memos, start=start, end=end)
+
+
 def ensure_team_weekly_report(
     supabase,
     *,
@@ -218,7 +225,8 @@ def ensure_team_weekly_report(
         body = team_adherence(role=role, **inputs)
     except TeamAccessError:
         return None
-    if not _team_has_activity(body):
+    channels = _team_channels(supabase, company_id, inputs, start=start, end=end)
+    if not _team_has_activity(body) and not any((channels or {}).values()):
         return None
     snapshot = team_snapshot(
         team_body=body,
@@ -227,6 +235,7 @@ def ensure_team_weekly_report(
         period_end=end,
         timezone=timezone,
         generated_at=now,
+        channels=channels,
     )
     trend = _team_trend(supabase, company_id, role=role, now=now, timezone=timezone, load_trend=load_trend)
     if trend:

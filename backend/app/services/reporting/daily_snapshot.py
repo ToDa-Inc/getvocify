@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.services.reporting.aggregate import build_snapshot
+from app.services.reporting.channels import interaction_channels
 from app.services.reporting.delivery import period_bounds
 from app.services.reporting.due_sends import MADRID
 from app.services.reporting.preferences import is_opted_in, load_preference_rows
@@ -100,7 +101,10 @@ def _load_memos_for_user(supabase, *, company_id: str, user_id: str) -> list[dic
     try:
         result = (
             supabase.table("memos")
-            .select("id,user_id,company_id,screening_outcome,extraction,capture_started_at,created_at")
+            .select(
+                "id,user_id,company_id,source,source_type,interaction_kind,"
+                "screening_outcome,extraction,capture_started_at,created_at"
+            )
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .execute()
@@ -204,6 +208,7 @@ def ensure_self_daily_report(
         interactions=interactions,
         outcomes=outcomes,
         adherence_parts=None,
+        channels=interaction_channels(period_memos, start=period_start, end=period_end),
     )
     report_id = _existing_report_id(
         supabase,
