@@ -51,6 +51,7 @@ from .tasks import (
     build_task_body,
 )
 from app.models.memo import MemoExtraction
+from app.services.commitment_tasks import follow_up_extraction
 from app.services.crm_updates import CRMUpdatesService
 from app.services.task_merge import TaskMergeService
 from app.services.deal_merge import DealMergeService
@@ -64,6 +65,8 @@ from .object_properties import (
 from .note_format import record_written_fields
 
 logger = logging.getLogger(__name__)
+
+_TASK_LIST_PROPERTIES = ["hs_task_subject", "hs_timestamp", "hs_task_status"]
 
 
 def _contact_props_updating_existing(
@@ -355,7 +358,96 @@ class HubSpotSyncService:
             except Exception:
                 pass
         return None
-    
+
+    async def _write_commitment_tasks(
+        self,
+        result: SyncResult,
+        commitment_tasks: list,
+        extraction: MemoExtraction,
+        *,
+        memo_id: Union[UUID, str],
+        user_id: str,
+        connection_id: Union[UUID, str],
+        deal_id: Optional[str],
+        is_new_deal: bool,
+        contact_id: Optional[str],
+        company_id: Optional[str],
+        hubspot_owner_id: Optional[str],
+        previous_updates: list[dict[str, Any]],
+    ) -> None:
+        """COMMITMENT_TASKS_ENABLED: commitments keep their text and date, so no merge rewrites them.
+        Rows the rep edited are still in nextSteps and are written the old way."""
+        requested = len(commitment_tasks) + len(extraction.nextSteps or [])
+        result.tasks_requested_count = requested
+        batch = TaskBatchResult()
+        target_id = deal_id or contact_id or company_id
+        if not requested:
+            return
+        if not target_id:
+            result.tasks_warning = summarize_task_batch(requested, batch, no_target=True)
+            return
+        if CRMUpdatesService.is_action_already_done(previous_updates, ("create_tasks", "merge_tasks")):
+            for update in previous_updates:
+                if update.get("action_type") == "create_tasks":
+                    result.commitment_task_ids.update((update.get("data") or {}).get("commitment_task_ids") or {})
+            result.tasks_warning = summarize_task_batch(requested, batch, already_synced=True)
+            return
+        try:
+            if deal_id and not is_new_deal:
+                existing = await self.tasks.list_tasks_for_deal(deal_id, properties=_TASK_LIST_PROPERTIES)
+            elif contact_id and not deal_id:
+                existing = await self.tasks.list_tasks_for_contact(contact_id, properties=_TASK_LIST_PROPERTIES)
+            else:
+                existing = []
+            subjects = {_normalize_task_subject(t.get("subject", "")) for t in existing}
+            async with self.crm_updates.track(
+                memo_id=str(memo_id),
+                user_id=user_id,
+                crm_connection_id=str(connection_id),
+                action_type="create_tasks",
+                resource_type="task",
+            ) as tracked:
+                batch, ids = await self.tasks.create_commitment_tasks(
+                    commitment_tasks,
+                    deal_id=deal_id,
+                    contact_id=contact_id,
+                    company_id=company_id,
+                    hubspot_owner_id=hubspot_owner_id,
+                    existing=existing,
+                    summary=extraction.summary,
+                )
+                result.commitment_task_ids = ids
+                if extraction.nextSteps:
+                    subjects |= {_normalize_task_subject(t.text) for t in commitment_tasks}
+                    edited = await self.tasks.create_tasks_from_extraction(
+                        extraction,
+                        deal_id=deal_id,
+                        contact_id=contact_id,
+                        company_id=company_id,
+                        hubspot_owner_id=hubspot_owner_id,
+                        existing_subjects=subjects,
+                    )
+                    batch.created_ids.extend(edited.created_ids)
+                    batch.skipped.extend(edited.skipped)
+                tracked.data = {
+                    "task_ids": batch.created_ids,
+                    "count": batch.created_count,
+                    "skipped": len(batch.skipped),
+                    "commitment_task_ids": ids,
+                }
+        except Exception as e:
+            inc_pipeline_error(DOMAIN_HUBSPOT, "create_tasks")
+            logger.warning(
+                "Failed to create commitment tasks for %s %s: %s",
+                "deal" if deal_id else "contact", target_id, e,
+                extra=log_domain(
+                    DOMAIN_HUBSPOT, "tasks_failed",
+                    deal_id=deal_id, contact_id=contact_id, error=str(e), requested_count=requested,
+                ),
+            )
+        result.tasks_created_count = batch.created_count
+        result.tasks_warning = summarize_task_batch(requested, batch)
+
     async def sync_memo(
         self,
         memo_id: Union[UUID, str],
@@ -384,6 +476,7 @@ class HubSpotSyncService:
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
         stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -1190,7 +1283,22 @@ class HubSpotSyncService:
             tasks_merge_mode = False
             tasks_merge_failed = False
 
-            if not tasks_target_id and tasks_requested_count:
+            if commitment_tasks is not None:
+                await self._write_commitment_tasks(
+                    result,
+                    commitment_tasks,
+                    extraction,
+                    memo_id=memo_id,
+                    user_id=user_id,
+                    connection_id=connection_id,
+                    deal_id=deal_id,
+                    is_new_deal=is_new_deal,
+                    contact_id=contact_id,
+                    company_id=company_id,
+                    hubspot_owner_id=hubspot_owner_id,
+                    previous_updates=previous_updates,
+                )
+            elif not tasks_target_id and tasks_requested_count:
                 logger.warning(
                     "Cannot create tasks — no deal or contact target",
                     extra=log_domain(
@@ -1689,7 +1797,10 @@ class HubSpotSyncService:
                         hubspot_owner_id=hubspot_owner_id,
                         outcome_note_already_recorded=outcome_note_already_recorded,
                         previous_updates=previous_updates,
-                        extraction=extraction,
+                        extraction=(
+                            extraction if commitment_tasks is None
+                            else follow_up_extraction(extraction, commitment_tasks)
+                        ),
                     )
                     outcome_result = await apply_call_outcome(
                         outcome_ctx,

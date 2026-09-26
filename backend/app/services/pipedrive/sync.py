@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Optional, Union
 from uuid import UUID
 
@@ -36,6 +36,14 @@ def new_deal_title(extraction: MemoExtraction) -> str:
     if extraction.contactName:
         return extraction.contactName
     return f"Vocify memo {date.today().isoformat()}"
+
+
+def _utc_due(due_at: Optional[datetime]) -> dict[str, str]:
+    """Pipedrive activity due date and time, both UTC."""
+    if due_at is None:
+        return {}
+    utc = due_at.astimezone(timezone.utc)
+    return {"due_date": utc.date().isoformat(), "due_time": utc.strftime("%H:%M")}
 
 
 def confirmed_stage_choice(extraction: MemoExtraction) -> Optional[str]:
@@ -82,9 +90,12 @@ class PipedriveSyncService:
         company_id: Optional[str] = None,
         skip_deal: bool = False,
         stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
         """stage_confirm: the stage is the one the rep confirmed (raw_extraction.stage_id);
-        an existing deal's stage is written only when it differs from the current one."""
+        an existing deal's stage is written only when it differs from the current one.
+        commitment_tasks (COMMITMENT_TASKS_ENABLED): one activity per commitment, with its date,
+        before the nextSteps the rep edited."""
         create_companies = auto_create_companies if auto_create_companies is not None else auto_create_contact_company
         create_contacts = auto_create_contacts if auto_create_contacts is not None else auto_create_contact_company
         if deal_id and not is_new_deal:
@@ -231,22 +242,26 @@ class PipedriveSyncService:
                 )
 
             steps = [s.strip() for s in (extraction.nextSteps or []) if str(s).strip()]
-            result.tasks_requested_count = len(steps)
-            if steps:
+            planned = [(task, task.text, _utc_due(task.due_at)) for task in commitment_tasks or []]
+            planned += [(None, step, {}) for step in steps]
+            result.tasks_requested_count = len(planned)
+            if planned:
                 task_type = await self.activities.resolve_task_type()
                 if not task_type:
                     result.tasks_warning = "No Pipedrive activity type with key_string/icon_key 'task' — next steps were not written."
                 else:
                     created_n = 0
-                    for step in steps:
+                    for task, subject, due in planned:
                         aid = await self.activities.create_next_step(
-                            step, deal_id=deal_id, person_id=person_id, org_id=org_id
+                            subject, deal_id=deal_id, person_id=person_id, org_id=org_id, **due
                         )
                         if aid:
                             created_n += 1
+                            if task is not None:
+                                result.commitment_task_ids[task.commitment_id] = aid
                     result.tasks_created_count = created_n
-                    if created_n < len(steps):
-                        result.tasks_warning = f"Created {created_n} of {len(steps)} next-step activities."
+                    if created_n < len(planned):
+                        result.tasks_warning = f"Created {created_n} of {len(planned)} next-step activities."
 
             result.success = True
             result.company_id = org_id

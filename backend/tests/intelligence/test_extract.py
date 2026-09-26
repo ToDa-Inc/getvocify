@@ -150,6 +150,28 @@ def test_a_commitment_without_an_offset_or_a_real_day_is_dropped():
     assert shape_intelligence(MEMO, _commitment("2026-02-30"))["commitments"] == []
 
 
+def test_a_commitment_where_no_day_was_said_is_kept_without_a_date():
+    [item] = shape_intelligence(MEMO, _commitment(None))["commitments"]
+    assert item["text"] == "enviar el caso de logística"
+    assert item["due_at"] is None
+    assert item["temporal_precision"] == "unknown"
+
+
+def test_an_undated_commitment_never_reaches_hoy():
+    from datetime import datetime
+
+    from app.services.hoy.materialize import day_end
+    from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
+
+    shaped = shape_intelligence(MEMO, _commitment(None))
+    touch = touch_from_intelligence(
+        memo_id="memo-1", contact_id="c-1", deal_id=None,
+        at=datetime.fromisoformat("2026-09-22T10:00:00+02:00"), intelligence=shaped,
+    )
+    later = datetime.fromisoformat("2026-12-01T09:00:00+01:00")
+    assert not signals_for_contact([touch], now=later, day_end=day_end(later, "Europe/Madrid"))
+
+
 def test_an_unknown_timezone_falls_back_to_madrid():
     kept = shape_intelligence({**MEMO, "timezone": "Mars/Base"}, _commitment("2026-09-24"))
     assert kept["commitments"][0]["due_at"] == "2026-09-24T00:00:00+02:00"
@@ -196,3 +218,20 @@ def test_no_transcript_means_no_call():
     shaped, meta = asyncio.run(extract_intelligence({**MEMO, "transcript": ""}, NeverCalled()))
     assert shaped is None
     assert meta == {}
+
+
+def test_the_prompt_version_names_its_own_prompt_file():
+    from app.services.intelligence.extract import PROMPT_PATH, PROMPT_VERSION
+
+    assert PROMPT_VERSION == "intelligence_v3"
+    assert PROMPT_PATH.name == f"{PROMPT_VERSION}.md"
+    stored = shape_intelligence({**MEMO, "timezone": "Europe/Madrid"}, {"commitments": []})
+    assert stored["prompt_version"] == "intelligence_v3"
+
+
+def test_a_released_prompt_file_is_never_edited_in_place():
+    from app.services.intelligence.extract import PROMPT_PATH
+
+    v2 = (PROMPT_PATH.parent / "intelligence_v2.md").read_text(encoding="utf-8")
+    assert "SPEAKER: S1" not in v2
+    assert "en dos semanas" not in v2

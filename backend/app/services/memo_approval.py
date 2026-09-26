@@ -11,6 +11,7 @@ from supabase import Client
 
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
+from app.services import commitment_tasks
 from app.services.crm_config import CRMConfigurationService
 from app.services.deal_stage_confirm import stage_confirm_enabled, sync_allowed_fields
 from app.services.crm_providers import (
@@ -273,6 +274,17 @@ async def approve_memo_core(
         if reviewed_extraction:
             stage_kwargs["stage_confirm"] = True
 
+    commitment_kwargs: dict = {}
+    plan = commitment_tasks.sync_plan(
+        supabase,
+        memo=memo_data,
+        connection=crm_connection,
+        extraction=extraction,
+        reviewed=reviewed_extraction,
+    )
+    if plan is not None:
+        commitment_kwargs["commitment_tasks"], extraction = plan
+
     sync_result = await provider.sync_memo(
         memo_id=memo_id,
         user_id=user_id,
@@ -301,6 +313,7 @@ async def approve_memo_core(
         lost_lead_status_value=lost_lead_status_value,
         on_hold_lead_status_value=on_hold_lead_status_value,
         **stage_kwargs,
+        **commitment_kwargs,
     )
 
     if not sync_result.success:
@@ -316,6 +329,10 @@ async def approve_memo_core(
         "✅ Approve memo core complete",
         extra=log_domain(DOMAIN_MEMO, "approve_core_complete", memo_id=memo_id, deal_id=sync_result.deal_id),
     )
+    if commitment_kwargs:
+        extraction_data = commitment_tasks.with_task_ids(
+            extraction_data, memo_data, sync_result.commitment_task_ids
+        )
     supabase.table("memos").update({
         "status": "approved",
         "approved_at": datetime.utcnow().isoformat(),

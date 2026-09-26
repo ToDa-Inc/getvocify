@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import today as today_api
+from app.services import rep_timezone as rep_timezone_module
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.hoy.scheduler import (
@@ -157,7 +158,7 @@ def test_get_today_claim_defaults_to_madrid_when_preference_read_fails(monkeypat
         raise RuntimeError("preference store unavailable")
 
     monkeypatch.setattr(today_api, "attempt_daily_run_claim", spy_claim)
-    monkeypatch.setattr(today_api, "read_preference", broken_read)
+    monkeypatch.setattr(rep_timezone_module, "read_preference", broken_read)
     today_api.set_today_tasks(lambda _company: ([], "complete"))
     try:
         body = _today_client().get("/api/v1/today").json()

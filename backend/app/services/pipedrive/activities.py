@@ -42,7 +42,9 @@ class PipedriveActivityService:
         person_id: Optional[str] = None,
         org_id: Optional[str] = None,
         due_date: Optional[str] = None,
+        due_time: Optional[str] = None,
     ) -> Optional[str]:
+        """due_date and due_time are UTC, as Pipedrive expects."""
         activity_type = await self.resolve_task_type()
         if not activity_type:
             return None
@@ -60,6 +62,8 @@ class PipedriveActivityService:
             body["org_id"] = int(org_id)
         if due_date:
             body["due_date"] = due_date
+        if due_time:
+            body["due_time"] = due_time
         created = unwrap_data(await self.client.post("/activities", json_body=body))
         if isinstance(created, dict) and created.get("id") is not None:
             return str(created["id"])

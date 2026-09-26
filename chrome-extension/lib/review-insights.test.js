@@ -310,6 +310,21 @@ describe('tasks and note', () => {
     assert.equal(rows[0].dueDate, null);
   });
 
+  it('takes rows, count and dates from commitment rows, not from the legacy next steps', () => {
+    const rows = taskRowsFromPreview({
+      nextSteps: ['Mandar el caso'],
+      nextStepSchedules: ['2026-09-25'],
+      proposedUpdates: [
+        { object_type: 'task', field_name: 'next_step_task_0', new_value: 'Enviar el caso', due_date: '2026-09-24', commitment_id: 'com-2' },
+        { object_type: 'task', field_name: 'next_step_task_1', new_value: 'Preparar la propuesta', due_date: null, commitment_id: 'com-3' },
+      ],
+    });
+    assert.deepEqual(
+      rows.map((r) => [r.text, r.dueDate]),
+      [['Enviar el caso', '2026-09-24'], ['Preparar la propuesta', null]],
+    );
+  });
+
   it('formats a due date as a short weekday chip', () => {
     assert.equal(
       formatTaskDueLabel('2026-08-20', { today: '2026-08-18' }),

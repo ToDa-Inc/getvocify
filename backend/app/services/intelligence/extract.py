@@ -12,8 +12,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.config import settings
 from app.services.intelligence.worker import revision_for_memo
 
-PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "intelligence_v2.md"
-PROMPT_VERSION = "intelligence_v2"
+PROMPT_VERSION = "intelligence_v3"
+PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.md"
 
 _INTEREST = frozenset({"high", "medium", "low", "none"})
 _CATEGORY = frozenset({"price", "timing", "authority", "competitor", "status_quo", "trust", "other"})
@@ -117,10 +117,11 @@ def shape_intelligence(memo: dict, raw: dict) -> dict:
     for item in raw.get("commitments") or []:
         if not isinstance(item, dict):
             continue
-        due, precision = _commitment_due(item.get("due_at"), memo.get("timezone"))
+        undated = item.get("due_at") is None
+        due, precision = (None, "unknown") if undated else _commitment_due(item.get("due_at"), memo.get("timezone"))
         text = " ".join(str(item.get("text") or "").split()).rstrip(".")
         ref = _evidence(memo_id, item.get("quote"), transcript)
-        if not due or not text or ref is None:
+        if not (due or undated) or not text or ref is None:
             continue
         evidence[ref["id"]] = ref
         commitments.append({

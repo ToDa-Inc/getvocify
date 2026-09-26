@@ -78,5 +78,40 @@
     "id": "c04_meeting_part_of_day_is_not_a_time",
     "transcript": "Them: Lo que nos mata es que no sabemos qué se dice en las llamadas. You: ¿Lo vemos juntos el lunes? Them: Vale, el lunes a mediodía nos vemos.",
     "expect": {"pain_confirmed": true, "meeting_agreed": true, "meeting_starts_at": "2026-09-28", "meeting_precision": "date"}
+  },
+  {
+    "id": "c04_prospect_calls_back_is_not_a_rep_commitment",
+    "transcript": "SPEAKER: S1\nHola, te llamo de parte de Vocify por lo de las notas de voz para el equipo comercial.\nSPEAKER: S2\nAhora mismo estoy conduciendo. Mándame la información por LinkedIn y te llamo yo esta tarde.\nSPEAKER: S1\nPerfecto, te la mando ahora por LinkedIn.",
+    "expect": {"min_commitments": 1, "commitment_not_kind": "call"}
+  },
+  {
+    "id": "c04_confirm_call_beside_agreed_meeting",
+    "transcript": "SPEAKER: S1\n¿Te va bien que hagamos la demo el jueves a las cinco?\nSPEAKER: S2\nSí, el jueves a las cinco me va bien.\nSPEAKER: S1\nGenial. Te mando la invitación y mañana te llamo para confirmar quién más se conecta.\nSPEAKER: S2\nVale, perfecto.",
+    "expect": {"meeting_agreed": true, "commitment_due_date": "2026-09-23"}
+  },
+  {
+    "id": "c04_dictated_follow_up_task",
+    "transcript": "Acabo de hablar con la directora de operaciones de una distribuidora. Le interesa, pero quiere verlo con su equipo. Crea una tarea para llamarle mañana a las once.",
+    "expect": {"min_commitments": 1, "commitment_due_at": "2026-09-23T11:00:00+02:00"}
+  },
+  {
+    "id": "c04_undated_rep_promise_is_kept",
+    "transcript": "Them: Nos encaja, pero necesito ver números antes de moverlo internamente. You: Te preparo una propuesta con los precios para diez usuarios y te la envío. Them: Vale, cuando la tengas me la mandas.",
+    "expect": {"min_commitments": 1, "commitment_undated": true}
+  },
+  {
+    "id": "c04_noisy_confirm_call_beside_meeting",
+    "transcript": "SPEAKER: S1\n¿Te iría bien retomarlo el lunes 12 de octubre, sobre las cinco y media?\nSPEAKER: S2\nSí, sobre esa hora me va bien.\nSPEAKER: S1\nVale, te la mando para las cinco y media y, bueno, yo solamente te llamaría este jueves para confirmar o para ver qué tal, y ya luego la mueves o me la aceptas, ¿vale?\nSPEAKER: S2\nVale. Súper, me parece bien.\nSPEAKER: S1\nPerfecto, pues ahora te envío el invite.\nSPEAKER: S2\nGracias por la llamada, estamos en contacto.",
+    "expect": {"meeting_agreed": true, "commitment_due_date": "2026-09-24"}
+  },
+  {
+    "id": "c04_call_the_referred_colleague_tomorrow",
+    "transcript": "SPEAKER: S1\nTe envío la presentación hoy mismo. Y tu compañero de operaciones, ¿tiene teléfono corporativo? Mañana le pego un toque, que se lo explico en dos minutos.\nSPEAKER: S2\nSí, sí que tiene. Apunta.\nSPEAKER: S1\nPerfecto. Le doy el contexto de lo que hemos hablado y ya me dice si tiene sentido.\nSPEAKER: S2\nVale, exacto.\nSPEAKER: S1\nMil gracias, estamos en contacto.",
+    "expect": {"min_commitments": 2, "commitment_due_date": "2026-09-23"}
+  },
+  {
+    "id": "c04_dictated_next_step_in_two_weeks",
+    "transcript": "SPEAKER: S1\nNota rápida. Estoy hablando con el responsable de ventas de una empresa de unos 300 empleados, comerciales de campo, ahora mismo con HubSpot. El próximo paso es hablar en dos semanas, y en cuatro semanas agendar otra reunión.",
+    "expect": {"min_commitments": 1, "commitment_due_date": "2026-10-06"}
   }
 ]

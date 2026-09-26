@@ -30,6 +30,7 @@ from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
+from app.services.commitment_tasks import preview_kwargs as commitment_preview_kwargs
 from app.services.deal_stage_confirm import preview_stage_kwargs
 from app.services.memo_approval import approve_memo_core, CRMSyncError
 from app.services.preview_targets import resolve_preview_deal_selection
@@ -1398,6 +1399,7 @@ async def get_approval_preview(
             include_unchanged=replay_written_fields(memo_data.get("status")),
             skip_deal=skip_deal,
             **preview_stage_kwargs(supabase, memo=memo_data, connection=conn, config=config),
+            **commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1560,6 +1562,7 @@ async def post_approval_preview(
             include_unchanged=replay_written_fields(memo_data.get("status")),
             skip_deal=skip_deal,
             **preview_stage_kwargs(supabase, memo=memo_data, connection=conn, config=config),
+            **commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)

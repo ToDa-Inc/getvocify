@@ -127,6 +127,7 @@ def _conversation(row: dict, viewer: Viewer) -> dict:
     meeting = intel.get("meeting") if isinstance(intel.get("meeting"), dict) else {}
     objections = [o for o in map(_objection, intel.get("objections") or extraction.get("objections") or []) if o]
     commitments = [c for c in map(_commitment, intel.get("commitments") or []) if c]
+    commitments.sort(key=lambda c: "due_at" not in c)
     out = {
         "memo_id": str(row.get("id") or ""),
         "created_at": row.get("capture_started_at") or row.get("created_at"),
