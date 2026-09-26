@@ -142,13 +142,17 @@ Sin modelo y sin tabla nueva. Este formato ya está aprobado.
 
 Con `BRIEF_V2_ENABLED` encendido para la empresa y C04 vigente en el memo más reciente del contacto, el brief devuelve como mucho tres líneas deterministas (sin LLM), más una etiqueta opcional de progreso del playbook:
 
-1. **Gancho** (`hook`): última conversación con fecha local del comercial. Si `pain_confirmed`, con la cita de la evidencia («11 sep: «…»»). Si no hay dolor, el resumen de la extracción con la misma fecha.
-2. **Por qué llamas** (`why`): el primer hecho entre compromiso vencido o de hoy (C04) → email sin respuesta (solo si `HOY_NO_REPLY_ENABLED` y el loader lo aporta) → tarea abierta del CRM.
-3. **Qué decir** (`say`): objeción abierta de C04 con respuesta del playbook publicado (`source: "playbook"`) → competidor mencionado («Usa {nombre}»).
+1. **Gancho** (`hook`): última conversación con fecha local del comercial. Si `pain_confirmed`, con la cita de **su propia** evidencia (la única evidencia de C04 que ningún otro hecho referencia, la misma regla que usa el follow-up): «11 sep: «…»». Si el dolor no tiene evidencia propia, no hay cita: sale el resumen de la extracción con la misma fecha.
+2. **Por qué llamas** (`why`): el primer hecho entre compromiso vencido o de hoy (C04) → email sin respuesta (señal `no_reply` pendiente de Hoy, solo si `HOY_NO_REPLY_ENABLED`) → tarea abierta del CRM (la misma lectura de tareas abiertas que usa Hoy, filtrada por el contacto; solo lectura, por empresa).
+3. **Qué decir** (`say`): objeción abierta de C04 **con** respuesta del playbook publicado (`source: "playbook"`) → si no, competidor mencionado («Usa {nombre}») → si no, nada. Una objeción abierta sin respuesta en el playbook ya no sale sola. `resolution == "unknown"` cuenta como abierta: C04 no siempre sabe si se trató.
 
-**Etiqueta** (`label`): pasos cumplidos y pendientes de la última nota F09 (`playbook_observations`), p. ej. «Pitch hecho · falta cualificar». Solo si hay playbook publicado y observaciones.
+**Etiqueta** (`label`): pasos cumplidos y pendientes de la última nota F09 (`playbook_observations`), p. ej. «Pitch hecho · falta cualificar». Solo si la nota tiene `sales_motion_key`, ese motion tiene playbook publicado y hay observaciones. Sin motion no se elige ningún playbook.
 
-C04 no vigente o flag apagado: exactamente el brief de F03 (22 sep). Lectura parcial: aviso «No se pudo cargar todo.» y las líneas verificadas.
+C04 no vigente o flag apagado: exactamente el brief de F03 (22 sep), con el mismo constructor de hechos en los dos caminos.
+
+**Lectura parcial:** si falla la lectura de la señal no-reply, del playbook o de las tareas del CRM (error, 401/403, CRM caído), la respuesta sale `partial` con el aviso «No se pudo cargar todo.» y las líneas verificadas; nunca se degrada en silencio. Que la empresa no tenga CRM conectado no es un fallo. Una lectura de tareas que se corta por paginación (más de 300 tareas abiertas) no se marca parcial.
+
+**Superficies:** el dashboard pinta el brief con `ContactBrief`. Con el flag apagado, `MemoDetail` se ve como antes: ni estado de carga ni de error, líneas planas. Las filas con filete y la etiqueta solo aparecen con un payload v2 (trae la clave `label`). En la casa F16 el `ContactPanel` es el único que pinta el brief: ni el dialer anclado al panel ni las tarjetas de la casa lo repiten. Con la casa apagada, el brief sale en el dialer flotante y en la tarjeta desplegada de la cola de Hoy (una sola petición, no una por tarjeta).
 
 | Caso | Resultado exigido |
 |---|---|
@@ -157,14 +161,23 @@ C04 no vigente o flag apagado: exactamente el brief de F03 (22 sep). Lectura par
 | Compromiso de hoy | «Pidió que la llamaras hoy.» antes que no-reply y tarea CRM |
 | No-reply con flag, sin compromiso | Línea why del email sin respuesta |
 | Sin compromiso ni no-reply | Tarea CRM abierta en why |
+| No-reply sin `HOY_NO_REPLY_ENABLED` | Sin línea no-reply; no se lee `action_signals` |
+| Señal no-reply leída por sus columnas reales (`memo_id`) | Línea why con el texto de Hoy |
 | Objeción abierta + playbook | «Precio: …» con `source: "playbook"` |
+| Objeción `unknown` + playbook | Cuenta como abierta |
+| Objeción abierta sin respuesta en el playbook | No sale; competidor o nada |
 | Objeción resuelta + competidor | «Usa Ringover», sin objeción |
+| Dolor sin evidencia propia | Gancho con resumen, sin cita de otro hecho |
 | Sin hecho | Sin línea; nunca más de tres |
-| Lectura parcial | `partial` + notice + líneas verificadas |
-| Sin playbook o sin observaciones F09 | Sin `label` |
-| C04 no vigente | Brief legacy byte a byte |
-| Flag apagado | Brief legacy byte a byte |
+| Lectura parcial de memos | `partial` + notice + líneas verificadas |
+| Falla la lectura no-reply, playbook o tareas CRM | `partial` + notice |
+| Sin CRM conectado | No es parcial |
+| Sin playbook, sin motion o sin observaciones F09 | Sin `label` |
+| Fechas mal formadas | Sin 500; la línea afectada no sale |
+| C04 no vigente (con y sin resumen) | Brief legacy byte a byte |
+| Flag apagado o sin fila, por el endpoint | Igual que la salida de `4b1987f` (fixture) |
 | Mismo payload en todas las superficies | `shared/ui/brief.js` formatea label y filete playbook |
+| Extensión pinta los dos formatos de payload | Sin errores; chip y filete solo con v2 |
 
 ### Criterio de aceptación (Definition of Done)
 

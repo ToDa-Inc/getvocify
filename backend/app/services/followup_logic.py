@@ -95,7 +95,7 @@ def _when(value: Any, precision: Any, tz: ZoneInfo) -> dict:
     return {}
 
 
-def _pain_quote(block: dict) -> Optional[str]:
+def pain_quote(block: dict) -> Optional[str]:
     """C04 keeps no pointer to the pain evidence: it is the one no other fact references."""
     if block.get("pain_confirmed") is not True:
         return None
@@ -122,7 +122,7 @@ def c04_facts(block: dict, tz_name: Optional[str]) -> dict:
                                 **_when(item.get("due_at"), item.get("temporal_precision"), tz)})
     raw = block.get("meeting") if isinstance(block.get("meeting"), dict) else {}
     meeting = _when(raw.get("starts_at"), raw.get("precision"), tz) if raw.get("agreed") is True else {}
-    return {"commitments": commitments, "meeting": meeting or None, "pain_quote": _pain_quote(block)}
+    return {"commitments": commitments, "meeting": meeting or None, "pain_quote": pain_quote(block)}
 
 
 def parse_draft(payload: object) -> Optional[dict]:

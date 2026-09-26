@@ -9,8 +9,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-brief-v2-32b")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-brief-v2-32b")
 
-from app.api import briefs as briefs_api
-from app.services.briefs.preparation import prepare_brief
+from app.services.briefs.preparation import legacy_facts, prepare_brief
 from app.services.briefs.v2 import prepare_brief_v2
 from app.services.intelligence.extract import PROMPT_VERSION
 from app.services.intelligence.worker import revision_for_memo
@@ -152,6 +151,86 @@ def test_say_uses_open_objection_with_playbook():
     assert say["source"] == "playbook"
 
 
+def test_open_objection_without_playbook_answer_falls_to_competitor_or_nothing():
+    open_price = [{"id": "obj-1", "category": "price", "resolution": "open", "quote": "está caro"}]
+    with_competitor = _current_intelligence(
+        pain_confirmed=False, evidence=[], objections=open_price,
+        competitor_mentions=[{"id": "cmp-1", "name": "Ringover"}],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": with_competitor})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, playbook_entries=[])
+    assert brief["lines"][-1]["text"] == "Usa Ringover"
+    assert "source" not in brief["lines"][-1]
+
+    alone = _current_intelligence(pain_confirmed=False, evidence=[], objections=open_price)
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": alone})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, playbook_entries=[])
+    assert [line["type"] for line in brief["lines"]] == ["hook"]
+
+
+def test_unknown_resolution_counts_as_open():
+    intel = _current_intelligence(
+        pain_confirmed=False,
+        evidence=[],
+        objections=[{"id": "obj-1", "category": "price", "resolution": "unknown", "quote": "está caro"}],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, playbook_entries=PLAYBOOK_ENTRIES)
+    assert brief["lines"][-1]["source"] == "playbook"
+
+
+def test_hook_does_not_quote_evidence_that_belongs_to_another_fact():
+    intel = _current_intelligence(
+        objections=[{"id": "obj-1", "category": "price", "resolution": "resolved", "quote": "está caro", "evidence_refs": ["ev-obj"]}],
+        evidence=[{"id": "ev-obj", "quote": "está caro", "source_type": "transcript", "source_id": "memo-1"}],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert brief["lines"][0]["text"] == "11 sep: Hablaron del almacén."
+
+
+def test_hook_quotes_the_pain_evidence_not_the_first_one():
+    intel = _current_intelligence(
+        objections=[{"id": "obj-1", "category": "price", "resolution": "resolved", "quote": "está caro", "evidence_refs": ["ev-obj"]}],
+        evidence=[
+            {"id": "ev-obj", "quote": "está caro", "source_type": "transcript", "source_id": "memo-1"},
+            {"id": "ev-pain", "quote": "se nos quedan leads sin llamar", "source_type": "transcript", "source_id": "memo-1"},
+        ],
+    )
+    memo = _memo(extraction={"summary": "x", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert brief["lines"][0]["text"] == "11 sep: «se nos quedan leads sin llamar»"
+
+
+def test_stale_intelligence_without_summary_matches_the_legacy_brief():
+    intel = _current_intelligence(pain_confirmed=False, evidence=[])
+    intel["prompt_version"] = "intelligence_v2"
+    memo = _memo(extraction={"summary": "", "intelligence": intel})
+    legacy = prepare_brief(**legacy_facts([memo]))
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert legacy["status"] == "nothing_pending"
+    assert brief == legacy
+
+
+def test_malformed_timestamps_do_not_break_the_brief():
+    intel = _current_intelligence(
+        pain_confirmed=False,
+        evidence=[],
+        commitments=[{"id": "com-1", "kind": "call", "origin": "rep_promise", "text": "llamar", "due_at": "no es fecha", "temporal_precision": "time"}],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel}, capture_started_at="ayer por la tarde")
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert brief["status"] in {"ready", "nothing_pending"}
+    assert all(line["type"] != "why" for line in brief["lines"])
+
+
+def test_no_reply_is_ignored_when_its_flag_gives_no_data():
+    intel = _current_intelligence(pain_confirmed=False, evidence=[])
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, no_reply=None)
+    assert [line["type"] for line in brief["lines"]] == ["hook"]
+
+
 def test_say_uses_competitor_when_no_open_objection():
     intel = _current_intelligence(
         pain_confirmed=False,
@@ -221,7 +300,7 @@ def test_stale_intelligence_falls_back_to_legacy_brief():
     intel = _current_intelligence()
     intel["prompt_version"] = "intelligence_v2"
     memo = _memo(extraction={"summary": "El 2 sep hablasteis del almacén.", "intelligence": intel, "objections": ["Objeción: el precio."]})
-    legacy = prepare_brief(**briefs_api._legacy_facts([memo]))
+    legacy = prepare_brief(**legacy_facts([memo]))
     brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
     assert brief == legacy
 
@@ -234,7 +313,7 @@ def test_flag_off_returns_legacy_brief_byte_for_byte():
         "hubspot_contact_id": "42",
         "extraction": {"summary": "El 2 sep hablasteis del almacén.", "pain_confirmed": True},
     }
-    facts = briefs_api._legacy_facts([memo])
+    facts = legacy_facts([memo])
     legacy = prepare_brief(**facts)
     assert legacy["status"] == "ready"
     assert legacy["lines"][0]["text"] == "El 2 sep hablasteis del almacén."

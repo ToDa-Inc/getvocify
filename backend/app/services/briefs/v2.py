@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.services.briefs.preparation import prepare_brief
+from app.services.briefs.preparation import legacy_facts, prepare_brief
+from app.services.followup_logic import pain_quote
 from app.services.hoy.materialize import day_end
 from app.services.hoy.reasons import CATEGORY, MONTH
 from app.services.hoy.signals import Commitment, signals_for_contact, touch_from_intelligence
@@ -31,7 +32,10 @@ def _as_dt(value) -> datetime | None:
         text = str(value).strip()
         if not text:
             return None
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
@@ -52,29 +56,15 @@ def _line(kind: str, text: str, *, source_ref=None, observed_at=None, source: st
     return row
 
 
-def _pain_quote(intelligence: dict) -> str | None:
-    if intelligence.get("pain_confirmed") is not True:
-        return None
-    refs = {item.get("id"): item for item in intelligence.get("evidence") or [] if isinstance(item, dict)}
-    for item in intelligence.get("evidence") or []:
-        if not isinstance(item, dict):
-            continue
-        quote = " ".join(str(item.get("quote") or "").split())
-        if quote:
-            return quote
-    for ref_id in (intelligence.get("evidence_refs") or []):
-        item = refs.get(ref_id)
-        if item and item.get("quote"):
-            return " ".join(str(item["quote"]).split())
-    return None
-
-
 def hook_line(*, memo: dict, intelligence: dict, tz_name: str) -> dict | None:
-    when = memo.get("capture_started_at") or memo.get("created_at")
+    when = next(
+        (value for value in (memo.get("capture_started_at"), memo.get("created_at")) if _as_dt(value)),
+        None,
+    )
     day = _day_label(when, tz_name)
     if not day:
         return None
-    quote = _pain_quote(intelligence)
+    quote = " ".join(str(pain_quote(intelligence) or "").split())
     if quote:
         text = f'{day}: «{quote}»'
     else:
@@ -102,7 +92,6 @@ def _commitment_why(commitment: Commitment, *, now: datetime, tz_name: str) -> s
 
 def why_line(
     *,
-    memos: list[dict],
     intelligence: dict,
     memo: dict,
     tz_name: str,
@@ -110,13 +99,17 @@ def why_line(
     no_reply: dict | None,
     crm_task: dict | None,
 ) -> dict | None:
-    at = _as_dt(memo.get("capture_started_at") or memo.get("created_at"))
+    at = _as_dt(memo.get("capture_started_at")) or _as_dt(memo.get("created_at"))
+    dated = [
+        item for item in intelligence.get("commitments") or []
+        if isinstance(item, dict) and _as_dt(item.get("due_at"))
+    ]
     touch = touch_from_intelligence(
         memo_id=str(memo.get("id") or ""),
         contact_id=str(memo.get("hubspot_contact_id") or ""),
         deal_id=str(memo.get("hubspot_deal_id") or "") or None,
         at=at,
-        intelligence=intelligence,
+        intelligence={**intelligence, "commitments": dated},
         history_complete=True,
     )
     if touch:
@@ -147,22 +140,22 @@ def why_line(
             source_ref=crm_task.get("source_ref"),
             observed_at=crm_task.get("observed_at"),
         )
-    del memos
     return None
 
 
-def _open_objection(intelligence: dict) -> dict | None:
+def _open_objections(intelligence: dict) -> list[dict]:
+    """C04 cannot always tell whether an objection was handled; «unknown» stays open."""
+    items = []
     for item in intelligence.get("objections") or []:
         if not isinstance(item, dict):
             continue
         resolution = item.get("resolution") or item.get("state") or "unknown"
         if resolution not in {"open", "unknown"}:
             continue
-        quote = " ".join(str(item.get("quote") or item.get("text") or "").split())
-        if not quote:
+        if not " ".join(str(item.get("quote") or item.get("text") or "").split()):
             continue
-        return item
-    return None
+        items.append(item)
+    return items
 
 
 def _playbook_guidance(category: str, entries: list[dict]) -> str | None:
@@ -183,16 +176,12 @@ def _category_heading(category: str) -> str:
 
 
 def say_line(*, intelligence: dict, playbook_entries: list[dict] | None) -> dict | None:
-    objection = _open_objection(intelligence)
-    if objection:
+    for objection in _open_objections(intelligence):
         category = str(objection.get("category") or "other")
-        quote = " ".join(str(objection.get("quote") or "").split())
         guidance = _playbook_guidance(category, playbook_entries or [])
         if guidance:
             text = f"{_category_heading(category)}: {guidance}"
             return _line("say", text, source="playbook", source_ref=objection.get("id"))
-        if quote:
-            return _line("say", f"Objeción: {quote}", source_ref=objection.get("id"))
     for item in intelligence.get("competitor_mentions") or []:
         if not isinstance(item, dict):
             continue
@@ -256,20 +245,10 @@ def prepare_brief_v2(
 
     latest = max(memos, key=lambda row: str(row.get("created_at") or "")) if memos else None
     if latest is None:
-        extra = []
-        if crm_task and crm_task.get("text"):
-            extra.append(_line("crm", crm_task["text"], source_ref=crm_task.get("source_ref")))
-        return {
-            "status": "no_conversation",
-            "text": "Sin conversación todavía.",
-            "lines": extra,
-            "notice": None,
-            "label": None,
-        }
+        return {**prepare_brief(coverage=coverage, crm_task=crm_task), "label": None}
 
     if not is_current(latest):
-        legacy = _legacy_kwargs(latest, coverage=coverage, crm_task=crm_task)
-        return prepare_brief(**legacy)
+        return prepare_brief(**legacy_facts(memos, coverage=coverage), crm_task=crm_task)
 
     extraction = latest.get("extraction") if isinstance(latest.get("extraction"), dict) else {}
     intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
@@ -279,7 +258,6 @@ def prepare_brief_v2(
     if hook:
         lines.append(hook)
     why = why_line(
-        memos=memos,
         intelligence=intelligence,
         memo=latest,
         tz_name=tz_name,
@@ -310,32 +288,3 @@ def prepare_brief_v2(
         }
 
     return {"status": "ready", "text": None, "lines": lines, "notice": None, "label": label}
-
-
-def _legacy_kwargs(memo: dict, *, coverage: str, crm_task: dict | None) -> dict:
-    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-    intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
-    pending = _first_text(extraction.get("next_steps") or extraction.get("nextSteps"))
-    objection = _first_text(extraction.get("objections"))
-    pain = intelligence.get("pain_confirmed") is True or extraction.get("pain_confirmed") is True
-    summary = extraction.get("summary") or ""
-    return {
-        "coverage": coverage,
-        "last": {"text": summary, "observed_at": memo.get("created_at"), "source_ref": memo.get("id")} if summary else None,
-        "pending": {"text": pending, "source_ref": memo.get("id")} if pending else None,
-        "objection": {"text": objection, "source_ref": memo.get("id")} if objection else None,
-        "pain_confirmed": pain,
-        "crm_task": crm_task,
-    }
-
-
-def _first_text(value) -> str:
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, list) and value:
-        item = value[0]
-        if isinstance(item, str):
-            return item.strip()
-        if isinstance(item, dict):
-            return str(item.get("text") or item.get("subject") or "").strip()
-    return ""
