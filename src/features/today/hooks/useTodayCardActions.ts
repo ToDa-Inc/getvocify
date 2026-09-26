@@ -61,13 +61,14 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
   const listed =
     surface.kind === "list" ? cardsAfterDismiss(surface.items, acted, Date.now()) : [];
 
-  const act = useCallback(async (item: TodayItem, action: "dismiss" | "confirm") => {
+  const act = useCallback(async (item: TodayItem, action: "dismiss" | "confirm" | "snooze", until?: string) => {
     if (!item.id || item.version == null) return;
     const requestId = crypto.randomUUID();
     const result = await todayApi.resolve(item.id, {
       action,
       request_id: requestId,
       expected_version: item.version,
+      ...(until ? { until } : {}),
     });
     setActedStore((current) => [
       ...current.filter((card) => card.id !== item.id),
@@ -83,6 +84,7 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
 
   const dismiss = useCallback((item: TodayItem) => act(item, "dismiss"), [act]);
   const confirm = useCallback((item: TodayItem) => act(item, "confirm"), [act]);
+  const snooze = useCallback((item: TodayItem, until: string) => act(item, "snooze", until), [act]);
 
   const undo = useCallback(async (item: TodayItem) => {
     if (!item.id || item.version == null) return;
@@ -102,6 +104,7 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
     acted,
     dismiss,
     confirm,
+    snooze,
     undo,
     query,
     contactsUrl,

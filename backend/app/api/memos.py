@@ -21,7 +21,7 @@ from app.services.activity_scope import (
     readable_memo_or_none,
     resolve_list_user_ids,
 )
-from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row
+from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row, interaction_kind_of
 from app.services.followup import schedule_followup
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
@@ -167,6 +167,7 @@ def _memo_from_row(
             hubspotContactId=memo_data.get("hubspot_contact_id"),
             hubspotDealId=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
             screeningOutcome=memo_data.get("screening_outcome"),
+            interactionKind=interaction_kind_of(memo_data),
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)

@@ -39,8 +39,37 @@ export function exitMotion(reducedMotion) {
   return { opacity: true, transform: true, height: true, measureHeight: true };
 }
 
+/** Collapse a card into its undo row. Never animates to zero — the row must stay visible. */
+export function settleRowHeights(beforeHeight, afterHeight, reducedMotion = false) {
+  if (reducedMotion || beforeHeight <= 0 || afterHeight <= 0) {
+    return { animate: false, fromHeight: beforeHeight, toHeight: afterHeight };
+  }
+  return { animate: true, fromHeight: beforeHeight, toHeight: afterHeight };
+}
+
 export function presentExit(card, reducedMotion) {
   return { ...card, motion: exitMotion(reducedMotion) };
+}
+
+/** Rows that left keep their place, marked leaving, until dropLeaving: nothing jumps while they fade. */
+export function retainLeaving(previous, next, keyOf) {
+  const out = next.map((entry) => ({ entry, leaving: false }));
+  const present = new Set(next.map(keyOf));
+  let cursor = 0;
+  for (const row of previous) {
+    const key = keyOf(row.entry);
+    if (present.has(key)) {
+      cursor = out.findIndex((candidate) => !candidate.leaving && keyOf(candidate.entry) === key) + 1;
+    } else {
+      out.splice(cursor, 0, { entry: row.entry, leaving: true });
+      cursor += 1;
+    }
+  }
+  return out;
+}
+
+export function dropLeaving(rows, key, keyOf) {
+  return rows.filter((row) => !(row.leaving && keyOf(row.entry) === key));
 }
 
 function dedupe(cards) {

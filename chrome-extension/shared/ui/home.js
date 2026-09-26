@@ -2,6 +2,7 @@
 // A read still loading arrives as undefined; one that failed arrives as null and only its own
 // section goes missing. No state is claimed until the reads that decide it have answered.
 // A local action result never beats a newer /today version: nothing is invented.
+import { queueReducer } from "./queue.js";
 
 export const HOME_CAP = 7;
 export const NEEDS_OK_VISIBLE = 3;
@@ -9,6 +10,7 @@ export const REVIEW_LIMIT = 5;
 export const CONFIRM_GROUP_AT = 3;
 export const FOLLOWUP_POLL_MS = 5000;
 export const FOLLOWUP_POLL_FOR_MS = 120_000;
+export const HOME_WIDE_PX = 1280;
 
 const MEETING = "meeting_today";
 const CONFIRM = "confirm_pending";
@@ -94,6 +96,172 @@ export function composeHome(input) {
   };
 }
 
+/** The key a Hoy card or priority card keeps across reads. */
+export function itemKey(item) {
+  return item.id ? `hoy:${item.id}` : String(item.dedupe_key ?? item.reason);
+}
+
+export function needsOkKey(entry) {
+  if (entry.kind === "confirm") return itemKey(entry.item);
+  if (entry.kind === "confirm_group") return "confirm-group";
+  return `${entry.kind}:${entry.memoId}`;
+}
+
+const settledItem = (item) => item.status != null && item.status !== "pending";
+
+/**
+ * Every selectable row, in the order it is painted: meetings, Falta tu OK, calls.
+ * The confirmation group is not a contact and a card waiting on its undo is not a row.
+ */
+export function homeRows(view, { needsOkOpen = false, groupOpen = false } = {}) {
+  const rows = [];
+  const byId = (id) => view.sections.find((entry) => entry.id === id);
+  for (const entry of byId("meetings")?.items || []) {
+    if (settledItem(entry.item)) continue;
+    rows.push({ key: itemKey(entry.item), kind: "meeting", contactId: entry.item.contact_id ?? null, name: entry.item.contact_name ?? null, item: entry.item, time: entry.time });
+  }
+  const needsOk = byId("needs_ok");
+  for (const entry of (needsOkOpen ? needsOk?.rows : needsOk?.shown) || []) {
+    const confirms = entry.kind === "confirm" ? [entry.item] : entry.kind === "confirm_group" && groupOpen ? entry.items : [];
+    for (const item of confirms) {
+      if (!settledItem(item)) rows.push({ key: itemKey(item), kind: "confirm", contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+    }
+    if (entry.kind === "followup" || entry.kind === "review") {
+      rows.push({ key: needsOkKey(entry), kind: entry.kind, contactId: entry.contactId ?? null, name: entry.name, entry });
+    }
+  }
+  for (const { source, item } of byId("calls")?.items || []) {
+    if (settledItem(item)) continue;
+    rows.push({ key: itemKey(item), kind: "call", source, contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+  }
+  return rows;
+}
+
+/** No selection yet; untouched, so a wide screen may still pick the first call. */
+export const initialHomeSelection = { mode: "idle", items: [], touched: false };
+
+/**
+ * The home is the F06 queue: its items are the row keys and its index is the selected row.
+ * Idle or done means nothing is selected. Enter does not start a call here; T5 wires calling.
+ */
+export function homeSelection(state, event) {
+  const items = state.items || [];
+  const at = (index, touched = true) => ({ mode: "queue", items, index, touched });
+  switch (event.type) {
+    case "rows":
+      return refreshSelection(state, event.rows, event.wide);
+    case "select": {
+      const index = items.indexOf(event.key);
+      return index < 0 ? state : at(index);
+    }
+    case "next":
+      if (state.mode === "queue") return at(Math.min(state.index + 1, items.length - 1));
+      return items.length ? at(0) : { ...state, touched: true };
+    case "prev":
+      if (state.mode === "queue") return at(Math.max(state.index - 1, 0));
+      return items.length ? at(items.length - 1) : { ...state, touched: true };
+    case "skip":
+    case "exit": {
+      if (state.mode !== "queue") return { ...state, touched: true };
+      const next = queueReducer(state, { type: event.type });
+      return { ...next, items, touched: true };
+    }
+    default:
+      return state;
+  }
+}
+
+function refreshSelection(state, rows, wide) {
+  const keys = rows.map((row) => row.key);
+  const touched = Boolean(state.touched);
+  const idle = { mode: "idle", items: keys, touched };
+  if (state.mode === "queue") {
+    if (!touched && !wide) return idle;
+    const index = followingKey(state.items, state.index, keys);
+    return index < 0 ? idle : { mode: "queue", items: keys, index, touched };
+  }
+  if (touched || !wide || !keys.length) return { ...idle, mode: state.mode === "done" ? "done" : "idle" };
+  const firstCall = rows.findIndex((row) => row.kind === "call");
+  return { mode: "queue", items: keys, index: Math.max(firstCall, 0), touched };
+}
+
+/** The same row if it is still there; else the next one that survived; else the previous one. */
+function followingKey(previous, index, keys) {
+  const current = keys.indexOf(previous[index]);
+  if (current >= 0) return current;
+  const present = new Set(keys);
+  const after = previous.slice(index + 1).find((key) => present.has(key));
+  if (after) return keys.indexOf(after);
+  const before = previous.slice(0, index).reverse().find((key) => present.has(key));
+  if (before) return Math.min(keys.indexOf(before) + 1, keys.length - 1);
+  return keys.length ? 0 : -1;
+}
+
+export function selectedRow(state, rows) {
+  if (state.mode !== "queue") return null;
+  const key = state.items[state.index];
+  return rows.find((row) => row.key === key) ?? null;
+}
+
+/**
+ * What was on screen keeps its place when a read reorders it; new rows join the end of their section.
+ * `order` is what the previous call returned.
+ */
+export function holdOrder(order, view) {
+  const lists = {
+    meetings: (section) => [section.items, (entry) => itemKey(entry.item)],
+    needs_ok: (section) => [section.rows, needsOkKey],
+    calls: (section) => [section.items, (entry) => itemKey(entry.item)],
+  };
+  const nextOrder = {};
+  const sections = view.sections.map((section) => {
+    const pick = lists[section.id];
+    if (!pick) return section;
+    const [entries, keyOf] = pick(section);
+    const held = order ? keepPlaces(order[section.id] || [], entries, keyOf) : entries;
+    nextOrder[section.id] = held.map(keyOf);
+    if (!order) return section;
+    if (section.id === "needs_ok") return { ...section, rows: held, shown: held.slice(0, NEEDS_OK_VISIBLE) };
+    return { ...section, items: held };
+  });
+  return { view: order ? { ...view, sections } : view, order: nextOrder };
+}
+
+function keepPlaces(previousKeys, entries, keyOf) {
+  const rank = new Map(previousKeys.map((key, index) => [key, index]));
+  const known = entries.filter((entry) => rank.has(keyOf(entry))).sort((a, b) => rank.get(keyOf(a)) - rank.get(keyOf(b)));
+  return [...known, ...entries.filter((entry) => !rank.has(keyOf(entry)))];
+}
+
+/** 00:00 tomorrow in the given zone, as an ISO instant. */
+export function snoozeUntil(now, timeZone) {
+  const tomorrow = calendarDay(now, timeZone) + 86_400_000;
+  let guess = tomorrow;
+  for (let pass = 0; pass < 2; pass += 1) {
+    guess = tomorrow - zoneOffset(guess, timeZone);
+  }
+  return new Date(guess).toISOString();
+}
+
+function zoneOffset(ms, timeZone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(new Date(ms))
+      .map((part) => [part.type, part.value]),
+  );
+  const local = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return local - Math.floor(ms / 1000) * 1000;
+}
+
 /** Poll drafts being written every few seconds, but give up after a while so a stuck one does not poll forever. */
 export function followupPoll(rows, since, now) {
   if (!(rows || []).some((row) => row.status === "generating")) return { interval: false, since: null };
@@ -173,6 +341,7 @@ function followupRows(rows) {
   return (rows || []).map((row) => ({
     kind: "followup",
     memoId: row.memo_id,
+    contactId: row.contact_id ?? null,
     name: row.contact_name ?? null,
     subject: row.status === "ready" ? row.subject ?? null : null,
     status: row.status,
@@ -184,6 +353,7 @@ function reviewRows(memos) {
   return (memos || []).map((memo) => ({
     kind: "review",
     memoId: memo.id,
+    contactId: memo.hubspotContactId ?? null,
     name: memo.extraction?.contactName ?? null,
     action: "review",
   }));

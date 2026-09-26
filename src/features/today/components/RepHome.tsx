@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Microphone } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
-import { afterActionError, composeHome, type HomeView } from "@shared/ui/home.js";
+import { afterActionError, composeHome, itemKey, type HomeRow, type HomeView } from "@shared/ui/home.js";
+import { useHomeColumn } from "@/components/dashboard/HomeColumn";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { useAuth } from "@/features/auth";
+import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { useLanguage } from "@/lib/i18n";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
@@ -13,9 +15,12 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { TodayItem } from "@/lib/today";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 import { useHomeReads } from "../hooks/useHomeReads";
+import { useHomeSelection } from "../hooks/useHomeSelection";
+import { usePanelPrimary } from "../hooks/usePanelPrimary";
 import { forgetActed, useTodayCardActions } from "../hooks/useTodayCardActions";
+import { ContactPanel } from "./ContactPanel";
 import { HomeSection } from "./HomeSection";
-import { TodayItemList } from "./TodayItemList";
+import { TodayItemList, type HomeCards } from "./TodayItemList";
 import { Done } from "./home/Done";
 import { Meetings } from "./home/Meetings";
 import { NeedsOk } from "./home/NeedsOk";
@@ -57,10 +62,25 @@ export function RepHome() {
   const { t } = useLanguage();
   const copy = t.product;
   const { user } = useAuth();
-  const { query, acted, dismiss, confirm, undo, connected, provider, portalId } = useTodayCardActions({ fresh: true });
+  const column = useHomeColumn();
+  const panelRef = useRef<ReturnType<typeof usePanelPrimary> | null>(null);
+  const {
+    query,
+    acted,
+    dismiss,
+    confirm,
+    snooze,
+    undo,
+    connected,
+    provider,
+    portalId,
+  } = useTodayCardActions({ fresh: true });
   const priorities = useContactPriorities({ fresh: true });
   const reads = useHomeReads();
+  const integrations = useIntegrations();
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [needsOkOpen, setNeedsOkOpen] = useState(false);
+  const [confirmGroupOpen, setConfirmGroupOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const ticking = acted.some((item) => undoOpen(item, now));
@@ -76,7 +96,7 @@ export function RepHome() {
     wasTicking.current = ticking;
   }, [ticking, refetch]);
 
-  const home = composeHome({
+  const homeRaw = composeHome({
     today: settled(query),
     todayStale: query.isError && Boolean(query.data),
     acted,
@@ -105,10 +125,41 @@ export function RepHome() {
     },
     [refetch],
   );
+
+  const openMemo = useCallback((memoId: string) => navigate(`/dashboard/memos/${memoId}`), [navigate]);
+
+  const onPrimary = useCallback(
+    (row: HomeRow) => {
+      void panelRef.current?.runPrimary(
+        {
+          confirm: async (item) => settle(() => confirm(item)),
+          openMemo,
+        },
+        row,
+      );
+    },
+    [confirm, openMemo, settle],
+  );
+
+  const {
+    view: home,
+    row: selectedRow,
+    selectedKey,
+    wide,
+    sheetOpen,
+    select,
+    clear,
+  } = useHomeSelection(homeRaw, { needsOkOpen, groupOpen: confirmGroupOpen }, onPrimary);
+
+  const panel = usePanelPrimary(selectedRow, {
+    provider: provider ?? null,
+    portalId: portalId ?? null,
+  });
+  panelRef.current = panel;
   const onDismiss = (item: TodayItem) => void settle(() => dismiss(item));
   const onConfirm = (item: TodayItem) => void settle(() => confirm(item));
+  const onSnooze = (item: TodayItem, until: string) => void settle(() => snooze(item, until));
   const onUndo = (item: TodayItem) => void settle(() => undo(item));
-  const openMemo = (memoId: string) => navigate(`/dashboard/memos/${memoId}`);
   const record = () => setCaptureOpen(true);
   const toIntegrations = () => navigate("/dashboard/settings/integrations");
 
@@ -136,99 +187,151 @@ export function RepHome() {
     <Button type="button" variant="outline" size="sm" onClick={record}>{copy.today_record}</Button>
   );
 
+  const selectionProps = {
+    selectedKey,
+    onSelect: select,
+  };
+
+  const homeCards: HomeCards = {
+    selectedKey,
+    onSelect: (item) => select(itemKey(item)),
+    canDial: column?.canDial ?? false,
+    now,
+  };
+
+  const connectionId =
+    integrations.data?.find((connection) => connection.status === "connected")?.id ?? null;
+
   return (
-    <div className={`mx-auto max-w-[680px] ${THEME_TOKENS.motion.fadeIn}`} aria-busy={home.state === "loading"}>
-      <header className="mb-7">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className={THEME_TOKENS.typography.pageTitle}>
-            {copy.todayTitle}
-            <span className="ml-2.5 text-[15px] tracking-normal text-muted-foreground">{longDate(now, copy.hourLocale)}</span>
-          </h1>
-          <IconAction label={copy.today_capture} onClick={() => setCaptureOpen((open) => !open)}>
-            <Microphone size={16} weight="light" />
-          </IconAction>
-        </div>
-        {pulse ? <p className={`mt-1.5 ${THEME_TOKENS.typography.body}`}>{pulse}</p> : null}
-        {home.incompleteAt ? (
-          <p className={`mt-1.5 ${THEME_TOKENS.typography.body}`}>{copy.today_incomplete} · {home.incompleteAt}</p>
-        ) : null}
-      </header>
+    <>
+      <div className={`mx-auto max-w-[680px] ${THEME_TOKENS.motion.fadeIn}`} aria-busy={home.state === "loading"}>
+        <header className="mb-7">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className={THEME_TOKENS.typography.pageTitle}>
+              {copy.todayTitle}
+              <span className="ml-2.5 text-[15px] tracking-normal text-muted-foreground">{longDate(now, copy.hourLocale)}</span>
+            </h1>
+            <IconAction label={copy.today_capture} onClick={() => setCaptureOpen((open) => !open)}>
+              <Microphone size={16} weight="light" />
+            </IconAction>
+          </div>
+          {pulse ? <p className={`mt-1.5 ${THEME_TOKENS.typography.body}`}>{pulse}</p> : null}
+          {home.incompleteAt ? (
+            <p className={`mt-1.5 ${THEME_TOKENS.typography.body}`}>{copy.today_incomplete} · {home.incompleteAt}</p>
+          ) : null}
+        </header>
 
-      {captureOpen ? (
-        <div className="mb-6">
-          <VoiceRecorderWidget quiet onComplete={openMemo} />
-        </div>
-      ) : null}
-
-      <div className="space-y-6">
-        {home.state === "loading" ? (
-          <div className="space-y-2" aria-hidden="true">
-            {[0, 1, 2].map((key) => (
-              <div key={key} className={`h-16 ${paper} motion-safe:animate-[v-breathe_1.6s_ease-in-out_infinite]`} />
-            ))}
+        {captureOpen ? (
+          <div className="mb-6">
+            <VoiceRecorderWidget quiet onComplete={openMemo} />
           </div>
         ) : null}
-        {home.state === "error" ? (
-          <div className="flex flex-wrap items-center gap-3" role="alert">
-            <p className={THEME_TOKENS.typography.body}>{copy.today_prepare_failed}</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
-              {copy.retry}
-            </Button>
-          </div>
-        ) : null}
-        {home.state === "connect" ? (
-          <StateCard title={copy.today_connect_title} detail={home.canManage ? null : copy.today_connect_admin_detail}>
-            {home.canManage ? (
-              <>
-                <Button type="button" variant="outline" size="sm" onClick={toIntegrations}>{copy.connect_crm}</Button>
-                {recordText}
-              </>
-            ) : recordButton}
-          </StateCard>
-        ) : null}
-        {home.state === "no_assigned" ? (
-          <StateCard title={copy.title_no_assigned} detail={home.canManage ? null : copy.review_assignment}>
-            {home.canManage ? (
-              <>
-                <Button type="button" variant="outline" size="sm" onClick={toIntegrations}>{copy.map_owners}</Button>
-                {recordText}
-              </>
-            ) : recordButton}
-          </StateCard>
-        ) : null}
-        {home.state === "clear" ? <p className={THEME_TOKENS.typography.body}>{copy.today_clear}</p> : null}
 
-        <HomeSection title={copy.home_meetings}>
-          {meetings ? (
-            <>
-              <Meetings section={meetings} copy={copy} />
-              {foldedUnder("meetings")}
-            </>
+        <div className="space-y-6">
+          {home.state === "loading" ? (
+            <div className="space-y-2" aria-hidden="true">
+              {[0, 1, 2].map((key) => (
+                <div key={key} className={`h-16 ${paper} motion-safe:animate-[v-breathe_1.6s_ease-in-out_infinite]`} />
+              ))}
+            </div>
           ) : null}
-        </HomeSection>
-        <HomeSection title={copy.home_needs_ok}>
-          {needsOk ? (
-            <>
-              <NeedsOk section={needsOk} now={now} copy={copy} onConfirm={onConfirm} onUndo={onUndo} onOpen={openMemo} />
-              {foldedUnder("needs_ok")}
-            </>
+          {home.state === "error" ? (
+            <div className="flex flex-wrap items-center gap-3" role="alert">
+              <p className={THEME_TOKENS.typography.body}>{copy.today_prepare_failed}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+                {copy.retry}
+              </Button>
+            </div>
           ) : null}
-        </HomeSection>
-        <HomeSection title={copy.home_calls}>
-          {calls ? (
-            <>
-              <TodayItemList items={callItems} onDismiss={onDismiss} onUndo={onUndo} provider={provider} portalId={portalId} />
-              {foldedUnder("calls")}
-            </>
+          {home.state === "connect" ? (
+            <StateCard title={copy.today_connect_title} detail={home.canManage ? null : copy.today_connect_admin_detail}>
+              {home.canManage ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={toIntegrations}>{copy.connect_crm}</Button>
+                  {recordText}
+                </>
+              ) : recordButton}
+            </StateCard>
           ) : null}
-        </HomeSection>
-        {home.folded?.after === null ? foldedLine : null}
-        <HomeSection title={copy.home_upcoming}>
-          {upcoming ? <Upcoming section={upcoming} copy={copy} /> : null}
-        </HomeSection>
+          {home.state === "no_assigned" ? (
+            <StateCard title={copy.title_no_assigned} detail={home.canManage ? null : copy.review_assignment}>
+              {home.canManage ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={toIntegrations}>{copy.map_owners}</Button>
+                  {recordText}
+                </>
+              ) : recordButton}
+            </StateCard>
+          ) : null}
+          {home.state === "clear" ? <p className={THEME_TOKENS.typography.body}>{copy.today_clear}</p> : null}
+
+          <HomeSection title={copy.home_meetings}>
+            {meetings ? (
+              <>
+                <Meetings section={meetings} copy={copy} {...selectionProps} />
+                {foldedUnder("meetings")}
+              </>
+            ) : null}
+          </HomeSection>
+          <HomeSection title={copy.home_needs_ok}>
+            {needsOk ? (
+              <>
+                <NeedsOk
+                  section={needsOk}
+                  now={now}
+                  copy={copy}
+                  onConfirm={onConfirm}
+                  onUndo={onUndo}
+                  onOpen={openMemo}
+                  expanded={needsOkOpen}
+                  onExpandedChange={setNeedsOkOpen}
+                  groupOpen={confirmGroupOpen}
+                  onGroupOpenChange={setConfirmGroupOpen}
+                  {...selectionProps}
+                />
+                {foldedUnder("needs_ok")}
+              </>
+            ) : null}
+          </HomeSection>
+          <HomeSection title={copy.home_calls}>
+            {calls ? (
+              <>
+                <TodayItemList
+                  items={callItems}
+                  onDismiss={onDismiss}
+                  onUndo={onUndo}
+                  provider={provider}
+                  portalId={portalId}
+                  home={homeCards}
+                />
+                {foldedUnder("calls")}
+              </>
+            ) : null}
+          </HomeSection>
+          {home.folded?.after === null ? foldedLine : null}
+          <HomeSection title={copy.home_upcoming}>
+            {upcoming ? <Upcoming section={upcoming} copy={copy} /> : null}
+          </HomeSection>
+        </div>
+
+        {done ? <Done section={done} copy={copy} /> : null}
       </div>
 
-      {done ? <Done section={done} copy={copy} /> : null}
-    </div>
+      <ContactPanel
+        row={selectedRow}
+        sheet={sheetOpen}
+        onClose={clear}
+        panel={panel}
+        actions={{
+          onConfirm,
+          onDismiss,
+          onSnooze,
+          onOpenMemo: openMemo,
+          provider: provider ?? null,
+          connectionId,
+          followups: reads.followups.data,
+        }}
+      />
+    </>
   );
 }
