@@ -9,7 +9,15 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useLanguage } from "@/lib/i18n";
 import { writingSampleKeys, writingSamplesApi, type WritingSamples } from "@/lib/api/writing-samples";
-import { MAX_CHARS, countLabel, isDirty, samplesPayload, slotsFor, tooShort } from "@/lib/writing-samples";
+import {
+  MAX_CHARS,
+  countLabel,
+  isDirty,
+  samplesPayload,
+  shortWarning,
+  slotsFor,
+  tooShort,
+} from "@/lib/writing-samples";
 
 /** Pasted emails the follow-up draft imitates. Collapsed: it is set once, not used daily. */
 export const WritingSamplesSettings = () => {
@@ -21,6 +29,7 @@ export const WritingSamplesSettings = () => {
   });
   const saved = data?.samples ?? [];
   const [drafts, setDrafts] = useState<string[]>(() => slotsFor([]));
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     if (data) {
@@ -39,7 +48,7 @@ export const WritingSamplesSettings = () => {
     },
   });
 
-  const short = tooShort(drafts);
+  const short = shortWarning(drafts, checked);
   const dirty = data != null && isDirty(drafts, saved);
   const count = countLabel(saved.length, t.product.writingSamplesCountOne, t.product.writingSamplesCountMany);
 
@@ -70,6 +79,7 @@ export const WritingSamplesSettings = () => {
                 rows={3}
                 aria-label={t.product.writingSamplesSlot.replace("{n}", String(i + 1))}
                 placeholder={t.product.writingSamplesSlot.replace("{n}", String(i + 1))}
+                onBlur={() => setChecked(true)}
                 onChange={(event) =>
                   setDrafts((current) => current.map((value, j) => (j === i ? event.target.value : value)))
                 }
@@ -78,8 +88,14 @@ export const WritingSamplesSettings = () => {
             <div className="flex items-center justify-end gap-4">
               {short && <p className="text-xs text-destructive">{t.product.writingSamplesTooShort}</p>}
               <Button
-                onClick={() => save.mutate(samplesPayload(drafts))}
-                disabled={!dirty || short || save.isPending}
+                onClick={() => {
+                  if (tooShort(drafts)) {
+                    setChecked(true);
+                    return;
+                  }
+                  save.mutate(samplesPayload(drafts));
+                }}
+                disabled={!dirty || save.isPending}
                 className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
               >
                 {save.isPending ? (

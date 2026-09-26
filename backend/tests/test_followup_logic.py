@@ -110,7 +110,7 @@ class C04Facts(unittest.TestCase):
     def test_commitments_meeting_and_pain_in_the_rep_timezone(self):
         facts = c04_facts(C04, "Europe/Madrid")
         self.assertEqual(facts, {
-            "commitments": [{"text": "Enviar la propuesta", "day": "Thursday 2026-10-01", "time": "11:00"}],
+            "commitments": [{"text": "Enviar la propuesta", "origin": "rep_promise", "day": "Thursday 2026-10-01", "time": "11:00"}],
             "meeting": {"day": "Friday 2026-10-02", "time": "11:30"},
             "pain_quote": PAIN,
         })
@@ -122,12 +122,23 @@ class C04Facts(unittest.TestCase):
     def test_commitment_with_only_a_day_keeps_its_day_in_any_zone(self):
         day_only = {**C04["commitments"][0], "due_at": "2026-10-01T00:00:00+02:00", "temporal_precision": "date"}
         facts = c04_facts({**C04, "commitments": [day_only]}, "America/New_York")
-        self.assertEqual(facts["commitments"], [{"text": "Enviar la propuesta", "day": "Thursday 2026-10-01"}])
+        self.assertEqual(facts["commitments"], [{"text": "Enviar la propuesta", "origin": "rep_promise", "day": "Thursday 2026-10-01"}])
 
     def test_undated_commitment_is_only_text(self):
         undated = {**C04["commitments"][0], "due_at": None, "temporal_precision": "unknown"}
         self.assertEqual(c04_facts({**C04, "commitments": [undated]}, "Europe/Madrid")["commitments"],
-                         [{"text": "Enviar la propuesta"}])
+                         [{"text": "Enviar la propuesta", "origin": "rep_promise"}])
+
+    def test_a_prospect_request_keeps_its_origin(self):
+        asked = {**C04["commitments"][0], "origin": "prospect_request"}
+        self.assertEqual(c04_facts({**C04, "commitments": [asked]}, "Europe/Madrid")["commitments"][0]["origin"],
+                         "prospect_request")
+
+    def test_missing_or_unknown_origin_reads_as_a_rep_promise(self):
+        for origin in (None, "", "other"):
+            item = {**C04["commitments"][0], "origin": origin}
+            self.assertEqual(c04_facts({**C04, "commitments": [item]}, "Europe/Madrid")["commitments"][0]["origin"],
+                             "rep_promise", origin)
 
     def test_meeting_not_agreed_or_without_a_date_is_null(self):
         for meeting in (

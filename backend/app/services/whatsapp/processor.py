@@ -2258,7 +2258,7 @@ async def _extract_and_create_memo(
 
         update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
         schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
-        schedule_followup(supabase, str(memo_id))
+        schedule_followup(supabase, str(memo_id), company_id=r.data[0].get("company_id"))
         from app.services.intelligence.worker import record_enqueue
         record_enqueue(
             supabase,

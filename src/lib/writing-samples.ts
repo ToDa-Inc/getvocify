@@ -12,6 +12,8 @@ export const slotsFor = (samples: string[]): string[] =>
 export const tooShort = (drafts: string[]): boolean =>
   samplesPayload(drafts).some((sample) => sample.length < MIN_CHARS);
 
+export const shortWarning = (drafts: string[], checked: boolean): boolean => checked && tooShort(drafts);
+
 export const isDirty = (drafts: string[], saved: string[]): boolean => {
   const next = samplesPayload(drafts);
   return next.length !== saved.length || next.some((sample, i) => sample !== saved[i]);

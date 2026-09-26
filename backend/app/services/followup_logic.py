@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.services.hoy.names import clean_name
 
 PROMPT_VERSION = "followup_v2"
-STALE_GENERATING = timedelta(minutes=2)
+STALE_GENERATING = timedelta(minutes=4)  # same as followup.LEASE
 MAX_SUBJECT = 160
 MAX_BODY = 4000
 NO_EDIT_THRESHOLD = 0.02      # a fixed typo still counts as "sent as drafted"
@@ -21,6 +21,7 @@ PASTED_MIN_CHARS = 40
 PASTED_MAX_CHARS = 1500
 PASTED = "pasted"
 DEFAULT_TZ = "Europe/Madrid"
+ORIGINS = frozenset({"rep_promise", "prospect_request"})  # C04 commitment origins, as extract normalizes them
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 SKIPPED_SCREENING = frozenset({"voicemail", "no_response"})
 # Sent drafts belong to «Hecho hoy», not to the pending list.
@@ -116,7 +117,9 @@ def c04_facts(block: dict, tz_name: Optional[str]) -> dict:
     for item in block.get("commitments") or []:
         text = str((item or {}).get("text") or "").strip() if isinstance(item, dict) else ""
         if text:
-            commitments.append({"text": text, **_when(item.get("due_at"), item.get("temporal_precision"), tz)})
+            origin = item.get("origin") if item.get("origin") in ORIGINS else "rep_promise"
+            commitments.append({"text": text, "origin": origin,
+                                **_when(item.get("due_at"), item.get("temporal_precision"), tz)})
     raw = block.get("meeting") if isinstance(block.get("meeting"), dict) else {}
     meeting = _when(raw.get("starts_at"), raw.get("precision"), tz) if raw.get("agreed") is True else {}
     return {"commitments": commitments, "meeting": meeting or None, "pain_quote": _pain_quote(block)}

@@ -321,3 +321,13 @@ async def test_note_without_contact_and_without_agreement_leaves_no_proposal(no_
     db = _Tables(memo)
     await processor._run_post_extraction(db, MEMO_ID, "user-1", extraction)
     assert db.tables["meeting_proposals"] == []
+
+
+async def test_the_followup_gets_the_company_from_the_inserted_row(monkeypatch, calls):
+    seen = {}
+    monkeypatch.setattr(processor, "with_author_company", lambda _s, row: {**row, "company_id": "co-1"})
+    monkeypatch.setattr("app.services.followup.schedule_followup",
+                        lambda _s, memo_id, **kwargs: seen.update(memo_id=memo_id, **kwargs) or False)
+    await _create(_DB())
+    await _drain()
+    assert seen == {"memo_id": MEMO_ID, "company_id": "co-1"}

@@ -33,9 +33,11 @@ from app.services.followup_logic import (
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / f"{PROMPT_VERSION}.md"
-LEASE = timedelta(minutes=2)
+# LLM_TIMEOUT_S is per attempt and providers retry, so LEASE (and STALE_GENERATING) must cover
+# C04_WAIT_S plus every attempt; otherwise the GET safety net reclaims and pays a second call.
+LEASE = timedelta(minutes=4)
 LLM_TIMEOUT_S = 25.0
-C04_WAIT_S = 30.0  # wait + LLM timeout must stay under LEASE, or the GET safety net reclaims mid-wait
+C04_WAIT_S = 30.0
 FLAG = "FOLLOWUP_ENABLED"
 # is_current() hashes every memo field C04 reads, so read the row the way ensure_intelligence does.
 MEMO_COLUMNS = "*"

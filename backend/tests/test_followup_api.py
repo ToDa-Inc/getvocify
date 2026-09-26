@@ -189,6 +189,22 @@ def test_a_fourth_or_badly_sized_sample_is_rejected_and_nothing_changes(samples)
     assert store.samples == before
 
 
+def test_an_oversized_sample_is_rejected_by_the_model_before_anything_is_read():
+    store = Store()
+    store.samples = ["aprendido"]
+    rejected = client_for(AUTHOR, ready_memo(), store).put("/api/v1/writing-samples", json={"samples": ["x" * 5001]})
+    assert rejected.status_code == 422
+    assert isinstance(rejected.json()["detail"], list), "pydantic rejected it, not clean_pasted"
+    assert store.samples == ["aprendido"]
+
+
+def test_a_full_sample_with_surrounding_spaces_still_fits():
+    store = Store()
+    full = "x" * 1500
+    saved = client_for(AUTHOR, ready_memo(), store).put("/api/v1/writing-samples", json={"samples": [f"   {full}\n\n"]})
+    assert saved.json() == {"samples": [full]}
+
+
 def test_emptying_removes_pasted_and_keeps_learned():
     store = Store()
     store.samples = ["aprendido", pasted(SAMPLE_A)]

@@ -9,6 +9,7 @@ import {
   countLabel,
   isDirty,
   samplesPayload,
+  shortWarning,
   slotsFor,
   tooShort,
 } from "./writing-samples.ts";
@@ -80,7 +81,17 @@ describe("writing samples", () => {
     assert.match(settingsSource, /isError \? \(\s*<p[^>]*>\{t\.product\.writingSamplesLoadFailed\}/);
     assert.match(settingsSource, /writingSamplesSaveFailed/);
     assert.match(settingsSource, /save\.mutate\(samplesPayload\(drafts\)\)/);
-    assert.match(settingsSource, /disabled=\{!dirty \|\| short \|\| save\.isPending\}/);
+    assert.match(settingsSource, /disabled=\{!dirty \|\| save\.isPending\}/);
+  });
+
+  it("warns about a short email on blur or on a save attempt, not while typing", () => {
+    assert.equal(shortWarning([LONG, "Gracias, Marta"], false), false);
+    assert.equal(shortWarning([LONG, "Gracias, Marta"], true), true);
+    assert.equal(shortWarning([LONG, ""], true), false);
+    assert.match(settingsSource, /onBlur=\{\(\) => setChecked\(true\)\}/);
+    assert.match(settingsSource, /shortWarning\(drafts, checked\)/);
+    assert.match(settingsSource, /if \(tooShort\(drafts\)\) \{\s*setChecked\(true\);\s*return;/);
+    assert.doesNotMatch(settingsSource, /onChange=\{[^}]*setChecked/);
     assert.match(settingsSource, /rounded-full bg-beige text-cream px-6 text-\[10px\] font-medium/);
   });
 });

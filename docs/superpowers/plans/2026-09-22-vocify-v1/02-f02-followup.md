@@ -363,7 +363,8 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 **Evals F02** (`backend/evals/F02/cases.json`, runner `backend/scripts/eval_followup.py`).
 - Mismo patrón que `eval_intelligence.py`: un reintento si el modelo falla, exit 1 si falla algún caso.
 - Llama al mismo camino que producción: `followup_logic.build_messages` + `followup.compose` (mismo prompt, modelo y temperatura).
-- 12 casos cortos: 10 en español de España y 2 en inglés.
+- 13 casos cortos: 11 en español de España y 2 en inglés.
+- Cada corrida se guarda en `backend/evals/F02/runs/` con la hora, el modelo y el sha256 de `cases.json`.
 - Formato de caso: `id`, `language`, `input` (`rep_name`, `contact_name`, `summary`, `next_steps`, `voice_samples`, `transcript` y, opcional, `intelligence` con la forma mínima del bloque C04) y `expect` (`formality`, `must_match`, `must_not_match`).
 - Checks en todos los casos, todos deterministas:
   - cuerpo de 60 a 120 palabras;
@@ -378,7 +379,8 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 **Hechos de C04 en la entrada.**
 - Solo cuando el memo tiene C04 **vigente** (`intelligence.extract.is_current`: misma versión de prompt y misma revisión).
 - `build_messages` recibe tres claves más, detrás de `next_steps`:
-  - `commitments`: `[{"text", "day", "time"}]`. `day` = día de la semana en inglés + fecha ISO («Thursday 2026-10-01»), `time` = «11:00». Sin hora, no hay `time`; sin fecha (compromisos sin día de E2), solo `text`.
+  - `commitments`: `[{"text", "origin", "day", "time"}]`. `origin` = `rep_promise` o `prospect_request` (lo que falte o sea otra cosa cuenta como `rep_promise`, igual que en C04). `day` = día de la semana en inglés + fecha ISO («Thursday 2026-10-01»), `time` = «11:00». Sin hora, no hay `time`; sin fecha (compromisos sin día de E2), solo `text` y `origin`.
+  - Un `prospect_request` se redacta como respuesta a lo que pidió el contacto («Como me pediste, …»), no como una promesa que el comercial ofreció por su cuenta.
   - `meeting`: `{"day", "time"}` si `agreed` es `true` y hay `starts_at`; si no, `null`.
   - `pain_quote`: la cita de la evidencia de dolor si `pain_confirmed` es `true` (la evidencia que no referencia ningún otro hecho); si no, `null`.
 - Día y hora en la zona del comercial: la de `brief_preferences` (la misma que usa Hoy), `Europe/Madrid` por defecto.
@@ -396,10 +398,10 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 - Los disparadores no cambian. En los tres, la tarea C04 existe antes de que empiece el cuerpo del borrador:
   - `memos.py` (extracción y reextracción): `schedule_followup` va antes que `run_post_extraction_hooks`, pero los hooks son síncronos y corren antes del siguiente `await`, que es cuando arranca la tarea del borrador;
   - WhatsApp: la tarea de hooks se crea antes que `schedule_followup` y el loop las ejecuta en orden.
-- Idempotencia intacta: el lease y `should_generate` siguen igual; nunca se regenera un `ready`. Espera (30 s) + LLM (25 s) < lease (2 min), así que la red de seguridad del GET no reclama el lease durante la espera.
+- Idempotencia intacta: `should_generate` sigue igual y nunca se regenera un `ready`. El lease (`LEASE`) y `STALE_GENERATING` suben de 2 a 4 minutos porque los 25 s del LLM son por intento y cada proveedor reintenta (`MAX_RETRIES = 2`, 3 intentos). El router no tiene una cadena de fallback que se pueda leer (usa un proveedor por llamada), así que el peor caso se calcula con todos los proveedores implementados (OpenRouter y Vertex): 30 s de espera + 25 s × 3 × 2 + 30 s de margen = 210 s < 240 s. Un test lee las constantes reales y falla si alguien rompe la desigualdad. Así la red de seguridad del GET no reclama el lease a mitad de una ejecución lenta ni paga una segunda llamada.
 
 **`FOLLOWUP_ENABLED` por empresa.**
-- `schedule_followup(…, company_id=None)`: con `company_id` o, si falta, leyendo la empresa del memo (como `schedule_intelligence`).
+- `schedule_followup(…, company_id=None)`: con `company_id` o, si falta, leyendo la empresa del memo (como `schedule_intelligence`). La reextracción, WhatsApp y el GET ya tienen la fila y la pasan; solo la extracción inicial (`extract_memo_async`, que no tiene la fila) la lee.
 - `ensure_followup`: con la empresa del memo que ya lee.
 - GET: pasa la empresa del memo a `schedule_followup`. Apagado: no dispara y devuelve el estado actual (un borrador existente se sigue viendo; sin borrador, `unavailable`).
 - Sin fila en `company_feature_flags`, todo es exactamente como hoy.
@@ -413,7 +415,7 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 - Guardar quita los pegados anteriores y añade los nuevos al final (los más recientes). Vaciar quita los pegados. Los aprendidos no se tocan nunca.
 - `next_voice_samples` sigue añadiendo aprendidos; el tope de 5 solo recorta aprendidos, nunca pegados.
 - El prompt recibe los textos de las 3 entradas más recientes, como hoy (`voice_samples[-3:]`). Tras 3 ediciones fuertes, los pegados dejan de entrar en el prompt, pero siguen guardados; volver a guardarlos los pone al final.
-- UI: bloque plegado «Tu forma de escribir» en Ajustes → «Resúmenes», debajo de `BriefHighlightSettings`. Tres textareas (máximo 1500 caracteres cada una), una línea de ayuda y «Guardar». Si hay pegados, la cabecera dice cuántos. Si un email escrito tiene menos de 40 caracteres, «Guardar» se desactiva y aparece «Cada email necesita al menos 40 caracteres.»: sin ese aviso, el 422 solo daría un «No se pudieron guardar los ejemplos» sin motivo.
+- UI: bloque plegado «Tu forma de escribir» en Ajustes → «Resúmenes», debajo de `BriefHighlightSettings`. Tres textareas (máximo 1500 caracteres cada una), una línea de ayuda y «Guardar». Si hay pegados, la cabecera dice cuántos. Si un email escrito tiene menos de 40 caracteres, al salir de la caja o al pulsar «Guardar» (no mientras se escribe) aparece «Cada email necesita al menos 40 caracteres.» y no se guarda. El `PUT` acota además cada ejemplo en bruto a 5000 caracteres en el modelo de la petición, antes de recortar. Sin ese aviso, el 422 solo daría un «No se pudieron guardar los ejemplos» sin motivo.
 
 **Casos que deben fallar antes de implementar (cada fila, un test):**
 
@@ -421,7 +423,8 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 |---|---|
 | C04 vigente con compromiso con hora, reunión con hora y dolor confirmado | La entrada lleva `commitments` (texto, día y hora locales), `meeting` (día y hora) y `pain_quote`. |
 | Reunión acordada solo con día | `meeting` lleva `day` y no `time`. |
-| Compromiso sin fecha | Solo `text`. |
+| Compromiso sin fecha | Solo `text` y `origin`. |
+| Compromiso pedido por el contacto | `origin` = `prospect_request`; sin `origin` o con otro valor, `rep_promise`. El eval comprueba que el email lo redacta como respuesta a su petición. |
 | Reunión no acordada, o acordada sin fecha | `meeting` es `null`. |
 | Dolor no confirmado | `pain_quote` es `null`. |
 | Comercial con otra zona horaria | Día y hora en su zona. |
@@ -434,6 +437,7 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 | Disparo real de `memos.py` (followup y luego hooks) y de WhatsApp (tarea de hooks y luego followup) | El borrador espera a C04 en los dos. |
 | La tarea que crea `schedule_intelligence` | El follow-up la encuentra por su nombre. |
 | Borrador `ready` y nuevo disparo | No se regenera. |
+| Peor caso: espera a C04 + todos los intentos de todos los proveedores + margen | Menor que `LEASE` y que `STALE_GENERATING`. |
 | Dos disparos simultáneos con C04 en marcha | Un solo borrador. |
 | `FOLLOWUP_ENABLED` apagado para la empresa | `schedule_followup` devuelve `False`, `ensure_followup` no redacta y el GET no dispara (`unavailable`). |
 | Sin fila para la empresa | Borrador como hoy. |
@@ -447,4 +451,7 @@ El followup queda independiente de inteligencia/Hoy. F0 puede añadir intelligen
 | Edición con 5 aprendidos y pegados | El tope recorta el aprendido más antiguo; los pegados siguen. |
 | Redactar con pegados y aprendidos | `voice_samples` lleva los textos de las 3 entradas más recientes. |
 | Casos de eval | Forma válida y solo checks conocidos. |
+| Ejemplo de más de 5000 caracteres en bruto | 422 del modelo de la petición, antes de leer nada. |
+| Reextracción y WhatsApp | Pasan la empresa del memo a `schedule_followup`. |
 | UI: cabecera, carga, error y guardado | Cuenta de ejemplos, spinner, texto de error, validación de longitud y cuerpo del `PUT`. |
+| UI: email corto | El aviso sale al salir de la caja o al intentar guardar, no al teclear; con aviso no se guarda. |

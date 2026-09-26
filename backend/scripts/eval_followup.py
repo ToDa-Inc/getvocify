@@ -2,6 +2,7 @@
 
 Usage (from backend/): .venv/bin/python -u scripts/eval_followup.py
 A model error is retried once, then counted as a failed case. Exit code 1 when any case fails.
+Each run is saved to evals/F02/runs/ with its time, model and the sha256 of cases.json.
 Every check is a regex or a length. The one approximation: "Spanish from Spain" means no
 LATAM_MARKERS, which catches the usual slips, not every variety.
 """
@@ -9,9 +10,11 @@ LATAM_MARKERS, which catches the usual slips, not every variety.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -21,6 +24,7 @@ from app.services.followup import PROMPT_PATH, compose  # noqa: E402
 from app.services.followup_logic import PROMPT_VERSION, build_messages, c04_facts  # noqa: E402
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "F02" / "cases.json"
+RUNS = CASES.parent / "runs"
 REP_TIMEZONE = "Europe/Madrid"
 ATTEMPTS = 2
 RETRY_DELAY_S = 10.0
@@ -122,10 +126,21 @@ async def run_case(llm, messages: list[dict], *, delay: float = RETRY_DELAY_S) -
     return None, errors
 
 
+def run_record(lines: list[dict], summary: dict, *, now: datetime, cases_bytes: bytes) -> tuple[str, dict]:
+    model = str(summary.get("model") or "unknown")
+    name = f"{now:%Y%m%dT%H%M%SZ}-{re.sub(r'[^A-Za-z0-9.-]+', '_', model)}.json"
+    return name, {
+        "timestamp": now.isoformat(), "prompt": summary.get("prompt"), "model": model,
+        "cases_sha256": hashlib.sha256(cases_bytes).hexdigest(), "summary": summary, "results": lines,
+    }
+
+
 async def main() -> int:
     from app.services.llm import LLMClient
 
-    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    cases_bytes = CASES.read_bytes()
+    cases = json.loads(cases_bytes.decode("utf-8"))
+    lines = []
     llm = LLMClient()
     failed = errored = retried = 0
     for case in cases:
@@ -140,11 +155,17 @@ async def main() -> int:
         line = {"id": case["id"], "pass": not failures, "failures": failures, "errors": errors}
         if failures and draft is not None:
             line["draft"] = draft
+        lines.append(line)
         print(json.dumps(line, ensure_ascii=False))
-    print(json.dumps({
+    summary = {
         "prompt": PROMPT_VERSION, "model": settings.FOLLOWUP_MODEL, "cases": len(cases),
         "failed": failed, "model_errors": errored, "passed_after_retry": retried,
-    }))
+    }
+    print(json.dumps(summary))
+    name, record = run_record(lines, summary, now=datetime.now(timezone.utc).replace(microsecond=0),
+                              cases_bytes=cases_bytes)
+    RUNS.mkdir(exist_ok=True)
+    (RUNS / name).write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 1 if failed else 0
 
 

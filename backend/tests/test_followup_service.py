@@ -269,7 +269,8 @@ def test_the_draft_waits_for_c04_and_carries_its_facts(monkeypatch):
     trigger_like_memos(client, llm)
     assert log == ["c04", "draft"]
     ctx = context_of(llm)
-    assert ctx["commitments"] == [{"text": "Enviar el caso de logística", "day": "Thursday 2026-10-01", "time": "11:00"}]
+    assert ctx["commitments"] == [{"text": "Enviar el caso de logística", "origin": "rep_promise",
+                                "day": "Thursday 2026-10-01", "time": "11:00"}]
     assert ctx["meeting"] == {"day": "Friday 2026-10-02", "time": "11:30"}
     assert ctx["pain_quote"] == "Perdemos leads cada semana"
     assert (memo["followup"]["status"], memo["followup"]["prompt_version"]) == ("ready", "followup_v2")
@@ -436,6 +437,37 @@ def test_the_prompt_gets_the_three_newest_samples_pasted_included():
     client.tables["user_profiles"][0]["writing_samples"] = ["l1", {"text": "p1", "source": "pasted"}, "l2", "l3"]
     asyncio.run(svc.ensure_followup(client, "m1", llm=llm))
     assert context_of(llm)["voice_samples"] == ["p1", "l2", "l3"]
+
+
+def test_re_extract_passes_the_memo_company_so_scheduling_skips_the_lookup():
+    """re_extract_memo already read the row with select("*"); driving the endpoint needs the whole
+    extraction stack, so check the call itself, as test_pipeline_meta does."""
+    import ast
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "app" / "api" / "memos.py").read_text(encoding="utf-8")
+    fn = next(node for node in ast.walk(ast.parse(source))
+              if isinstance(node, ast.AsyncFunctionDef) and node.name == "re_extract_memo")
+    calls = [node for node in ast.walk(fn) if isinstance(node, ast.Call)
+             and getattr(node.func, "id", None) == "schedule_followup"]
+    assert calls
+    for call in calls:
+        company = next((kw.value for kw in call.keywords if kw.arg == "company_id"), None)
+        assert company is not None and "memo_data" in ast.unparse(company), ast.unparse(call)
+
+
+def test_the_lease_outlives_the_worst_case_run():
+    """The router has no introspectable fallback chain (one provider per call), so assume the
+    explicit worst case: every implemented provider spends all its attempts on this draft."""
+    from app.services.followup_logic import STALE_GENERATING
+    from app.services.llm.providers import openrouter, vertex_ai
+
+    providers = (openrouter, vertex_ai)
+    attempts = max(provider.MAX_RETRIES for provider in providers) + 1
+    margin = 30.0  # memo, profile and C04 reads plus the final write
+    worst = svc.C04_WAIT_S + svc.LLM_TIMEOUT_S * attempts * len(providers) + margin
+    assert worst < svc.LEASE.total_seconds()
+    assert worst < STALE_GENERATING.total_seconds()
 
 
 if __name__ == "__main__":

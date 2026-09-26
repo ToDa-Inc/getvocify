@@ -50,8 +50,11 @@ def test_every_case_is_well_formed_and_builds_the_real_prompt_input():
 def test_cases_cover_the_brief():
     cases = _cases()
     ids = " ".join(case["id"] for case in cases)
-    for topic in ("meeting", "vague", "price", "name", "usted", "tu_", "pain"):
+    for topic in ("meeting", "vague", "price", "name", "usted", "tu_", "pain", "prospect_request"):
         assert topic in ids, topic
+    asked = [case for case in cases if any(item.get("origin") == "prospect_request"
+                                           for item in (case["input"].get("intelligence") or {}).get("commitments", []))]
+    assert asked and all(case["expect"].get("must_match") for case in asked), "a prospect request must check its wording"
     assert sum(case["language"] == "en" for case in cases) in (1, 2)
 
 
@@ -121,3 +124,21 @@ def test_a_model_error_is_retried_once_then_reported_not_raised():
     draft, errors = asyncio.run(runner.run_case(Flaky(5), messages, delay=0))
     assert draft is None
     assert len(errors) == 2
+
+
+def test_a_run_record_names_its_model_time_and_the_exact_cases_it_ran():
+    import hashlib
+    from datetime import datetime, timezone
+
+    runner = _runner()
+    cases_bytes = b'[{"id": "c"}]'
+    lines = [{"id": "c", "pass": True, "failures": [], "errors": []}]
+    summary = {"prompt": "followup_v2", "model": "google/gemini-3.8-flash", "cases": 1, "failed": 0}
+    now = datetime(2026, 9, 26, 19, 5, 7, tzinfo=timezone.utc)
+    name, record = runner.run_record(lines, summary, now=now, cases_bytes=cases_bytes)
+    assert name == "20260926T190507Z-google_gemini-3.8-flash.json"
+    assert record["timestamp"] == "2026-09-26T19:05:07+00:00"
+    assert record["model"] == "google/gemini-3.8-flash"
+    assert record["cases_sha256"] == hashlib.sha256(cases_bytes).hexdigest()
+    assert (record["summary"], record["results"]) == (summary, lines)
+    assert runner.RUNS == BACKEND / "evals" / "F02" / "runs"

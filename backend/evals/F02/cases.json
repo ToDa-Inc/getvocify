@@ -202,6 +202,29 @@
     }
   },
   {
+    "id": "f02_prospect_request_is_answered_as_asked",
+    "language": "es",
+    "input": {
+      "rep_name": "Marta Gil",
+      "contact_name": "Beatriz",
+      "summary": "Beatriz, directora de operaciones de Tiendas Olmo, pidió el dossier técnico (seguridad e integración con su CRM) para moverlo con IT. Marta se lo enviará.",
+      "next_steps": ["Enviar dossier técnico"],
+      "voice_samples": [],
+      "transcript": "Them: Para moverlo con IT necesito el dossier técnico, con la parte de seguridad y cómo se integra con nuestro CRM. ¿Me lo puedes mandar? You: Claro, te lo mando. Them: Genial, así lo reviso con ellos.",
+      "intelligence": {
+        "pain_confirmed": null,
+        "commitments": [{"text": "Enviar el dossier técnico con seguridad e integración con el CRM", "origin": "prospect_request", "due_at": null, "temporal_precision": "unknown", "evidence_refs": ["ev-c"]}],
+        "meeting": {"agreed": null, "starts_at": null, "precision": "unknown", "evidence_refs": []},
+        "evidence": []
+      }
+    },
+    "expect": {
+      "formality": "tu",
+      "must_match": ["\\bme (pediste|pedías|has pedido|habías pedido|solicitaste)\\b"],
+      "must_not_match": ["como te (prometí|ofrecí|dije)", "€|\\beuros?\\b|\\d+ ?%", "\\b(lunes|martes|miércoles|jueves|viernes)\\b"]
+    }
+  },
+  {
     "id": "f02_en_meeting_with_time_from_c04",
     "language": "en",
     "input": {
