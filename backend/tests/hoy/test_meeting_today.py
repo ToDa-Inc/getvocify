@@ -148,12 +148,20 @@ class _Query:
         return _Result(copy.deepcopy(rows))
 
 
+class _FailingQuery(_Query):
+    def execute(self):
+        raise RuntimeError("read failed")
+
+
 class _Store:
     def __init__(self):
         self.tables: dict = {}
         self.writes: list = []
+        self.failing: set[str] = set()
 
     def table(self, name: str):
+        if name in self.failing:
+            return _FailingQuery(self, name)
         return _Query(self, name)
 
 
@@ -171,15 +179,64 @@ def test_accepted_with_time_today_is_a_signal():
     assert signal.due_at.hour == 9
 
 
-def test_date_only_today_has_no_time_precision():
+def test_corrected_time_counts_as_exact_even_if_row_keeps_date_only():
     signal = meeting_today_signal(
-        _proposal(starts_at="2026-09-28T22:00:00Z", precision="date_only"),
+        _proposal(decision="corrected", precision="date_only", starts_at="2026-09-29T09:00:00Z"),
         _memo(),
         now=NOW,
         tz_name=MADRID,
     )
     assert signal is not None
-    assert signal.payload["precision"] == "date"
+    assert signal.payload["precision"] == "time"
+    assert signal.due_at is not None
+    assert signal.due_at.hour == 9
+
+
+def test_corrected_proposal_is_materialized():
+    store = _Store()
+    store.tables["memos"] = [_memo()]
+    store.tables["meeting_proposals"] = [_proposal(decision="corrected", precision="date_only")]
+    store.tables["action_signals"] = []
+    store.tables["company_feature_flags"] = [{"company_id": COMPANY, "flag": MEETINGS_FLAG, "enabled": True}]
+    feature_flags.clear_cache()
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
+
+
+def test_accepted_proposal_is_materialized():
+    store = _Store()
+    store.tables["memos"] = [_memo()]
+    store.tables["meeting_proposals"] = [_proposal(decision="accepted")]
+    store.tables["action_signals"] = []
+    store.tables["company_feature_flags"] = [{"company_id": COMPANY, "flag": MEETINGS_FLAG, "enabled": True}]
+    feature_flags.clear_cache()
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
+
+
+def test_latest_revision_of_a_proposal_wins():
+    store = _Store()
+    store.tables["memos"] = [_memo()]
+    store.tables["meeting_proposals"] = [
+        _proposal(input_revision="rev-1", decision="accepted", created_at="2026-09-24T10:00:00Z"),
+        _proposal(input_revision="rev-2", decision="pending", created_at="2026-09-25T10:00:00Z"),
+    ]
+    store.tables["action_signals"] = []
+    store.tables["company_feature_flags"] = [{"company_id": COMPANY, "flag": MEETINGS_FLAG, "enabled": True}]
+    feature_flags.clear_cache()
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 0
+
+    store.tables["meeting_proposals"] = [
+        _proposal(input_revision="rev-1", decision="pending", created_at="2026-09-24T10:00:00Z"),
+        _proposal(
+            input_revision="rev-2",
+            decision="accepted",
+            starts_at="2026-09-29T12:00:00Z",
+            created_at="2026-09-25T10:00:00Z",
+        ),
+    ]
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
+    rows = store.tables["action_signals"]
+    assert len(rows) == 1
+    assert rows[0]["payload"]["starts_at"] == "2026-09-29T12:00:00Z"
 
 
 def test_yesterday_and_tomorrow_are_out():
@@ -238,16 +295,39 @@ def test_detail_shows_acceptance_date_in_local_calendar():
     )
     item = view["items"][0]
     assert item["detail"] == "acordada el 24 sep"
+    assert item["timezone"] == MADRID
 
 
-def test_reason_is_short_and_localized():
-    signal = meeting_today_signal(_proposal(), _memo(), now=NOW, tz_name=MADRID)
+def test_acceptance_date_is_the_local_day_of_approved_at():
+    # 22:30 UTC on the 23rd is 00:30 on the 24th in Madrid.
+    signal = meeting_today_signal(
+        _proposal(created_at="2026-09-20T10:00:00Z"),
+        _memo(approved_at="2026-09-23T22:30:00Z"),
+        now=NOW,
+        tz_name=MADRID,
+    )
     assert signal is not None
-    assert "Demo" in reason(signal, lang="es")
-    bare = meeting_today_signal(_proposal(), _memo(extraction={}), now=NOW, tz_name=MADRID)
-    assert bare is not None
-    assert reason(bare, lang="en") == "Meeting agreed"
-    assert reason(bare, lang="es") == "Reunión acordada"
+    assert meeting_detail(signal.payload, lang="es", tz_name=MADRID) == "acordada el 24 sep"
+
+
+def test_acceptance_date_falls_back_to_proposal_created_at_only():
+    signal = meeting_today_signal(
+        _proposal(created_at="2026-09-22T10:00:00Z"),
+        _memo(approved_at=None, updated_at="2026-09-26T10:00:00Z", created_at="2026-09-21T10:00:00Z"),
+        now=NOW,
+        tz_name=MADRID,
+    )
+    assert signal is not None
+    assert meeting_detail(signal.payload, lang="es", tz_name=MADRID) == "acordada el 22 sep"
+
+
+def test_reason_never_uses_the_memo_summary():
+    memo = _memo(extraction={"summary": "Demo de producto", "intelligence": {"meeting": {"title": "Demo"}}})
+    signal = meeting_today_signal(_proposal(), memo, now=NOW, tz_name=MADRID)
+    assert signal is not None
+    assert "title" not in signal.payload
+    for lang in ("es", "en"):
+        assert "Demo" not in reason(signal, lang=lang)
 
 
 def test_rank_cards_sorts_meetings_by_local_time():
@@ -293,7 +373,6 @@ def today_store(monkeypatch):
     store.tables["company_feature_flags"] = []
     monkeypatch.setattr(today_api, "_TASKS", lambda _cid: ([], "complete"))
     monkeypatch.setattr(today_api, "_CLOCK", [NOW])
-    monkeypatch.setattr(feature_flags, "is_enabled", feature_flags.is_enabled)
     return store
 
 
@@ -335,3 +414,44 @@ def test_flag_on_shows_meeting_card(today_store, monkeypatch):
     assert item["precision"] == "time"
     assert item["detail"] == "acordada el 24 sep"
     assert item["id"]
+
+
+def _flag(store: _Store, enabled: bool) -> None:
+    store.tables["company_feature_flags"] = [{"company_id": COMPANY, "flag": MEETINGS_FLAG, "enabled": enabled}]
+    feature_flags.clear_cache()
+
+
+def test_next_day_without_meetings_shows_no_meeting_card(today_store, monkeypatch):
+    store = today_store
+    monkeypatch.setattr(settings, "HOY_MEETINGS_ENABLED", False)
+    _flag(store, True)
+    first = _client(store).get("/api/v1/today").json()
+    assert [item["type"] for item in first["items"]] == [MEETING_TYPE]
+
+    next_day = datetime(2026, 9, 30, 8, 0, tzinfo=timezone.utc)
+    client = _client(store)
+    today_api._CLOCK[0] = next_day
+    body = client.get("/api/v1/today").json()
+    assert all(item.get("type") != MEETING_TYPE for item in body["items"])
+    assert [row["status"] for row in store.tables["action_signals"]] == ["resolved"]
+
+
+def test_failed_proposal_read_keeps_the_stored_card(today_store, monkeypatch):
+    store = today_store
+    monkeypatch.setattr(settings, "HOY_MEETINGS_ENABLED", False)
+    _flag(store, True)
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
+    store.failing.add("meeting_proposals")
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 0
+    assert [row["status"] for row in store.tables["action_signals"]] == ["pending"]
+
+
+def test_flag_off_after_on_hides_pending_meeting_rows(today_store, monkeypatch):
+    store = today_store
+    monkeypatch.setattr(settings, "HOY_MEETINGS_ENABLED", False)
+    _flag(store, True)
+    assert refresh_meeting_today(store, company_id=COMPANY, user_id=USER, now=NOW, tz_name=MADRID) == 1
+    _flag(store, False)
+    body = _client(store).get("/api/v1/today").json()
+    assert store.tables["action_signals"][0]["status"] == "pending"
+    assert body["items"] == []

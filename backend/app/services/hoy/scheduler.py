@@ -338,7 +338,8 @@ def build_today_view(
         if card.primary.type == "meeting_today":
             items[-1]["due_at"] = payload.get("starts_at") or (card.primary.due_at.isoformat() if card.primary.due_at else None)
             items[-1]["precision"] = payload.get("precision")
-            detail = meeting_detail(payload, lang=lang)
+            items[-1]["timezone"] = tz_name or DEFAULT_TZ
+            detail = meeting_detail(payload, lang=lang, tz_name=tz_name)
             if detail:
                 items[-1]["detail"] = detail
         if task_links.get(card.primary.dedupe_key):

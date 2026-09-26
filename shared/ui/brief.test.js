@@ -173,12 +173,14 @@ describe("contact panel brief", () => {
     assert.equal(briefRows({ status: "ready", lines: [] }).label, null);
   });
 
-  it("builds the playbook gap line from a brief label", () => {
+  it("builds the playbook gap line from the brief's missing steps", () => {
     assert.equal(
-      playbookGapLine("Pitch hecho · falta decisor · falta presupuesto"),
+      playbookGapLine(["decisor", "presupuesto"]),
       "Falta del playbook: decisor, presupuesto",
     );
-    assert.equal(playbookGapLine("Pitch hecho"), null);
-    assert.equal(playbookGapLine(null), null);
+    assert.equal(playbookGapLine([" decisor ", ""]), "Falta del playbook: decisor");
+    assert.equal(playbookGapLine([]), null);
+    assert.equal(playbookGapLine(undefined), null);
+    assert.equal(playbookGapLine("Pitch hecho · falta decisor"), null);
   });
 });

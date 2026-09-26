@@ -22,6 +22,7 @@ export type TodayItem = {
   memo_id?: string | null;
   due_at?: string | null;
   precision?: string | null;
+  timezone?: string | null;
 };
 
 export type FollowupRow = {

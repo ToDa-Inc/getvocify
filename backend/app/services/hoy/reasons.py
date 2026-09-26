@@ -1,9 +1,12 @@
 """The most-read sentence in the product, written once, server-side."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from app.services.hoy.signals import Signal
+
+DEFAULT_TZ = "Europe/Madrid"
 
 CATEGORY = {
     "es": {
@@ -72,10 +75,9 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
             return f"You promised to {what}."
         return f"They asked: {what}."
     if signal.type == "meeting_today":
-        title = " ".join(str(payload.get("title") or "").split())
-        if title:
-            return title
-        return "Reunión acordada" if lang == "es" else "Meeting agreed"
+        # «Reunión hoy 11:00 · Marina (Acme)» is composed once in the UI (meetingCardLine) from
+        # due_at, timezone and the stamped names, which are not known here.
+        return ""
     if signal.type == "no_reply":
         return _no_reply(payload, lang)
     if signal.type == "going_cold":
@@ -91,21 +93,22 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
     return f"An open {label} objection."
 
 
-def meeting_detail(payload: dict, *, lang: str = "es") -> str | None:
-    """When the meeting was accepted, not when it starts. We do not know CRM moves."""
-    raw = payload.get("accepted_at") or payload.get("accepted_date")
+def meeting_detail(payload: dict, *, lang: str = "es", tz_name: str | None = None) -> str | None:
+    """When the meeting was accepted, on the rep's calendar, not when it starts. We do not know CRM moves."""
+    raw = payload.get("accepted_at")
     if not raw:
         return None
     try:
         accepted = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
     except ValueError:
-        try:
-            accepted = datetime.fromisoformat(str(raw)[:10])
-        except ValueError:
-            return None
+        return None
+    if accepted.tzinfo is None:
+        accepted = accepted.replace(tzinfo=timezone.utc)
+    local = accepted.astimezone(ZoneInfo(tz_name or DEFAULT_TZ))
     lang = _lang(lang)
-    when = f"{accepted.day} {MONTH[lang][accepted.month - 1]}"
-    return f"acordada el {when}" if lang == "es" else f"agreed on {when}"
+    if lang == "es":
+        return f"acordada el {local.day} {MONTH['es'][local.month - 1]}"
+    return f"agreed on {MONTH['en'][local.month - 1]} {local.day}"
 
 
 def _no_reply(payload: dict, lang: str) -> str:

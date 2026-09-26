@@ -399,12 +399,15 @@ Con `DEAL_STAGE_CONFIRM_ENABLED`, la autoaprobación no mueve la etapa ni acepta
 
 ### Addendum E5 — Reunión aceptada en Hoy el día acordado (26 sep 2026)
 
-Con `HOY_MEETINGS_ENABLED`, una propuesta **aceptada** (`decision = accepted`) cuyo `starts_at` cae hoy en la zona del comercial materializa `meeting_today` en Hoy (detalle en addendum E5 de `07-f05-hoy.md`). La aceptación no cambia: sigue siendo revisión o confirmación E7; Hoy solo **lee** propuestas ya aceptadas.
+Con `HOY_MEETINGS_ENABLED`, una propuesta **aceptada** (`decision = accepted`) o **corregida** (`decision = corrected`, la hora que puso el comercial) cuyo `starts_at` cae hoy en la zona del comercial materializa `meeting_today` en Hoy (detalle en addendum E5 de `07-f05-hoy.md`). La aceptación no cambia: sigue siendo revisión o confirmación E7; Hoy solo **lee** propuestas ya aceptadas, y de cada propuesta, su revisión más reciente.
+
+F14 no tiene reuniones aceptadas de solo día: una propuesta `date_only` guarda `starts_at` nulo y no se puede aceptar sin hora. Toda tarjeta tiene hora. La fecha «acordada el» es una aproximación (`memos.approved_at`, si no `meeting_proposals.created_at`), porque no hay columna con el momento de aceptar.
 
 | Caso | Resultado esperado | Test |
 |---|---|---|
-| Aceptada, hora hoy | Tarjeta con hora | `test_accepted_with_time_today_is_a_signal` |
-| Aceptada, solo día hoy | Tarjeta sin hora | `test_date_only_today_has_no_time_precision` |
+| Aceptada, hora hoy | Tarjeta con hora | `test_accepted_with_time_today_is_a_signal`, `test_accepted_proposal_is_materialized` |
+| Corregida, hora hoy (fila `date_only`) | Tarjeta con hora | `test_corrected_time_counts_as_exact_even_if_row_keeps_date_only`, `test_corrected_proposal_is_materialized` |
 | Aceptada, otro día | Sin tarjeta | `test_yesterday_and_tomorrow_are_out` |
 | Omitida o pendiente | Sin tarjeta | `test_omitted_and_pending_stay_out` |
-| Flag apagado | Sin lectura ni señal | `test_flag_off_today_is_unchanged` |
+| Varias revisiones | Manda la más reciente | `test_latest_revision_of_a_proposal_wins` |
+| Flag apagado | Sin lectura ni señal | `test_flag_off_today_is_unchanged`, `test_flag_off_after_on_hides_pending_meeting_rows` |

@@ -446,12 +446,13 @@ function pulse(done, input) {
   return { calls: calls.length, savedTo: saved ? input.crm : null };
 }
 
-function meetingEntry(item, fmt) {
+/** A meeting row's hour, in the rep zone /today decided "today" with when it sends one. */
+export function meetingEntry(item, fmt) {
   const timed = item.precision !== "date" && Boolean(item.due_at);
   const at = timed ? Date.parse(item.due_at) : NaN;
   return {
     item,
-    time: timed ? clock(item.due_at, fmt) : null,
+    time: timed ? clock(item.due_at, { locale: fmt.locale, timeZone: item.timezone || fmt.timeZone }) : null,
     past: timed && !Number.isNaN(at) && at < fmt.now,
   };
 }

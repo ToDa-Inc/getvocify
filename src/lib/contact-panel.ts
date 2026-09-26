@@ -137,4 +137,16 @@ export function panelMeetingLine(
   return copy.panel_meeting_today.replace("{time}", time);
 }
 
+/** The Hoy meeting card: «Reunión hoy 11:00 · Marina (Acme)». `entry` comes from `meetingEntry`. */
+export function meetingCardLine(
+  entry: { time: string | null; item: { contact_name?: string | null; company_name?: string | null } },
+  copy: { panel_meeting_today: string; home_meeting_no_time: string },
+): string {
+  const head = panelMeetingLine(entry.time, copy);
+  const name = entry.item.contact_name?.trim() || null;
+  const company = entry.item.company_name?.trim() || null;
+  const who = name && company ? `${name} (${company})` : name || company;
+  return who ? `${head} · ${who}` : head;
+}
+
 export const HOME_PANEL_PHONE_KEY = "home-panel-phone";

@@ -226,6 +226,24 @@ def progress_label(*, steps: list[dict], observations: list[dict]) -> str | None
     return " · ".join(parts)
 
 
+def missing_steps(*, steps: list[dict], observations: list[dict]) -> list[str]:
+    """The steps `progress_label` calls «falta …», as a list."""
+    missed = {
+        str(item.get("step_id") or "")
+        for item in observations or []
+        if isinstance(item, dict) and item.get("step_id") and item.get("status") == "missed"
+    }
+    labels: list[str] = []
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        step_id = str(step.get("step_id") or "")
+        label = " ".join(str(step.get("label") or step_id).split())
+        if label and step_id in missed:
+            labels.append(label.lower())
+    return labels
+
+
 def prepare_brief_v2(
     *,
     coverage: str,
@@ -273,9 +291,10 @@ def prepare_brief_v2(
     lines = lines[:MAX_LINES]
 
     label = progress_label(steps=playbook_steps or [], observations=intelligence.get("playbook_observations") or [])
+    missing = missing_steps(steps=playbook_steps or [], observations=intelligence.get("playbook_observations") or [])
 
     if coverage == "partial":
-        return {"status": "partial", "text": notice, "lines": lines, "notice": notice, "label": label}
+        return {"status": "partial", "text": notice, "lines": lines, "notice": notice, "label": label, "missing_steps": missing}
 
     if not lines:
         day = str(latest.get("created_at") or "")[:10]
@@ -285,6 +304,7 @@ def prepare_brief_v2(
             "lines": [],
             "notice": None,
             "label": label,
+            "missing_steps": missing,
         }
 
-    return {"status": "ready", "text": None, "lines": lines, "notice": None, "label": label}
+    return {"status": "ready", "text": None, "lines": lines, "notice": None, "label": label, "missing_steps": missing}

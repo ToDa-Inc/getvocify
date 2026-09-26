@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { Phone } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { itemKey } from "@shared/ui/home.js";
+import { itemKey, meetingEntry } from "@shared/ui/home.js";
+import { meetingCardLine } from "@/lib/contact-panel";
 import { IconAction } from "@/components/ui/icon-action";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useLanguage } from "@/lib/i18n";
@@ -97,11 +98,13 @@ function CardBody({
 }
 
 function MeetingCard({ item, compact }: { item: TodayItem; compact?: boolean }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  const line = meetingCardLine(meetingEntry(item, { locale: t.product.hourLocale, now: Date.now() }), t.product);
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
       <button type="button" className="w-full text-left" onClick={() => setOpen((value) => !value)}>
-        <CardBody item={item} compact={compact} quoted={false} />
+        <CardBody item={{ ...item, reason: line }} compact={compact} quoted={false} />
       </button>
       {open && item.contact_id ? (
         <div className="mt-3 border-t border-border/60 pt-3">

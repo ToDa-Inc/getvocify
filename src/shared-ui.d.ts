@@ -11,6 +11,7 @@ declare module "@shared/ui/brief.js" {
     text?: string | null;
     notice?: string | null;
     label?: string | null;
+    missing_steps?: string[];
     lines?: { type?: string; text?: string | null; source?: string | null }[];
   };
   export type BriefRow = { text: string; playbook: boolean };
@@ -24,7 +25,7 @@ declare module "@shared/ui/brief.js" {
     flightContactId: string | null;
     failedContactId?: string | null;
   }): PanelBrief;
-  export function playbookGapLine(label: string | null | undefined): string | null;
+  export function playbookGapLine(missingSteps: string[] | null | undefined): string | null;
 }
 
 declare module "@shared/ui/queue.js" {
@@ -121,6 +122,11 @@ declare module "@shared/ui/home.js" {
     locale: string;
     timeZone?: string;
   }): HomeView;
+
+  export function meetingEntry(
+    item: TodayItem,
+    fmt: { locale: string; now: number; timeZone?: string },
+  ): { item: TodayItem; time: string | null; past: boolean };
 
   export function followupPoll(
     rows: FollowupRow[] | null | undefined,
