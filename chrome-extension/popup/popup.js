@@ -8,6 +8,7 @@ import { api } from '../lib/api.js';
 import {
   briefForContact,
   briefRequest,
+  briefRows,
   contactBriefDisplayLines,
   shouldApplyBriefResponse,
 } from '../shared/ui/brief.js';
@@ -698,7 +699,7 @@ function paintContactBrief(state) {
   if (!box) return;
   const contactId = state.context?.objectType === 'contact' ? state.context.recordId : null;
   const captureActive = Boolean(state.isRecording || state.isCopilotListening || state.status === 'copilot');
-  const lines = contactBriefDisplayLines({
+  const flatLines = contactBriefDisplayLines({
     objectType: state.context?.objectType,
     contactId,
     captureActive,
@@ -707,12 +708,33 @@ function paintContactBrief(state) {
   });
   const brief = briefForContact(contactId, briefCache);
   box.replaceChildren();
-  for (const line of lines) {
-    const row = document.createElement('p');
-    row.textContent = line;
-    box.appendChild(row);
+  if (brief && !captureActive) {
+    const view = briefRows(brief);
+    for (const row of view.rows) {
+      const line = document.createElement('p');
+      line.textContent = row.text;
+      if (row.playbook) line.classList.add('brief-playbook');
+      box.appendChild(line);
+    }
+    if (view.label) {
+      const chip = document.createElement('span');
+      chip.className = 'v-chip';
+      chip.textContent = view.label;
+      box.appendChild(chip);
+    }
+    if (view.notice) {
+      const notice = document.createElement('p');
+      notice.textContent = view.notice;
+      box.prepend(notice);
+    }
+  } else {
+    for (const line of flatLines) {
+      const row = document.createElement('p');
+      row.textContent = line;
+      box.appendChild(row);
+    }
   }
-  box.hidden = lines.length === 0;
+  box.hidden = box.childElementCount === 0;
   document.getElementById('screen-record')?.classList.toggle('has-brief', lines.length > 0 && !captureActive);
   if (!contactId || state.isRecording || state.isCopilotListening || state.status === 'copilot' || brief || briefFlight === contactId) return;
   briefFlight = contactId;

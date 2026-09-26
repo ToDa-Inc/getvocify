@@ -17,6 +17,7 @@ import {
 import { useLeaving, useSettleRow } from "../hooks/useHomeMotion";
 import { TodayCardActions } from "./TodayCardActions";
 import { cardSelected, textAction, undoOpen } from "./home/shared";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 
 /** Rep home only (flag on): cards select instead of carrying fixed buttons. */
 export type HomeCards = {
@@ -90,6 +91,11 @@ function CardBody({
       ) : null}
       {extras.length > 0 ? (
         <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
+      ) : null}
+      {!compact && item.contact_id ? (
+        <div className="mt-3">
+          <ContactBrief contactId={item.contact_id} compact />
+        </div>
       ) : null}
     </div>
   );

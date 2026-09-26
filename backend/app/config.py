@@ -234,6 +234,8 @@ class Settings(BaseSettings):
     HOY_CONFIRMATIONS_ENABLED: bool = False
     # Rep workspace (F16): /dashboard becomes the rep's home. Per company.
     REP_WORKSPACE_ENABLED: bool = False
+    # Pre-call brief v2: hook, why, say and playbook progress label from C04. Per company.
+    BRIEF_V2_ENABLED: bool = False
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"

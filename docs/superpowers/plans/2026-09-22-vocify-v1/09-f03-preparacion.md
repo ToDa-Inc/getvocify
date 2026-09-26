@@ -138,6 +138,34 @@ Añadir `screen-contact` en el popup e integrarlo en `popup.js` y `background.js
 
 Sin modelo y sin tabla nueva. Este formato ya está aprobado.
 
+### Addendum E3 — brief previo v2 (26 sep 2026)
+
+Con `BRIEF_V2_ENABLED` encendido para la empresa y C04 vigente en el memo más reciente del contacto, el brief devuelve como mucho tres líneas deterministas (sin LLM), más una etiqueta opcional de progreso del playbook:
+
+1. **Gancho** (`hook`): última conversación con fecha local del comercial. Si `pain_confirmed`, con la cita de la evidencia («11 sep: «…»»). Si no hay dolor, el resumen de la extracción con la misma fecha.
+2. **Por qué llamas** (`why`): el primer hecho entre compromiso vencido o de hoy (C04) → email sin respuesta (solo si `HOY_NO_REPLY_ENABLED` y el loader lo aporta) → tarea abierta del CRM.
+3. **Qué decir** (`say`): objeción abierta de C04 con respuesta del playbook publicado (`source: "playbook"`) → competidor mencionado («Usa {nombre}»).
+
+**Etiqueta** (`label`): pasos cumplidos y pendientes de la última nota F09 (`playbook_observations`), p. ej. «Pitch hecho · falta cualificar». Solo si hay playbook publicado y observaciones.
+
+C04 no vigente o flag apagado: exactamente el brief de F03 (22 sep). Lectura parcial: aviso «No se pudo cargar todo.» y las líneas verificadas.
+
+| Caso | Resultado exigido |
+|---|---|
+| Dolor confirmado con cita | Gancho con fecha local y comillas |
+| Sin dolor, con resumen | Gancho con fecha y resumen |
+| Compromiso de hoy | «Pidió que la llamaras hoy.» antes que no-reply y tarea CRM |
+| No-reply con flag, sin compromiso | Línea why del email sin respuesta |
+| Sin compromiso ni no-reply | Tarea CRM abierta en why |
+| Objeción abierta + playbook | «Precio: …» con `source: "playbook"` |
+| Objeción resuelta + competidor | «Usa Ringover», sin objeción |
+| Sin hecho | Sin línea; nunca más de tres |
+| Lectura parcial | `partial` + notice + líneas verificadas |
+| Sin playbook o sin observaciones F09 | Sin `label` |
+| C04 no vigente | Brief legacy byte a byte |
+| Flag apagado | Brief legacy byte a byte |
+| Mismo payload en todas las superficies | `shared/ui/brief.js` formatea label y filete playbook |
+
 ### Criterio de aceptación (Definition of Done)
 
 - [x] Formato mínimo y extensión sobre el contacto, aprobados el 22 sep 2026.

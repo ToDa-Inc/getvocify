@@ -44,6 +44,7 @@ import {
   type CallState,
 } from "@/lib/dial-target";
 import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 
 type TelnyxCall = {
   id?: string;
@@ -675,6 +676,12 @@ export const DashboardDialer = ({
             <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
           </div>
         </div>
+
+        {!compact && selected?.contactId ? (
+          <div className="mt-3">
+            <ContactBrief contactId={selected.contactId} compact />
+          </div>
+        ) : null}
 
         <div className="mt-4 flex items-center justify-center gap-2">
           {live ? (

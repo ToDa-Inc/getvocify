@@ -134,6 +134,26 @@ describe("contact panel brief", () => {
     assert.equal(view.notice, null);
   });
 
+  it("formats the same payload for every surface", () => {
+    const payload = {
+      status: "ready",
+      text: null,
+      lines: [
+        { type: "hook", text: "11 sep: «se nos quedan leads sin llamar los viernes»" },
+        { type: "why", text: "Pidió que la llamaras hoy." },
+        { type: "say", text: "Precio: compáralo con un comercial más.", source: "playbook" },
+      ],
+      label: "Pitch hecho · falta cualificar",
+    };
+    const view = briefRows(payload);
+    const flat = visibleBrief(payload);
+    assert.deepEqual(
+      view.rows.map((row) => row.text),
+      flat,
+    );
+    assert.equal(view.label, "Pitch hecho · falta cualificar");
+  });
+
   it("paints the label as a chip and marks the team's playbook line", () => {
     const view = briefRows({
       status: "ready",
