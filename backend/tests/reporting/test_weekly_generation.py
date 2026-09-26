@@ -379,7 +379,7 @@ def test_team_preference_off_skips_that_admin():
 
 
 def test_a_team_week_without_activity_has_no_report():
-    db = _db(members=TEAM_MEMBERS, flags=_flags(REPORTING_TEAM_ENABLED=True))
+    db = _db(members=TEAM_MEMBERS, flags=_flags(REPORTING_TEAM_ENABLED=True), memos=[])
     ensure_weekly_reports_for_tick(db, FRIDAY_1805, load_team_inputs=_load(EMPTY_TEAM_INPUTS))
     assert _reports(db, scope="team") == []
 

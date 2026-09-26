@@ -81,6 +81,31 @@ def source_type_for_kind(interaction_kind: str) -> str:
     return "voice_memo"
 
 
+_CALL_SOURCES = frozenset({"vocify_call", "hubspot_call"})
+
+
+def interaction_kind_for(
+    source: Optional[str],
+    source_type: Optional[str],
+    existing: Optional[str],
+) -> str:
+    """The capture channel. A valid stored value always wins; WhatsApp notes are post-visit notes."""
+    kind = (existing or "").strip()
+    if kind in INTERACTION_KINDS:
+        return kind
+    origin = (source or "").strip()
+    if origin in _CALL_SOURCES:
+        return "call"
+    if origin == "whatsapp":
+        return "visit"
+    return "meeting" if (source_type or "").strip() == "meeting_transcript" else "call"
+
+
+def interaction_kind_of(memo: dict[str, Any]) -> str:
+    """Rows from before interaction_kind was stamped are classified by origin."""
+    return interaction_kind_for(memo.get("source"), memo.get("source_type"), memo.get("interaction_kind"))
+
+
 def _is_unique_violation(exc: BaseException) -> bool:
     text = str(exc).lower()
     return "duplicate key" in text or "23505" in text
@@ -127,6 +152,7 @@ def insert_memo_row(supabase: Client, payload: dict[str, Any]) -> dict:
     row = with_author_company(supabase, dict(payload))
     source_type = str(row.get("source_type") or "voice_memo").strip() or "voice_memo"
     row["source_type"] = source_type
+    row["interaction_kind"] = interaction_kind_of(row)
     result = supabase.table("memos").insert(row).execute()
     data = result.data or []
     if not data:

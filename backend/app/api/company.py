@@ -32,6 +32,7 @@ class CompanyResponse(BaseModel):
     billing_interval: Optional[str] = None
     paywalled: bool = False
     can_use_dialer: bool = True
+    rep_workspace_enabled: bool = False
 
 
 class UpdateCompanyRequest(BaseModel):
@@ -120,6 +121,7 @@ async def get_company(
         billing_interval=billing.get("billing_interval"),
         paywalled=entitlements["paywalled"],
         can_use_dialer=entitlements["can_use_dialer"],
+        rep_workspace_enabled=svc.rep_workspace_enabled(membership.company_id),
     )
 
 

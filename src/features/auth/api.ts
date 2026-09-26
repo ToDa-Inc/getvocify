@@ -56,6 +56,7 @@ export function mapRawUser(raw: Record<string, unknown>): User {
           paywalled: Boolean(companyRaw.paywalled),
           canUseDialer:
             companyRaw.can_use_dialer == null ? true : Boolean(companyRaw.can_use_dialer),
+          repWorkspace: Boolean(companyRaw.rep_workspace_enabled),
         }
       : null,
   };

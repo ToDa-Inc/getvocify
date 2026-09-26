@@ -24,7 +24,7 @@ from app.metrics import (
     record_hubspot_log_duration,
     record_transcription_duration,
 )
-from app.services.captures import with_author_company
+from app.services.captures import interaction_kind_for, with_author_company
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_audio
 from app.services.telephony.call_screening import classify_call_outcome
@@ -104,6 +104,7 @@ async def initiate_vocify_call_memo(
         "audio_duration": float(call_row.get("recording_duration") or 0.0),
         "status": "transcribing",
         "source": "vocify_call",
+        "interaction_kind": interaction_kind_for("vocify_call", None, None),
         "recording_path": (call_row.get("recording_path") or "").strip() or None,
         "hubspot_contact_id": call_row.get("hubspot_contact_id"),
         "hubspot_deal_id": call_row.get("hubspot_deal_id"),

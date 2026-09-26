@@ -18,6 +18,7 @@ from app.services.billing.entitlement import (
     access_mode_of,
     workspace_entitlements,
 )
+from app.services.feature_flags import is_enabled
 from app.emails.templates import (
     build_invite_email_html,
     build_password_changed_email_html,
@@ -32,6 +33,7 @@ INVITE_TOKEN_EXPIRY_DAYS = 7
 PASSWORD_RESET_EXPIRY_HOURS = 1
 MANAGE_ROLES = frozenset({"owner", "admin"})
 INVITE_ROLES = frozenset({"admin", "member"})
+REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
 
 
 @dataclass
@@ -251,6 +253,9 @@ class CompanyService:
 
         return get_billing(self.supabase, company_id) or {}
 
+    def rep_workspace_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, REP_WORKSPACE_FLAG)
+
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
         membership = self.get_membership(user_id)
         if not membership or not membership.is_active:
@@ -272,6 +277,7 @@ class CompanyService:
             "plan_type": entitlements["plan_type"],
             "paywalled": entitlements["paywalled"],
             "can_use_dialer": entitlements["can_use_dialer"],
+            "rep_workspace_enabled": self.rep_workspace_enabled(membership.company_id),
         }
 
     def list_members(self, company_id: str) -> List[dict]:

@@ -33,6 +33,7 @@ def snapshot_metric_cells(snapshot: dict, *, unavailable: str = UNAVAILABLE_ES) 
     return {
         "attempts": str(int(metrics.get("attempts") or 0)),
         "connected_calls": str(int(metrics.get("connected_calls") or 0)),
+        "conversations": channels_text(snapshot) or str(int(metrics.get("connected_calls") or 0)),
         "meetings_agreed": str(int(metrics.get("meetings_agreed") or 0)),
         "deals_won": metric_display(metrics.get("deals_won"), unavailable=unavailable),
         "adherence": adherence_display(snapshot, unavailable=unavailable),
@@ -41,6 +42,26 @@ def snapshot_metric_cells(snapshot: dict, *, unavailable: str = UNAVAILABLE_ES) 
 
 def _count(value: int, singular: str, plural: str) -> str:
     return f"{value} {singular if value == 1 else plural}"
+
+
+CHANNEL_WORDS_ES = (
+    ("call", "llamada", "llamadas"),
+    ("meeting", "reunión", "reuniones"),
+    ("visit", "visita", "visitas"),
+)
+
+
+def channels_text(snapshot: dict) -> str | None:
+    """«3 llamadas · 1 reunión · 2 visitas», channels above zero only. None for snapshots from before channels."""
+    channels = (snapshot.get("metrics") or {}).get("channels")
+    if not isinstance(channels, dict):
+        return None
+    parts = [
+        _count(int(channels.get(key) or 0), singular, plural)
+        for key, singular, plural in CHANNEL_WORDS_ES
+        if int(channels.get(key) or 0) > 0
+    ]
+    return " · ".join(parts)
 
 
 def summary_line(snapshot: dict) -> str:
@@ -54,6 +75,9 @@ def summary_line(snapshot: dict) -> str:
         lead = "Esta semana"
     else:
         lead = "Hoy"
+    channels = channels_text(snapshot)
+    if channels is not None:
+        return f"{lead}: {channels or 'sin conversaciones'}. {_count(meetings, 'reunión acordada', 'reuniones acordadas')}."
     return (
         f"{lead}: {_count(connected, 'llamada conectada', 'llamadas conectadas')} "
         f"y {_count(meetings, 'reunión acordada', 'reuniones acordadas')}."
@@ -128,7 +152,7 @@ def email_html_for_snapshot(snapshot: dict, *, report_id: str, app_origin: str =
         f"<tr><th>{label}</th><td>{cells[key]}</td></tr>"
         for label, key in (
             ("Intentos", "attempts"),
-            ("Conversaciones", "connected_calls"),
+            ("Conversaciones", "conversations"),
             ("Reuniones acordadas", "meetings_agreed"),
             ("Cierres", "deals_won"),
             ("Adherencia", "adherence"),

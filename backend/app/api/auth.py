@@ -71,6 +71,7 @@ class CompanySummary(BaseModel):
     plan_type: Optional[str] = None
     paywalled: bool = False
     can_use_dialer: bool = True
+    rep_workspace_enabled: bool = False
 
 
 class UserResponse(BaseModel):
@@ -120,6 +121,7 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
             plan_type=company_summary.get("plan_type"),
             paywalled=bool(company_summary.get("paywalled")),
             can_use_dialer=bool(company_summary.get("can_use_dialer", True)),
+            rep_workspace_enabled=bool(company_summary.get("rep_workspace_enabled")),
         )
         company_row = company_svc.get_company(company_summary["id"])
         product_context = company_row.get("product_context") or ""
