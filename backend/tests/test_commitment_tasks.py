@@ -117,8 +117,8 @@ def test_without_current_c04_the_caller_keeps_next_steps():
     assert ct.commitment_tasks(bare, tz_name="Europe/Madrid") is None
 
 
-def test_current_c04_without_commitments_means_no_task_rows():
-    assert ct.commitment_tasks(_memo([]), tz_name="Europe/Madrid") == []
+def test_current_c04_without_commitments_is_the_old_mode():
+    assert ct.commitment_tasks(_memo([]), tz_name="Europe/Madrid") is None
 
 
 def test_the_rep_timezone_is_the_one_hoy_uses():
@@ -143,7 +143,7 @@ def test_kept_rows_match_by_text_and_edited_rows_stay_next_steps():
     kept, extraction = ct.split_reviewed(tasks, reviewed)
     assert [t.commitment_id for t in kept] == ["com-2"]
     assert extraction.nextSteps == ["Llamar a Ana el viernes"]
-    assert extraction.raw_extraction["nextStepSchedules"] == [""]
+    assert extraction.raw_extraction["nextStepSchedules"] == ["viernes"]
 
 
 def test_a_schedule_never_overrides_a_kept_commitment():
@@ -157,6 +157,30 @@ def test_a_schedule_never_overrides_a_kept_commitment():
     assert [t.due_at for t in kept] == [datetime(2026, 9, 24, 9, 0, tzinfo=MADRID), None]
     assert extraction.nextSteps == []
     assert extraction.raw_extraction["nextStepSchedules"] == []
+
+
+ANA_THU = _commitment("com-a", text="llamar a Ana", due_at="2026-09-24T00:00:00+02:00", precision="date")
+ANA_TUE = _commitment("com-b", text="llamar a Ana", due_at="2026-09-29T00:00:00+02:00", precision="date")
+
+
+def test_identical_commitment_texts_are_matched_in_c04_order_once_each():
+    tasks = ct.commitment_tasks(_memo([ANA_THU, ANA_TUE]), tz_name="Europe/Madrid")
+    one_row, _ = ct.split_reviewed(tasks, MemoExtraction(nextSteps=["Llamar a Ana"]))
+    assert [(t.commitment_id, t.due_date) for t in one_row] == [("com-a", "2026-09-24")]
+    both, extraction = ct.split_reviewed(tasks, MemoExtraction(nextSteps=["Llamar a Ana", "llamar a ana"]))
+    assert [t.commitment_id for t in both] == ["com-a", "com-b"]
+    assert extraction.nextSteps == []
+
+
+def test_follow_up_hint_is_the_earliest_dated_kept_commitment():
+    tasks = ct.commitment_tasks(_memo(), tz_name="Europe/Madrid")
+    extraction = MemoExtraction(nextSteps=["Llamar a Ana"], raw_extraction={"nextStepSchedules": ["viernes"]})
+    seeded = ct.follow_up_extraction(extraction, tasks)
+    assert seeded.raw_extraction["nextStepSchedules"] == ["2026-09-24"]
+    assert seeded.nextSteps == ["Llamar a Ana"]
+    undated = ct.commitment_tasks(_memo([UNDATED]), tz_name="Europe/Madrid")
+    assert ct.follow_up_extraction(extraction, undated) is extraction
+    assert ct.follow_up_extraction(extraction, []) is extraction
 
 
 def test_stored_v2_intelligence_is_no_longer_current():
@@ -231,6 +255,11 @@ def test_flag_on_preview_gets_the_commitment_tasks_for_hubspot_and_pipedrive():
 def test_salesforce_review_is_as_before_with_the_flag_on():
     db = _DB(company_feature_flags=FLAG_ON)
     assert ct.preview_kwargs(db, memo=_memo(), connection={"provider": "salesforce"}) == {}
+
+
+def test_flag_on_preview_with_zero_commitments_keeps_next_steps():
+    db = _DB(company_feature_flags=FLAG_ON)
+    assert ct.preview_kwargs(db, memo=_memo([]), connection={"provider": "hubspot"}) == {}
 
 
 def test_flag_on_preview_without_current_c04_keeps_next_steps():
@@ -439,7 +468,7 @@ async def test_dashboard_review_with_untouched_rows_keeps_both_commitments(monke
 
 
 @pytest.mark.asyncio
-async def test_dashboard_review_edited_row_is_a_next_step_without_a_stale_date(monkeypatch):
+async def test_dashboard_review_edited_row_is_a_next_step_with_its_positional_schedule(monkeypatch):
     memo = _legacy_memo()
     db, provider = _approve_env(monkeypatch, memo=memo)
     payload = _dashboard_payload(memo, ["Enviar el caso de logística y precios", "Preparar la propuesta"])
@@ -447,7 +476,45 @@ async def test_dashboard_review_edited_row_is_a_next_step_without_a_stale_date(m
     call = provider.calls[0]
     assert [t.commitment_id for t in call["commitment_tasks"]] == ["com-3"]
     assert call["extraction"].nextSteps == ["Enviar el caso de logística y precios"]
-    assert call["extraction"].raw_extraction["nextStepSchedules"] == [""]
+    assert call["extraction"].raw_extraction["nextStepSchedules"] == ["2026-09-25"]
+
+
+@pytest.mark.asyncio
+async def test_extension_typo_fix_on_a_row_keeps_that_row_date(monkeypatch):
+    memo = _legacy_memo()
+    db, provider = _approve_env(monkeypatch, memo=memo)
+    payload = _extension_payload(memo, [("Enviar el caso de logistica", "2026-09-24"), ("Preparar la propuesta", None)])
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", payload)
+    call = provider.calls[0]
+    assert [t.commitment_id for t in call["commitment_tasks"]] == ["com-3"]
+    assert call["extraction"].nextSteps == ["Enviar el caso de logistica"]
+    assert call["extraction"].raw_extraction["nextStepSchedules"] == ["2026-09-24"]
+
+
+def _zero_commitment_memo():
+    memo = _legacy_memo()
+    memo["extraction"]["intelligence"]["commitments"] = []
+    return memo
+
+
+@pytest.mark.asyncio
+async def test_zero_commitments_reviewed_dashboard_approval_is_the_old_mode(monkeypatch):
+    memo = _zero_commitment_memo()
+    db, provider = _approve_env(monkeypatch, memo=memo)
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", _dashboard_payload(memo, ["Mandar el caso"]))
+    call = provider.calls[0]
+    assert "commitment_tasks" not in call
+    assert call["extraction"].nextSteps == ["Mandar el caso"]
+    assert call["extraction"].raw_extraction["nextStepSchedules"] == ["2026-09-25", "2026-09-26"]
+
+
+@pytest.mark.asyncio
+async def test_zero_commitments_unattended_approval_is_the_old_mode(monkeypatch):
+    db, provider = _approve_env(monkeypatch, memo=_zero_commitment_memo())
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", None)
+    call = provider.calls[0]
+    assert "commitment_tasks" not in call
+    assert call["extraction"].nextSteps == ["Mandar el caso", "Preparar propuesta"]
 
 
 @pytest.mark.asyncio

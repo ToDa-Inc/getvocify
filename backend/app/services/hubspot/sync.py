@@ -51,6 +51,7 @@ from .tasks import (
     build_task_body,
 )
 from app.models.memo import MemoExtraction
+from app.services.commitment_tasks import follow_up_extraction
 from app.services.crm_updates import CRMUpdatesService
 from app.services.task_merge import TaskMergeService
 from app.services.deal_merge import DealMergeService
@@ -64,6 +65,8 @@ from .object_properties import (
 from .note_format import record_written_fields
 
 logger = logging.getLogger(__name__)
+
+_TASK_LIST_PROPERTIES = ["hs_task_subject", "hs_timestamp", "hs_task_status"]
 
 
 def _contact_props_updating_existing(
@@ -391,15 +394,12 @@ class HubSpotSyncService:
             return
         try:
             if deal_id and not is_new_deal:
-                existing = await self.tasks.list_tasks_for_deal(deal_id)
+                existing = await self.tasks.list_tasks_for_deal(deal_id, properties=_TASK_LIST_PROPERTIES)
             elif contact_id and not deal_id:
-                existing = await self.tasks.list_tasks_for_contact(contact_id)
+                existing = await self.tasks.list_tasks_for_contact(contact_id, properties=_TASK_LIST_PROPERTIES)
             else:
                 existing = []
             subjects = {_normalize_task_subject(t.get("subject", "")) for t in existing}
-            existing_ids = {
-                _normalize_task_subject(t.get("subject", "")): str(t["id"]) for t in existing if t.get("id")
-            }
             async with self.crm_updates.track(
                 memo_id=str(memo_id),
                 user_id=user_id,
@@ -413,8 +413,7 @@ class HubSpotSyncService:
                     contact_id=contact_id,
                     company_id=company_id,
                     hubspot_owner_id=hubspot_owner_id,
-                    existing_subjects=subjects,
-                    existing_ids=existing_ids,
+                    existing=existing,
                     summary=extraction.summary,
                 )
                 result.commitment_task_ids = ids
@@ -1798,7 +1797,10 @@ class HubSpotSyncService:
                         hubspot_owner_id=hubspot_owner_id,
                         outcome_note_already_recorded=outcome_note_already_recorded,
                         previous_updates=previous_updates,
-                        extraction=extraction,
+                        extraction=(
+                            extraction if commitment_tasks is None
+                            else follow_up_extraction(extraction, commitment_tasks)
+                        ),
                     )
                     outcome_result = await apply_call_outcome(
                         outcome_ctx,

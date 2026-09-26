@@ -364,9 +364,11 @@ C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision
 
 **Aprobación:**
 - Sin revisión (auto-aprobación, WhatsApp, Ask): se escriben todos los compromisos.
-- Con revisión: una fila cuyo texto es el de un compromiso (sin distinguir mayúsculas ni espacios) es ese compromiso, con su fecha y su `crm_task_id`. Un compromiso sin fila lo quitó el comercial: no se crea. Una fila editada o añadida se escribe como un `nextStep` de siempre, con la fecha que saque su texto (o el valor por defecto).
-- `raw_extraction.nextStepSchedules` no cuenta en este modo: ningún cliente edita hoy la fecha de una tarea en la revisión, y el dashboard reenvía las fechas antiguas de `nextSteps` sin tocarlas.
-- HubSpot: con compromisos no se usa la fusión con las tareas del deal (reescribe texto y fecha). Una tarea ya asociada con el mismo asunto es la del compromiso: no se duplica y su id queda en el compromiso, así un reintento tras un fallo a medias vuelve a enlazar en vez de crear. La idempotencia de reintentos (`crm_updates.create_tasks`) es la de siempre.
+- Un C04 vigente sin compromisos es el modo antiguo, igual que sin C04: filas y tareas de `nextSteps`.
+- Con revisión: una fila cuyo texto es el de un compromiso (sin distinguir mayúsculas ni espacios) es ese compromiso, con su fecha y su `crm_task_id`. Las filas se emparejan en orden y cada compromiso se usa una vez: con dos compromisos de texto idéntico y una sola fila, esa fila es el primero en el orden de C04. Un compromiso sin fila lo quitó el comercial: no se crea. Una fila editada o añadida se escribe como un `nextStep` de siempre.
+- `raw_extraction.nextStepSchedules`: una fila que es un compromiso nunca lo usa (el dashboard reenvía las fechas antiguas sin tocarlas). Una fila editada o añadida conserva la fecha de su posición, como con el flag apagado; en la extensión es la fecha de esa fila.
+- Resultado de la llamada «en espera»: el seguimiento toma el día del compromiso conservado con fecha más temprana, el lugar que ocupaba la primera fecha de `nextSteps`. Sin ninguno con fecha, lo de siempre.
+- HubSpot: con compromisos no se usa la fusión con las tareas del deal (reescribe texto y fecha). Una tarea ya asociada es la del compromiso solo si no está completada (`hs_task_status`), tiene el mismo asunto y vence el mismo día (en la zona de la fecha del compromiso; sin día, el valor por defecto que se escribiría). Entonces no se duplica y su id queda en el compromiso, así un reintento tras un fallo a medias vuelve a enlazar. Si no, se crea otra. Dos compromisos de texto idéntico con días distintos son dos tareas. La idempotencia de reintentos (`crm_updates.create_tasks`) es la de siempre.
 - Pipedrive: `due_date` y `due_time` en UTC, como pide su API.
 - Salesforce: fuera de este modo (no tiene escritura de tareas). Con el flag encendido, revisión y sync son los de siempre.
 
@@ -382,7 +384,7 @@ C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision
 | `rep_promise` y `prospect_request` | Los dos generan tarea. |
 | Flag apagado | Filas y tareas de `nextSteps`, idénticas a antes. |
 | Memo sin C04 o con C04 no vigente | Filas y tareas de `nextSteps`. |
-| C04 vigente sin compromisos | Ninguna fila de tarea. |
+| C04 vigente sin compromisos | Modo antiguo: siguientes pasos como hoy. |
 | El comercial quita una fila | Esa tarea no se crea; las demás sí, con su fecha. |
 | El comercial edita el texto de una fila | Se crea con su texto, como un `nextStep`. |
 | Revisión del dashboard: textos intactos, `nextStepSchedules` antiguos | Los compromisos se crean con su fecha, no con la antigua. |
@@ -391,7 +393,12 @@ C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision
 | HubSpot y Pipedrive | Construyen las filas desde los compromisos. |
 | Salesforce con el flag encendido | Revisión y sync como antes. |
 | Memo con C04 de un prompt anterior | Filas y tareas de `nextSteps`. |
-| HubSpot, deal existente con tareas | Sin fusión; no duplica una tarea con el mismo asunto y enlaza su id. |
+| HubSpot, deal existente con tareas | Sin fusión; una tarea abierta con el mismo asunto y el mismo día se enlaza, no se duplica. |
+| HubSpot, tarea con el mismo asunto completada u otro día | Se crea una tarea nueva. |
+| HubSpot, dos compromisos de texto idéntico con días distintos | Dos tareas, dos ids. |
+| Dos compromisos de texto idéntico, el comercial quita una fila | Se conserva el primero en el orden de C04, con su fecha. |
+| La extensión corrige una errata en una fila | Se crea como `nextStep` con la fecha de esa fila. |
+| Resultado «en espera» con compromisos | Seguimiento el día del compromiso con fecha más temprana. |
 | Pipedrive con hora | `due_date`/`due_time` en UTC. |
 | Tarea creada | Su id queda en el compromiso (`crm_task_id`). |
 | C04 con compromiso sin día | Se conserva con `due_at` null; uno mal formado se descarta. |

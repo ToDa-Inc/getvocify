@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -35,6 +35,13 @@ _EXPLICIT_TIME_RE = re.compile(
 
 def _task_tz_now() -> datetime:
     return datetime.now(TASK_DUE_TZ)
+
+
+def _day_in(dt: datetime, tz) -> date:
+    """Listed tasks carry a naive UTC due date."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).date()
 
 
 def _calendar_date(dt: datetime) -> datetime.date:
@@ -747,26 +754,35 @@ class HubSpotTasksService:
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         hubspot_owner_id: Optional[str] = None,
-        existing_subjects: Optional[set[str]] = None,
-        existing_ids: Optional[dict[str, str]] = None,
+        existing: Optional[list[dict]] = None,
         summary: Optional[str] = None,
     ) -> tuple[TaskBatchResult, dict[str, str]]:
         """One task per C04 commitment, with its text and due date. HubSpot needs a date: undated uses the default.
-        A task with the same subject already on the target is that commitment's task (existing_ids:
-        normalized subject -> id), which also makes a retry after a failed write relink instead of duplicate."""
+        An open task (hs_task_status not COMPLETED) with the same subject due the same day, in the
+        commitment's zone, is that commitment's task: a retry after a failed write relinks it. A completed
+        one, or one due another day, is a different task."""
         result = TaskBatchResult()
         ids: dict[str, str] = {}
-        seen = set(existing_subjects or set())
+        candidates = [
+            (_normalize_task_subject(t.get("subject", "")), t["due_date"], str(t["id"]))
+            for t in existing or []
+            if t.get("id") and t.get("due_date") and str(t.get("status") or "").upper() != "COMPLETED"
+        ]
         for task in tasks:
             norm = _normalize_task_subject(task.text)
-            if norm in seen:
-                if (existing_ids or {}).get(norm):
-                    ids[task.commitment_id] = existing_ids[norm]
+            due = task.due_at or _default_task_due_in_days(3)
+            day = _day_in(due, due.tzinfo or TASK_DUE_TZ)
+            same = next(
+                (tid for subject, other, tid in candidates if subject == norm and _day_in(other, due.tzinfo or TASK_DUE_TZ) == day),
+                None,
+            )
+            if same:
+                ids[task.commitment_id] = same
                 result.skipped.append(TaskSkip(reason="duplicate", step=task.text, subject=task.text))
                 continue
             task_id = await self.create_task(
                 subject=task.text,
-                due_date=task.due_at or _default_task_due_in_days(3),
+                due_date=due,
                 deal_id=deal_id,
                 contact_id=contact_id,
                 company_id=company_id,
@@ -777,7 +793,7 @@ class HubSpotTasksService:
             if task_id:
                 result.created_ids.append(task_id)
                 ids[task.commitment_id] = task_id
-                seen.add(norm)
+                candidates.append((norm, due, task_id))
             else:
                 result.skipped.append(TaskSkip(
                     reason="hubspot_error", step=task.text, subject=task.text,
@@ -883,11 +899,10 @@ class HubSpotTasksService:
                         due_date = datetime.utcfromtimestamp(int(ts_ms) / 1000)
                     except (ValueError, TypeError):
                         pass
-                tasks.append({
-                    "id": str(tid),
-                    "subject": subject or "",
-                    "due_date": due_date,
-                })
+                task = {"id": str(tid), "subject": subject or "", "due_date": due_date}
+                if "hs_task_status" in props:
+                    task["status"] = props_map.get("hs_task_status")
+                tasks.append(task)
             return tasks
         except HubSpotError as e:
             logger.warning("Failed to list tasks for %s %s: %s", object_type, object_id, e)

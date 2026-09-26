@@ -62,7 +62,7 @@ def _display(text: str) -> str:
 
 
 def commitment_tasks(memo: dict, *, tz_name: str) -> Optional[list[CommitmentTask]]:
-    """None when the memo has no current C04: the caller keeps nextSteps."""
+    """None when the memo has no current C04 or it has no commitments: the caller keeps nextSteps."""
     from app.services.intelligence.extract import is_current
 
     if not is_current(memo):
@@ -78,7 +78,7 @@ def commitment_tasks(memo: dict, *, tz_name: str) -> Optional[list[CommitmentTas
             text=_display(item["text"]),
             due_at=task_due(item, tz_name=tz_name),
         ))
-    return tasks
+    return tasks or None
 
 
 def _same_text(a: str, b: str) -> bool:
@@ -92,24 +92,39 @@ def split_reviewed(
     tasks: list[CommitmentTask], extraction: MemoExtraction
 ) -> tuple[list[CommitmentTask], MemoExtraction]:
     """A row whose text is a commitment's is that commitment, with its date; an edited or added
-    row stays a nextStep. Schedule hints are never read: the dashboard sends the stored legacy
-    ones unchanged and no client edits a task date in review, so they are cleared here."""
+    row stays a nextStep with the schedule hint at its position. Rows take commitments in C04
+    order and each commitment once, so of two identical texts a single kept row is the first."""
     kept: list[CommitmentTask] = []
     left_steps: list[str] = []
-    for step in extraction.nextSteps or []:
+    left_positions: list[int] = []
+    for position, step in enumerate(extraction.nextSteps or []):
         match = next((t for t in tasks if t not in kept and _same_text(t.text, step)), None)
         if match is not None:
             kept.append(match)
         else:
             left_steps.append(step)
+            left_positions.append(position)
     raw = dict(extraction.raw_extraction or {})
     for key in _SCHEDULE_KEYS:
         if key in raw:
-            raw[key] = [""] * len(left_steps)
+            hints = raw[key] if isinstance(raw[key], list) else []
+            raw[key] = [hints[i] if i < len(hints) else "" for i in left_positions]
     update: dict[str, Any] = {"nextSteps": left_steps}
     if extraction.raw_extraction is not None:
         update["raw_extraction"] = raw
     return kept, extraction.model_copy(update=update)
+
+
+def follow_up_extraction(extraction: MemoExtraction, tasks: list[CommitmentTask]) -> MemoExtraction:
+    """What the call outcome reads: its follow-up day is the earliest dated commitment written,
+    the date the first next step carried before commitments replaced them."""
+    dated = sorted(t.due_date for t in tasks if t.due_date)
+    if not dated:
+        return extraction
+    raw = dict(extraction.raw_extraction or {})
+    key = next((k for k in _SCHEDULE_KEYS if isinstance(raw.get(k), list)), None)
+    raw["nextStepSchedules"] = [dated[0], *(raw[key][1:] if key else [])]
+    return extraction.model_copy(update={"raw_extraction": raw})
 
 
 def _company(memo: dict, connection: Optional[dict]) -> Optional[str]:
