@@ -475,6 +475,30 @@ Sin owner inequívoco -> Sin atribución resuelta
 
 **Fuera de alcance / decisiones abiertas:** zona horaria por empresa; umbral de muestra distinto de 5; que el vacío «No hay datos para estos filtros» de la semana en curso oculte también la evolución de un comercial sin actividad esta semana.
 
+### Addendum — paridad Ask/panel, competidores con nombre y tablas accesibles (26 sep 2026)
+
+**Motivo:** F15 quedó bloqueado sin paridad numérica demostrada entre Ask y el panel, sin nombres de competidor en Equipo/informe y con el DoD A14 pendiente (tabla accesible equivalente en cada bloque).
+
+**Paridad Ask ↔ panel (sin flag):** `get_team_metrics` y `GET /team/adherence` consumen `load_team_adherence_inputs` + `team_adherence` con los mismos filtros (`user_id`, `motion`). Un test compara intentos, conectadas, reuniones, adherencia y objeciones por categoría con el mismo fixture.
+
+**Competidores con nombre:** flag `TEAM_COMPETITORS_ENABLED`, por empresa con `feature_flags.is_enabled`, apagado por defecto. Apagado: la respuesta y el informe semanal de equipo son exactamente como hoy (sin clave `competitor_mentions` / `competitors`). Encendido: agrega desde C04 `competitor_mentions` de inteligencia **vigente** (`input_revision` actual del memo), agrupados por nombre normalizado (mayúsculas y espacios colapsados; sin alias inventados), ordenados por número de menciones. Superficies: tarjeta de objeciones de Equipo (misma tarjeta, sin bloque nuevo) e informe semanal de equipo (owner/admin, una línea en el bloque de objeciones existente). Muestra pequeña: mismo aviso `sample_limited` que objeciones. Sin nombres: vacío honesto (texto vacío de la tarjeta o ninguna línea extra).
+
+**Tablas accesibles A14:** cada bloque numérico del panel incluye `<table>` equivalente (visible o `sr-only`) además de barras/resumen.
+
+| Caso | Resultado exigido | Test |
+|---|---|---|
+| Mismos filtros en Ask y panel | Mismos intentos, conectadas, reuniones, adherencia y objeciones | `test_channels.py::test_ask_and_panel_share_the_same_team_aggregate` |
+| Filtro comercial y tipología | Paridad con `user_id` y `motion` | `test_channels.py::test_ask_and_panel_match_with_rep_and_motion_filters` |
+| Flag apagado | Sin `competitor_mentions` en API ni `competitors` en snapshot | `test_competitors.py::test_flag_off_omits_competitors_from_api` |
+| Inteligencia no vigente | No cuenta menciones con `input_revision` distinto | `test_competitors.py::test_stale_intelligence_does_not_count` |
+| Sin nombres | Lista vacía; tarjeta sin filas de competidor | `test_competitors.py::test_empty_competitor_names_yield_no_rows` |
+| Agregación y orden | «Acme» y «ACME» suman; orden por recuento descendente | `test_competitors.py::test_competitors_aggregate_and_sort_by_count` |
+| Muestra 1–4 conversaciones | `sample_limited` true y aviso en tarjeta | `test_competitors.py::test_competitors_respect_sample_limited` |
+| Member | 403 sin cifras ni competidores | `test_permissions.py::test_a_member_is_denied_before_any_metric_is_built` |
+| Informe semanal con flag | Línea de competidores en email HTML | `test_competitors.py::test_team_report_email_includes_competitors_when_flag_on` |
+| Informe semanal flag apagado | Sin línea de competidores | `test_competitors.py::test_team_report_email_omits_competitors_when_flag_off` |
+| Tablas accesibles | Cada bloque expone `<table>` | `src/lib/team-insights.test.ts::team metric blocks expose an accessible table` |
+
 ## Verificación integrada y criterios de salida adicionales
 
 Owner abre equipo, filtra periodo/tipología y ve actividad, adherencia, objeciones y outcomes. Amplía un dato hasta fuente; pregunta mismo dato al chat y genera reporte. Member no accede por URL/API/chat. Probar deal múltiples responsables y monedas.

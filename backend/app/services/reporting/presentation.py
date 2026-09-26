@@ -97,16 +97,30 @@ def example_memo_paths(snapshot: dict) -> list[str]:
     return [f"/dashboard/memos/{memo_id}" for memo_id in examples if memo_id]
 
 
-def _objections_block(snapshot: dict) -> str:
-    objections = snapshot.get("objections")
-    if not isinstance(objections, list) or not objections:
+def _competitors_rows(snapshot: dict) -> str:
+    competitors = snapshot.get("competitors")
+    if not isinstance(competitors, list) or not competitors:
         return ""
     rows = "".join(
-        f"<tr><th>{escape(OBJECTION_LABELS_ES.get(str(item.get('name')), str(item.get('name'))))}</th>"
+        f"<tr><th>{escape(str(item.get('name') or ''))}</th>"
         f"<td>{int(item.get('count') or 0)}</td></tr>"
-        for item in objections
+        for item in competitors
     )
-    return f"<p>Objeciones más frecuentes</p><table>{rows}</table>"
+    return f"<p>Competidores mencionados</p><table>{rows}</table>"
+
+
+def _objections_block(snapshot: dict) -> str:
+    objections = snapshot.get("objections")
+    objection_html = ""
+    if isinstance(objections, list) and objections:
+        rows = "".join(
+            f"<tr><th>{escape(OBJECTION_LABELS_ES.get(str(item.get('name')), str(item.get('name'))))}</th>"
+            f"<td>{int(item.get('count') or 0)}</td></tr>"
+            for item in objections
+        )
+        objection_html = f"<p>Objeciones más frecuentes</p><table>{rows}</table>"
+    competitors_html = _competitors_rows(snapshot)
+    return f"{objection_html}{competitors_html}"
 
 
 MONTHS_ES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic")

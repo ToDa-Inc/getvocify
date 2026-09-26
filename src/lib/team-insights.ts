@@ -21,6 +21,11 @@ export type ObjectionCategory = {
   unknown: number;
 };
 
+export type CompetitorMention = {
+  name: string;
+  count: number;
+};
+
 export type ObjectionResolutionLabels = Pick<
   ProductTranslations,
   "resolutionResolved" | "resolutionOpen" | "resolutionUnknown"

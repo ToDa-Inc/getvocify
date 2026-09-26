@@ -28,6 +28,30 @@ export function OutcomeBreakdown({ metrics, winRate, unresolvedLabel, partialWar
           </div>
         ))}
       </dl>
+      <div className="sr-only">
+      <table>
+        <caption>{p.teamHeadingOutcomes}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{p.teamTableMetric}</th>
+            <th scope="col">{p.teamTableValue}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[
+            [p.teamOutcomesWon, metrics.won === null ? unavailable : metrics.won],
+            [p.teamOutcomesLost, metrics.lost === null ? unavailable : metrics.lost],
+            [unresolvedLabel, metrics.unresolvedWins],
+            [p.teamOutcomesRate, winRate === null ? unavailable : winRate],
+          ].map(([label, value]) => (
+            <tr key={String(label)}>
+              <th scope="row">{label}</th>
+              <td>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
     </section>
   );
 }

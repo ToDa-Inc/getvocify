@@ -23,6 +23,25 @@ export function TeamOverview({ metrics, reps }: { metrics: TeamMetrics; reps: Te
           </div>
         ))}
       </dl>
+      <div className="sr-only">
+      <table>
+        <caption>{p.teamHeadingActivity}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{p.teamTableMetric}</th>
+            <th scope="col">{p.teamTableValue}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label}>
+              <th scope="row">{label}</th>
+              <td>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
       {reps.length > 0 ? <p className={THEME_TOKENS.typography.body}>{reps.map((rep) => rep.name).join(", ")}</p> : null}
     </section>
   );

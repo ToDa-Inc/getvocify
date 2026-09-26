@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     ASK_VOCIFY_DATA_TOOLS_ENABLED: bool = False
     # Team view: weekly playbook adherence per rep (GET /team/adherence/trend). Owner/admin only.
     TEAM_ADHERENCE_TREND_ENABLED: bool = False
+    # Team view: named competitor mentions in objections card and team weekly report. Owner/admin only.
+    TEAM_COMPETITORS_ENABLED: bool = False
     # Web Ask: «¿a quién llamo hoy?» returns the priority contacts with a Call action. Needs the data tools.
     ASK_CALL_ACTIONS_ENABLED: bool = False
     # Cheap second pass after deterministic name repair. Not the CRM extractor.

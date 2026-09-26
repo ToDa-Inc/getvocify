@@ -24,9 +24,11 @@ from app.services.team_insights.aggregate import (
     load_team_adherence_inputs,
     team_adherence,
 )
+from app.services.feature_flags import is_enabled
 from app.services.team_insights.objections import objection_counts
 
 VOCIFY_READS = frozenset({"get_team_metrics", "list_conversations", "get_objections", "get_call_priorities"})
+COMPETITORS_FLAG = "TEAM_COMPETITORS_ENABLED"
 
 _MEMO_COLUMNS = "id,user_id,company_id,created_at,capture_started_at,hubspot_contact_id,hubspot_deal_id,extraction"
 _IN_CHUNK = 200
@@ -86,6 +88,8 @@ def team_metrics(args: dict, viewer: Viewer, supabase) -> dict:
     motion = str(args.get("motion") or "").strip() or None
     inputs = load_team_adherence_inputs(supabase, viewer.company_id, user_id=scope.get("user_id"), motion=motion)
     metrics = team_adherence(role=viewer.role, **inputs)
+    if not is_enabled(supabase, viewer.company_id, COMPETITORS_FLAG):
+        metrics.pop("competitor_mentions", None)
     return {"ok": True, "scope": scope, "metrics": metrics, "source": "team_adherence"}
 
 

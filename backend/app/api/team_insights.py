@@ -12,6 +12,8 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TREND_FLAG, adherence_trend
+
+COMPETITORS_FLAG = "TEAM_COMPETITORS_ENABLED"
 from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, team_adherence
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
@@ -49,6 +51,8 @@ async def get_team_adherence(
         body = team_adherence(role=membership.role, **inputs)
     except TeamAccessError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes ver el equipo") from error
+    if not is_enabled(supabase, membership.company_id, COMPETITORS_FLAG):
+        body.pop("competitor_mentions", None)
     return JSONResponse(body)
 
 

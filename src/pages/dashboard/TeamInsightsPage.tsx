@@ -56,6 +56,7 @@ export default function TeamInsightsPage() {
         connected?: number;
         meetings?: number;
         objection_categories?: ObjectionCategory[];
+        competitor_mentions?: { name: string; count: number }[];
         reps?: TeamRep[];
         review?: { memo_id: string; line: string }[];
       }>(adherenceQuery(filters)),
@@ -182,7 +183,11 @@ export default function TeamInsightsPage() {
           <AdherenceBreakdown metrics={view.metrics}>
             <AdherenceTrend filters={filters} />
           </AdherenceBreakdown>
-          <ObjectionBreakdown categories={query.data?.objection_categories ?? []} />
+          <ObjectionBreakdown
+            categories={query.data?.objection_categories ?? []}
+            competitors={query.data?.competitor_mentions}
+            sampleLimited={query.data?.sample_limited === true}
+          />
           <OutcomeBreakdown
             metrics={view.metrics}
             winRate={view.winRate}
