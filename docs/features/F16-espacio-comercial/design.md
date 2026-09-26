@@ -1,7 +1,7 @@
 # Design · F16 — Espacio del comercial
 
 > Plan Lista 2 · E10. Contrato: [`spec.md`](./spec.md). Maqueta a 1440 px: [`mock.html`](./mock.html).
-> Firma del founder antes de abrir la ola 2 (construcción).
+> Aprobado por el founder el 26 sep 2026 (D5, D7, D12 y §7 tal como están).
 
 ## 0. Resumen (5 líneas)
 
@@ -63,7 +63,7 @@
 | D4 | **La casa es la cola.** El índice de `queueReducer` es la tarjeta seleccionada | Mantener el modo cola que sustituye la lista | Mismo bucle de F06 (llamar → revisar → siguiente) sin cambiar de vista ni aprender un modo. Se conservan `Enter`, `s`, `n`, `Esc` |
 | D5 | **Orden fijo de secciones:** Reuniones de hoy → Falta tu OK → A quién llamar → Próximas → Hecho hoy | Mezclarlo todo en una lista por prioridad | Las reuniones marcan el día (tienen hora). Lo de un clic va antes para despejar en un minuto. Llamar es el grueso y el protagonista. Lo futuro y lo hecho, abajo y en voz baja |
 | D6 | **Falta tu OK agrupa confirmaciones (E7), follow-ups listos (F02) y conversaciones por revisar** en un solo bloque de filas compactas | Tres secciones separadas | Es un solo concepto: «Vocify ya lo hizo, falta tu OK» (principio 4 de `EXPERIENCIA_PRODUCTO.md`). Tres títulos para una o dos filas es ruido |
-| D7 | **Tope de 7 tarjetas de Hoy** entre reuniones, confirmaciones y llamadas (plan §1.2 y §6). Tres confirmaciones o más → una fila. Los follow-ups no cuentan (no son tarjetas de Hoy); se ven 3 + «N más» | Contar solo llamadas | El plan fija 7 «tarjetas» en total. **A decidir por el founder** (ver informe) |
+| D7 | **Tope de 7 tarjetas de Hoy** entre reuniones, confirmaciones y llamadas (plan §1.2 y §6). Tres confirmaciones o más → una fila. Los follow-ups no cuentan (no son tarjetas de Hoy); se ven 3 + «N más» | Contar solo llamadas | El plan fija 7 «tarjetas» en total. Confirmado por el founder |
 | D8 | **«N más cuando termines estos»** es texto, no enlace | Enlace «Ver todos» | Foco: al resolver, sube la siguiente. `/today` no devuelve las plegadas y abrirlas invita a reordenar |
 | D9 | **Las tarjetas no llevan botones fijos.** Clic = seleccionar. Al pasar el ratón aparece un icono de teléfono (llamada en 1 clic). Descartar y posponer viven en el panel | Mantener los tres iconos por tarjeta | Las acciones del panel ya cubren a la seleccionada; repetirlas en 7 tarjetas es ruido. Llamar sigue a un clic desde cualquier tarjeta |
 | D10 | **Preguntar ocupa la columna derecha en lugar del panel de contacto**; al cerrarlo vuelve el contacto | Dos paneles a la vez | Un solo panel lateral a la vez. Es el mismo `aside` que hoy |
@@ -279,7 +279,7 @@ Tres siluetas de papel con el respiro `v-breathe` de `shared/ui/vocify-ui.css`; 
 | Icono de teléfono al pasar sobre una tarjeta | Derecha de la tarjeta | `IconAction` 36 px, solo al pasar el ratón y en foco de teclado | Llamada en un clic sin llenar la lista de botones |
 | Pista de tecla (↵, n) | Dentro de la pastilla o la acción | 12 px al 60 % de opacidad | Enseña el atajo sin una pantalla de ayuda |
 
-Qué se quita para miembros: Copiloto (beta) del menú (**a decidir**, ver informe), la tarjeta de planes y el bloque «Recientes» de la home (vive en Conversaciones).
+Qué se quita para miembros: Copiloto (beta) del menú, la tarjeta de planes y el bloque «Recientes» de la home (vive en Conversaciones).
 
 ---
 
@@ -313,7 +313,7 @@ Qué se quita para miembros: Copiloto (beta) del menú (**a decidir**, ver infor
 | Llamar | ✓ | ✓ | Dialer para un número o contacto fuera de Hoy. Mismo botón |
 | Equipo | — | ✓ | `managers: true` como hoy. Orden alfabético, sin ranking (F15) |
 | Ajustes | ✓ | ✓ | E6 añade «Tu forma de escribir» |
-| Copiloto (beta) | **oculto** (a decidir) | ✓ | El directo vive en desktop (decisiones Lista 2); la ruta sigue existiendo |
+| Copiloto (beta) | **oculto** | ✓ | El directo vive en desktop (decisiones Lista 2); la ruta sigue existiendo |
 | Tarjeta de planes | **oculta** | ✓ | «Reservar una demo» no tiene sentido para un comercial de pago |
 | Campana | junto al logo | junto al logo | Sin cambios (F13) |
 
@@ -495,7 +495,7 @@ Comunes a todas (`.superpowers/sdd/global-constraints.md`): test en rojo antes d
 - **Verificación:** Reticle con el estado del dialer registrado en `src/reticle-dev.ts` (no se puede llamar de verdad): tras `call_ended` simulado, el panel enseña el follow-up y `n` selecciona la siguiente.
 
 ### T6 · Cierre: coherencia, docs y gate
-- **Archivos:** `docs/EXPERIENCIA_PRODUCTO.md` (texto de §13), `docs/features/MASTER_PLAN.md` (estado de F16), copy EN revisado en `product-catalog.ts`.
+- **Archivos:** `docs/EXPERIENCIA_PRODUCTO.md` (texto de §13), `docs/features/MASTER_PLAN.md` (estado de F16), copy EN revisado en `product-catalog.ts`, y el informe web (`src/lib/report-snapshot.ts`, `ReportPage`) con la misma línea por canal que ya lleva el email (`metrics.channels` de E1: «3 llamadas · 1 reunión · 2 visitas»), sin bloque nuevo.
 - **Tests:** `npx @reticlehq/server gate` sobre los flows de T1, T3, T4 y T5; repaso de la tabla de edge cases de la spec (cada fila con su test).
 - **Verificación:** veredicto `pass` en todos los flows; con el flag apagado, la home actual intacta.
 
@@ -506,7 +506,7 @@ Comunes a todas (`.superpowers/sdd/global-constraints.md`): test en rojo antes d
 | Riesgo | Mitigación |
 |---|---|
 | Mover el dialer de sitio corta la llamada | Una sola instancia; `placement` solo cambia clases; sin portal. Test en T5 |
-| El tope de 7 deja fuera llamadas importantes cuando hay muchas reuniones o confirmaciones | Confirmaciones agrupadas a partir de 3; decisión del founder sobre si reuniones y confirmaciones cuentan |
+| El tope de 7 deja fuera llamadas importantes cuando hay muchas reuniones o confirmaciones | Confirmaciones agrupadas a partir de 3; el founder confirmó que reuniones y confirmaciones cuentan en el tope |
 | Dos fuentes para A quién llamar (`/today` + `/contact-priorities`) | `composeHome` puro y testeado; `/today` gana en duplicados. A medio plazo, que lo devuelva el backend en una lectura |
 | Atajos que se disparan escribiendo el follow-up | `queueKeyAction` ignora editables. Test en T4 |
 | Historial por contacto solo para HubSpot | Se oculta el bloque si no hay filtro (Pipedrive/Salesforce), nunca vacío |
@@ -522,4 +522,4 @@ Comunes a todas (`.superpowers/sdd/global-constraints.md`): test en rojo antes d
 - [x] Archivos y motivos en §10.
 
 ## Firma
-- [ ] Revisado por: ____ · fecha: ____
+- [x] Revisado por: Toni (founder) · fecha: 26 sep 2026
