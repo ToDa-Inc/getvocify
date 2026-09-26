@@ -19,6 +19,37 @@ export type TodayItem = {
   status?: string | null;
   undo_deadline?: string | null;
   last_action_request_id?: string | null;
+  memo_id?: string | null;
+  due_at?: string | null;
+  precision?: string | null;
+};
+
+export type FollowupRow = {
+  memo_id: string;
+  contact_id: string | null;
+  contact_name: string | null;
+  company_name: string | null;
+  subject: string | null;
+  status: "ready" | "generating" | "unavailable";
+  generated_at: string | null;
+};
+
+export type UpcomingRow = {
+  memo_id: string;
+  contact_id: string | null;
+  contact_name: string | null;
+  company_name: string | null;
+  text: string;
+  due_at: string;
+  precision: "date" | "time" | null;
+  crm_task_id: string | null;
+};
+
+export type DoneRow = {
+  kind: string;
+  contact_name: string | null;
+  at: string;
+  memo_id: string | null;
 };
 
 export type TodayView = {
@@ -118,6 +149,11 @@ const SUPPORTING_KEYS: Record<string, string> = {
   manual_task: "today_origin_manual",
 };
 
+const PRIORITY_LABELS: Record<string, string> = {
+  pain_confirmed: "today_signal_pain",
+  uncalled: "today_signal_uncalled",
+};
+
 /** Vocify signals and commitments — not raw CRM task rows (hidden in UI until linked to contacts). */
 export function todayConversationItems(items: TodayItem[]): TodayItem[] {
   return items.filter((item) => item.type !== "manual_task");
@@ -134,7 +170,7 @@ export function splitTodayItems(items: TodayItem[]): { calls: TodayItem[]; tasks
 }
 
 export function signalLabelKey(type: string): string {
-  return SUPPORTING_KEYS[type] || "today_origin_detected";
+  return SUPPORTING_KEYS[type] || PRIORITY_LABELS[type] || "today_origin_detected";
 }
 
 export function originKey(origins: string[]): "today_origin_manual" | "today_origin_detected" | "today_origin_both" {

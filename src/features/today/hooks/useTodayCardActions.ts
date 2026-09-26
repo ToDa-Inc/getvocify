@@ -31,11 +31,16 @@ function getActedSnapshot() {
   return actedStore;
 }
 
-export function useTodayCardActions() {
+/** After a 409 the server row wins: drop the local result for that card. */
+export function forgetActed(id: string) {
+  setActedStore((current) => current.filter((card) => card.id !== id));
+}
+
+export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {}) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const integrations = useIntegrations();
-  const query = useToday();
+  const query = useToday({ fresh });
   const acted = useSyncExternalStore(subscribeActed, getActedSnapshot, getActedSnapshot);
 
   const connectedRow = (integrations.data ?? []).find((connection) => connection.status === "connected");
@@ -56,11 +61,11 @@ export function useTodayCardActions() {
   const listed =
     surface.kind === "list" ? cardsAfterDismiss(surface.items, acted, Date.now()) : [];
 
-  const dismiss = useCallback(async (item: TodayItem) => {
+  const act = useCallback(async (item: TodayItem, action: "dismiss" | "confirm") => {
     if (!item.id || item.version == null) return;
     const requestId = crypto.randomUUID();
     const result = await todayApi.resolve(item.id, {
-      action: "dismiss",
+      action,
       request_id: requestId,
       expected_version: item.version,
     });
@@ -76,6 +81,9 @@ export function useTodayCardActions() {
     ]);
   }, []);
 
+  const dismiss = useCallback((item: TodayItem) => act(item, "dismiss"), [act]);
+  const confirm = useCallback((item: TodayItem) => act(item, "confirm"), [act]);
+
   const undo = useCallback(async (item: TodayItem) => {
     if (!item.id || item.version == null) return;
     const requestId = item.last_action_request_id;
@@ -88,7 +96,19 @@ export function useTodayCardActions() {
     await query.refetch();
   }, [query]);
 
-  return { surface, listed, dismiss, undo, query, contactsUrl, provider: connectedRow?.provider ?? null, portalId: connectedRow?.metadata?.portalId ?? null };
+  return {
+    surface,
+    listed,
+    acted,
+    dismiss,
+    confirm,
+    undo,
+    query,
+    contactsUrl,
+    connected: integrations.isLoading ? null : connected,
+    provider: connectedRow?.provider ?? null,
+    portalId: connectedRow?.metadata?.portalId ?? null,
+  };
 }
 
 /** Re-render list rows while undo windows tick down. */

@@ -246,6 +246,78 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 | `done` | Datos de otro comercial | No salen |
 | `done` | Más de 50 filas | 50, de la más reciente a la más antigua |
 
+### Addendum T3 — composición de la casa (26 sep 2026)
+
+**Una sola regla, pura.** `composeHome` (`shared/ui/home.js`) recibe las seis lecturas (`/today`, `/contact-priorities`, `/followups`, `/memos` por revisar, `/today/upcoming`, `/today/done`), los resultados locales de las acciones de Hoy y la hora, y devuelve el estado de la casa y sus secciones. `RepHome` solo pinta. Una lectura que falla llega como `null`: su sección no sale y las demás siguen.
+
+**Lecturas.** En paralelo con `/today`. Follow-ups: `?status=ready,generating,unavailable`. Por revisar: `/memos?status=pending_review&reached_only=true&limit=5`. En la casa estas lecturas, `/today` y `/contact-priorities` usan `staleTime: 0`: con el `staleTime` global infinito, `refetchOnWindowFocus` no volvía a leer nunca. Fuera de la casa (flag apagado), nada cambia.
+
+**Tope de 7.** Las tarjetas de Hoy se reparten en el orden de las secciones: reuniones, confirmaciones y llamadas. Tres confirmaciones o más son una fila «{n} confirmaciones pendientes» que cuenta 1 y se despliega en el sitio. «N más cuando termines estos» suma lo que no cabe y el `folded_count` de `/today`. Si `/today` trae una `manual_task` visible, todas sus tarjetas cupieron y su `folded_count` son solo tareas del CRM, que la casa no pinta: no se suma.
+
+**A quién llamar.** Tarjetas de `/today` (sin `manual_task`, `meeting_today` ni `confirm_pending`) y, detrás, los contactos de `/contact-priorities` con motivo `pain_agree_next_step` («Dolor confirmado») o `no_calls_logged` («Sin llamar»). Un contacto que ya sale en `/today` no se repite. Las tarjetas de prioridad no tienen id de señal: se llaman o se abren en el CRM, no se descartan.
+
+**Falta tu OK.** Confirmaciones → follow-ups → por revisar. Se ven 3 filas y «{n} más» despliega el resto en el sitio. Los follow-ups y las revisiones no cuentan en el tope de 7.
+- Follow-up `ready`: «Follow-up para {nombre} · «asunto»» + «Abrir».
+- Follow-up `generating`: «Follow-up para {nombre} · Escribiendo el seguimiento…», sin acción.
+- Follow-up `unavailable`: «Follow-up para {nombre} · No se pudo redactar» + «Abrir» (a `MemoDetail`). **Desviación de la fila «Follow-up fallido»:** no hay «Reintentar» porque no hay backend para regenerar (`should_generate` devuelve `False` para `unavailable`). Volverá cuando exista.
+- Por revisar: «Conversación con {nombre} sin guardar en el CRM» + «Revisar» (a `MemoDetail`). El nombre es `extraction.contactName`, o «Contacto».
+- «Abrir» en un follow-up y «Revisar» en una confirmación también llevan a `MemoDetail` hasta que exista el panel (T4).
+
+**Reuniones (E5) y confirmaciones (E7).** Llegan como ítems de `/today` con los campos de siempre y, en las reuniones, `due_at` y `precision`. Sin hora (`precision: "date"`) → «Hoy · sin hora». Con hora ya pasada → atenuada hasta que acabe el día. Con `memo_id` (ya capturada) → sale de Reuniones. «acordada el {fecha}» lo escribe el backend en `detail` y se pinta tal cual. Sin E5/E7 no llegan y no sale nada.
+
+**Próximas.** Filas de `/today/upcoming` con `inCrm = Boolean(crm_task_id)` → chip «En el CRM». La fecha es «Mañana» o «Jue 1 oct», en la zona del navegador.
+
+**Hecho hoy.** Filas de `/today/done` de tipo `call`, `followup`, `signal` o `confirmation` (otro tipo no se pinta ni se cuenta). Si un contacto tiene `call` y `signal`, solo queda la `call`. Las filas no traen `contact_id`, así que se compara por nombre (sin mayúsculas ni espacios extra); una fila sin nombre no se deduplica. El contador es el número de filas.
+
+**Pulso.** «{n} llamadas hoy» con las filas `call` de Hecho hoy; sin llamadas, no hay pulso. «, todas guardadas en {CRM}» solo si todo esto es verdad: hay CRM conectado, la lectura de por revisar respondió con menos de 5 filas (está completa), toda llamada tiene `memo_id` y ninguna está por revisar. Con una llamada: «1 llamada hoy, guardada en {CRM}».
+
+**Estados (en este orden).**
+1. `/today` cargando sin datos → tres siluetas de papel; nada más.
+2. `/today` falla sin datos → «No se pudo preparar el día» + «Reintentar»; el resto de secciones se pinta con lo que tenga.
+3. Sin CRM y sin tarjetas de Hoy → «Conecta tu CRM para preparar tu día»; miembro: «Tu administrador tiene que conectar el CRM.» + «Grabar una interacción»; owner/admin: «Conectar CRM» + «Grabar una interacción».
+4. Nada pendiente (sin reuniones, Falta tu OK ni llamadas) y fuentes completas: si `/contact-priorities` responde `title_no_assigned` → «Todavía no hay contactos asignados para priorizar» + «Revisa tu asignación con el administrador» (miembro) o «Mapear responsables» (owner/admin) + «Grabar una interacción»; si no → «Nada urgente hoy. Buen momento para prospectar». Próximas y Hecho hoy siguen.
+5. `coverage` incompleta, o `/today` falló al refrescar con datos previos → «Información incompleta · hh:mm» bajo el pulso. Con fuentes incompletas y nada pendiente no se dice «Nada urgente».
+
+**Acciones y 409.** Un resultado local solo manda sobre `/today` si su `version` es mayor. Si ya no está pendiente, se ve mientras dura su «Deshacer» y después la tarjeta sale. Un 409 al resolver o deshacer trae la fila real: se olvida el resultado local de esa tarjeta y se vuelve a leer `/today`. Nunca se pinta un estado que el servidor no ha dicho.
+
+**Copy fuera de §12 del diseño** (hace falta para pintar lo anterior): `home_followup_writing`, `home_followup_failed`, `home_confirm_group`, `home_pulse_call` y `home_pulse_saved_one` (singular), y `done_signal` («Resuelto: {nombre}»). «{n} más» de Falta tu OK reutiliza `today_folded`.
+
+**Edge cases (cada fila tiene su test en `shared/ui/home.test.js`; lo que solo se ve en el navegador lo dice la última columna)**
+
+| Caso | Comportamiento esperado | Navegador |
+|---|---|---|
+| Secciones con datos | Orden Reuniones → Falta tu OK → A quién llamar → Próximas → Hecho hoy | — |
+| Sección vacía | No sale | — |
+| 2 reuniones + 2 confirmaciones + 6 llamadas | 2 + 2 + 3 llamadas; «3 más» | — |
+| 3 confirmaciones o más | Una fila agrupada que cuenta 1 | — |
+| Contacto en `/today` y en `/contact-priorities` | Una tarjeta, la de `/today` | — |
+| Prioridades con otros motivos (`followup_pending`, `scheduled_no_early_call`, `history_partial`) | No salen | — |
+| 40 señales (`/today` trae 7 y `folded_count: 33`) | 7 tarjetas + «33 más» | — |
+| `/today` con `manual_task` visible y `folded_count` | No se suma a «N más» | — |
+| Falta tu OK con más de 3 filas | 3 + «{n} más» | Despliegue en el sitio |
+| Follow-up `generating` | Fila sin acción | — |
+| Follow-up `unavailable` | Fila «No se pudo redactar» + «Abrir»; sin «Reintentar» | — |
+| Conversación por revisar | Fila con nombre + «Revisar» a su `MemoDetail` | — |
+| Próximas con y sin `crm_task_id` | `inCrm` verdadero / falso | — |
+| Próximas mañana y dentro de 5 días | «Mañana» / «Lun 5 oct» | — |
+| Hecho hoy con `call` y `signal` del mismo contacto | Solo la `call`; contador 1 | — |
+| Hecho hoy con un tipo desconocido | No sale ni cuenta | — |
+| Pulso con 3 llamadas guardadas / una por revisar / lectura de revisión incompleta o caída / sin CRM | Con «todas guardadas» / sin / sin / sin | — |
+| Sin llamadas hoy | Sin pulso | — |
+| `/today` cargando | Estado de carga, sin secciones | Siluetas |
+| `/today` 5xx | Estado de error; follow-ups, Próximas y Hecho hoy siguen | «Reintentar» |
+| `/contact-priorities` caído | Solo tarjetas de `/today`; sin error | — |
+| CRM sin conectar, miembro / owner-admin | Estado `connect`, sin / con «Conectar CRM» | Botones |
+| Sin conversaciones y con contactos asignados | A quién llamar con los contactos «Sin llamar» | — |
+| Sin contactos asignados, miembro / owner-admin | Estado `no_assigned`, con «Revisa tu asignación…» / «Mapear responsables» | Botones |
+| Nada pendiente | Estado «todo hecho»; Próximas y Hecho hoy siguen | — |
+| `coverage` parcial | Tarjetas + «Información incompleta · hh:mm»; con nada pendiente no es «todo hecho» | — |
+| Reunión sin hora / movida en el CRM / ya pasada / capturada | «Hoy · sin hora» / `detail` tal cual / atenuada / fuera | Atenuado |
+| Confirmada en otra pestaña, contacto borrado en el CRM | Al refrescar, la fila o la tarjeta no está | Fundido de 150 ms (T4) |
+| Resultado local más viejo que `/today` | Manda `/today` | — |
+| Descartada con «Deshacer» vencido | La tarjeta sale | — |
+| 409 al resolver o deshacer | Se olvida el resultado local y se relee `/today` | — |
+
 ## 8. Dependencias
 
 - **Existentes:** F05 (`/today`), F06 (acciones, deshacer, cola), F03 (`/briefs`), F02 (follow-up), F04 (`/contact-priorities`), F07 (Preguntar), F13 (campana e informes), F15 (Equipo).
