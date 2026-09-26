@@ -12,8 +12,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.config import settings
 from app.services.intelligence.worker import revision_for_memo
 
-PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "intelligence_v2.md"
-PROMPT_VERSION = "intelligence_v2"
+PROMPT_VERSION = "intelligence_v3"
+PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.md"
 
 _INTEREST = frozenset({"high", "medium", "low", "none"})
 _CATEGORY = frozenset({"price", "timing", "authority", "competitor", "status_quo", "trust", "other"})
