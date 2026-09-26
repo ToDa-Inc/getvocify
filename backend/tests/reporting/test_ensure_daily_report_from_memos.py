@@ -19,6 +19,9 @@ USER = "99999999-9999-9999-9999-999999999999"
 OTHER_USER = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 COMPANY = "88888888-8888-8888-8888-888888888888"
 AT_CUTOFF = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
+MEMO_COLUMNS = {
+    "id", "company_id", "user_id", "screening_outcome", "extraction", "capture_started_at", "created_at",
+}
 
 
 class FakeSender:
@@ -44,7 +47,11 @@ class _FakeQuery:
         self._insert_payload: dict | list | None = None
         self._limit: int | None = None
 
-    def select(self, _columns: str):
+    def select(self, columns: str):
+        if self._table == "memos":
+            missing = {c.strip() for c in columns.split(",")} - MEMO_COLUMNS
+            if missing:
+                raise RuntimeError(f"column memos.{sorted(missing)[0]} does not exist")
         return self
 
     def eq(self, column: str, value: str):
@@ -114,6 +121,9 @@ class FakeSupabase:
             "brief_preferences": [{"user_id": USER, "timezone": MADRID}],
             "team_outcome_observations": [],
             "report_notifications": [],
+            "company_feature_flags": [
+                {"company_id": COMPANY, "flag": "REPORTING_DAILY_EMAIL_ENABLED", "enabled": True},
+            ],
         }
         self._period_start = period_start.isoformat()
 
@@ -151,8 +161,7 @@ def _memo_in_period(*, screening: str = "connected", meeting: bool = False) -> d
         "screening_outcome": screening,
         "capture_started_at": captured,
         "created_at": captured,
-        "extraction": {},
-        "intelligence": intel,
+        "extraction": {"intelligence": intel},
     }
 
 
@@ -258,7 +267,7 @@ def test_tick_ensures_report_from_memos_before_email_send():
         ensure_self_daily_reports_for_due_tick(fake, now)
 
     def load_people():
-        return _load_daily_report_people(fake)
+        return _load_daily_report_people(fake, AT_CUTOFF)
 
     def load_existing():
         return _load_report_delivery_existing(fake)
@@ -348,12 +357,14 @@ def test_failed_email_retry_next_day_does_not_duplicate_notification():
             raise RuntimeError("smtp down")
 
     sender_fail = BadSender()
+    tick_clock: list[datetime] = []
 
     def ensure_daily(now):
+        tick_clock.append(now)
         ensure_self_daily_reports_for_due_tick(fake, now)
 
     def load_people():
-        return _load_daily_report_people(fake)
+        return _load_daily_report_people(fake, tick_clock[-1])
 
     def load_existing():
         return _load_report_delivery_existing(fake)

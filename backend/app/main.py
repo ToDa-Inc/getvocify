@@ -317,18 +317,9 @@ async def _periodic_memo_recovery():
         try:
             from datetime import datetime, timezone
 
-            from app.services.reporting.due_sends import tick_due_report_emails
-            from app.services.reporting.tick_bindings import report_email_tick_bindings
+            from app.services.reporting.tick_bindings import run_report_ticks
 
-            bindings = report_email_tick_bindings(supabase)
-            tick_due_report_emails(
-                datetime.now(timezone.utc),
-                bindings.load_people,
-                bindings.load_existing,
-                bindings.sender,
-                bindings.persist_delivery,
-                ensure_daily=bindings.ensure_daily,
-            )
+            await asyncio.to_thread(run_report_ticks, supabase, datetime.now(timezone.utc))
         except Exception as e:
             logger.exception(
                 "❌ Report email tick failed",

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from app.services.reporting.aggregate import build_snapshot
 from app.services.reporting.delivery import period_bounds
 from app.services.reporting.due_sends import MADRID
+from app.services.reporting.preferences import is_opted_in, load_preference_rows
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def _interaction_from_memo(memo: dict) -> dict | None:
     screening = memo.get("screening_outcome")
     if screening not in _SCREENING:
         return None
-    intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
+    intel = (memo.get("extraction") or {}).get("intelligence") or {}
     meeting = intel.get("meeting") if isinstance(intel, dict) else {}
     agreed = meeting.get("agreed") if isinstance(meeting, dict) else None
     captured = _parse_iso(memo.get("capture_started_at") or memo.get("created_at"))
@@ -75,10 +76,7 @@ def _outcomes_for_snapshot(observations: list[dict] | None, *, user_id: str) -> 
 
 def _load_recent_memos_for_tick(supabase, since_iso: str) -> list[dict]:
     """Load memos that might fall in a local day window (row or capture time since *since*)."""
-    columns = (
-        "id,company_id,user_id,screening_outcome,extraction,intelligence,"
-        "capture_started_at,created_at"
-    )
+    columns = "id,company_id,user_id,screening_outcome,extraction,capture_started_at,created_at"
     by_id: dict[str, dict] = {}
     for column in ("created_at", "capture_started_at"):
         try:
@@ -102,10 +100,7 @@ def _load_memos_for_user(supabase, *, company_id: str, user_id: str) -> list[dic
     try:
         result = (
             supabase.table("memos")
-            .select(
-                "id,user_id,company_id,screening_outcome,extraction,intelligence,"
-                "capture_started_at,created_at"
-            )
+            .select("id,user_id,company_id,screening_outcome,extraction,capture_started_at,created_at")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .execute()
@@ -256,11 +251,12 @@ def ensure_self_daily_reports_for_due_tick(supabase, now: datetime) -> None:
                 tz_by_user[str(row["user_id"])] = row.get("timezone") or MADRID
         except Exception:
             logger.exception("daily report tick: load timezones failed")
+    report_prefs = load_preference_rows(supabase, user_ids)
     seen: set[tuple[str, str]] = set()
     for memo in memos:
         company_id = str(memo.get("company_id") or "").strip()
         user_id = str(memo.get("user_id") or "").strip()
-        if not company_id or not user_id:
+        if not company_id or not user_id or not is_opted_in(report_prefs, user_id, "daily"):
             continue
         key = (company_id, user_id)
         if key in seen:

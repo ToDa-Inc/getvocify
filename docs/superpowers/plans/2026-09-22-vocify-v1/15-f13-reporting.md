@@ -346,6 +346,61 @@ GET -> revisión persistida 1, nunca recomputada al abrir
 
 - [ ] Preparar un commit revisable de esta tarea dentro de la entrega, con archivos explícitos y referencia `F13.03`; documentar en el mismo commit/PR decisiones, pruebas y limitaciones.
 
+### F13.04 — Semanal, preferencias y campana con lo que hizo Vocify (decisión 2026-09-26)
+
+**Motivo:** revisión reunión-vs-código. (1) Solo se genera el diario personal: el semanal de A §4.10 y de esta spec no existe. (2) La campana es un enlace al primer informe sin leer, no un popover con listado y estado, y no dice qué hizo Vocify ni por qué (A §4.10: «ahí se puede indicar cuál es la actividad que se realizó, porqué»). (3) No hay `report_preferences` ni `GET/PUT /me/report-preferences`, así que nada es «activable por el usuario».
+
+**Flags** (por empresa con `feature_flags.is_enabled`, global en `config.py`, apagados por defecto):
+
+- `REPORTING_WEEKLY_ENABLED`: genera y envía el semanal personal y expone la preferencia `weekly`.
+- `NOTIFICATIONS_ACTIVITY_ENABLED`: `GET /notifications` añade `activity` (acciones de Vocify). Apagado, la respuesta no trae esa clave y la campana no muestra la sección.
+- El informe de equipo tiene su flag en F15.05.
+
+**Semanal personal:**
+
+- Periodo: semana laboral local `[lunes 00:00, sábado 00:00)` en la zona del destinatario. Zona: `brief_preferences.timezone` (fuente existente), `Europe/Madrid` si falta. La clave única de 048 incluye `report_type`, así que el diario del lunes y el semanal no colisionan.
+- Se genera la primera vez que el tick corre con hora local ≥ viernes 18:00 y antes del lunes siguiente; sábado y domingo recuperan un viernes perdido. Se crea una sola vez y no se reescribe (C18): lo que ocurra después de `generated_at` no entra, y el snapshot guarda `generated_at`.
+- Semana sin actividad capturada: no hay informe ni email, igual que el diario.
+- Snapshot: `build_snapshot` (el mismo agregador del diario) + `series` por día lunes–viernes `{date, connected_calls, meetings_agreed, covered}`. Un día que empieza después de `generated_at` lleva `covered: false` y valores `null`: la página lo pinta como hueco, no como barra cero. + `objections`: hasta tres categorías con `objection_counts` (el mismo cálculo del panel de equipo) sobre `interaction_patterns` de las conversaciones del periodo; si esa lectura falla, `objections: null` y `coverage.objections: "unavailable"`.
+- Sin LLM. La frase de resumen es determinista y sigue el copy de la spec: «Esta semana: 12 llamadas conectadas y 3 reuniones acordadas.» El diario pasa a abrir con «Hoy: …» con la misma regla.
+- Email: asunto «Tu semana en Vocify», esa frase, la tabla de métricas, objeciones y «Ver informe». Sin gráfico.
+- Página: cabecera «Tu semana» con periodo, zona y fecha de generación; una tabla por día (conversaciones y reuniones) con una barra fina por fila, así el gráfico y su equivalente accesible son el mismo elemento y no se añade librería de gráficos; un día no cubierto dice «No incluido» sin barra. Objeciones en tabla corta.
+
+**Preferencias (migración 053, `report_preferences`):** `user_id`, `daily_enabled`, `weekly_enabled`, `team_enabled` (todos `true` por defecto) y `updated_at`. La hora (18:00) y el día (viernes) son fijos en V1: no se guardan campos que nada lee. Idioma: español, como el email diario existente (abierto).
+
+- `GET/PUT /api/v1/me/report-preferences` devuelve solo las claves que aplican a esa persona: `daily` siempre; `weekly` con `REPORTING_WEEKLY_ENABLED`; `team` con `REPORTING_TEAM_ENABLED` y rol owner/admin. Un PUT con una clave que no aplica devuelve 422.
+- Preferencia apagada: ese informe no se genera ni se envía (tampoco aparece en la campana). El diario existente pasa a respetar `daily_enabled`.
+- UI: interruptores compactos en Settings › Resúmenes, bajo el resaltado del brief. Sin entrada nueva de navegación.
+
+**Campana:**
+
+- Popover en el mismo sitio, en lugar del enlace directo. Consulta al abrir y cada 60 s mientras la pestaña está visible (React Query no refresca en segundo plano). Al cerrar sesión el layout se desmonta y la recarga a `/login` limpia la caché: no queda intervalo vivo.
+- «Informes»: las diez notificaciones de informe más recientes, leídas y sin leer, con título por tipo («Tu resumen del día», «Tu semana», «Tu equipo esta semana») y fecha del periodo. Abrir marca `read_at` y navega a `/dashboard/reports/:id`. El contador son los informes sin leer.
+- «Vocify hizo» (solo con `NOTIFICATIONS_ACTIVITY_ENABLED`): se deriva al leer de dos registros que ya existen, sin copiarlos a otra tabla:
+  - `crm_updates` con `status = 'success'` del propio usuario (auditoría reservar→ejecutar→confirmar de HubSpot, Pipedrive y Salesforce), agrupadas por memo: «CRM actualizado: deal, contacto y tareas» (tipos de recurso, sin recuento: una tarea reintentada no debe contar dos veces) y el porqué «Por tu conversación con {contacto}», enlazando a `/dashboard/memos/:id`.
+  - `meeting_writes` con `stage_changed = true`: «Deal movido a la etapa de reunión agendada» y «Reunión acordada con {contacto}». `meeting_writes` no guardaba fecha: 053 añade `created_at` sin rellenar las filas antiguas; una fila sin fecha no se muestra (no se inventa cuándo ocurrió).
+  - Últimos 7 días, máximo 8, más recientes primero. Solo filas del propio usuario y de memos de su empresa. No suman al contador: no tienen `read_at` porque no piden acción. Si la lectura falla, `activity: null` y la sección no aparece; nunca se presenta como «no hizo nada».
+  - Los fallos de CRM no se listan aquí: ya se ven en la nota.
+
+**Casos que deben fallar antes de implementar:**
+
+| Caso | Resultado exigido |
+|---|---|
+| Tick el viernes 18:05 y otra vez el sábado | Un semanal y una notificación. |
+| Lunes con diario y semanal | Dos informes distintos. |
+| Semana sin actividad | Sin informe. |
+| Día posterior a la generación | `covered: false`, no cero. |
+| Viernes 17:59 local | No se genera. |
+| Flag semanal apagado | Nada generado; preferencias sin `weekly`. |
+| Preferencia semanal apagada | No se genera ni se envía. |
+| Email semanal falla | Informe y notificación intactos; el reintento usa la misma clave. |
+| Actividad con flag apagado | Sin clave `activity`. |
+| `crm_updates` de otro usuario o fallidas | No aparecen. |
+| `meeting_writes` sin fecha | No aparece. |
+| Lectura de actividad falla | `activity: null`. |
+
+**Fuera de alcance / abierto:** hora y día configurables; idioma del email; `GET /reports` (listado) sigue sin usarse; el diario existente reescribe su snapshot en cada tick de la tarde aunque ya se enviara (choca con C18, no se toca aquí).
+
 ## Verificación integrada y criterios de salida adicionales
 
 Generar informe de un periodo local con actividad de prueba, abrir por campana y enlace email sin enviar correos reales no autorizados. Fallar envío, reintentar y verificar no duplicación. Ver periodo vacío y semanal parcial.

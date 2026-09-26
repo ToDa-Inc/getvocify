@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
 import httpx
@@ -55,17 +56,31 @@ class ResendReportSender:
         self._from_email = from_email
         self._remote: dict[str, str] = {}
 
+    def _send_blocking(self, key: str):
+        return asyncio.run(
+            self._client.send_email(
+                self._to,
+                self._subject,
+                self._html,
+                from_email=self._from_email,
+                idempotency_key=key,
+            )
+        )
+
     def send(self, key: str) -> None:
         try:
-            result = asyncio.run(
-                self._client.send_email(
-                    self._to,
-                    self._subject,
-                    self._html,
-                    from_email=self._from_email,
-                    idempotency_key=key,
-                )
-            )
+            asyncio.get_running_loop()
+        except RuntimeError:
+            in_loop = False
+        else:
+            in_loop = True
+        try:
+            if in_loop:
+                # asyncio.run cannot nest inside the server's loop; give the send its own loop.
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    result = pool.submit(self._send_blocking, key).result()
+            else:
+                result = self._send_blocking(key)
         except httpx.TimeoutException as exc:
             raise TimeoutError(str(exc)) from exc
         remote_id = result.get("id") if isinstance(result, dict) else None

@@ -7,11 +7,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.config import settings
+from app.services.feature_flags import is_enabled
 from app.services.reporting.daily_snapshot import ensure_self_daily_reports_for_due_tick
 from app.services.reporting.delivery import persist_report_delivery
-from app.services.reporting.due_sends import MADRID
-from app.services.reporting.presentation import email_html_for_snapshot
+from app.services.reporting.due_sends import MADRID, tick_due_report_emails
+from app.services.reporting.preferences import is_opted_in, load_preference_rows
+from app.services.reporting.presentation import email_html_for_snapshot, email_subject
 from app.services.reporting.resend_sender import report_resend_sender
+
+DAILY_EMAIL_FLAG = "REPORTING_DAILY_EMAIL_ENABLED"
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,31 @@ def report_email_tick_bindings(supabase) -> ReportEmailTickBindings:
         persist_delivery=lambda result, person, now=None: _persist_delivery_row(supabase, result, person, now=now),
         ensure_daily=lambda now: ensure_self_daily_reports_for_due_tick(supabase, now),
     )
+
+
+def run_report_ticks(supabase, now: datetime) -> None:
+    """Blocking: the server runs it off the event loop. One failing report kind does not stop the other."""
+    import logging
+
+    from app.services.reporting.periodic import tick_weekly_reports
+
+    logger = logging.getLogger(__name__)
+    try:
+        bindings = report_email_tick_bindings(supabase)
+        tick_due_report_emails(
+            now,
+            bindings.load_people,
+            bindings.load_existing,
+            bindings.sender,
+            bindings.persist_delivery,
+            ensure_daily=bindings.ensure_daily,
+        )
+    except Exception:
+        logger.exception("daily report tick failed")
+    try:
+        tick_weekly_reports(supabase, now)
+    except Exception:
+        logger.exception("weekly report tick failed")
 
 
 def _build_sender(supabase):
@@ -75,7 +104,7 @@ class _ReportIdSender:
         wrapped = report_resend_sender(
             self._client,
             to=email,
-            subject="Tu resumen de actividad",
+            subject=email_subject(snapshot),
             html=html,
         )
         if wrapped is None:
@@ -98,8 +127,8 @@ class _ReportIdSender:
         return sender.reconcile(key)
 
 
-def _load_daily_report_people(supabase) -> list[dict]:
-    since = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+def _load_daily_report_people(supabase, now: datetime | None = None) -> list[dict]:
+    since = ((now or datetime.now(timezone.utc)) - timedelta(days=2)).isoformat()
     stored = (
         supabase.table("reports")
         .select("id,user_id,company_id,revision,period_start,snapshot")
@@ -119,16 +148,22 @@ def _load_daily_report_people(supabase) -> list[dict]:
         .execute()
     )
     tz_by_user = {row["user_id"]: row.get("timezone") or MADRID for row in (prefs.data or [])}
+    report_prefs = load_preference_rows(supabase, user_ids)
     email_by_user = _emails_for_user_ids(supabase, user_ids)
     people: list[dict] = []
     for row in rows:
         uid = row["user_id"]
+        if not is_enabled(supabase, row.get("company_id"), DAILY_EMAIL_FLAG):
+            continue
+        if not is_opted_in(report_prefs, uid, "daily"):
+            continue
         person = {
             "user_id": uid,
             "company_id": row["company_id"],
             "timezone": tz_by_user.get(uid, MADRID),
             "report_id": row["id"],
             "revision": row.get("revision") or 1,
+            "snapshot": row.get("snapshot") or {},
         }
         email = email_by_user.get(str(uid)) or email_by_user.get(uid)
         if email:

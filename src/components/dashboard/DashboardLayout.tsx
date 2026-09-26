@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
@@ -13,7 +12,6 @@ import {
   Phone,
   LogOut,
   MessageCircle,
-  Bell,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,8 +19,7 @@ import { IconAction } from "@/components/ui/icon-action";
 import Logo from "@/components/Logo";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { bellCount } from "@/lib/report-snapshot";
-import { api } from "@/shared/lib/api-client";
+import { ReportBell } from "@/components/dashboard/ReportBell";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
@@ -42,30 +39,6 @@ const navItems = [
   { icon: Users, labelKey: "navInsights" as const, path: "/dashboard/insights", managers: true },
   { icon: Settings, labelKey: "navSettings" as const, path: "/dashboard/settings" },
 ];
-
-function ReportBell() {
-  const { t } = useLanguage();
-  const query = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => api.get<{ unread: number | null; items: { id: string; report_id: string }[] }>("/notifications"),
-  });
-  const count = bellCount(query.isSuccess ? query.data.unread : null);
-  const reportId = query.data?.items[0]?.report_id;
-  return (
-    <Link
-      to={reportId ? `/dashboard/reports/${reportId}` : "/dashboard"}
-      aria-label={count ? t.product.reportUnread.replace("{count}", String(count)) : t.product.reportsLabel}
-      className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-    >
-      <Bell className="h-4 w-4" />
-      {count ? (
-        <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-beige px-1 text-center text-[10px] text-cream">
-          {count}
-        </span>
-      ) : null}
-    </Link>
-  );
-}
 
 const BILLING_PATH = "/dashboard/settings/billing";
 
