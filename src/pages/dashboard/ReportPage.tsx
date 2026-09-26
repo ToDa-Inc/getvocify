@@ -127,12 +127,10 @@ export default function ReportPage() {
           <div key={row.cellKey} className="rounded-xl border border-border/70 bg-card px-4 py-3">
             <dt className="text-[13px] text-muted-foreground">{t.product[row.labelKey]}</dt>
             <dd className="mt-1 text-2xl tracking-tight">{row.value}</dd>
-            {row.cellKey === "connected_calls" && view.channelsLine ? (
-              <p className="mt-1 text-[13px] text-muted-foreground">{view.channelsLine}</p>
-            ) : null}
           </div>
         ))}
       </dl>
+      {view.channelsLine ? <p className="text-[13px] text-muted-foreground">{view.channelsLine}</p> : null}
       {snapshot.sample_limited ? <p className="text-[13px] text-muted-foreground">{t.product.sampleLimited}</p> : null}
       {view.days.length ? <DayTable days={view.days} locale={locale} /> : null}
       {trend ? (
