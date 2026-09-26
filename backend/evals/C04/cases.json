@@ -1,0 +1,82 @@
+[
+  {
+    "id": "c04_pain_and_demo_with_time",
+    "transcript": "You: ¿Cómo gestionáis hoy el seguimiento de leads? Them: Fatal, la verdad. Se nos quedan leads sin llamar cada semana porque nadie sabe a quién le toca. You: ¿Te enseño cómo lo resolvemos? ¿Te va bien el jueves a las once? Them: Sí, el jueves a las once me va bien.",
+    "expect": {"pain_confirmed": true, "meeting_agreed": true, "meeting_starts_at": "2026-09-24T11:00:00+02:00", "meeting_precision": "time"}
+  },
+  {
+    "id": "c04_scheduled_phone_call_is_a_meeting",
+    "transcript": "Them: Ahora no puedo, estoy entrando en otra reunión. You: Sin problema. ¿Quedamos el jueves a las once por teléfono y lo hablamos con calma? Them: Vale, quedamos el jueves a las once.",
+    "expect": {"meeting_agreed": true, "meeting_starts_at": "2026-09-24T11:00:00+02:00", "meeting_precision": "time"}
+  },
+  {
+    "id": "c04_pain_denied",
+    "transcript": "You: ¿Tenéis problemas para registrar las llamadas en el CRM? Them: No, eso lo tenemos resuelto, cada comercial lo apunta al colgar y funciona bien. You: Vale, gracias por tu tiempo.",
+    "expect": {"pain_confirmed": false, "meeting_agreed": null}
+  },
+  {
+    "id": "c04_no_pain_mentioned",
+    "transcript": "You: Hola, soy Marta de Vocify. ¿Hablo con el responsable comercial? Them: Sí, dime. You: Te llamaba para presentarte la herramienta. Them: Mándame información por email y lo miro.",
+    "expect": {"pain_confirmed": null, "meeting_agreed": null}
+  },
+  {
+    "id": "c04_meeting_left_open",
+    "transcript": "Them: Perdemos muchísimo tiempo pasando notas al CRM después de cada visita. You: ¿Hacemos una demo la semana que viene? Them: Puede ser, déjame que mire la agenda y ya te digo.",
+    "expect": {"pain_confirmed": true, "meeting_agreed": null}
+  },
+  {
+    "id": "c04_meeting_refused",
+    "transcript": "You: ¿Te parece si agendamos una reunión para enseñarte la plataforma? Them: No, gracias. Ahora mismo no nos interesa, acabamos de firmar con otro proveedor.",
+    "expect": {"pain_confirmed": null, "meeting_agreed": false}
+  },
+  {
+    "id": "c04_meeting_only_day",
+    "transcript": "Them: El problema es que no sabemos qué pasa en las llamadas de los comerciales nuevos. You: Justo eso lo vemos en una demo. ¿El viernes? Them: El viernes perfecto, llámame por la mañana y lo cuadramos.",
+    "expect": {"pain_confirmed": true, "meeting_agreed": true, "meeting_starts_at": "2026-09-25", "meeting_precision": "date"}
+  },
+  {
+    "id": "c04_rep_claims_pain_prospect_does_not",
+    "transcript": "You: Seguro que perdéis mucho tiempo metiendo datos en HubSpot. Them: Bueno, no tanto, la verdad. You: ¿Y el seguimiento? Them: Eso lo llevamos bien.",
+    "expect": {"pain_confirmed_not": true, "meeting_agreed": null}
+  },
+  {
+    "id": "c04_price_objection_and_send",
+    "transcript": "Them: Me cuadra lo que hacéis, pero el precio se nos va de presupuesto este trimestre. You: Te envío el jueves una propuesta con el plan pequeño. Them: Vale, envíamela.",
+    "expect": {"meeting_agreed": null, "min_objections": 1, "min_commitments": 1, "commitment_due_date": "2026-09-24"}
+  },
+  {
+    "id": "c04_voicemail",
+    "transcript": "Them: Hola, has llamado a Laura García. Ahora no puedo atenderte, deja tu mensaje después de la señal.",
+    "expect": {"pain_confirmed": null, "meeting_agreed": null, "min_objections": 0}
+  },
+  {
+    "id": "c04_english_pain_and_meeting",
+    "transcript": "Them: Honestly our reps forget to log half their calls, so the pipeline is a guess. You: Would Wednesday at 3pm work for a quick demo? Them: Wednesday at 3 works, send me the invite.",
+    "expect": {"pain_confirmed": true, "meeting_agreed": true, "meeting_starts_at": "2026-09-23T15:00:00+02:00", "meeting_precision": "time"}
+  },
+  {
+    "id": "c04_pain_then_send_info_no_meeting",
+    "transcript": "Them: Sí, tenemos un problema serio: los comerciales no actualizan las oportunidades y el forecast no vale. You: ¿Quieres que lo veamos en una demo? Them: Primero mándame un vídeo y si me convence hablamos.",
+    "expect": {"pain_confirmed": true, "meeting_agreed": null}
+  },
+  {
+    "id": "c04_gatekeeper",
+    "transcript": "Them: Recepción, ¿dígame? You: Quería hablar con el director comercial. Them: Ahora está reunido, llame más tarde.",
+    "expect": {"pain_confirmed": null, "meeting_agreed": null}
+  },
+  {
+    "id": "c04_commitment_with_time",
+    "transcript": "Them: Me interesa, pero tengo que hablarlo con mi socio. You: Te llamo el jueves a las cinco de la tarde y lo cerramos. Them: Perfecto, el jueves a las cinco.",
+    "expect": {"meeting_agreed": null, "min_commitments": 1, "commitment_due_at": "2026-09-24T17:00:00+02:00"}
+  },
+  {
+    "id": "c04_meeting_time_changed",
+    "transcript": "You: ¿Te va bien el miércoles a las diez para la demo? Them: A las diez no puedo, mejor a las doce. You: Hecho, el miércoles a las doce entonces. Them: Genial, el miércoles a las doce.",
+    "expect": {"meeting_agreed": true, "meeting_starts_at": "2026-09-23T12:00:00+02:00", "meeting_precision": "time"}
+  },
+  {
+    "id": "c04_meeting_part_of_day_is_not_a_time",
+    "transcript": "Them: Lo que nos mata es que no sabemos qué se dice en las llamadas. You: ¿Lo vemos juntos el lunes? Them: Vale, el lunes a mediodía nos vemos.",
+    "expect": {"pain_confirmed": true, "meeting_agreed": true, "meeting_starts_at": "2026-09-28", "meeting_precision": "date"}
+  }
+]

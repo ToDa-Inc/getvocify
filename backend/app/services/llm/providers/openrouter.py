@@ -66,6 +66,11 @@ def openrouter_call_meta(data: dict, *, requested_model: str) -> dict:
     }
 
 
+class EmptyModelResponse(ValueError):
+    def __init__(self) -> None:
+        super().__init__("Empty model response")
+
+
 class OpenRouterProvider(BaseLLMProvider):
     """OpenRouter chat completions API."""
 
@@ -176,7 +181,7 @@ class OpenRouterProvider(BaseLLMProvider):
                     message = data["choices"][0]["message"]
                     content = message.get("content")
                     if content is None and not allow_empty_content:
-                        raise ValueError("Empty model response")
+                        raise EmptyModelResponse()
                     elapsed_ms = (time.perf_counter() - t0) * 1000
                     self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
                     usage = self.last_call_meta
@@ -195,7 +200,7 @@ class OpenRouterProvider(BaseLLMProvider):
                         ),
                     )
                     return message
-            except (httpx.HTTPStatusError, httpx.RequestError, KeyError) as e:
+            except (httpx.HTTPStatusError, httpx.RequestError, KeyError, EmptyModelResponse) as e:
                 last_error = e
                 if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
                     try:
@@ -229,6 +234,8 @@ class OpenRouterProvider(BaseLLMProvider):
                         e,
                     )
 
+        if isinstance(last_error, EmptyModelResponse):
+            raise last_error
         err_msg = str(last_error) if last_error else "Unknown error"
         if not err_msg.strip():
             err_msg = type(last_error).__name__ if last_error else "Unknown"

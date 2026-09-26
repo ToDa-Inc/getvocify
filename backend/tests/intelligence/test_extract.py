@@ -26,6 +26,7 @@ def test_keeps_only_quotes_that_are_in_the_transcript():
     raw = {
         "interest": "high",
         "pain_confirmed": True,
+        "pain_quote": "El seguimiento nos ocupa tres horas al día",
         "objections": [
             {"category": "price", "resolution": "open", "quote": "el precio se nos va de presupuesto"},
             {"category": "timing", "resolution": "open", "quote": "no tenemos tiempo este año"},
@@ -37,6 +38,55 @@ def test_keeps_only_quotes_that_are_in_the_transcript():
     assert shaped["pain_confirmed"] is True
     assert [item["category"] for item in shaped["objections"]] == ["price"]
     assert shaped["objections"][0]["evidence_refs"]
+
+
+def test_pain_without_a_quote_from_the_transcript_is_unknown():
+    assert shape_intelligence(MEMO, {"pain_confirmed": True})["pain_confirmed"] is None
+    invented = shape_intelligence(MEMO, {"pain_confirmed": True, "pain_quote": "perdemos clientes"})
+    assert invented["pain_confirmed"] is None
+
+
+def test_pain_keeps_its_evidence():
+    shaped = shape_intelligence(
+        MEMO, {"pain_confirmed": True, "pain_quote": "El seguimiento nos ocupa tres horas al día"},
+    )
+    [ref] = shaped["evidence"]
+    assert ref["quote"] == "El seguimiento nos ocupa tres horas al día"
+
+
+MEETING_MEMO = {
+    **MEMO,
+    "transcript": "You: ¿Te va bien el martes a las diez para la demo? Them: Perfecto, el martes a las diez.",
+}
+
+
+def test_an_agreed_meeting_with_a_time_is_kept():
+    shaped = shape_intelligence(MEETING_MEMO, {"meeting": {
+        "agreed": True, "starts_at": "2026-09-29T10:00:00+02:00", "quote": "Perfecto, el martes a las diez",
+    }})
+    meeting = shaped["meeting"]
+    assert meeting["agreed"] is True
+    assert meeting["starts_at"] == "2026-09-29T10:00:00+02:00"
+    assert meeting["precision"] == "time"
+    assert meeting["evidence_refs"]
+
+
+def test_an_agreed_meeting_with_only_a_day_keeps_the_day():
+    shaped = shape_intelligence(MEETING_MEMO, {"meeting": {
+        "agreed": True, "starts_at": "2026-09-29", "quote": "Perfecto, el martes a las diez",
+    }})
+    assert shaped["meeting"]["starts_at"] == "2026-09-29"
+    assert shaped["meeting"]["precision"] == "date"
+
+
+def test_a_meeting_without_a_quote_or_with_a_vague_date_is_not_invented():
+    assert shape_intelligence(MEETING_MEMO, {"meeting": {"agreed": True}})["meeting"]["agreed"] is None
+    vague = shape_intelligence(MEETING_MEMO, {"meeting": {
+        "agreed": True, "starts_at": "la semana que viene", "quote": "Perfecto, el martes a las diez",
+    }})
+    assert vague["meeting"]["agreed"] is True
+    assert vague["meeting"]["starts_at"] is None
+    assert vague["meeting"]["precision"] == "unknown"
 
 
 def test_a_commitment_without_a_real_date_is_dropped_and_unknown_interest_stays_null():
@@ -52,6 +102,57 @@ def test_a_commitment_without_a_real_date_is_dropped_and_unknown_interest_stays_
     assert len(shaped["commitments"]) == 1
     assert shaped["commitments"][0]["text"] == "enviar el caso de logística"
     assert shaped["commitments"][0]["due_at"].startswith("2026-09-24")
+
+
+def _commitment(due_at):
+    return {"commitments": [{
+        "kind": "send", "origin": "rep_promise", "text": "enviar el caso de logística",
+        "due_at": due_at, "quote": "Te envío el caso de logística el jueves",
+    }]}
+
+
+def test_a_commitment_with_a_time_has_time_precision():
+    [item] = shape_intelligence(MEMO, _commitment("2026-09-24T11:00:00+02:00"))["commitments"]
+    assert item["due_at"] == "2026-09-24T11:00:00+02:00"
+    assert item["temporal_precision"] == "time"
+
+
+def test_a_commitment_with_only_a_day_starts_that_day_in_the_memo_timezone():
+    [item] = shape_intelligence(MEMO, _commitment("2026-09-24"))["commitments"]
+    assert item["due_at"] == "2026-09-24T00:00:00+02:00"
+    assert item["temporal_precision"] == "date"
+    winter = shape_intelligence({**MEMO, "timezone": "Europe/Madrid"}, _commitment("2026-12-03"))
+    assert winter["commitments"][0]["due_at"] == "2026-12-03T00:00:00+01:00"
+    other = shape_intelligence({**MEMO, "timezone": "America/Mexico_City"}, _commitment("2026-09-24"))
+    assert other["commitments"][0]["due_at"] == "2026-09-24T00:00:00-06:00"
+
+
+def test_a_day_only_commitment_is_due_on_that_day_in_hoy():
+    from datetime import datetime
+
+    from app.services.hoy.materialize import day_end
+    from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
+
+    shaped = shape_intelligence(MEMO, _commitment("2026-09-24"))
+    touch = touch_from_intelligence(
+        memo_id="memo-1", contact_id="c-1", deal_id=None,
+        at=datetime.fromisoformat("2026-09-22T10:00:00+02:00"), intelligence=shaped,
+    )
+    wednesday = datetime.fromisoformat("2026-09-23T09:00:00+02:00")
+    thursday = datetime.fromisoformat("2026-09-24T09:00:00+02:00")
+    assert not signals_for_contact([touch], now=wednesday, day_end=day_end(wednesday, "Europe/Madrid"))
+    [signal] = signals_for_contact([touch], now=thursday, day_end=day_end(thursday, "Europe/Madrid"))
+    assert signal.type == "commitment_due"
+
+
+def test_a_commitment_without_an_offset_or_a_real_day_is_dropped():
+    assert shape_intelligence(MEMO, _commitment("2026-09-24T11:00:00"))["commitments"] == []
+    assert shape_intelligence(MEMO, _commitment("2026-02-30"))["commitments"] == []
+
+
+def test_an_unknown_timezone_falls_back_to_madrid():
+    kept = shape_intelligence({**MEMO, "timezone": "Mars/Base"}, _commitment("2026-09-24"))
+    assert kept["commitments"][0]["due_at"] == "2026-09-24T00:00:00+02:00"
 
 
 def test_an_unknown_category_becomes_other_and_a_long_text_is_cut():

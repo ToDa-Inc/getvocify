@@ -10,7 +10,7 @@
 Ninguna depende de la propuesta de abajo. Son operativas y tienen fecha.
 
 1. **Trabajo real sin commitear en `getvocify-desktop`.** `lib/permissions.js`, `lib/mic-devices.js`, `lib/memo-review.js`, `lib/extraction-omit.js`, todo `native/` (el tap Swift de ScreenCaptureKit), y cambios a `electron-main.mjs`/`preload.cjs`/`package.json` están modificados o sin trackear, solo en tu máquina. La versión en GitHub no tiene permisos, no sabe cargar el tap nativo — si tu cofundador hace `git pull` hoy, tiene una app peor que la que tú ves. Commit + push antes de leer el resto de este documento.
-2. **El gate de prefijo 400 no está implementado.** `docs/telephony/DECISION.md` ya decidió la acción #2 ("gatear rangos móviles españoles en verificación de caller ID"), pero no hay check de 346/347 ni de rango 400 en `services/telephony/caller_id.py`. Quedan 26 días.
+2. ~~**El gate de prefijo 400 no está implementado.**~~ **Hecho 2026-09-26** — `services/telephony/caller_id.py` rechaza verificar +34 6/7 y +34 400, y bloquea en llamada los móviles ya verificados desde el 17/10/2026. Regla e interpretaciones en `docs/telephony/DECISION.md` → "Action #2 as implemented".
 3. **`backend/app/services/crm_updates.py:71`** tiene un TODO con fecha de corte 2026-09-15 — ya pasó. Borrar el código muerto que ese TODO describe.
 4. **`billing/catalog.py:37` vende "Scoring you can stand on" en los planes Starter/Pro ($39/$59) hoy.** No existe backend de scoring (cero hits de MEDDIC/BANT/SPICED/scorecard en todo `backend/app`). "Coaching as it happens" sí es real (el objection-copilot en vivo). O se quita esa línea de la página de precios esta semana, o se prioriza C1 antes de lo que dice el plan — pero no debería quedar así ni una semana más.
 
