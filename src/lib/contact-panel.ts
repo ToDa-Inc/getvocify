@@ -15,6 +15,7 @@ export function panelPrimary({
   phone,
   crmHref,
   followupReady,
+  inReview = false,
 }: {
   kind: PanelRowKind;
   contactId: string | null;
@@ -23,11 +24,31 @@ export function panelPrimary({
   phone: string | null | undefined;
   crmHref: string | null;
   followupReady?: boolean;
+  inReview?: boolean;
 }): PanelPrimary {
   if (kind === "confirm") return "confirm";
-  if (followupReady && (kind === "followup" || kind === "call")) return "send";
+  if (followupReady && (kind === "followup" || inReview)) return "send";
+  if (inReview) return null;
   if (contactId && canDial && canPlace && phone !== null) return "call";
   return crmHref ? "open" : null;
+}
+
+/**
+ * The single filled pill in the panel. «Enviar» is the follow-up card's own pill, so the panel
+ * paints no second one; «Revisar y guardar» steps back to a text action when a send is ready.
+ */
+export function panelFilledPill({
+  primary,
+  inReview,
+  reviewSave,
+}: {
+  primary: PanelPrimary;
+  inReview: boolean;
+  reviewSave: boolean;
+}): "followup" | "review_save" | "primary" | null {
+  if (primary === "send") return "followup";
+  if (inReview) return reviewSave ? "review_save" : null;
+  return primary && primary !== "confirm" ? "primary" : null;
 }
 
 /** A row of the dialer's CRM contact search. */

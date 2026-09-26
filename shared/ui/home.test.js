@@ -756,4 +756,75 @@ describe("home selection", () => {
     assert.equal(selectedKey(next, rows), "hoy:sig-2");
     assert.equal(next.lastOutcome, "no_answer");
   });
+
+  it("locks onto the row of the contact the dialer is calling, even from another selection", () => {
+    const rows = homeRows(day);
+    const start = refresh(initialHomeSelection, rows);
+    const live = homeSelection(start, { type: "call", key: "hoy:sig-4" });
+    assert.equal(live.mode, "calling");
+    assert.equal(selectedKey(live, rows), "hoy:sig-4");
+    assert.equal(homeSelection(start, { type: "call", key: "hoy:missing" }), start);
+    const idle = homeSelection(start, { type: "exit" });
+    assert.equal(selectedKey(homeSelection(idle, { type: "call", key: "hoy:sig-3" }), rows), "hoy:sig-3");
+    assert.equal(homeSelection(live, { type: "call", key: "hoy:sig-3" }), live);
+  });
+
+  it("stays on the row with a failed outcome when the call never connected", () => {
+    const rows = homeRows(day);
+    const live = homeSelection(refresh(initialHomeSelection, rows), { type: "call" });
+    const next = homeSelection(live, { type: "call_ended", answered: false, callSid: "CA1" });
+    assert.equal(next.mode, "queue");
+    assert.equal(selectedKey(next, rows), "hoy:sig-3");
+    assert.equal(next.lastOutcome, "failed");
+    assert.equal(homeSelection(next, { type: "call" }).lastOutcome, undefined);
+  });
+
+  it("opens review for an answered call before the memo exists, and n still moves on", () => {
+    const rows = homeRows(day);
+    const live = homeSelection(refresh(initialHomeSelection, rows), { type: "call" });
+    const review = homeSelection(live, { type: "call_ended", answered: true, callSid: "CA2" });
+    assert.equal(review.mode, "review");
+    assert.equal(review.memoId, undefined);
+    assert.equal(review.callSid, "CA2");
+    assert.equal(selectedKey(homeSelection(review, { type: "reviewed" }), rows), "hoy:sig-4");
+  });
+
+  it("advances and notes the called row when the processed call turns out to be voicemail", () => {
+    const rows = homeRows(day);
+    const live = homeSelection(refresh(initialHomeSelection, rows), { type: "call" });
+    const review = homeSelection(live, { type: "call_ended", answered: true, callSid: "CA3" });
+    const next = homeSelection(review, { type: "call_resolved", outcome: "no_answer", callSid: "CA3" });
+    assert.equal(next.mode, "queue");
+    assert.equal(selectedKey(next, rows), "hoy:sig-4");
+    assert.deepEqual(next.lastCall, { key: "hoy:sig-3", outcome: "no_answer" });
+    const failed = homeSelection(review, { type: "call_resolved", outcome: "failed", callSid: "CA3" });
+    assert.equal(selectedKey(failed, rows), "hoy:sig-3");
+    assert.equal(failed.lastOutcome, "failed");
+  });
+
+  it("ignores a late resolution once the rep moved on or for another call", () => {
+    const rows = homeRows(day);
+    const live = homeSelection(refresh(initialHomeSelection, rows), { type: "call" });
+    const review = homeSelection(live, { type: "call_ended", answered: true, callSid: "CA4" });
+    assert.equal(homeSelection(review, { type: "call_resolved", outcome: "no_answer", callSid: "CA9" }), review);
+    const moved = homeSelection(review, { type: "reviewed" });
+    assert.equal(homeSelection(moved, { type: "call_resolved", outcome: "no_answer", callSid: "CA4" }), moved);
+  });
+
+  it("moves to the adjacent row with j/k from review", () => {
+    const rows = homeRows(day);
+    const live = homeSelection(refresh(initialHomeSelection, rows), { type: "call" });
+    const review = homeSelection(live, { type: "call_ended", memoId: "memo-1" });
+    assert.equal(selectedKey(homeSelection(review, { type: "next" }), rows), "hoy:sig-4");
+    assert.equal(selectedKey(homeSelection(review, { type: "prev" }), rows), "review:r6");
+  });
+
+  it("keeps the call on its contact when a refresh drops that row", () => {
+    const rows = homeRows(day);
+    const live = homeSelection(refresh(initialHomeSelection, rows), { type: "call" });
+    const without = rows.filter((row) => row.key !== "hoy:sig-3");
+    const after = refresh(live, without);
+    assert.equal(after.mode, "calling");
+    assert.equal(after.items[after.index], "hoy:sig-3");
+  });
 });

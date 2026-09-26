@@ -15,11 +15,14 @@ export { initialQueue, queueReducer, currentItem };
 export type HomeSelectionState = ReturnType<typeof homeSelection>;
 
 export type CallEndedEvent = {
+  answered?: boolean;
   memoId?: string | null;
   screeningOutcome?: string | null;
   callStatus?: "failed";
   callSid?: string | null;
 };
+
+export type CallResolvedEvent = { outcome: "no_answer" | "failed"; callSid?: string | null };
 
 export function todayQueueStart(items: TodayItem[]): TodayQueueState {
   return queueReducer(initialQueue, { type: "start", items });
@@ -37,6 +40,10 @@ export function homeQueueStartCall(state: HomeSelectionState): HomeSelectionStat
 
 export function homeQueueCallEnded(state: HomeSelectionState, event: CallEndedEvent): HomeSelectionState {
   return homeSelection(state, { type: "call_ended", ...event });
+}
+
+export function homeQueueCallResolved(state: HomeSelectionState, event: CallResolvedEvent): HomeSelectionState {
+  return homeSelection(state, { type: "call_resolved", ...event });
 }
 
 export function homeQueueReviewed(state: HomeSelectionState): HomeSelectionState {

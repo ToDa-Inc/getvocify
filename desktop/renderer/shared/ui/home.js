@@ -140,14 +140,24 @@ export function homeRows(view, { needsOkOpen = false, groupOpen = false } = {}) 
 /** No selection yet; untouched, so a wide screen may still pick the first call. */
 export const initialHomeSelection = { mode: "idle", items: [], touched: false };
 
+const NO_CONVERSATION = new Set(["voicemail", "no_response"]);
+
 /**
  * The home is the F06 queue: its items are the row keys and its index is the selected row.
  * Idle or done means nothing is selected. Calling locks the selection; review keeps n from F06.
+ * The lock follows the dialer: `call` names the row of the contact actually being called.
  */
 export function homeSelection(state, event) {
   const items = state.items || [];
   const at = (index, touched = true, extra = {}) => ({ mode: "queue", items, index, touched, ...extra });
   const locked = state.mode === "calling";
+  const onRow = state.mode === "queue" || state.mode === "review";
+  const finish = (outcome, callSid = state.callSid) => {
+    const extra = { lastOutcome: outcome, lastCall: { key: items[state.index], outcome }, callSid };
+    if (outcome === "failed") return at(state.index, true, extra);
+    const next = queueReducer({ mode: "queue", items, index: state.index }, { type: "skip" });
+    return next.mode === "queue" ? at(next.index, true, extra) : { mode: "done", items, touched: true, ...extra };
+  };
   switch (event.type) {
     case "rows":
       return refreshSelection(state, event.rows, event.wide);
@@ -158,11 +168,11 @@ export function homeSelection(state, event) {
     }
     case "next":
       if (locked) return state;
-      if (state.mode === "queue") return at(Math.min(state.index + 1, items.length - 1));
+      if (onRow) return at(Math.min(state.index + 1, items.length - 1));
       return items.length ? at(0) : { ...state, touched: true };
     case "prev":
       if (locked) return state;
-      if (state.mode === "queue") return at(Math.max(state.index - 1, 0));
+      if (onRow) return at(Math.max(state.index - 1, 0));
       return items.length ? at(items.length - 1) : { ...state, touched: true };
     case "skip":
       if (locked) return state;
@@ -173,50 +183,32 @@ export function homeSelection(state, event) {
       if (state.mode !== "queue") return { ...state, touched: true };
       return { ...queueReducer(state, { type: "exit" }), items, touched: true };
     }
-    case "call":
-      if (state.mode !== "queue") return state;
-      return { ...state, mode: "calling", touched: true };
+    case "call": {
+      if (locked) return state;
+      if (event.key == null) {
+        return state.mode === "queue" ? { mode: "calling", items, index: state.index, touched: true } : state;
+      }
+      const index = items.indexOf(event.key);
+      return index < 0 ? state : { mode: "calling", items, index, touched: true };
+    }
     case "call_ended": {
-      if (state.mode !== "calling") return state;
-      const next = queueReducer(
-        { mode: "calling", items, index: state.index },
-        { type: "call_ended", memoId: event.memoId, screeningOutcome: event.screeningOutcome, callStatus: event.callStatus },
-      );
-      if (next.mode === "review") {
-        return {
-          mode: "review",
-          items,
-          index: state.index,
-          touched: true,
-          memoId: next.memoId,
-          callSid: event.callSid ?? state.callSid,
-        };
-      }
-      if (next.mode === "queue") {
-        const advanced = next.index !== state.index;
-        return {
-          mode: "queue",
-          items,
-          index: next.index,
-          touched: true,
-          lastOutcome: event.callStatus === "failed" ? "failed" : advanced ? "no_answer" : undefined,
-          callSid: event.callSid ?? state.callSid,
-        };
-      }
-      if (next.mode === "done") {
-        return { mode: "done", items, touched: true, callSid: event.callSid ?? state.callSid };
-      }
-      return state;
+      // Not answered means it never connected, carrier no-answer included: the row stays.
+      if (!locked) return state;
+      const callSid = event.callSid ?? state.callSid;
+      if (event.callStatus === "failed") return finish("failed", callSid);
+      if (NO_CONVERSATION.has(event.screeningOutcome)) return finish("no_answer", callSid);
+      if (!event.answered && !event.memoId) return finish("failed", callSid);
+      return { mode: "review", items, index: state.index, touched: true, memoId: event.memoId ?? undefined, callSid };
+    }
+    case "call_resolved": {
+      if (state.mode !== "review") return state;
+      if (event.callSid && state.callSid && event.callSid !== state.callSid) return state;
+      return event.outcome === "no_answer" || event.outcome === "failed" ? finish(event.outcome) : state;
     }
     case "reviewed": {
       if (state.mode !== "review") return state;
       const next = queueReducer({ mode: "review", items, index: state.index }, { type: "reviewed" });
-      if (next.mode === "queue") {
-        return next.index < items.length
-          ? at(next.index, true, { memoId: undefined, callSid: undefined })
-          : { mode: "done", items, touched: true };
-      }
-      return { mode: "done", items, touched: true };
+      return next.mode === "queue" ? at(next.index) : { mode: "done", items, touched: true };
     }
     default:
       return state;
@@ -236,13 +228,12 @@ function refreshSelection(state, rows, wide) {
   const touched = Boolean(state.touched);
   const idle = { mode: "idle", items: keys, touched };
   if (state.mode === "calling" || state.mode === "review") {
+    const same = keys.indexOf(state.items[state.index]);
+    if (same >= 0) return { ...state, items: keys, index: same };
+    // The call belongs to its contact: never move the lock or the review onto another row.
+    if (state.mode === "calling") return state;
     const index = followingKey(state.items, state.index, keys);
-    if (index < 0) {
-      return state.mode === "review"
-        ? { mode: "done", items: keys, touched: true }
-        : { mode: "calling", items: keys, index: Math.min(state.index, Math.max(keys.length - 1, 0)), touched: true, memoId: state.memoId, callSid: state.callSid };
-    }
-    return { ...state, items: keys, index };
+    return index < 0 ? { mode: "done", items: keys, touched: true } : { mode: "queue", items: keys, index, touched: true };
   }
   if (state.mode === "queue") {
     if (!touched && !wide) return idle;

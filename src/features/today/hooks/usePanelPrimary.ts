@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HomeRow } from "@shared/ui/home.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
@@ -45,12 +45,10 @@ export function usePanelPrimary(
   {
     provider,
     portalId,
-    followupReady,
-    inReview,
+    inReview = false,
   }: {
     provider: string | null;
     portalId: string | null;
-    followupReady?: boolean;
     inReview?: boolean;
   },
 ) {
@@ -64,6 +62,7 @@ export function usePanelPrimary(
   const kind = row ? panelRowKind(row) : "call";
   const crmHref = row ? panelCrmHref(row, provider, portalId) : null;
   const sendRef = useRef<(() => void) | null>(null);
+  const [followupReady, setFollowupReady] = useState(false);
 
   const phoneQuery = useQuery({
     queryKey: [HOME_PANEL_PHONE_KEY, contactId],
@@ -83,6 +82,7 @@ export function usePanelPrimary(
         phone,
         crmHref,
         followupReady,
+        inReview,
       })
     : null;
 
@@ -101,6 +101,7 @@ export function usePanelPrimary(
 
   const registerSend = useCallback((run: (() => void) | null) => {
     sendRef.current = run;
+    setFollowupReady(Boolean(run));
   }, []);
 
   const runPrimary = useCallback(
@@ -108,7 +109,6 @@ export function usePanelPrimary(
       actions: {
         confirm: (item: Extract<HomeRow, { kind: "confirm" }>["item"]) => Promise<void>;
         openMemo: (memoId: string) => void;
-        startCall?: () => void;
       },
       forRow: HomeRow | null = row,
     ) => {
@@ -128,7 +128,8 @@ export function usePanelPrimary(
         canPlace,
         phone: activePhone,
         crmHref: activeCrm,
-        followupReady,
+        followupReady: followupReady && active.key === row?.key,
+        inReview: inReview && active.key === row?.key,
       });
       if (activePrimary === "confirm" && active.kind === "confirm") {
         await actions.confirm(active.item);
@@ -139,7 +140,6 @@ export function usePanelPrimary(
         return;
       }
       if (activePrimary === "call" && activeContactId && canDial && canPlace && dialer) {
-        actions.startCall?.();
         dialer.openForContact({ contactId: activeContactId, name: active.name ?? null });
         return;
       }
@@ -150,7 +150,7 @@ export function usePanelPrimary(
       if (active.kind === "review") actions.openMemo(active.entry.memoId);
       else if (active.kind === "followup" && active.entry.action) actions.openMemo(active.entry.memoId);
     },
-    [canDial, canPlace, contactId, dialer, fetchPhoneFor, followupReady, phone, portalId, provider, row],
+    [canDial, canPlace, contactId, dialer, fetchPhoneFor, followupReady, inReview, phone, portalId, provider, row],
   );
 
   return { primary, phone, contact, crmHref, canDial, canPlace, kind, runPrimary, phoneQuery, registerSend };

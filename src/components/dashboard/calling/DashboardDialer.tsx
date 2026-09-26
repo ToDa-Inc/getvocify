@@ -43,7 +43,7 @@ import {
   normalizeDialTarget,
   type CallState,
 } from "@/lib/dial-target";
-import type { DialerFocus } from "@/features/calling/DialerFocusProvider";
+import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
 
 type TelnyxCall = {
   id?: string;
@@ -82,14 +82,6 @@ type LiveInfo = {
   callSid?: string | null;
 };
 
-type CallEndedInfo = {
-  callSid: string | null;
-  memoId?: string | null;
-  screeningOutcome?: string | null;
-  callStatus?: "failed";
-  durationSeconds?: number | null;
-};
-
 type Props = {
   callerIds: CallerId[];
   onLiveChange?: (live: LiveInfo) => void;
@@ -97,7 +89,7 @@ type Props = {
   focusContact?: DialerFocus | null;
   onFocusHandled?: () => void;
   compact?: boolean;
-  onCallEnded?: (payload: CallEndedInfo) => void;
+  onCallEnded?: (payload: CallEndedPayload) => void;
 };
 
 async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
@@ -160,6 +152,7 @@ export const DashboardDialer = ({
   const onCallEndedRef = useRef(onCallEnded);
   const wasInCallRef = useRef(false);
   const callFailedRef = useRef(false);
+  const remoteAudioRef = useRef(false);
   const endedReportedRef = useRef(false);
   onLiveChangeRef.current = onLiveChange;
   onCallEndedRef.current = onCallEnded;
@@ -267,29 +260,15 @@ export const DashboardDialer = ({
     if (!wasInCallRef.current || endedReportedRef.current) return;
     wasInCallRef.current = false;
     endedReportedRef.current = true;
-    const sid = callSidRef.current;
-    const failed = callFailedRef.current;
+    // Memo and screening only exist once the recording is processed; the home polls for them.
+    const answered = wasAnsweredRef.current || remoteAudioRef.current;
+    const failed = callFailedRef.current || !answered;
     callFailedRef.current = false;
-    void (async () => {
-      let payload: CallEndedInfo = {
-        callSid: sid,
-        callStatus: failed ? "failed" : undefined,
-      };
-      if (sid && !failed) {
-        try {
-          const call = await callsApi.getCall(sid);
-          payload = {
-            callSid: sid,
-            memoId: call.memoId ?? null,
-            screeningOutcome: call.screeningOutcome ?? null,
-            durationSeconds: call.durationSeconds ?? null,
-          };
-        } catch {
-          /* still report the hangup */
-        }
-      }
-      onCallEndedRef.current?.(payload);
-    })();
+    onCallEndedRef.current?.({
+      callSid: callSidRef.current,
+      answered,
+      callStatus: failed ? "failed" : undefined,
+    });
   }, [state, elapsed, selected, focusContact]);
 
   useEffect(() => {
@@ -459,6 +438,7 @@ export const DashboardDialer = ({
     });
     telnyxCallRef.current = call;
     stopRemoteWatchRef.current = watchRemoteAudio(remote, () => {
+      remoteAudioRef.current = true;
       stopRingback();
     });
 
@@ -554,6 +534,8 @@ export const DashboardDialer = ({
     }
     callSidRef.current = null;
     wasAnsweredRef.current = false;
+    remoteAudioRef.current = false;
+    callFailedRef.current = false;
     pendingMissRef.current = true;
     try {
       setSelected(target);
@@ -630,7 +612,6 @@ export const DashboardDialer = ({
         : state === CALL_STATES.IDLE
           ? outcome || callCopy.dialReadyToCall
           : callButtonLabel(state);
-    const failedLabel = outcome && state === CALL_STATES.IDLE ? outcome : label;
 
     if (compact && inCall) {
       return (
@@ -691,7 +672,7 @@ export const DashboardDialer = ({
             <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
               {selected ? formatCallerIdDisplay(selected.phone) : ""}
             </p>
-            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{failedLabel}</p>
+            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
           </div>
         </div>
 

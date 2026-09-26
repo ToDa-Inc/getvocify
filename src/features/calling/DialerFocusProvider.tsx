@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -19,6 +20,7 @@ export type DialerCallPhase = "idle" | "dialing" | "in_call" | "ended" | "failed
 
 export type CallEndedPayload = {
   callSid: string | null;
+  answered?: boolean;
   memoId?: string | null;
   screeningOutcome?: string | null;
   callStatus?: "failed";
@@ -32,18 +34,12 @@ type LiveReport = {
   callSid?: string | null;
 };
 
-function phaseFromCallState(state: CallState, failed: boolean): DialerCallPhase {
-  if (failed) return "failed";
-  if (state === CALL_STATES.IDLE) return "idle";
-  if (state === CALL_STATES.ACTIVE) return "in_call";
-  return "dialing";
-}
-
 type DialerFocusContextValue = {
   focus: DialerFocus | null;
   openForContact: (next: DialerFocus) => void;
   clearFocus: () => void;
   phase: DialerCallPhase;
+  /** The contact on the line. Set only once the dialer actually leaves idle. */
   activeContact: DialerFocus | null;
   callStartedAt: number | null;
   callSid: string | null;
@@ -70,13 +66,11 @@ export function DialerFocusProvider({
   const [callSid, setCallSid] = useState<string | null>(null);
   const [liveElapsed, setLiveElapsed] = useState("0:00");
   const [lastEnded, setLastEnded] = useState<CallEndedPayload | null>(null);
-  const [failed, setFailed] = useState(false);
+  const inFlightRef = useRef(false);
 
   const openForContact = useCallback(
     (next: DialerFocus) => {
       setFocus(next);
-      setActiveContact(next);
-      setLastEnded(null);
       onOpenDialer();
     },
     [onOpenDialer],
@@ -85,40 +79,34 @@ export function DialerFocusProvider({
   const clearFocus = useCallback(() => setFocus(null), []);
 
   const reportLive = useCallback((live: LiveReport) => {
-    setPhase((prev) => {
-      const nextFailed = failed && live.state === CALL_STATES.IDLE ? failed : false;
-      return phaseFromCallState(live.state, nextFailed);
-    });
     setLiveElapsed(live.elapsed);
-    if (live.contact) setActiveContact(live.contact);
-    if (live.callSid) setCallSid(live.callSid);
-    if (live.state === CALL_STATES.ACTIVE) {
-      setCallStartedAt((prev) => prev ?? Date.now());
-    }
     if (live.state === CALL_STATES.IDLE) {
+      inFlightRef.current = false;
+      setPhase((prev) => (prev === "ended" || prev === "failed" ? prev : "idle"));
       setCallStartedAt(null);
+      return;
     }
-    if (live.state !== CALL_STATES.IDLE) {
-      setFailed(false);
+    if (!inFlightRef.current) {
+      inFlightRef.current = true;
+      setActiveContact(live.contact ?? null);
+      setCallSid(live.callSid ?? null);
       setLastEnded(null);
+    } else {
+      if (live.contact) setActiveContact(live.contact);
+      if (live.callSid) setCallSid(live.callSid);
     }
-  }, [failed]);
+    setPhase(live.state === CALL_STATES.ACTIVE ? "in_call" : "dialing");
+    if (live.state === CALL_STATES.ACTIVE) setCallStartedAt((prev) => prev ?? Date.now());
+  }, []);
 
   const reportEnded = useCallback((payload: CallEndedPayload) => {
     setLastEnded(payload);
-    setCallSid(payload.callSid);
+    if (payload.callSid) setCallSid(payload.callSid);
     setPhase(payload.callStatus === "failed" ? "failed" : "ended");
-    setFailed(payload.callStatus === "failed");
     setCallStartedAt(null);
   }, []);
 
-  const clearEnded = useCallback(() => {
-    setLastEnded(null);
-    setPhase("idle");
-    setFailed(false);
-    setActiveContact(null);
-    setCallSid(null);
-  }, []);
+  const clearEnded = useCallback(() => setLastEnded(null), []);
 
   useEffect(() => {
     dialerReticleStore.setState({

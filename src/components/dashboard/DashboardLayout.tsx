@@ -33,6 +33,7 @@ import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
 import { isManagerRole, navItemsFor, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
+import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
@@ -321,7 +322,7 @@ const DashboardLayout = () => {
           open={dialerOpen}
           onOpenChange={setDialerOpen}
           onCallStateChange={setCallState}
-          panelPlacement={homeColumn}
+          homeColumn={homeColumn}
         />
       ) : null}
     </div>
@@ -334,14 +335,15 @@ function DialerChrome({
   open,
   onOpenChange,
   onCallStateChange,
-  panelPlacement,
+  homeColumn,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCallStateChange: (state: CallState) => void;
-  panelPlacement: boolean;
+  homeColumn: boolean;
 }) {
   const { focus, clearFocus, reportLive, reportEnded } = useDialerFocus();
+  const columnVisible = useWideScreen();
   return (
     <FloatingDialer
       open={open}
@@ -349,7 +351,7 @@ function DialerChrome({
       onCallStateChange={onCallStateChange}
       focusContact={focus}
       onFocusHandled={clearFocus}
-      placement={panelPlacement ? "panel" : "floating"}
+      placement={homeColumn && columnVisible ? "panel" : "floating"}
       onLiveReport={reportLive}
       onCallEnded={reportEnded}
     />

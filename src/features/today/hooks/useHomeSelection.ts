@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import {
-  HOME_WIDE_PX,
   holdOrder,
   homeRows,
   homeSelection,
@@ -15,21 +14,8 @@ import {
 import { HOME_KEYS, queueKeyAction } from "@shared/ui/queue.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
 import type { CallEndedPayload } from "@/features/calling/DialerFocusProvider";
-import type { CallEndedEvent } from "@/lib/today-queue";
-
-function useWideScreen() {
-  const subscribe = useCallback((onStore: () => void) => {
-    const mq = window.matchMedia(`(min-width: ${HOME_WIDE_PX}px)`);
-    mq.addEventListener("change", onStore);
-    return () => mq.removeEventListener("change", onStore);
-  }, []);
-  const getSnapshot = useCallback(
-    () => window.matchMedia(`(min-width: ${HOME_WIDE_PX}px)`).matches,
-    [],
-  );
-  const getServerSnapshot = useCallback(() => true, []);
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-}
+import type { CallResolvedEvent } from "@/lib/today-queue";
+import { useWideScreen } from "./useWideScreen";
 
 type OpenState = { needsOkOpen: boolean; groupOpen: boolean };
 
@@ -93,17 +79,22 @@ export function useHomeSelection(
   const moveNext = useCallback(() => dispatchSelection({ type: "next" }), []);
   const movePrev = useCallback(() => dispatchSelection({ type: "prev" }), []);
   const skip = useCallback(() => dispatchSelection({ type: "skip" }), []);
-  const startCall = useCallback(() => dispatchSelection({ type: "call" }), []);
   const finishReview = useCallback(() => dispatchSelection({ type: "reviewed" }), []);
+  const lockOnCall = useCallback((key: string) => dispatchSelection({ type: "call", key }), []);
 
   const onCallEnded = useCallback((payload: CallEndedPayload) => {
-    const event: CallEndedEvent = {
+    dispatchSelection({
+      type: "call_ended",
+      answered: payload.answered,
       callSid: payload.callSid,
       memoId: payload.memoId,
       screeningOutcome: payload.screeningOutcome,
       callStatus: payload.callStatus,
-    };
-    dispatchSelection({ type: "call_ended", ...event });
+    });
+  }, []);
+
+  const resolveCall = useCallback((event: CallResolvedEvent) => {
+    dispatchSelection({ type: "call_resolved", ...event });
   }, []);
 
   const primaryRef = useRef(onPrimary);
@@ -136,7 +127,7 @@ export function useHomeSelection(
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [column, selection.mode, row, moveNext, movePrev, skip, clear, startCall, finishReview]);
+  }, [column, selection.mode, row, moveNext, movePrev, skip, clear, finishReview]);
 
   return {
     view: stable,
@@ -148,8 +139,9 @@ export function useHomeSelection(
     locked,
     select,
     clear,
-    startCall,
+    lockOnCall,
     onCallEnded,
+    resolveCall,
     finishReview,
     selection: selection as HomeSelection,
   };

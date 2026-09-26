@@ -18,13 +18,16 @@ function openTarget(url: string) {
   else window.open(url, "_blank", "noopener");
 }
 
-/** The follow-up draft on the memo review, for the memo's author. */
+/**
+ * The follow-up draft on the memo review, for the memo's author. `onSendReady` receives a send
+ * that presses the card's own primary pill (its channel), or null when there is nothing to send.
+ */
 export function FollowupCard({
   memoId,
-  onPrimaryAction,
+  onSendReady,
 }: {
   memoId: string;
-  onPrimaryAction?: (run: () => void) => void;
+  onSendReady?: (send: (() => void) | null) => void;
 }) {
   const { language, t } = useLanguage();
   const queryClient = useQueryClient();
@@ -75,15 +78,17 @@ export function FollowupCard({
     [setElement],
   );
 
-  const triggerSend = useCallback(() => {
-    const element = elementRef.current;
-    if (!element || !data || data.status !== "ready") return;
-    void onAction({ action: "send", value: "email", element });
-  }, [data, onAction]);
+  const canSend = data?.status === "ready" && Boolean(data.to || data.phone);
 
   useEffect(() => {
-    onPrimaryAction?.(triggerSend);
-  }, [onPrimaryAction, triggerSend]);
+    if (!onSendReady) return;
+    onSendReady(
+      canSend
+        ? () => elementRef.current?.querySelector<HTMLButtonElement>('[data-action="send"].v-pill--primary')?.click()
+        : null,
+    );
+    return () => onSendReady(null);
+  }, [onSendReady, canSend]);
 
   if (!data || data.status === "unavailable") return null;
   return (

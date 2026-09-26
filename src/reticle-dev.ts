@@ -8,7 +8,7 @@ if (import.meta.env.DEV) {
 
   registerCapabilities({
     testids: [],
-    signals: ['dialer-phase', 'dialer-contact', 'dialer-call-sid'],
+    signals: [],
     stores: ['dialer'],
   });
 }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { initialHomeSelection, homeSelection, homeRows, selectedRow } from "../../shared/ui/home.js";
 import {
   homeQueueCallEnded,
+  homeQueueCallResolved,
   homeQueueReviewed,
   homeQueueStartCall,
   homeQueueLocked,
@@ -105,6 +106,28 @@ describe("home queue call lifecycle", () => {
     assert.equal(next.mode, "queue");
     assert.equal(next.index, 1);
     assert.equal(homeQueueInReview(next), false);
+  });
+
+  it("No conecta: a call that never connected stays on the same contact as failed", () => {
+    const next = homeQueueCallEnded(calling, { answered: false, callSid: "CA1" });
+    assert.equal(next.mode, "queue");
+    assert.equal(next.index, 0);
+    assert.equal(next.lastOutcome, "failed");
+  });
+
+  it("Procesado > 60 s: an answered call reviews without a memo and n still moves on", () => {
+    const review = homeQueueCallEnded(calling, { answered: true, callSid: "CA2" });
+    assert.equal(review.mode, "review");
+    assert.equal(review.memoId, undefined);
+    assert.equal(homeQueueReviewed(review).index, 1);
+  });
+
+  it("a processed voicemail leaves review, advances and names the row to note", () => {
+    const review = homeQueueCallEnded(calling, { answered: true, callSid: "CA3" });
+    const next = homeQueueCallResolved(review, { outcome: "no_answer", callSid: "CA3" });
+    assert.equal(next.mode, "queue");
+    assert.equal(next.index, 1);
+    assert.deepEqual(next.lastCall, { key: "hoy:a", outcome: "no_answer" });
   });
 
   it("leaves nothing selected when n is pressed on the last row in review", () => {

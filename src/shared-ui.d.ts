@@ -144,6 +144,7 @@ declare module "@shared/ui/home.js" {
     memoId?: string;
     callSid?: string | null;
     lastOutcome?: string;
+    lastCall?: { key: string; outcome: "no_answer" | "failed" };
   };
   export type HomeSelectionEvent =
     | { type: "rows"; rows: HomeRow[]; wide: boolean }
@@ -152,14 +153,16 @@ declare module "@shared/ui/home.js" {
     | { type: "prev" }
     | { type: "skip" }
     | { type: "exit" }
-    | { type: "call" }
+    | { type: "call"; key?: string }
     | {
         type: "call_ended";
+        answered?: boolean;
         memoId?: string | null;
         screeningOutcome?: string | null;
         callStatus?: "failed";
         callSid?: string | null;
       }
+    | { type: "call_resolved"; outcome: "no_answer" | "failed"; callSid?: string | null }
     | { type: "reviewed" };
   export type HomeOrder = Record<string, string[]>;
 

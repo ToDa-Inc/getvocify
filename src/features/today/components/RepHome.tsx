@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Microphone } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
-import { afterActionError, composeHome, homeRows, itemKey, type HomeRow, type HomeView } from "@shared/ui/home.js";
+import { afterActionError, composeHome, itemKey, type HomeRow, type HomeView } from "@shared/ui/home.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
@@ -18,6 +18,7 @@ import type { TodayItem } from "@/lib/today";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 import { useHomeReads } from "../hooks/useHomeReads";
 import { useHomeSelection } from "../hooks/useHomeSelection";
+import { useAfterCall } from "../hooks/useAfterCall";
 import { usePanelPrimary } from "../hooks/usePanelPrimary";
 import { forgetActed, useTodayCardActions } from "../hooks/useTodayCardActions";
 import { ContactPanel } from "./ContactPanel";
@@ -67,7 +68,6 @@ export function RepHome() {
   const column = useHomeColumn();
   const dialer = useOptionalDialerFocus();
   const panelRef = useRef<ReturnType<typeof usePanelPrimary> | null>(null);
-  const callingKeyRef = useRef<string | null>(null);
   const [rowNotes, setRowNotes] = useState<Record<string, string>>({});
   const {
     query,
@@ -133,14 +133,12 @@ export function RepHome() {
 
   const openMemo = useCallback((memoId: string) => navigate(`/dashboard/memos/${memoId}`), [navigate]);
 
-  const startCallRef = useRef<() => void>(() => {});
   const onPrimary = useCallback(
     (row: HomeRow) => {
       void panelRef.current?.runPrimary(
         {
           confirm: async (item) => settle(() => confirm(item)),
           openMemo,
-          startCall: () => startCallRef.current(),
         },
         row,
       );
@@ -150,6 +148,7 @@ export function RepHome() {
 
   const {
     view: home,
+    rows,
     row: selectedRow,
     selectedKey,
     wide,
@@ -157,55 +156,56 @@ export function RepHome() {
     locked,
     select,
     clear,
-    startCall,
+    lockOnCall,
     onCallEnded,
+    resolveCall,
     finishReview,
     selection,
   } = useHomeSelection(homeRaw, { needsOkOpen, groupOpen: confirmGroupOpen }, onPrimary);
-  startCallRef.current = () => {
-    callingKeyRef.current = selectedKey;
-    startCall();
-  };
+
+  const callPhase = dialer?.phase ?? "idle";
+  const onCall = callPhase === "dialing" || callPhase === "in_call";
+  const callContactId = dialer?.activeContact?.contactId ?? null;
+  useEffect(() => {
+    if (!onCall || !callContactId || locked) return;
+    const key =
+      selectedRow?.contactId === callContactId
+        ? selectedRow.key
+        : (rows.find((row) => row.kind === "call" && row.contactId === callContactId) ??
+            rows.find((row) => row.contactId === callContactId))?.key;
+    if (key) lockOnCall(key);
+  }, [onCall, callContactId, locked, rows, selectedRow, lockOnCall]);
+
+  const lastEnded = dialer?.lastEnded ?? null;
+  const clearEnded = dialer?.clearEnded;
+  useEffect(() => {
+    if (!lastEnded) return;
+    onCallEnded(lastEnded);
+    clearEnded?.();
+  }, [lastEnded, clearEnded, onCallEnded]);
+
+  // A dialer torn down mid-call goes idle without an end report; never leave the home locked.
+  useEffect(() => {
+    if (locked && callPhase === "idle") onCallEnded({ callSid: null, answered: false });
+  }, [locked, callPhase, onCallEnded]);
+
+  const lastCall = selection.lastCall;
+  useEffect(() => {
+    if (lastCall?.outcome !== "no_answer") return;
+    const stamp = new Intl.DateTimeFormat(copy.hourLocale, { hour: "numeric", minute: "2-digit" }).format(new Date());
+    setRowNotes((prev) => ({ ...prev, [lastCall.key]: copy.panel_no_answer.replace("{time}", stamp) }));
+  }, [lastCall, copy.hourLocale, copy.panel_no_answer]);
 
   const inReview = selection.mode === "review";
-  const reviewMemoId = inReview && "memoId" in selection ? (selection.memoId as string | undefined) ?? null : null;
-  const nextRow = useMemo(
-    () => (inReview ? homeQueueNextRow(selection, homeRows(homeRaw, { needsOkOpen, groupOpen: confirmGroupOpen })) : null),
-    [inReview, selection, homeRaw, needsOkOpen, confirmGroupOpen],
-  );
-
-  const selectedFollowup =
-    selectedRow?.kind === "followup"
-      ? selectedRow.entry
-      : reads.followups.data?.find((row) => row.contact_id === selectedRow?.contactId);
-  const followupReady = selectedFollowup?.status === "ready";
+  const callSummary = useAfterCall(selection.callSid ?? null, inReview, resolveCall);
+  const nextRow = useMemo(() => (inReview ? homeQueueNextRow(selection, rows) : null), [inReview, selection, rows]);
 
   const panel = usePanelPrimary(selectedRow, {
     provider: provider ?? null,
     portalId: portalId ?? null,
-    followupReady,
     inReview,
   });
 
-  useEffect(() => {
-    if (!dialer?.lastEnded) return;
-    onCallEnded(dialer.lastEnded);
-    if (dialer.lastEnded.screeningOutcome === "voicemail" || dialer.lastEnded.screeningOutcome === "no_response") {
-      const key = callingKeyRef.current;
-      if (key) {
-        const stamp = new Intl.DateTimeFormat(copy.hourLocale, {
-          hour: "numeric",
-          minute: "2-digit",
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        }).format(new Date());
-        setRowNotes((prev) => ({
-          ...prev,
-          [key]: copy.panel_no_answer.replace("{time}", stamp),
-        }));
-      }
-    }
-    dialer.clearEnded();
-  }, [copy.hourLocale, copy.panel_no_answer, dialer, onCallEnded, selectedKey]);
   panelRef.current = panel;
   const onDismiss = (item: TodayItem) => void settle(() => dismiss(item));
   const onConfirm = (item: TodayItem) => void settle(() => confirm(item));
@@ -243,8 +243,8 @@ export function RepHome() {
     onSelect: select,
   };
 
-  const inCallKey =
-    dialer && (dialer.phase === "dialing" || dialer.phase === "in_call") ? selectedKey : null;
+  const inCallKey = locked ? selectedKey : null;
+  const crmName = provider ? CRM_PROVIDER_CONFIGS[provider as CRMProvider]?.name ?? null : null;
 
   const homeCards: HomeCards = {
     selectedKey,
@@ -380,19 +380,21 @@ export function RepHome() {
         sheet={sheetOpen}
         onClose={clear}
         panel={panel}
-        inReview={inReview}
-        reviewMemoId={reviewMemoId}
-        callSid={dialer?.callSid ?? null}
-        crmName={provider ? CRM_PROVIDER_CONFIGS[provider as CRMProvider]?.name ?? null : null}
-        onFinishReview={finishReview}
-        nextRow={nextRow}
-        dialerPhase={dialer?.phase ?? "idle"}
+        call={{
+          onCall,
+          inReview,
+          failed: selection.mode === "queue" && selection.lastOutcome === "failed",
+          summary: callSummary,
+          memoId: callSummary?.memoId ?? selection.memoId ?? null,
+          crmName,
+          nextRow,
+          onNext: finishReview,
+        }}
         actions={{
           onConfirm,
           onDismiss,
           onSnooze,
           onOpenMemo: openMemo,
-          onStartCall: startCall,
           provider: provider ?? null,
           connectionId,
           followups: reads.followups.data,

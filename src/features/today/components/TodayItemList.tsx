@@ -67,7 +67,7 @@ function CardBody({
   const { t } = useLanguage();
   const name = item.contact_name || t.product.today_unknown_contact;
   const label = inCall
-    ? `● ${t.product.home_in_call}${inCallElapsed ? ` · ${inCallElapsed}` : ""}`
+    ? `● ${t.product.panel_in_call}${inCallElapsed ? ` · ${inCallElapsed}` : ""}`
     : note ?? productText(signalLabelKey(item.type), t.product);
   const extras = supportingKeys(item.supporting);
   return (
@@ -160,7 +160,7 @@ function HomeCallCard({
       tabIndex={settled ? undefined : 0}
       aria-current={selected || undefined}
       aria-hidden={leaving || undefined}
-      title={blocked ? t.product.home_in_call : undefined}
+      title={blocked ? t.product.panel_in_call : undefined}
       onClick={settled || blocked ? undefined : () => home.onSelect(item)}
       onFocus={
         settled
