@@ -1,11 +1,14 @@
 // The rep's home in one pure pass: six reads in, the sections to paint out.
-// A read that failed arrives as null and only its own section goes missing.
+// A read still loading arrives as undefined; one that failed arrives as null and only its own
+// section goes missing. No state is claimed until the reads that decide it have answered.
 // A local action result never beats a newer /today version: nothing is invented.
 
 export const HOME_CAP = 7;
 export const NEEDS_OK_VISIBLE = 3;
 export const REVIEW_LIMIT = 5;
 export const CONFIRM_GROUP_AT = 3;
+export const FOLLOWUP_POLL_MS = 5000;
+export const FOLLOWUP_POLL_FOR_MS = 120_000;
 
 const MEETING = "meeting_today";
 const CONFIRM = "confirm_pending";
@@ -17,8 +20,8 @@ const MANAGERS = new Set(["owner", "admin"]);
 export function composeHome(input) {
   const { today, now } = input;
   const canManage = MANAGERS.has(input.role);
-  if (!today && !input.todayError) {
-    return { state: "loading", canManage, incompleteAt: null, pulse: null, sections: [] };
+  if (today === undefined) {
+    return { state: "loading", canManage, incompleteAt: null, pulse: null, folded: null, sections: [] };
   }
 
   const items = today ? mergeActed(today.items || [], input.acted || [], now) : [];
@@ -37,10 +40,11 @@ export function composeHome(input) {
   budget -= confirmRows.cost;
   const shownCalls = calls.slice(0, budget);
   const tasksShown = (today?.items || []).some((item) => item.type === TASK);
-  const folded = (meetings.length - shownMeetings.length)
+  const foldedCount = (meetings.length - shownMeetings.length)
     + confirmRows.folded
     + (calls.length - shownCalls.length)
     + (tasksShown ? 0 : today?.folded_count || 0);
+  const lastHoy = shownCalls.length ? "calls" : confirmRows.rows.length ? "needs_ok" : shownMeetings.length ? "meetings" : null;
 
   const needsOk = [...confirmRows.rows, ...followupRows(input.followups), ...reviewRows(input.reviews)];
   const upcoming = (input.upcoming || []).map((row) => ({
@@ -62,18 +66,21 @@ export function composeHome(input) {
       more: Math.max(0, needsOk.length - NEEDS_OK_VISIBLE),
     });
   }
-  if (shownCalls.length) sections.push({ id: "calls", items: shownCalls, folded });
+  if (shownCalls.length) sections.push({ id: "calls", items: shownCalls });
   if (upcoming.length) sections.push({ id: "upcoming", rows: upcoming });
   if (done.length) sections.push({ id: "done", rows: done, count: done.length });
 
-  const incomplete = Boolean(today) && (input.todayStale || !sourcesComplete(today.coverage));
+  const deciding = [input.priorities, input.followups, input.reviews];
+  const settled = deciding.every((read) => read !== undefined) && input.connected !== undefined;
+  const sideFailed = deciding.some((read) => read === null);
+  const incomplete = Boolean(today) && (input.todayStale || sideFailed || !sourcesComplete(today.coverage));
   const pending = shownMeetings.length + needsOk.length + shownCalls.length > 0;
   const todayCards = meetings.length + confirms.length + todayCalls.length > 0;
 
   let state = "day";
-  if (!today) state = "error";
-  else if (!input.connected && !todayCards) state = "connect";
-  else if (!pending && !incomplete) {
+  if (today === null) state = "error";
+  else if (input.connected === false && !todayCards) state = "connect";
+  else if (!pending && !incomplete && settled) {
     state = input.priorities?.title === "title_no_assigned" ? "no_assigned" : "clear";
   }
 
@@ -82,8 +89,16 @@ export function composeHome(input) {
     canManage,
     incompleteAt: incomplete ? clock(today.generated_at, input) : null,
     pulse: pulse(done, input),
+    folded: foldedCount > 0 ? { count: foldedCount, after: lastHoy } : null,
     sections,
   };
+}
+
+/** Poll drafts being written every few seconds, but give up after a while so a stuck one does not poll forever. */
+export function followupPoll(rows, since, now) {
+  if (!(rows || []).some((row) => row.status === "generating")) return { interval: false, since: null };
+  const start = since ?? now;
+  return { interval: now - start < FOLLOWUP_POLL_FOR_MS ? FOLLOWUP_POLL_MS : false, since: start };
 }
 
 /** A 409 on resolve or undo carries the real row: forget the local result and read /today again. */
@@ -176,12 +191,13 @@ function reviewRows(memos) {
 
 function doneRows(rows, fmt) {
   const known = (rows || []).filter((row) => DONE_KINDS.has(row.kind));
-  const called = new Set(known.filter((row) => row.kind === "call").map((row) => nameKey(row.contact_name)).filter(Boolean));
+  const calls = known.filter((row) => row.kind === "call");
   return known
-    .filter((row) => !(row.kind === "signal" && called.has(nameKey(row.contact_name))))
+    .filter((row) => !(row.kind === "signal" && calls.some((call) => sameContact(row, call))))
     .map((row) => ({
       kind: row.kind,
       name: row.contact_name ?? null,
+      contactId: row.contact_id ?? null,
       at: row.at,
       memoId: row.memo_id ?? null,
       time: clock(row.at, fmt),
@@ -213,6 +229,12 @@ function meetingEntry(item, fmt) {
 function sourcesComplete(coverage) {
   const values = Object.values(coverage || {});
   return values.length > 0 && values.every((value) => value === "complete");
+}
+
+function sameContact(a, b) {
+  if (a.contact_id && b.contact_id) return a.contact_id === b.contact_id;
+  const name = nameKey(a.contact_name);
+  return Boolean(name) && name === nameKey(b.contact_name);
 }
 
 function nameKey(name) {

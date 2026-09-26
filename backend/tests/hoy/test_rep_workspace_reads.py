@@ -611,7 +611,7 @@ def test_done_resets_at_local_midnight():
     ]
     rows = _client(store).get("/api/v1/today/done").json()
     assert rows == [
-        {"kind": "signal", "contact_name": "Contacto 2", "at": "2026-09-25T22:01:00+00:00", "memo_id": _uuid(2)},
+        {"kind": "signal", "contact_name": "Contacto 2", "contact_id": "contact-2", "at": "2026-09-25T22:01:00+00:00", "memo_id": _uuid(2)},
     ]
 
 
@@ -639,7 +639,7 @@ def test_done_lists_follow_ups_sent_today():
     ]
     rows = _client(store).get("/api/v1/today/done").json()
     assert rows == [
-        {"kind": "followup", "contact_name": "Contacto 1", "at": "2026-09-26T08:15:00.123456+00:00", "memo_id": _uuid(1)},
+        {"kind": "followup", "contact_name": "Contacto 1", "contact_id": "contact-1", "at": "2026-09-26T08:15:00.123456+00:00", "memo_id": _uuid(1)},
     ]
 
 
@@ -656,8 +656,28 @@ def test_done_counts_only_connected_calls():
     ]
     rows = _client(store).get("/api/v1/today/done").json()
     assert rows == [
-        {"kind": "call", "contact_name": "Contacto 1", "at": "2026-09-26T09:00:10+00:00", "memo_id": _uuid(1)},
+        {"kind": "call", "contact_name": "Contacto 1", "contact_id": "contact-1", "at": "2026-09-26T09:00:10+00:00", "memo_id": _uuid(1)},
     ]
+
+
+def test_done_rows_carry_the_contact_id_or_null():
+    store = _Store()
+    store.tables["memos"] = [
+        _memo(1, followup={**_ready(), "status": "sent", "sent_at": "2026-09-26T08:15:00+00:00"}),
+        _memo(2, hubspot_contact_id=None, followup={**_ready(), "status": "sent", "sent_at": "2026-09-26T08:20:00+00:00"}),
+    ]
+    store.tables["action_signals"] = [_signal(3), _signal(4, contact_id="")]
+    store.tables["outbound_calls"] = [_call(5), _call(6, hubspot_contact_id=None, memo_id=None)]
+    rows = _client(store).get("/api/v1/today/done").json()
+    assert {(row["kind"], row["contact_id"]) for row in rows} == {
+        ("followup", "contact-1"),
+        ("followup", None),
+        ("signal", "contact-3"),
+        ("signal", None),
+        ("call", "contact-5"),
+        ("call", None),
+    }
+    assert len(rows) == 6
 
 
 def test_done_ignores_other_reps():
@@ -682,7 +702,7 @@ def test_done_caps_at_fifty_newest_first():
     store.tables["outbound_calls"] = [_call(1, created_at="2026-09-26T09:30:00+00:00", answered_at=None)]
     rows = _client(store).get("/api/v1/today/done").json()
     assert len(rows) == 50
-    assert rows[0] == {"kind": "call", "contact_name": "Contacto 1", "at": "2026-09-26T09:30:00+00:00", "memo_id": _uuid(1)}
+    assert rows[0] == {"kind": "call", "contact_name": "Contacto 1", "contact_id": "contact-1", "at": "2026-09-26T09:30:00+00:00", "memo_id": _uuid(1)}
     stamps = [datetime.fromisoformat(row["at"]) for row in rows]
     assert stamps == sorted(stamps, reverse=True)
     assert rows[-1]["at"] == (base + timedelta(minutes=11)).isoformat()

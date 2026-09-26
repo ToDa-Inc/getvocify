@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { afterActionError, composeHome, HOME_CAP, NEEDS_OK_VISIBLE, REVIEW_LIMIT } from "./home.js";
+import {
+  afterActionError,
+  composeHome,
+  FOLLOWUP_POLL_FOR_MS,
+  FOLLOWUP_POLL_MS,
+  followupPoll,
+  HOME_CAP,
+  NEEDS_OK_VISIBLE,
+  REVIEW_LIMIT,
+} from "./home.js";
 
 const NOW = Date.parse("2026-09-29T08:30:00+02:00");
 const TZ = "Europe/Madrid";
@@ -90,7 +99,6 @@ const review = (n, extra = {}) => ({
 function input(overrides = {}) {
   return {
     today: view([]),
-    todayError: false,
     todayStale: false,
     acted: [],
     priorities: priorities([]),
@@ -139,7 +147,7 @@ describe("composeHome sections", () => {
     assert.equal(section(home, "meetings").items.length, 2);
     assert.deepEqual(section(home, "needs_ok").rows.map((row) => row.kind), ["confirm", "confirm"]);
     assert.equal(section(home, "calls").items.length, 3);
-    assert.equal(section(home, "calls").folded, 3);
+    assert.deepEqual(home.folded, { count: 3, after: "calls" });
   });
 
   it("groups three or more confirmations into one row that counts once", () => {
@@ -153,7 +161,7 @@ describe("composeHome sections", () => {
     assert.equal(rows[0].count, 4);
     assert.equal(rows[0].items.length, 4);
     assert.equal(section(home, "calls").items.length, 6);
-    assert.equal(section(home, "calls").folded, 2);
+    assert.deepEqual(home.folded, { count: 2, after: "calls" });
   });
 
   it("dedupes by contact so /today wins over /contact-priorities", () => {
@@ -193,14 +201,35 @@ describe("composeHome sections", () => {
     const seven = [1, 2, 3, 4, 5, 6, 7].map((n) => card(n));
     const home = composeHome(input({ today: view(seven, { folded_count: 33 }) }));
     assert.equal(section(home, "calls").items.length, 7);
-    assert.equal(section(home, "calls").folded, 33);
+    assert.deepEqual(home.folded, { count: 33, after: "calls" });
+  });
+
+  it("keeps the folded line when seven meetings use the whole budget", () => {
+    const meetings = [1, 2, 3, 4, 5, 6, 7].map((n) => meeting(n));
+    const home = composeHome(input({ today: view([...meetings, card(11), card(12), card(13)]) }));
+    assert.deepEqual(ids(home), ["meetings"]);
+    assert.deepEqual(home.folded, { count: 3, after: "meetings" });
+  });
+
+  it("adds /today's folded count when seven meetings fill Hoy", () => {
+    const meetings = [1, 2, 3, 4, 5, 6, 7].map((n) => meeting(n));
+    const home = composeHome(input({ today: view(meetings, { folded_count: 12 }) }));
+    assert.deepEqual(ids(home), ["meetings"]);
+    assert.deepEqual(home.folded, { count: 12, after: "meetings" });
+  });
+
+  it("puts the folded line under the confirmations when they are the last Hoy cards", () => {
+    const meetings = [1, 2, 3, 4, 5, 6].map((n) => meeting(n));
+    const home = composeHome(input({ today: view([...meetings, confirmation(7), confirmation(8)]) }));
+    assert.equal(section(home, "needs_ok").rows.length, 1);
+    assert.deepEqual(home.folded, { count: 1, after: "needs_ok" });
   });
 
   it("does not fold CRM tasks the home never paints", () => {
     const tasks = [1, 2, 3, 4].map((n) => ({ ...card(n + 50), type: "manual_task", id: null, dedupe_key: null }));
     const home = composeHome(input({ today: view([card(1), card(2), card(3), ...tasks], { folded_count: 6 }) }));
     assert.deepEqual(callContacts(home), ["c1", "c2", "c3"]);
-    assert.equal(section(home, "calls").folded, 0);
+    assert.equal(home.folded, null);
   });
 });
 
@@ -222,7 +251,7 @@ describe("composeHome needs your OK", () => {
     const seven = [1, 2, 3, 4, 5, 6, 7].map((n) => card(n));
     const home = composeHome(input({ today: view(seven), followups: [followup(1)], reviews: [review(1)] }));
     assert.equal(section(home, "calls").items.length, 7);
-    assert.equal(section(home, "calls").folded, 0);
+    assert.equal(home.folded, null);
   });
 
   it("opens a ready draft, gives a draft being written no action and a failed one only Open", () => {
@@ -286,6 +315,41 @@ describe("composeHome coming up and done today", () => {
     ]);
     assert.equal(done.count, 4);
   });
+
+  it("matches a call and a resolved card by contact id when both have one, by name otherwise", () => {
+    const home = composeHome(input({
+      done: [
+        { kind: "call", contact_name: "Marina Ortiz", contact_id: "c1", at: "2026-09-29T09:00:00+02:00", memo_id: "d1" },
+        { kind: "signal", contact_name: "M. Ortiz", contact_id: "c1", at: "2026-09-29T08:50:00+02:00", memo_id: "d2" },
+        { kind: "call", contact_name: "Ana Gil", contact_id: "c2", at: "2026-09-29T08:40:00+02:00", memo_id: "d3" },
+        { kind: "signal", contact_name: "Ana Gil", contact_id: "c9", at: "2026-09-29T08:30:00+02:00", memo_id: "d4" },
+        { kind: "call", contact_name: "Luis Mora", contact_id: null, at: "2026-09-29T08:20:00+02:00", memo_id: "d5" },
+        { kind: "signal", contact_name: "luis mora", contact_id: "c5", at: "2026-09-29T08:10:00+02:00", memo_id: "d6" },
+      ],
+    }));
+    assert.deepEqual(section(home, "done").rows.map((row) => [row.kind, row.name]), [
+      ["call", "Marina Ortiz"],
+      ["call", "Ana Gil"],
+      ["signal", "Ana Gil"],
+      ["call", "Luis Mora"],
+    ]);
+  });
+});
+
+describe("followupPoll", () => {
+  it("polls every five seconds while a draft is being written, for two minutes at most", () => {
+    const writing = [followup(1, "generating"), followup(2)];
+    assert.equal(FOLLOWUP_POLL_MS, 5000);
+    assert.equal(FOLLOWUP_POLL_FOR_MS, 120_000);
+    assert.deepEqual(followupPoll(writing, null, NOW), { interval: 5000, since: NOW });
+    assert.deepEqual(followupPoll(writing, NOW - 60_000, NOW), { interval: 5000, since: NOW - 60_000 });
+    assert.deepEqual(followupPoll(writing, NOW - 120_000, NOW), { interval: false, since: NOW - 120_000 });
+  });
+
+  it("stops and forgets the clock when nothing is being written", () => {
+    assert.deepEqual(followupPoll([followup(1), followup(2, "unavailable")], NOW - 30_000, NOW), { interval: false, since: null });
+    assert.deepEqual(followupPoll(undefined, null, NOW), { interval: false, since: null });
+  });
 });
 
 describe("composeHome pulse", () => {
@@ -322,7 +386,7 @@ describe("composeHome pulse", () => {
 
 describe("composeHome states", () => {
   it("shows only the loading state while /today has not answered", () => {
-    const home = composeHome(input({ today: null, followups: [followup(1)], done: [doneCall] }));
+    const home = composeHome(input({ today: undefined, followups: [followup(1)], done: [doneCall] }));
     assert.equal(home.state, "loading");
     assert.deepEqual(home.sections, []);
   });
@@ -330,13 +394,41 @@ describe("composeHome states", () => {
   it("keeps the other sections when /today fails", () => {
     const home = composeHome(input({
       today: null,
-      todayError: true,
       followups: [followup(1)],
       upcoming: [{ memo_id: "u1", contact_id: "c1", contact_name: "A", company_name: null, text: "Enviar", due_at: "2026-09-30T10:00:00+02:00", precision: "time", crm_task_id: null }],
       done: [doneCall],
     }));
     assert.equal(home.state, "error");
     assert.deepEqual(ids(home), ["needs_ok", "upcoming", "done"]);
+  });
+
+  it("keeps the priority cards under who to call when /today fails", () => {
+    const home = composeHome(input({ today: null, priorities: priorities([priority(1, "pain_agree_next_step"), priority(2)]) }));
+    assert.equal(home.state, "error");
+    assert.deepEqual(ids(home), ["calls"]);
+    assert.deepEqual(section(home, "calls").items.map((entry) => [entry.source, entry.item.contact_id]), [
+      ["priority", "c1"],
+      ["priority", "c2"],
+    ]);
+  });
+
+  it("does not say nothing is urgent or ask for the CRM until the reads that decide it have answered", () => {
+    for (const pending of [{ priorities: undefined }, { followups: undefined }, { reviews: undefined }]) {
+      const home = composeHome(input(pending));
+      assert.equal(home.state, "day", JSON.stringify(Object.keys(pending)));
+    }
+    const integrations = composeHome(input({ connected: undefined, crm: null }));
+    assert.equal(integrations.state, "day");
+    assert.equal(composeHome(input({ connected: false, crm: null })).state, "connect");
+    assert.equal(composeHome(input()).state, "clear");
+  });
+
+  it("does not say nothing is urgent when a read that decides it failed, and marks the day incomplete", () => {
+    for (const failed of [{ priorities: null }, { followups: null }, { reviews: null }]) {
+      const home = composeHome(input(failed));
+      assert.equal(home.state, "day", JSON.stringify(Object.keys(failed)));
+      assert.equal(home.incompleteAt, "08:29");
+    }
   });
 
   it("shows only /today cards when /contact-priorities fails, without an error", () => {
@@ -473,8 +565,14 @@ describe("composeHome actions", () => {
     assert.deepEqual(afterActionError({ status: 409, data: {} }), { forget: null, refetch: true });
     assert.equal(afterActionError({ status: 500, data: {} }), null);
     assert.equal(afterActionError(new Error("offline")), null);
+  });
 
-    const refetched = composeHome(input({ today: view([card(1, { status: "pending", version: 5 })]), acted: [] }));
-    assert.equal(section(refetched, "calls").items[0].item.version, 5);
+  it("leaves no local ghost after a 409 on a card another tab already settled", () => {
+    const acted = [dismissed()];
+    const today = view([card(2)]);
+    assert.deepEqual(callContacts(composeHome(input({ today, acted }))), ["c2", "c1"]);
+    const outcome = afterActionError({ status: 409, data: { detail: { id: "sig-1", status: "resolved", version: 3 } } });
+    const forgotten = acted.filter((item) => item.id !== outcome.forget);
+    assert.deepEqual(callContacts(composeHome(input({ today, acted: forgotten }))), ["c2"]);
   });
 });

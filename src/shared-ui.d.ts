@@ -30,6 +30,8 @@ declare module "@shared/ui/home.js" {
   export const HOME_CAP: number;
   export const NEEDS_OK_VISIBLE: number;
   export const REVIEW_LIMIT: number;
+  export const FOLLOWUP_POLL_MS: number;
+  export const FOLLOWUP_POLL_FOR_MS: number;
 
   export type HomeNeedsOkRow =
     | { kind: "confirm"; item: TodayItem; action: "confirm" }
@@ -40,9 +42,9 @@ declare module "@shared/ui/home.js" {
   export type HomeSection =
     | { id: "meetings"; items: { item: TodayItem; time: string | null; past: boolean }[] }
     | { id: "needs_ok"; rows: HomeNeedsOkRow[]; shown: HomeNeedsOkRow[]; more: number }
-    | { id: "calls"; items: { source: "today" | "priority"; item: TodayItem }[]; folded: number }
+    | { id: "calls"; items: { source: "today" | "priority"; item: TodayItem }[] }
     | { id: "upcoming"; rows: (UpcomingRow & { inCrm: boolean; when: string | null })[] }
-    | { id: "done"; rows: { kind: string; name: string | null; at: string; memoId: string | null; time: string | null }[]; count: number };
+    | { id: "done"; rows: { kind: string; name: string | null; contactId: string | null; at: string; memoId: string | null; time: string | null }[]; count: number };
 
   export type HomeState = "loading" | "error" | "connect" | "no_assigned" | "clear" | "day";
 
@@ -51,12 +53,13 @@ declare module "@shared/ui/home.js" {
     canManage: boolean;
     incompleteAt: string | null;
     pulse: { calls: number; savedTo: string | null } | null;
+    folded: { count: number; after: "meetings" | "needs_ok" | "calls" | null } | null;
     sections: HomeSection[];
   };
 
+  /** `undefined` = still loading, `null` = the read failed. */
   export function composeHome(input: {
     today: TodayView | null | undefined;
-    todayError: boolean;
     todayStale: boolean;
     acted: TodayItem[];
     priorities: PriorityView | null | undefined;
@@ -64,13 +67,19 @@ declare module "@shared/ui/home.js" {
     reviews: { id: string; extraction?: { contactName?: string | null } | null }[] | null | undefined;
     upcoming: UpcomingRow[] | null | undefined;
     done: DoneRow[] | null | undefined;
-    connected: boolean;
+    connected: boolean | undefined;
     role: string | null | undefined;
     crm: string | null;
     now: number;
     locale: string;
     timeZone?: string;
   }): HomeView;
+
+  export function followupPoll(
+    rows: FollowupRow[] | null | undefined,
+    since: number | null,
+    now: number,
+  ): { interval: number | false; since: number | null };
 
   export function afterActionError(error: unknown): { forget: string | null; refetch: true } | null;
 }

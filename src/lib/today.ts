@@ -48,6 +48,7 @@ export type UpcomingRow = {
 export type DoneRow = {
   kind: string;
   contact_name: string | null;
+  contact_id: string | null;
   at: string;
   memo_id: string | null;
 };
