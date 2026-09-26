@@ -9,19 +9,22 @@ from supabase import Client
 
 from app.api.memos import _require_readable_memo
 from app.deps import get_membership, get_supabase, get_user_id, require_rep_workspace
-from app.models.followup import FollowupActionRequest
+from app.models.followup import FollowupActionRequest, WritingSamplesRequest
 from app.services.company import Membership
 from app.services.followup import schedule_followup
 from app.services.followup_logic import (
     LIST_LIMIT,
     LIST_WINDOW,
     apply_action,
+    clean_pasted,
     followup_view,
     is_eligible,
     listable_statuses,
     next_voice_samples,
+    pasted_samples,
     pending_row,
     should_generate,
+    with_pasted,
 )
 
 router = APIRouter(prefix="/api/v1/memos", tags=["followup"])
@@ -70,7 +73,7 @@ async def get_followup(
     scheduled = (
         is_eligible(memo)
         and should_generate(memo.get("followup"), datetime.now(timezone.utc))
-        and schedule_followup(supabase, str(memo_id))
+        and schedule_followup(supabase, str(memo_id), company_id=memo.get("company_id"))
     )
     return followup_view(memo, scheduled=scheduled)
 
@@ -99,10 +102,39 @@ async def record_followup_action(
     )
     supabase.table("memos").update({"followup": updated}).eq("id", str(memo_id)).execute()
 
-    rows = supabase.table("user_profiles").select("writing_samples").eq("id", user_id).limit(1).execute().data
-    samples = list(((rows or [{}])[0]).get("writing_samples") or [])
+    samples = _writing_samples(supabase, user_id)
     learned = next_voice_samples(samples, payload.body, updated["edit_ratio"])
     if learned != samples:
         supabase.table("user_profiles").update({"writing_samples": learned}).eq("id", user_id).execute()
 
     return followup_view({**memo, "followup": updated})
+
+
+def _writing_samples(supabase: Client, user_id: str) -> list:
+    rows = supabase.table("user_profiles").select("writing_samples").eq("id", user_id).limit(1).execute().data
+    return list(((rows or [{}])[0]).get("writing_samples") or [])
+
+
+@listing.get("/writing-samples")
+async def get_writing_samples(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    """The emails the rep pasted so the first draft already sounds like them."""
+    return {"samples": pasted_samples(_writing_samples(supabase, user_id))}
+
+
+@listing.put("/writing-samples")
+async def put_writing_samples(
+    payload: WritingSamplesRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    """Replaces the pasted samples; samples learned from edits are kept."""
+    try:
+        pasted = clean_pasted(payload.samples)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+    stored = _writing_samples(supabase, user_id)
+    supabase.table("user_profiles").update({"writing_samples": with_pasted(stored, pasted)}).eq("id", user_id).execute()
+    return {"samples": pasted}

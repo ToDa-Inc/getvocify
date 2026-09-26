@@ -2053,7 +2053,7 @@ async def re_extract_memo(
         run=run_record(run_id, "re_extract", started_at, t0, "ok"),
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
-    schedule_followup(supabase, str(memo_id))
+    schedule_followup(supabase, str(memo_id), company_id=memo_data.get("company_id"))
     from app.services.memo_extraction_hooks import run_post_extraction_hooks
 
     run_post_extraction_hooks(

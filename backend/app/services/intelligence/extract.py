@@ -232,7 +232,7 @@ def schedule_intelligence(supabase: Any, memo_id: str, company_id: str | None = 
         except Exception:
             logging.getLogger(__name__).exception("intelligence extraction failed", extra={"memo_id": str(memo_id)})
 
-    task = loop.create_task(run())
+    task = loop.create_task(run(), name=f"intelligence:{memo_id}")  # followup._c04_task waits on it
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return True

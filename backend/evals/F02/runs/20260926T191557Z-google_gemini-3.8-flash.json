@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-09-26T19:15:57+00:00",
+  "prompt": "followup_v2",
+  "model": "google/gemini-3.8-flash",
+  "cases_sha256": "d8869751ca7cb1088a4753d75dbf6e424d2ef6401df6f245ac939287d53254d6",
+  "summary": {
+    "prompt": "followup_v2",
+    "model": "google/gemini-3.8-flash",
+    "cases": 13,
+    "failed": 0,
+    "model_errors": 0,
+    "passed_after_retry": 0
+  },
+  "results": [
+    {
+      "id": "f02_meeting_with_time_from_c04",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_meeting_with_only_a_day",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_commitment_day_wins_over_next_steps",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_vague_step_stays_vague",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_price_asked_but_not_given",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_no_contact_name_is_not_invented",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_usted_from_voice_samples",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_tu_from_voice_samples",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_three_next_steps",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_pain_quote_is_context_not_a_quote",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_prospect_request_is_answered_as_asked",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_en_meeting_with_time_from_c04",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    },
+    {
+      "id": "f02_en_vague_step_stays_vague",
+      "pass": true,
+      "failures": [],
+      "errors": []
+    }
+  ]
+}
