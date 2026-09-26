@@ -236,6 +236,8 @@ def prepare_brief_v2(
     crm_task: dict | None = None,
     playbook_steps: list[dict] | None = None,
     playbook_entries: list[dict] | None = None,
+    cold_profile: dict | None = None,
+    hoy_priority: dict | None = None,
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     failed = coverage in {"partial", "unavailable"}
@@ -245,7 +247,15 @@ def prepare_brief_v2(
 
     latest = max(memos, key=lambda row: str(row.get("created_at") or "")) if memos else None
     if latest is None:
-        return {**prepare_brief(coverage=coverage, crm_task=crm_task), "label": None}
+        from app.services.briefs.cold_call import prepare_cold_brief_v2
+
+        return prepare_cold_brief_v2(
+            coverage=coverage,
+            profile=cold_profile,
+            tz_name=tz_name,
+            crm_task=crm_task,
+            hoy_priority=hoy_priority,
+        )
 
     if not is_current(latest):
         return prepare_brief(**legacy_facts(memos, coverage=coverage), crm_task=crm_task)

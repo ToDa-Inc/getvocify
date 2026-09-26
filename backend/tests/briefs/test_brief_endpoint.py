@@ -19,7 +19,9 @@ from fastapi.testclient import TestClient
 
 from app.api import briefs as briefs_api
 from app.deps import get_membership, get_supabase
-from app.services import feature_flags
+from app.services import crm_providers, feature_flags
+from app.services.briefs.v2 import prepare_brief_v2
+from app.services.crm_copilot.tools import HubSpotBundle
 from app.services.company import Membership
 from app.services.intelligence.extract import PROMPT_VERSION
 from app.services.intelligence.worker import revision_for_memo
@@ -75,6 +77,7 @@ class _Query:
 
     def execute(self):
         self.db.reads.append(self.name)
+        self.db.queries.append((self.name, dict(self.eqs), self.n))
         if self.name in self.db.failing:
             raise RuntimeError(f"{self.name} down")
         rows = [row for row in self.db.tables.get(self.name, []) if all(row.get(c) == v for c, v in self.eqs)]
@@ -87,6 +90,7 @@ class _Db:
         self.tables = tables
         self.failing = set(failing)
         self.reads: list[str] = []
+        self.queries: list[tuple[str, dict, int | None]] = []
 
     def table(self, name):
         return _Query(self, name)
@@ -98,9 +102,14 @@ def _isolate(monkeypatch):
     monkeypatch.setattr(briefs_api, "rep_timezone", lambda _user_id: "Europe/Madrid")
     monkeypatch.setattr(briefs_api, "_now", lambda: NOW)
     briefs_api.set_brief_tasks(None)
+    monkeypatch.setattr(crm_providers, "build_crm_provider", _no_live_crm)
     yield
     briefs_api.set_brief_tasks(None)
     feature_flags.clear_cache()
+
+
+def _no_live_crm(*_args, **_kwargs):
+    raise AssertionError("tests never build a live CRM provider")
 
 
 def _get(db, **params):
@@ -348,3 +357,236 @@ def test_no_crm_connection_is_not_a_failed_read():
     body = _get(db)
     assert "crm_connections" in db.reads
     assert body["status"] == "ready"
+
+
+# --- E4 cold call: no memos. The CRM SDK layer is faked; the profile read, source map and Hoy reason run for real ---
+
+HUBSPOT_CONN = {"id": "hubspot", "company_id": "co-1", "status": "connected", "provider": "hubspot"}
+PIPEDRIVE_CONN = {"id": "pd-1", "company_id": "co-1", "status": "connected", "provider": "pipedrive"}
+HUBSPOT_PROPS = {
+    "jobtitle": "Directora comercial",
+    "company": "Acme",
+    "createdate": "2026-09-03T06:00:00Z",
+    "hs_analytics_source": "ORGANIC_SEARCH",
+    "hs_lead_source": "WEBFORM",
+}
+UNCALLED_WHY = {
+    "type": "why",
+    "text": None,
+    "reason": "no_calls_logged",
+    "since": "3 sep",
+    "source_ref": "hubspot:42:",
+    "observed_at": "2026-09-26T08:00:00Z",
+}
+
+
+def _priority_row(contact_id="42", *, owner="user-a", pain=False):
+    payload = {"contacted": False, "last_call_at": None}
+    if pain:
+        payload = {"contacted": True, "pain_confirmed": True, "pain_at": "2026-09-25T08:00:00Z"}
+    return {
+        "company_id": "co-1",
+        "connection_id": "hubspot",
+        "contact_id": contact_id,
+        "deal_id": "",
+        "owner_user_id": owner,
+        "owner_ambiguous": False,
+        "coverage": "complete",
+        "history_complete": True,
+        "observed_at": "2026-09-26T08:00:00Z",
+        "payload": payload,
+    }
+
+
+def _cold(*, connections=(HUBSPOT_CONN,), priority=(), failing=()):
+    return _Db(
+        {**_tables([]), "crm_connections": list(connections), "contact_priority_context": list(priority)},
+        failing=failing,
+    )
+
+
+class _HubSpotContacts:
+    def __init__(self, props, error=None):
+        self.props, self.error, self.calls = props, error, []
+
+    async def get(self, contact_id, properties=None):
+        self.calls.append((contact_id, list(properties or [])))
+        if self.error is not None:
+            raise self.error
+        return {"id": contact_id, "properties": self.props}
+
+
+def _fake_hubspot(monkeypatch, props=HUBSPOT_PROPS, error=None):
+    contacts = _HubSpotContacts(props, error)
+    built = []
+
+    def build(supabase, connection):
+        built.append((supabase, connection.get("id")))
+        return SimpleNamespace(_connection=connection)
+
+    monkeypatch.setattr(crm_providers, "build_crm_provider", build)
+    monkeypatch.setattr(HubSpotBundle, "from_provider", staticmethod(lambda _provider: SimpleNamespace(contacts=contacts)))
+    return contacts, built
+
+
+class _PipedriveSearch:
+    def __init__(self, person, org):
+        self.person, self.org = person, org
+
+    async def get_person(self, _person_id):
+        return self.person
+
+    async def get_organization(self, _org_id):
+        return self.org
+
+    async def deals_for_person(self, _person_id, limit=8):
+        return []
+
+
+def _fake_pipedrive(monkeypatch, person, org):
+    search = _PipedriveSearch(person, org)
+    monkeypatch.setattr(
+        crm_providers,
+        "build_crm_provider",
+        lambda _supabase, connection: SimpleNamespace(_connection=connection, _search=lambda: search),
+    )
+
+
+def test_cold_hubspot_contact_reads_the_sdk_and_carries_the_hoy_reason(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    contacts, _built = _fake_hubspot(monkeypatch)
+    db = _cold(priority=[_priority_row()])
+    body = _get(db)
+    assert body["status"] == "ready"
+    assert body["lines"] == [
+        {
+            "type": "who",
+            "text": "Directora comercial en Acme · búsqueda orgánica, 3 sep",
+            "source_ref": "42",
+            "observed_at": "2026-09-03T06:00:00Z",
+        },
+        UNCALLED_WHY,
+    ]
+    assert contacts.calls == [("42", ["jobtitle", "company", "createdate", "hs_analytics_source"])]
+    assert "playbooks" not in db.reads
+
+
+def test_cold_hubspot_unknown_source_is_omitted(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props={**HUBSPOT_PROPS, "jobtitle": "AE", "hs_analytics_source": "AI_REFERRALS"})
+    body = _get(_cold())
+    assert body["lines"][0]["text"] == "AE en Acme · 3 sep"
+
+
+def test_cold_hubspot_lead_source_is_not_an_origin(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props={**HUBSPOT_PROPS, "hs_analytics_source": None})
+    body = _get(_cold())
+    assert body["lines"][0]["text"] == "Directora comercial en Acme · 3 sep"
+
+
+def test_cold_hubspot_profile_uses_the_endpoint_supabase_for_token_refresh(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _contacts, built = _fake_hubspot(monkeypatch)
+    db = _cold()
+    _get(db)
+    assert built == [(db, "hubspot")]
+
+
+def test_cold_pipedrive_contact_has_role_company_and_date_but_no_origin(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_pipedrive(
+        monkeypatch,
+        person={"id": 42, "name": "Ana Ruiz", "job_title": "CEO", "org_id": {"value": 7}, "label": 5, "add_time": "2026-09-03 06:00:00"},
+        org={"id": 7, "name": "Acme"},
+    )
+    body = _get(_cold(connections=[PIPEDRIVE_CONN]), connection_id="pd-1")
+    assert body["status"] == "ready"
+    assert body["lines"][0]["text"] == "CEO en Acme · 3 sep"
+
+
+def test_cold_salesforce_connection_has_no_who_line_and_does_not_break():
+    briefs_api.set_brief_tasks(_tasks([]))
+    salesforce = {"id": "sf-1", "company_id": "co-1", "status": "connected", "provider": "salesforce"}
+    body = _get(_cold(connections=[salesforce]), connection_id="sf-1")
+    assert body["status"] == "no_conversation"
+    assert body["text"] == "Sin conversación todavía."
+
+
+def test_cold_without_crm_connection_is_no_conversation_not_partial():
+    briefs_api.set_brief_tasks(_tasks([]))
+    body = _get(_cold(connections=[]))
+    assert body["status"] == "no_conversation"
+    assert body["text"] == "Sin conversación todavía."
+
+
+def test_cold_without_crm_properties_falls_back_to_no_conversation(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props={})
+    body = _get(_cold())
+    assert body["status"] == "no_conversation"
+    assert body["text"] == "Sin conversación todavía."
+
+
+def test_cold_crm_profile_failure_is_partial_and_keeps_the_hoy_reason(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, error=RuntimeError("401 Unauthorized"))
+    body = _get(_cold(priority=[_priority_row()]))
+    assert body["status"] == "partial"
+    assert body["notice"] == "No se pudo cargar todo."
+    assert body["lines"] == [{**UNCALLED_WHY, "since": None}]
+
+
+def test_cold_priority_read_failure_is_partial(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch)
+    body = _get(_cold(failing={"contact_priority_context"}))
+    assert body["status"] == "partial"
+    assert [line["type"] for line in body["lines"]] == ["who"]
+
+
+def test_cold_crm_task_wins_over_the_hoy_reason(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([{"remote_id": "t-1", "title": "Llamar el jueves", "contact_id": "42"}]))
+    _fake_hubspot(monkeypatch)
+    body = _get(_cold(priority=[_priority_row()]))
+    assert body["lines"][1] == {"type": "why", "text": "Llamar el jueves", "source_ref": "t-1", "observed_at": None}
+
+
+def test_cold_hoy_reason_is_computed_on_this_contact_row_only(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch)
+    ahead = [_priority_row(str(100 + n), pain=True) for n in range(25)]
+    db = _cold(priority=[*ahead, _priority_row()])
+    body = _get(db)
+    assert body["lines"][1] == UNCALLED_WHY
+    reads = [(eqs, limit) for name, eqs, limit in db.queries if name == "contact_priority_context"]
+    assert reads == [({"company_id": "co-1", "contact_id": "42"}, None)]
+
+
+def test_cold_hoy_reason_does_not_depend_on_the_caller_owning_the_row(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch)
+    body = _get(_cold(priority=[_priority_row(owner="user-b")]))
+    assert body["lines"][1] == UNCALLED_WHY
+
+
+def test_flag_on_with_memo_is_exactly_the_e3_brief_and_reads_no_profile(monkeypatch):
+    built = []
+    monkeypatch.setattr(crm_providers, "build_crm_provider", lambda *args: built.append(args))
+    briefs_api.set_brief_tasks(_tasks([]))
+    memo = _memo()
+    db = _Db({**_tables([memo]), "crm_connections": [HUBSPOT_CONN], "contact_priority_context": [_priority_row()]})
+    body = _get(db)
+    expected = prepare_brief_v2(
+        coverage="complete",
+        memos=[memo],
+        tz_name="Europe/Madrid",
+        now=NOW,
+        no_reply=None,
+        crm_task=None,
+        playbook_steps=[],
+        playbook_entries=[],
+    )
+    assert body == json.loads(json.dumps(expected))
+    assert built == []
+    assert "contact_priority_context" not in db.reads

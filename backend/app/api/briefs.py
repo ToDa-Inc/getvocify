@@ -9,12 +9,15 @@ from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
+from app.services.briefs.contact_read import ContactProfileReadFailed, read_contact_profile
 from app.services.briefs.preparation import legacy_facts, prepare_brief
 from app.services.briefs.v2 import prepare_brief_v2
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.versions import get_published_playbook
 from app.services.hoy.no_reply import NO_REPLY_FLAG
+from app.services.hoy.context import snapshot_from_rows
+from app.services.hoy.priority import rank_candidates
 from app.services.hoy.reasons import reason as hoy_reason
 from app.services.hoy.signals import Signal
 from app.services.rep_timezone import rep_timezone
@@ -85,6 +88,9 @@ async def get_brief(
     if coverage == "unavailable":
         return prepare_brief_v2(coverage=coverage, memos=[], tz_name=tz_name)
 
+    if not rows:
+        return await _cold_brief(supabase, membership, connection_id, contact_id, tz_name)
+
     complete = True
     try:
         steps, entries = _playbook_for_memo(supabase, membership.company_id, rows)
@@ -108,6 +114,35 @@ async def get_brief(
         crm_task=crm_task,
         playbook_steps=steps,
         playbook_entries=entries,
+    )
+
+
+async def _cold_brief(supabase, membership: Membership, connection_id: str, contact_id: str, tz_name: str) -> dict:
+    """No conversation yet: who the contact is in the CRM and why Hoy puts them on the list."""
+    complete = True
+    try:
+        profile = await run_in_threadpool(
+            _read_contact_profile, supabase, membership.company_id, connection_id, contact_id,
+        )
+    except _ReadFailed:
+        profile, complete = None, False
+    try:
+        priority = _hoy_priority(supabase, membership.company_id, contact_id)
+    except _ReadFailed:
+        priority, complete = None, False
+    try:
+        crm_task = await run_in_threadpool(_open_crm_task, supabase, membership.company_id, contact_id)
+    except _ReadFailed:
+        crm_task, complete = None, False
+
+    return prepare_brief_v2(
+        coverage="complete" if complete else "partial",
+        memos=[],
+        tz_name=tz_name,
+        now=_now(),
+        crm_task=crm_task,
+        cold_profile=profile,
+        hoy_priority=priority,
     )
 
 
@@ -271,3 +306,53 @@ def _open_crm_task(supabase, company_id: str, contact_id: str) -> dict | None:
     if coverage in {"unavailable", "forbidden"}:
         raise _ReadFailed(coverage)
     return None
+
+
+def _crm_connection(supabase, company_id: str, connection_id: str | None) -> dict | None:
+    stored = (
+        supabase.table("crm_connections")
+        .select("id,status,company_id,provider,metadata,access_token,refresh_token,token_expires_at")
+        .eq("company_id", company_id)
+        .execute()
+    )
+    rows = list(getattr(stored, "data", None) or [])
+    live = [row for row in rows if row.get("status") == "connected"]
+    if connection_id:
+        match = next((row for row in live if str(row.get("id") or "") == connection_id), None)
+        if match:
+            return match
+    return live[0] if live else None
+
+
+def _read_contact_profile(supabase, company_id: str, connection_id: str, contact_id: str) -> dict | None:
+    connection = _crm_connection(supabase, company_id, connection_id)
+    if connection is None:
+        return None
+    try:
+        return read_contact_profile(supabase, connection, contact_id)
+    except ContactProfileReadFailed as exc:
+        logger.warning("brief contact profile read failed", extra={"company_id": company_id}, exc_info=True)
+        raise _ReadFailed from exc
+
+
+def _hoy_priority(supabase, company_id: str, contact_id: str) -> dict | None:
+    """Hoy's reason for this contact, ranked on this contact's own rows as Hoy ranks them."""
+    try:
+        stored = (
+            supabase.table("contact_priority_context")
+            .select("*")
+            .eq("company_id", company_id)
+            .eq("contact_id", contact_id)
+            .execute()
+        )
+        rows = list(getattr(stored, "data", None) or [])
+        if not rows:
+            return None
+        ranked = rank_candidates(snapshot_from_rows(rows, connected=True)["candidates"], _now())
+    except Exception as exc:
+        logger.warning("brief priority read failed", extra={"company_id": company_id}, exc_info=True)
+        raise _ReadFailed from exc
+    if not ranked:
+        return None
+    top = ranked[0]
+    return {"reason": top["reason"], "source_ref": top["id"], "observed_at": top.get("observed_at")}

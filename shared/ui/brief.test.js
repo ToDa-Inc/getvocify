@@ -12,6 +12,7 @@ import {
   panelBrief,
   shouldApplyBriefResponse,
 } from "./brief.js";
+import { HOY_SIGNAL_COPY } from "./hoy-copy.js";
 
 describe("pre-call brief", () => {
   it("shows the never-spoken sentence without a fake last call", () => {
@@ -152,6 +153,45 @@ describe("contact panel brief", () => {
       flat,
     );
     assert.equal(view.label, "Pitch hecho · falta cualificar");
+  });
+
+  it("formats cold-call lines the same on every surface", () => {
+    const payload = {
+      status: "ready",
+      text: null,
+      lines: [
+        { type: "who", text: "Directora comercial en Acme · búsqueda orgánica, 3 sep" },
+        { type: "why", text: null, reason: "no_calls_logged", since: "3 sep" },
+      ],
+      label: null,
+    };
+    const view = briefRows(payload);
+    const flat = visibleBrief(payload);
+    assert.deepEqual(flat, ["Directora comercial en Acme · búsqueda orgánica, 3 sep", "Sin llamar desde el 3 sep"]);
+    assert.deepEqual(view.rows.map((row) => row.text), flat);
+    assert.deepEqual(view.rows.map((row) => row.playbook), [false, false]);
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "42",
+        captureActive: false,
+        cache: { contactId: "42", brief: payload },
+        flightContactId: null,
+      }),
+      flat,
+    );
+  });
+
+  it("words the Hoy reason with the Hoy card's own label", () => {
+    const why = (line) => visibleBrief({ status: "ready", text: null, lines: [{ type: "why", text: null, ...line }] });
+    assert.deepEqual(why({ reason: "no_calls_logged", since: "3 sep" }), [
+      `${HOY_SIGNAL_COPY.es.today_signal_uncalled} desde el 3 sep`,
+    ]);
+    assert.deepEqual(why({ reason: "no_calls_logged", since: null }), [HOY_SIGNAL_COPY.es.today_signal_uncalled]);
+    assert.deepEqual(why({ reason: "pain_agree_next_step", since: null }), [HOY_SIGNAL_COPY.es.today_signal_pain]);
+    assert.deepEqual(why({ reason: "followup_pending", since: null }), []);
+    assert.equal(HOY_SIGNAL_COPY.es.today_signal_uncalled, "Sin llamar");
+    assert.equal(HOY_SIGNAL_COPY.es.today_signal_pain, "Dolor confirmado");
   });
 
   it("paints the label as a chip and marks the team's playbook line", () => {
