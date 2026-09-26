@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { currentItem, initialQueue, queueReducer } from "@/lib/today-queue";
@@ -121,6 +122,11 @@ export function TodayPanel() {
                   <p className="text-[15px] text-foreground">{current.contact_name || t.product.today_unknown_contact}</p>
                   {current.company_name ? <p className={THEME_TOKENS.typography.capsLabel}>{current.company_name}</p> : null}
                   <p className="mt-2 text-[15px] leading-relaxed text-foreground">{current.reason}</p>
+                  {current.contact_id ? (
+                    <div className="mt-3">
+                      <ContactBrief contactId={current.contact_id} compact />
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
                   {current.contact_id && dialer ? (

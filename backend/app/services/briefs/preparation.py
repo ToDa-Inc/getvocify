@@ -62,3 +62,39 @@ def _fact_lines(last: dict | None, pending: dict | None, objection: dict | None)
 
 def _line(kind: str, text: str, source_ref, observed_at) -> dict:
     return {"type": kind, "text": text, "source_ref": source_ref, "observed_at": observed_at}
+
+
+def legacy_facts(rows: list[dict], *, coverage: str = "complete") -> dict:
+    """The F03 facts from the newest memo, as prepare_brief reads them."""
+    if coverage == "unavailable":
+        return {"coverage": "unavailable"}
+    if not rows:
+        return {"coverage": coverage}
+    newest = max(rows, key=lambda row: str(row.get("created_at") or ""))
+    extraction = newest.get("extraction") or {}
+    if not isinstance(extraction, dict):
+        extraction = {}
+    pending = _first_text(extraction.get("next_steps") or extraction.get("nextSteps"))
+    objection = _first_text(extraction.get("objections"))
+    intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
+    pain = intelligence.get("pain_confirmed") is True or extraction.get("pain_confirmed") is True
+    summary = extraction.get("summary") or ""
+    return {
+        "coverage": coverage,
+        "last": {"text": summary, "observed_at": newest.get("created_at"), "source_ref": newest.get("id")},
+        "pending": {"text": pending, "source_ref": newest.get("id")} if pending else None,
+        "objection": {"text": objection, "source_ref": newest.get("id")} if objection else None,
+        "pain_confirmed": pain,
+    }
+
+
+def _first_text(value) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list) and value:
+        item = value[0]
+        if isinstance(item, str):
+            return item.strip()
+        if isinstance(item, dict):
+            return str(item.get("text") or item.get("subject") or "").strip()
+    return ""

@@ -44,6 +44,7 @@ import {
   type CallState,
 } from "@/lib/dial-target";
 import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 
 type TelnyxCall = {
   id?: string;
@@ -89,6 +90,8 @@ type Props = {
   focusContact?: DialerFocus | null;
   onFocusHandled?: () => void;
   compact?: boolean;
+  /** Off when the rep home's contact panel already shows the brief. */
+  showBrief?: boolean;
   onCallEnded?: (payload: CallEndedPayload) => void;
 };
 
@@ -112,6 +115,7 @@ export const DashboardDialer = ({
   focusContact = null,
   onFocusHandled,
   compact = false,
+  showBrief = true,
   onCallEnded,
 }: Props) => {
   const { t } = useLanguage();
@@ -675,6 +679,12 @@ export const DashboardDialer = ({
             <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
           </div>
         </div>
+
+        {showBrief && !compact && selected?.contactId ? (
+          <div className="mt-3">
+            <ContactBrief contactId={selected.contactId} compact />
+          </div>
+        ) : null}
 
         <div className="mt-4 flex items-center justify-center gap-2">
           {live ? (

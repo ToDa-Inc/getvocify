@@ -32,6 +32,10 @@ Carga: una línea. No se reservan cuatro huecos. Al cambiar de contacto no se mu
 
 Sin modelo nuevo, sin tabla nueva, sin panel inyectado en HubSpot.
 
+### Addendum E3 — brief previo v2 (26 sep 2026)
+
+Flag `BRIEF_V2_ENABLED` por empresa (apagado por defecto). Con flag encendido y C04 vigente: gancho, por qué llamas, qué decir y etiqueta de playbook (ver addendum en `09-f03-preparacion.md`). Flag apagado o inteligencia no vigente: se mantiene el formato mínimo del 22 sep sin cambios.
+
 ## F09 — las 20 conversaciones
 
 No son datos de una empresa ni se meten en el producto. El playbook de cada empresa sigue siendo la rúbrica.

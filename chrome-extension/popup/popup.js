@@ -11,6 +11,7 @@ import {
   contactBriefDisplayLines,
   shouldApplyBriefResponse,
 } from '../shared/ui/brief.js';
+import { paintBriefBox } from '../lib/contact-brief-box.js';
 import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
 import { composeTarget } from '../shared/ui/compose.js';
@@ -698,7 +699,7 @@ function paintContactBrief(state) {
   if (!box) return;
   const contactId = state.context?.objectType === 'contact' ? state.context.recordId : null;
   const captureActive = Boolean(state.isRecording || state.isCopilotListening || state.status === 'copilot');
-  const lines = contactBriefDisplayLines({
+  const flatLines = contactBriefDisplayLines({
     objectType: state.context?.objectType,
     contactId,
     captureActive,
@@ -706,14 +707,13 @@ function paintContactBrief(state) {
     flightContactId: briefFlight,
   });
   const brief = briefForContact(contactId, briefCache);
-  box.replaceChildren();
-  for (const line of lines) {
-    const row = document.createElement('p');
-    row.textContent = line;
-    box.appendChild(row);
-  }
-  box.hidden = lines.length === 0;
-  document.getElementById('screen-record')?.classList.toggle('has-brief', lines.length > 0 && !captureActive);
+  paintBriefBox({
+    box,
+    screen: document.getElementById('screen-record'),
+    brief,
+    flatLines,
+    captureActive,
+  });
   if (!contactId || state.isRecording || state.isCopilotListening || state.status === 'copilot' || brief || briefFlight === contactId) return;
   briefFlight = contactId;
   const connectionId = state.context.connectionId || 'hubspot';

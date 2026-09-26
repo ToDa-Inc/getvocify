@@ -100,6 +100,7 @@ export const FloatingDialer = ({
       onFocusHandled={onFocusHandled}
       onRequestClose={() => onOpenChange(false)}
       compact={placement === "panel" && isInCall(live.state)}
+      showBrief={placement !== "panel"}
       onCallEnded={onCallEnded}
       onLiveChange={(next) => {
         setLive(next);
