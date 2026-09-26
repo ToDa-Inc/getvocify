@@ -385,12 +385,14 @@ F11 muestra la propuesta/resultado vigente; F13 cuenta acuerdos confirmados sin 
 
 ### Addendum E7 — confirmación en Hoy tras autoaprobación (26 sep 2026)
 
-Con `DEAL_STAGE_CONFIRM_ENABLED`, la autoaprobación no mueve la etapa ni acepta la reunión. E7 (flag `HOY_CONFIRMATIONS_ENABLED`) materializa `confirm_pending` en Hoy: el comercial confirma en un clic lo que la revisión habría escrito — reunión con `accept_meeting_proposal`, etapa con `write_confirmed_stage` (mismo camino que la revisión con `stage_confirm`). El enganche de materialización vive en `hubspot/auto_sync.py` (autoaprobación HubSpot); Pipedrive/Salesforce no tienen autoaprobación equivalente hoy.
+Con `DEAL_STAGE_CONFIRM_ENABLED`, la autoaprobación no mueve la etapa ni acepta la reunión. E7 (flag `HOY_CONFIRMATIONS_ENABLED`) materializa `confirm_pending` en Hoy: el comercial confirma en un clic lo que la revisión habría escrito. Reunión con `accept_meeting_proposal`. Etapa con `memo_approval.write_confirmed_stage`: lleva el `stage_id` confirmado y usa `stage_sync_kwargs`, la misma función con la que la revisión (`approve_memo_core`) calcula campos permitidos, pipeline y etapa por defecto y `stage_confirm`; solo escribe la etapa. La escritura se aplaza hasta que vence el deshacer (detalle en el addendum E7 de F06). El enganche vive en `hubspot/auto_sync.py`: la autoaprobación solo existe para llamadas HubSpot, así que Pipedrive/Salesforce no materializan nada (`fetch_deal_snapshot` devuelve `None`).
 
-| Caso | Comportamiento esperado |
-|---|---|
-| Autoaprobación HubSpot + reunión pendiente | Señal con `reason`/`detail` y `memo_id` |
-| Autoaprobación + etapa distinta | `detail`: «Etapa → …» |
-| Confirmar | Acepta reunión y/o escribe etapa (idempotente) |
-| Deshacer ≤ 5 s | Reabre señal; CRM intacto |
-| Flag `HOY_CONFIRMATIONS_ENABLED` apagado | Comportamiento anterior |
+| Caso | Comportamiento esperado | Test |
+|---|---|---|
+| Autoaprobación HubSpot + reunión pendiente | Señal con `reason` y `memo_id` | `test_materialize_after_auto_approve_inserts_signal` |
+| Autoaprobación + etapa distinta | `reason` termina en «etapa → {nombre en el CRM}» | `test_stage_label_comes_from_the_crm_stage_name` |
+| Confirmar | Acepta la reunión y escribe la etapa con el `stage_id`, una vez | `test_run_writes_through_review_functions_once`, `test_review_and_hoy_confirm_share_the_stage_write`, `test_hoy_confirm_carries_the_pipedrive_stage_id` |
+| Flag de etapa apagado al escribir | No se escribe etapa | `test_hoy_confirm_writes_no_stage_with_the_stage_flag_off` |
+| Deshacer ≤ 5 s | Reabre la señal; CRM intacto | `test_undo_within_window_clears_the_pending_write` |
+| Pipedrive / Salesforce | Sin snapshot, sin señal de etapa | `test_non_hubspot_connections_get_no_deal_snapshot` |
+| Flag `HOY_CONFIRMATIONS_ENABLED` apagado | Comportamiento anterior | `test_flag_off_hides_confirm_and_rejects_action` |

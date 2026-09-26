@@ -90,6 +90,8 @@ const STRINGS = {
     listenCouldNotStartTabRetry:
       'No se pudo iniciar el audio de la pestaña. Pulsa Escuchar otra vez.',
     dismiss: 'Descartar',
+    confirm: 'Confirmar',
+    review: 'Revisar',
     undo: 'Deshacer',
     desktopLoginLead: 'Entra para',
     desktopLoginAccent: 'escuchar',
@@ -200,6 +202,8 @@ const STRINGS = {
     listenCouldNotStartTabRetry:
       'Could not start tab audio. Click Listen again.',
     dismiss: 'Dismiss',
+    confirm: 'Confirm',
+    review: 'Review',
     undo: 'Undo',
     desktopLoginLead: 'Sign in to',
     desktopLoginAccent: 'listen',

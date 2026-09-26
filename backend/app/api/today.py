@@ -17,10 +17,9 @@ from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.confirmations import (
     CONFIRM_FLAG,
     CONFIRM_TYPE,
-    apply_confirm_writes,
     clear_confirm_write_pending,
-    flush_due_confirm_writes,
     mark_confirm_write_pending,
+    schedule_confirm_write,
 )
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.done import done_today
@@ -327,12 +326,6 @@ async def get_today(
             )
         except Exception:
             pass
-    await flush_due_confirm_writes(
-        supabase,
-        company_id=membership.company_id,
-        user_id=membership.user_id,
-        now=_now(),
-    )
     stored = (
         supabase.table("action_signals")
         .select("*")
@@ -382,6 +375,7 @@ async def get_today(
         company_domain=domain,
         task_links=task_links,
         confirm_rows=confirm_rows,
+        tz_name=rep_timezone(membership.user_id),
     )
     _stamp_contact_names(view, visible, memo_directory(memos))
     return view
@@ -539,7 +533,7 @@ async def resolve_today(signal_id: str, body: ResolveBody, membership: Membershi
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Señal no encontrada")
     if body.action == "confirm":
         if not is_enabled(supabase, membership.company_id, CONFIRM_FLAG):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Señal no encontrada")
         if row.get("type") != CONFIRM_TYPE:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Acción no válida")
     try:
@@ -582,6 +576,8 @@ async def resolve_today(signal_id: str, body: ResolveBody, membership: Membershi
             current = _load(supabase, signal_id, membership) or row
             raise _conflict(current)
         result = saved.data[0]
+        if body.action == "confirm":
+            schedule_confirm_write(supabase, signal_id, result.get("undo_deadline"))
     return _public(result)
 
 

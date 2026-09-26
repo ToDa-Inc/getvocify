@@ -13,7 +13,7 @@ from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
 from app.services import commitment_tasks
 from app.services.crm_config import CRMConfigurationService
-from app.services.deal_stage_confirm import stage_confirm_enabled, sync_allowed_fields
+from app.services.deal_stage_confirm import STAGE_FIELD, stage_sync_kwargs
 from app.services.crm_providers import (
     AmbiguousPrimaryCRMError,
     UnsupportedCRMProviderError,
@@ -250,9 +250,6 @@ async def approve_memo_core(
     except UnsupportedCRMProviderError as e:
         raise ValueError(str(e)) from e
 
-    default_stage = config.default_stage_name if config else None
-    default_pipeline_id = (config.default_pipeline_id or None) if config else None
-    default_stage_id = (config.default_stage_id or None) if config else None
     # Confirmed override only - None here is not "not configured yet", it's
     # "let the sync auto-detect it from the live deal schema" (see
     # resolve_lost_reason_property in hubspot/call_outcome.py). Never guess
@@ -261,18 +258,14 @@ async def approve_memo_core(
     lost_lead_status_value = (config.lost_lead_status_value or None) if config else None
     on_hold_lead_status_value = (config.on_hold_lead_status_value or None) if config else None
 
-    provider_name = (crm_connection.get("provider") or "").lower()
-    stage_kwargs: dict = {}
-    if stage_confirm_enabled(
+    stage_kwargs = stage_sync_kwargs(
         supabase,
-        memo_data.get("company_id") or crm_connection.get("company_id"),
-        provider_name,
-    ):
-        allowed_fields = sync_allowed_fields(
-            allowed_fields, provider=provider_name, reviewed=reviewed_extraction
-        )
-        if reviewed_extraction:
-            stage_kwargs["stage_confirm"] = True
+        company_id=memo_data.get("company_id") or crm_connection.get("company_id"),
+        provider=(crm_connection.get("provider") or "").lower(),
+        config=config,
+        allowed_fields=allowed_fields,
+        reviewed=reviewed_extraction,
+    )
 
     commitment_kwargs: dict = {}
     plan = commitment_tasks.sync_plan(
@@ -292,7 +285,6 @@ async def approve_memo_core(
         extraction=extraction,
         deal_id=deal_id,
         is_new_deal=is_new_deal,
-        allowed_fields=allowed_fields,
         allowed_contact_fields=allowed_contact_fields,
         allowed_company_fields=allowed_company_fields,
         allowed_line_item_fields=allowed_line_item_fields,
@@ -300,9 +292,6 @@ async def approve_memo_core(
         auto_create_contact_company=auto_create_contact_company,
         auto_create_companies=auto_create_companies,
         auto_create_contacts=auto_create_contacts,
-        default_stage_name=default_stage,
-        default_pipeline_id=default_pipeline_id,
-        default_stage_id=default_stage_id,
         create_note=True if not payload else bool(getattr(payload, "create_note", True)),
         contact_id=contact_id,
         company_id=company_id,
@@ -353,3 +342,76 @@ def crm_links_update(memo: dict, sync_result) -> dict:
         if value and not memo.get(column):
             update[column] = str(value)
     return update
+
+
+async def write_confirmed_stage(
+    supabase: Client,
+    *,
+    memo_id: str,
+    user_id: str,
+    company_id: str,
+    stage_id: str,
+) -> None:
+    """Write only the stage the rep confirmed in Hoy, with the review's stage options.
+
+    Everything else was already synced by the auto-approve, so no other field, note,
+    contact or company is touched. Nothing is written with DEAL_STAGE_CONFIRM_ENABLED off.
+    """
+    if not stage_id:
+        return
+    memo_rows = supabase.table("memos").select("*").eq("id", memo_id).limit(1).execute()
+    memo_data = (memo_rows.data or [None])[0]
+    if not memo_data or str(memo_data.get("company_id") or company_id) != str(company_id):
+        return
+    deal_id = memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id")
+    if not deal_id:
+        return
+    try:
+        crm_connection = resolve_sync_connection(supabase, user_id)
+    except AmbiguousPrimaryCRMError as e:
+        raise ValueError(e.message) from e
+    if not crm_connection:
+        return
+    provider_name = (crm_connection.get("provider") or "").lower()
+    if provider_name not in STAGE_FIELD:
+        return
+    if provider_name == "hubspot":
+        crm_connection = await ensure_hubspot_connection_tokens_fresh(supabase, crm_connection)
+    config = await CRMConfigurationService(supabase).get_configuration(
+        user_id, connection_id=str(crm_connection["id"])
+    )
+    stage_kwargs = stage_sync_kwargs(
+        supabase,
+        company_id=company_id,
+        provider=provider_name,
+        config=config,
+        allowed_fields=[STAGE_FIELD[provider_name]],
+        reviewed=True,
+    )
+    if not stage_kwargs.get("stage_confirm"):
+        return
+    extraction_data = dict(memo_data.get("extraction") or {})
+    if provider_name == "pipedrive":
+        extraction_data["raw_extraction"] = {**(extraction_data.get("raw_extraction") or {}), "stage_id": stage_id}
+    else:
+        extraction_data["dealStage"] = stage_id
+    provider = build_crm_provider(supabase, crm_connection)
+    sync_result = await provider.sync_memo(
+        memo_id=memo_id,
+        user_id=user_id,
+        connection_id=crm_connection["id"],
+        extraction=MemoExtraction(**extraction_data),
+        deal_id=str(deal_id),
+        is_new_deal=False,
+        allowed_contact_fields=[],
+        allowed_company_fields=[],
+        allowed_line_item_fields=[],
+        contact_id=memo_data.get("hubspot_contact_id") or None,
+        auto_create_contact_company=False,
+        auto_create_companies=False,
+        auto_create_contacts=False,
+        create_note=False,
+        **stage_kwargs,
+    )
+    if not sync_result.success:
+        raise CRMSyncError(sync_result.error or "Stage confirm failed", error_code=sync_result.error_code)

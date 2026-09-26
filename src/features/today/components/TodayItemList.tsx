@@ -50,7 +50,7 @@ function openDialer(
   dialer.openForContact({ contactId: item.contact_id, name: item.contact_name ?? null });
 }
 
-function CardBody({ item, compact }: { item: TodayItem; compact?: boolean }) {
+function CardBody({ item, compact, quoted = true }: { item: TodayItem; compact?: boolean; quoted?: boolean }) {
   const { t } = useLanguage();
   const name = item.contact_name || t.product.today_unknown_contact;
   const label = productText(signalLabelKey(item.type), t.product);
@@ -65,7 +65,9 @@ function CardBody({ item, compact }: { item: TodayItem; compact?: boolean }) {
         ) : null}
       </div>
       <p className={compact ? "mt-2 text-[13px] leading-snug text-foreground" : "mt-3 text-[15px] leading-relaxed text-foreground"}>{item.reason}</p>
-      {item.detail ? <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>“{item.detail}”</p> : null}
+      {item.detail ? (
+        <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>{quoted ? `“${item.detail}”` : item.detail}</p>
+      ) : null}
       {extras.length > 0 ? (
         <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
       ) : null}
@@ -91,7 +93,7 @@ function ConfirmCard({
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
       <div className="flex items-start gap-3">
-        <CardBody item={item} compact={compact} />
+        <CardBody item={item} compact={compact} quoted={false} />
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           {item.status === "pending" && onConfirm ? (
             <>

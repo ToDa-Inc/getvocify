@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from app.services.hoy.confirm_copy import DEFAULT_TZ, confirm_reason, failed_detail
 from app.services.hoy.reasons import reason
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, rank_cards
 from app.services.hubspot.account_info import build_contact_record_url
@@ -249,16 +250,26 @@ def contact_record_url(
     return None
 
 
-def confirm_item(row: dict, *, provider: str | None = None, portal_id: str | None = None, company_domain: str | None = None) -> dict:
-    """One confirm_pending row as a Today item."""
+def confirm_item(
+    row: dict,
+    *,
+    lang: str = "es",
+    tz_name: str | None = None,
+    provider: str | None = None,
+    portal_id: str | None = None,
+    company_domain: str | None = None,
+) -> dict:
+    """One confirm_pending row as a Today item, its text in the rep's language."""
     payload = dict(row.get("payload") or {})
+    has_parts = isinstance(payload.get("meeting"), dict) or isinstance(payload.get("stage"), dict)
     item = {
         "type": "confirm_pending",
         "dedupe_key": row.get("dedupe_key"),
         "contact_id": row.get("contact_id"),
         "connection_id": row.get("connection_id"),
-        "reason": payload.get("reason") or "",
-        "detail": payload.get("detail"),
+        "reason": confirm_reason(payload, lang=lang, tz_name=tz_name or DEFAULT_TZ)
+        if has_parts else (payload.get("reason") or ""),
+        "detail": failed_detail(lang) if payload.get("write_failed") else None,
         "memo_id": row.get("memo_id"),
         "origins": ["detected"],
         "supporting": [],
@@ -295,6 +306,7 @@ def build_today_view(
     company_domain: str | None = None,
     task_links: dict[str, list[str]] | None = None,
     confirm_rows: list[dict] | None = None,
+    tz_name: str | None = None,
 ) -> dict:
     """task_links: signal key -> CRM task ids written for that commitment. Those tasks are
     the commitment, so they never show as manual tasks; the card carries the first id."""
@@ -353,7 +365,9 @@ def build_today_view(
             ),
         })
     confirm_items = [
-        confirm_item(row, provider=provider, portal_id=portal_id, company_domain=company_domain)
+        confirm_item(
+            row, lang=lang, tz_name=tz_name, provider=provider, portal_id=portal_id, company_domain=company_domain,
+        )
         for row in (confirm_rows or [])
     ]
     items = confirm_items + items
