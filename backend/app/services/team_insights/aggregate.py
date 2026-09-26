@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from app.services.activity_scope import author_display_name
 from app.services.coaching.metrics import aggregate_adherence
 from app.services.company import CompanyService
+from app.services.team_insights.competitors import competitor_counts
 from app.services.team_insights.objections import objection_counts
 from app.services.team_insights.outcomes import adherence_crm_outcomes
 
@@ -205,7 +206,8 @@ def load_team_adherence_inputs(
         query = (
             supabase.table("memos")
             .select(
-                "id,user_id,sales_motion_key,screening_outcome,extraction,"
+                "id,user_id,company_id,notes_revision,playbook_version_id,"
+                "sales_motion_key,screening_outcome,extraction,"
                 "capture_started_at,created_at"
             )
         )
@@ -283,6 +285,7 @@ def load_team_adherence_inputs(
         "pattern_rows": pattern_rows,
         "reps": reps,
         "review": review_memos_from(review_source),
+        "memo_rows": review_source,
         "outcome_observations": outcome_observations,
         "outcome_user_id": filter_user,
     }
@@ -300,6 +303,7 @@ def team_adherence(
     pattern_rows: list[dict] | None = None,
     reps: list[dict] | None = None,
     review: list[dict] | None = None,
+    memo_rows: list[dict] | None = None,
     outcome_observations: list[dict] | None = None,
     outcome_user_id: str | None = None,
 ) -> dict:
@@ -316,6 +320,15 @@ def team_adherence(
         return body
     if activity_period_start is None or activity_period_end is None:
         activity_period_start, activity_period_end = madrid_week_bounds()
+
+    def attach_competitors(body: dict) -> dict:
+        body["competitor_mentions"] = competitor_counts(
+            memo_rows or [],
+            start=activity_period_start,
+            end=activity_period_end,
+        )
+        return body
+
     week_parts = adherence_parts_in_period(
         parts,
         start=activity_period_start,
@@ -349,7 +362,7 @@ def team_adherence(
         )
         body["reps"] = reps or []
         body["review"] = review or []
-        return with_crm_outcomes(body)
+        return with_crm_outcomes(attach_competitors(body))
     metrics = aggregate_adherence(week_parts)
     conclusion = None
     if effective_sample < 5:
@@ -371,4 +384,4 @@ def team_adherence(
     )
     body["reps"] = reps or []
     body["review"] = review or []
-    return with_crm_outcomes(body)
+    return with_crm_outcomes(attach_competitors(body))

@@ -150,6 +150,7 @@ def team_snapshot(
     timezone: str,
     generated_at: datetime,
     channels: dict[str, int] | None = None,
+    competitors: list[dict] | None = None,
 ) -> dict:
     """C18 shape from the team panel aggregate. No per-rep numbers, names or example conversations."""
     adherence = team_body.get("adherence")
@@ -169,7 +170,7 @@ def team_snapshot(
     }
     if channels is not None:
         metrics["channels"] = dict(channels)
-    return {
+    snapshot = {
         "scope": "team",
         "report_type": "weekly",
         "period_start": period_start.isoformat(),
@@ -185,3 +186,6 @@ def team_snapshot(
         "examples": [],
         "coaching": None,
     }
+    if competitors:
+        snapshot["competitors"] = list(competitors)
+    return snapshot

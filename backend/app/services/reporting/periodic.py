@@ -33,6 +33,7 @@ from app.services.reporting.weekly import (
 )
 from app.services.team_insights import adherence_trend as trend_service
 from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, team_adherence
+from app.services.team_insights.competitors import COMPETITORS_FLAG
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,11 @@ def ensure_team_weekly_report(
     channels = _team_channels(supabase, company_id, inputs, start=start, end=end)
     if not _team_has_activity(body) and not any((channels or {}).values()):
         return None
+    competitors = None
+    if is_enabled(supabase, company_id, COMPETITORS_FLAG):
+        mentions = body.get("competitor_mentions")
+        if isinstance(mentions, list) and mentions:
+            competitors = mentions
     snapshot = team_snapshot(
         team_body=body,
         series=day_series(inputs.get("activity_rows") or [], start=start, end=end, tz_name=timezone, generated_at=now),
@@ -236,6 +242,7 @@ def ensure_team_weekly_report(
         timezone=timezone,
         generated_at=now,
         channels=channels,
+        competitors=competitors,
     )
     trend = _team_trend(supabase, company_id, role=role, now=now, timezone=timezone, load_trend=load_trend)
     if trend:

@@ -32,6 +32,27 @@ export function AdherenceBreakdown({ metrics, children }: { metrics: TeamMetrics
           <dd className="text-foreground">{metrics.applicable}</dd>
         </div>
       </dl>
+      <div className="sr-only">
+      <table>
+        <caption>{p.teamHeadingAdherence}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{p.teamTableMetric}</th>
+            <th scope="col">{p.teamTableValue}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{p.teamAdherenceMet}</th>
+            <td>{metrics.met}</td>
+          </tr>
+          <tr>
+            <th scope="row">{p.teamAdherenceApplicable}</th>
+            <td>{metrics.applicable}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
       {metrics.sampleLimited ? (
         <p>{p.sampleLimited}</p>
       ) : null}

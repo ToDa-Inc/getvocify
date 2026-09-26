@@ -4,21 +4,39 @@ import {
   objectionCategoriesEmptyMessage,
   objectionResolutionCountsText,
   visibleObjectionCategories,
+  type CompetitorMention,
   type ObjectionCategory,
 } from "@/lib/team-insights";
 
-export function ObjectionBreakdown({ categories }: { categories: ObjectionCategory[] }) {
+export function ObjectionBreakdown({
+  categories,
+  competitors,
+  sampleLimited,
+}: {
+  categories: ObjectionCategory[];
+  competitors?: CompetitorMention[];
+  sampleLimited?: boolean;
+}) {
   const { t } = useLanguage();
   const p = t.product;
   const emptyMessage = objectionCategoriesEmptyMessage(categories, p.objections, p.teamObjectionsEmptyWeek);
   const visible = visibleObjectionCategories(categories, p.objections);
+  const namedCompetitors = (competitors ?? []).filter((item) => item.count > 0);
   const maxCount = visible.reduce((max, item) => Math.max(max, item.count), 0);
+  const showCompetitors = namedCompetitors.length > 0;
+  if (emptyMessage && !showCompetitors) {
+    return (
+      <section aria-labelledby="team-objections" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-4`}>
+        <h2 id="team-objections" className={THEME_TOKENS.typography.sectionTitle}>{p.teamHeadingObjections}</h2>
+        <p>{emptyMessage}</p>
+      </section>
+    );
+  }
   return (
     <section aria-labelledby="team-objections" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-4`}>
       <h2 id="team-objections" className={THEME_TOKENS.typography.sectionTitle}>{p.teamHeadingObjections}</h2>
-      {emptyMessage ? (
-        <p>{emptyMessage}</p>
-      ) : (
+      {emptyMessage ? <p>{emptyMessage}</p> : null}
+      {visible.length > 0 ? (
         <>
           <ul className="space-y-3">
             {visible.map((item) => (
@@ -38,16 +56,60 @@ export function ObjectionBreakdown({ categories }: { categories: ObjectionCatego
               </li>
             ))}
           </ul>
-          <dl className="sr-only">
-            {visible.map((item) => (
-              <div key={`table-${item.name}`}>
-                <dt>{item.name}</dt>
-                <dd>{item.count}. {objectionResolutionCountsText(item, p)}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="sr-only">
+          <table>
+            <caption>{p.teamHeadingObjections}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{p.teamTableCategory}</th>
+                <th scope="col">{p.teamTableCount}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((item) => (
+                <tr key={`table-${item.name}`}>
+                  <th scope="row">{item.name}</th>
+                  <td>{item.count}. {objectionResolutionCountsText(item, p)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
         </>
-      )}
+      ) : null}
+      {showCompetitors ? (
+        <>
+          <p className={THEME_TOKENS.typography.capsLabel}>{p.teamCompetitorsMentioned}</p>
+          <ul className="space-y-1 text-sm">
+            {namedCompetitors.map((item) => (
+              <li key={item.name} className="flex justify-between gap-4">
+                <span>{item.name}</span>
+                <span>{item.count}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="sr-only">
+          <table>
+            <caption>{p.teamCompetitorsMentioned}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{p.teamTableName}</th>
+                <th scope="col">{p.teamTableCount}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {namedCompetitors.map((item) => (
+                <tr key={`competitor-${item.name}`}>
+                  <th scope="row">{item.name}</th>
+                  <td>{item.count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </>
+      ) : null}
+      {sampleLimited && showCompetitors ? <p className={THEME_TOKENS.typography.body}>{p.sampleLimited}</p> : null}
     </section>
   );
 }
