@@ -25,10 +25,10 @@ from app.services.team_insights.aggregate import (
     team_adherence,
 )
 from app.services.feature_flags import is_enabled
+from app.services.team_insights.competitors import COMPETITORS_FLAG
 from app.services.team_insights.objections import objection_counts
 
 VOCIFY_READS = frozenset({"get_team_metrics", "list_conversations", "get_objections", "get_call_priorities"})
-COMPETITORS_FLAG = "TEAM_COMPETITORS_ENABLED"
 
 _MEMO_COLUMNS = "id,user_id,company_id,created_at,capture_started_at,hubspot_contact_id,hubspot_deal_id,extraction"
 _IN_CHUNK = 200

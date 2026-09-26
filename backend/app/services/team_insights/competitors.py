@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.services.intelligence.worker import revision_for_memo
+from app.services.intelligence.extract import is_current
+
+COMPETITORS_FLAG = "TEAM_COMPETITORS_ENABLED"
 
 
 def _parse_instant(value) -> datetime | None:
@@ -30,14 +32,6 @@ def normalize_competitor_name(name: str) -> str:
     return " ".join(str(name).upper().split())
 
 
-def intelligence_is_current(memo: dict) -> bool:
-    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-    block = (extraction or {}).get("intelligence")
-    if not isinstance(block, dict):
-        return False
-    return block.get("input_revision") == revision_for_memo(memo)
-
-
 def _memo_instant(memo: dict) -> datetime | None:
     observed = _parse_instant(memo.get("capture_started_at"))
     if observed is not None:
@@ -51,12 +45,12 @@ def competitor_counts(
     start: datetime,
     end: datetime,
 ) -> list[dict]:
-    """Count current intelligence mentions in [start, end), grouped by normalized name."""
+    """Count memos with current intelligence in [start, end), grouped by normalized name."""
     if not memos:
         return []
     tallies: dict[str, int] = {}
     for memo in memos:
-        if not intelligence_is_current(memo):
+        if not is_current(memo):
             continue
         instant = _memo_instant(memo)
         if instant is None or instant < start or instant >= end:
@@ -66,13 +60,20 @@ def competitor_counts(
         mentions = intelligence.get("competitor_mentions")
         if not isinstance(mentions, list):
             continue
+        seen_in_memo: set[str] = set()
         for mention in mentions:
-            if not isinstance(mention, dict):
+            if isinstance(mention, str):
+                raw_name = mention
+            elif isinstance(mention, dict):
+                raw_name = mention.get("name")
+            else:
                 continue
-            raw_name = mention.get("name")
             if raw_name is None or not str(raw_name).strip():
                 continue
             name = normalize_competitor_name(str(raw_name))
+            if name in seen_in_memo:
+                continue
+            seen_in_memo.add(name)
             tallies[name] = tallies.get(name, 0) + 1
     ordered = [{"name": name, "count": count} for name, count in tallies.items()]
     ordered.sort(key=lambda item: (-item["count"], item["name"]))

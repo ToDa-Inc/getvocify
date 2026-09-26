@@ -25,6 +25,12 @@ REP = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 _WEEK_START = datetime(2026, 9, 21, 22, 0, tzinfo=timezone.utc)
 _WEEK_END = datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc)
 
+@pytest.fixture(autouse=True)
+def reset_team_loader():
+    yield
+    team_api.set_team_adherence_loader(None)
+
+
 SHARED_INPUTS = {
     "parts": [
         {"met_steps": 2, "missed_steps": 0, "unknown_steps": 0, "not_applicable_steps": 8,
@@ -117,7 +123,6 @@ async def test_ask_and_panel_share_the_same_team_aggregate(monkeypatch):
 
     client, qs = _panel_client()
     panel = client.get(f"/api/v1/team/adherence{qs}").json()
-    team_api.set_team_adherence_loader(None)
 
     assert _metric_keys(ask["metrics"]) == _metric_keys(expected) == _metric_keys(panel)
 
@@ -155,6 +160,5 @@ async def test_ask_and_panel_match_with_rep_and_motion_filters(monkeypatch):
 
     client, qs = _panel_client(user_id=REP, motion="discovery")
     panel = client.get(f"/api/v1/team/adherence{qs}").json()
-    team_api.set_team_adherence_loader(None)
 
     assert _metric_keys(ask["metrics"]) == _metric_keys(expected) == _metric_keys(panel)

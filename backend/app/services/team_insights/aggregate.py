@@ -206,7 +206,8 @@ def load_team_adherence_inputs(
         query = (
             supabase.table("memos")
             .select(
-                "id,user_id,sales_motion_key,screening_outcome,extraction,"
+                "id,user_id,company_id,notes_revision,playbook_version_id,"
+                "sales_motion_key,screening_outcome,extraction,"
                 "capture_started_at,created_at"
             )
         )

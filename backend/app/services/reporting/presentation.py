@@ -106,7 +106,8 @@ def _competitors_rows(snapshot: dict) -> str:
         f"<td>{int(item.get('count') or 0)}</td></tr>"
         for item in competitors
     )
-    return f"<p>Competidores mencionados</p><table>{rows}</table>"
+    note = f"<p>{SAMPLE_NOTE_ES}</p>" if snapshot.get("sample_limited") else ""
+    return f"<p>Competidores mencionados</p><table>{rows}</table>{note}"
 
 
 def _objections_block(snapshot: dict) -> str:

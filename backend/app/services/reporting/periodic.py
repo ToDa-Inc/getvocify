@@ -33,12 +33,12 @@ from app.services.reporting.weekly import (
 )
 from app.services.team_insights import adherence_trend as trend_service
 from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, team_adherence
+from app.services.team_insights.competitors import COMPETITORS_FLAG
 
 logger = logging.getLogger(__name__)
 
 WEEKLY_FLAG = "REPORTING_WEEKLY_ENABLED"
 TEAM_FLAG = "REPORTING_TEAM_ENABLED"
-COMPETITORS_FLAG = "TEAM_COMPETITORS_ENABLED"
 LOOKBACK_DAYS = 8
 REPORT_KEY = "company_id,user_id,scope,period_start,report_type"
 

@@ -12,8 +12,7 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TREND_FLAG, adherence_trend
-
-COMPETITORS_FLAG = "TEAM_COMPETITORS_ENABLED"
+from app.services.team_insights.competitors import COMPETITORS_FLAG
 from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, team_adherence
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
