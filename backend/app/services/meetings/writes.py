@@ -27,7 +27,7 @@ def register_meeting(
     decision: str,
     operation_key: str,
     writer,
-    stage_mapping: str | None,
+    stage_mapping: dict | None,
     existing: dict | None,
     starts_at: str | None = None,
 ) -> dict:
@@ -53,10 +53,7 @@ def register_meeting(
         if exc.code in {"failed", "forbidden"}:
             return _result("failed", None, False, replayed=False)
         raise
-    stage_changed = False
-    if stage_mapping:
-        writer.change_stage(stage_mapping)
-        stage_changed = True
+    stage_changed = bool(stage_mapping) and writer.change_stage(stage_mapping) is True
     return _result("succeeded", remote_id, stage_changed, replayed=False)
 
 

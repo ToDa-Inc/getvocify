@@ -16,7 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from app.services.meetings.proposals import build_proposal, insert_proposal_statement, latest_proposal
+from app.services.meetings.proposals import (
+    build_proposal,
+    infer_agreement,
+    insert_proposal_statement,
+    latest_proposal,
+    proposal_from_meeting,
+)
 from app.services.meetings.time_resolution import local_time_is_ambiguous, resolve_phrase
 
 MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "046_meeting_proposals.sql"
@@ -128,6 +134,72 @@ def test_a_repeated_dst_hour_asks_for_review():
     assert proposal["starts_at"] is None
     assert proposal["precision"] == "ambiguous"
     assert proposal["needs_review"] is True
+
+
+def _meeting(**overrides):
+    base = {
+        "agreed": True,
+        "starts_at": "2026-10-01T10:00:00+02:00",
+        "timezone": None,
+        "precision": "time",
+        "evidence_refs": ["ev-accept"],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_an_exact_time_both_accepted_is_a_booked_meeting():
+    proposal = proposal_from_meeting(proposal_id="meet-1", meeting=_meeting(), tz_name="Europe/Madrid")
+    assert proposal["agreement"] == "agreed"
+    assert proposal["starts_at"] == "2026-10-01T10:00:00+02:00"
+    assert proposal["precision"] == "exact"
+    assert proposal["needs_review"] is False
+    assert proposal["evidence_refs"] == ["ev-accept"]
+    assert proposal["closes_deal"] is False
+
+
+def test_an_agreed_day_without_time_waits_for_review_without_inventing_an_hour():
+    proposal = proposal_from_meeting(
+        proposal_id="meet-1",
+        meeting=_meeting(starts_at="2026-10-01", precision="date"),
+        tz_name="Europe/Madrid",
+    )
+    assert proposal["agreement"] == "agreed"
+    assert proposal["starts_at"] is None
+    assert proposal["precision"] == "date_only"
+    assert proposal["needs_review"] is True
+
+
+def test_an_offset_that_is_not_the_memo_zone_is_ambiguous():
+    proposal = proposal_from_meeting(
+        proposal_id="meet-1",
+        meeting=_meeting(starts_at="2026-10-01T10:00:00+01:00"),
+        tz_name="Europe/Madrid",
+    )
+    assert proposal["starts_at"] is None
+    assert proposal["precision"] == "ambiguous"
+    assert proposal["needs_review"] is True
+
+
+def test_a_repeated_dst_hour_from_intelligence_is_ambiguous():
+    proposal = proposal_from_meeting(
+        proposal_id="meet-1",
+        meeting=_meeting(starts_at="2026-10-25T02:30:00+02:00"),
+        tz_name="Europe/Madrid",
+    )
+    assert proposal["starts_at"] is None
+    assert proposal["precision"] == "ambiguous"
+
+
+def test_no_agreement_or_a_refusal_is_not_a_proposal():
+    assert proposal_from_meeting(proposal_id="m", meeting=_meeting(agreed=None, starts_at=None, precision="unknown"), tz_name="Europe/Madrid") is None
+    assert proposal_from_meeting(proposal_id="m", meeting=_meeting(agreed=False, starts_at=None, precision="unknown"), tz_name="Europe/Madrid") is None
+    assert proposal_from_meeting(proposal_id="m", meeting={}, tz_name="Europe/Madrid") is None
+
+
+def test_an_invitation_the_rep_sends_counts_as_agreement_in_the_fallback():
+    assert infer_agreement("Vale, te pongo una reunión y te mando la invitación") == "agreed"
+    assert infer_agreement("Podríamos vernos, te mando la invitación si eso") == "unknown"
 
 
 def _pg_env() -> dict[str, str]:

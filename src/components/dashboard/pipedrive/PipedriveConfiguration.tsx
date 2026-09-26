@@ -14,6 +14,7 @@ import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { useLanguage } from "@/lib/i18n";
 
 interface PipedriveConfigurationProps {
   onSaved?: () => void;
@@ -35,6 +36,7 @@ const RECOMMENDED_BY_OBJECT: Record<ObjectTab, string[]> = {
 };
 
 export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveConfigurationProps) => {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: crmKeys.pipedriveSetup(),
@@ -150,6 +152,8 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                     default_pipeline_name: p.label,
                     default_stage_id: stage?.id ?? "",
                     default_stage_name: stage?.label ?? "",
+                    meeting_booked_pipeline_id: null,
+                    meeting_booked_stage_id: null,
                   }));
                 }}
                 className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
@@ -181,6 +185,32 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                 }}
                 className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
               >
+                {selectedPipeline?.stages.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
+            <div className="relative">
+              <select
+                value={config.meeting_booked_stage_id ?? ""}
+                disabled={readOnly || !selectedPipeline}
+                onChange={(e) => {
+                  const stageId = e.target.value || null;
+                  setConfig((prev) => ({
+                    ...prev,
+                    meeting_booked_pipeline_id: stageId ? selectedPipeline?.id ?? null : null,
+                    meeting_booked_stage_id: stageId,
+                  }));
+                }}
+                className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
+              >
+                <option value="">{t.product.meetingBookedStageNone}</option>
                 {selectedPipeline?.stages.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}

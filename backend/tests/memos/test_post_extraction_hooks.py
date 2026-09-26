@@ -12,7 +12,10 @@ import json
 
 from app.services.coaching.score_assembly import _cited_refs, build_score_from_extraction
 from app.services import memo_extraction_hooks
+from app.services.intelligence.extract import PROMPT_VERSION
+from app.services.intelligence.worker import revision_for_memo
 from app.services.memo_extraction_hooks import (
+    refresh_meeting_proposal,
     resolve_input_revision,
     run_post_extraction_hooks,
 )
@@ -52,8 +55,25 @@ class _TableQuery:
         self._upsert = True
         return self
 
+    def delete(self):
+        self._delete = True
+        return self
+
+    def update(self, payload):
+        self._update = payload
+        return self
+
     def execute(self):
         rows = list(self.store.get(self.name) or [])
+        if getattr(self, "_update", None) is not None:
+            hit = [row for row in rows if all(str(row.get(c)) == v for c, v in self.filters)]
+            for row in hit:
+                row.update(self._update)
+            return type("R", (), {"data": hit})()
+        if getattr(self, "_delete", False):
+            gone = [row for row in rows if all(str(row.get(c)) == v for c, v in self.filters)]
+            self.store[self.name] = [row for row in rows if row not in gone]
+            return type("R", (), {"data": gone})()
         if self._payload is not None:
             payload = self._payload
             if getattr(self, "_upsert", False) and self.fail_patterns_upsert:
@@ -217,32 +237,175 @@ def test_missing_playbook_does_not_invent_mark():
     assert score["reason"] == "missing_playbook"
 
 
-def test_meeting_proposal_on_quedamos_in_summary():
-    supabase = _SupabaseStub()
-    memo = _memo()
-    extraction = {
-        "summary": "Quedamos el martes a las 16:00 para revisar propuesta",
-        "nextSteps": [],
+def _with_intelligence(memo: dict, extraction: dict, meeting: dict) -> dict:
+    revision = revision_for_memo({**memo, "extraction": extraction})
+    return {
+        **extraction,
+        "intelligence": {
+            "version": 1,
+            "input_revision": revision,
+            "prompt_version": PROMPT_VERSION,
+            "meeting": meeting,
+            "evidence": [],
+        },
     }
+
+
+_BOOKED = {
+    "agreed": True,
+    "starts_at": "2026-10-01T10:00:00+02:00",
+    "timezone": None,
+    "precision": "time",
+    "evidence_refs": ["ev-jueves"],
+}
+
+
+def test_meeting_proposal_reads_the_transcript_not_the_summary():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="Them: Vale, quedamos el jueves 1 a las 10.")
+    extraction = {"summary": "Reunión la semana del 5", "nextSteps": []}
     run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
     rows = supabase.tables["meeting_proposals"]
     assert len(rows) == 1
     assert rows[0]["agreement"] == "agreed"
+    assert rows[0]["evidence_refs"] == ["transcript"]
     assert rows[0]["decision"] == "pending"
     assert rows[0]["crm_status"] == "not_requested"
 
 
+def test_a_meeting_only_in_the_summary_is_not_a_proposal():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="Them: Mándame el precio por email.")
+    extraction = {"summary": "Quedamos la semana del 5", "nextSteps": ["Reunión la semana del 5"]}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    assert supabase.tables["meeting_proposals"] == []
+
+
+def test_the_transcript_fallback_always_needs_review():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="You: ¿Te va bien? Them: Sí, quedamos el martes a las 17:00.")
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction={"summary": ""})
+    row = supabase.tables["meeting_proposals"][0]
+    assert row["starts_at"] is None
+    assert row["precision"] != "exact"
+
+
+def test_intelligence_meeting_drives_the_proposal_over_summary_and_keywords():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="You: Te pongo una reunión el jueves 1 a las 10 y te mando la invitación. Them: Perfecto.")
+    base = {"summary": "Reunión la semana del 5", "nextSteps": []}
+    extraction = _with_intelligence(memo, base, _BOOKED)
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    rows = supabase.tables["meeting_proposals"]
+    assert len(rows) == 1
+    assert rows[0]["agreement"] == "agreed"
+    assert rows[0]["starts_at"] == "2026-10-01T10:00:00+02:00"
+    assert rows[0]["precision"] == "exact"
+    assert rows[0]["evidence_refs"] == ["ev-jueves"]
+    assert rows[0]["input_revision"] == revision_for_memo({**memo, "extraction": base})
+
+
+def test_stale_intelligence_is_ignored_and_the_transcript_fallback_runs():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="Them: Quedamos el martes.")
+    stale = _with_intelligence(memo, {"summary": "antes"}, _BOOKED)
+    extraction = {**stale, "summary": "después"}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    row = supabase.tables["meeting_proposals"][0]
+    assert row["starts_at"] is None
+    assert row["evidence_refs"] == ["transcript"]
+
+
+def test_intelligence_arriving_later_replaces_the_undecided_fallback():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="You: Te pongo una reunión el jueves 1 a las 10. Them: Perfecto.")
+    base = {"summary": "Reunión la semana del 5"}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=base)
+    assert supabase.tables["meeting_proposals"][0]["starts_at"] is None
+    refresh_meeting_proposal(supabase, {**memo, "extraction": _with_intelligence(memo, base, _BOOKED)})
+    rows = supabase.tables["meeting_proposals"]
+    assert len(rows) == 1
+    assert rows[0]["starts_at"] == "2026-10-01T10:00:00+02:00"
+    assert rows[0]["precision"] == "exact"
+
+
+def test_intelligence_without_agreement_removes_the_undecided_fallback():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="Them: Una reunión ahora no, primero mándame un vídeo.")
+    base = {"summary": ""}
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=base)
+    assert len(supabase.tables["meeting_proposals"]) == 1
+    empty = {"agreed": None, "starts_at": None, "timezone": None, "precision": "unknown", "evidence_refs": []}
+    refresh_meeting_proposal(supabase, {**memo, "extraction": _with_intelligence(memo, base, empty)})
+    assert supabase.tables["meeting_proposals"] == []
+
+
+def test_intelligence_never_overrides_a_human_decision():
+    supabase = _SupabaseStub()
+    memo = _memo(transcript="Them: Quedamos el jueves.")
+    base = {"summary": ""}
+    revision = revision_for_memo({**memo, "extraction": base})
+    decided = {
+        "proposal_id": "meet-human",
+        "memo_id": MEMO_ID,
+        "input_revision": revision,
+        "agreement": "agreed",
+        "starts_at": "2026-10-02T09:30:00+02:00",
+        "timezone": "Europe/Madrid",
+        "precision": "exact",
+        "decision": "corrected",
+        "crm_status": "succeeded",
+        "evidence_refs": [],
+    }
+    supabase.tables["meeting_proposals"] = [dict(decided)]
+    empty = {"agreed": None, "starts_at": None, "timezone": None, "precision": "unknown", "evidence_refs": []}
+    refresh_meeting_proposal(supabase, {**memo, "extraction": _with_intelligence(memo, base, empty)})
+    refresh_meeting_proposal(supabase, {**memo, "extraction": _with_intelligence(memo, base, _BOOKED)})
+    assert supabase.tables["meeting_proposals"] == [decided]
+
+
+def test_storing_intelligence_reevaluates_the_meeting_proposal():
+    import asyncio
+
+    from app.services.intelligence.extract import ensure_intelligence
+
+    class _LLM:
+        last_call_meta: dict = {}
+
+        async def chat_json(self, *_args, **_kwargs):
+            return {"meeting": {"agreed": True, "starts_at": "2026-10-01T10:00:00+02:00", "quote": "Perfecto, el jueves 1 a las 10"}}
+
+    supabase = _SupabaseStub()
+    memo = _memo(
+        transcript="You: ¿Te pongo una reunión? Them: Perfecto, el jueves 1 a las 10.",
+        extraction={"summary": "Reunión la semana del 5"},
+    )
+    supabase.tables["memos"] = [memo]
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=memo["extraction"])
+    assert supabase.tables["meeting_proposals"][0]["starts_at"] is None
+    stored = asyncio.run(ensure_intelligence(supabase, MEMO_ID, llm=_LLM()))
+    assert stored["status"] == "stored"
+    rows = supabase.tables["meeting_proposals"]
+    assert len(rows) == 1
+    assert rows[0]["starts_at"] == "2026-10-01T10:00:00+02:00"
+    assert rows[0]["agreement"] == "agreed"
+
+
+def test_refresh_never_raises():
+    refresh_meeting_proposal(_SupabaseStub(fail_meeting=True), {**_memo(), "extraction": {"intelligence": {"meeting": _BOOKED}}})
+    refresh_meeting_proposal(_SupabaseStub(), {"id": MEMO_ID})
+
+
 def test_not_agreed_does_not_insert_proposal():
     supabase = _SupabaseStub()
-    memo = _memo()
-    extraction = {"summary": "No quedamos, mejor otro día", "nextSteps": []}
-    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
+    memo = _memo(transcript="Them: No, no quedamos, mejor otro día.")
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction={"summary": ""})
     assert supabase.tables["meeting_proposals"] == []
 
 
 def test_no_meeting_cue_skips_proposal():
     supabase = _SupabaseStub()
-    memo = _memo()
+    memo = _memo(transcript="Them: Envíame la propuesta por email.")
     extraction = {"summary": "Enviar propuesta por email", "nextSteps": ["Follow up"]}
     run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
     assert supabase.tables["meeting_proposals"] == []
@@ -250,9 +413,9 @@ def test_no_meeting_cue_skips_proposal():
 
 def test_duplicate_proposal_for_same_revision_not_inserted():
     supabase = _SupabaseStub()
-    memo = _memo()
-    extraction = {"summary": "Quedamos mañana a las 10", "nextSteps": []}
-    revision = resolve_input_revision(memo, extraction)
+    memo = _memo(transcript="Them: Quedamos mañana a las 10.")
+    extraction = {"summary": "", "nextSteps": []}
+    revision = revision_for_memo({**memo, "extraction": extraction})
     supabase.tables["meeting_proposals"] = [
         {
             "proposal_id": "existing",
@@ -273,8 +436,8 @@ def test_duplicate_proposal_for_same_revision_not_inserted():
 
 def test_ambiguous_time_stored_with_null_starts_at():
     supabase = _SupabaseStub()
-    memo = _memo()
-    extraction = {"summary": "Quedamos a las cinco", "nextSteps": []}
+    memo = _memo(transcript="Them: Vale, quedamos a las cinco.")
+    extraction = {"summary": "", "nextSteps": []}
     run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
     row = supabase.tables["meeting_proposals"][0]
     assert row["precision"] == "ambiguous"
@@ -335,8 +498,8 @@ def test_hooks_empty_objections_supersede_objection_rows_only():
 
 def test_pattern_failure_does_not_block_score_or_meeting():
     supabase = _SupabaseStub(fail_patterns=True)
-    memo = _memo()
-    extraction = _scoreable_extraction(summary="Quedamos el martes a las 16:00")
+    memo = _memo(transcript="Them: Quedamos el martes a las 16:00.")
+    extraction = _scoreable_extraction()
     run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=memo, extraction=extraction)
     assert len(supabase.tables["memo_scores"]) == 1
     assert len(supabase.tables["meeting_proposals"]) == 1

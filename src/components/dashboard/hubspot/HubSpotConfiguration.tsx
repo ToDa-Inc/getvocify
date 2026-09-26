@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/fill-policy";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { useLanguage } from "@/lib/i18n";
 
 interface HubSpotConfigurationProps {
   onSaved?: () => void;
@@ -44,6 +45,7 @@ const RECOMMENDED_BY_OBJECT: Record<ObjectTab, string[]> = {
 const SYSTEM_FIELDS = ["hs_object_id", "createdate", "lastmodifieddate", "hs_lastmodifieddate"];
 
 export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfigurationProps) => {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: crmKeys.hubspotSetup(),
@@ -185,6 +187,8 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
                         default_pipeline_name: p.label,
                         default_stage_id: p.stages[0]?.id || "",
                         default_stage_name: p.stages[0]?.label || "",
+                        meeting_booked_pipeline_id: null,
+                        meeting_booked_stage_id: null,
                       }));
                     }
                   }}
@@ -221,6 +225,33 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
                 }}
                 className="w-full h-10 pl-4 pr-10 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground appearance-none cursor-pointer focus:outline-none disabled:opacity-60"
               >
+                {selectedPipeline?.stages.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
+            </div>
+          </label>
+
+          <label className="space-y-1.5 min-w-0">
+            <span className="block text-[13px] text-foreground">{t.product.meetingBookedStage}</span>
+            <div className="relative">
+              <select
+                value={config.meeting_booked_stage_id ?? ""}
+                disabled={readOnly || !selectedPipeline}
+                onChange={(e) => {
+                  const stageId = e.target.value || null;
+                  setConfig((prev) => ({
+                    ...prev,
+                    meeting_booked_pipeline_id: stageId ? selectedPipeline?.id ?? null : null,
+                    meeting_booked_stage_id: stageId,
+                  }));
+                }}
+                className="w-full h-10 pl-4 pr-10 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground appearance-none cursor-pointer focus:outline-none disabled:opacity-60"
+              >
+                <option value="">{t.product.meetingBookedStageNone}</option>
                 {selectedPipeline?.stages.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.label}

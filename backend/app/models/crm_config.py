@@ -73,6 +73,16 @@ class CRMConfigurationRequest(BaseModel):
             "waiting for approve. Lead status is not changed. Off by default."
         ),
     )
+    meeting_booked_pipeline_id: Optional[str] = Field(
+        None, description="Pipeline of meeting_booked_stage_id."
+    )
+    meeting_booked_stage_id: Optional[str] = Field(
+        None,
+        description=(
+            "Stage a deal moves to when an accepted booked meeting is saved. "
+            "None: no stage moves. Never a won/lost stage change."
+        ),
+    )
 
 
 class CRMConfigurationResponse(BaseModel):
@@ -98,6 +108,8 @@ class CRMConfigurationResponse(BaseModel):
     lost_lead_status_value: Optional[str] = None
     on_hold_lead_status_value: Optional[str] = None
     auto_sync_hubspot_calls: bool = False
+    meeting_booked_pipeline_id: Optional[str] = None
+    meeting_booked_stage_id: Optional[str] = None
     is_configured: bool = True
     created_at: str
     updated_at: str

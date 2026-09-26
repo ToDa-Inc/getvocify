@@ -90,8 +90,67 @@ class CrmMeetingActivityWriter:
     def reconcile(self, operation_key: str) -> str | None:
         return self._remote.get(operation_key)
 
-    def change_stage(self, mapping: str) -> None:
-        del mapping  # stage changes stay behind explicit mapping elsewhere
+    def change_stage(self, mapping: dict | None) -> bool:
+        """Forward only: an open deal in the mapped pipeline, currently at an earlier stage."""
+        pipeline_id = str((mapping or {}).get("pipeline_id") or "")
+        stage_id = str((mapping or {}).get("stage_id") or "")
+        if not pipeline_id or not stage_id or not self._deal_id:
+            return False
+        try:
+            if self._provider == "hubspot":
+                return self._move_hubspot(pipeline_id, stage_id)
+            return self._move_pipedrive(pipeline_id, stage_id)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return False
+
+    def _move_hubspot(self, pipeline_id: str, stage_id: str) -> bool:
+        deal_url = f"{HUBSPOT_BASE}/crm/v3/objects/deals/{self._deal_id}"
+        deal = self._client.get(deal_url, headers=self._headers(), params={"properties": "pipeline,dealstage"})
+        if deal.status_code >= 400:
+            return False
+        props = deal.json().get("properties") or {}
+        if str(props.get("pipeline") or "") != pipeline_id:
+            return False
+        pipeline = self._client.get(f"{HUBSPOT_BASE}/crm/v3/pipelines/deals/{pipeline_id}", headers=self._headers())
+        if pipeline.status_code >= 400:
+            return False
+        stages = {
+            str(stage.get("id")): stage
+            for stage in pipeline.json().get("stages") or []
+            if isinstance(stage, dict)
+        }
+        current, target = stages.get(str(props.get("dealstage") or "")), stages.get(stage_id)
+        if not current or not target:
+            return False
+        if any(str((stage.get("metadata") or {}).get("isClosed")).lower() == "true" for stage in (current, target)):
+            return False
+        if int(current.get("displayOrder", 0)) >= int(target.get("displayOrder", 0)):
+            return False
+        moved = self._client.patch(deal_url, headers=self._headers(), json={"properties": {"dealstage": stage_id}})
+        return moved.status_code < 400
+
+    def _move_pipedrive(self, pipeline_id: str, stage_id: str) -> bool:
+        base = (self._api_domain or "").rstrip("/")
+        deal_url = f"{base}/api/v2/deals/{self._deal_id}"
+        deal = self._client.get(deal_url, headers=self._headers())
+        if deal.status_code >= 400:
+            return False
+        data = deal.json().get("data") or {}
+        if data.get("status") != "open" or str(data.get("pipeline_id") or "") != pipeline_id:
+            return False
+        listed = self._client.get(f"{base}/api/v2/stages", headers=self._headers(), params={"pipeline_id": pipeline_id})
+        if listed.status_code >= 400:
+            return False
+        order = {
+            str(stage.get("id")): int(stage.get("order_nr", 0))
+            for stage in listed.json().get("data") or []
+            if isinstance(stage, dict)
+        }
+        current, target = order.get(str(data.get("stage_id") or "")), order.get(stage_id)
+        if current is None or target is None or current >= target:
+            return False
+        moved = self._client.patch(deal_url, headers=self._headers(), json={"stage_id": int(stage_id)})
+        return moved.status_code < 400
 
     def _headers(self) -> dict[str, str]:
         return {

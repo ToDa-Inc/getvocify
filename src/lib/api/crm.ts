@@ -54,6 +54,9 @@ export interface CRMConfiguration {
    * historical — not HubSpot-only.
    */
   auto_sync_hubspot_calls?: boolean;
+  /** Stage an accepted booked meeting moves the deal to (forward only). null: no move. */
+  meeting_booked_pipeline_id?: string | null;
+  meeting_booked_stage_id?: string | null;
 }
 
 /** Keep fetched settings/dashboard data for the whole login session. Invalidate on mutate. */
