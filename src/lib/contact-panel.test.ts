@@ -6,6 +6,8 @@ import {
   firstName,
   historyRequest,
   initials,
+  panelHeaderSubtitle,
+  panelMeetingLine,
   panelPrimary,
   showsHistory,
 } from "./contact-panel.ts";
@@ -78,6 +80,24 @@ describe("contact panel history", () => {
     assert.equal(conversationLine({ createdAt: at, interactionKind: null, audioDuration: 0 }, fmt).kindKey, "panel_kind_conversation");
     assert.equal(conversationLine({ createdAt: at, interactionKind: "call", audioDuration: 0 }, fmt).minutes, null);
     assert.equal(conversationLine({ createdAt: at, interactionKind: "call", audioDuration: 20 }, fmt).minutes, null);
+  });
+});
+
+describe("contact panel header copy", () => {
+  const copy = { panel_meeting_today: "Reunión hoy {time}", home_meeting_no_time: "Hoy · sin hora" };
+
+  it("shows job title and company in the header, not the call quote", () => {
+    assert.equal(
+      panelHeaderSubtitle({ contact_id: "c1", jobtitle: "AE", company_name: "Acme" }, "Acme Corp", null),
+      "AE · Acme Corp",
+    );
+    assert.equal(panelHeaderSubtitle(null, "Acme Corp", "Falta del playbook: pricing"), "Falta del playbook: pricing");
+    assert.equal(panelHeaderSubtitle(null, null, null), null);
+  });
+
+  it("formats the meeting line without duplicating «Hoy» when there is no time", () => {
+    assert.equal(panelMeetingLine(null, copy), "Hoy · sin hora");
+    assert.equal(panelMeetingLine("11:30", copy), "Reunión hoy 11:30");
   });
 });
 

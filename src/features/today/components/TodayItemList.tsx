@@ -13,7 +13,7 @@ import {
   supportingKeys,
   type TodayItem,
 } from "@/lib/today";
-import { useLeaving, useMeasuredSwap } from "../hooks/useHomeMotion";
+import { useLeaving, useSettleRow } from "../hooks/useHomeMotion";
 import { TodayCardActions } from "./TodayCardActions";
 import { cardSelected, textAction, undoOpen } from "./home/shared";
 
@@ -122,58 +122,61 @@ function HomeCallCard({
   const ref = useRef<HTMLLIElement>(null);
   const settled = item.status != null && item.status !== "pending";
   const selected = !settled && home.selectedKey === itemKey(item);
-  useMeasuredSwap(ref, settled ? "settled" : "pending");
+  useSettleRow(ref, settled);
 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
 
   const fade = `transition-[border-color,box-shadow,opacity] duration-150 ${leaving ? "opacity-0" : "opacity-100"}`;
-
-  if (settled) {
-    return (
-      <li
-        ref={ref}
-        aria-hidden={leaving || undefined}
-        className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} flex items-center justify-between gap-3 px-[18px] py-2.5 ${fade}`}
-      >
-        <span className={THEME_TOKENS.typography.capsLabel}>
-          {item.status === "snoozed" ? t.product.home_card_snoozed : t.product.home_card_dismissed}
-        </span>
-        {undoOpen(item, home.now) ? (
-          <button type="button" className={textAction} onClick={() => onUndo(item)}>{t.product.undo}</button>
-        ) : null}
-      </li>
-    );
-  }
-
   const canCall = Boolean(item.contact_id) && home.canDial;
+
   return (
     <li
       ref={ref}
-      tabIndex={0}
+      data-home-row={settled ? undefined : ""}
+      tabIndex={settled ? undefined : 0}
       aria-current={selected || undefined}
       aria-hidden={leaving || undefined}
-      onClick={() => home.onSelect(item)}
-      onFocus={(event) => {
-        if (event.target === event.currentTarget) home.onSelect(item);
-      }}
-      className={`group relative cursor-pointer p-4 outline-none animate-in fade-in-0 ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${
-        selected ? cardSelected : "hover:border-beige/25 focus-visible:border-beige/25"
-      } ${fade}`}
+      onClick={settled ? undefined : () => home.onSelect(item)}
+      onFocus={
+        settled
+          ? undefined
+          : (event) => {
+              if (event.target === event.currentTarget) home.onSelect(item);
+            }
+      }
+      className={`group relative outline-none ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${fade} ${
+        settled
+          ? "flex items-center justify-between gap-3 px-[18px] py-2.5"
+          : `cursor-pointer p-4 animate-in fade-in-0 ${selected ? cardSelected : "hover:border-beige/25 focus-visible:border-beige/25"}`
+      }`}
     >
-      <CardBody item={item} />
-      {canCall ? (
-        <span
-          className={`absolute bottom-2.5 right-3 transition-opacity duration-150 xl:opacity-0 xl:group-hover:opacity-100 xl:group-focus-within:opacity-100 ${
-            selected ? "xl:hidden" : ""
-          }`}
-        >
-          <IconAction label={t.product.today_call} onClick={() => onCall(item)}>
-            <Phone size={16} weight="light" />
-          </IconAction>
-        </span>
-      ) : null}
+      {settled ? (
+        <>
+          <span className={THEME_TOKENS.typography.capsLabel}>
+            {item.status === "snoozed" ? t.product.home_card_snoozed : t.product.home_card_dismissed}
+          </span>
+          {undoOpen(item, home.now) ? (
+            <button type="button" className={textAction} onClick={() => onUndo(item)}>{t.product.undo}</button>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <CardBody item={item} />
+          {canCall ? (
+            <span
+              className={`absolute bottom-2.5 right-3 transition-opacity duration-150 xl:opacity-0 xl:group-hover:opacity-100 xl:group-focus-within:opacity-100 ${
+                selected ? "xl:hidden" : ""
+              }`}
+            >
+              <IconAction label={t.product.today_call} onClick={() => onCall(item)}>
+                <Phone size={16} weight="light" />
+              </IconAction>
+            </span>
+          ) : null}
+        </>
+      )}
     </li>
   );
 }

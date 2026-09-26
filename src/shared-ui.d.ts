@@ -43,6 +43,11 @@ declare module "@shared/ui/today-card.js" {
   export function exitMotion(reducedMotion: boolean): { opacity: boolean; transform: boolean; height: boolean; measureHeight?: boolean };
   export function retainLeaving<T>(previous: Leaving<T>[], next: T[], keyOf: (entry: T) => string): Leaving<T>[];
   export function dropLeaving<T>(rows: Leaving<T>[], key: string, keyOf: (entry: T) => string): Leaving<T>[];
+  export function settleRowHeights(
+    beforeHeight: number,
+    afterHeight: number,
+    reducedMotion?: boolean,
+  ): { animate: boolean; fromHeight: number; toHeight: number };
 }
 
 declare module "@shared/ui/compose.js" {

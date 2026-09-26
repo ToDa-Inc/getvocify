@@ -7,23 +7,16 @@ import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { useAuth } from "@/features/auth";
-import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { useLanguage } from "@/lib/i18n";
-import {
-  contactPhone,
-  panelPrimary,
-  type PanelRowKind,
-} from "@/lib/contact-panel";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
-import { contactRecordUrl } from "@/lib/today";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { TodayItem } from "@/lib/today";
-import { crmApi } from "@/lib/api/crm";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 import { useHomeReads } from "../hooks/useHomeReads";
 import { useHomeSelection } from "../hooks/useHomeSelection";
+import { usePanelPrimary } from "../hooks/usePanelPrimary";
 import { forgetActed, useTodayCardActions } from "../hooks/useTodayCardActions";
 import { ContactPanel } from "./ContactPanel";
 import { HomeSection } from "./HomeSection";
@@ -54,14 +47,6 @@ function pulseLine(pulse: HomeView["pulse"], copy: ProductTranslations) {
     : copy.home_pulse_calls.replace("{count}", count);
 }
 
-function rowKind(row: HomeRow): PanelRowKind {
-  if (row.kind === "meeting") return "meeting";
-  if (row.kind === "confirm") return "confirm";
-  if (row.kind === "followup") return "followup";
-  if (row.kind === "review") return "review";
-  return "call";
-}
-
 function StateCard({ title, detail, children }: { title: string; detail?: string | null; children: ReactNode }) {
   return (
     <div className={`${paper} space-y-3 p-5`}>
@@ -77,8 +62,8 @@ export function RepHome() {
   const { t } = useLanguage();
   const copy = t.product;
   const { user } = useAuth();
-  const dialer = useOptionalDialerFocus();
   const column = useHomeColumn();
+  const panelRef = useRef<ReturnType<typeof usePanelPrimary> | null>(null);
   const {
     query,
     acted,
@@ -97,7 +82,6 @@ export function RepHome() {
   const [needsOkOpen, setNeedsOkOpen] = useState(false);
   const [confirmGroupOpen, setConfirmGroupOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const phoneCache = useRef<Map<string, string | null | undefined>>(new Map());
 
   const ticking = acted.some((item) => undoOpen(item, now));
   useEffect(() => {
@@ -145,44 +129,16 @@ export function RepHome() {
   const openMemo = useCallback((memoId: string) => navigate(`/dashboard/memos/${memoId}`), [navigate]);
 
   const onPrimary = useCallback(
-    async (row: HomeRow) => {
-      if (row.kind === "confirm") {
-        await settle(() => confirm(row.item));
-        return;
-      }
-      const kind = rowKind(row);
-      const contactId = row.contactId;
-      const crmHref =
-        (row.kind === "call" || row.kind === "meeting" ? row.item.open_url : null)
-        || contactRecordUrl(provider ?? null, portalId ?? null, contactId);
-      let phone = contactId ? phoneCache.current.get(contactId) : undefined;
-      if (contactId && phone === undefined && dialer) {
-        try {
-          const hits = await crmApi.searchContacts(contactId);
-          phone = contactPhone(hits, contactId);
-          phoneCache.current.set(contactId, phone);
-        } catch {
-          phone = undefined;
-        }
-      }
-      const primary = panelPrimary({
-        kind,
-        contactId,
-        canDial: Boolean(dialer),
-        phone,
-        crmHref,
-      });
-      if (primary === "call" && contactId && dialer) {
-        dialer.openForContact({ contactId, name: row.name ?? null });
-      } else if (primary === "open" && crmHref) {
-        window.open(crmHref, "_blank", "noopener,noreferrer");
-      } else if (row.kind === "review") {
-        openMemo(row.entry.memoId);
-      } else if (row.kind === "followup" && row.entry.action) {
-        openMemo(row.entry.memoId);
-      }
+    (row: HomeRow) => {
+      void panelRef.current?.runPrimary(
+        {
+          confirm: async (item) => settle(() => confirm(item)),
+          openMemo,
+        },
+        row,
+      );
     },
-    [confirm, dialer, openMemo, portalId, provider, settle],
+    [confirm, openMemo, settle],
   );
 
   const {
@@ -194,6 +150,12 @@ export function RepHome() {
     select,
     clear,
   } = useHomeSelection(homeRaw, { needsOkOpen, groupOpen: confirmGroupOpen }, onPrimary);
+
+  const panel = usePanelPrimary(selectedRow, {
+    provider: provider ?? null,
+    portalId: portalId ?? null,
+  });
+  panelRef.current = panel;
   const onDismiss = (item: TodayItem) => void settle(() => dismiss(item));
   const onConfirm = (item: TodayItem) => void settle(() => confirm(item));
   const onSnooze = (item: TodayItem, until: string) => void settle(() => snooze(item, until));
@@ -359,13 +321,13 @@ export function RepHome() {
         row={selectedRow}
         sheet={sheetOpen}
         onClose={clear}
+        panel={panel}
         actions={{
           onConfirm,
           onDismiss,
           onSnooze,
           onOpenMemo: openMemo,
           provider: provider ?? null,
-          portalId: portalId ?? null,
           connectionId,
           followups: reads.followups.data,
         }}

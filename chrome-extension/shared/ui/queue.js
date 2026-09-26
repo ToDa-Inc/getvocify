@@ -85,6 +85,15 @@ function roleOf(target) {
   return typeof target?.getAttribute === "function" ? target.getAttribute("role") : null;
 }
 
+function isHomeRow(target) {
+  return typeof target?.closest === "function" && Boolean(target.closest("[data-home-row]"));
+}
+
+function enterActivatesBrowser(target) {
+  if (isHomeRow(target)) return false;
+  return ACTIVATES_ON_ENTER.has(tagOf(target)) || ["button", "link"].includes(roleOf(target));
+}
+
 /** Map a keyboard event to a queue action for the current mode. Typing and browser shortcuts never trigger one. */
 export function queueKeyAction(
   mode,
@@ -94,7 +103,7 @@ export function queueKeyAction(
 ) {
   if (metaKey || ctrlKey || altKey) return null;
   if (EDITABLE.has(tagOf(target)) || target?.isContentEditable) return null;
-  if (key === "Enter" && (ACTIVATES_ON_ENTER.has(tagOf(target)) || ["button", "link"].includes(roleOf(target)))) {
+  if (key === "Enter" && enterActivatesBrowser(target)) {
     return null;
   }
   const map = keys[mode];

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import {
   HOME_WIDE_PX,
   holdOrder,
@@ -38,10 +38,12 @@ export function useHomeSelection(
   const column = useHomeColumn();
   const wide = useWideScreen();
   const orderRef = useRef<HomeOrder | null>(null);
-  const stable = useMemo(() => {
+  const [stable, setStable] = useState(view);
+
+  useEffect(() => {
     const next = holdOrder(orderRef.current, view);
     orderRef.current = next.order;
-    return next.view;
+    setStable(next.view);
   }, [view]);
 
   const rows = useMemo(
@@ -76,7 +78,13 @@ export function useHomeSelection(
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (column?.askOpen) return;
+      if (column?.askOpen) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          column.closeAsk();
+        }
+        return;
+      }
       const action = queueKeyAction(selection.mode, event.key, event, HOME_KEYS);
       if (!action) return;
       event.preventDefault();
@@ -91,7 +99,7 @@ export function useHomeSelection(
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [column?.askOpen, selection.mode, row, moveNext, movePrev, skip, clear]);
+  }, [column, selection.mode, row, moveNext, movePrev, skip, clear]);
 
   return {
     view: stable,

@@ -90,3 +90,25 @@ export function initials(name: string | null | undefined): string {
   const last = words.length > 1 ? words[words.length - 1][0] : "";
   return `${first}${last}`.toUpperCase();
 }
+
+/** Job title and company for the header — never the call quote in `detail`. */
+export function panelHeaderSubtitle(
+  contact: ContactHit | null,
+  companyName: string | null | undefined,
+  confirmDetail?: string | null,
+): string | null {
+  if (confirmDetail != null) return confirmDetail.trim() || null;
+  const parts = [contact?.jobtitle?.trim(), companyName?.trim()].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** Meeting line above the brief; without a time, only «Hoy · sin hora». */
+export function panelMeetingLine(
+  time: string | null | undefined,
+  copy: { panel_meeting_today: string; home_meeting_no_time: string },
+): string {
+  if (!time) return copy.home_meeting_no_time;
+  return copy.panel_meeting_today.replace("{time}", time);
+}
+
+export const HOME_PANEL_PHONE_KEY = "home-panel-phone";

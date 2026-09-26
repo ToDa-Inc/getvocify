@@ -39,6 +39,14 @@ export function exitMotion(reducedMotion) {
   return { opacity: true, transform: true, height: true, measureHeight: true };
 }
 
+/** Collapse a card into its undo row. Never animates to zero — the row must stay visible. */
+export function settleRowHeights(beforeHeight, afterHeight, reducedMotion = false) {
+  if (reducedMotion || beforeHeight <= 0 || afterHeight <= 0) {
+    return { animate: false, fromHeight: beforeHeight, toHeight: afterHeight };
+  }
+  return { animate: true, fromHeight: beforeHeight, toHeight: afterHeight };
+}
+
 export function presentExit(card, reducedMotion) {
   return { ...card, motion: exitMotion(reducedMotion) };
 }

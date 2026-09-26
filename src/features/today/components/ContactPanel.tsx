@@ -1,31 +1,34 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
+import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { ArrowSquareOut, X } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { BRIEF_LOADING, briefRequest, panelBrief, type BriefPayload } from "@shared/ui/brief.js";
 import { snoozeUntil, type HomeRow } from "@shared/ui/home.js";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
+import { Sheet, SheetPortal } from "@/components/ui/sheet";
 import { BriefLines } from "@/components/dashboard/memos/ContactBrief";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
-import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import type { Memo } from "@/features/memos/types";
 import { api } from "@/shared/lib/api-client";
-import { crmApi } from "@/lib/api/crm";
 import {
-  contactPhone,
   conversationLine,
   firstName,
   historyRequest,
   initials,
-  panelPrimary,
+  panelHeaderSubtitle,
+  panelMeetingLine,
   showsHistory,
-  type PanelRowKind,
 } from "@/lib/contact-panel";
 import { useLanguage } from "@/lib/i18n";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { contactRecordUrl, type FollowupRow, type TodayItem } from "@/lib/today";
+import type { FollowupRow, TodayItem } from "@/lib/today";
+import type { usePanelPrimary } from "../hooks/usePanelPrimary";
+import { panelRowKind } from "../hooks/usePanelPrimary";
+
+type PanelState = ReturnType<typeof usePanelPrimary>;
 
 type PanelActions = {
   onConfirm: (item: TodayItem) => void;
@@ -33,18 +36,9 @@ type PanelActions = {
   onSnooze: (item: TodayItem, until: string) => void;
   onOpenMemo: (memoId: string) => void;
   provider: string | null;
-  portalId: string | null;
   connectionId: string | null;
   followups: FollowupRow[] | null | undefined;
 };
-
-function rowKind(row: HomeRow): PanelRowKind {
-  if (row.kind === "meeting") return "meeting";
-  if (row.kind === "confirm") return "confirm";
-  if (row.kind === "followup") return "followup";
-  if (row.kind === "review") return "review";
-  return "call";
-}
 
 function panelName(row: HomeRow, copy: ProductTranslations) {
   return row.name || copy.today_unknown_contact;
@@ -59,19 +53,15 @@ function panelTitle(row: HomeRow, copy: ProductTranslations) {
   return name;
 }
 
-function panelSubtitle(row: HomeRow) {
-  if (row.kind === "call" || row.kind === "meeting") {
-    const item = row.item;
-    const parts = [item.detail, item.company_name].filter(Boolean);
-    return parts.length ? parts.join(" · ") : item.company_name ?? null;
-  }
-  if (row.kind === "confirm") return row.item.detail ?? null;
-  return null;
-}
-
 function followupForContact(followups: FollowupRow[] | null | undefined, contactId: string | null) {
   if (!contactId || !followups) return null;
   return followups.find((row) => row.contact_id === contactId) ?? null;
+}
+
+function briefFailed(error: unknown): boolean {
+  if (typeof error !== "object" || !error || !("status" in error)) return true;
+  const status = Number((error as { status?: unknown }).status);
+  return status === 401 || status >= 500;
 }
 
 function PanelBody({
@@ -79,62 +69,47 @@ function PanelBody({
   sheet,
   onClose,
   actions,
+  panel,
 }: {
   row: HomeRow;
   sheet: boolean;
   onClose?: () => void;
   actions: PanelActions;
+  panel: PanelState;
 }) {
   const { t } = useLanguage();
   const copy = t.product;
-  const dialer = useOptionalDialerFocus();
-  const column = useHomeColumn();
-  const canDial = column?.canDial ?? false;
-  const kind = rowKind(row);
+  const kind = panelRowKind(row);
   const contactId = row.contactId;
   const name = panelName(row, copy);
-  const crmHref =
-    (row.kind === "call" || row.kind === "meeting" || row.kind === "confirm"
-      ? row.item.open_url
-      : null) || contactRecordUrl(actions.provider, actions.portalId, contactId);
+  const { primary, phone, contact, crmHref } = panel;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const phoneQuery = useQuery({
-    queryKey: ["home-panel-phone", contactId],
-    queryFn: () => crmApi.searchContacts(contactId as string),
-    enabled: Boolean(contactId && canDial),
-    staleTime: 60_000,
-  });
-  const phone = contactPhone(phoneQuery.data, contactId);
-
-  const [flightContactId, setFlightContactId] = useState<string | null>(null);
-  const [failedContactId, setFailedContactId] = useState<string | null>(null);
+  const companyName = row.kind === "call" || row.kind === "meeting" ? row.item.company_name : null;
+  const subtitle = panelHeaderSubtitle(
+    contact,
+    companyName,
+    row.kind === "confirm" ? row.item.detail : null,
+  );
 
   const briefQuery = useQuery({
     queryKey: ["home-panel-brief", contactId, actions.connectionId],
-    queryFn: async () => {
-      if (!contactId) return null;
-      setFlightContactId(contactId);
-      try {
-        const payload = await api.get<BriefPayload>(briefRequest(contactId, actions.connectionId ?? undefined));
-        setFailedContactId(null);
-        return payload;
-      } catch (error) {
-        const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: unknown }).status) : 500;
-        if (status === 401 || status >= 500) setFailedContactId(contactId);
-        throw error;
-      } finally {
-        setFlightContactId((current) => (current === contactId ? null : current));
-      }
-    },
+    queryFn: () =>
+      api.get<BriefPayload>(briefRequest(contactId as string, actions.connectionId ?? undefined)),
     enabled: Boolean(contactId && kind !== "confirm"),
     staleTime: 30_000,
+    retry: false,
   });
 
   const brief = useMemo(() => {
     const cache = contactId && briefQuery.data ? { contactId, brief: briefQuery.data } : null;
-    return panelBrief({ contactId, cache, flightContactId, failedContactId });
-  }, [contactId, briefQuery.data, flightContactId, failedContactId]);
+    const flightContactId = briefQuery.isPending && contactId ? contactId : null;
+    const failedContactId = briefQuery.isError && contactId && briefFailed(briefQuery.error) ? contactId : null;
+    const view = panelBrief({ contactId, cache, flightContactId, failedContactId });
+    return {
+      ...view,
+      notice: view.notice ?? (view.state === "failed" ? copy.panel_brief_failed : null),
+    };
+  }, [briefQuery.data, briefQuery.error, briefQuery.isError, briefQuery.isPending, contactId, copy.panel_brief_failed]);
 
   const historyQuery = useQuery({
     queryKey: ["home-panel-history", contactId],
@@ -143,25 +118,20 @@ function PanelBody({
     staleTime: 30_000,
   });
 
-  const primary = panelPrimary({ kind, contactId, canDial, phone, crmHref });
   const followup = row.kind === "followup"
     ? row.entry
     : followupForContact(actions.followups, contactId);
   const followupMemoId = followup ? ("memoId" in followup ? followup.memoId : followup.memo_id) : null;
 
-  const call = () => {
-    if (!contactId || !dialer) return;
-    dialer.openForContact({ contactId, name });
+  const onPrimary = () => {
+    void panel.runPrimary({
+      confirm: async (item) => actions.onConfirm(item),
+      openMemo: actions.onOpenMemo,
+    }, row);
   };
 
   const openCrm = () => {
     if (crmHref) window.open(crmHref, "_blank", "noopener,noreferrer");
-  };
-
-  const onPrimary = () => {
-    if (primary === "confirm" && row.kind === "confirm") actions.onConfirm(row.item);
-    else if (primary === "call") call();
-    else if (primary === "open") openCrm();
   };
 
   const showCardActions = row.kind === "call" && row.source === "today" && row.item.id && row.item.status === "pending";
@@ -175,9 +145,7 @@ function PanelBody({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[17px] leading-snug tracking-tight text-foreground">{panelTitle(row, copy)}</p>
-          {panelSubtitle(row) ? (
-            <p className={`mt-0.5 ${THEME_TOKENS.typography.capsLabel}`}>{panelSubtitle(row)}</p>
-          ) : null}
+          {subtitle ? <p className={`mt-0.5 ${THEME_TOKENS.typography.capsLabel}`}>{subtitle}</p> : null}
         </div>
         {crmHref && primary !== "open" ? (
           <IconAction label={copy.today_open} onClick={openCrm}>
@@ -192,14 +160,14 @@ function PanelBody({
       </header>
 
       {row.kind === "meeting" ? (
-        <p className={`mt-6 ${THEME_TOKENS.typography.capsLabel}`}>
-          {copy.panel_meeting_today.replace("{time}", row.time ?? copy.home_meeting_no_time)}
-        </p>
+        <div className={`mt-6 space-y-2 ${THEME_TOKENS.typography.capsLabel}`}>
+          <p>{panelMeetingLine(row.time, copy)}</p>
+          {row.item.detail ? <p className={THEME_TOKENS.typography.body}>{row.item.detail}</p> : null}
+        </div>
       ) : null}
 
       {row.kind === "confirm" ? (
         <div className="mt-6 space-y-3">
-          {row.item.detail ? <p className={THEME_TOKENS.typography.body}>{row.item.detail}</p> : null}
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" className="h-9 gap-2 px-4 text-[14px]" onClick={() => actions.onConfirm(row.item)}>
               {copy.confirmAction}
@@ -225,7 +193,7 @@ function PanelBody({
       {kind !== "confirm" && contactId ? (
         <section className="mt-6" aria-label={copy.panel_before_call}>
           <p className={`mb-2.5 ${THEME_TOKENS.typography.capsLabel}`}>{copy.panel_before_call}</p>
-          <BriefLines brief={{ ...brief, notice: brief.notice ?? (brief.state === "failed" ? copy.panel_brief_failed : null) }} loadingText={copy.teamLoading || BRIEF_LOADING} />
+          <BriefLines brief={brief} loadingText={copy.teamLoading || BRIEF_LOADING} />
         </section>
       ) : null}
 
@@ -335,26 +303,36 @@ export function ContactPanel({
   sheet,
   onClose,
   actions,
+  panel,
 }: {
   row: HomeRow | null;
   sheet: boolean;
   onClose?: () => void;
   actions: PanelActions;
+  panel: PanelState;
 }) {
   const column = useHomeColumn();
+  const { t } = useLanguage();
   const target = column?.target;
   if (!row) return null;
 
-  const body = <PanelBody row={row} sheet={sheet} onClose={onClose} actions={actions} key={row.key} />;
+  const body = <PanelBody row={row} sheet={sheet} onClose={onClose} actions={actions} panel={panel} key={row.key} />;
 
   if (sheet) {
     return (
-      <aside className="fixed inset-y-0 right-0 z-30 flex w-[400px] max-w-full flex-col border-l border-border/70 bg-card xl:hidden" aria-label="Contact">
-        {body}
-      </aside>
+      <Sheet open modal={false} onOpenChange={(open) => !open && onClose?.()}>
+        <SheetPortal>
+          <SheetPrimitive.Content
+            aria-label={t.product.panel_contact_sheet}
+            className="fixed inset-y-0 right-0 z-30 flex h-full w-[400px] max-w-full flex-col border-l border-border/70 bg-card p-0 shadow-lg outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right data-[state=closed]:duration-300 data-[state=open]:duration-500 xl:hidden"
+          >
+            {body}
+          </SheetPrimitive.Content>
+        </SheetPortal>
+      </Sheet>
     );
   }
 
-  if (target) return createPortal(body, target);
-  return body;
+  if (!target) return null;
+  return createPortal(body, target);
 }

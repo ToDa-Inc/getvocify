@@ -8,6 +8,7 @@ import {
   reduceTodayList,
   renderTodayCard,
   retainLeaving,
+  settleRowHeights,
   TODAY_EMPTY_FOCUS,
 } from "./today-card.js";
 import { renderToString } from "./html.js";
@@ -123,5 +124,13 @@ describe("rows leaving the home", () => {
   it("collapses a resolved card to its measured height, or only fades with reduced motion", () => {
     assert.deepEqual(exitMotion(false), { opacity: true, transform: true, height: true, measureHeight: true });
     assert.deepEqual(exitMotion(true), { opacity: true, transform: false, height: false });
+  });
+
+  it("keeps the resolved undo row visible when the card settles", () => {
+    const plan = settleRowHeights(120, 44, false);
+    assert.equal(plan.animate, true);
+    assert.equal(plan.toHeight, 44);
+    assert.notEqual(plan.toHeight, 0);
+    assert.equal(settleRowHeights(120, 44, true).animate, false);
   });
 });

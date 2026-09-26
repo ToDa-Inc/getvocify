@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { TodayItem } from "@/lib/today";
-import { cardHover, cardSelectable, cardSelected, paper, textAction, undoOpen, type SectionOf } from "./shared";
+import { cardSelectable, cardSelected, paper, textAction, undoOpen, type SectionOf } from "./shared";
 
 type Actions = {
   now: number;
@@ -47,16 +47,20 @@ function ConfirmRow({
 
   if (workspace) {
     return (
-      <button
-        type="button"
+      <div
+        data-home-row=""
+        tabIndex={0}
         onClick={() => onSelect?.(key)}
-        className={`flex min-h-[50px] w-full items-center gap-4 px-[18px] py-3 text-left ${cardSelectable} ${selected ? cardSelected : ""}`}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) onSelect?.(key);
+        }}
+        className={`flex min-h-[50px] w-full cursor-pointer items-center gap-4 px-[18px] py-3 text-left outline-none ${cardSelectable} ${selected ? cardSelected : ""}`}
       >
         <div className="min-w-0 flex-1">
           <p className="text-[14.5px] leading-normal text-foreground">{item.reason}</p>
           {item.detail ? <p className={`mt-px truncate leading-normal ${THEME_TOKENS.typography.capsLabel}`}>{item.detail}</p> : null}
         </div>
-      </button>
+      </div>
     );
   }
 
@@ -133,16 +137,20 @@ function PlainRow({
 
   if (onSelect) {
     return (
-      <button
-        type="button"
+      <div
+        data-home-row=""
+        tabIndex={0}
         onClick={() => onSelect(key)}
-        className={`flex min-h-[50px] w-full items-center gap-4 px-[18px] py-3 text-left ${cardSelectable} ${selectedKey === key ? cardSelected : ""}`}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) onSelect(key);
+        }}
+        className={`flex min-h-[50px] w-full cursor-pointer items-center gap-4 px-[18px] py-3 text-left outline-none ${cardSelectable} ${selectedKey === key ? cardSelected : ""}`}
       >
         <p className="min-w-0 flex-1 truncate text-[14.5px] leading-normal text-foreground">
           {line}
           {tail ? <span className="text-muted-foreground"> · {tail}</span> : null}
         </p>
-      </button>
+      </div>
     );
   }
 
@@ -186,7 +194,7 @@ export function NeedsOk({
           const first = expanded && index === NEEDS_OK_VISIBLE;
           return (
             <div
-              key={rowKey(entry)}
+              key={needsOkKey(entry)}
               ref={first ? revealed : undefined}
               tabIndex={first ? -1 : undefined}
               className="outline-none focus-visible:bg-secondary/40"
@@ -215,10 +223,4 @@ export function NeedsOk({
       ) : null}
     </>
   );
-}
-
-function rowKey(entry: HomeNeedsOkRow) {
-  if (entry.kind === "confirm") return entry.item.id ?? entry.item.dedupe_key ?? entry.item.reason;
-  if (entry.kind === "confirm_group") return "confirm-group";
-  return `${entry.kind}:${entry.memoId}`;
 }

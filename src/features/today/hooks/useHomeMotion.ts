@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { dropLeaving, retainLeaving, type Leaving } from "@shared/ui/today-card.js";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { dropLeaving, retainLeaving, settleRowHeights, type Leaving } from "@shared/ui/today-card.js";
 
 const LEAVE_MS = 150;
 
+function clearSettleStyles(node: HTMLElement) {
+  node.style.height = "";
+  node.style.overflow = "";
+  node.style.transition = "";
+  node.style.opacity = "";
+}
+
 /** Keeps resolved rows in place while they fade out, then drops them. */
-export function useHomeLeaving<T>(entries: T[], keyOf: (entry: T) => string) {
+export function useLeaving<T>(entries: T[], keyOf: (entry: T) => string) {
   const prev = useRef<Leaving<T>[]>([]);
   const [rows, setRows] = useState<Leaving<T>[]>(() => entries.map((entry) => ({ entry, leaving: false })));
 
@@ -29,21 +36,43 @@ export function useHomeLeaving<T>(entries: T[], keyOf: (entry: T) => string) {
   return useMemo(() => rows, [rows]);
 }
 
-export const useLeaving = useHomeLeaving;
+/** Measure the pending card, then animate down to the settled undo row — never to zero. */
+export function useSettleRow(ref: RefObject<HTMLElement | null>, settled: boolean) {
+  const pendingHeight = useRef<number | null>(null);
+  const wasPending = useRef(true);
 
-/** Collapse a card to its measured height when it settles. */
-export function useMeasuredSwap(ref: RefObject<HTMLElement | null>, token: string) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = ref.current;
-    if (!node || token !== "settled") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const height = node.getBoundingClientRect().height;
-    node.style.height = `${height}px`;
+    if (!node) return;
+
+    if (!settled) {
+      clearSettleStyles(node);
+      pendingHeight.current = node.getBoundingClientRect().height;
+      wasPending.current = true;
+      return;
+    }
+
+    if (!wasPending.current) return;
+
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const from = pendingHeight.current ?? node.getBoundingClientRect().height;
+    const to = node.scrollHeight;
+    const plan = settleRowHeights(from, to, reduced);
+    wasPending.current = false;
+
+    if (!plan.animate) return;
+
+    node.style.height = `${plan.fromHeight}px`;
     node.style.overflow = "hidden";
-    requestAnimationFrame(() => {
-      node.style.transition = "height 150ms ease, opacity 150ms ease";
-      node.style.height = "0px";
-      node.style.opacity = "0";
-    });
-  }, [ref, token]);
+    node.getBoundingClientRect();
+    node.style.transition = "height 150ms ease";
+    node.style.height = `${plan.toHeight}px`;
+
+    const onEnd = (event: TransitionEvent) => {
+      if (event.propertyName !== "height") return;
+      clearSettleStyles(node);
+      node.removeEventListener("transitionend", onEnd);
+    };
+    node.addEventListener("transitionend", onEnd);
+  }, [ref, settled]);
 }

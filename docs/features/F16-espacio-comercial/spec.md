@@ -369,7 +369,7 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 **Columna derecha** (`DashboardLayout`, flag encendido y `/dashboard`):
 - Desde 1280 px, una columna de 400 px con el panel. Sin selección, no hay columna.
 - Preguntar ocupa su lugar; al cerrarlo vuelve el contacto que había.
-- Por debajo de 1280 px, Preguntar se abre como hoy y el panel va en un `Sheet` no modal de 400 px: la lista sigue usable y un clic en otra tarjeta cambia el contacto.
+- Por debajo de 1280 px, Preguntar se abre como hoy y el panel va en el `Sheet` del design system (`src/components/ui/sheet.tsx`), no modal, 400 px a la derecha, `Esc` cierra: la lista sigue usable y un clic en otra tarjeta cambia el contacto.
 - Fuera de `/dashboard`, o con el flag apagado, nada cambia.
 
 **Tarjetas con el flag encendido:**
@@ -378,7 +378,7 @@ Las tres lecturas nuevas son deterministas y de solo lectura: no escriben en el 
 - La seleccionada lleva borde bronce/45.
 - Con el flag apagado, `CallCard` y `TodayPanel` no cambian.
 
-**Copy fuera de §12:** `panel_meeting_today`, `panel_brief_failed`, `panel_followup_ready`, `panel_kind_call`, `panel_kind_meeting`, `panel_kind_visit`, `panel_kind_conversation`, `panel_minutes`, `home_card_dismissed`, `home_card_snoozed`. «Leyendo…» reutiliza `teamLoading`, el mismo texto que `BRIEF_LOADING`. El ✕ del `Sheet` reutiliza `cancelAction`, como el de Preguntar.
+**Copy fuera de §12:** `panel_meeting_today`, `panel_contact_sheet` (aria-label del `Sheet`), `panel_brief_failed`, `panel_followup_ready`, `panel_kind_call`, `panel_kind_meeting`, `panel_kind_visit`, `panel_kind_conversation`, `panel_minutes`, `home_card_dismissed`, `home_card_snoozed`. «Leyendo…» reutiliza `teamLoading`, el mismo texto que `BRIEF_LOADING`. El ✕ del `Sheet` reutiliza `cancelAction`, como el de Preguntar.
 
 **Fuera de T4:** dialer anclado, «En llamada», «Después de la llamada», borrador dentro del panel, bloqueo de la selección durante la llamada y «sin número verificado» (T5).
 

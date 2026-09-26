@@ -8,7 +8,6 @@ export const paper = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 export const textAction = `px-1 py-1.5 ${THEME_TOKENS.typography.capsLabel} transition-colors hover:text-foreground`;
 export const hairline = "border-[hsl(var(--hairline))]";
 
-export const cardHover = `${THEME_TOKENS.cards.hover}`;
 export const cardSelected = "border-beige/45 shadow-[0_0_0_1px_hsl(var(--beige)/0.2)]";
 export const cardSelectable = `${paper} cursor-pointer transition-[border-color,box-shadow] duration-150 outline-none focus-visible:border-beige/25`;
 

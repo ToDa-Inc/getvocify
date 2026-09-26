@@ -26,7 +26,7 @@ export function Meetings({
         return (
           <div
             key={key}
-            role="button"
+            data-home-row=""
             tabIndex={0}
             aria-current={selected || undefined}
             onClick={() => onSelect(key)}

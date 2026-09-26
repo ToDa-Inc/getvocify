@@ -111,4 +111,13 @@ describe("home keys", () => {
     assert.equal(queueKeyAction("queue", "Enter", { target: { tagName: "LI" } }, HOME_KEYS), "call");
     assert.equal(queueKeyAction("queue", "Enter", { target: { tagName: "BODY" } }, HOME_KEYS), "call");
   });
+
+  it("runs Enter on a selectable home row after click, not the browser default", () => {
+    const row = {
+      tagName: "BUTTON",
+      getAttribute: (name) => (name === "role" ? null : null),
+      closest: (selector) => (selector === "[data-home-row]" ? row : null),
+    };
+    assert.equal(queueKeyAction("queue", "Enter", { target: row }, HOME_KEYS), "call");
+  });
 });

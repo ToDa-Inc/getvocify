@@ -17,9 +17,9 @@ export function BriefLines({ brief, loadingText }: { brief: PanelBrief; loadingT
       {brief.notice ? (
         <p className={`${THEME_TOKENS.typography.body} text-foreground`}>{brief.notice}</p>
       ) : null}
-      {brief.rows.map((row: BriefRow) => (
+      {brief.rows.map((row: BriefRow, index: number) => (
         <p
-          key={row.text}
+          key={`${index}-${row.text}`}
           className={`text-[15px] leading-relaxed text-foreground ${row.playbook ? "border-l-2 border-beige/60 pl-[11px]" : ""}`}
         >
           {row.text}
