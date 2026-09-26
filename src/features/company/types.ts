@@ -14,6 +14,7 @@ export interface CompanySummary {
   planType?: 'starter' | 'pro' | null;
   paywalled?: boolean;
   canUseDialer?: boolean;
+  repWorkspace?: boolean;
 }
 
 export interface CompanyDetails extends CompanySummary {
