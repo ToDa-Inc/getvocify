@@ -18,6 +18,7 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     planType: raw.plan_type === 'starter' || raw.plan_type === 'pro' ? raw.plan_type : null,
     paywalled: Boolean(raw.paywalled),
     canUseDialer: raw.can_use_dialer == null ? true : Boolean(raw.can_use_dialer),
+    repWorkspace: Boolean(raw.rep_workspace_enabled),
   };
 }
 
