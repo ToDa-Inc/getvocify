@@ -50,7 +50,7 @@ export function navItemsFor({
   const conversations: NavItem = { ...MEMOS, labelKey: "navConversations" };
   return {
     items: manager
-      ? [today, conversations, ASK, CALL, INSIGHTS, SETTINGS, COPILOT]
+      ? [today, conversations, COPILOT, ASK, CALL, INSIGHTS, SETTINGS]
       : [today, conversations, ASK, CALL, SETTINGS],
     showPlans: manager,
   };

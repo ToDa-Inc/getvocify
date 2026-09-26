@@ -190,29 +190,29 @@ const DashboardLayout = () => {
         </nav>
 
         {menu.showPlans && (
-        <div className="p-4 mt-auto shrink-0">
-          <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
-            <p className="text-sm font-normal text-foreground mb-1">
-              {canManageBilling ? t.product.navPlans : t.product.navScale}
-            </p>
-            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              {canManageBilling ? t.product.navPlansBody : t.product.navScaleBody}
-            </p>
-            <Button
-              asChild
-              size="sm"
-              className="w-full bg-beige text-cream hover:bg-beige-dark"
-            >
-              {canManageBilling ? (
-                <Link to={BILLING_PATH}>{paywalled ? t.product.navChoosePlan : t.product.navManageBilling}</Link>
-              ) : (
-                <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
-                  {t.product.navBookDemo}
-                </a>
-              )}
-            </Button>
+          <div className="p-4 mt-auto shrink-0">
+            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
+              <p className="text-sm font-normal text-foreground mb-1">
+                {canManageBilling ? t.product.navPlans : t.product.navScale}
+              </p>
+              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                {canManageBilling ? t.product.navPlansBody : t.product.navScaleBody}
+              </p>
+              <Button
+                asChild
+                size="sm"
+                className="w-full bg-beige text-cream hover:bg-beige-dark"
+              >
+                {canManageBilling ? (
+                  <Link to={BILLING_PATH}>{paywalled ? t.product.navChoosePlan : t.product.navManageBilling}</Link>
+                ) : (
+                  <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
+                    {t.product.navBookDemo}
+                  </a>
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
         )}
       </aside>
 

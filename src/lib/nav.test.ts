@@ -48,7 +48,7 @@ describe("navItemsFor with the rep workspace on", () => {
   it("gives owners and admins the rep menu plus Team, Copilot and plans", () => {
     for (const role of ["owner", "admin"]) {
       assert.deepEqual(navItemsFor({ role, repWorkspace: true }), {
-        items: [today, conversations, ask, call, insights, settings, copilot],
+        items: [today, conversations, copilot, ask, call, insights, settings],
         showPlans: true,
       });
     }
