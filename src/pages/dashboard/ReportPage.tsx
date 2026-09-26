@@ -96,6 +96,11 @@ export default function ReportPage() {
   const view = reportPagePresentation(snapshot, {
     unavailable: t.product.unavailable,
     stepsTemplate: t.product.reportAdherenceSteps,
+    channelCopy: {
+      call: { one: t.product.reportChannelCallOne, other: t.product.reportChannelCallOther },
+      meeting: { one: t.product.reportChannelMeetingOne, other: t.product.reportChannelMeetingOther },
+      visit: { one: t.product.reportChannelVisitOne, other: t.product.reportChannelVisitOther },
+    },
   });
   const trend = reportAdherenceTrend(snapshot, {
     team: t.product.teamTitle,
@@ -122,6 +127,9 @@ export default function ReportPage() {
           <div key={row.cellKey} className="rounded-xl border border-border/70 bg-card px-4 py-3">
             <dt className="text-[13px] text-muted-foreground">{t.product[row.labelKey]}</dt>
             <dd className="mt-1 text-2xl tracking-tight">{row.value}</dd>
+            {row.cellKey === "connected_calls" && view.channelsLine ? (
+              <p className="mt-1 text-[13px] text-muted-foreground">{view.channelsLine}</p>
+            ) : null}
           </div>
         ))}
       </dl>

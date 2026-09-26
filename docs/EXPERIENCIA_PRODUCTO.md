@@ -11,24 +11,19 @@
 
 Si una pantalla, un botón o una notificación no ayuda a que la próxima llamada salga mejor, no es Vocify — es ruido. Ese es el único filtro que hace falta para decidir qué entra y qué no.
 
-Y la regla de forma, tan importante como la de fondo: **por debajo, mucho poder. Por encima, un solo gesto.** Toda la inteligencia — scoring, patrones, señales — vive escondida hasta el momento exacto en que hace falta. El comercial nunca abre un "panel de analítica". Se encuentra la razón correcta, en el sitio correcto, sin haberla pedido.
+Y la regla de forma, tan importante como la de fondo: **por debajo, mucho poder. Por encima, un solo gesto.** Toda la inteligencia — scoring, patrones, señales — vive escondida hasta el momento exacto en que hace falta. El comercial trabaja en Vocify cada día, pero nunca abre un panel de analítica. Se encuentra la razón correcta, en el sitio correcto, sin haberla pedido.
 
 ---
 
-## 1. El Dashboard — no es un CRM, es "Hoy"
+## 1. El Dashboard — la casa del comercial
 
-Cuando abres Vocify no ves un funnel, ni un gráfico de barras, ni una tabla de deals. Ves una lista de tarjetas. Cada una es una llamada que tiene sentido hacer ahora, con el motivo ya escrito encima:
+El comercial pasa aquí su día. Abre Vocify y ya está preparado: primero las reuniones de hoy, luego lo que solo espera su OK (una confirmación, un follow-up listo), y después a quién llamar y por qué, con un máximo de siete cosas. A la derecha, la preparación de la siguiente llamada: tres líneas que se leen en cinco segundos y un botón para llamar.
 
-> **Marina Ortiz — Tenéis Solutions**
-> Te dijo "llámame en dos semanas" — han pasado 12 días.
-> *Objeción sin cerrar: precio. Así la resolvió Alex la semana pasada → [ver]*
-> `[ Llamar ]` `[ Posponer ]`
+Todo se hace desde aquí, sin cambiar de pantalla: preparar, llamar, confirmar, enviar el follow-up, preguntar. Al colgar, el CRM ya está guardado y el follow-up escrito.
 
-No hay una columna de "prioridad" numérica, ni un score visible. El orden ya viene decidido — follow-ups prometidos primero, leads calientes que se enfrían después, el resto por detrás — y la explicación siempre va delante del ranking, nunca al revés. Si el comercial tiene que preguntarse "¿por qué esto está arriba?", la tarjeta está mal escrita.
+Lo que no hay: paneles de analítica, rankings, rachas ni comparativas. Una tira discreta con el pulso del día («3 llamadas hoy, todas guardadas en HubSpot») y una lista corta de lo hecho, plegada. El comercial trabaja aquí; no se mide aquí.
 
-Arriba del todo, sin ocupar protagonismo, una tira discreta con el pulso del día — *"4 llamadas hoy, 3 con el CRM ya limpio, 1 por revisar"* — no un dashboard, un vistazo. Y siempre visible, sin buscarlo: el botón de captura (grabar / nota de voz / WhatsApp), porque lo único que nunca puede tener fricción es empezar.
-
-**Vacío bien resuelto:** cuando no hay nada urgente, el dashboard no está vacío — dice *"Nada urgente hoy. Buen momento para prospectar en frío."* — nunca un hueco en blanco que parece que algo se rompió.
+La extensión sigue siendo la forma de preparar desde la ficha del CRM, y la app de escritorio, la de capturar reuniones. Las tres dicen lo mismo con las mismas palabras.
 
 ---
 
