@@ -1,9 +1,9 @@
-import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BRIEF_LOADING,
   briefRequest,
   panelBrief,
+  visibleBrief,
   type BriefPayload,
   type BriefRow,
   type PanelBrief,
@@ -33,7 +33,7 @@ export function BriefLines({ brief, loadingText, compact }: { brief: PanelBrief;
       {brief.rows.map((row: BriefRow, index: number) => (
         <p
           key={`${index}-${row.text}`}
-          className={`${bodyClass} text-foreground ${row.playbook ? "border-l-2 border-beige/60 pl-[11px]" : ""}`}
+          className={`${bodyClass} ${row.playbook ? "border-l-2 border-beige/60 pl-[11px]" : ""}`}
         >
           {row.text}
         </p>
@@ -43,32 +43,50 @@ export function BriefLines({ brief, loadingText, compact }: { brief: PanelBrief;
   );
 }
 
-export function ContactBrief({
-  contactId,
-  connectionId,
-  compact = false,
-}: {
-  contactId: string;
-  connectionId?: string | null;
-  compact?: boolean;
-}) {
+/** Only BRIEF_V2_ENABLED answers carry `label` (null when there is none). */
+function isV2(payload: BriefPayload): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, "label");
+}
+
+export function ContactBrief({ contactId, compact = false }: { contactId: string; compact?: boolean }) {
   const query = useQuery({
-    queryKey: ["brief", contactId, connectionId ?? "hubspot"],
-    queryFn: () => api.get<BriefPayload>(briefRequest(contactId, connectionId ?? undefined)),
+    queryKey: ["brief", contactId],
+    queryFn: () => api.get<BriefPayload>(briefRequest(contactId)),
     staleTime: 30_000,
   });
 
-  const brief = useMemo(() => {
-    const cache = contactId && query.data ? { contactId, brief: query.data } : null;
-    const flightContactId = query.isPending && contactId ? contactId : null;
-    const failedContactId = query.isError && contactId ? contactId : null;
-    return panelBrief({ contactId, cache, flightContactId, failedContactId });
-  }, [contactId, query.data, query.isError, query.isPending]);
+  if (!query.data) {
+    if (!compact) return null;
+    const brief = panelBrief({
+      contactId,
+      cache: null,
+      flightContactId: query.isPending ? contactId : null,
+      failedContactId: query.isError ? contactId : null,
+    });
+    if (brief.state !== "loading") return null;
+    return (
+      <section aria-label="Antes de llamar" className="space-y-1">
+        <BriefLines brief={brief} loadingText={BRIEF_LOADING} compact />
+      </section>
+    );
+  }
 
-  if (brief.state === "none" && !brief.rows.length && !brief.notice) return null;
+  if (!compact && !isV2(query.data)) {
+    const lines = visibleBrief(query.data);
+    if (lines.length === 0) return null;
+    return (
+      <section aria-label="Antes de llamar" className="space-y-1">
+        {lines.map((line, index) => (
+          <p key={`${index}-${line}`}>{line}</p>
+        ))}
+      </section>
+    );
+  }
 
+  const brief = panelBrief({ contactId, cache: { contactId, brief: query.data }, flightContactId: null });
+  if (!brief.rows.length && !brief.notice && !brief.label) return null;
   return (
-    <section aria-label="Antes de llamar" className={compact ? "space-y-1" : "space-y-1"}>
+    <section aria-label="Antes de llamar" className="space-y-1">
       <BriefLines brief={brief} loadingText={BRIEF_LOADING} compact={compact} />
     </section>
   );

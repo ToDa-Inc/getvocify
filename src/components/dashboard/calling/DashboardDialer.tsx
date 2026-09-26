@@ -90,6 +90,8 @@ type Props = {
   focusContact?: DialerFocus | null;
   onFocusHandled?: () => void;
   compact?: boolean;
+  /** Off when the rep home's contact panel already shows the brief. */
+  showBrief?: boolean;
   onCallEnded?: (payload: CallEndedPayload) => void;
 };
 
@@ -113,6 +115,7 @@ export const DashboardDialer = ({
   focusContact = null,
   onFocusHandled,
   compact = false,
+  showBrief = true,
   onCallEnded,
 }: Props) => {
   const { t } = useLanguage();
@@ -677,7 +680,7 @@ export const DashboardDialer = ({
           </div>
         </div>
 
-        {!compact && selected?.contactId ? (
+        {showBrief && !compact && selected?.contactId ? (
           <div className="mt-3">
             <ContactBrief contactId={selected.contactId} compact />
           </div>

@@ -8,10 +8,10 @@ import { api } from '../lib/api.js';
 import {
   briefForContact,
   briefRequest,
-  briefRows,
   contactBriefDisplayLines,
   shouldApplyBriefResponse,
 } from '../shared/ui/brief.js';
+import { paintBriefBox } from '../lib/contact-brief-box.js';
 import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
 import { composeTarget } from '../shared/ui/compose.js';
@@ -707,35 +707,13 @@ function paintContactBrief(state) {
     flightContactId: briefFlight,
   });
   const brief = briefForContact(contactId, briefCache);
-  box.replaceChildren();
-  if (brief && !captureActive) {
-    const view = briefRows(brief);
-    for (const row of view.rows) {
-      const line = document.createElement('p');
-      line.textContent = row.text;
-      if (row.playbook) line.classList.add('brief-playbook');
-      box.appendChild(line);
-    }
-    if (view.label) {
-      const chip = document.createElement('span');
-      chip.className = 'v-chip';
-      chip.textContent = view.label;
-      box.appendChild(chip);
-    }
-    if (view.notice) {
-      const notice = document.createElement('p');
-      notice.textContent = view.notice;
-      box.prepend(notice);
-    }
-  } else {
-    for (const line of flatLines) {
-      const row = document.createElement('p');
-      row.textContent = line;
-      box.appendChild(row);
-    }
-  }
-  box.hidden = box.childElementCount === 0;
-  document.getElementById('screen-record')?.classList.toggle('has-brief', lines.length > 0 && !captureActive);
+  paintBriefBox({
+    box,
+    screen: document.getElementById('screen-record'),
+    brief,
+    flatLines,
+    captureActive,
+  });
   if (!contactId || state.isRecording || state.isCopilotListening || state.status === 'copilot' || brief || briefFlight === contactId) return;
   briefFlight = contactId;
   const connectionId = state.context.connectionId || 'hubspot';
