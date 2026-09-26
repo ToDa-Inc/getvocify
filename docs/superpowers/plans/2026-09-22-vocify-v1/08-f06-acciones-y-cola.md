@@ -402,3 +402,41 @@ C04 conserva ahora los compromisos sin día (`due_at: null`, `temporal_precision
 | Pipedrive con hora | `due_date`/`due_time` en UTC. |
 | Tarea creada | Su id queda en el compromiso (`crm_task_id`). |
 | C04 con compromiso sin día | Se conserva con `due_at` null; uno mal formado se descarta. |
+
+### Addendum E7 — confirmación de un clic (26 sep 2026)
+
+Tras una autoaprobación del CRM (`auto_sync_hubspot_calls`), si queda una etapa sugerida distinta de la actual (con `DEAL_STAGE_CONFIRM_ENABLED`) o una propuesta de reunión acordada sin aceptar, Hoy materializa una señal `type: confirm_pending` (una por memo, `dedupe_key: confirm:{memo_id}`). Flag `HOY_CONFIRMATIONS_ENABLED` por empresa; apagado: no se materializa y `POST /today/{id}/resolve` con `action: confirm` responde 404.
+
+`POST /today/{id}/resolve` acepta `action: confirm` solo en señales `confirm_pending`. Marca la señal como `resolved` con la ventana de deshacer de 5 s (F06) y deja `write_pending` en el payload. Texto: `reason` = «Confirma: reunión jue 1 oct, 11:00 con Marina · etapa → Meeting booked» (solo las partes que existan; día y hora en la zona del comercial; idioma de `Accept-Language`, como el resto de Hoy; la etapa con el nombre que tiene en el CRM). `detail` vacío salvo fallo de escritura.
+
+**Escritura en el CRM, nunca en una lectura.** La escritura (etapa con `memo_approval.write_confirmed_stage`, que usa las mismas opciones de etapa que la revisión vía `stage_sync_kwargs`; reunión con `accept_meeting_proposal`) espera a que venza el plazo de deshacer:
+- Al confirmar se programa una tarea en proceso que corre medio segundo después de `undo_deadline`.
+- Un barrido cada 60 s (arranque en `main.py`) recoge las que se perdieron (reinicio, caída) y los reintentos.
+- Ambos pasan por `run_confirm_write`, que **reclama** la fila con un update condicionado a `version` antes de tocar el CRM: dos ejecuciones → una escritura. Una reclamación de más de 10 min se considera abandonada y se puede volver a reclamar.
+- Deshacer dentro del plazo borra `write_pending`; una escritura ya reclamada no se puede deshacer (el plazo ya pasó).
+- Fallo: se registra (`domain: hoy`, `phase: confirm_write_failed`, `signal_id`), se cuenta en `write_attempts` y se reintenta en el siguiente barrido hasta 3 intentos. Tras el tercero, la señal vuelve a `pending` con `detail` «No se pudo guardar en el CRM. Vuelve a confirmar o revísala.» y no se reintenta más. Confirmar otra vez reinicia los intentos.
+- Una nueva autoaprobación del mismo memo nunca reabre una señal ya resuelta ni borra su estado de escritura.
+
+| Caso | Comportamiento esperado | Test |
+|---|---|---|
+| Autoaprobación, etapa sugerida distinta | Señal `confirm_pending` | `test_different_stage_yields_pending_parts` |
+| Etapa igual a la actual | Sin señal | `test_same_stage_yields_nothing` |
+| Reunión acordada sin aceptar | Señal | `test_unaccepted_meeting_yields_pending` |
+| Reunión aceptada / omitida | Sin señal | `test_accepted_meeting_yields_nothing`, `test_omitted_meeting_yields_nothing` |
+| Etapa + reunión | Una señal; `reason` exacto del brief | `test_stage_and_meeting_one_signal_with_brief_reason`, `test_reason_meeting_only_and_stage_only` |
+| Nombre de etapa | El del CRM, no un literal | `test_stage_label_comes_from_the_crm_stage_name` |
+| Idioma | `reason` en el idioma del comercial | `test_today_item_reason_follows_the_rep_language` |
+| Sin autoaprobación | Sin señal nueva | `test_without_auto_approve_nothing_is_materialized` |
+| Falla la materialización | La autoaprobación sigue | `test_materialize_failure_never_breaks_auto_approve` |
+| Nueva autoaprobación sobre señal resuelta | No se reabre | `test_re_auto_approve_never_reopens_a_resolved_signal` |
+| `confirm` | `write_pending` y tarea programada; sin escritura en la petición | `test_resolve_confirm_marks_write_pending_and_schedules_the_write` |
+| `confirm` repetido | Se programa una vez | `test_resolve_confirm_replay_schedules_once` |
+| Escribe como la revisión | Mismas funciones; dos ejecuciones → una escritura | `test_run_writes_through_review_functions_once`, `test_review_and_hoy_confirm_share_the_stage_write` |
+| Dos ejecuciones a la vez | Una escritura | `test_two_concurrent_runs_write_once`, `test_claim_is_conditional_on_the_version` |
+| Tarea programada / barrido | Escribe tras el plazo, no antes | `test_scheduled_task_*`, `test_sweep_writes_due_rows_and_skips_the_rest`, `test_stale_claim_is_picked_up_by_the_sweep` |
+| Deshacer dentro de 5 s | `pending`, sin `write_pending`; el barrido no escribe | `test_undo_within_window_clears_the_pending_write`, `test_undone_confirmation_is_never_written_by_the_sweep` |
+| Fallo del CRM | `GET /today` nunca escribe ni falla; 3 intentos; después vuelve a `pending` con el fallo | `test_get_today_never_writes_to_the_crm`, `test_failure_is_logged_retried_and_capped_then_reopens` |
+| `confirm` en otra señal | 422 | `test_confirm_on_non_confirm_signal_rejected` |
+| Flag apagado | Sin señal; `confirm` → 404 «Señal no encontrada» | `test_flag_off_hides_confirm_and_rejects_action` |
+| Flag encendido sin filas | Hoy como antes | `test_flag_on_without_confirm_rows_is_today_as_before` |
+| Hecho hoy | Fila `kind: confirmation` | `test_done_lists_confirmation_kind` |

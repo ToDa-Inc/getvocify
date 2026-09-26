@@ -73,6 +73,29 @@ def preview_stage_kwargs(supabase: Any, *, memo: dict, connection: dict, config:
     }
 
 
+def stage_sync_kwargs(
+    supabase: Any,
+    *,
+    company_id: Optional[str],
+    provider: str,
+    config: Any,
+    allowed_fields: Optional[list[str]],
+    reviewed: bool,
+) -> dict[str, Any]:
+    """Stage handling for provider.sync_memo, shared by memo review and the Hoy confirm."""
+    kwargs: dict[str, Any] = {
+        "allowed_fields": allowed_fields,
+        "default_stage_name": config.default_stage_name if config else None,
+        "default_pipeline_id": (config.default_pipeline_id or None) if config else None,
+        "default_stage_id": (config.default_stage_id or None) if config else None,
+    }
+    if stage_confirm_enabled(supabase, company_id, provider):
+        kwargs["allowed_fields"] = sync_allowed_fields(allowed_fields, provider=provider, reviewed=reviewed)
+        if reviewed:
+            kwargs["stage_confirm"] = True
+    return kwargs
+
+
 def sync_allowed_fields(allowed_fields: Optional[list[str]], *, provider: str, reviewed: bool) -> list[str]:
     """A reviewed approval lets the confirmed stage through; an unattended one never moves it."""
     field = STAGE_FIELD[provider]

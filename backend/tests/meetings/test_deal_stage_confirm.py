@@ -265,3 +265,51 @@ async def test_flag_on_unattended_approval_never_moves_the_stage(monkeypatch):
     call = provider.calls[0]
     assert call["allowed_fields"] == ["amount"]
     assert "stage_confirm" not in call
+
+
+# --- Hoy confirm (E7) comparte la escritura de etapa con la revisión -------
+
+
+@pytest.mark.asyncio
+async def test_review_and_hoy_confirm_share_the_stage_write(monkeypatch):
+    db, provider = _approve_env(monkeypatch, provider_name="hubspot", flags=FLAG_ON, allowed_deal_fields=["amount"])
+    seen: list[bool] = []
+    real = sc.stage_sync_kwargs
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs["reviewed"])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(memo_approval, "stage_sync_kwargs", spy)
+    await memo_approval.approve_memo_core(db, MEMO, "u-1", _reviewed(dealStage="closedwon"))
+    await memo_approval.write_confirmed_stage(
+        db, memo_id=MEMO, user_id="u-1", company_id=COMPANY, stage_id="appointmentscheduled",
+    )
+    assert seen == [True, True]
+    review, confirm = provider.calls
+    assert confirm["extraction"].dealStage == "appointmentscheduled"
+    assert confirm["allowed_fields"] == ["dealstage"]
+    assert confirm["stage_confirm"] is True
+    assert confirm["deal_id"] == "D1"
+    assert confirm["create_note"] is False
+    for key in ("default_stage_name", "default_pipeline_id", "default_stage_id"):
+        assert confirm[key] == review[key]
+
+
+@pytest.mark.asyncio
+async def test_hoy_confirm_carries_the_pipedrive_stage_id(monkeypatch):
+    db, provider = _approve_env(monkeypatch, provider_name="pipedrive", flags=FLAG_ON, allowed_deal_fields=["value"])
+    await memo_approval.write_confirmed_stage(db, memo_id=MEMO, user_id="u-1", company_id=COMPANY, stage_id="7")
+    [call] = provider.calls
+    assert call["extraction"].raw_extraction["stage_id"] == "7"
+    assert call["allowed_fields"] == ["stage_id"]
+    assert call["stage_confirm"] is True
+
+
+@pytest.mark.asyncio
+async def test_hoy_confirm_writes_no_stage_with_the_stage_flag_off(monkeypatch):
+    db, provider = _approve_env(monkeypatch, provider_name="hubspot", flags=[], allowed_deal_fields=["amount"])
+    await memo_approval.write_confirmed_stage(
+        db, memo_id=MEMO, user_id="u-1", company_id=COMPANY, stage_id="appointmentscheduled",
+    )
+    assert provider.calls == []

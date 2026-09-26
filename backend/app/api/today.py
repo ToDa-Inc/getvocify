@@ -14,6 +14,13 @@ from app.deps import get_membership, get_supabase, require_rep_workspace
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
 from app.services.hoy.actions import ActionError, apply_action, undo_action
+from app.services.hoy.confirmations import (
+    CONFIRM_FLAG,
+    CONFIRM_TYPE,
+    clear_confirm_write_pending,
+    mark_confirm_write_pending,
+    schedule_confirm_write,
+)
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
@@ -327,7 +334,16 @@ async def get_today(
         .execute()
     )
     now = _now()
+    confirm_enabled = is_enabled(supabase, membership.company_id, CONFIRM_FLAG)
     visible = [row for row in (stored.data or []) if is_today_visible(row, now)]
+    confirm_rows = [
+        row for row in visible
+        if row.get("type") == CONFIRM_TYPE and confirm_enabled
+    ]
+    visible = [
+        row for row in visible
+        if row.get("type") != CONFIRM_TYPE or confirm_enabled
+    ]
     attempt_daily_run_claim(supabase, membership.company_id, now, rep_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:
@@ -348,7 +364,7 @@ async def get_today(
     signal_keys = {row.get("dedupe_key") for row in stored.data or []}
     task_links = {key: ids for key, ids in commitment_task_links(memos).items() if key in signal_keys}
     view = build_today_view(
-        signals=[_signal(row) for row in visible],
+        signals=[_signal(row) for row in visible if row.get("type") != CONFIRM_TYPE],
         manual_tasks=manual_tasks,
         now=now,
         coverage=coverage,
@@ -358,6 +374,8 @@ async def get_today(
         portal_id=str(portal) if portal else None,
         company_domain=domain,
         task_links=task_links,
+        confirm_rows=confirm_rows,
+        tz_name=rep_timezone(membership.user_id),
     )
     _stamp_contact_names(view, visible, memo_directory(memos))
     return view
@@ -513,6 +531,11 @@ async def resolve_today(signal_id: str, body: ResolveBody, membership: Membershi
     row = _load(supabase, signal_id, membership)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Señal no encontrada")
+    if body.action == "confirm":
+        if not is_enabled(supabase, membership.company_id, CONFIRM_FLAG):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Señal no encontrada")
+        if row.get("type") != CONFIRM_TYPE:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Acción no válida")
     try:
         result = apply_action(
             row,
@@ -529,17 +552,20 @@ async def resolve_today(signal_id: str, body: ResolveBody, membership: Membershi
             raise _conflict(error.row) from error
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Acción no válida") from error
     if not result["replayed"]:
+        update_payload: dict = {
+            "status": result["status"],
+            "version": result["version"],
+            "previous_status": result["previous_status"],
+            "last_action_request_id": result["last_action_request_id"],
+            "last_action_at": result["last_action_at"],
+            "undo_deadline": result["undo_deadline"],
+            "snoozed_until": result["snoozed_until"],
+        }
+        if body.action == "confirm":
+            update_payload["payload"] = mark_confirm_write_pending(dict(row.get("payload") or {}))
         saved = (
             supabase.table("action_signals")
-            .update({
-                "status": result["status"],
-                "version": result["version"],
-                "previous_status": result["previous_status"],
-                "last_action_request_id": result["last_action_request_id"],
-                "last_action_at": result["last_action_at"],
-                "undo_deadline": result["undo_deadline"],
-                "snoozed_until": result["snoozed_until"],
-            })
+            .update(update_payload)
             .eq("id", signal_id)
             .eq("company_id", membership.company_id)
             .eq("user_id", membership.user_id)
@@ -550,6 +576,8 @@ async def resolve_today(signal_id: str, body: ResolveBody, membership: Membershi
             current = _load(supabase, signal_id, membership) or row
             raise _conflict(current)
         result = saved.data[0]
+        if body.action == "confirm":
+            schedule_confirm_write(supabase, signal_id, result.get("undo_deadline"))
     return _public(result)
 
 
@@ -573,15 +601,18 @@ async def undo_today(signal_id: str, body: UndoBody, membership: Membership = De
         if error.code == "conflict":
             raise _conflict(error.row) from error
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Señal no encontrada") from error
+    undo_update: dict = {
+        "status": result["status"],
+        "version": result["version"],
+        "previous_status": result["previous_status"],
+        "undo_deadline": None,
+        "snoozed_until": None,
+    }
+    if row.get("type") == CONFIRM_TYPE:
+        undo_update["payload"] = clear_confirm_write_pending(dict(row.get("payload") or {}))
     saved = (
         supabase.table("action_signals")
-        .update({
-            "status": result["status"],
-            "version": result["version"],
-            "previous_status": result["previous_status"],
-            "undo_deadline": None,
-            "snoozed_until": None,
-        })
+        .update(undo_update)
         .eq("id", signal_id)
         .eq("company_id", membership.company_id)
         .eq("user_id", membership.user_id)

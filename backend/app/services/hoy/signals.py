@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 Interest = Literal["high", "medium", "low", "none"]
-SignalType = Literal["commitment_due", "no_reply", "going_cold", "objection_open"]
+SignalType = Literal["commitment_due", "no_reply", "going_cold", "objection_open", "confirm_pending"]
 CommitmentKind = Literal["call", "email", "send", "meeting", "other"]
 
 COLD_AFTER = timedelta(days=10)

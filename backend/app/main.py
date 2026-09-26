@@ -277,6 +277,21 @@ async def _refresh_crm_updates_stale_pending_gauge():
         await asyncio.sleep(5 * 60)
 
 
+async def _periodic_confirm_writes():
+    """Hoy confirmations whose scheduled write was lost (restart, crash) or needs a retry."""
+    from app.deps import get_supabase
+    from app.services.hoy.confirmations import SWEEP_INTERVAL_SECONDS, sweep_confirm_writes
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        try:
+            await sweep_confirm_writes(supabase)
+        except Exception:
+            logger.exception("Hoy confirm sweep failed", extra={"domain": "hoy", "phase": "confirm_sweep"})
+
+
 async def _periodic_memo_recovery():
     """
     Every 5 minutes, re-queue memos stuck in 'transcribing'/'extracting' past
@@ -383,6 +398,7 @@ async def startup_event():
 
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
     asyncio.create_task(_periodic_memo_recovery())
+    asyncio.create_task(_periodic_confirm_writes())
     from app.services.intelligence.worker import install_intelligence_tick, start_worker
     from app.deps import get_supabase
     from app.api.playbooks import set_playbook_store

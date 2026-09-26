@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Phone } from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
 import { itemKey } from "@shared/ui/home.js";
 import { IconAction } from "@/components/ui/icon-action";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
@@ -33,6 +34,8 @@ type Props = {
   items: TodayItem[];
   onDismiss: (item: TodayItem) => void;
   onUndo: (item: TodayItem) => void;
+  onConfirm?: (item: TodayItem) => void;
+  onReview?: (memoId: string) => void;
   provider?: string | null;
   portalId?: string | null;
   compact?: boolean;
@@ -54,12 +57,14 @@ function openDialer(
 function CardBody({
   item,
   compact,
+  quoted = true,
   inCall,
   inCallElapsed,
   note,
 }: {
   item: TodayItem;
   compact?: boolean;
+  quoted?: boolean;
   inCall?: boolean;
   inCallElapsed?: string | null;
   note?: string | null;
@@ -80,11 +85,54 @@ function CardBody({
         ) : null}
       </div>
       <p className={compact ? "mt-2 text-[13px] leading-snug text-foreground" : "mt-3 text-[15px] leading-relaxed text-foreground"}>{item.reason}</p>
-      {item.detail ? <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>“{item.detail}”</p> : null}
+      {item.detail ? (
+        <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>{quoted ? `“${item.detail}”` : item.detail}</p>
+      ) : null}
       {extras.length > 0 ? (
         <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
       ) : null}
     </div>
+  );
+}
+
+function ConfirmCard({
+  item,
+  compact,
+  onConfirm,
+  onReview,
+  onUndo,
+}: {
+  item: TodayItem;
+  compact?: boolean;
+  onConfirm?: (item: TodayItem) => void;
+  onReview?: (memoId: string) => void;
+  onUndo: (item: TodayItem) => void;
+}) {
+  const { t } = useLanguage();
+  const undoOpen = item.undo_deadline != null && Date.parse(item.undo_deadline) >= Date.now();
+  return (
+    <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
+      <div className="flex items-start gap-3">
+        <CardBody item={item} compact={compact} quoted={false} />
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          {item.status === "pending" && onConfirm ? (
+            <>
+              <Button type="button" variant="outline" size="sm" className="h-8 px-3.5 text-[13.5px]" onClick={() => void onConfirm(item)}>
+                {t.product.confirmAction}
+              </Button>
+              {item.memo_id && onReview ? (
+                <button type="button" className={textAction} onClick={() => onReview(String(item.memo_id))}>
+                  {t.product.home_review}
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          {undoOpen ? (
+            <button type="button" className={textAction} onClick={() => void onUndo(item)}>{t.product.undo}</button>
+          ) : null}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -222,6 +270,8 @@ export function TodayItemList({
   items,
   onDismiss,
   onUndo,
+  onConfirm,
+  onReview,
   provider = null,
   portalId = null,
   compact,
@@ -237,18 +287,29 @@ export function TodayItemList({
 
   return (
     <ul className={compact ? "space-y-2" : "space-y-3"}>
-      {calls.map((item) => (
-        <CallCard
-          key={item.id ?? item.dedupe_key ?? item.reason}
-          item={item}
-          provider={provider}
-          portalId={portalId}
-          compact={compact}
-          onDismiss={onDismiss}
-          onUndo={onUndo}
-          onCall={call}
-        />
-      ))}
+      {calls.map((item) =>
+        item.type === "confirm_pending" ? (
+          <ConfirmCard
+            key={item.id ?? item.dedupe_key ?? item.reason}
+            item={item}
+            compact={compact}
+            onConfirm={onConfirm}
+            onReview={onReview}
+            onUndo={onUndo}
+          />
+        ) : (
+          <CallCard
+            key={item.id ?? item.dedupe_key ?? item.reason}
+            item={item}
+            provider={provider}
+            portalId={portalId}
+            compact={compact}
+            onDismiss={onDismiss}
+            onUndo={onUndo}
+            onCall={call}
+          />
+        ),
+      )}
     </ul>
   );
 }

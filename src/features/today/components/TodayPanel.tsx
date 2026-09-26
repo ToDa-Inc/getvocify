@@ -27,7 +27,7 @@ function formatStamp(iso: string, locale: string) {
 export function TodayPanel() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { surface, listed, dismiss, undo, contactsUrl, provider, portalId } = useTodayCardActions();
+  const { surface, listed, dismiss, confirm, undo, contactsUrl, provider, portalId } = useTodayCardActions();
   const dialer = useOptionalDialerFocus();
   useTodayUndoClock(surface.kind === "list");
 
@@ -151,6 +151,8 @@ export function TodayPanel() {
             <TodayItemList
               items={listed}
               onDismiss={dismiss}
+              onConfirm={confirm}
+              onReview={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
               onUndo={undo}
               provider={provider}
               portalId={portalId}

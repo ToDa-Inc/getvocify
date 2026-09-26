@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from app.services.hoy.confirm_copy import DEFAULT_TZ, confirm_reason, failed_detail
 from app.services.hoy.reasons import reason
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, rank_cards
 from app.services.hubspot.account_info import build_contact_record_url
@@ -249,6 +250,49 @@ def contact_record_url(
     return None
 
 
+def confirm_item(
+    row: dict,
+    *,
+    lang: str = "es",
+    tz_name: str | None = None,
+    provider: str | None = None,
+    portal_id: str | None = None,
+    company_domain: str | None = None,
+) -> dict:
+    """One confirm_pending row as a Today item, its text in the rep's language."""
+    payload = dict(row.get("payload") or {})
+    has_parts = isinstance(payload.get("meeting"), dict) or isinstance(payload.get("stage"), dict)
+    item = {
+        "type": "confirm_pending",
+        "dedupe_key": row.get("dedupe_key"),
+        "contact_id": row.get("contact_id"),
+        "connection_id": row.get("connection_id"),
+        "reason": confirm_reason(payload, lang=lang, tz_name=tz_name or DEFAULT_TZ)
+        if has_parts else (payload.get("reason") or ""),
+        "detail": failed_detail(lang) if payload.get("write_failed") else None,
+        "memo_id": row.get("memo_id"),
+        "origins": ["detected"],
+        "supporting": [],
+        "open_url": contact_record_url(
+            provider=provider,
+            contact_id=row.get("contact_id"),
+            portal_id=portal_id,
+            company_domain=company_domain,
+        ),
+    }
+    if payload.get("contact_name"):
+        item["contact_name"] = payload["contact_name"]
+    if row.get("id"):
+        item["id"] = row["id"]
+        item["version"] = row.get("version")
+        item["status"] = row.get("status") or "pending"
+        if row.get("undo_deadline"):
+            item["undo_deadline"] = row.get("undo_deadline")
+        if row.get("last_action_request_id"):
+            item["last_action_request_id"] = row.get("last_action_request_id")
+    return item
+
+
 def build_today_view(
     *,
     signals: list[Signal],
@@ -261,6 +305,8 @@ def build_today_view(
     portal_id: str | None = None,
     company_domain: str | None = None,
     task_links: dict[str, list[str]] | None = None,
+    confirm_rows: list[dict] | None = None,
+    tz_name: str | None = None,
 ) -> dict:
     """task_links: signal key -> CRM task ids written for that commitment. Those tasks are
     the commitment, so they never show as manual tasks; the card carries the first id."""
@@ -318,6 +364,13 @@ def build_today_view(
                 company_domain=company_domain,
             ),
         })
+    confirm_items = [
+        confirm_item(
+            row, lang=lang, tz_name=tz_name, provider=provider, portal_id=portal_id, company_domain=company_domain,
+        )
+        for row in (confirm_rows or [])
+    ]
+    items = confirm_items + items
     visible = items[:DEFAULT_LIMIT]
     folded += len(items) - len(visible)
     complete = bool(coverage) and all(value == "complete" for value in coverage.values())

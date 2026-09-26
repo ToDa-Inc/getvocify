@@ -58,13 +58,43 @@ describe("today card", () => {
     const en = strings("en");
     const es = strings("es");
     const enMarkup = renderToString(
-      renderTodayCard(pending, { now: 0, dismiss: en.dismiss, undo: en.undo }),
+      renderTodayCard(pending, { now: 0, dismiss: en.dismiss, undo: en.undo, confirm: en.confirm, review: en.review }),
     );
     assert.match(enMarkup, />Dismiss</);
     const esMarkup = renderToString(
-      renderTodayCard(pending, { now: 0, dismiss: es.dismiss, undo: es.undo }),
+      renderTodayCard(pending, { now: 0, dismiss: es.dismiss, undo: es.undo, confirm: es.confirm, review: es.review }),
     );
     assert.match(esMarkup, />Descartar</);
+  });
+
+  it("renders a pending confirmation with Confirmar and Revisar instead of Descartar", () => {
+    const es = strings("es");
+    const card = {
+      ...pending,
+      type: "confirm_pending",
+      memoId: "memo-1",
+      reason: "Confirma: reunión jue 1 oct, 11:00 con Marina · etapa → Meeting booked",
+    };
+    const markup = renderToString(
+      renderTodayCard(card, { now: 0, dismiss: es.dismiss, undo: es.undo, confirm: es.confirm, review: es.review }),
+    );
+    assert.match(markup, /data-action="confirm">Confirmar</);
+    assert.match(markup, /data-action="review">Revisar</);
+    assert.equal(markup.includes('data-action="dismiss"'), false);
+    assert.match(markup, /etapa → Meeting booked/);
+  });
+
+  it("the v-today-card element passes its confirm and review labels", async () => {
+    globalThis.HTMLElement ??= class {};
+    globalThis.customElements ??= { get: () => undefined, define: () => {} };
+    const { VTodayCard } = await import("./components/v-today-card.js");
+    const es = strings("es");
+    const card = { ...pending, type: "confirm_pending", memoId: "memo-1" };
+    const markup = renderToString(
+      VTodayCard.render(card, { now: 0, dismiss: es.dismiss, undo: es.undo, confirm: es.confirm, review: es.review }),
+    );
+    assert.match(markup, /data-action="confirm">Confirmar</);
+    assert.match(markup, /data-action="review">Revisar</);
   });
 
   it("measures real height before a full-motion exit", () => {
@@ -83,6 +113,8 @@ describe("today card", () => {
         now: Date.parse("2026-09-22T10:00:06Z"),
         dismiss: es.dismiss,
         undo: es.undo,
+        confirm: es.confirm,
+        review: es.review,
       }),
     );
     assert.equal(markup.includes(es.undo), false);
