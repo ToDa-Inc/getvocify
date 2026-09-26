@@ -3,18 +3,25 @@ from __future__ import annotations
 
 import difflib
 import json
-from datetime import datetime, timedelta
-from typing import Literal, Optional
+from datetime import date, datetime, timedelta
+from typing import Any, Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.hoy.names import clean_name
 
-PROMPT_VERSION = "followup_v1"
+PROMPT_VERSION = "followup_v2"
 STALE_GENERATING = timedelta(minutes=2)
 MAX_SUBJECT = 160
 MAX_BODY = 4000
 NO_EDIT_THRESHOLD = 0.02      # a fixed typo still counts as "sent as drafted"
 VOICE_SAMPLE_MIN_EDIT = 0.05  # only bodies the rep actually reshaped teach us their voice
-MAX_VOICE_SAMPLES = 5
+MAX_VOICE_SAMPLES = 5         # learned samples only; pasted ones are capped by MAX_PASTED
+MAX_PASTED = 3
+PASTED_MIN_CHARS = 40
+PASTED_MAX_CHARS = 1500
+PASTED = "pasted"
+DEFAULT_TZ = "Europe/Madrid"
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 SKIPPED_SCREENING = frozenset({"voicemail", "no_response"})
 # Sent drafts belong to «Hecho hoy», not to the pending list.
 LISTABLE_STATUSES = ("ready", "generating", "unavailable")
@@ -42,19 +49,77 @@ def should_generate(current: Optional[dict], now: datetime) -> bool:
 
 
 def build_messages(*, system_prompt: str, transcript: str, summary: str, next_steps: list[str],
-                   contact_name: Optional[str], rep_name: Optional[str], voice_samples: list[str]) -> list[dict]:
+                   contact_name: Optional[str], rep_name: Optional[str], voice_samples: list[str],
+                   facts: Optional[dict] = None) -> list[dict]:
+    """Without C04 facts the input is exactly the pre-C04 one."""
     context = {
         "rep_name": rep_name or "",
         "contact_name": contact_name or "",
         "summary": summary or "",
         "next_steps": next_steps or [],
-        "voice_samples": voice_samples[-3:],
-        "transcript": transcript,
     }
+    if facts is not None:
+        context.update(commitments=facts.get("commitments") or [], meeting=facts.get("meeting"),
+                       pain_quote=facts.get("pain_quote"))
+    context.update(voice_samples=voice_samples[-3:], transcript=transcript)
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
     ]
+
+
+def _zone(name: Optional[str]) -> ZoneInfo:
+    try:
+        return ZoneInfo(str(name or DEFAULT_TZ))
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_TZ)
+
+
+def _day(value: date) -> str:
+    """Weekday spelled out (not via the process locale): models misplace weekdays computed from bare dates."""
+    return f"{WEEKDAYS[value.weekday()]} {value.isoformat()}"
+
+
+def _when(value: Any, precision: Any, tz: ZoneInfo) -> dict:
+    if not isinstance(value, str) or not value.strip():
+        return {}
+    try:
+        if precision == "date":
+            return {"day": _day(date.fromisoformat(value.strip()[:10]))}  # a day is that day in every zone
+        if precision == "time":
+            local = datetime.fromisoformat(value.strip().replace("Z", "+00:00")).astimezone(tz)
+            return {"day": _day(local.date()), "time": f"{local:%H:%M}"}
+    except ValueError:
+        return {}
+    return {}
+
+
+def _pain_quote(block: dict) -> Optional[str]:
+    """C04 keeps no pointer to the pain evidence: it is the one no other fact references."""
+    if block.get("pain_confirmed") is not True:
+        return None
+    referenced: set[str] = set()
+    for value in block.values():
+        items = value if isinstance(value, list) else [value]
+        for item in items:
+            if isinstance(item, dict):
+                referenced.update(str(ref) for ref in item.get("evidence_refs") or [])
+    loose = [ev for ev in block.get("evidence") or [] if isinstance(ev, dict) and ev.get("id") not in referenced]
+    quote = str(loose[0].get("quote") or "").strip() if len(loose) == 1 else ""
+    return quote or None
+
+
+def c04_facts(block: dict, tz_name: Optional[str]) -> dict:
+    """What C04 agreed, in the rep's own day and time, as the follow-up prompt reads it."""
+    tz = _zone(tz_name)
+    commitments = []
+    for item in block.get("commitments") or []:
+        text = str((item or {}).get("text") or "").strip() if isinstance(item, dict) else ""
+        if text:
+            commitments.append({"text": text, **_when(item.get("due_at"), item.get("temporal_precision"), tz)})
+    raw = block.get("meeting") if isinstance(block.get("meeting"), dict) else {}
+    meeting = _when(raw.get("starts_at"), raw.get("precision"), tz) if raw.get("agreed") is True else {}
+    return {"commitments": commitments, "meeting": meeting or None, "pain_quote": _pain_quote(block)}
 
 
 def parse_draft(payload: object) -> Optional[dict]:
@@ -80,11 +145,53 @@ def is_no_edit(ratio: float) -> bool:
     return ratio <= NO_EDIT_THRESHOLD
 
 
-def next_voice_samples(samples: list[str], final_body: str, ratio: float) -> list[str]:
-    """Unedited drafts are our voice, not theirs; only reshaped bodies are kept."""
+def _is_pasted(sample: Any) -> bool:
+    return isinstance(sample, dict) and sample.get("source") == PASTED
+
+
+def next_voice_samples(samples: list, final_body: str, ratio: float) -> list:
+    """Unedited drafts are our voice, not theirs; only reshaped bodies are kept.
+    The cap drops the oldest learned sample, never one the rep pasted."""
     if ratio < VOICE_SAMPLE_MIN_EDIT or not final_body.strip():
         return samples
-    return (samples + [final_body.strip()])[-MAX_VOICE_SAMPLES:]
+    grown = samples + [final_body.strip()]
+    excess = sum(not _is_pasted(sample) for sample in grown) - MAX_VOICE_SAMPLES
+    kept = []
+    for sample in grown:
+        if excess > 0 and not _is_pasted(sample):
+            excess -= 1
+            continue
+        kept.append(sample)
+    return kept
+
+
+def voice_texts(samples: list) -> list[str]:
+    """Learned samples are strings, pasted ones {"text", "source": "pasted"}; oldest first."""
+    texts = []
+    for sample in samples or []:
+        text = sample.get("text") if _is_pasted(sample) else sample
+        if isinstance(text, str) and text.strip():
+            texts.append(text.strip())
+    return texts
+
+
+def pasted_samples(samples: list) -> list[str]:
+    return voice_texts([sample for sample in samples or [] if _is_pasted(sample)])
+
+
+def clean_pasted(raw: list[str]) -> list[str]:
+    cleaned = [text.strip() for text in raw if isinstance(text, str) and text.strip()]
+    if len(cleaned) > MAX_PASTED:
+        raise ValueError(f"at most {MAX_PASTED} samples")
+    if any(not PASTED_MIN_CHARS <= len(text) <= PASTED_MAX_CHARS for text in cleaned):
+        raise ValueError(f"each sample needs {PASTED_MIN_CHARS} to {PASTED_MAX_CHARS} characters")
+    return cleaned
+
+
+def with_pasted(samples: list, pasted: list[str]) -> list:
+    """The new pasted set replaces the old one as the most recent entries; learned ones stay."""
+    learned = [sample for sample in samples or [] if not _is_pasted(sample)]
+    return learned + [{"text": text, "source": PASTED} for text in pasted]
 
 
 def apply_action(current: dict, *, action: Literal["sent", "copied"], channel: str,

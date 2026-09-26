@@ -210,7 +210,8 @@ class Settings(BaseSettings):
     CALLING_ES_MOBILE_CALL_BLOCK_FROM: date = date(2026, 10, 17)
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
-    # Follow-up drafts. Off does not block extraction; sent means mail-client handoff.
+    # Follow-up drafts; overridable per company (company_feature_flags). Off does not block
+    # extraction; sent means mail-client handoff.
     FOLLOWUP_ENABLED: bool = True
     # Daily report email, per company. The report is still generated and listed in the bell when off.
     REPORTING_DAILY_EMAIL_ENABLED: bool = False
