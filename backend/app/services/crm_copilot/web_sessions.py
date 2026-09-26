@@ -13,9 +13,12 @@ class UncertainOperation(Exception):
     pass
 
 
+_STORED_KEYS = ("coverage", "item_count", "choices", "confirmation", "call_targets")
+
+
 def _encode_completed_body(turn: dict) -> str:
     payload: dict = {"__vocify_turn__": 1, "text": turn.get("text") or ""}
-    for key in ("coverage", "item_count", "choices", "confirmation"):
+    for key in _STORED_KEYS:
         value = turn.get(key)
         if value is not None:
             payload[key] = value
@@ -41,7 +44,7 @@ def _turn_from_row(row: dict) -> dict:
             return turn
         if payload.get("__vocify_turn__"):
             turn["text"] = payload.get("text") or ""
-            for key in ("coverage", "item_count", "choices", "confirmation"):
+            for key in _STORED_KEYS:
                 if key in payload:
                     turn[key] = payload[key]
     return turn
@@ -264,6 +267,7 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
     import logging
 
     from app.deps import get_supabase
+    from app.services.crm_copilot.call_actions import public_call_targets
     from app.services.crm_copilot.loop import run_copilot_turn
     from app.services.crm_copilot.prompts import build_system_prompt
     from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, execute_tool
@@ -271,6 +275,7 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
 
     user_id = _actor.get("user_id") or ""
     artifacts = _sessions.setdefault(user_id, {})
+    ctx = CopilotContext(supabase=get_supabase(), user_id=user_id, artifacts=artifacts)
     try:
         result = await run_copilot_turn(
             text,
@@ -280,12 +285,16 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
             tools=OPENAI_TOOLS,
             system=build_system_prompt(artifacts),
             confirm=confirm,
-            ctx=CopilotContext(supabase=get_supabase(), user_id=user_id, artifacts=artifacts),
+            ctx=ctx,
         )
     except Exception:
         logging.getLogger(__name__).exception("ask loop failed")
         return None
-    return payload_from_turn(result.text or "", artifacts, kind=result.kind)
+    body = payload_from_turn(result.text or "", artifacts, kind=result.kind)
+    targets = public_call_targets(ctx, kind=result.kind)
+    if targets:
+        body["call_targets"] = targets
+    return body
 
 
 def attach_read(turn: dict, envelope: dict) -> dict:

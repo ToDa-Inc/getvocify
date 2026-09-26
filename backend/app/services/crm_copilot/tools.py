@@ -9,7 +9,11 @@ from uuid import UUID, uuid4
 
 from app.models.approval import ContactMatch
 from app.models.memo import ApproveMemoRequest, MemoExtraction
+from app.services.crm_copilot.pipedrive_reads import PipedriveReader
 from app.services.crm_copilot.prompts import SKILL_BODIES
+from app.services.crm_copilot.viewer import resolve_viewer
+from app.services.crm_copilot.vocify_reads import VOCIFY_READS, run_vocify_read
+from app.services.feature_flags import global_value, is_enabled
 from app.services.hubspot.account_info import (
     build_company_record_url,
     build_contact_record_url,
@@ -37,7 +41,7 @@ def _fn(name: str, description: str, properties: dict, required: Optional[list] 
     return {"type": "function", "function": {"name": name, "description": description, "parameters": schema}}
 
 
-OPENAI_TOOLS = [
+BASE_TOOLS = [
     _fn("load_skill", "Load a skill body.", {"name": {"type": "string"}}, ["name"]),
     _fn("remember", "Store a durable seller fact.", {"text": {"type": "string"}}, ["text"]),
     _fn("reset_session", "Wipe WhatsApp working memory and last contact. Use when they want a fresh start.", {}),
@@ -158,6 +162,71 @@ OPENAI_TOOLS = [
     ),
 ]
 
+DATA_TOOLS = [
+    _fn(
+        "get_team_metrics",
+        "Team numbers for owners/admins: playbook adherence, this week's attempts/connected calls/meetings, "
+        "objections by category, CRM won/lost, and reps (userId, name). Pass user_id from reps for one teammate. "
+        "A member gets forbidden: say it is only for managers.",
+        {
+            "user_id": {"type": "string", "description": "userId of one teammate from a previous reps list"},
+            "motion": {"type": "string", "description": "sales motion key, only if they named one"},
+        },
+    ),
+    _fn(
+        "list_conversations",
+        "Vocify's own recorded conversations (calls, meetings, voice notes), newest first: date, author, summary, "
+        "objections, commitments, pain, meeting. Use for 'qué me dijo X la última vez' (contact_id from "
+        "search_contacts), 'mis últimas llamadas', what was promised. Only what the caller may read.",
+        {
+            "contact_id": {"type": "string", "description": "CRM contact id"},
+            "deal_id": {"type": "string", "description": "CRM deal id"},
+            "query": {"type": "string", "description": "name or company when there is no CRM id"},
+            "days": {"type": "integer", "description": "only the last N days"},
+            "limit": {"type": "integer", "description": "1-10, default 5"},
+            "user_id": {"type": "string", "description": "managers only: one teammate"},
+        },
+    ),
+    _fn(
+        "get_objections",
+        "Most frequent objections in the caller's Vocify conversations (managers: the whole team, or user_id), "
+        "by category with resolved/open counts and example phrasings. Use for 'qué objeción sale más'.",
+        {
+            "days": {"type": "integer", "description": "period, default 30, max 90"},
+            "user_id": {"type": "string", "description": "managers only: one teammate"},
+        },
+    ),
+    _fn(
+        "get_call_priorities",
+        "The caller's call list for today: their assigned CRM contacts ranked by Vocify call facts, with reason "
+        "and next action. Use for 'a quién llamo hoy' / 'qué hago hoy'.",
+        {"limit": {"type": "integer", "description": "1-20, default 5"}},
+    ),
+]
+ASK_DATA_TOOLS = frozenset(tool["function"]["name"] for tool in DATA_TOOLS)
+DATA_TOOLS_FLAG = "ASK_VOCIFY_DATA_TOOLS_ENABLED"
+
+
+def build_openai_tools(*, data_tools: bool) -> list:
+    return [*BASE_TOOLS, *DATA_TOOLS] if data_tools else list(BASE_TOOLS)
+
+
+OPENAI_TOOLS = build_openai_tools(data_tools=True)
+
+
+def tools_for(tools: list, *, data_tools: bool) -> list:
+    if data_tools:
+        return tools
+    return [tool for tool in tools if tool.get("function", {}).get("name") not in ASK_DATA_TOOLS]
+
+
+def data_tools_enabled(ctx: Any) -> bool:
+    """Per company (company_feature_flags), falling back to the global switch."""
+    if ctx is None or getattr(ctx, "supabase", None) is None:
+        return global_value(DATA_TOOLS_FLAG)
+    viewer = resolve_viewer(ctx)
+    return is_enabled(ctx.supabase, viewer.company_id if viewer else None, DATA_TOOLS_FLAG)
+
 
 @dataclass
 class CopilotContext:
@@ -169,6 +238,9 @@ class CopilotContext:
     audio_url: Optional[str] = None
     extract_memo: Any = None
     hs: Any = None
+    crm: Any = None
+    viewer: Any = None
+    call_targets: Optional[list] = None
 
 
 @dataclass
@@ -301,19 +373,38 @@ def provider_ready(provider: str | None) -> str:
     return "unavailable"
 
 
-def _bundle(ctx: CopilotContext) -> HubSpotBundle:
-    if ctx.hs is not None:
+def _crm(ctx: CopilotContext) -> HubSpotBundle | PipedriveReader:
+    if getattr(ctx, "hs", None) is not None:
         return ctx.hs
+    if getattr(ctx, "crm", None) is not None:
+        return ctx.crm
     from app.services.crm_providers import build_crm_provider, resolve_sync_connection_prefer_hubspot
 
     conn = resolve_sync_connection_prefer_hubspot(ctx.supabase, ctx.user_id)
     if not conn:
         raise ValueError("No CRM connected")
-    if provider_ready(conn.get("provider")) != "ready":
+    provider = str(conn.get("provider") or "").strip().lower()
+    if provider == "pipedrive" and data_tools_enabled(ctx):
+        ctx.crm = PipedriveReader.from_provider(build_crm_provider(ctx.supabase, conn))
+        return ctx.crm
+    if provider_ready(provider) != "ready":
         ctx.artifacts["crm_coverage"] = "unavailable"
         raise ValueError("crm_unavailable")
     ctx.hs = HubSpotBundle.from_provider(build_crm_provider(ctx.supabase, conn))
     return ctx.hs
+
+
+async def write_blocked(name: str, ctx: Any) -> Optional[dict]:
+    """A write the connected CRM cannot do is refused before the user is asked to confirm it."""
+    if not confirmation_required(name) or ctx is None or getattr(ctx, "user_id", None) is None:
+        return None
+    try:
+        crm = _crm(ctx)
+    except Exception:
+        return None
+    if isinstance(crm, PipedriveReader):
+        return crm.unavailable(name, ctx)
+    return None
 
 
 def _props(obj: Any) -> dict:
@@ -527,38 +618,10 @@ async def execute_tool(name: str, args: dict, ctx: Any) -> dict:
 
 
 async def _execute(name: str, args: dict, ctx: Any) -> dict:
-    if name == "get_team_metrics":
-        from app.deps import get_supabase
-        from app.services.crm_copilot import web_sessions as ask_sessions
-        from app.services.team_insights.aggregate import (
-            TeamAccessError,
-            authorized_scope,
-            load_team_adherence_inputs,
-            team_adherence,
-        )
-
-        role = getattr(ctx, "role", None) or "member"
-        try:
-            scope = authorized_scope(
-                role=role,
-                requested_user_id=args.get("user_id"),
-                instruction=str(args.get("instruction") or ""),
-            )
-        except TeamAccessError:
-            return {"ok": False, "error": "forbidden"}
-        company_id = getattr(ctx, "company_id", None) or ask_sessions._actor.get("company_id")
-        supabase = getattr(ctx, "supabase", None) or get_supabase()
-        if not company_id or supabase is None:
-            return {"ok": True, "scope": scope}
-        motion = str(args.get("motion") or "").strip() or None
-        inputs = load_team_adherence_inputs(
-            supabase,
-            str(company_id),
-            user_id=scope.get("user_id"),
-            motion=motion,
-        )
-        metrics = team_adherence(role=role, **inputs)
-        return {"ok": True, "scope": scope, "metrics": metrics, "source": "team_adherence"}
+    if name in VOCIFY_READS:
+        if name != "get_team_metrics" and not data_tools_enabled(ctx):
+            return {"ok": False, "error": f"unknown tool {name}"}
+        return await run_vocify_read(name, args, ctx)
     if name == "load_skill":
         skill = str(args.get("name") or "")
         body = SKILL_BODIES.get(skill)
@@ -583,7 +646,12 @@ async def _execute(name: str, args: dict, ctx: Any) -> dict:
 
     if ctx is None:
         return {"ok": False, "error": "missing copilot context"}
-    hs = _bundle(ctx)
+    crm = _crm(ctx)
+    if isinstance(crm, PipedriveReader):
+        if name in {"search_contacts", "search_companies", "search_deals"}:
+            clear_focus(_copilot_dict(ctx))
+        return await crm.run(name, args, ctx)
+    hs = crm
 
     if name == "search_contacts":
         copilot = _copilot_dict(ctx)

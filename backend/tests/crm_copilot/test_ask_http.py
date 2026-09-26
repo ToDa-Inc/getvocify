@@ -452,6 +452,37 @@ def test_a_proposed_confirmation_can_be_confirmed_for_that_contact_only():
         ask_api.set_ask_loop(None)
 
 
+def test_confirming_runs_the_loop_as_the_confirming_user_not_the_last_poster():
+    from app.api.ask import remember_operation
+    from app.services.crm_copilot import web_sessions
+
+    seen = []
+
+    async def loop(_text: str, confirm=None):
+        seen.append((web_sessions._actor.get("user_id"), confirm))
+        return {"text": "ok"}
+
+    ask_api.set_ask_loop(loop)
+    try:
+        remember_operation(
+            "user-a",
+            "conv-1",
+            {"operation_id": "op-a", "revision": 1, "contact_id": "contact-a", "applied": False, "status": "proposed"},
+        )
+        _client("user-b").post(
+            "/api/v1/ask/conversations/conv-2/turns",
+            json={"client_turn_id": "web-b", "text": "hola"},
+        )
+        confirmed = _client("user-a").post(
+            "/api/v1/ask/conversations/conv-1/operations/op-a/confirm",
+            json={"revision": 1, "contact_id": "contact-a"},
+        )
+        assert confirmed.status_code == 200
+        assert seen[-1] == ("user-a", True)
+    finally:
+        ask_api.set_ask_loop(None)
+
+
 def test_a_choices_turn_returns_both_labels_in_the_public_payload():
     async def loop(_text: str) -> dict:
         return {

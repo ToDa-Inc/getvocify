@@ -13,6 +13,11 @@ import { useLanguage } from "@/lib/i18n";
 import { emptyAsk, notePosted, noteTick, reopenAsk, type AskSnapshot, type AskView } from "@/lib/ask-turn";
 import { askChoices, choiceFollowUp, showAskChoices, viewForFollowUp, type AskChoice } from "@/lib/ask-choices";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
+import { useAuth } from "@/features/auth";
+import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
+import { TodayCardActions } from "@/features/today/components/TodayCardActions";
+import { askCallTargets, dialerAvailable, type AskCallTarget } from "@/lib/ask-calls";
+import { isDesktopHost } from "@/lib/desktop-host";
 import { askSituation } from "@/lib/ask-situation";
 import { productText } from "@/lib/product-catalog";
 import { Check, PaperPlaneTilt, X } from "@phosphor-icons/react";
@@ -35,6 +40,7 @@ type AskTurnBody = {
   item_count?: number;
   confirmation?: AskTurnConfirmation | null;
   choices?: AskChoice[];
+  call_targets?: AskCallTarget[];
 };
 
 function readConversationId(): string {
@@ -60,9 +66,13 @@ function readStored(): StoredTurn | null {
 
 export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const dialer = useOptionalDialerFocus();
+  const canCall = Boolean(dialer) && dialerAvailable({ desktop: isDesktopHost(), company: user?.company });
   const [draft, setDraft] = useState("");
   const [read, setRead] = useState<{ coverage?: AskTurnBody["coverage"]; items?: number }>({});
   const [turnChoices, setTurnChoices] = useState<AskChoice[]>([]);
+  const [callTargets, setCallTargets] = useState<AskCallTarget[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<ReturnType<typeof pendingConfirmFromTurn>>(null);
   const [view, setView] = useState<AskView>(emptyAsk());
   const [lines, setLines] = useState<{ role: "user" | "vocify"; text: string }[]>([]);
@@ -95,6 +105,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
         setRead({ coverage: turn.coverage, items: turn.item_count });
         setPendingConfirm(pendingConfirmFromTurn(turn));
         setTurnChoices(askChoices(turn));
+        setCallTargets(askCallTargets(turn));
       })
       .catch(() => undefined);
     return () => {
@@ -123,6 +134,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
           setRead({ coverage: turn.coverage, items: turn.item_count });
           setPendingConfirm(pendingConfirmFromTurn(turn));
           setTurnChoices(askChoices(turn));
+          setCallTargets(askCallTargets(turn));
         })
         .catch(() => {
           setView((current) => noteTick(current, 2000, null, false));
@@ -148,6 +160,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
   async function postTurn(text: string) {
     setLines((prev) => [...prev, { role: "user", text }]);
     setTurnChoices([]);
+    setCallTargets([]);
     setSending(true);
     stick.current = true;
     try {
@@ -164,6 +177,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
       setRead({ coverage: turn.coverage, items: turn.item_count });
       setPendingConfirm(pendingConfirmFromTurn(turn));
       setTurnChoices(askChoices(turn));
+      setCallTargets(askCallTargets(turn));
       if (next.turnId) {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ conversationId, turnId: next.turnId }));
       }
@@ -237,7 +251,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
     if (!el || !stick.current) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollTo({ top: el.scrollHeight, behavior: reduced ? "auto" : "smooth" });
-  }, [lines, busy, pendingConfirm, turnChoices]);
+  }, [lines, busy, pendingConfirm, turnChoices, callTargets]);
 
   return (
     <section className={embedded
@@ -271,6 +285,27 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
             </div>
           )
         ))}
+        {!busy && callTargets.length > 0 ? (
+          <ul className="max-w-[85%] space-y-1.5" aria-label={t.product.contactPrioritiesTitle}>
+            {callTargets.map((target) => (
+              <li
+                key={`${target.connection_id ?? ""}:${target.contact_id}`}
+                className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} flex items-center justify-between gap-3 py-1.5 pl-4 pr-1.5`}
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] text-foreground">{target.contact_name || t.product.today_unknown_contact}</p>
+                  <p className={`truncate ${THEME_TOKENS.typography.capsLabel}`}>{productText(target.reason, t.product)}</p>
+                </div>
+                <TodayCardActions
+                  onCall={canCall && dialer
+                    ? () => dialer.openForContact({ contactId: target.contact_id, name: target.contact_name ?? null })
+                    : undefined}
+                  crmHref={target.crm_url}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {busy || choicesOpen || pendingConfirm || (!busy && read.coverage === "partial") ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} max-w-[85%] space-y-3 px-4 py-3`}>
             {busy ? (

@@ -102,6 +102,9 @@ def _public(turn: dict) -> dict:
     choices = turn.get("choices")
     if choices:
         body["choices"] = choices
+    call_targets = turn.get("call_targets")
+    if call_targets:
+        body["call_targets"] = call_targets
     return body
 
 
@@ -163,6 +166,8 @@ async def _finish(turn: dict, text: str) -> dict:
         if result is None:
             return {**turn, "status": "failed", "text": turn["text"], "question": turn.get("question") or text}
         confirmation = None
+        choices = None
+        call_targets = None
         if hasattr(result, "text"):
             answer = public_answer(result.text)
             envelope = getattr(result, "envelope", None)
@@ -171,11 +176,14 @@ async def _finish(turn: dict, text: str) -> dict:
             envelope = result.get("envelope")
             confirmation = result.get("confirmation")
             choices = result.get("choices")
+            call_targets = result.get("call_targets")
         updated = {**turn, "status": "completed", "text": answer, "question": turn.get("question") or text}
         if confirmation:
             updated["confirmation"] = confirmation
         if choices:
             updated["choices"] = choices
+        if call_targets:
+            updated["call_targets"] = call_targets
         if envelope:
             updated = attach_read(updated, envelope)
         return updated
@@ -284,6 +292,7 @@ async def confirm_ask_operation(
     except UncertainOperation as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not result.get("replayed") and _loop is not None:
+        bind_ask_actor(membership.user_id, membership.company_id)
         follow = _loop("", confirm=True)
         if asyncio.iscoroutine(follow):
             follow = await follow

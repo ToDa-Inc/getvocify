@@ -7,9 +7,17 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from app.config import settings
-from app.services.crm_copilot.prompts import build_system_prompt
+from app.services.crm_copilot.prompts import build_system_prompt, with_data_prompt
 from app.services.crm_copilot.route import is_focus_switch, is_reset_command
-from app.services.crm_copilot.tools import clear_focus, confirmation_required, execute_tool, expire_stale_focus
+from app.services.crm_copilot.tools import (
+    clear_focus,
+    confirmation_required,
+    data_tools_enabled,
+    execute_tool,
+    expire_stale_focus,
+    tools_for,
+    write_blocked,
+)
 
 MAX_HISTORY = 24
 COMPACT_KEEP = 6
@@ -163,7 +171,7 @@ async def run_copilot_turn(
     max_rounds: Optional[int] = None,
 ) -> CopilotTurnResult:
     execute = execute or execute_tool
-    artifacts = artifacts or {}
+    artifacts = artifacts if artifacts is not None else {}
     if is_reset_command(user_text) and confirm is None:
         artifacts["copilot"] = {"messages": []}
         return CopilotTurnResult(
@@ -177,7 +185,11 @@ async def run_copilot_turn(
     if is_focus_switch(user_text) and confirm is None and not selected_choice:
         clear_focus(copilot)
     messages = _history(copilot)
+    data_tools = data_tools_enabled(ctx)
+    tools = tools_for(tools, data_tools=data_tools)
     system_text = system or build_system_prompt(artifacts)
+    if data_tools:
+        system_text = with_data_prompt(system_text)
     rounds = max_rounds if max_rounds is not None else settings.CRM_COPILOT_MAX_ROUNDS
 
     if confirm is True and copilot.get("pending_tool"):
@@ -250,6 +262,12 @@ async def run_copilot_turn(
                 pause = ("choices", name, args, tc)
                 break
             if confirmation_required(name):
+                blocked = await write_blocked(name, ctx)
+                if blocked is not None:
+                    messages.append(
+                        {"role": "tool", "tool_call_id": tc.get("id") or "", "content": _dump(blocked)}
+                    )
+                    continue
                 if _should_save_as_note(name, args, copilot):
                     name = "create_note"
                     args = _note_args_from_session(args, copilot)

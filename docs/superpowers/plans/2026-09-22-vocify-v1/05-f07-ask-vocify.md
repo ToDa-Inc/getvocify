@@ -382,6 +382,90 @@ GET /ask/conversations/conv-1/turns/turn-2 -> completed
 
 - [ ] Preparar un commit revisable de esta tarea dentro de la entrega, con archivos explícitos y referencia `F07.04`; documentar en el mismo commit/PR decisiones, pruebas y limitaciones.
 
+### F07.05 — Lecturas de datos Vocify y Pipedrive en Ask (decisión 2026-09-26)
+
+**Motivo:** revisión de Ask. (1) `get_team_metrics` se ejecutaba en servidor pero no se anunciaba al modelo; además tomaba `company_id` de un global compartido entre peticiones y `role` de un atributo que `CopilotContext` no tenía, así que nunca funcionaba y podía leer otra empresa. (2) Ask solo leía HubSpot: no podía responder «¿qué objeción sale más?», «¿a quién llamo hoy?» ni «¿qué me dijo X la última vez?». (3) Una conexión Pipedrive no tenía ninguna lectura.
+
+**Flag:** `ASK_VOCIFY_DATA_TOOLS_ENABLED`, por empresa con `feature_flags.is_enabled` (fila en `company_feature_flags`; si no hay, el global de `config.py`, apagado por defecto). Se evalúa en cada turno con la empresa de la membresía del que pregunta. Apagado: las herramientas anunciadas y el prompt son los de antes. Encendido: se anuncian las herramientas de abajo, se añade `backend/app/prompts/ask_vocify_data_v1.md` al prompt de sistema y las lecturas de Pipedrive se activan.
+
+**Identidad del lector:** empresa y rol salen siempre de `company_members` para `ctx.user_id` (servidor), nunca del texto, de los argumentos ni de un estado global. Sin pertenencia activa → `forbidden`.
+
+| Herramienta | Devuelve | Alcance |
+|---|---|---|
+| `get_team_metrics` | Agregado F15 (`team_adherence`): adherencia, actividad de la semana, objeciones por categoría, resultados CRM, `reps`. | Solo owner/admin. `user_id` opcional debe ser miembro activo de la empresa; si no, `forbidden`. |
+| `list_conversations` | Últimas conversaciones Vocify (memos): fecha, autor, contacto/deal CRM, resumen, objeciones, compromisos, dolor confirmado, reunión. | Empresa del lector. Member: solo las suyas. Owner/admin: las de los miembros (`memo_readable_by`). Filtros: `contact_id`, `deal_id`, `days`. |
+| `get_objections` | Frecuencia de objeciones por categoría (`objection_counts` sobre `interaction_patterns`), resueltas/abiertas/desconocidas, conversaciones contadas y ejemplos. | Member: sus conversaciones. Owner/admin: equipo o `user_id` miembro. Periodo `days` (defecto 30, máx 90). |
+| `get_call_priorities` | La lista F04 del lector (`build_priority_page` + memo facts): contacto, motivo, siguiente acción, cobertura, `observed_at`. | Solo contactos asignados al lector, también para owner/admin (igual que la pantalla Hoy). |
+
+Sin datos no es lo mismo que sin lectura: cada respuesta lleva `coverage` (`complete`/`partial`/`forbidden`/`unavailable`). Una lista vacía solo significa «nada» con `complete`.
+
+**Pipedrive (con flag):** `search_contacts`, `get_contact`, `inspect_record`, `search_companies`, `get_company`, `search_deals`, `get_deal` y `list_associated_deals` usan `PipedriveSearchService`. Notas, tareas, llamadas y emails de Pipedrive no tienen lectura en el proveedor: `inspect_record` los marca como no disponibles y `list_notes`/`list_tasks` devuelven el sobre `coverage: unavailable, reason: not_available_for_pipedrive`. Las escrituras siguen siendo solo HubSpot: en Pipedrive se rechazan **antes** de pedir confirmación, con el mismo sobre. Las cuatro herramientas de datos Vocify no dependen del CRM.
+
+**Casos que deben fallar antes de implementar:**
+
+| Caso | Resultado exigido |
+|---|---|
+| Flag apagado | Herramientas y prompt anteriores; `get_team_metrics` no se anuncia. |
+| Flag encendido | `get_team_metrics` y las tres lecturas Vocify se anuncian en web y WhatsApp (misma lista). |
+| Member pide métricas de equipo | `forbidden`, sin cifras. |
+| Admin pide `user_id` de otra empresa | `forbidden`, sin cifras. |
+| Contexto sin `company_id` explícito | Se resuelve por membresía; nunca por el último usuario web. |
+| Member lista conversaciones | Solo memos propios de su empresa. |
+| Admin lista conversaciones | Memos de los miembros de su empresa; ningún memo de otra. |
+| Lectura de memos falla | `coverage: unavailable`, no lista vacía. |
+| Prioridades sin CRM | `coverage: unavailable`; nunca «no tienes contactos». |
+| Prioridades de otro dueño | No aparecen. |
+| Pipedrive `search_contacts` | Personas de Pipedrive con URL de Pipedrive. |
+| Pipedrive `list_notes`/`list_tasks` | `unavailable` + `not_available_for_pipedrive`, no lista vacía. |
+| Pipedrive escritura | Rechazada antes de confirmar; no queda operación pendiente. |
+| Pipedrive 403 | `forbidden`, no «no encontrado». |
+
+**Evals:** `backend/evals/F07/cases.json` (pregunta → herramienta esperada/prohibida), validado por `tests/crm_copilot/test_ask_eval_cases.py`; ejecución real con `scripts/eval_ask_tools.py`.
+
+**Fuera de alcance / decisiones abiertas:** mover `soul.md` y `skills/` a `backend/app/prompts/`; lecturas de notas/tareas/actividades de Pipedrive; escrituras en Pipedrive.
+
+### F07.06 — «¿A quién llamo hoy?» con botón Llamar (decisión 2026-09-26)
+
+**Motivo:** A §1 principio 3: en vez de que el comercial busque a quién llamar, Vocify le presenta la acción con el contexto resuelto. Con F07.05 Ask ya respondía «¿a quién llamo hoy?» con `get_call_priorities`, pero solo con texto: para llamar había que ir a Hoy o buscar el contacto en el marcador.
+
+**Flag:** `ASK_CALL_ACTIONS_ENABLED`, por empresa con `feature_flags.is_enabled` (global en `config.py`, apagado por defecto). Solo tiene efecto si `ASK_VOCIFY_DATA_TOOLS_ENABLED` también está encendido, porque sin él la herramienta no se anuncia. Apagado: el turno es idéntico al de F07.05 (sin `call_targets`, sin botones). Encendido: solo cambia la respuesta del turno web; herramientas, prompt y WhatsApp no cambian.
+
+**Contrato (C07, campo opcional del turno):** `call_targets` aparece solo en un turno web `completed` de tipo texto cuyo loop ejecutó `get_call_priorities` con resultado `ok`. Sale del resultado de la herramienta en servidor, nunca del texto del modelo: si el modelo nombra a alguien que la herramienta no devolvió, no hay botón para esa persona; si no llamó a la herramienta, no hay `call_targets`. Si la llamó varias veces en el turno, cuenta la última. Se persiste con el turno y vuelve igual al consultar o reabrir.
+
+```json
+{"call_targets":[{"contact_id":"p-2","connection_id":"crm-A","provider":"hubspot","contact_name":"Lucía Pérez","reason":"pain_agree_next_step","next_action":"agree_next_step","crm_url":"https://app.hubspot.com/contacts/1/record/0-1/p-2"}]}
+```
+
+- Máximo 5, en el orden de F04, de los candidatos que la herramienta devolvió.
+- Solo candidatos a los que hoy toca llamar: se excluyen `history_partial` (Hoy tampoco los muestra como tarjeta) y `scheduled_no_early_call` (F04: una llamada futura acordada no invita a llamar antes). El texto del modelo puede seguir mencionándolos.
+- `reason`/`next_action` son las claves deterministas de F04; la UI las traduce igual que Hoy.
+- `crm_url` se construye en servidor con la conexión viva (HubSpot: portal/región; Pipedrive: dominio de empresa). `null` si el candidato es de otra conexión o faltan datos.
+- **Teléfono:** no se incluye. La caché de F04 no guarda teléfonos y leerlos costaría una lectura CRM por contacto y turno. «Llamar» abre el marcador con el contacto (`openForContact`, el mismo mecanismo de Hoy) y el marcador resuelve el número del CRM. Un contacto sin teléfono abre el marcador sin destino, como en Hoy.
+- Permisos: los mismos de `get_call_priorities` (solo contactos asignados al lector, de su empresa por membresía).
+
+**UI (panel Ask):** bajo la respuesta que los originó, una lista compacta: nombre, motivo en una línea y las acciones de `TodayCardActions` (Llamar; Abrir en el CRM si hay `crm_url`). Llamar solo aparece si el marcador está disponible en esa superficie (no en desktop, ni con paywall, ni en planes sin marcador; misma regla que muestra el marcador en el dashboard). Sin marcador, queda «Abrir en el CRM»; sin marcador ni `crm_url`, solo nombre y motivo. Al enviar otra pregunta la lista desaparece con el turno. Ningún texto nuevo.
+
+**Casos que deben fallar antes de implementar:**
+
+| Caso | Resultado exigido |
+|---|---|
+| Flag apagado | Turno sin `call_targets`; resto del cuerpo idéntico. |
+| Flag encendido y `get_call_priorities` devuelve candidatos | `call_targets` con esos contactos, máximo 5, en su orden. |
+| El modelo nombra un contacto que la herramienta no devolvió | No aparece en `call_targets`. |
+| El turno no llamó a `get_call_priorities` | Sin `call_targets`. |
+| Candidato `scheduled_no_early_call` o `history_partial` | No aparece. |
+| Contacto de otro dueño | No aparece (lo excluye la herramienta). |
+| Lectura `unavailable`/`forbidden` | Sin `call_targets`. |
+| Turno de confirmación o selección | Sin `call_targets`. |
+| Consultar/reabrir el turno | Mismos `call_targets` persistidos. |
+| Pipedrive | `crm_url` de persona Pipedrive. |
+| UI con marcador | Llamar abre el marcador con ese `contact_id`. |
+| UI sin marcador | Sin Llamar; Abrir en el CRM si hay URL. |
+
+**Prompt/evals:** sin cambios. `ask_vocify_data_v1.md` es compartido con WhatsApp, donde no hay botones; anunciar botones al modelo le haría prometerlos allí. Los botones no dependen del texto.
+
+**Fuera de alcance / decisiones abiertas:** «llama a Marina» (acción de llamar desde una búsqueda, no desde prioridades); marcar sin abrir el marcador; teléfonos en la caché F04; llamar desde WhatsApp.
+
 ## Verificación integrada y criterios de salida adicionales
 
 Consultar un contacto, mostrar lectura parcial de email, seleccionar otro, proponer acción y confirmar la operación correcta. Simular 202 y recarga. Repetir pregunta con voz y corregir texto antes de enviar. Probar member intentando datos ajenos.
