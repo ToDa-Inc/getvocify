@@ -8,6 +8,8 @@ from fastapi import HTTPException, status
 
 from app.services.crm_providers.errors import AmbiguousPrimaryCRMError
 from app.services.crm_providers.resolve import resolve_sync_connection_for_company
+from app.services.deal_stage_confirm import FLAG as DEAL_STAGE_CONFIRM_FLAG
+from app.services.feature_flags import is_enabled
 from app.services.meetings.crm_writer import writer_from_connection
 from app.services.meetings.proposals import latest_proposal
 from app.services.meetings.writes import MeetingWriteError, register_meeting
@@ -28,8 +30,8 @@ class _UnusedWriter:
     def reconcile(self, _operation_key: str):
         return None
 
-    def change_stage(self, _mapping: str) -> None:
-        return None
+    def change_stage(self, _mapping: dict) -> bool:
+        return False
 
 
 def operation_key(*, memo_id: str, proposal_id: str, input_revision: str) -> str:
@@ -203,12 +205,18 @@ def accept_meeting_proposal(
                     decision=decision,
                     operation_key=op_key,
                     writer=writer,
-                    stage_mapping=None,
+                    stage_mapping=(
+                        None
+                        if is_enabled(supabase, company_id, DEAL_STAGE_CONFIRM_FLAG)
+                        else _stage_mapping(supabase, connection)
+                    ),
                     existing=existing,
                     starts_at=starts_at,
                 )
             except MeetingWriteError as exc:
                 raise _http_from_write_error(exc) from exc
+            if existing_write and existing_write.get("stage_changed"):
+                result = {**result, "stage_changed": True}
             if decision in {"accept", "corrected"}:
                 _persist_write(
                     supabase,
@@ -251,6 +259,25 @@ def _resolve_connection(supabase, company_id: str) -> Optional[dict[str, Any]]:
         return resolve_sync_connection_for_company(supabase, company_id)
     except AmbiguousPrimaryCRMError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+def _stage_mapping(supabase, connection: Optional[dict[str, Any]]) -> dict | None:
+    """The company's meeting-booked stage for this CRM. None moves nothing."""
+    connection_id = (connection or {}).get("id")
+    if not connection_id:
+        return None
+    rows = (
+        supabase.table("crm_configurations")
+        .select("meeting_booked_pipeline_id,meeting_booked_stage_id")
+        .eq("connection_id", str(connection_id))
+        .limit(1)
+        .execute()
+    ).data or []
+    row = rows[0] if rows else {}
+    pipeline_id, stage_id = row.get("meeting_booked_pipeline_id"), row.get("meeting_booked_stage_id")
+    if not pipeline_id or not stage_id:
+        return None
+    return {"pipeline_id": str(pipeline_id), "stage_id": str(stage_id)}
 
 
 def _build_writer(

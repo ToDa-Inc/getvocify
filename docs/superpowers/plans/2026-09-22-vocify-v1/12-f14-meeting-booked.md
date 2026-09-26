@@ -174,6 +174,46 @@ Esta decisión cierra A13 dentro del alcance V1; cambiarla a detección en vivo 
 
 Reprogramaciones, varios encuentros mencionados y reconocimiento incorrecto de números. Se conserva la evidencia del acuerdo y se muestra incertidumbre cuando exista.
 
+### Decisiones de implementación (2026-09-26)
+
+Cierran huecos detectados en revisión; mandan sobre el texto anterior cuando difieran.
+
+- **Fuente única.** La propuesta sale de `extraction.intelligence.meeting` (C04, leído del transcript con cita exacta). F14 no añade otro prompt. El resumen de la extracción nunca es fuente de fecha ni de acuerdo.
+- **Reunión acordada (booked)** = `agreed=true` + `precision="time"` con offset coherente con la zona del memo. Esa hora se trata como la «confirmada por ambos» (`confirmed_by_both`): `agreement=agreed`, `precision=exact`, sin revisión pendiente. Sigue requiriendo aceptar antes de escribir en CRM.
+- `agreed=true` con solo día → `date_only`, `starts_at=null`, revisión. Sin día → `unknown`, revisión. Offset que no corresponde a la zona u hora repetida por DST → `ambiguous`, `starts_at=null`.
+- `agreed=false` o `null` → ninguna propuesta accionable; se borran las propuestas automáticas aún sin decidir (`pending` + `not_requested`) del memo. Las ya aceptadas u omitidas no se tocan.
+- **Sin C04** (flag de inteligencia apagado o aún en curso): respaldo determinista sobre el **transcript** (último fragmento con mención de reunión). Nunca produce hora exacta, así que siempre queda en «Revisa los datos de la reunión».
+- **Orden.** La inteligencia corre en una tarea asíncrona después del guardado. Al almacenarse C04 se reevalúa la propuesta del memo y sustituye la de respaldo si no hay decisión humana. La revisión de la propuesta es la de C04 (`input_revision` sin el bloque `intelligence`), así respaldo y C04 comparten clave.
+- **Etapa «reunión agendada».** Configuración por empresa en `crm_configurations.meeting_booked_pipeline_id/meeting_booked_stage_id` (migración 052, reversible), elegida en la pantalla de configuración CRM existente (HubSpot y Pipedrive). Vacío = no se mueve ninguna etapa. Al aceptar/corregir y crear la actividad, el deal se mueve solo si: está abierto, está en ese pipeline y su etapa actual va antes que la configurada. Nunca retrocede ni toca deals ganados/perdidos. «Meeting booked ≠ close».
+- **Flag.** No hay flag propio de F14: la lectura C04 depende de `INTELLIGENCE_EXTRACT_ENABLED` y el movimiento de etapa es opt-in por empresa (columna nula por defecto).
+- **Hecho (prompt).** `intelligence_v2` usa la última hora aceptada por ambos si cambió durante la conversación (evals C04).
+
+### Corrección: qué es una reunión y quién decide la etapa (decisión del founder, 2026-09-26)
+
+Manda sobre «Etapa reunión agendada» de la sección anterior cuando el flag está encendido.
+
+- **Reunión** = encuentro que ambos quedan en atender a un día acordado, con invitación: demo, visita, videollamada o llamada agendada para hablar («quedamos el jueves a las 11 para hablarlo»). «Te llamo el jueves a las cinco» es un compromiso de tipo llamada, no una reunión, aunque el prospecto diga que sí. Recogido en `intelligence_v2` con evals C04 (`c04_commitment_with_time`, `c04_scheduled_phone_call_is_a_meeting`).
+- **La etapa del deal la confirma el comercial.** Vocify no mueve la etapa por su cuenta. En la revisión de la nota que ya existe (dashboard y extensión), si hay deal (nuevo o existente) aparece siempre la fila de etapa con todas las etapas del pipeline de ese deal. Un «no contesta» puede ser «descalificado» en una empresa y no en otra; por eso decide quien habló con el prospecto.
+- **Sugerencia preseleccionada**, en este orden: (1) la etapa «reunión agendada» configurada, si el memo tiene una reunión acordada no omitida y el deal está en ese pipeline; (2) la etapa que infiere la extracción, resuelta en el pipeline del deal; (3) la etapa actual del deal existente, o la etapa por defecto si el deal es nuevo.
+- **Escritura.** Al aprobar se escribe la etapa que envía el comercial; en un deal existente solo si difiere de la actual. Si quita la fila, no se toca la etapa. Con el flag encendido la lista de campos editables deja de decidir si aparece la etapa: la confirmación del comercial es el control.
+- **Aceptar la reunión** crea la actividad en el CRM y no cambia la etapa.
+- **Aprobaciones sin revisión** (autoaprobación, WhatsApp): nadie ha confirmado la etapa, así que nunca mueven la de un deal existente. Un deal nuevo se crea en la etapa por defecto.
+- **Resultado de llamada de la extensión** (Convertido / En espera / Perdido): la UI ya no existe en la extensión (se quitó con el marcador). La etapa sale de la misma fila; no se reintroducen botones que muevan a una etapa fija.
+- **Flag** `DEAL_STAGE_CONFIRM_ENABLED`, por empresa, apagado por defecto. Apagado = comportamiento anterior.
+
+| Caso | Resultado esperado |
+|---|---|
+| Flag apagado | Igual que antes: etapa solo en deal nuevo o si `dealstage`/`stage_id` es editable; aceptar la reunión mueve según el mapeo |
+| Deal existente, sin señal de etapa | Fila con la etapa actual preseleccionada; aprobar sin cambiarla no escribe etapa |
+| Reunión acordada y etapa configurada en el mismo pipeline | Fila con «reunión agendada» preseleccionada |
+| Reunión acordada, deal en otro pipeline | Se ignora la etapa configurada; se usa la inferida o la actual |
+| Reunión omitida por el comercial | No se sugiere «reunión agendada» |
+| Comercial elige otra etapa | Se escribe la elegida |
+| Comercial quita la fila | No se toca la etapa |
+| Aceptar reunión con mapeo configurado | Actividad creada, `stage_changed=false` |
+| Sin deal (solo contacto) | Sin fila de etapa |
+| HubSpot y Pipedrive | Mismo comportamiento con `dealstage` y `stage_id` |
+
 ## Mapa de archivos y responsabilidades
 
 | Acción futura | Ruta | Responsabilidad |

@@ -102,9 +102,11 @@ class SalesforceCRMProvider:
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
     ) -> SyncResult:
         # Salesforce opportunities use a flat picklist (StageName), not pipeline+stage IDs.
         del default_pipeline_id, default_stage_id
+        del stage_confirm  # DEAL_STAGE_CONFIRM_ENABLED covers HubSpot and Pipedrive only
         del create_note  # Salesforce path does not create HubSpot-style notes here
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
         del contact_id, company_id  # HubSpot contact-first anchors; not used for SF yet
@@ -170,10 +172,13 @@ class SalesforceCRMProvider:
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
     ) -> ApprovalPreview:
         del default_pipeline_id, default_stage_id
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
         del selected_contact, contact_candidates, create_new_deal, include_unchanged, skip_deal
+        del stage_confirm, meeting_booked_stage
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,

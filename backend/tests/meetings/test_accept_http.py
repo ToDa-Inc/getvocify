@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.api import meetings as api
 from app.deps import get_membership, get_supabase
+from app.services import feature_flags
 from app.services.company import Membership
 
 MEMO = "66666666-6666-6666-6666-666666666666"
@@ -101,6 +102,7 @@ class _Supabase:
 class FakeWriter:
     def __init__(self):
         self.created: list[str] = []
+        self.stages: list[dict] = []
         self.reconcile_result: str | None = None
 
     def create(self, operation_key: str, proposal: dict) -> str:
@@ -111,8 +113,9 @@ class FakeWriter:
     def reconcile(self, _operation_key: str):
         return self.reconcile_result
 
-    def change_stage(self, _mapping: str) -> None:
-        return None
+    def change_stage(self, mapping: dict) -> bool:
+        self.stages.append(mapping)
+        return True
 
 
 WRITER = FakeWriter()
@@ -121,6 +124,7 @@ STORE = _Supabase()
 
 def setup_function():
     WRITER.created.clear()
+    WRITER.stages.clear()
     WRITER.reconcile_result = None
     STORE.tables = {
         "memos": [
@@ -192,6 +196,64 @@ def test_accept_once_replay_does_not_create_second_remote_id():
     assert second.json()["replayed"] is True
     assert second.json()["remote_id"] == "act-fake-1"
     assert len(WRITER.created) == 1
+
+
+def test_without_a_configured_stage_the_deal_is_not_moved():
+    client = _client()
+    response = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/accept",
+        json={"decision": "accept", "proposal_id": "meet-1"},
+    )
+    assert response.status_code == 200
+    assert WRITER.stages == []
+    assert STORE.tables["meeting_writes"][0]["stage_changed"] is False
+
+
+def test_the_company_meeting_booked_stage_is_applied_on_accept():
+    STORE.tables["crm_connections"][0]["id"] = "conn-1"
+    STORE.tables["crm_configurations"] = [{
+        "connection_id": "conn-1",
+        "meeting_booked_pipeline_id": "default",
+        "meeting_booked_stage_id": "appointmentscheduled",
+    }]
+    client = _client()
+    response = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/accept",
+        json={"decision": "accept", "proposal_id": "meet-1"},
+    )
+    assert response.status_code == 200
+    assert WRITER.stages == [{"pipeline_id": "default", "stage_id": "appointmentscheduled"}]
+    assert STORE.tables["meeting_writes"][0]["stage_changed"] is True
+    replay = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/accept",
+        json={"decision": "accept", "proposal_id": "meet-1"},
+    )
+    assert replay.json()["replayed"] is True
+    assert len(WRITER.stages) == 1
+    assert STORE.tables["meeting_writes"][0]["stage_changed"] is True
+
+
+def test_with_stage_confirm_accepting_creates_the_activity_and_leaves_the_stage():
+    feature_flags.clear_cache()
+    STORE.tables["crm_connections"][0]["id"] = "conn-1"
+    STORE.tables["crm_configurations"] = [{
+        "connection_id": "conn-1",
+        "meeting_booked_pipeline_id": "default",
+        "meeting_booked_stage_id": "appointmentscheduled",
+    }]
+    STORE.tables["company_feature_flags"] = [
+        {"company_id": COMPANY, "flag": "DEAL_STAGE_CONFIRM_ENABLED", "enabled": True},
+    ]
+    client = _client()
+    response = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/accept",
+        json={"decision": "accept", "proposal_id": "meet-1"},
+    )
+    feature_flags.clear_cache()
+    assert response.status_code == 200
+    assert WRITER.created == [f"{MEMO}:meet-1:rev-1"]
+    assert WRITER.stages == []
+    assert STORE.tables["meeting_writes"][0]["stage_changed"] is False
 
 
 def test_omit_does_not_call_create():

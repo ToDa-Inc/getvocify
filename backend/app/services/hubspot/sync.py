@@ -383,6 +383,7 @@ class HubSpotSyncService:
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
@@ -433,6 +434,8 @@ class HubSpotSyncService:
                 case, but this method itself just skips the hs_lead_status write and
                 relies on the reason note instead (see call_outcome.py module docstring).
             on_hold_lead_status_value: Same as above, for "On Hold".
+            stage_confirm: The rep confirmed the stage on review (DEAL_STAGE_CONFIRM_ENABLED).
+                An existing deal's stage is written only when it differs from the current one.
         Returns:
             SyncResult with success status and created/updated object IDs
         """
@@ -882,6 +885,8 @@ class HubSpotSyncService:
                             k: v for k, v in filtered_properties.items()
                             if k not in FIELDS_PRESERVED_WHEN_UPDATING_EXISTING_DEAL
                         }
+                        if stage_confirm and filtered_properties.get("dealstage") == existing_props.get("dealstage"):
+                            filtered_properties.pop("dealstage", None)
 
                         if not filtered_properties and not hubspot_owner_id:
                             # No changes to apply - still success

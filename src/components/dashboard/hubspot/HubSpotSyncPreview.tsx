@@ -1177,10 +1177,15 @@ export const HubSpotSyncPreview = ({
           <div className="grid gap-3">
             {sortedUpdateEntries.map(({ u: update, idx }) => {
               const alreadyApplied = !!update.already_applied;
-              const hadExisting =
+              const hasCurrent =
                 update.current_value != null &&
                 String(update.current_value).trim() !== "" &&
                 String(update.current_value).trim() !== "(empty)";
+              const unchanged =
+                hasCurrent &&
+                !alreadyApplied &&
+                String(update.current_value).trim() === String(update.new_value ?? "").trim();
+              const hadExisting = hasCurrent && !unchanged;
               const isOverride = !!hadExisting && !alreadyApplied;
               const canEditRow = canEditOrRemoveProposedField(update);
               const isEditing = editingIdx === idx;
@@ -1227,7 +1232,7 @@ export const HubSpotSyncPreview = ({
                           <span className="bg-destructive/10 text-destructive text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
                             Override
                           </span>
-                        ) : (
+                        ) : unchanged ? null : (
                           <span className="bg-success/10 text-success text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
                             New
                           </span>

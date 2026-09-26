@@ -12,6 +12,7 @@ from supabase import Client
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
 from app.services.crm_config import CRMConfigurationService
+from app.services.deal_stage_confirm import stage_confirm_enabled, sync_allowed_fields
 from app.services.crm_providers import (
     AmbiguousPrimaryCRMError,
     UnsupportedCRMProviderError,
@@ -259,6 +260,19 @@ async def approve_memo_core(
     lost_lead_status_value = (config.lost_lead_status_value or None) if config else None
     on_hold_lead_status_value = (config.on_hold_lead_status_value or None) if config else None
 
+    provider_name = (crm_connection.get("provider") or "").lower()
+    stage_kwargs: dict = {}
+    if stage_confirm_enabled(
+        supabase,
+        memo_data.get("company_id") or crm_connection.get("company_id"),
+        provider_name,
+    ):
+        allowed_fields = sync_allowed_fields(
+            allowed_fields, provider=provider_name, reviewed=reviewed_extraction
+        )
+        if reviewed_extraction:
+            stage_kwargs["stage_confirm"] = True
+
     sync_result = await provider.sync_memo(
         memo_id=memo_id,
         user_id=user_id,
@@ -286,6 +300,7 @@ async def approve_memo_core(
         lost_reason_deal_property=lost_reason_deal_property,
         lost_lead_status_value=lost_lead_status_value,
         on_hold_lead_status_value=on_hold_lead_status_value,
+        **stage_kwargs,
     )
 
     if not sync_result.success:
@@ -305,6 +320,19 @@ async def approve_memo_core(
         "status": "approved",
         "approved_at": datetime.utcnow().isoformat(),
         "extraction": extraction_data,
+        **crm_links_update(memo_data, sync_result),
     }).eq("id", memo_id).execute()
 
     return sync_result
+
+
+def crm_links_update(memo: dict, sync_result) -> dict:
+    """Briefs and priorities find a memo by its CRM contact. A call's own contact is never overwritten."""
+    update = {}
+    for column, value in (
+        ("hubspot_contact_id", getattr(sync_result, "contact_id", None)),
+        ("hubspot_deal_id", getattr(sync_result, "deal_id", None)),
+    ):
+        if value and not memo.get(column):
+            update[column] = str(value)
+    return update

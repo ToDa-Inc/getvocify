@@ -38,6 +38,13 @@ def new_deal_title(extraction: MemoExtraction) -> str:
     return f"Vocify memo {date.today().isoformat()}"
 
 
+def confirmed_stage_choice(extraction: MemoExtraction) -> Optional[str]:
+    """The stage_id row the rep kept on review; absent when the rep removed it."""
+    value = (extraction.raw_extraction or {}).get("stage_id")
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
 class PipedriveSyncService:
     def __init__(
         self,
@@ -74,7 +81,10 @@ class PipedriveSyncService:
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
     ) -> SyncResult:
+        """stage_confirm: the stage is the one the rep confirmed (raw_extraction.stage_id);
+        an existing deal's stage is written only when it differs from the current one."""
         create_companies = auto_create_companies if auto_create_companies is not None else auto_create_contact_company
         create_contacts = auto_create_contacts if auto_create_contacts is not None else auto_create_contact_company
         if deal_id and not is_new_deal:
@@ -90,11 +100,12 @@ class PipedriveSyncService:
         landed: list[str] = []
         creating = (not skip_deal) and (is_new_deal or not deal_id)
         stage_id: Optional[str] = None
+        confirmed_stage = confirmed_stage_choice(extraction) if stage_confirm else None
 
         try:
             if not skip_deal:
                 stage_id = await self.schema.resolve_stage_id(
-                    extraction.dealStage, default_stage_id, default_pipeline_id
+                    confirmed_stage or extraction.dealStage, default_stage_id, default_pipeline_id
                 )
                 if not stage_id and default_stage_name:
                     stage_id = await self.schema.resolve_stage_id(
@@ -166,9 +177,15 @@ class PipedriveSyncService:
                     existing_title = (current.get("title") or "").strip().lower()
                     if existing_title not in ("", "new deal", "nuevo deal", "deal"):
                         filtered.pop("title", None)
-                    payload = self.schema.split_write_payload(
-                        {k: v for k, v in filtered.items() if k in allowed_fields or k in ("org_id", "person_id")}
-                    )
+                    update_fields = {
+                        k: v for k, v in filtered.items() if k in allowed_fields or k in ("org_id", "person_id")
+                    }
+                    if stage_confirm:
+                        update_fields.pop("stage_id", None)
+                        new_stage = await self._stage_change(confirmed_stage, current)
+                        if new_stage:
+                            update_fields["stage_id"] = int(new_stage)
+                    payload = self.schema.split_write_payload(update_fields)
                     if payload:
                         await self.client.patch(f"/deals/{deal_id}", json_body=payload)
                     result.deal_name = current.get("title") or title
@@ -261,6 +278,17 @@ class PipedriveSyncService:
             record_sync_duration(time.perf_counter() - t0, "failure")
             logger.exception("Pipedrive sync failed: %s", e)
             return result
+
+    async def _stage_change(self, confirmed_stage: Optional[str], current: dict[str, Any]) -> Optional[str]:
+        if not confirmed_stage:
+            return None
+        pipeline_id = current.get("pipeline_id")
+        resolved = await self.schema.resolve_stage_id(
+            confirmed_stage, None, str(pipeline_id) if pipeline_id is not None else None
+        )
+        if not resolved or resolved == str(current.get("stage_id")):
+            return None
+        return resolved
 
     async def _find_or_create_org(self, name: str, existing_id: Optional[str]) -> Optional[str]:
         if existing_id:

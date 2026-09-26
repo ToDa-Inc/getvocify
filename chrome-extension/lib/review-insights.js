@@ -44,6 +44,11 @@ export function isLeadStatusField(updateOrName) {
   return String(name || '') === 'hs_lead_status';
 }
 
+function isDealStageField(update) {
+  const name = String(update?.field_name || '');
+  return (update?.object_type || 'deals') === 'deals' && (name === 'dealstage' || name === 'stage_id');
+}
+
 export function withLeadStatusOption(updates, availableFields) {
   const list = (Array.isArray(updates) ? updates : []).map((u) => (u ? { ...u } : u));
   const field = (Array.isArray(availableFields) ? availableFields : []).find(
@@ -93,7 +98,7 @@ export function visibleCrmUpdates(updates) {
     if (u.object_type === 'task') return false;
     const leadStatus = isLeadStatusField(u);
     if (!norm(u.new_value) && !u.userAdded && !leadStatus) return false;
-    if (valuesMatch(u) && !u.already_applied && !leadStatus) return false;
+    if (valuesMatch(u) && !u.already_applied && !leadStatus && !isDealStageField(u)) return false;
     return true;
   });
 }

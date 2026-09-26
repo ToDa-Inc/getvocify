@@ -43,6 +43,7 @@ class CRMExtractionSyncProtocol(Protocol):
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
     ) -> SyncResult: ...
 
 
@@ -68,6 +69,8 @@ class CRMPreviewProtocol(Protocol):
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
     ) -> ApprovalPreview: ...
 
 

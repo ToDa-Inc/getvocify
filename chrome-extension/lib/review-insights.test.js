@@ -62,6 +62,14 @@ describe('visibleCrmUpdates', () => {
     assert.equal(out.length, 0);
   });
 
+  it('keeps the deal stage row even when the suggested stage is the current one', () => {
+    const out = visibleCrmUpdates([
+      { object_type: 'deals', field_name: 'dealstage', new_value: 'qualifiedtobuy', current_value: 'qualifiedtobuy' },
+      { object_type: 'deals', field_name: 'stage_id', new_value: '11', current_value: '11' },
+    ]);
+    assert.equal(out.length, 2);
+  });
+
   it('always keeps lead status, and pins a blank row when the model did not propose one', () => {
     const unchanged = visibleCrmUpdates([
       {

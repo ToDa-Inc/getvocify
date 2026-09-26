@@ -113,6 +113,7 @@ class HubSpotCRMProvider:
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -144,6 +145,7 @@ class HubSpotCRMProvider:
             lost_reason_deal_property=lost_reason_deal_property,
             lost_lead_status_value=lost_lead_status_value,
             on_hold_lead_status_value=on_hold_lead_status_value,
+            stage_confirm=stage_confirm,
         )
 
     async def build_preview(
@@ -165,6 +167,8 @@ class HubSpotCRMProvider:
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
     ) -> ApprovalPreview:
         del default_stage_name  # HubSpot Configuration stores canonical IDs, not names
         return await self._preview_service().build_preview(
@@ -184,6 +188,8 @@ class HubSpotCRMProvider:
             create_new_deal=create_new_deal,
             include_unchanged=include_unchanged,
             skip_deal=skip_deal,
+            stage_confirm=stage_confirm,
+            meeting_booked_stage=meeting_booked_stage,
         )
 
     async def find_matching_deals(
