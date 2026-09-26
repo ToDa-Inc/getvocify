@@ -154,6 +154,23 @@ describe("contact panel brief", () => {
     assert.equal(view.label, "Pitch hecho · falta cualificar");
   });
 
+  it("formats cold-call lines the same on every surface", () => {
+    const payload = {
+      status: "ready",
+      text: null,
+      lines: [
+        { type: "who", text: "Directora comercial en Acme · lead de formulario web, 3 sep" },
+        { type: "why", text: "Nuevo, sin llamar desde el 3 sep" },
+        { type: "open", text: "Hola, soy Toni de Vocify.", source: "playbook" },
+      ],
+      label: null,
+    };
+    const view = briefRows(payload);
+    const flat = visibleBrief(payload);
+    assert.deepEqual(view.rows.map((row) => row.text), flat);
+    assert.deepEqual(view.rows.map((row) => row.playbook), [false, false, true]);
+  });
+
   it("paints the label as a chip and marks the team's playbook line", () => {
     const view = briefRows({
       status: "ready",

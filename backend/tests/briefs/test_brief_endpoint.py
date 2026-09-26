@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import briefs as briefs_api
+from app.services.briefs.contact_read import ContactProfileReadFailed
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
@@ -98,8 +99,10 @@ def _isolate(monkeypatch):
     monkeypatch.setattr(briefs_api, "rep_timezone", lambda _user_id: "Europe/Madrid")
     monkeypatch.setattr(briefs_api, "_now", lambda: NOW)
     briefs_api.set_brief_tasks(None)
+    briefs_api.set_brief_profile_reader(None)
     yield
     briefs_api.set_brief_tasks(None)
+    briefs_api.set_brief_profile_reader(None)
     feature_flags.clear_cache()
 
 
@@ -348,3 +351,136 @@ def test_no_crm_connection_is_not_a_failed_read():
     body = _get(db)
     assert "crm_connections" in db.reads
     assert body["status"] == "ready"
+
+
+# --- E4 cold call: no memos ---
+
+COLD_PLAYBOOK = {"id": "pb-cold", "company_id": "co-1", "sales_motion_key": "outbound", "active_version_id": "v-cold"}
+COLD_VERSION = {
+    "id": "v-cold",
+    "playbook_id": "pb-cold",
+    "status": "published",
+    "steps": [
+        {
+            "step_id": "opening",
+            "label": "Apertura",
+            "criterion": "Saluda",
+            "reference_phrase": "Hola, soy Toni de Vocify.",
+        },
+    ],
+    "entries": [],
+}
+
+
+def _profile(**extra):
+    base = {
+        "jobtitle": "Directora comercial",
+        "company_name": "Acme",
+        "source_label": "lead de formulario web",
+        "created_at": "2026-09-03T08:00:00+02:00",
+        "sales_motion_key": "outbound",
+        "source_ref": "42",
+    }
+    base.update(extra)
+    return base
+
+
+def _priority_context(contact_id="42", reason="no_calls_logged"):
+    return [{
+        "company_id": "co-1",
+        "connection_id": "hubspot",
+        "contact_id": contact_id,
+        "deal_id": "",
+        "owner_user_id": "user-a",
+        "owner_ambiguous": False,
+        "coverage": "complete",
+        "history_complete": True,
+        "observed_at": "2026-09-26T08:00:00Z",
+        "payload": {"contacted": False, "last_call_at": None},
+    }]
+
+
+def test_flag_on_cold_contact_with_full_crm_profile():
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(lambda _conn, _cid: _profile())
+    db = _Db({
+        **_tables([], playbooks=[COLD_PLAYBOOK], versions=[COLD_VERSION]),
+        "contact_priority_context": _priority_context(),
+        "crm_connections": [{"id": "hubspot", "company_id": "co-1", "status": "connected", "provider": "hubspot"}],
+    })
+    body = _get(db)
+    assert body["status"] == "ready"
+    assert [line["type"] for line in body["lines"]] == ["who", "why", "open"]
+    assert body["lines"][0]["text"] == "Directora comercial en Acme · lead de formulario web, 3 sep"
+    assert body["lines"][1]["text"] == "Nuevo, sin llamar desde el 3 sep"
+    assert body["lines"][2]["source"] == "playbook"
+
+
+def test_flag_on_cold_contact_without_crm_data_falls_back_to_no_conversation():
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(lambda _conn, _cid: {})
+    db = _Db(_tables([]))
+    body = _get(db)
+    assert body["status"] == "no_conversation"
+    assert body["text"] == "Sin conversación todavía."
+
+
+def test_flag_on_cold_contact_crm_profile_failure_is_partial():
+    def boom(_conn, _cid):
+        raise ContactProfileReadFailed("down")
+
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(boom)
+    db = _Db(_tables([]))
+    body = _get(db)
+    assert body["status"] == "partial"
+    assert body["notice"] == "No se pudo cargar todo."
+
+
+def test_flag_on_cold_hubspot_profile_reader_is_used():
+    seen = []
+
+    def reader(conn, cid):
+        seen.append((conn.get("provider"), cid))
+        return _profile(jobtitle="AE")
+
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(reader)
+    db = _Db({
+        **_tables([]),
+        "crm_connections": [{"id": "hubspot", "company_id": "co-1", "status": "connected", "provider": "hubspot"}],
+    })
+    body = _get(db)
+    assert seen == [("hubspot", "42")]
+    assert body["lines"][0]["text"] == "AE en Acme · lead de formulario web, 3 sep"
+
+
+def test_flag_on_cold_pipedrive_profile_reader_is_used():
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(
+        lambda conn, _cid: _profile(jobtitle="CEO", company_name="Acme", source_label=None) if conn.get("provider") == "pipedrive" else {},
+    )
+    db = _Db({
+        **_tables([]),
+        "crm_connections": [{"id": "pd-1", "company_id": "co-1", "status": "connected", "provider": "pipedrive"}],
+    })
+    body = _get(db, connection_id="pd-1")
+    assert body["lines"][0]["text"] == "CEO en Acme · 3 sep"
+
+
+def test_flag_on_cold_without_opening_step_has_no_open_line():
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(lambda _conn, _cid: _profile())
+    version = {**COLD_VERSION, "steps": [{"step_id": "pitch", "label": "Pitch", "criterion": "Explicó"}]}
+    db = _Db(_tables([], playbooks=[COLD_PLAYBOOK], versions=[version]))
+    body = _get(db)
+    assert [line["type"] for line in body["lines"]] == ["who"]
+
+
+def test_flag_on_with_memo_is_unchanged_from_e3():
+    briefs_api.set_brief_tasks(_tasks([]))
+    briefs_api.set_brief_profile_reader(lambda _conn, _cid: _profile())
+    db = _Db(_tables([_memo()]))
+    body = _get(db)
+    assert body["lines"][0]["type"] == "hook"
+    assert "who" not in {line["type"] for line in body["lines"]}

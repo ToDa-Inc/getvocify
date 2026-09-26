@@ -179,6 +179,39 @@ C04 no vigente o flag apagado: exactamente el brief de F03 (22 sep), con el mism
 | Mismo payload en todas las superficies | `shared/ui/brief.js` formatea label y filete playbook |
 | Extensión pinta los dos formatos de payload | Sin errores; chip y filete solo con v2 |
 
+### Addendum E4 — brief cold call (26 sep 2026)
+
+Con `BRIEF_V2_ENABLED` encendido y **sin memos** del contacto, el brief devuelve como mucho tres líneas deterministas (sin LLM), sin `label`:
+
+1. **Quién es** (`who`): cargo · empresa · origen y fecha de alta del CRM, p. ej. «Directora comercial en Acme · lead de formulario web, 3 sep». Omite las partes que falten; si no hay ninguna, no hay línea. Lectura de propiedades reutilizando la capa de Ask (`crm_copilot` en HubSpot, `pipedrive_reads.py` en Pipedrive). Salesforce u otros: sin línea «quién es», sin romper.
+2. **Por qué llamas** (`why`): tarea abierta del CRM (misma lectura que E3) → motivo de prioridad de Hoy (`priority_reason` en `hoy/reasons.py`, p. ej. «Nuevo, sin llamar desde el 3 sep»). No se redacta otra frase.
+3. **Cómo abrir** (`open`): paso con `step_id == "opening"` del playbook publicado del `sales_motion_key` del contacto, con su `reference_phrase` (`source: "playbook"`). Sin motion claro, sin paso de apertura o sin frase → sin línea.
+
+Sin ningún dato del CRM ni líneas: «Sin conversación todavía.» (misma frase que F03). Fechas en la zona del comercial (`rep_timezone`). Origen CRM: traduce valores conocidos de HubSpot (`hs_analytics_source`, `hs_lead_source`) y Pipedrive; valor desconocido → omítelo.
+
+**Lectura parcial:** error al leer propiedades del contacto, playbook o tareas CRM → `partial` + aviso + líneas verificadas. Sin CRM conectado para propiedades no es parcial (solo no hay línea «quién es»).
+
+Contacto **con** conversación: sin cambios respecto al addendum E3.
+
+| Caso | Resultado exigido |
+|---|---|
+| HubSpot con cargo, empresa, origen y alta | Línea who completa |
+| Solo cargo y empresa | Who sin origen ni fecha |
+| Pipedrive con job_title, org y add_time | Línea who con partes disponibles |
+| Sin propiedades CRM | Sin línea who |
+| Salesforce u otro CRM | Sin línea who; brief no rompe |
+| Tarea CRM abierta | Why con la tarea, antes que Hoy |
+| Sin tarea, prioridad `no_calls_logged` con alta | «Nuevo, sin llamar desde el {día mes}» |
+| Sin tarea ni motivo Hoy | Sin línea why |
+| Playbook con paso opening y reference_phrase | Línea open con `source: "playbook"` |
+| Sin playbook, sin motion o sin paso opening | Sin línea open |
+| Ningún dato | «Sin conversación todavía.» |
+| Error lectura contacto CRM | `partial` + notice + líneas verificadas |
+| Error lectura playbook con who verificada | `partial` + notice |
+| Flag apagado, contacto sin conversación | Igual que fixture pre-E3 |
+| Contacto con conversación C04 vigente | Sin cambios E3 |
+| Mismo payload en todas las superficies | `shared/ui/brief.js` formatea open con filete playbook |
+
 ### Criterio de aceptación (Definition of Done)
 
 - [x] Formato mínimo y extensión sobre el contacto, aprobados el 22 sep 2026.
