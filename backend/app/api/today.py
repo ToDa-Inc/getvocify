@@ -21,6 +21,7 @@ from app.services.hoy.confirmations import (
     mark_confirm_write_pending,
     schedule_confirm_write,
 )
+from app.services.handoffs import active_handoffs_for_sdr
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
@@ -315,6 +316,15 @@ async def get_today(
             background,
         )
     tz_name = rep_timezone(membership.user_id)
+    # T5: lead tiers (callback_no_answer, stale_hot wording, heat) are for a SDR or General
+    # rep only - the AE's Hoy is deals-focused (T6), not this list.
+    lead_tiers_enabled = (
+        membership.sales_role in (None, "sdr", "general")
+        and is_enabled(supabase, membership.company_id, "HOY_LEAD_TIERS_ENABLED")
+    )
+    callback_after_days = (
+        CompanyService(supabase).callback_after_days(membership.company_id) if lead_tiers_enabled else None
+    )
     if _TASKS is None:
         try:
             refresh_hoy_signals(
@@ -323,6 +333,8 @@ async def get_today(
                 user_id=membership.user_id,
                 now=now,
                 tz_name=tz_name,
+                lead_tiers_enabled=lead_tiers_enabled,
+                callback_after_days=callback_after_days or 2,
             )
         except Exception:
             pass
@@ -356,6 +368,18 @@ async def get_today(
     ]
     if not is_enabled(supabase, membership.company_id, MEETINGS_FLAG):
         visible = [row for row in visible if row.get("type") != MEETING_TYPE]
+    # T5/D6: a contact under an active SDR->AE handoff leaves the SDR's/General's Hoy - it
+    # is the AE's now. The AE side is unaffected (it gains, it does not lose, contacts).
+    if membership.sales_role in (None, "sdr", "general") and is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
+        try:
+            handed_off = {
+                str(row.get("contact_id"))
+                for row in active_handoffs_for_sdr(supabase, company_id=membership.company_id, sdr_user_id=membership.user_id)
+            }
+        except Exception:
+            handed_off = set()
+        if handed_off:
+            visible = [row for row in visible if str(row.get("contact_id")) not in handed_off]
     attempt_daily_run_claim(supabase, membership.company_id, now, rep_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:
@@ -388,6 +412,7 @@ async def get_today(
         task_links=task_links,
         confirm_rows=confirm_rows,
         tz_name=rep_timezone(membership.user_id),
+        lead_tiers=lead_tiers_enabled,
     )
     _stamp_contact_names(view, visible, memo_directory(memos))
     return view

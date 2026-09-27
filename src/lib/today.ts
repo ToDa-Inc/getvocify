@@ -25,6 +25,8 @@ export type TodayItem = {
   due_at?: string | null;
   precision?: string | null;
   timezone?: string | null;
+  /** T5 (HOY_LEAD_TIERS_ENABLED): 0-100 second-order ranking signal, absent otherwise. */
+  heat?: number | null;
 };
 
 export type FollowupRow = {
@@ -152,6 +154,8 @@ const SUPPORTING_KEYS: Record<string, string> = {
   going_cold: "today_signal_cold",
   objection_open: "today_signal_objection",
   manual_task: "today_origin_manual",
+  callback_no_answer: "today_signal_callback_no_answer",
+  never_contacted: "today_signal_never_contacted",
 };
 
 const PRIORITY_LABELS: Record<string, string> = {

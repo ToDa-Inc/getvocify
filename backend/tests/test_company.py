@@ -162,3 +162,26 @@ def test_missing_sales_strategy_column_detects_the_42703():
     )
     assert _missing_sales_strategy_column(err) is True
     assert _missing_sales_strategy_column(RuntimeError("column company_members.sales_role does not exist")) is False
+
+
+def test_callback_after_days_reads_the_company_column():
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.get_company = MagicMock(return_value={"id": "company-1", "callback_after_days": 5})
+    assert svc.callback_after_days("company-1") == 5
+
+
+def test_callback_after_days_falls_back_before_migration_057():
+    """Before 057_callback_after_days.sql runs, the row simply lacks the column (get_company
+    reads select("*"), so no 42703 is even raised) - the default of 2 applies."""
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.get_company = MagicMock(return_value={"id": "company-1"})
+    assert svc.callback_after_days("company-1") == 2
+
+
+def test_callback_after_days_falls_back_when_the_company_read_fails():
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.get_company = MagicMock(side_effect=RuntimeError("boom"))
+    assert svc.callback_after_days("company-1") == 2

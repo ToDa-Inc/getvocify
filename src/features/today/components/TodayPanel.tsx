@@ -164,6 +164,7 @@ export function TodayPanel() {
               onUndo={undo}
               provider={provider}
               portalId={portalId}
+              leadTiersEnabled={Boolean(user?.company?.features?.includes("HOY_LEAD_TIERS_ENABLED"))}
             />
           ) : null}
         </div>

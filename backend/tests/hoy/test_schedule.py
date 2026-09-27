@@ -61,6 +61,24 @@ def _cold(contact_id: str = "42") -> Signal:
     )
 
 
+def test_heat_is_exposed_on_the_card_and_lead_tiers_changes_the_wording():
+    signal = _cold()
+    signal = signal.__class__(**{**signal.__dict__, "payload": {**signal.payload, "heat": 63}})
+    plain = build_today_view(
+        signals=[signal], manual_tasks=[], now=NOW,
+        coverage={"intelligence": "complete", "crm_tasks": "complete"}, generated_at="2026-09-22T08:00:00Z",
+    )
+    assert plain["items"][0]["heat"] == 63
+    assert plain["items"][0]["reason"] == "Mostró mucho interés y lleváis 12 días sin hablar."
+
+    lead_tiers = build_today_view(
+        signals=[signal], manual_tasks=[], now=NOW,
+        coverage={"intelligence": "complete", "crm_tasks": "complete"}, generated_at="2026-09-22T08:00:00Z",
+        lead_tiers=True,
+    )
+    assert lead_tiers["items"][0]["reason"] == "Mostró mucho interés y lleva 12 días sin hablar."
+
+
 def test_no_visible_signals_are_complete_coverage():
     from app.api.today import _intelligence
     assert _intelligence([]) == "complete"

@@ -4,17 +4,18 @@ import { useLanguage } from "@/lib/i18n";
 
 type Props = {
   onCall?: () => void;
+  callLabel?: string;
   crmHref?: string | null;
   onDismiss?: () => void;
   onUndo?: () => void;
 };
 
-export function TodayCardActions({ onCall, crmHref, onDismiss, onUndo }: Props) {
+export function TodayCardActions({ onCall, callLabel, crmHref, onDismiss, onUndo }: Props) {
   const { t } = useLanguage();
   return (
     <div className="flex items-center gap-0.5">
       {onCall ? (
-        <IconAction label={t.product.today_call} onClick={onCall}>
+        <IconAction label={callLabel ?? t.product.today_call} onClick={onCall}>
           <Phone size={16} weight="light" />
         </IconAction>
       ) : null}

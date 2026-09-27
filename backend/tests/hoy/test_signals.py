@@ -10,8 +10,11 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-hoy-signals-32")
 
 from app.services.hoy.reasons import due_label, reason
 from app.services.hoy.signals import (
+    TIER,
     Commitment,
+    Signal,
     Touch,
+    never_contacted_signal,
     rank_cards,
     reconcile,
     signals_for_contact,
@@ -162,3 +165,69 @@ def test_objection_of_category_other_has_no_category_in_the_reason():
     signal = Signal(type="objection_open", contact_id="c", deal_id=None, source_memo_id="m", due_at=None, payload={"category": "other"}, dedupe_key="k")
     assert reason(signal) == "Quedó una objeción sin cerrar."
     assert reason(signal, lang="en") == "An open objection."
+
+
+# --- T5: HOY_LEAD_TIERS_ENABLED (callback_no_answer, never_contacted, heat, tier order) ---
+
+
+def test_callback_after_days_is_off_by_default_even_past_the_threshold():
+    """The flag off (callback_after_days=None) must equal pre-change behaviour: no card at all."""
+    stale_no_answer = signals_for_contact([
+        _touch(screening_outcome="no_response", at=NOW - timedelta(days=5)),
+    ], now=NOW, day_end=DAY_END)
+    assert stale_no_answer == []
+
+
+def test_callback_no_answer_triggers_exactly_at_the_day_boundary():
+    just_under = signals_for_contact([
+        _touch(screening_outcome="no_response", at=NOW - timedelta(days=2) + timedelta(minutes=1)),
+    ], now=NOW, day_end=DAY_END, callback_after_days=2)
+    assert just_under == []
+
+    at_boundary = signals_for_contact([
+        _touch(screening_outcome="no_response", at=NOW - timedelta(days=2)),
+    ], now=NOW, day_end=DAY_END, callback_after_days=2)
+    assert [signal.type for signal in at_boundary] == ["callback_no_answer"]
+    assert at_boundary[0].payload["days_since"] == 2
+
+    voicemail = signals_for_contact([
+        _touch(screening_outcome="voicemail", at=NOW - timedelta(days=3)),
+    ], now=NOW, day_end=DAY_END, callback_after_days=2)
+    assert [signal.type for signal in voicemail] == ["callback_no_answer"]
+
+
+def test_callback_no_answer_does_not_fire_after_a_real_conversation():
+    connected = signals_for_contact([
+        _touch(screening_outcome="no_response", at=NOW - timedelta(days=10), memo_id="memo-old"),
+        _touch(screening_outcome="connected", at=NOW - timedelta(days=1), memo_id="memo-new", interest="none"),
+    ], now=NOW, day_end=DAY_END, callback_after_days=2)
+    assert connected == []
+
+
+def test_never_contacted_signal_has_its_own_dedupe_key_per_connection_and_contact():
+    a = never_contacted_signal(contact_id="1", connection_id="crm-A")
+    b = never_contacted_signal(contact_id="1", connection_id="crm-B")
+    c = never_contacted_signal(contact_id="2", connection_id="crm-A")
+    assert a.type == "never_contacted"
+    assert len({a.dedupe_key, b.dedupe_key, c.dedupe_key}) == 3
+
+
+def test_tier_order_matches_the_plan():
+    assert TIER["commitment_due"] == 0
+    assert TIER["meeting_today"] == 0
+    assert TIER["callback_no_answer"] == 1
+    assert TIER["no_reply"] == 1
+    assert TIER["going_cold"] == 2
+    assert TIER["objection_open"] == 3
+    assert TIER["never_contacted"] == 4
+
+
+def test_heat_breaks_ties_within_a_tier_without_moving_any_tier():
+    cooler = signals_for_contact([_touch(contact_id="1", interest="high")], now=NOW, day_end=DAY_END)[0]
+    hotter = signals_for_contact([_touch(contact_id="2", memo_id="memo-2", interest="high")], now=NOW, day_end=DAY_END)[0]
+    from dataclasses import replace
+
+    cooler = replace(cooler, payload={**cooler.payload, "heat": 10})
+    hotter = replace(hotter, payload={**hotter.payload, "heat": 90})
+    cards, _ = rank_cards([cooler, hotter], now=NOW)
+    assert [card.primary.contact_id for card in cards] == ["2", "1"]

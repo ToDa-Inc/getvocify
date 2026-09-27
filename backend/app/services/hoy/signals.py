@@ -6,13 +6,37 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 Interest = Literal["high", "medium", "low", "none"]
-SignalType = Literal["commitment_due", "no_reply", "going_cold", "objection_open", "confirm_pending", "meeting_today"]
+SignalType = Literal[
+    "commitment_due",
+    "no_reply",
+    "going_cold",
+    "objection_open",
+    "confirm_pending",
+    "meeting_today",
+    "callback_no_answer",
+    "never_contacted",
+]
 CommitmentKind = Literal["call", "email", "send", "meeting", "other"]
+ScreeningOutcome = Literal["connected", "voicemail", "no_response"]
 
 COLD_AFTER = timedelta(days=10)
 WARM: frozenset[str] = frozenset({"high", "medium"})
-TIER: dict[str, int] = {"commitment_due": 0, "meeting_today": 0, "no_reply": 1, "going_cold": 2, "objection_open": 3}
+# T5 (D HOY_LEAD_TIERS_ENABLED): callback_no_answer joins no_reply at tier 1; never_contacted
+# is the lowest tier - it is not a conversation gone quiet, it is one that never started.
+# going_cold keeps its tier and its persisted type; only its reason() wording changes ("stale_hot").
+TIER: dict[str, int] = {
+    "commitment_due": 0,
+    "meeting_today": 0,
+    "callback_no_answer": 1,
+    "no_reply": 1,
+    "going_cold": 2,
+    "objection_open": 3,
+    "never_contacted": 4,
+}
 DEFAULT_LIMIT = 7
+# Last attempt outcomes (telephony/call_screening.resolve_screening_outcome) that count as
+# "no answer" for a callback_no_answer card - a real conversation never happened after them.
+UNANSWERED_OUTCOMES: frozenset[str] = frozenset({"no_response", "voicemail"})
 
 
 @dataclass(frozen=True)
@@ -36,6 +60,7 @@ class Touch:
     commitments: tuple[Commitment, ...] = ()
     deal_closed: bool = False
     connection_id: Optional[str] = None
+    screening_outcome: Optional[ScreeningOutcome] = None
 
 
 @dataclass(frozen=True)
@@ -56,8 +81,18 @@ class Card:
     supporting: tuple[Signal, ...] = ()
 
 
-def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetime) -> list[Signal]:
-    """All touches for ONE contact, any order. `day_end` is the end of the rep's local day."""
+def signals_for_contact(
+    touches: list[Touch],
+    *,
+    now: datetime,
+    day_end: datetime,
+    callback_after_days: Optional[int] = None,
+) -> list[Signal]:
+    """All touches for ONE contact, any order. `day_end` is the end of the rep's local day.
+
+    `callback_after_days` is None unless HOY_LEAD_TIERS_ENABLED is on for a SDR/General rep
+    (T5): with it None, no callback_no_answer is ever produced, so the flag off behaves
+    exactly as before."""
     if not touches:
         return []
     last = max(touches, key=lambda t: t.at)
@@ -82,6 +117,20 @@ def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetim
                 **base,
             ))
 
+    if (
+        callback_after_days is not None
+        and not out
+        and last.screening_outcome in UNANSWERED_OUTCOMES
+        and now - last.at >= timedelta(days=callback_after_days)
+    ):
+        out.append(Signal(
+            "callback_no_answer",
+            due_at=None,
+            payload={"outcome": last.screening_outcome, "days_since": (now - last.at).days},
+            dedupe_key=f"callback:{last.memo_id}",
+            **base,
+        ))
+
     waiting_on_future = any(commitment.due_at > day_end for commitment in last.commitments)
     if last.interest in WARM and now - last.at >= COLD_AFTER and not out and not waiting_on_future:
         out.append(Signal(
@@ -102,6 +151,21 @@ def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetim
             **base,
         ))
     return out
+
+
+def never_contacted_signal(*, contact_id: str, connection_id: Optional[str], deal_id: Optional[str] = None) -> Signal:
+    """T5: an assigned contact with no calls and no memos, full coverage. Not touch-based -
+    there is no last Touch, so this is built directly rather than via signals_for_contact."""
+    return Signal(
+        "never_contacted",
+        contact_id=contact_id,
+        deal_id=deal_id,
+        source_memo_id="",
+        due_at=None,
+        payload={},
+        dedupe_key=f"never_contacted:{connection_id or ''}:{contact_id}",
+        connection_id=connection_id,
+    )
 
 
 def commitment_key(memo_id: str, kind: str, due_at: datetime) -> str:
@@ -127,19 +191,30 @@ def commitment_task_links(memos: list[dict]) -> dict[str, list[str]]:
 
 
 def _rank_key(signal: Signal, now: datetime) -> tuple:
+    """`heat` (T5, hoy/heat.py) is the second criterion within a tier: hotter first. It is
+    0 unless the caller attached it, so with HOY_LEAD_TIERS_ENABLED off every card ties on
+    it and ordering is exactly what it was before."""
     tier = TIER[signal.type]
+    heat = int(signal.payload.get("heat") or 0)
     if signal.type == "commitment_due":
         if signal.due_at is None:
-            return (tier, 1, float("inf"))
-        return (tier, 0 if signal.due_at < now else 1, signal.due_at.timestamp())
-    if signal.type == "meeting_today":
+            sub = (1, float("inf"))
+        else:
+            sub = (0 if signal.due_at < now else 1, signal.due_at.timestamp())
+    elif signal.type == "meeting_today":
         due = signal.due_at.timestamp() if signal.due_at else float("inf")
-        return (tier, 0, due)
-    if signal.type == "no_reply":
-        return (tier, 0, datetime.fromisoformat(str(signal.payload["email_at"]).replace("Z", "+00:00")).timestamp())
-    if signal.type == "going_cold":
-        return (tier, 0 if signal.payload["interest"] == "high" else 1, signal.payload["days_silent"])
-    return (tier, 0, -datetime.fromisoformat(signal.payload["touch_at"]).timestamp())
+        sub = (0, due)
+    elif signal.type == "no_reply":
+        sub = (0, datetime.fromisoformat(str(signal.payload["email_at"]).replace("Z", "+00:00")).timestamp())
+    elif signal.type == "callback_no_answer":
+        sub = (0, -(signal.payload.get("days_since") or 0))
+    elif signal.type == "going_cold":
+        sub = (0 if signal.payload["interest"] == "high" else 1, signal.payload["days_silent"])
+    elif signal.type == "never_contacted":
+        sub = (0, 0)
+    else:
+        sub = (0, -datetime.fromisoformat(signal.payload["touch_at"]).timestamp())
+    return (tier, -heat, *sub)
 
 
 def rank_cards(signals: list[Signal], *, now: datetime, limit: int = DEFAULT_LIMIT) -> tuple[list[Card], int]:
@@ -173,6 +248,7 @@ def touch_from_intelligence(
     intelligence: Optional[dict] = None,
     history_complete: bool = True,
     legacy_objections: Optional[str] = None,
+    screening_outcome: Optional[str] = None,
 ) -> Optional[Touch]:
     """Unknown interest stays unknown. A resolved objection is not open, even if legacy text exists."""
     if at is None or (not history_complete and not intelligence):
@@ -214,4 +290,5 @@ def touch_from_intelligence(
         commitments=commitments,
         deal_closed=deal_closed,
         connection_id=connection_id,
+        screening_outcome=screening_outcome if screening_outcome in UNANSWERED_OUTCOMES | {"connected"} else None,
     )

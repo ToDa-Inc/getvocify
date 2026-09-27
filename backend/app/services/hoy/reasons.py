@@ -58,7 +58,10 @@ def due_label(due_at: datetime, *, now: datetime, lang: str = "es") -> str:
     return f"Vencía hace {days} días" if lang == "es" else f"Due {days} days ago"
 
 
-def reason(signal: Signal, *, lang: str = "es") -> str:
+def reason(signal: Signal, *, lang: str = "es", lead_tiers: bool = False) -> str:
+    """`lead_tiers` (HOY_LEAD_TIERS_ENABLED, T5) only changes going_cold's wording
+    ("stale_hot" in the plan - the persisted signal.type stays going_cold). Off, the
+    sentence is byte-identical to before."""
     lang = _lang(lang)
     payload = signal.payload
     if signal.type == "commitment_due":
@@ -80,11 +83,16 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
         return ""
     if signal.type == "no_reply":
         return _no_reply(payload, lang)
+    if signal.type == "callback_no_answer":
+        return _callback_no_answer(payload, lang)
+    if signal.type == "never_contacted":
+        return "Nunca has hablado con este contacto." if lang == "es" else "You have never spoken with this contact."
     if signal.type == "going_cold":
         days = payload["days_silent"]
         if lang == "es":
             lead = "Mostró mucho interés" if payload["interest"] == "high" else "Mostró interés"
-            return f"{lead} y lleváis {days} días sin hablar."
+            joiner = "y lleva" if lead_tiers else "y lleváis"
+            return f"{lead} {joiner} {days} días sin hablar."
         lead = "Showed strong interest" if payload["interest"] == "high" else "Showed interest"
         return f"{lead}; {days} days without talking."
     if payload.get("category") == "other":
@@ -111,6 +119,16 @@ def meeting_detail(payload: dict, *, lang: str = "es", tz_name: str | None = Non
     if lang == "es":
         return f"acordada el {local.day} {MONTH['es'][local.month - 1]}"
     return f"agreed on {MONTH['en'][local.month - 1]} {local.day}"
+
+
+def _callback_no_answer(payload: dict, lang: str) -> str:
+    days = payload.get("days_since") or 0
+    voicemail = payload.get("outcome") == "voicemail"
+    if lang == "es":
+        verb = "Le dejaste un mensaje de voz" if voicemail else "Le llamaste"
+        return f"{verb} hace {days} días y no contestó."
+    verb = "You left a voicemail" if voicemail else "You called"
+    return f"{verb} {days} days ago and they did not pick up."
 
 
 def _no_reply(payload: dict, lang: str) -> str:

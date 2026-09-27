@@ -257,6 +257,7 @@ export function RepHome() {
     inCallKey,
     inCallElapsed: dialer?.liveElapsed ?? null,
     rowNotes,
+    leadTiersEnabled: Boolean(user?.company?.features?.includes("HOY_LEAD_TIERS_ENABLED")),
   };
 
   const connectionId =

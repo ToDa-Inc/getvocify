@@ -308,6 +308,7 @@ def build_today_view(
     task_links: dict[str, list[str]] | None = None,
     confirm_rows: list[dict] | None = None,
     tz_name: str | None = None,
+    lead_tiers: bool = False,
 ) -> dict:
     """task_links: signal key -> CRM task ids written for that commitment. Those tasks are
     the commitment, so they never show as manual tasks; the card carries the first id."""
@@ -325,7 +326,7 @@ def build_today_view(
             "contact_id": card.primary.contact_id,
             "connection_id": card.primary.connection_id,
             "deal_id": card.primary.deal_id,
-            "reason": reason(card.primary, lang=lang),
+            "reason": reason(card.primary, lang=lang, lead_tiers=lead_tiers),
             "remote_id": payload.get("remote_id"),
             "origins": payload.get("origins") or ["detected"],
             "supporting": [item.type for item in card.supporting],
@@ -346,6 +347,8 @@ def build_today_view(
                 items[-1]["detail"] = detail
         if task_links.get(card.primary.dedupe_key):
             items[-1]["crm_task_id"] = task_links[card.primary.dedupe_key][0]
+        if payload.get("heat") is not None:
+            items[-1]["heat"] = payload["heat"]
         if payload.get("contact_name"):
             items[-1]["contact_name"] = payload["contact_name"]
         if payload.get("signal_id"):
