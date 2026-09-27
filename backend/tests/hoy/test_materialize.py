@@ -28,21 +28,28 @@ def test_a_stored_open_objection_becomes_one_signal_without_a_model():
     assert "caro" in signals[0].payload["quote"]
 
 
-def test_intelligence_with_no_objections_overrides_the_legacy_text():
-    signals = fresh_signals(
-        [{
-            "id": "memo-1",
-            "hubspot_contact_id": "42",
-            "capture_started_at": "2026-09-20T10:00:00Z",
-            "extraction": {
-                "objections": ["No es el mejor momento"],
-                "intelligence": {"interest": "high", "objections": []},
-            },
-        }],
-        now=NOW,
-        day_end=DAY_END,
-    )
+def _memo_with_empty_c04():
+    return {
+        "id": "memo-1",
+        "hubspot_contact_id": "42",
+        "capture_started_at": "2026-09-20T10:00:00Z",
+        "extraction": {
+            "objections": ["No es el mejor momento"],
+            "intelligence": {"interest": "high", "objections": []},
+        },
+    }
+
+
+def test_current_intelligence_with_no_objections_overrides_the_legacy_text(monkeypatch):
+    monkeypatch.setattr("app.services.intelligence.extract.is_current", lambda _memo: True)
+    signals = fresh_signals([_memo_with_empty_c04()], now=NOW, day_end=DAY_END)
     assert "objection_open" not in [signal.type for signal in signals]
+
+
+def test_stale_intelligence_with_no_objections_keeps_the_legacy_text(monkeypatch):
+    monkeypatch.setattr("app.services.intelligence.extract.is_current", lambda _memo: False)
+    signals = fresh_signals([_memo_with_empty_c04()], now=NOW, day_end=DAY_END)
+    assert "objection_open" in [signal.type for signal in signals]
 
 
 def test_only_a_pending_objection_of_a_reread_memo_is_retracted():

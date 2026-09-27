@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
+from app.services.intelligence import extract
 
 
 HOY_MEMO_LIMIT = 40
@@ -32,9 +33,11 @@ def _intelligence(memo: dict) -> dict:
     return block if isinstance(block, dict) else {}
 
 
-def _objections(extraction: dict, intelligence: dict) -> list[dict]:
+def _objections(extraction: dict, intelligence: dict, *, current: bool) -> list[dict]:
     c04 = intelligence.get("objections")
-    raw = c04 if isinstance(c04, list) else extraction.get("objections") or []
+    # An empty list from current C04 means "no objection"; from a stale run it proves nothing.
+    trusted = isinstance(c04, list) and (bool(c04) or current)
+    raw = c04 if trusted else extraction.get("objections") or []
     open_rows: list[dict] = []
     for item in raw:
         if isinstance(item, str):
@@ -73,7 +76,7 @@ def fresh_signals(memos: list[dict], *, now: datetime, day_end: datetime) -> lis
         intelligence = _intelligence(memo)
         shaped = {
             **intelligence,
-            "objections": _objections(extraction, intelligence),
+            "objections": _objections(extraction, intelligence, current=bool(intelligence) and extract.is_current(memo)),
             "commitments": _commitments(intelligence),
         }
         at = as_dt(memo.get("capture_started_at") or memo.get("created_at"))
@@ -148,7 +151,10 @@ def read_hoy_memos(supabase, *, company_id: str, user_id: str) -> list[dict]:
     """The rep's newest memos: the only window Hoy materializes signals from."""
     stored = (
         supabase.table("memos")
-        .select("id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at")
+        .select(
+            "id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at,"
+            "company_id,user_id,playbook_version_id"
+        )
         .eq("user_id", user_id)
         .or_(f"company_id.eq.{company_id},company_id.is.null")
         .order("created_at", desc=True)
