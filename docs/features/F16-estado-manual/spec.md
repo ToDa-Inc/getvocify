@@ -17,10 +17,11 @@ Cuando termina una llamada, el comercial quiere marcar él mismo el resultado co
 
 ## 4. Comportamiento
 
-### Configuración (owner/admin, pantalla de CRM existente)
-1. **Dónde marca el comercial el resultado:** «Etapa del deal» o «Estado del lead» (`hs_lead_status`, solo HubSpot). Pipedrive siempre usa la etapa del deal.
-2. **Sale de la cola · reunión agendada:** selección múltiple de estados de la empresa. (La pieza 3 usará este grupo para pasar el contacto al AE.)
-3. **Sale de la cola · fin:** selección múltiple (perdido, descalificado…). En Pipedrive incluye además «Ganado» y «Perdido» del estado del deal.
+### Configuración (owner/admin, Ajustes → Proceso)
+Quien configura el proceso es la cuenta de administrador de Vocify (el head of sales, creada en el onboarding). Marca las etapas con el nombre que ya tienen en el CRM. Un SDR o un AE no ve este bloque. Con el flag encendido, el desplegable de F14 «Al guardar una reunión acordada» no se muestra.
+1. **Dónde está esa etapa:** «Etapa del deal» o «Estado del lead» (`hs_lead_status`, solo HubSpot). Pipedrive siempre usa la etapa del deal.
+2. **¿Qué etapa significa que el contacto sale del SDR?** Selección múltiple de estados de la empresa. (La pieza 3 usará este grupo para pasar el contacto al AE.)
+3. **¿Qué etapa significa que se acabó?** Selección múltiple (perdido, descalificado…). En Pipedrive incluye además «Ganado» y «Perdido» del estado del deal.
 4. Los estados no marcados dejan al contacto en la cola. Sin nada marcado, nadie sale por estado.
 5. La etapa de «reunión agendada» de F14 que ya exista se copia al grupo «reunión agendada».
 
@@ -58,7 +59,7 @@ Cuando termina una llamada, el comercial quiere marcar él mismo el resultado co
 | E18 | Tarjeta de Hoy de un memo con `deal_closed` inferido | Se muestra (con el flag encendido) salvo que el estado del CRM sea de salida |
 
 ## 5. Qué NO hace la v1
-- Roles SDR / AE / General / Head of Sales, traspaso al AE, Hoy por rol, playbook por proceso, onboarding.
+- Cuentas Vocify de SDR y AE (las crea el administrador en el onboarding; el correo es el mismo que en HubSpot). HubSpot no tiene rol SDR, AE ni head of sales. Traspaso al AE, Hoy por rol, playbook por proceso.
 - Estado del lead en Pipedrive (objeto Leads) y Salesforce.
 - Tocar la bajada de prioridad por reunión futura detectada (`scheduled_at`).
 - Reprocesar señales de Hoy ya guardadas.

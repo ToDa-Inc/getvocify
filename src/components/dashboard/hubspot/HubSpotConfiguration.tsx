@@ -11,7 +11,6 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/fill-policy";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
-import { QueueStatesPicker } from "@/components/dashboard/crm/QueueStatesPicker";
 import { useLanguage } from "@/lib/i18n";
 import { prepareQueueStatesForSave } from "@/lib/queue-states";
 
@@ -93,11 +92,12 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const stored = data?.config;
       const queueStates = prepareQueueStatesForSave({
         provider: "hubspot",
-        source: config.queue_state_source,
-        booked: config.queue_booked_states ?? [],
-        ended: config.queue_ended_states ?? [],
+        source: stored?.queue_state_source,
+        booked: stored?.queue_booked_states ?? [],
+        ended: stored?.queue_ended_states ?? [],
         pipelines,
         contactSchema: schemas.contacts,
       });
@@ -246,6 +246,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
             </div>
           </label>
 
+          {config.queue_states_enabled ? null : (
           <label className="space-y-1.5 min-w-0">
             <span className="block text-[13px] text-foreground">{t.product.meetingBookedStage}</span>
             <div className="relative">
@@ -272,18 +273,8 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
             </div>
           </label>
+          )}
         </div>
-
-        {config.queue_states_enabled ? (
-          <QueueStatesPicker
-            provider="hubspot"
-            config={config}
-            pipelines={pipelines}
-            contactSchema={schemas.contacts}
-            readOnly={readOnly}
-            onChange={(patch) => setConfig((prev) => ({ ...prev, ...patch }))}
-          />
-        ) : null}
       </div>
 
       <AutoAcceptCrmToggle

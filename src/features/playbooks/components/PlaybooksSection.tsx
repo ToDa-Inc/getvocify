@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth";
+import { SdrExitSettings } from "@/components/dashboard/crm/SdrExitSettings";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
 import {
   applyPublishResult,
@@ -140,6 +141,7 @@ export default function PlaybooksSection() {
   return (
     <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-5 p-6 md:p-8`}>
       <h2 className={THEME_TOKENS.typography.sectionTitle}>{t.product.playbookTitle}</h2>
+      {notice.canEdit ? <SdrExitSettings /> : null}
       <PlaybookSetupNotice role={role} motions={motions} />
       {notice.canEdit ? (
         <details>

@@ -44,7 +44,7 @@ Ninguno.
 - Modo lead (HubSpot): añadir `hs_lead_status` a las propiedades de la búsqueda de contactos que ya se hace. Sin lecturas nuevas.
 
 ## Frontend
-- `src/components/dashboard/crm/QueueStatesPicker.tsx`, compartido por `HubSpotConfiguration.tsx` y `PipedriveConfiguration.tsx`. Va debajo del selector de «reunión agendada» de F14: un selector de modo (solo HubSpot) y dos listas de casillas compactas («Sale de la cola · reunión agendada», «Sale de la cola · fin»). Peso visual secundario; sin pantalla nueva. Solo owner/admin (el resto lo ve en solo lectura, como el resto de la configuración).
+- `src/components/dashboard/crm/QueueStatesPicker.tsx`, montado por `SdrExitSettings` en Ajustes → Proceso (`PlaybooksSection`), solo si el usuario es owner o admin. Pregunta: «¿Qué etapa significa que el contacto sale del SDR?» y, debajo, «¿Qué etapa significa que se acabó?». Peso secundario dentro de Proceso. Sin pantalla nueva. Con el flag encendido, el selector F14 «Al guardar una reunión acordada» no se renderiza en la configuración del CRM.
 - `src/lib/queue-states.ts` (puro, testeado): opciones de estado según modo y proveedor.
 - Revisión: sin cambios de componentes; la fila llega como `ProposedUpdate` y ya se pinta.
 

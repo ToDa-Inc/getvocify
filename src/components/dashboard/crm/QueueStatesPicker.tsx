@@ -37,6 +37,7 @@ function StateCheckboxList({
   selected,
   group,
   readOnly,
+  prominent,
   onToggle,
 }: {
   title: string;
@@ -44,11 +45,12 @@ function StateCheckboxList({
   selected: string[];
   group: "booked" | "ended";
   readOnly?: boolean;
+  prominent?: boolean;
   onToggle: (stateId: string, group: "booked" | "ended") => void;
 }) {
   return (
     <div className="space-y-2 min-w-0">
-      <p className="text-[11px] text-muted-foreground">{title}</p>
+      <p className={prominent ? "text-[13px] text-foreground" : "text-[11px] text-muted-foreground"}>{title}</p>
       <div className="max-h-40 overflow-y-auto rounded-2xl border border-border/20 bg-secondary/5 p-2 space-y-0.5">
         {options.length > 0 ? (
           options.map((option) => {
@@ -124,7 +126,7 @@ export const QueueStatesPicker = ({
   };
 
   return (
-    <div className="space-y-3 pt-1 border-t border-border/15">
+    <div className="space-y-3">
       {provider === "hubspot" ? (
         <label className="space-y-1.5 block min-w-0">
           <span className="block text-[11px] text-muted-foreground">{t.product.queueStateSourceLabel}</span>
@@ -145,13 +147,14 @@ export const QueueStatesPicker = ({
         </label>
       ) : null}
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="space-y-3">
         <StateCheckboxList
           title={t.product.queueExitBooked}
           options={options}
           selected={booked}
           group="booked"
           readOnly={readOnly}
+          prominent
           onToggle={handleToggle}
         />
         <StateCheckboxList

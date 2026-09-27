@@ -14,7 +14,6 @@ import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
-import { QueueStatesPicker } from "@/components/dashboard/crm/QueueStatesPicker";
 import { useLanguage } from "@/lib/i18n";
 import { prepareQueueStatesForSave } from "@/lib/queue-states";
 
@@ -85,11 +84,12 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const stored = data?.config;
       const queueStates = prepareQueueStatesForSave({
         provider: "pipedrive",
-        source: config.queue_state_source,
-        booked: config.queue_booked_states ?? [],
-        ended: config.queue_ended_states ?? [],
+        source: stored?.queue_state_source,
+        booked: stored?.queue_booked_states ?? [],
+        ended: stored?.queue_ended_states ?? [],
         pipelines,
         pipedriveStatusLabels: {
           won: t.product.queueStateWon,
@@ -208,6 +208,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
             </div>
           </div>
+          {config.queue_states_enabled ? null : (
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
             <div className="relative">
@@ -234,18 +235,8 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
             </div>
           </div>
+          )}
         </div>
-
-        {config.queue_states_enabled ? (
-          <QueueStatesPicker
-            provider="pipedrive"
-            config={config}
-            pipelines={pipelines}
-            readOnly={readOnly}
-            selectClassName="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none disabled:opacity-60"
-            onChange={(patch) => setConfig((prev) => ({ ...prev, ...patch }))}
-          />
-        ) : null}
       </div>
 
       <AutoAcceptCrmToggle
