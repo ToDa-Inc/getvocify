@@ -340,6 +340,10 @@ export const productCatalog = {
     askConsulting: "Reading the CRM…",
     askStillGoing: "Still working. You can close this and come back.",
     askPhasePartial: "Only part of the CRM was read.",
+    salesRoleSdr: "SDR",
+    salesRoleAe: "AE",
+    salesRoleGeneral: "Both",
+    salesRoleGroup: "Sales role",
   },
   ES: {
     hourLocale: "es-ES",
@@ -682,6 +686,10 @@ export const productCatalog = {
     askConsulting: "Leyendo el CRM…",
     askStillGoing: "Sigue en curso. Puedes cerrar y volver.",
     askPhasePartial: "Solo se leyó una parte del CRM.",
+    salesRoleSdr: "SDR",
+    salesRoleAe: "AE",
+    salesRoleGeneral: "Ambos",
+    salesRoleGroup: "Rol comercial",
   },
 } as const;
 

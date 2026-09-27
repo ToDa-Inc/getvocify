@@ -2,6 +2,10 @@
  * Company workspace types
  */
 
+import type { SalesRole } from '@/lib/sales-role';
+
+export type { SalesRole };
+
 export interface CompanySummary {
   id: string;
   name: string;
@@ -14,6 +18,8 @@ export interface CompanySummary {
   planType?: 'starter' | 'pro' | null;
   paywalled?: boolean;
   canUseDialer?: boolean;
+  /** Present only when SALES_ROLES_ENABLED is on for the company. */
+  salesRole?: SalesRole;
 }
 
 export interface CompanyDetails extends CompanySummary {
@@ -29,6 +35,8 @@ export interface CompanyMember {
   role: string;
   status: string;
   createdAt?: string;
+  /** Present only when SALES_ROLES_ENABLED is on for the company. */
+  salesRole?: SalesRole;
 }
 
 export interface PendingInvite {
@@ -37,6 +45,8 @@ export interface PendingInvite {
   role: string;
   expiresAt: string;
   createdAt?: string;
+  /** Present only when SALES_ROLES_ENABLED is on for the company. */
+  salesRole?: SalesRole;
 }
 
 export interface InvitePreview {

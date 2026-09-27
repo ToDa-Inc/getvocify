@@ -1,7 +1,15 @@
 import { api } from '@/shared/lib/api-client';
 import { mapAuthResponse } from '@/features/auth/api';
 import type { AuthResponse } from '@/features/auth/types';
+import type { SalesRole } from '@/lib/sales-role';
 import type { CompanyDetails, CompanyMember, InvitePreview, PendingInvite } from './types';
+
+function mapOptionalSalesRole(raw: Record<string, unknown>): SalesRole | undefined {
+  if (!('sales_role' in raw)) return undefined;
+  const value = raw.sales_role;
+  if (value === 'sdr' || value === 'ae' || value === 'general') return value;
+  return 'general';
+}
 
 function mapCompany(raw: Record<string, unknown>): CompanyDetails {
   return {
@@ -18,6 +26,7 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     planType: raw.plan_type === 'starter' || raw.plan_type === 'pro' ? raw.plan_type : null,
     paywalled: Boolean(raw.paywalled),
     canUseDialer: raw.can_use_dialer == null ? true : Boolean(raw.can_use_dialer),
+    salesRole: mapOptionalSalesRole(raw),
   };
 }
 
@@ -30,6 +39,7 @@ function mapMember(raw: Record<string, unknown>): CompanyMember {
     role: String(raw.role),
     status: String(raw.status),
     createdAt: raw.created_at as string | undefined,
+    salesRole: mapOptionalSalesRole(raw),
   };
 }
 
@@ -40,6 +50,7 @@ function mapInvite(raw: Record<string, unknown>): PendingInvite {
     role: String(raw.role),
     expiresAt: String(raw.expires_at),
     createdAt: raw.created_at as string | undefined,
+    salesRole: mapOptionalSalesRole(raw),
   };
 }
 
@@ -62,15 +73,29 @@ export const companyApi = {
     return mapCompany(raw);
   },
 
-  listMembers: async (): Promise<{ members: CompanyMember[]; pendingInvites: PendingInvite[] }> => {
+  listMembers: async (): Promise<{
+    members: CompanyMember[];
+    pendingInvites: PendingInvite[];
+    salesRolesEnabled: boolean;
+  }> => {
     const raw = await api.get<Record<string, unknown>>('/company/members');
     const members = ((raw.members as Record<string, unknown>[]) ?? []).map(mapMember);
     const pendingInvites = ((raw.pending_invites as Record<string, unknown>[]) ?? []).map(mapInvite);
-    return { members, pendingInvites };
+    return {
+      members,
+      pendingInvites,
+      salesRolesEnabled: Boolean(raw.sales_roles_enabled),
+    };
   },
 
-  invite: async (email: string, role: 'admin' | 'member' = 'member'): Promise<{ emailSent: boolean; inviteUrl?: string }> => {
-    const raw = await api.post<Record<string, unknown>>('/company/invites', { email, role, send_email: true });
+  invite: async (
+    email: string,
+    role: 'admin' | 'member' = 'member',
+    salesRole?: SalesRole,
+  ): Promise<{ emailSent: boolean; inviteUrl?: string }> => {
+    const body: Record<string, unknown> = { email, role, send_email: true };
+    if (salesRole != null) body.sales_role = salesRole;
+    const raw = await api.post<Record<string, unknown>>('/company/invites', body);
     return {
       emailSent: Boolean(raw.email_sent),
       inviteUrl: raw.invite_url as string | undefined,
@@ -91,6 +116,12 @@ export const companyApi = {
 
   updateMemberRole: async (memberId: string, role: string) => {
     return api.patch<Record<string, unknown>>(`/company/members/${memberId}`, { role });
+  },
+
+  updateMemberSalesRole: async (memberId: string, salesRole: SalesRole) => {
+    return api.patch<Record<string, unknown>>(`/company/members/${memberId}/sales-role`, {
+      sales_role: salesRole,
+    });
   },
 
   previewInvite: async (token: string): Promise<InvitePreview> => {

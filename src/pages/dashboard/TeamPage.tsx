@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
+import type { SalesRole } from "@/features/company/types";
+import { useLanguage } from "@/lib/i18n";
 import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
+import { SALES_ROLE_OPTIONS, salesRoleLabel } from "@/lib/sales-role";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
@@ -26,6 +29,11 @@ const ROLE_OPTIONS = [
   },
 ];
 
+const pillSelected =
+  "rounded-full px-4 h-8 text-xs font-medium transition-colors bg-beige text-cream";
+const pillIdle =
+  "rounded-full px-4 h-8 text-xs font-medium transition-colors text-muted-foreground hover:text-foreground";
+
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
     const detail = (error as { data?: { detail?: unknown } }).data?.detail;
@@ -37,9 +45,12 @@ function apiErrorMessage(error: unknown, fallback: string) {
 
 const TeamPage = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
+  const catalog = t.product;
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
+  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole>("general");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<
     | { kind: "remove"; id: string; name: string }
@@ -59,6 +70,7 @@ const TeamPage = () => {
     queryFn: () => companyApi.listMembers(),
   });
 
+  const salesRolesEnabled = roster?.salesRolesEnabled === true;
   const seatLimit = company?.seatLimit ?? user?.company?.seatLimit ?? 1;
   const seatsUsed = company?.seatsUsed ?? user?.company?.seatsUsed ?? 1;
   const seatsAvailable =
@@ -72,9 +84,15 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () => companyApi.invite(inviteEmail.trim(), inviteRole),
+    mutationFn: () =>
+      companyApi.invite(
+        inviteEmail.trim(),
+        inviteRole,
+        salesRolesEnabled ? inviteSalesRole : undefined,
+      ),
     onSuccess: (res) => {
       setInviteEmail("");
+      setInviteSalesRole("general");
       setInviteUrl(res.inviteUrl ?? null);
       refreshWorkspace();
       if (res.emailSent) {
@@ -87,6 +105,17 @@ const TeamPage = () => {
     },
     onError: (error) => {
       toast.error(apiErrorMessage(error, "Could not send invite"));
+    },
+  });
+
+  const salesRoleMutation = useMutation({
+    mutationFn: ({ memberId, salesRole }: { memberId: string; salesRole: SalesRole }) =>
+      companyApi.updateMemberSalesRole(memberId, salesRole),
+    onSuccess: () => {
+      refreshWorkspace();
+    },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, "Could not update sales role"));
     },
   });
 
@@ -179,32 +208,70 @@ const TeamPage = () => {
           </p>
         )}
         <div className="divide-y divide-border/40">
-          {(roster?.members ?? []).map((m) => (
-            <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">
-                  {m.fullName || m.email}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
+          {(roster?.members ?? []).map((m) => {
+            const currentSalesRole = m.salesRole ?? "general";
+            return (
+              <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {m.fullName || m.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
+                    {m.role}
+                  </span>
+                  {salesRolesEnabled &&
+                    (canManage ? (
+                      <div
+                        className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1"
+                        role="group"
+                        aria-label={catalog.salesRoleGroup}
+                      >
+                        {SALES_ROLE_OPTIONS.map((value) => {
+                          const selected = currentSalesRole === value;
+                          const pending =
+                            salesRoleMutation.isPending &&
+                            salesRoleMutation.variables?.memberId === m.id &&
+                            salesRoleMutation.variables?.salesRole === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              disabled={salesRoleMutation.isPending}
+                              onClick={() => {
+                                if (selected) return;
+                                salesRoleMutation.mutate({ memberId: m.id, salesRole: value });
+                              }}
+                              aria-pressed={selected}
+                              className={selected ? pillSelected : pillIdle}
+                            >
+                              {pending ? "…" : salesRoleLabel(value, catalog)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
+                        {salesRoleLabel(currentSalesRole, catalog)}
+                      </span>
+                    ))}
+                  {canManage && m.userId !== user?.id && m.role !== "owner" && (
+                    <IconAction
+                      label={`Remove ${m.fullName || m.email}`}
+                      tone="danger"
+                      onClick={() =>
+                        setConfirm({ kind: "remove", id: m.id, name: m.fullName || m.email })
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </IconAction>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
-                  {m.role}
-                </span>
-                {canManage && m.userId !== user?.id && m.role !== "owner" && (
-                  <IconAction
-                    label={`Remove ${m.fullName || m.email}`}
-                    tone="danger"
-                    onClick={() =>
-                      setConfirm({ kind: "remove", id: m.id, name: m.fullName || m.email })
-                    }
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </IconAction>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -217,7 +284,11 @@ const TeamPage = () => {
                 <div className="min-w-0">
                   <p className="text-sm text-foreground truncate">{inv.email}</p>
                   <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                    {inv.role} · expires {new Date(inv.expiresAt).toLocaleDateString()}
+                    {inv.role}
+                    {salesRolesEnabled
+                      ? ` · ${salesRoleLabel(inv.salesRole, catalog)}`
+                      : ""}
+                    {" · "}expires {new Date(inv.expiresAt).toLocaleDateString()}
                   </p>
                 </div>
                 {canManage && (
@@ -302,17 +373,40 @@ const TeamPage = () => {
                         type="button"
                         onClick={() => setInviteRole(option.value)}
                         aria-pressed={selected}
-                        className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                          selected
-                            ? "bg-beige text-cream"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
+                        className={selected ? pillSelected : pillIdle}
                       >
                         {option.label}
                       </button>
                     );
                   })}
                 </div>
+                {salesRolesEnabled && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={THEME_TOKENS.typography.capsLabel}>
+                      {catalog.salesRoleGroup}
+                    </span>
+                    <div
+                      className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1"
+                      role="group"
+                      aria-label={catalog.salesRoleGroup}
+                    >
+                      {SALES_ROLE_OPTIONS.map((value) => {
+                        const selected = inviteSalesRole === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setInviteSalesRole(value)}
+                            aria-pressed={selected}
+                            className={selected ? pillSelected : pillIdle}
+                          >
+                            {salesRoleLabel(value, catalog)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <Button
                   type="submit"
                   disabled={inviteMutation.isPending || seatsFull}
