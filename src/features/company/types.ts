@@ -15,6 +15,7 @@ export interface CompanySummary {
   paywalled?: boolean;
   canUseDialer?: boolean;
   repWorkspace?: boolean;
+  briefV2?: boolean;
 }
 
 export interface CompanyDetails extends CompanySummary {

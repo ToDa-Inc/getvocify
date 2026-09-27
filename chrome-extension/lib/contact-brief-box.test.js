@@ -38,25 +38,46 @@ function paint(args) {
 }
 
 describe('contact brief box (extension popup)', () => {
-  it('paints the F03 payload without a label', () => {
+  it('paints the F03 payload exactly as the flat lines, as before brief v2', () => {
     const { box, screen, shown } = paint({
       brief: {
         status: 'ready',
-        text: null,
+        text: 'Resumen',
         notice: null,
         lines: [
           { type: 'last', text: 'El 2 sep hablasteis del almacén.', source_ref: 'memo-1' },
           { type: 'pending', text: 'Quedó pendiente: enviar el caso.', source_ref: 'memo-1' },
+          { type: 'objection', text: 'Objeción: precio.', source_ref: 'memo-1' },
         ],
       },
+      flatLines: ['Resumen', 'El 2 sep hablasteis del almacén.', 'Quedó pendiente: enviar el caso.', 'Objeción: precio.'],
     });
     assert.equal(shown, true);
     assert.deepEqual(box.children.map((child) => child.textContent), [
+      'Resumen',
       'El 2 sep hablasteis del almacén.',
       'Quedó pendiente: enviar el caso.',
+      'Objeción: precio.',
     ]);
     assert.equal(box.hidden, false);
     assert.equal(screen.classList.contains('has-brief'), true);
+  });
+
+  it('keeps «Nada pendiente en esta ficha.» for an empty F03 brief', () => {
+    const { box, shown } = paint({
+      brief: { status: 'ready', text: null, notice: null, lines: [] },
+      flatLines: ['Nada pendiente en esta ficha.'],
+    });
+    assert.equal(shown, true);
+    assert.deepEqual(box.children.map((child) => child.textContent), ['Nada pendiente en esta ficha.']);
+  });
+
+  it('falls back to the flat lines for an empty v2 brief', () => {
+    const { box } = paint({
+      brief: { status: 'ready', text: null, notice: null, label: null, lines: [] },
+      flatLines: ['Nada pendiente en esta ficha.'],
+    });
+    assert.deepEqual(box.children.map((child) => child.textContent), ['Nada pendiente en esta ficha.']);
   });
 
   it('paints the v2 payload with the playbook line and the label chip', () => {

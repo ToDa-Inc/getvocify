@@ -19,6 +19,7 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     paywalled: Boolean(raw.paywalled),
     canUseDialer: raw.can_use_dialer == null ? true : Boolean(raw.can_use_dialer),
     repWorkspace: Boolean(raw.rep_workspace_enabled),
+    briefV2: Boolean(raw.brief_v2_enabled),
   };
 }
 

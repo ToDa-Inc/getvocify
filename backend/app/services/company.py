@@ -34,6 +34,7 @@ PASSWORD_RESET_EXPIRY_HOURS = 1
 MANAGE_ROLES = frozenset({"owner", "admin"})
 INVITE_ROLES = frozenset({"admin", "member"})
 REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
+BRIEF_V2_FLAG = "BRIEF_V2_ENABLED"
 
 
 @dataclass
@@ -256,6 +257,9 @@ class CompanyService:
     def rep_workspace_enabled(self, company_id: str) -> bool:
         return is_enabled(self.supabase, company_id, REP_WORKSPACE_FLAG)
 
+    def brief_v2_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, BRIEF_V2_FLAG)
+
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
         membership = self.get_membership(user_id)
         if not membership or not membership.is_active:
@@ -278,6 +282,7 @@ class CompanyService:
             "paywalled": entitlements["paywalled"],
             "can_use_dialer": entitlements["can_use_dialer"],
             "rep_workspace_enabled": self.rep_workspace_enabled(membership.company_id),
+            "brief_v2_enabled": self.brief_v2_enabled(membership.company_id),
         }
 
     def list_members(self, company_id: str) -> List[dict]:

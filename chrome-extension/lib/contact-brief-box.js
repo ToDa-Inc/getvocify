@@ -3,8 +3,10 @@ import { briefRows } from '../shared/ui/brief.js';
 /** Paints the contact brief box. Returns true when the box shows something. */
 export function paintBriefBox({ box, screen, brief, flatLines, captureActive, doc = document }) {
   box.replaceChildren();
-  if (brief && !captureActive) {
-    const view = briefRows(brief);
+  // Only BRIEF_V2_ENABLED answers carry `label`; F03 answers keep the flat lines they always had.
+  const isV2 = Boolean(brief) && Object.prototype.hasOwnProperty.call(brief, 'label');
+  const view = isV2 && !captureActive ? briefRows(brief) : null;
+  if (view && (view.rows.length || view.label || view.notice)) {
     for (const row of view.rows) {
       const line = doc.createElement('p');
       line.textContent = row.text;

@@ -148,6 +148,19 @@ def test_global_default_without_a_company_row_is_off():
     assert _company(store)["rep_workspace_enabled"] is False
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_brief_v2_row_reaches_both_summaries(enabled):
+    store = _Supabase([{"company_id": COMPANY, "flag": "BRIEF_V2_ENABLED", "enabled": enabled}])
+    assert _me_company(store)["brief_v2_enabled"] is enabled
+    assert _company(store)["brief_v2_enabled"] is enabled
+
+
+def test_brief_v2_without_a_company_row_is_off():
+    store = _Supabase([{"company_id": OTHER_COMPANY, "flag": "BRIEF_V2_ENABLED", "enabled": True}])
+    assert _me_company(store)["brief_v2_enabled"] is False
+    assert _company(store)["brief_v2_enabled"] is False
+
+
 def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
     store = _Supabase()
     assert _me_company(store) == {
@@ -163,6 +176,7 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "paywalled": False,
         "can_use_dialer": True,
         "rep_workspace_enabled": False,
+        "brief_v2_enabled": False,
     }
     assert _company(store) == {
         "id": COMPANY,
@@ -180,6 +194,7 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "paywalled": False,
         "can_use_dialer": True,
         "rep_workspace_enabled": False,
+        "brief_v2_enabled": False,
     }
 
 

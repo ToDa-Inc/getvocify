@@ -45,6 +45,7 @@ import {
 } from "@/lib/dial-target";
 import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
+import { useAuth } from "@/features/auth";
 
 type TelnyxCall = {
   id?: string;
@@ -119,6 +120,7 @@ export const DashboardDialer = ({
   onCallEnded,
 }: Props) => {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const callCopy = t.product;
   const verified = callerIds.filter(
     (c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked,
@@ -680,7 +682,7 @@ export const DashboardDialer = ({
           </div>
         </div>
 
-        {showBrief && !compact && selected?.contactId ? (
+        {showBrief && !compact && user?.company?.briefV2 && selected?.contactId ? (
           <div className="mt-3">
             <ContactBrief contactId={selected.contactId} compact />
           </div>

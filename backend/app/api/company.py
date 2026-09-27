@@ -33,6 +33,7 @@ class CompanyResponse(BaseModel):
     paywalled: bool = False
     can_use_dialer: bool = True
     rep_workspace_enabled: bool = False
+    brief_v2_enabled: bool = False
 
 
 class UpdateCompanyRequest(BaseModel):
@@ -122,6 +123,7 @@ async def get_company(
         paywalled=entitlements["paywalled"],
         can_use_dialer=entitlements["can_use_dialer"],
         rep_workspace_enabled=svc.rep_workspace_enabled(membership.company_id),
+        brief_v2_enabled=svc.brief_v2_enabled(membership.company_id),
     )
 
 
