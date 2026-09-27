@@ -18,8 +18,26 @@ export function plainAnswer(answer: string | null | undefined): string {
         .trim()
         .replace(/^#+\s*/, "")
         .replace(/^[*\-•]\s+/, "· ")
-        .replace(/\*\*|__/g, ""),
+        .replace(/\*\*|__/g, "")
+        .replace(/🔗\s*(?=\[)/gu, ""),
     )
     .join("\n")
     .trim();
+}
+
+export type AnswerPart = { text: string; href?: string };
+
+/** Splits `[label](https://…)` out of an answer so it renders as a real link. */
+export function answerParts(answer: string): AnswerPart[] {
+  const parts: AnswerPart[] = [];
+  const link = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let last = 0;
+  for (const match of answer.matchAll(link)) {
+    const at = match.index ?? 0;
+    if (at > last) parts.push({ text: answer.slice(last, at) });
+    parts.push({ text: match[1], href: match[2] });
+    last = at + match[0].length;
+  }
+  if (last < answer.length) parts.push({ text: answer.slice(last) });
+  return parts;
 }
