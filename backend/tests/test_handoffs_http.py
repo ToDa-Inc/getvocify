@@ -1,5 +1,7 @@
 """T3: POST/GET /handoffs. Flag off -> 404. An AE cannot call it (403). needs_ae/self_owned/
-invalid_ae as 409. Idempotent create. The CRM owner effect only runs behind its own flag."""
+invalid_ae as 409. Idempotent create. The CRM owner effect only runs behind its own flag.
+An unknown connection_id is 404, an empty contact_id is 422, and omitting connection_id
+resolves the company's single connected CRM (like F14's accept.py)."""
 
 import os
 
@@ -112,6 +114,11 @@ def setup_function():
             {"user_id": "ae-1", "company_id": COMPANY, "sales_role": "ae", "status": "active"},
             {"user_id": "sdr-2", "company_id": COMPANY, "sales_role": "sdr", "status": "active"},
         ],
+        "crm_connections": [
+            # No access_token: found (not 404), but the CRM-owner-effect writer can't be
+            # built from it - proves "skipped" is "no usable connection", not "no row".
+            {"id": "conn-1", "company_id": COMPANY, "provider": "hubspot", "status": "connected", "access_token": ""},
+        ],
     }
     MEMBERSHIP = _membership(sales_role="sdr", handoff_ae_user_id="ae-1")
     feature_flags.clear_cache()
@@ -153,6 +160,38 @@ def test_general_without_a_route_is_self_owned():
     MEMBERSHIP = _membership(sales_role="general", handoff_ae_user_id=None)
     client = _client()
     response = client.post("/api/v1/handoffs", json={"contact_id": "c1", "connection_id": "conn-1"})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "self_owned"
+
+
+def test_unknown_connection_is_404():
+    client = _client()
+    response = client.post("/api/v1/handoffs", json={"contact_id": "c1", "connection_id": "conn-missing"})
+    assert response.status_code == 404
+
+
+def test_empty_contact_id_is_422():
+    client = _client()
+    response = client.post("/api/v1/handoffs", json={"contact_id": "", "connection_id": "conn-1"})
+    assert response.status_code == 422
+
+
+def test_connection_id_omitted_resolves_the_companys_connected_crm():
+    client = _client()
+    response = client.post("/api/v1/handoffs", json={"contact_id": "c1"})
+    assert response.status_code == 200
+    assert response.json()["created"] is True
+    assert STORE.tables["deal_handoffs"][0]["connection_id"] == "conn-1"
+
+
+def test_general_naming_themselves_is_self_owned():
+    global MEMBERSHIP
+    MEMBERSHIP = _membership(sales_role="general", handoff_ae_user_id=None, user_id="gen-1")
+    client = _client()
+    response = client.post(
+        "/api/v1/handoffs",
+        json={"contact_id": "c1", "connection_id": "conn-1", "ae_user_id": "gen-1"},
+    )
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "self_owned"
 

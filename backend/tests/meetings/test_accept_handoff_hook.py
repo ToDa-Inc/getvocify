@@ -136,12 +136,21 @@ def _client() -> TestClient:
 
 
 def setup_function():
+    global MEMBERSHIP
+    # Reset from whatever a previous test reassigned it to - membership is mutable
+    # module state and every test that needs a different one sets it explicitly below.
+    MEMBERSHIP = Membership(
+        id="m", company_id=COMPANY, user_id="sdr-1", role="member", status="active",
+        sales_role="sdr", handoff_ae_user_id="ae-1",
+    )
     STORE.tables = {
         "memos": [
             {
+                # No connection_id column (T3 review: memos has none in the real DB;
+                # the connection is resolved via resolve_sync_connection_for_company,
+                # same as accept.py, not read off the memo).
                 "id": MEMO,
                 "company_id": COMPANY,
-                "connection_id": "conn-1",
                 "hubspot_contact_id": "contact-42",
                 "hubspot_deal_id": "deal-9",
                 "matched_deal_id": None,
@@ -152,7 +161,9 @@ def setup_function():
         "company_members": [
             {"user_id": "ae-1", "company_id": COMPANY, "sales_role": "ae", "status": "active"},
         ],
-        "crm_connections": [],
+        "crm_connections": [
+            {"id": "conn-1", "company_id": COMPANY, "provider": "hubspot", "status": "connected", "access_token": "pat-test"},
+        ],
     }
     api.set_meeting_writer_factory(lambda _conn, _memo, _row: FakeWriter())
     feature_flags.clear_cache()
@@ -176,6 +187,7 @@ def test_accepting_creates_the_handoff_for_an_sdr():
     assert handoffs[0]["ae_user_id"] == "ae-1"
     assert handoffs[0]["contact_id"] == "contact-42"
     assert handoffs[0]["deal_id"] == "deal-9"
+    assert handoffs[0]["connection_id"] == "conn-1"
 
 
 def test_accepting_twice_does_not_duplicate_the_handoff():
@@ -223,6 +235,21 @@ def test_no_handoff_when_the_sdr_has_no_ae_routed():
     )
     assert response.status_code == 200
     assert STORE.tables.get("deal_handoffs", []) == []
+
+
+def test_crm_owner_effect_runs_behind_its_own_flag():
+    settings.HANDOFF_CRM_OWNER_ENABLED = True
+    client = _client()
+    client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/accept",
+        json={"decision": "accept", "proposal_id": "meet-1"},
+    )
+    settings.HANDOFF_CRM_OWNER_ENABLED = False
+    handoffs = STORE.tables.get("deal_handoffs") or []
+    assert len(handoffs) == 1
+    # No HubSpot owner matches ae-1's (unresolvable) email in this fake auth admin -> unmapped,
+    # proving the shared _apply_crm_owner_effect ran from the hook, not just from POST /handoffs.
+    assert handoffs[0]["crm_owner_status"] in {"unmapped", "failed"}
 
 
 def test_omit_does_not_create_a_handoff():

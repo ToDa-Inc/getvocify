@@ -21,6 +21,25 @@ class HandoffError(Exception):
         super().__init__(code)
 
 
+def _is_unique_violation(exc: BaseException) -> bool:
+    """True for a duplicate-key error on deal_handoffs' partial unique index - two
+    concurrent creates for the same (company, connection, contact) racing the initial
+    'no active row yet' read (23505, Postgres' unique_violation)."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if code == "23505" or "duplicate key" in msg:
+            return True
+
+    msg = str(exc).lower()
+    return "23505" in msg or "duplicate key" in msg
+
+
 def _missing_handoffs_table(exc: BaseException) -> bool:
     """True when migration 056_deal_handoffs.sql has not run yet: an undefined-table/relation
     error naming deal_handoffs (42P01, or PostgREST's PGRST205 schema-cache miss)."""
@@ -123,6 +142,23 @@ def create_handoff(
     except Exception as exc:
         if _missing_handoffs_table(exc):
             return {"skipped": "table_missing", "created": False}
+        if _is_unique_violation(exc):
+            # Lost the race: another request created the active row between our read and
+            # our insert. Re-select it and return it as a replay, same as the early-return
+            # above - never a 500 for a duplicate the unique index already prevented.
+            raced = (
+                supabase.table("deal_handoffs")
+                .select("*")
+                .eq("company_id", company_id)
+                .eq("connection_id", connection_id)
+                .eq("contact_id", str(contact_id))
+                .eq("status", ACTIVE)
+                .limit(1)
+                .execute()
+            ).data or []
+            if raced:
+                return {**raced[0], "created": False}
+            return {"skipped": "race_lost", "created": False}
         raise
     row = inserted[0] if inserted else dict(payload)
     return {**row, "created": True}

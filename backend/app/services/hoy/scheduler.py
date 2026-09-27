@@ -267,6 +267,7 @@ def confirm_item(
         "dedupe_key": row.get("dedupe_key"),
         "contact_id": row.get("contact_id"),
         "connection_id": row.get("connection_id"),
+        "deal_id": row.get("deal_id"),
         "reason": confirm_reason(payload, lang=lang, tz_name=tz_name or DEFAULT_TZ)
         if has_parts else (payload.get("reason") or ""),
         "detail": failed_detail(lang) if payload.get("write_failed") else None,
@@ -323,6 +324,7 @@ def build_today_view(
             "dedupe_key": card.primary.dedupe_key,
             "contact_id": card.primary.contact_id,
             "connection_id": card.primary.connection_id,
+            "deal_id": card.primary.deal_id,
             "reason": reason(card.primary, lang=lang),
             "remote_id": payload.get("remote_id"),
             "origins": payload.get("origins") or ["detected"],

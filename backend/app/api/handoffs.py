@@ -7,11 +7,13 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+from app.services.crm_providers.errors import AmbiguousPrimaryCRMError
+from app.services.crm_providers.resolve import resolve_sync_connection_for_company
 from app.services.feature_flags import is_enabled
 from app.services.handoffs import (
     ACTIVE,
@@ -34,8 +36,8 @@ CRM_OWNER_FLAG = "HANDOFF_CRM_OWNER_ENABLED"
 
 
 class HandoffRequest(BaseModel):
-    contact_id: str
-    connection_id: str
+    contact_id: str = Field(..., min_length=1)
+    connection_id: Optional[str] = None
     deal_id: Optional[str] = None
     ae_user_id: Optional[str] = None
     memo_id: Optional[str] = None
@@ -52,6 +54,24 @@ def _connection(supabase: Client, company_id: str, connection_id: str) -> Option
         .execute()
     ).data or []
     return rows[0] if rows else None
+
+
+def _resolve_connection_for_handoff(supabase: Client, *, company_id: str, connection_id: Optional[str]) -> dict:
+    """The connection this handoff writes to: the one named in the request, verified to
+    belong to this company (404 otherwise), or - same as F14's accept.py - the company's
+    single connected CRM when none is named."""
+    if connection_id:
+        connection = _connection(supabase, company_id, connection_id)
+        if not connection:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conexión CRM no encontrada")
+        return connection
+    try:
+        connection = resolve_sync_connection_for_company(supabase, company_id)
+    except AmbiguousPrimaryCRMError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if not connection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conexión CRM no encontrada")
+    return connection
 
 
 def _meeting_booked_stage(supabase: Client, connection_id: str) -> Optional[dict]:
@@ -71,8 +91,8 @@ def _meeting_booked_stage(supabase: Client, connection_id: str) -> Optional[dict
 
 
 def _resolve_ae_for(membership: Membership, requested_ae_user_id: Optional[str]) -> str:
-    """D2/T3: SDR asks (or falls back to its routed AE); a General with no route keeps
-    the deal (self_owned), it does not get asked to pick one."""
+    """D2/T3: SDR asks (or falls back to its routed AE); a General with no route - or who
+    names themselves - keeps the deal (self_owned), it does not get asked to pick one."""
     sales_role = membership.sales_role
     if sales_role == "ae":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Un AE no puede traspasar un deal")
@@ -82,7 +102,7 @@ def _resolve_ae_for(membership: Membership, requested_ae_user_id: Optional[str])
         except HandoffError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
     ae_user_id = resolve_owner_for_general(membership, requested_ae_user_id)
-    if not ae_user_id:
+    if not ae_user_id or str(ae_user_id) == str(membership.user_id):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "self_owned"})
     return ae_user_id
 
@@ -96,6 +116,9 @@ async def create_handoff_endpoint(
     if not is_enabled(supabase, membership.company_id, FLAG):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
+    connection = _resolve_connection_for_handoff(supabase, company_id=membership.company_id, connection_id=body.connection_id)
+    connection_id = str(connection["id"])
+
     ae_user_id = _resolve_ae_for(membership, body.ae_user_id)
 
     ae_row = ae_membership_row(supabase, company_id=membership.company_id, ae_user_id=ae_user_id)
@@ -105,7 +128,7 @@ async def create_handoff_endpoint(
     row = create_handoff(
         supabase,
         company_id=membership.company_id,
-        connection_id=body.connection_id,
+        connection_id=connection_id,
         contact_id=body.contact_id,
         sdr_user_id=membership.user_id,
         ae_user_id=ae_user_id,
@@ -122,7 +145,7 @@ async def create_handoff_endpoint(
         crm_owner_status = _apply_crm_owner_effect(
             supabase,
             company_id=membership.company_id,
-            connection_id=body.connection_id,
+            connection_id=connection_id,
             handoff_id=row.get("id"),
             ae_user_id=ae_user_id,
             deal_id=body.deal_id,

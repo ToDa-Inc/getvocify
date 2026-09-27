@@ -37,7 +37,7 @@ export const todayApi = {
 
 export type HandoffRequest = {
   contact_id: string;
-  connection_id: string;
+  connection_id?: string;
   deal_id?: string | null;
   ae_user_id?: string | null;
   memo_id?: string | null;

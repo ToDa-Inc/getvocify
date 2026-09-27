@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { ArrowSquareOut, X } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BRIEF_LOADING, briefRequest, panelBrief, type BriefPayload } from "@shared/ui/brief.js";
 import { snoozeUntil, type HomeRow } from "@shared/ui/home.js";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { useAuth } from "@/features/auth";
 import { companyApi } from "@/features/company/api";
 import type { Memo } from "@/features/memos/types";
 import { api, ApiError } from "@/shared/lib/api-client";
-import { handoffsApi } from "../api";
+import { handoffsApi, todayKeys } from "../api";
 import { afterCallLine, type CallSummary } from "@/lib/after-call";
 import {
   conversationLine,
@@ -87,9 +87,20 @@ function briefFailed(error: unknown): boolean {
 /** T3/D2/D6: "Reunión agendada" on a call the SDR (or General) is working. A 409 needs_ae
  * opens an inline picker instead of failing - the transfer waits for that answer, it never
  * silently drops the contact from Hoy. */
-function HandoffAction({ contactId, connectionId }: { contactId: string; connectionId: string | null }) {
+function HandoffAction({
+  contactId,
+  connectionId,
+  dealId,
+  memoId,
+}: {
+  contactId: string;
+  connectionId: string | null;
+  dealId?: string | null;
+  memoId?: string | null;
+}) {
   const { t } = useLanguage();
   const copy = t.product;
+  const queryClient = useQueryClient();
   const [state, setState] = useState<"idle" | "sending" | "done" | "needs_ae" | "error">("idle");
   const [aeId, setAeId] = useState<string>("");
 
@@ -105,10 +116,15 @@ function HandoffAction({ contactId, connectionId }: { contactId: string; connect
     try {
       await handoffsApi.create({
         contact_id: contactId,
-        connection_id: connectionId ?? "",
+        // Never send "": no connection means "let the server resolve the company's
+        // connected CRM", same as F14's accept.py - an empty string would 404 instead.
+        ...(connectionId ? { connection_id: connectionId } : {}),
+        ...(dealId ? { deal_id: dealId } : {}),
+        ...(memoId ? { memo_id: memoId } : {}),
         ae_user_id: chosenAe ?? null,
       });
       setState("done");
+      void queryClient.invalidateQueries({ queryKey: todayKeys.view() });
     } catch (error) {
       const code = error instanceof ApiError
         ? (error.data as { detail?: { code?: string } } | null | undefined)?.detail?.code
@@ -367,7 +383,12 @@ function PanelBody({
           ) : null}
           {showCardActions && canHandOff && contactId ? (
             <div className="mt-1">
-              <HandoffAction contactId={contactId} connectionId={actions.connectionId} />
+              <HandoffAction
+                contactId={contactId}
+                connectionId={row.item.connection_id ?? actions.connectionId}
+                dealId={row.item.deal_id}
+                memoId={row.item.memo_id}
+              />
             </div>
           ) : null}
         </div>

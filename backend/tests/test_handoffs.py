@@ -41,14 +41,23 @@ class _MissingTableError(Exception):
         super().__init__(self.message)
 
 
+class _UniqueViolationError(Exception):
+    code = "23505"
+    message = 'duplicate key value violates unique constraint "idx_deal_handoffs_active_unique"'
+
+    def __init__(self):
+        super().__init__(self.message)
+
+
 class _Query:
-    def __init__(self, store, table, *, missing=False):
+    def __init__(self, store, table, *, missing=False, race=None):
         self._store = store
         self._table = table
         self._filters = []
         self._mode = "select"
         self._payload = None
         self._missing = missing
+        self._race = race
 
     def select(self, *_a, **_k):
         return self
@@ -75,6 +84,12 @@ class _Query:
             raise _MissingTableError()
         rows = self._store.setdefault(self._table, [])
         if self._mode == "insert":
+            if self._race is not None and self._race["armed"]:
+                # Simulate another request's insert landing first, between our
+                # "no active row yet" read and our own insert.
+                self._race["armed"] = False
+                rows.append(dict(self._race["winner"]))
+                raise _UniqueViolationError()
             row = {"id": f"row-{len(rows) + 1}", **self._payload}
             rows.append(row)
             return _Result([row])
@@ -92,12 +107,14 @@ class _Query:
 
 
 class _Supabase:
-    def __init__(self, *, missing_tables=()):
+    def __init__(self, *, missing_tables=(), race_winner=None):
         self.tables: dict[str, list] = {}
         self._missing_tables = set(missing_tables)
+        self._race = {"armed": True, "winner": race_winner} if race_winner else None
 
     def table(self, name):
-        return _Query(self.tables, name, missing=name in self._missing_tables)
+        race = self._race if name == "deal_handoffs" else None
+        return _Query(self.tables, name, missing=name in self._missing_tables, race=race)
 
 
 @dataclass
@@ -170,6 +187,29 @@ def test_create_handoff_is_idempotent_even_with_a_different_ae():
     )
     assert replay["created"] is False
     assert replay["ae_user_id"] == "ae-1"
+    assert len(supabase.tables["deal_handoffs"]) == 1
+
+
+def test_create_handoff_survives_a_concurrent_insert_race():
+    """Two requests both read 'no active row yet', then both insert: the loser's insert
+    hits the partial unique index (23505) instead of racing past it, and re-selects the
+    winner's row as a replay - never a 500, and never two active rows."""
+    winner = {
+        "id": "row-winner",
+        "company_id": "co-1",
+        "connection_id": "conn-1",
+        "contact_id": "c1",
+        "sdr_user_id": "sdr-1",
+        "ae_user_id": "ae-winner",
+        "status": ACTIVE,
+    }
+    supabase = _Supabase(race_winner=winner)
+    result = create_handoff(
+        supabase, company_id="co-1", connection_id="conn-1", contact_id="c1",
+        sdr_user_id="sdr-1", ae_user_id="ae-loser",
+    )
+    assert result["created"] is False
+    assert result["ae_user_id"] == "ae-winner"
     assert len(supabase.tables["deal_handoffs"]) == 1
 
 

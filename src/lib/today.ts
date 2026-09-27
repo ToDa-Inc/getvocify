@@ -7,6 +7,7 @@ export type TodayItem = {
   dedupe_key: string | null;
   contact_id?: string | null;
   connection_id?: string | null;
+  deal_id?: string | null;
   reason: string;
   contact_name?: string | null;
   company_name?: string | null;
