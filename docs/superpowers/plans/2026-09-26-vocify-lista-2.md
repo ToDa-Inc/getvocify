@@ -1,6 +1,6 @@
 # Vocify · Lista 2 y armonía del producto — plan (26 sep 2026)
 
-**Estado:** propuesta, pendiente de confirmación del founder. No se ejecuta nada hasta entonces.
+**Estado:** ejecutado en staging (27 sep 2026). Código en `feat/lista-2`. Flags de Lista 2 encendidos para Vocify salvo el email diario y `HOY_NO_REPLY_ENABLED`. Merge a `main` pendiente del founder.
 
 **Fuentes:**
 - las reuniones del 21 sep (Coaching, reportes y features con Danilo; Estrategia de IA y automatización; Automatización de tareas y coaching) y del 25 sep (demo con Mario Rey);

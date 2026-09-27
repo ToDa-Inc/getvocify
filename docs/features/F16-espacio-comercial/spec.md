@@ -1,6 +1,6 @@
 # Spec · F16 — Espacio del comercial («la casa del comercial»)
 
-> Plan Lista 2 · entrega E10. Estado: **diseño aprobado (26 sep 2026), en construcción**.
+> Plan Lista 2 · entrega E10. Estado: **verificado en staging (27 sep 2026)**.
 > Diseño y wireframes: [`design.md`](./design.md). Maqueta: [`mock.html`](./mock.html).
 
 ## 1. Job to be done
