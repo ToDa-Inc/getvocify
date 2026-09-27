@@ -194,6 +194,22 @@ def test_user_filter_excludes_the_other_rep():
     assert body["attempts"] == 1
 
 
+def test_load_team_adherence_inputs_collects_published_playbook_entries():
+    store = _store()
+    store.tables["playbooks"] = [
+        {
+            "id": "pb-1",
+            "company_id": COMPANY,
+            "playbook_versions.status": "published",
+            "playbook_versions": [
+                {"status": "published", "entries": [{"category": "price", "guidance": "Ancla en el ROI."}]},
+            ],
+        },
+    ]
+    inputs = load_team_adherence_inputs(store, COMPANY)
+    assert inputs["playbook_entries"] == [{"category": "price", "guidance": "Ancla en el ROI."}]
+
+
 def test_http_passes_filters_to_loader():
     captured: dict = {}
 

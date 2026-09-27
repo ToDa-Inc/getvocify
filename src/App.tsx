@@ -18,6 +18,7 @@ import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
 import TeamInsightsPage from "./pages/dashboard/TeamInsightsPage";
+import PlaybookPage from "./pages/dashboard/PlaybookPage";
 import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
@@ -182,6 +183,7 @@ const App = () => (
                 <Route path="billing" element={<BillingPage />} />
               </Route>
               <Route path="insights" element={<TeamInsightsPage />} />
+              <Route path="playbook" element={<PlaybookPage />} />
               <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
               <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />

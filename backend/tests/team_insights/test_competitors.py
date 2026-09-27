@@ -111,8 +111,8 @@ def test_competitors_aggregate_and_sort_by_count():
     ]
     _revision_inputs(memos)
     assert competitor_counts(memos, start=_WEEK_START, end=_WEEK_END) == [
-        {"name": "ACME", "count": 2},
-        {"name": "HUBSPOT", "count": 1},
+        {"name": "ACME", "count": 2, "quotes": []},
+        {"name": "HUBSPOT", "count": 1, "quotes": []},
     ]
     assert normalize_competitor_name("  acme  ") == "ACME"
 
@@ -132,8 +132,28 @@ def test_plain_string_competitor_mentions_are_counted():
     memos = [_memo("m1", mentions=["Acme", {"name": "HubSpot"}])]
     _revision_inputs(memos)
     assert competitor_counts(memos, start=_WEEK_START, end=_WEEK_END) == [
-        {"name": "ACME", "count": 1},
-        {"name": "HUBSPOT", "count": 1},
+        {"name": "ACME", "count": 1, "quotes": []},
+        {"name": "HUBSPOT", "count": 1, "quotes": []},
+    ]
+
+
+def test_competitors_carry_up_to_three_recent_dated_quotes():
+    memos = [
+        _memo("m1", mentions=[{"name": "Acme", "quote": "Ya usamos Acme"}], at="2026-09-22T09:00:00+00:00"),
+        _memo("m2", mentions=[{"name": "Acme", "quote": "Acme nos da mejor precio"}], at="2026-09-23T09:00:00+00:00"),
+        _memo("m3", mentions=[{"name": "Acme", "quote": "Seguimos comparando con Acme"}], at="2026-09-24T09:00:00+00:00"),
+        _memo("m4", mentions=[{"name": "Acme", "quote": "Cuarta mención de Acme"}], at="2026-09-25T09:00:00+00:00"),
+    ]
+    for memo in memos:
+        memo["extraction"]["intelligence"]["input_revision"] = memo["extraction"]["intelligence"]["input_revision"]
+    _revision_inputs(memos)
+    result = competitor_counts(memos, start=_WEEK_START, end=_WEEK_END)
+    assert result[0]["name"] == "ACME"
+    assert result[0]["count"] == 4
+    assert result[0]["quotes"] == [
+        {"quote": "Cuarta mención de Acme", "date": "2026-09-25T09:00:00Z"},
+        {"quote": "Seguimos comparando con Acme", "date": "2026-09-24T09:00:00Z"},
+        {"quote": "Acme nos da mejor precio", "date": "2026-09-23T09:00:00Z"},
     ]
 
 
@@ -150,7 +170,7 @@ def test_competitors_respect_sample_limited():
     inputs = _revision_inputs(memos)
     body = team_adherence(role="admin", **inputs)
     assert body["sample_limited"] is True
-    assert body["competitor_mentions"] == [{"name": "ACME", "count": 1}]
+    assert body["competitor_mentions"] == [{"name": "ACME", "count": 1, "quotes": []}]
 
 
 def _panel_client(inputs: dict, *, flags: list[dict] | None = None) -> TestClient:
@@ -191,7 +211,7 @@ def test_flag_on_includes_competitors_in_api():
     flags = [{"company_id": COMPANY, "flag": "TEAM_COMPETITORS_ENABLED", "enabled": True}]
     client = _panel_client(inputs, flags=flags)
     body = client.get("/api/v1/team/adherence").json()
-    assert body["competitor_mentions"] == [{"name": "ACME", "count": 1}]
+    assert body["competitor_mentions"] == [{"name": "ACME", "count": 1, "quotes": []}]
 
 
 class _LoaderResult:
@@ -300,7 +320,7 @@ def test_loader_revision_columns_keep_competitors_current():
         inputs["memo_rows"],
         start=_WEEK_START,
         end=_WEEK_END,
-    ) == [{"name": "ACME", "count": 1}]
+    ) == [{"name": "ACME", "count": 1, "quotes": []}]
 
 
 def _team_db(*, flags: dict) -> FakeDB:

@@ -13,6 +13,7 @@ import {
   LogOut,
   MessageCircle,
   Users,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   copilot: Headphones,
   ask: MessageCircle,
   insights: Users,
+  playbook: BookOpen,
   settings: Settings,
   call: Phone,
 };
@@ -61,7 +63,11 @@ const DashboardLayout = () => {
   const dialerActive = dialerOpen || dialerLive;
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
-  const menu = navItemsFor({ role: user?.company?.role, repWorkspace: user?.company?.repWorkspace });
+  const menu = navItemsFor({
+    role: user?.company?.role,
+    repWorkspace: user?.company?.repWorkspace,
+    playbookTabEnabled: Boolean(user?.company?.features?.includes("PLAYBOOK_TAB_ENABLED")),
+  });
 
   useEffect(() => {
     const state = location.state as { ask?: boolean } | null;

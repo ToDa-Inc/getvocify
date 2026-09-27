@@ -197,6 +197,7 @@ def load_team_adherence_inputs(
     review_source: list[dict] = []
     parts: list[dict] = []
     pattern_rows: list[dict] = []
+    playbook_entries: list[dict] = []
     playbook_present = False
     reps = load_team_reps(supabase, company_id)
     filter_user = (user_id or "").strip() or None
@@ -247,20 +248,26 @@ def load_team_adherence_inputs(
                     parts.append(part)
             patterns = (
                 supabase.table("interaction_patterns")
-                .select("category,kind,resolution,superseded,created_at")
+                .select("category,kind,resolution,response,superseded,created_at")
                 .in_("memo_id", memo_ids)
                 .execute()
             )
             pattern_rows = list(patterns.data or [])
         published = (
             supabase.table("playbooks")
-            .select("id, playbook_versions!inner(status)")
+            .select("id, playbook_versions!inner(status,entries)")
             .eq("company_id", company_id)
             .eq("playbook_versions.status", "published")
-            .limit(1)
             .execute()
         )
         playbook_present = bool(published.data)
+        for row in published.data or []:
+            versions = row.get("playbook_versions")
+            if isinstance(versions, dict):
+                versions = [versions]
+            for version in versions or []:
+                if isinstance(version, dict):
+                    playbook_entries.extend(version.get("entries") or [])
     except Exception:
         pass
     outcome_observations: list[dict] | None = None
@@ -283,6 +290,7 @@ def load_team_adherence_inputs(
         "activity_period_start": period_start,
         "activity_period_end": period_end,
         "pattern_rows": pattern_rows,
+        "playbook_entries": playbook_entries,
         "reps": reps,
         "review": review_memos_from(review_source),
         "memo_rows": review_source,
@@ -301,6 +309,7 @@ def team_adherence(
     activity_period_start: datetime | None = None,
     activity_period_end: datetime | None = None,
     pattern_rows: list[dict] | None = None,
+    playbook_entries: list[dict] | None = None,
     reps: list[dict] | None = None,
     review: list[dict] | None = None,
     memo_rows: list[dict] | None = None,
@@ -359,6 +368,7 @@ def team_adherence(
             pattern_rows or [],
             start=activity_period_start,
             end=activity_period_end,
+            playbook_entries=playbook_entries,
         )
         body["reps"] = reps or []
         body["review"] = review or []
@@ -381,6 +391,7 @@ def team_adherence(
         pattern_rows or [],
         start=activity_period_start,
         end=activity_period_end,
+        playbook_entries=playbook_entries,
     )
     body["reps"] = reps or []
     body["review"] = review or []

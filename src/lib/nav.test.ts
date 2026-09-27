@@ -7,6 +7,7 @@ const memos: NavItem = { id: "memos", labelKey: "navMemos", path: "/dashboard/me
 const copilot: NavItem = { id: "copilot", labelKey: "navCopilot", path: "/dashboard/copilot", beta: true };
 const ask: NavItem = { id: "ask", labelKey: "navAsk", path: "/dashboard/ask" };
 const insights: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
+const playbook: NavItem = { id: "playbook", labelKey: "navPlaybook", path: "/dashboard/playbook" };
 const settings: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
 const call: NavItem = { id: "call", labelKey: "navCall" };
 
@@ -66,6 +67,36 @@ describe("navItemsFor with the rep workspace on", () => {
   it("does not treat an unknown role as a manager", () => {
     assert.deepEqual(navItemsFor({ role: "viewer", repWorkspace: true }), navItemsFor({ role: "member", repWorkspace: true }));
     assert.deepEqual(navItemsFor({ role: undefined, repWorkspace: true }), navItemsFor({ role: "member", repWorkspace: true }));
+  });
+});
+
+describe("navItemsFor with the Playbook tab flag", () => {
+  it("is off by default for every role and workspace", () => {
+    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: false }).items, [home, memos, copilot, ask, settings, call]);
+    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true }).items, [today, conversations, ask, call, settings]);
+  });
+
+  it("adds Playbook for a member (not just owners/admins) in the classic menu", () => {
+    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: false, playbookTabEnabled: true }), {
+      items: [home, memos, copilot, ask, playbook, settings, call],
+      showPlans: true,
+    });
+  });
+
+  it("adds Playbook for owners and admins too, before Team", () => {
+    assert.deepEqual(navItemsFor({ role: "owner", repWorkspace: false, playbookTabEnabled: true }), {
+      items: [home, memos, copilot, ask, playbook, insights, settings, call],
+      showPlans: true,
+    });
+  });
+
+  it("adds Playbook in the rep workspace for every role", () => {
+    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }).items, [
+      today, conversations, ask, playbook, call, settings,
+    ]);
+    assert.deepEqual(navItemsFor({ role: "owner", repWorkspace: true, playbookTabEnabled: true }).items, [
+      today, conversations, copilot, ask, playbook, call, insights, settings,
+    ]);
   });
 });
 

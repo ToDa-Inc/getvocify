@@ -53,6 +53,18 @@ export function ObjectionBreakdown({
                     style={{ width: maxCount > 0 ? `${(item.count / maxCount) * 100}%` : "0%" }}
                   />
                 </div>
+                {item.how_to ? (
+                  <p className="text-sm text-muted-foreground">
+                    <span className={THEME_TOKENS.typography.capsLabel}>{p.objectionHowTo}: </span>
+                    {item.how_to}
+                  </p>
+                ) : null}
+                {item.best_example ? (
+                  <p className="text-sm text-muted-foreground">
+                    <span className={THEME_TOKENS.typography.capsLabel}>{p.objectionBestExample}: </span>
+                    {p.prospectQuote.replace("{quote}", item.best_example)}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -82,9 +94,16 @@ export function ObjectionBreakdown({
           <p className={THEME_TOKENS.typography.capsLabel}>{p.teamCompetitorsMentioned}</p>
           <ul className="space-y-1 text-sm">
             {namedCompetitors.map((item) => (
-              <li key={item.name} className="flex justify-between gap-4">
-                <span>{item.name}</span>
-                <span>{item.count}</span>
+              <li key={item.name} className="space-y-1">
+                <div className="flex justify-between gap-4">
+                  <span>{item.name}</span>
+                  <span>{item.count}</span>
+                </div>
+                {(item.quotes ?? []).slice(0, 1).map((mention) => (
+                  <p key={mention.date} className="text-sm text-muted-foreground">
+                    {p.prospectQuote.replace("{quote}", mention.quote)}
+                  </p>
+                ))}
               </li>
             ))}
           </ul>

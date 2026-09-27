@@ -162,8 +162,8 @@ def test_weekly_snapshot_uses_the_daily_aggregator_and_adds_series_and_objection
     assert len(snap["series"]) == 5
     assert all(day["covered"] for day in snap["series"])
     assert snap["objections"] == [
-        {"name": "price", "count": 2, "resolved": 1, "open": 1, "unknown": 0},
-        {"name": "timing", "count": 1, "resolved": 0, "open": 0, "unknown": 1},
+        {"name": "price", "count": 2, "resolved": 1, "open": 1, "unknown": 0, "how_to": None, "best_example": None},
+        {"name": "timing", "count": 1, "resolved": 0, "open": 0, "unknown": 1, "how_to": None, "best_example": None},
     ]
     assert snap["coverage"]["objections"] == "complete"
     assert snap["coaching"] is None

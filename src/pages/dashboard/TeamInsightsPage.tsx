@@ -56,7 +56,7 @@ export default function TeamInsightsPage() {
         connected?: number;
         meetings?: number;
         objection_categories?: ObjectionCategory[];
-        competitor_mentions?: { name: string; count: number }[];
+        competitor_mentions?: { name: string; count: number; quotes?: { quote: string; date: string }[] }[];
         reps?: TeamRep[];
         review?: { memo_id: string; line: string }[];
       }>(adherenceQuery(filters)),

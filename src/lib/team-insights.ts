@@ -19,11 +19,16 @@ export type ObjectionCategory = {
   resolved: number;
   open: number;
   unknown: number;
+  how_to?: string | null;
+  best_example?: string | null;
 };
+
+export type CompetitorQuote = { quote: string; date: string };
 
 export type CompetitorMention = {
   name: string;
   count: number;
+  quotes?: CompetitorQuote[];
 };
 
 export type ObjectionResolutionLabels = Pick<
@@ -58,6 +63,8 @@ export function visibleObjectionCategories(
       resolved: item.resolved,
       open: item.open,
       unknown: item.unknown,
+      how_to: item.how_to ?? null,
+      best_example: item.best_example ?? null,
     }))
     .sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count;

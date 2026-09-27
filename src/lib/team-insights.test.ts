@@ -96,18 +96,23 @@ describe("team insights", () => {
       { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1 },
       { name: "authority", count: 0, resolved: 0, open: 0, unknown: 0 },
     ], es.objections), [
-      { name: "Precio", count: 5, resolved: 2, open: 2, unknown: 1 },
-      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1 },
-      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1 },
+      { name: "Precio", count: 5, resolved: 2, open: 2, unknown: 1, how_to: null, best_example: null },
+      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1, how_to: null, best_example: null },
+      { name: "Plazo", count: 2, resolved: 0, open: 1, unknown: 1, how_to: null, best_example: null },
     ]);
     assert.deepEqual(visibleObjectionCategories([
       { name: "price", count: 2, resolved: 1, open: 0, unknown: 1 },
       { name: "timing", count: 2, resolved: 0, open: 2, unknown: 0 },
       { name: "trust", count: 3, resolved: 1, open: 1, unknown: 1 },
     ], en.objections), [
-      { name: "Trust", count: 3, resolved: 1, open: 1, unknown: 1 },
-      { name: "Price", count: 2, resolved: 1, open: 0, unknown: 1 },
-      { name: "Timing", count: 2, resolved: 0, open: 2, unknown: 0 },
+      { name: "Trust", count: 3, resolved: 1, open: 1, unknown: 1, how_to: null, best_example: null },
+      { name: "Price", count: 2, resolved: 1, open: 0, unknown: 1, how_to: null, best_example: null },
+      { name: "Timing", count: 2, resolved: 0, open: 2, unknown: 0, how_to: null, best_example: null },
+    ]);
+    assert.deepEqual(visibleObjectionCategories([
+      { name: "price", count: 1, resolved: 1, open: 0, unknown: 0, how_to: "Ancla en el ROI.", best_example: "Le mostré el ROI a 6 meses." },
+    ], en.objections), [
+      { name: "Price", count: 1, resolved: 1, open: 0, unknown: 0, how_to: "Ancla en el ROI.", best_example: "Le mostré el ROI a 6 meses." },
     ]);
     assert.equal(
       objectionResolutionCountsText({ resolved: 1, open: 2, unknown: 0 }, es),

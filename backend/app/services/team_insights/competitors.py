@@ -1,4 +1,7 @@
-"""Named competitor mentions from current C04 intelligence. Stale revisions do not count."""
+"""Named competitor mentions from current C04 intelligence. Stale revisions do not count.
+
+T11: each competitor also carries `quotes`, its last 3 dated citas (a mention with a
+`quote` field), most recent first."""
 
 from __future__ import annotations
 
@@ -49,6 +52,7 @@ def competitor_counts(
     if not memos:
         return []
     tallies: dict[str, int] = {}
+    quotes: dict[str, list[tuple[datetime, str]]] = {}
     for memo in memos:
         if not is_current(memo):
             continue
@@ -64,8 +68,10 @@ def competitor_counts(
         for mention in mentions:
             if isinstance(mention, str):
                 raw_name = mention
+                quote_text = None
             elif isinstance(mention, dict):
                 raw_name = mention.get("name")
+                quote_text = mention.get("quote")
             else:
                 continue
             if raw_name is None or not str(raw_name).strip():
@@ -75,6 +81,20 @@ def competitor_counts(
                 continue
             seen_in_memo.add(name)
             tallies[name] = tallies.get(name, 0) + 1
-    ordered = [{"name": name, "count": count} for name, count in tallies.items()]
+            if quote_text is not None:
+                text = " ".join(str(quote_text).split())
+                if text:
+                    quotes.setdefault(name, []).append((instant, text))
+    ordered = []
+    for name, count in tallies.items():
+        recent = sorted(quotes.get(name, []), key=lambda pair: pair[0], reverse=True)[:3]
+        ordered.append({
+            "name": name,
+            "count": count,
+            "quotes": [
+                {"quote": text, "date": stamp.isoformat().replace("+00:00", "Z")}
+                for stamp, text in recent
+            ],
+        })
     ordered.sort(key=lambda item: (-item["count"], item["name"]))
     return ordered

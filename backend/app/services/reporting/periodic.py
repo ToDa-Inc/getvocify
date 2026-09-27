@@ -144,7 +144,7 @@ def _load_patterns(supabase, memo_ids: list[str]) -> list[dict] | None:
     try:
         return (
             supabase.table("interaction_patterns")
-            .select("category,kind,resolution,superseded,created_at")
+            .select("category,kind,resolution,response,superseded,created_at")
             .in_("memo_id", memo_ids)
             .execute()
         ).data or []
