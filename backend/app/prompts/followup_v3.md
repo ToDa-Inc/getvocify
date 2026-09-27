@@ -34,8 +34,9 @@ When sales_motion_key is "discovery": this is a prospecting call, ahead of a mee
 someone who can decide. Send along whatever the contact asked for (a case, pricing, a
 one-pager — only what next_steps or commitments actually list), and close by inviting them
 to the meeting: confirm it with meeting's day and time if it is present; if there is no
-meeting yet, propose one concrete slot instead of asking "when works for you" with nothing
-to anchor it.
+meeting yet, never invent one — offer to find a time that works for them (e.g. ask which
+day suits them, or offer to send a couple of options), so the invitation has a concrete
+next action without a date or time that was never agreed.
 
 When sales_motion_key is "closing": this is the rep running the demo or the close. Recap
 the points both sides agreed to (from commitments and meeting, never invented) as a short

@@ -1,6 +1,7 @@
 """Follow-up draft per memo: read (polled by every surface) and record the hand-off."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -28,7 +29,7 @@ from app.services.followup_logic import (
     should_generate,
     with_pasted,
 )
-from app.services.followup_send import rep_identity, send_followup_email, send_hash
+from app.services.followup_send import claim_send, finish_send, rate_limited, rep_identity, send_followup_email, send_hash
 
 router = APIRouter(prefix="/api/v1/memos", tags=["followup"])
 listing = APIRouter(prefix="/api/v1", tags=["followup"])
@@ -125,7 +126,11 @@ async def send_followup(
 ) -> dict:
     """D9: send the reviewed draft from Vocify via Resend, log it in the CRM, and record
     the hand-off the same way apply_action does for copy/mailto. Idempotent by memo and by
-    the reviewed subject+body: resending the same revision is a no-op, an edited one sends."""
+    the reviewed subject+body: resending the same revision is a no-op, an edited one sends.
+
+    Sending is claimed atomically (claim_send) before Resend is ever called, so two
+    concurrent requests for the same reviewed body cannot both send: the loser gets back
+    the winner's outcome instead of a duplicate email."""
     if not is_enabled(supabase, membership.company_id, SEND_FLAG):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     memo = _require_readable_memo(supabase, str(memo_id), membership.user_id)
@@ -137,10 +142,36 @@ async def send_followup(
 
     subject, body = payload.subject.strip(), payload.body.strip()
     revision = send_hash(subject, body)
-    if current.get("channel") == SENT_CHANNEL and current.get("vocify_send_hash") == revision:
-        return followup_view(memo)  # same reviewed body already sent: nothing to repeat
+    already_sent = current.get("channel") == SENT_CHANNEL and current.get("vocify_send_hash") == revision \
+        and current.get("vocify_send_state") == "sent"
+    if already_sent:
+        # The email already went out for this exact revision. The CRM note is best-effort
+        # and safe to retry on its own (never on a resend of the email itself), but only
+        # while it has not already succeeded - never repeated once it has.
+        if (current.get("crm_note") or {}).get("status") != "done":
+            note = await log_followup_note(supabase, memo, body)
+            updated = {**current, "crm_note": note}
+            supabase.table("memos").update({"followup": updated}).eq("id", str(memo_id)).execute()
+            return followup_view({**memo, "followup": updated})
+        return followup_view(memo)
 
     rep_name, rep_email = rep_identity(supabase, membership.user_id)
+    if not rep_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Rep has no email on file; cannot send a follow-up from Vocify",
+        )
+    if rate_limited(membership.user_id):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many follow-ups sent recently")
+
+    run_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    claim, claimed_followup = claim_send(supabase, str(memo_id), current, revision, run_id, now)
+    if claim != "claimed":
+        # Another request already owns this exact revision (mid-send or already sent):
+        # report its state, never send a second time.
+        return followup_view({**memo, "followup": claimed_followup})
+
     sent = await send_followup_email(
         to=payload.to,
         subject=subject,
@@ -150,15 +181,21 @@ async def send_followup(
         idempotency_key=f"followup-send-{memo_id}-{revision}",
     )
     if not sent.get("ok"):
+        finish_send(supabase, str(memo_id), run_id, {**current, "vocify_send_hash": revision,
+                                                      "vocify_send_state": "failed"})
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=sent.get("error") or "Could not send email")
 
-    crm_note = await log_followup_note(supabase, memo, body)
+    # The sent hash is written before the CRM note is even attempted: a retry of this same
+    # revision (crash, or the rep pressing send again) can only ever repair the note, never
+    # resend the email.
+    sent_marker = apply_action(current, action="sent", channel=SENT_CHANNEL, subject=subject, body=body, now=now)
+    sent_marker["vocify_send_hash"] = revision
+    sent_marker["vocify_send_state"] = "sent"
+    sent_marker["vocify_send_run_id"] = run_id
+    finish_send(supabase, str(memo_id), run_id, sent_marker)
 
-    updated = apply_action(
-        current, action="sent", channel=SENT_CHANNEL, subject=subject, body=body, now=datetime.now(timezone.utc),
-    )
-    updated["vocify_send_hash"] = revision
-    updated["crm_note"] = crm_note
+    crm_note = await log_followup_note(supabase, memo, body)
+    updated = {**sent_marker, "crm_note": crm_note}
     supabase.table("memos").update({"followup": updated}).eq("id", str(memo_id)).execute()
 
     samples = _writing_samples(supabase, membership.user_id)

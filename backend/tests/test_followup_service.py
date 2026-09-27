@@ -416,6 +416,8 @@ def test_by_flow_flag_selects_the_v3_prompt_and_adds_motion_and_strategy():
     assert ctx["sales_strategy"] == "Land and expand con PyMEs"
     assert memo["followup"]["prompt_version"] == "followup_v3"
     assert "sales_motion_key" in llm.messages[0]["content"], "the v3 prompt file, not v2"
+    assert "never invent one" in llm.messages[0]["content"], \
+        "no meeting yet must never turn into an invented date/time"
 
 
 def test_by_flow_off_keeps_the_v2_prompt_and_todays_input():

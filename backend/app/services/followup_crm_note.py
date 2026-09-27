@@ -5,6 +5,7 @@ shows it, it never raises.
 """
 from __future__ import annotations
 
+import html
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -95,5 +96,6 @@ async def _pipedrive_note(connection: dict, deal_id: Optional[str], contact_id: 
         refresh_token=connection.get("refresh_token"),
         connection_id=str(connection.get("id") or ""),
     )
-    content = f"{NOTE_HEADER}<br><br>{body}".replace("\n", "<br>")
+    escaped_body = html.escape(body).replace("\n", "<br>")
+    content = f"{html.escape(NOTE_HEADER)}<br><br>{escaped_body}"
     return await PipedriveNoteService(client).create(content, deal_id=deal_id, person_id=contact_id)

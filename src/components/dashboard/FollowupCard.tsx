@@ -1,5 +1,5 @@
 import "@shared/ui/components/v-followup.js";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { composeTarget } from "@shared/ui/compose.js";
@@ -35,6 +35,7 @@ export function FollowupCard({
   const queryClient = useQueryClient();
   const uiLang = htmlLang(language);
   const sendFromVocify = Boolean(user?.company?.features?.includes("FOLLOWUP_SEND_ENABLED"));
+  const [isSending, setIsSending] = useState(false);
   const { data } = useQuery({
     queryKey: ["memo-followup", memoId],
     queryFn: () => memosApi.getFollowup(memoId),
@@ -43,6 +44,7 @@ export function FollowupCard({
 
   const onAction = useCallback(
     async ({ action, value, element }: VAction) => {
+      if (isSending) return; // a send is already in flight: never fire a second one
       const view = queryClient.getQueryData<FollowupView>(["memo-followup", memoId]);
       if (!view) return;
       const { subject, body } = (element as FollowupElement).value;
@@ -55,9 +57,14 @@ export function FollowupCard({
         }
         const channel = value === "whatsapp" ? "whatsapp" : "email";
         if (channel === "email" && sendFromVocify && view.to) {
-          const next = await memosApi.sendFollowup(memoId, { to: view.to, subject, body });
-          queryClient.setQueryData(["memo-followup", memoId], next);
-          toast.success(t.product.followupSentToast);
+          setIsSending(true);
+          try {
+            const next = await memosApi.sendFollowup(memoId, { to: view.to, subject, body });
+            queryClient.setQueryData(["memo-followup", memoId], next);
+            toast.success(t.product.followupSentToast);
+          } finally {
+            setIsSending(false);
+          }
           return;
         }
         const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
@@ -74,7 +81,7 @@ export function FollowupCard({
         toast.error(t.product.followupCompleteFailed);
       }
     },
-    [memoId, queryClient, t.product, sendFromVocify],
+    [memoId, queryClient, t.product, sendFromVocify, isSending],
   );
 
   const setElement = useVElement(data, onAction);
@@ -87,7 +94,7 @@ export function FollowupCard({
     [setElement],
   );
 
-  const canSend = data?.status === "ready" && Boolean(data.to || data.phone);
+  const canSend = data?.status === "ready" && Boolean(data.to || data.phone) && !isSending;
 
   useEffect(() => {
     if (!onSendReady) return;
@@ -101,7 +108,7 @@ export function FollowupCard({
 
   if (!data || data.status === "unavailable") return null;
   return (
-    <div className="mb-4">
+    <div className={`mb-4${isSending ? " opacity-60 pointer-events-none" : ""}`} aria-busy={isSending}>
       <v-followup ref={bindRef} lang={uiLang} />
     </div>
   );

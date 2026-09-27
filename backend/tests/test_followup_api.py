@@ -19,7 +19,9 @@ from app.config import settings
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services import feature_flags
 from app.services import followup as followup_service
+from app.services import followup_send
 from app.services.company import Membership
+from app.services.followup_send import claim_send, send_hash
 
 AUTHOR = "11111111-1111-1111-1111-111111111111"
 MANAGER = "22222222-2222-2222-2222-222222222222"
@@ -38,20 +40,90 @@ def pasted(text):
     return {"text": text, "source": "pasted"}
 
 
+class MemosQuery:
+    """A single-row PostgREST-ish fake for the memos table, so claim_send's atomic claim
+    (an UPDATE whose WHERE only matches an unclaimed/stale/failed row, confirmed by a
+    read-by-PK afterwards - PostgREST re-applies the filter to RETURNING) behaves for real,
+    instead of the unconditional always-applies mock the other tables use here."""
+
+    def __init__(self, store: "Store"):
+        self.store = store
+        self.filters: list[tuple[str, str]] = []
+        self.ors = None
+        self.patch = None
+        self.n = None
+
+    def select(self, *_a, **_k):
+        return self
+
+    def eq(self, column, value):
+        self.filters.append((column, str(value)))
+        return self
+
+    def or_(self, expression):
+        self.ors = expression
+        return self
+
+    def limit(self, n, *_a, **_k):
+        self.n = n
+        return self
+
+    def update(self, patch):
+        self.patch = patch
+        return self
+
+    @staticmethod
+    def _value(row, column):
+        if "->>" in column:
+            base, key = column.split("->>", 1)
+            value = (row.get(base) or {}).get(key)
+        else:
+            value = row.get(column)
+        return None if value is None else str(value)
+
+    def _condition(self, row, cond):
+        column, op, value = cond.split(".", 2)
+        current = self._value(row, column)
+        if op == "is" and value == "null":
+            return current is None
+        if op == "lt":
+            return current is not None and current < value
+        if op == "neq":
+            return current != value
+        if op == "eq":
+            return current == value
+        raise NotImplementedError(cond)
+
+    def _match(self, row):
+        if any(self._value(row, c) != v for c, v in self.filters):
+            return False
+        return not self.ors or any(self._condition(row, c) for c in self.ors.split(","))
+
+    def execute(self):
+        row = self.store.memo
+        matched = self._match(row)
+        if self.patch is not None:
+            if matched:
+                row.update(self.patch)
+                if "followup" in self.patch:
+                    self.store.followup = self.patch["followup"]
+            # PostgREST re-applies the PATCH filter to RETURNING: a write that makes the
+            # row stop matching (e.g. it is no longer the freshest claim) comes back empty.
+            return SimpleNamespace(data=[dict(row)] if matched and self._match(row) else [])
+        return SimpleNamespace(data=[dict(row)] if matched else [])
+
+
 class Store:
     def __init__(self, flags=()):
+        self.memo: dict = {}
         self.followup = None
         self.samples = ["hola"]
         self.flags = list(flags)
 
     def table(self, name):
-        query = MagicMock()
         if name == "memos":
-            def update(patch):
-                self.followup = patch["followup"]
-                query.execute.return_value = SimpleNamespace(data=[patch])
-                return query
-            query.update.side_effect = update
+            return MemosQuery(self)
+        query = MagicMock()
         if name == "user_profiles":
             query.execute.return_value = SimpleNamespace(data=[{"writing_samples": list(self.samples)}])
             def update(patch):
@@ -69,12 +141,15 @@ class Store:
 @pytest.fixture(autouse=True)
 def fresh_flags(monkeypatch):
     feature_flags.clear_cache()
+    followup_send.reset_rate_limit()
     monkeypatch.setattr(settings, "FOLLOWUP_ENABLED", True)
     yield
     feature_flags.clear_cache()
+    followup_send.reset_rate_limit()
 
 
 def client_for(user_id: str, memo: dict, store: Store) -> TestClient:
+    store.memo = memo
     app = FastAPI()
     app.include_router(followup_api.router)
     app.include_router(followup_api.listing)
@@ -230,6 +305,7 @@ SEND_BODY = "Hola Marina, te confirmo el jueves a las once."
 
 
 def send_client_for(user_id: str, memo: dict, store: Store) -> TestClient:
+    store.memo = memo
     app = FastAPI()
     app.include_router(followup_api.router)
     app.dependency_overrides[get_supabase] = lambda: store
@@ -337,7 +413,7 @@ def test_an_edited_body_sends_again(stub_send_and_note):
     assert len(stub_send_and_note["sent"]) == 2, "an edited revision is sent again"
 
 
-def test_a_resend_failure_is_a_502_and_nothing_is_recorded(monkeypatch):
+def test_a_resend_failure_is_a_502_and_marks_the_claim_failed_not_sent(monkeypatch):
     async def failing_send(**_kwargs):
         return {"ok": False, "error": "resend_not_configured"}
 
@@ -349,4 +425,56 @@ def test_a_resend_failure_is_a_502_and_nothing_is_recorded(monkeypatch):
         json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
     )
     assert resp.status_code == 502
-    assert store.followup is None
+    assert store.followup["vocify_send_state"] == "failed"
+    assert store.followup["status"] == "ready", "never marked as sent when Resend failed"
+
+
+def test_send_refuses_when_the_rep_has_no_email_on_file(monkeypatch):
+    monkeypatch.setattr(followup_api, "rep_identity", lambda *_a, **_k: ("Lucía Pérez", None))
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    resp = send_client_for(AUTHOR, ready_memo(), store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 422
+    assert store.followup is None, "refused before any claim was written"
+
+
+def test_a_send_already_claimed_by_another_request_is_not_repeated(stub_send_and_note):
+    """The core of the concurrency fix: simulate the race deterministically by having
+    another request's claim land first (exactly what the endpoint itself calls), then
+    drive the HTTP request and check it never touches Resend."""
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    memo = ready_memo()
+    store.memo = memo
+    revision = send_hash("Caso", SEND_BODY)
+    from datetime import datetime, timezone
+
+    claim, _ = claim_send(store, MEMO_ID, memo.get("followup") or {}, revision, "other-run", datetime.now(timezone.utc))
+    assert claim == "claimed"
+
+    resp = send_client_for(AUTHOR, memo, store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 200
+    assert stub_send_and_note["sent"] == [], "another request already owns this exact revision"
+    assert stub_send_and_note["note"] == []
+
+
+def test_a_failed_crm_note_is_retried_without_resending_the_email(stub_send_and_note):
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    client = send_client_for(AUTHOR, ready_memo(), store)
+    payload = {"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY}
+    client.post(f"/api/v1/memos/{MEMO_ID}/followup/send", json=payload)
+    assert store.followup["crm_note"]["status"] == "done"
+
+    # Simulate the note having failed on the first attempt: the retry must repair the
+    # note without ever calling send_followup_email again.
+    store.followup["crm_note"] = {"status": "failed", "reason": "error"}
+    sent_memo = {**ready_memo(), "followup": store.followup}
+    again = send_client_for(AUTHOR, sent_memo, store).post(f"/api/v1/memos/{MEMO_ID}/followup/send", json=payload)
+    assert again.status_code == 200
+    assert len(stub_send_and_note["sent"]) == 1, "the email itself is never resent"
+    assert len(stub_send_and_note["note"]) == 2, "the note is retried"
+    assert store.followup["crm_note"]["status"] == "done"

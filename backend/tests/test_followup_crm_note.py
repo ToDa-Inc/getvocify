@@ -99,6 +99,20 @@ def test_pipedrive_note_is_created_on_deal_and_person():
     assert "Cuerpo del seguimiento" in sent["content"]
 
 
+@respx.mock
+def test_pipedrive_note_content_is_html_escaped():
+    route = respx.post("https://acme.pipedrive.com/api/v1/notes").mock(
+        return_value=httpx.Response(201, json={"data": {"id": 56}})
+    )
+    body = 'Precio < 100€ & "condiciones especiales" <script>alert(1)</script>'
+    asyncio.run(log_followup_note(FakeSupabase([PIPEDRIVE_CONNECTION]), memo(), body))
+    sent = json.loads(route.calls.last.request.content)
+    assert "<script>" not in sent["content"]
+    assert "&lt;script&gt;" in sent["content"]
+    assert "&amp;" in sent["content"]
+    assert "&quot;condiciones especiales&quot;" in sent["content"]
+
+
 def test_an_unsupported_provider_is_skipped():
     connection = {**HUBSPOT_CONNECTION, "provider": "salesforce"}
     result = asyncio.run(log_followup_note(FakeSupabase([connection]), memo(), "Cuerpo"))
