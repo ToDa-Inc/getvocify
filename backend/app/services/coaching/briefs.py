@@ -114,35 +114,41 @@ def build_highlights(evidence: list[dict], *, limit: int = 5) -> list[str]:
 
 
 def label_missed_items(missed: list[dict], *, steps: list[dict], entries: list[dict]) -> list[dict]:
-    """Attach the playbook's own label and guidance phrase to a missed step or objection.
-
-    A step's phrase is its own criterion; an objection's phrase is the entry whose category
-    matches. An id the playbook does not recognise anymore is dropped, not guessed at."""
+    """Attach the playbook's own label to a missed step or objection, and a separate phrase
+    when the playbook has one to say. `label` names what was missed; `guidance` (when present)
+    is the playbook's own words on it — never the same text twice. A category matches its
+    entry case-insensitively. An id the playbook does not recognise anymore is dropped."""
     step_labels = {str(step.get("step_id")): step for step in steps if isinstance(step, dict)}
     entry_guidance: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        category = str(entry.get("category") or "")
+        category = str(entry.get("category") or "").strip().lower()
         if category and category not in entry_guidance:
             entry_guidance[category] = str(entry.get("guidance") or "").strip()
     labeled: list[dict] = []
     for item in missed:
         kind = item.get("kind")
         item_id = str(item.get("id") or "")
+        guidance = ""
         if kind == "step":
             step = step_labels.get(item_id)
             if step is None:
                 continue
             label = str(step.get("label") or "").strip()
-            guidance = str(step.get("criterion") or "").strip() or label
+            guidance = str(step.get("criterion") or "").strip()
         else:
-            category = str(item.get("category") or "")
-            guidance = entry_guidance.get(category, "").strip()
-            label = guidance
+            label = str(item.get("category") or "").strip()
+            category = label.lower()
+            if category not in entry_guidance:
+                continue
+            guidance = entry_guidance[category]
         if not label:
             continue
-        labeled.append({"id": item_id, "kind": kind, "label": label, "guidance": guidance})
+        entry_out = {"id": item_id, "kind": kind, "label": label}
+        if guidance and guidance != label:
+            entry_out["guidance"] = guidance
+        labeled.append(entry_out)
     return labeled
 
 
@@ -279,14 +285,16 @@ def materialize_brief(
 
 
 def _fetch_playbook_snapshot(supabase, playbook_version_id: str | None) -> tuple[list[dict], list[dict]]:
-    """Best-effort read of one published version's steps/entries, for labeling missed items."""
+    """Best-effort read of one *published* version's steps/entries, for labeling missed items.
+    A draft never backs a phrase: the rep sees only what the team actually published."""
     if not playbook_version_id:
         return [], []
     try:
         result = (
             supabase.table("playbook_versions")
-            .select("id,steps,entries")
+            .select("id,status,steps,entries")
             .eq("id", playbook_version_id)
+            .eq("status", "published")
             .limit(1)
             .execute()
         )
@@ -303,19 +311,22 @@ def recent_progress(
     supabase,
     *,
     user_id: str | None,
+    company_id: str | None,
     sales_motion_key: str | None,
     exclude_memo_id: str | None = None,
     limit: int = 5,
 ) -> list[float | None]:
     """Adherence of the rep's last `limit` interactions in the same flow, most recent first.
-    A failed lookup is an empty trend, not a broken brief."""
-    if not user_id or not sales_motion_key:
+    Scoped to the rep's own company so a stray cross-company user_id never leaks in. A failed
+    lookup is an empty trend, not a broken brief."""
+    if not user_id or not company_id or not sales_motion_key:
         return []
     try:
         memo_rows = (
             supabase.table("memos")
             .select("id,created_at")
             .eq("user_id", user_id)
+            .eq("company_id", company_id)
             .eq("sales_motion_key", sales_motion_key)
             .order("created_at", desc=True)
             .limit(limit + 1)
@@ -374,6 +385,7 @@ def debrief_v2_context(
     progress = recent_progress(
         supabase,
         user_id=memo.get("user_id"),
+        company_id=memo.get("company_id"),
         sales_motion_key=memo.get("sales_motion_key"),
         exclude_memo_id=memo_id,
     )

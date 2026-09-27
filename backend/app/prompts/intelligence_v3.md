@@ -17,6 +17,9 @@ Return facts only. If the transcript does not say it, leave it out or use null.
   category is one of price, timing, authority, competitor, status_quo, trust, other.
   resolution is "resolved" if the rep answered it and the prospect accepted, "open" if it
   stayed, "unknown" if you cannot tell. quote is an exact substring of the transcript.
+  response is the rep's own reply to this objection, an exact substring of the transcript,
+  only when the rep actually answered it. null when the rep never replied or you cannot find
+  the exact words. Never paraphrase it and never reuse the prospect's own words as the reply.
 - commitments: each concrete next action someone agreed to. An agreed meeting does not
   replace the other actions around it ("el lunes te llamo para confirmar").
   kind is call, email, send, meeting or other.

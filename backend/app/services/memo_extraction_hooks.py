@@ -116,6 +116,7 @@ def _maybe_publish_score(
     from app.services.feature_flags import is_enabled
 
     objection_credit_enabled = is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED")
+    debrief_v2_enabled = is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED")
     score = build_score_from_extraction(
         extraction=extraction,
         memo=memo,
@@ -124,6 +125,7 @@ def _maybe_publish_score(
         crm_outcome=memo.get("crm_outcome"),
         screening=memo.get("screening_outcome"),
         objection_credit_enabled=objection_credit_enabled,
+        debrief_v2_enabled=debrief_v2_enabled,
     )
     if score is None:
         return
@@ -135,7 +137,7 @@ def _maybe_publish_score(
         score=score,
         patterns=patterns,
         playbook_present=bool(memo.get("playbook_version_id") or score.get("playbook_version_id")),
-        debrief_v2_enabled=is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED"),
+        debrief_v2_enabled=debrief_v2_enabled,
         intelligence=intelligence if isinstance(intelligence, dict) else None,
     )
 

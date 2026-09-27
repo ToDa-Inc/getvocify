@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,57 @@ def _evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
         return None
     digest = hashlib.sha256(f"{memo_id}:{text}".encode()).hexdigest()[:16]
     return {"id": f"ev-{digest}", "source_type": "transcript", "source_id": memo_id, "quote": text}
+
+
+_TURN = re.compile(r"(You|Them):\s*")
+
+
+def _turns(transcript: str) -> list[tuple[str, str]] | None:
+    """Ordered (speaker, text) turns when the transcript uses the You:/Them: convention.
+    None when the transcript carries no speaker markers we recognize (T10: a response then
+    counts on a plain substring match, same as before; it does not favor either speaker)."""
+    matches = list(_TURN.finditer(transcript))
+    if not matches:
+        return None
+    turns = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(transcript)
+        turns.append((match.group(1), transcript[start:end].strip()))
+    return turns
+
+
+def _rep_evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
+    """T10: an objection's response only counts when it is the rep's own words. When the
+    transcript has no speaker markers, fall back to the plain substring check."""
+    ref = _evidence(memo_id, quote, transcript)
+    if ref is None:
+        return None
+    turns = _turns(transcript)
+    if turns is None:
+        return ref
+    rep_text = " ".join(" ".join(text.split()) for speaker, text in turns if speaker == "You")
+    if ref["quote"] not in rep_text:
+        return None
+    return ref
+
+
+def _rep_replied_after(transcript: str, quote: str) -> bool | None:
+    """T10: whether a rep ("You") turn exists after the turn that raised this objection.
+    None when the transcript has no speaker markers: score_assembly then never marks the
+    objection missed on evidence it cannot actually see."""
+    turns = _turns(transcript)
+    if turns is None:
+        return None
+    needle = " ".join(quote.split())
+    found_index = None
+    for index, (_, text) in enumerate(turns):
+        if needle in " ".join(text.split()):
+            found_index = index
+            break
+    if found_index is None:
+        return None
+    return any(speaker == "You" for speaker, _ in turns[found_index + 1 :])
 
 
 def _due(value: Any) -> str | None:
@@ -104,6 +156,15 @@ def shape_intelligence(memo: dict, raw: dict) -> dict:
         evidence[ref["id"]] = ref
         category = item.get("category") if item.get("category") in _CATEGORY else "other"
         resolution = item.get("resolution") if item.get("resolution") in _RESOLUTION else "unknown"
+        response = None
+        response_evidence_refs: list[str] = []
+        response_quote = item.get("response")
+        if isinstance(response_quote, str) and response_quote.strip():
+            response_ref = _rep_evidence(memo_id, response_quote, transcript)
+            if response_ref is not None:
+                evidence[response_ref["id"]] = response_ref
+                response = {"text": response_ref["quote"]}
+                response_evidence_refs = [response_ref["id"]]
         objections.append({
             "id": f"obj-{ref['id'][3:]}",
             "category": category,
@@ -111,6 +172,11 @@ def shape_intelligence(memo: dict, raw: dict) -> dict:
             "resolution": resolution,
             "quote": ref["quote"],
             "evidence_refs": [ref["id"]],
+            # T10/SCORING_OBJECTION_CREDIT_ENABLED: the rep's own cited reply, and whether the
+            # rep spoke again at all after the objection (never invented from a missing turn).
+            "response": response,
+            "response_evidence_refs": response_evidence_refs,
+            "rep_replied_after": _rep_replied_after(transcript, ref["quote"]),
         })
 
     commitments = []

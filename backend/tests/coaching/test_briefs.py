@@ -501,6 +501,24 @@ def test_label_missed_items_drops_ids_the_playbook_no_longer_has():
     assert labeled == []
 
 
+def test_label_missed_items_matches_category_case_insensitively():
+    entries = [{"entry_id": "price-1", "category": "Price", "guidance": "Compara el coste"}]
+    labeled = label_missed_items([{"kind": "objection", "id": "obj-1", "category": "price"}], steps=[], entries=entries)
+    assert labeled == [{"id": "obj-1", "kind": "objection", "label": "price", "guidance": "Compara el coste"}]
+
+
+def test_label_missed_items_never_repeats_the_label_as_its_own_guidance():
+    """A step with no criterion, or an objection whose entry mirrors the category, gets no phrase
+    rather than showing the same text as both the missed label and the playbook phrase."""
+    bare_step = [{"step_id": "s1", "label": "Confirmar presupuesto"}]  # no criterion
+    labeled = label_missed_items([{"kind": "step", "id": "s1"}], steps=bare_step, entries=[])
+    assert labeled == [{"id": "s1", "kind": "step", "label": "Confirmar presupuesto"}]
+    assert "guidance" not in labeled[0]
+    mirrored_entries = [{"entry_id": "price-1", "category": "price", "guidance": "price"}]
+    labeled = label_missed_items([{"kind": "objection", "id": "obj-1", "category": "price"}], steps=[], entries=mirrored_entries)
+    assert "guidance" not in labeled[0]
+
+
 class _DebriefTable:
     """Minimal chainable query double: playbook_versions/memos/memo_scores reads only."""
 
@@ -540,23 +558,29 @@ class _DebriefSupabase:
         return _DebriefTable(self._tables.get(name, []))
 
 
-def test_debrief_v2_context_joins_playbook_evidence_and_progress():
-    from app.services.coaching.briefs import debrief_v2_context
-
-    tables = {
+def _debrief_tables() -> dict:
+    return {
         "playbook_versions": [
-            {"id": "pv-1", "steps": STEPS, "entries": ENTRIES},
+            {"id": "pv-1", "status": "published", "steps": STEPS, "entries": ENTRIES},
+            {"id": "pv-draft", "status": "draft", "steps": STEPS, "entries": ENTRIES},
         ],
         "memos": [
-            {"id": "memo-older", "user_id": "u1", "sales_motion_key": "discovery", "created_at": "2026-09-01T00:00:00Z"},
-            {"id": "memo-current", "user_id": "u1", "sales_motion_key": "discovery", "created_at": "2026-09-02T00:00:00Z"},
+            {"id": "memo-older", "user_id": "u1", "company_id": "co-1", "sales_motion_key": "discovery", "created_at": "2026-09-01T00:00:00Z"},
+            {"id": "memo-current", "user_id": "u1", "company_id": "co-1", "sales_motion_key": "discovery", "created_at": "2026-09-02T00:00:00Z"},
+            {"id": "memo-other-co", "user_id": "u1", "company_id": "co-2", "sales_motion_key": "discovery", "created_at": "2026-09-01T12:00:00Z"},
         ],
         "memo_scores": [
             {"memo_id": "memo-older", "revision_seq": 1, "score": {"adherence": 0.5}},
+            {"memo_id": "memo-other-co", "revision_seq": 1, "score": {"adherence": 0.1}},
         ],
     }
-    supabase = _DebriefSupabase(tables)
-    memo = {"id": "memo-current", "user_id": "u1", "sales_motion_key": "discovery"}
+
+
+def test_debrief_v2_context_joins_playbook_evidence_and_progress():
+    from app.services.coaching.briefs import debrief_v2_context
+
+    supabase = _DebriefSupabase(_debrief_tables())
+    memo = {"id": "memo-current", "user_id": "u1", "company_id": "co-1", "sales_motion_key": "discovery"}
     intelligence = {
         "evidence": [{"quote": "min tardío", "start_ms": 5000}, {"quote": "min temprano", "start_ms": 1000}],
         "meeting": {"agreed": True},
@@ -570,6 +594,25 @@ def test_debrief_v2_context_joins_playbook_evidence_and_progress():
     assert context["flow"] == "sdr"
     assert context["missed"][0]["label"] == "Confirmar presupuesto"
     assert context["evidence"][0]["start_ms"] == 5000
+    # Only this company's own history, and never the current memo itself.
     assert context["progress"] == [0.5]
     assert context["meeting_agreed"] is True
     assert context["next_step_agreed"] is False
+
+
+def test_debrief_v2_context_never_pulls_a_draft_playbook():
+    from app.services.coaching.briefs import debrief_v2_context
+
+    supabase = _DebriefSupabase(_debrief_tables())
+    memo = {"id": "memo-current", "user_id": "u1", "company_id": "co-1", "sales_motion_key": "discovery"}
+    score = {"playbook_version_id": "pv-draft", "missed_items": [{"kind": "step", "id": "confirm_budget"}]}
+    context = debrief_v2_context(supabase, memo=memo, intelligence={}, score=score, memo_id="memo-current")
+    assert context["missed"] == []
+
+
+def test_recent_progress_never_crosses_companies():
+    from app.services.coaching.briefs import recent_progress
+
+    supabase = _DebriefSupabase(_debrief_tables())
+    values = recent_progress(supabase, user_id="u1", company_id="co-1", sales_motion_key="discovery", exclude_memo_id="memo-current")
+    assert values == [0.5]

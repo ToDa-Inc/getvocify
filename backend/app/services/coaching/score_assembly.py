@@ -95,9 +95,13 @@ def _missed_steps(intelligence: dict, *, evidence_ids: list[str]) -> list[dict]:
 def _objection_handling(intelligence: dict, *, evidence_ids: list[str]) -> tuple[list[str], list[dict]]:
     """T10/SCORING_OBJECTION_CREDIT_ENABLED: one synthetic criterion per real, evidenced objection.
 
-    `met` when the rep's answer stuck (resolved, with a cited response); `missed` when the
-    prospect's objection stayed open and the rep never answered; `unknown` otherwise. Without
-    objections this returns nothing, so an easy call neither gains nor loses points."""
+    `met` when the rep's own reply is cited (resolved, with response_evidence_refs that
+    resolve to known evidence). `missed` only when the objection stayed open AND the
+    transcript shows the rep spoke again afterward with nothing that counts as an answer —
+    a free-text `response` with no evidence earns nothing. When we cannot tell whether the
+    rep replied at all (`rep_replied_after` is None), that is `unknown`, never `missed` on
+    missing data. Without objections this returns nothing, so an easy call neither gains nor
+    loses points."""
     known = set(evidence_ids)
     statuses: list[str] = []
     missed: list[dict] = []
@@ -110,14 +114,16 @@ def _objection_handling(intelligence: dict, *, evidence_ids: list[str]) -> tuple
         if not refs or not any(ref in known for ref in refs):
             continue
         resolution = obj.get("resolution")
-        response = str(obj.get("response") or "").strip()
         response_refs = [str(ref or "").strip() for ref in (obj.get("response_evidence_refs") or []) if str(ref or "").strip()]
-        response_backed = bool(response) and (not response_refs or any(ref in known for ref in response_refs))
+        response_backed = bool(response_refs) and any(ref in known for ref in response_refs)
         if resolution == "resolved" and response_backed:
             statuses.append("met")
-        elif resolution == "open" and not response:
-            statuses.append("missed")
-            missed.append({"kind": "objection", "id": str(obj.get("id") or ""), "category": str(obj.get("category") or "other")})
+        elif resolution == "open" and not response_backed:
+            if obj.get("rep_replied_after") is True:
+                statuses.append("missed")
+                missed.append({"kind": "objection", "id": str(obj.get("id") or ""), "category": str(obj.get("category") or "other")})
+            else:
+                statuses.append("unknown")
         else:
             statuses.append("unknown")
     return statuses, missed
@@ -157,6 +163,7 @@ def build_score_from_extraction(
     crm_outcome: str | None = None,
     screening: str | None = None,
     objection_credit_enabled: bool = False,
+    debrief_v2_enabled: bool = False,
 ) -> dict | None:
     """Return an assembled score dict, or None when there is nothing to score."""
     extraction = extraction if isinstance(extraction, dict) else {}
@@ -191,7 +198,10 @@ def build_score_from_extraction(
     )
     score["strengths"] = []
     score["improvements"] = []
-    score["missed_items"] = missed_items
+    # Flag-off must stay byte-identical to pre-T10 output: missed_items is new surface, so it
+    # only appears when a T10 flag actually needs it (objection credit or the v2 debrief).
+    if objection_credit_enabled or debrief_v2_enabled:
+        score["missed_items"] = missed_items
     return score
 
 
@@ -203,6 +213,7 @@ def attach_score_to_job_payload(
     patterns: list[dict] | None = None,
     crm_outcome: str | None = None,
     objection_credit_enabled: bool = False,
+    debrief_v2_enabled: bool = False,
 ) -> dict:
     """Ensure payload carries a deterministic score when extraction is scoreable."""
     if not isinstance(payload, dict):
@@ -219,6 +230,7 @@ def attach_score_to_job_payload(
         crm_outcome=crm_outcome,
         screening=memo.get("screening_outcome"),
         objection_credit_enabled=objection_credit_enabled,
+        debrief_v2_enabled=debrief_v2_enabled,
     )
     if score is None:
         return payload

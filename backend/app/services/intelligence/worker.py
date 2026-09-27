@@ -154,6 +154,7 @@ def database_bindings(supabase, sources_for=None):
             patterns=patterns,
             crm_outcome=memo.get("crm_outcome"),
             objection_credit_enabled=is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED"),
+            debrief_v2_enabled=is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED"),
         )
         store_coaching_from_job_payload(supabase, memo, coaching_payload)
 
