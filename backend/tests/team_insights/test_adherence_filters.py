@@ -15,12 +15,22 @@ from fastapi.testclient import TestClient
 from app.api import team_insights as team_api
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+import pytest
+
+from app.services.team_insights import aggregate
 from app.services.team_insights.aggregate import load_team_adherence_inputs, team_adherence
 
 COMPANY = "co-filter-1"
 USER_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 USER_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 _WEEK = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_week(monkeypatch):
+    # Fixtures are dated in the week of _WEEK; pin the Madrid week to it.
+    real = aggregate.madrid_week_bounds
+    monkeypatch.setattr(aggregate, "madrid_week_bounds", lambda *, now=None: real(now=now or _WEEK))
 
 
 class _Result:
