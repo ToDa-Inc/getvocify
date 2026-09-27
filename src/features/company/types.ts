@@ -22,6 +22,9 @@ export interface CompanySummary {
   features?: string[];
   /** D10: the Head of Sales's sales strategy. Only set when FOLLOWUP_BY_FLOW_ENABLED. */
   salesStrategy?: string | null;
+  /** T9: owner/admin whose company hasn't finished the onboarding wizard yet.
+   * Only meaningful when ONBOARDING_WIZARD_ENABLED; false for members and off by default. */
+  needsOnboarding?: boolean;
 }
 
 export interface CompanyDetails extends CompanySummary {
@@ -56,6 +59,9 @@ export interface PendingInvite {
   expiresAt: string;
   createdAt?: string;
 }
+
+/** T9: the onboarding wizard's steps, in the order it walks the Head of Sales through. */
+export type OnboardingStep = 'crm' | 'team' | 'handoff' | 'playbooks' | 'strategy';
 
 export interface InvitePreview {
   email: string;

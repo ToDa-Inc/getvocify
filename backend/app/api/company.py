@@ -35,6 +35,7 @@ class CompanyResponse(BaseModel):
     rep_workspace_enabled: bool = False
     brief_v2_enabled: bool = False
     sales_strategy: Optional[str] = None
+    needs_onboarding: bool = False
 
 
 class UpdateCompanyRequest(BaseModel):
@@ -135,6 +136,7 @@ async def get_company(
         rep_workspace_enabled=svc.rep_workspace_enabled(membership.company_id),
         brief_v2_enabled=svc.brief_v2_enabled(membership.company_id),
         sales_strategy=company.get("sales_strategy") if svc.sales_strategy_enabled(membership.company_id) else None,
+        needs_onboarding=svc.needs_onboarding(membership),
     )
 
 
@@ -150,6 +152,43 @@ async def update_company(
         svc.update_company_name(membership.company_id, body.name)
     if body.sales_strategy is not None and svc.sales_strategy_enabled(membership.company_id):
         svc.update_sales_strategy(membership.company_id, body.sales_strategy)
+    return await get_company(user_id=user_id, supabase=supabase)
+
+
+class OnboardingStateResponse(BaseModel):
+    needed: bool
+    next_step: Optional[str] = None
+    state: Dict[str, bool] = Field(default_factory=dict)
+
+
+@router.get("/onboarding", response_model=OnboardingStateResponse)
+async def get_onboarding_state(
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    """T9: what step the Head of Sales onboarding wizard should show next. Owner/admin only,
+    same as the wizard itself."""
+    from app.services.onboarding import next_onboarding_step
+
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    state = svc.onboarding_state(membership.company_id)
+    return OnboardingStateResponse(
+        needed=svc.needs_onboarding(membership),
+        next_step=next_onboarding_step(state),
+        state=state,
+    )
+
+
+@router.post("/onboarding/complete", response_model=CompanyResponse)
+async def complete_onboarding(
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    """T9: finish (or skip through) the wizard. Owner/admin only."""
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    svc.complete_onboarding(membership.company_id)
     return await get_company(user_id=user_id, supabase=supabase)
 
 

@@ -19,6 +19,7 @@ from app.services.billing.entitlement import (
     workspace_entitlements,
 )
 from app.services.feature_flags import is_enabled
+from app.services.hoy.materialize import DEFAULT_CALLBACK_AFTER_DAYS
 from app.emails.templates import (
     build_invite_email_html,
     build_password_changed_email_html,
@@ -37,6 +38,7 @@ REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
 BRIEF_V2_FLAG = "BRIEF_V2_ENABLED"
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
 FOLLOWUP_BY_FLOW_FLAG = "FOLLOWUP_BY_FLOW_ENABLED"
+ONBOARDING_WIZARD_FLAG = "ONBOARDING_WIZARD_ENABLED"
 SALES_ROLES = frozenset({"sdr", "ae", "general"})
 VISIBILITIES = frozenset({"own", "team"})
 
@@ -117,6 +119,24 @@ def _missing_sales_strategy_column(exc: BaseException) -> bool:
 
     msg = str(exc).lower()
     return "42703" in msg and "sales_strategy" in msg
+
+
+def _missing_onboarding_column(exc: BaseException) -> bool:
+    """True when migration 059_company_onboarding.sql (companies.onboarding_completed_at)
+    has not run yet: an undefined-column error naming that column."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if (code == "42703" or "does not exist" in msg) and "onboarding_completed_at" in msg:
+            return True
+
+    msg = str(exc).lower()
+    return "42703" in msg and "onboarding_completed_at" in msg
 
 
 _SALES_COLUMN_NAMES = ("sales_role", "handoff_ae_user_id", "visibility")
@@ -234,6 +254,18 @@ class CompanyService:
             raise HTTPException(status_code=404, detail="Company not found")
         return result.data
 
+    def callback_after_days(self, company_id: str) -> int:
+        """T5 (companies.callback_after_days, migration 057): how many silent days after a
+        no_response/voicemail call attempt Hoy surfaces callback_no_answer. Read with
+        select("*") like get_company, so a company row without the column yet (migration
+        not applied) never raises - it just falls back to the same default of 2."""
+        try:
+            company = self.get_company(company_id)
+        except Exception:
+            return DEFAULT_CALLBACK_AFTER_DAYS
+        value = company.get("callback_after_days")
+        return int(value) if isinstance(value, int) and value > 0 else DEFAULT_CALLBACK_AFTER_DAYS
+
     def count_active_members(self, company_id: str) -> int:
         result = (
             self.supabase.table("company_members")
@@ -344,6 +376,59 @@ class CompanyService:
         """D10 rides on the follow-up-by-flow flag: that is the only consumer so far."""
         return is_enabled(self.supabase, company_id, FOLLOWUP_BY_FLOW_FLAG)
 
+    def onboarding_wizard_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, ONBOARDING_WIZARD_FLAG)
+
+    def needs_onboarding(self, membership: "Membership") -> bool:
+        """T9: only a Head of Sales (owner/admin) ever gets the wizard, and only while the
+        flag is on. `onboarding_completed_at` comes back through get_company's `select("*")`,
+        so no fallback is needed here - a company on a database before migration 059 simply
+        never has the column, and `.get(...)` reads that as None like an incomplete one; the
+        flag being off by default is what keeps pre-migration behaviour unchanged."""
+        if not membership.can_manage_team:
+            return False
+        if not self.onboarding_wizard_enabled(membership.company_id):
+            return False
+        company = self.get_company(membership.company_id)
+        return company.get("onboarding_completed_at") is None
+
+    def onboarding_state(self, company_id: str) -> dict:
+        """Best-effort read of which onboarding steps already look done, for the wizard to
+        skip ahead. `playbooks` has no cheap signal (its store lives in memory, see
+        api/playbooks.py) so it always starts pending; the wizard's own skip covers it."""
+        from app.services.onboarding import STEPS
+
+        company = self.get_company(company_id)
+        members = self.list_members(company_id, include_sales_fields=True)
+        sdrs = [m for m in members if m.get("sales_role") == "sdr"]
+        state = {
+            "crm": bool(company.get("primary_crm_connection_id")),
+            "team": self.count_active_members(company_id) > 1 or bool(self.list_pending_invites(company_id)),
+            "handoff": not sdrs or any(m.get("handoff_ae_user_id") for m in sdrs),
+            "playbooks": False,
+            "strategy": bool((company.get("sales_strategy") or "").strip()),
+        }
+        return {step: state[step] for step in STEPS}
+
+    def complete_onboarding(self, company_id: str) -> dict:
+        """Owner/admin only (require_manage_role at the API layer). Tolerant of migration
+        059_company_onboarding.sql not having run yet, same pattern as update_sales_strategy."""
+        try:
+            result = (
+                self.supabase.table("companies")
+                .update({"onboarding_completed_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+            return (result.data or [{}])[0]
+        except Exception as exc:
+            if _missing_onboarding_column(exc):
+                logger.warning(
+                    "onboarding_completed_at unavailable (run migration 059_company_onboarding.sql): %s", exc,
+                )
+                return self.get_company(company_id)
+            raise
+
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
         from app.services.feature_flags import LISTA_3_FLAGS, enabled_features
 
@@ -372,6 +457,7 @@ class CompanyService:
             "brief_v2_enabled": self.brief_v2_enabled(membership.company_id),
             "sales_role": membership.sales_role if sales_roles_on else None,
             "features": enabled_features(self.supabase, membership.company_id, LISTA_3_FLAGS),
+            "needs_onboarding": self.needs_onboarding(membership),
         }
 
     def list_members(self, company_id: str, *, include_sales_fields: bool = False) -> List[dict]:

@@ -24,6 +24,7 @@ import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
 import DashboardHome from "./pages/dashboard/DashboardHome";
+import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
 import MemosPage from "./pages/dashboard/MemosPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
@@ -162,6 +163,7 @@ const App = () => (
               </ProtectedRoute>
             }>
               <Route index element={<DashboardHome />} />
+              <Route path="onboarding" element={<OnboardingWizard />} />
               <Route path="record" element={<RecordPage />} />
               <Route path="memos" element={<MemosPage />} />
               <Route path="memos/:id" element={<MemoDetail />} />

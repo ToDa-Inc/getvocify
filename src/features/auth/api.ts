@@ -61,6 +61,7 @@ export function mapRawUser(raw: Record<string, unknown>): User {
           briefV2: Boolean(companyRaw.brief_v2_enabled),
           salesRole: (companyRaw.sales_role as CompanySummary['salesRole']) ?? null,
           features: Array.isArray(companyRaw.features) ? (companyRaw.features as string[]) : [],
+          needsOnboarding: Boolean(companyRaw.needs_onboarding),
         }
       : null,
   };
