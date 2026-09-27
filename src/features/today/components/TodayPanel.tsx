@@ -8,7 +8,8 @@ import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { currentItem, initialQueue, queueReducer } from "@/lib/today-queue";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
-import { splitTodayItems } from "@/lib/today";
+import { splitByLane } from "@/lib/hoy-lanes";
+import { todayConversationItems } from "@/lib/today";
 import { useTodayCardActions, useTodayUndoClock } from "../hooks/useTodayCardActions";
 import { ContactPriorities } from "./ContactPriorities";
 import { TodayItemList } from "./TodayItemList";
@@ -41,7 +42,10 @@ export function TodayPanel() {
   const active = queue.mode === "queue";
   const done = queue.mode === "done";
   const current = currentItem(queue);
-  const calls = splitTodayItems(listed).calls;
+  const { calls: laneCalls, meetings: laneMeetings } = splitByLane(listed);
+  const calls = todayConversationItems(laneCalls);
+  const meetings = todayConversationItems(laneMeetings);
+  const showLanes = calls.some((item) => item.lane === "calls") && meetings.some((item) => item.lane === "meetings");
   const canStart = calls.length > 0 && (queue.mode === "idle" || queue.mode === "done");
 
   const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-3`;
@@ -148,13 +152,38 @@ export function TodayPanel() {
           ) : null}
           {done ? <p className={THEME_TOKENS.typography.body}>{t.product.queueDone}</p> : null}
           {!active ? (
-            <TodayItemList
-              items={listed}
-              onDismiss={dismiss}
-              onUndo={undo}
-              provider={provider}
-              portalId={portalId}
-            />
+            showLanes ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className={THEME_TOKENS.typography.capsLabel}>{t.product.todayLaneCalls}</p>
+                  <TodayItemList
+                    items={laneCalls}
+                    onDismiss={dismiss}
+                    onUndo={undo}
+                    provider={provider}
+                    portalId={portalId}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className={THEME_TOKENS.typography.capsLabel}>{t.product.todayLaneMeetings}</p>
+                  <TodayItemList
+                    items={laneMeetings}
+                    onDismiss={dismiss}
+                    onUndo={undo}
+                    provider={provider}
+                    portalId={portalId}
+                  />
+                </div>
+              </div>
+            ) : (
+              <TodayItemList
+                items={listed}
+                onDismiss={dismiss}
+                onUndo={undo}
+                provider={provider}
+                portalId={portalId}
+              />
+            )
           ) : null}
         </div>
       ) : null}

@@ -19,6 +19,9 @@ export type TodayItem = {
   status?: string | null;
   undo_deadline?: string | null;
   last_action_request_id?: string | null;
+  lane?: "calls" | "meetings" | null;
+  rep_name?: string | null;
+  booking_memo_id?: string | null;
 };
 
 export type TodayView = {

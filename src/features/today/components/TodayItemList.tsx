@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
@@ -61,10 +62,21 @@ function CallCard({
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-            <p className="truncate text-[15px] text-foreground">{name}</p>
+            <p className="truncate text-[15px] text-foreground">
+              {item.booking_memo_id ? (
+                <Link to={`/dashboard/memos/${item.booking_memo_id}`} className="hover:text-beige">
+                  {name}
+                </Link>
+              ) : (
+                name
+              )}
+            </p>
             <span className={`max-w-[9rem] truncate text-right ${THEME_TOKENS.typography.capsLabel}`}>{label}</span>
             {item.company_name ? (
               <p className={`col-span-2 truncate ${THEME_TOKENS.typography.capsLabel}`}>{item.company_name}</p>
+            ) : null}
+            {item.rep_name ? (
+              <p className="col-span-2 truncate text-[11px] text-muted-foreground">{item.rep_name}</p>
             ) : null}
           </div>
           <p className={compact ? "mt-2 text-[13px] leading-snug text-foreground" : "mt-3 text-[15px] leading-relaxed text-foreground"}>{item.reason}</p>

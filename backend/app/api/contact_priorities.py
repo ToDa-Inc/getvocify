@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
 from app.services.company import CompanyService, Membership
+from app.services.feature_flags import is_enabled
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.context import (
     build_priority_page,
@@ -150,6 +151,7 @@ async def list_contact_priorities(
             now,
             states is not None,
         )
+    sales_roles_enabled = is_enabled(supabase, company_id, "SALES_ROLES_ENABLED")
     page = build_priority_page(
         snapshot=snapshot,
         user_id=membership.user_id,
@@ -158,5 +160,7 @@ async def list_contact_priorities(
         limit=limit,
         cursor=cursor,
         states=states,
+        sales_role=membership.sales_role if sales_roles_enabled else None,
+        sales_roles_enabled=sales_roles_enabled,
     )
     return {**page, "stale": refreshing}

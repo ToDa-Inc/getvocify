@@ -28,6 +28,8 @@ def build_priority_page(
     limit: int = 20,
     cursor: str | None = None,
     states=None,
+    sales_role: str | None = None,
+    sales_roles_enabled: bool = False,
 ) -> dict:
     connected = bool(snapshot.get("connected"))
     coverage = snapshot.get("coverage") or "unavailable"
@@ -51,14 +53,37 @@ def build_priority_page(
             continue
         visible.append(row)
 
-    ranked = rank_candidates(visible, now, states=states)
+    ranked = rank_candidates(
+        visible,
+        now,
+        states=states,
+        keep_booked=sales_roles_enabled,
+    )
+    meetings: list[dict] = []
+    if sales_roles_enabled:
+        from app.services.hoy.crm_state import exit_reason
+        from app.services.hoy.lanes import partition_by_lane
+
+        reason_by_contact = {
+            str(row.get("contact_id") or ""): exit_reason(row.get("crm_state"), states)
+            for row in visible
+        }
+        calls, meetings = partition_by_lane(
+            ranked,
+            reason_by_contact,
+            sales_role,
+            role,
+            limit=7,
+        )
+        ranked = calls
     if cursor:
         ranked = [row for row in ranked if row["id"] > cursor]
     page = ranked[:limit]
     next_cursor = page[-1]["id"] if len(ranked) > limit else None
-    if page and coverage != "complete":
+    has_rows = bool(page) or bool(meetings)
+    if has_rows and coverage != "complete":
         copy = {"title": "title_history_partial", "action": "retry"}
-    elif page:
+    elif has_rows:
         copy = {"title": None, "action": None}
     else:
         copy = empty_priority_copy(
@@ -69,7 +94,7 @@ def build_priority_page(
             provider=snapshot.get("provider"),
             portal_id=snapshot.get("portal_id"),
         )
-    return {
+    result = {
         "items": page,
         "coverage": coverage,
         "observed_at": observed_at,
@@ -77,6 +102,9 @@ def build_priority_page(
         "stale": False,
         **copy,
     }
+    if sales_roles_enabled:
+        result["meetings"] = meetings
+    return result
 
 
 def resolve_owner(email: str | None, members: list[dict]) -> tuple[str | None, bool]:

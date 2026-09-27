@@ -11,6 +11,7 @@ import {
   type PlaybookRole,
 } from "@/lib/playbook-setup";
 import { Button } from "@/components/ui/button";
+import { motionsFor } from "@/lib/hoy-lanes";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { productText } from "@/lib/product-catalog";
@@ -43,7 +44,11 @@ export default function PlaybooksSection() {
   const [resumeId, setResumeId] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
   const notice = playbookNotice(role, motions);
-  const keys = Array.from(new Set<string>([...MOTIONS, ...Object.keys(motions)]));
+  const salesRole = user?.company?.salesRole;
+  const keys =
+    salesRole != null
+      ? motionsFor(salesRole, role)
+      : Array.from(new Set<string>([...MOTIONS, ...Object.keys(motions)]));
 
   useEffect(() => {
     let cancelled = false;
