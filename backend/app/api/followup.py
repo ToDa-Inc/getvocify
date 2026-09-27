@@ -9,9 +9,11 @@ from supabase import Client
 
 from app.api.memos import _require_readable_memo
 from app.deps import get_membership, get_supabase, get_user_id, require_rep_workspace
-from app.models.followup import FollowupActionRequest, WritingSamplesRequest
+from app.models.followup import FollowupActionRequest, FollowupSendRequest, WritingSamplesRequest
 from app.services.company import Membership
+from app.services.feature_flags import is_enabled
 from app.services.followup import schedule_followup
+from app.services.followup_crm_note import log_followup_note
 from app.services.followup_logic import (
     LIST_LIMIT,
     LIST_WINDOW,
@@ -26,9 +28,13 @@ from app.services.followup_logic import (
     should_generate,
     with_pasted,
 )
+from app.services.followup_send import rep_identity, send_followup_email, send_hash
 
 router = APIRouter(prefix="/api/v1/memos", tags=["followup"])
 listing = APIRouter(prefix="/api/v1", tags=["followup"])
+
+SEND_FLAG = "FOLLOWUP_SEND_ENABLED"
+SENT_CHANNEL = "vocify_email"
 
 
 def _now() -> datetime:
@@ -106,6 +112,59 @@ async def record_followup_action(
     learned = next_voice_samples(samples, payload.body, updated["edit_ratio"])
     if learned != samples:
         supabase.table("user_profiles").update({"writing_samples": learned}).eq("id", user_id).execute()
+
+    return followup_view({**memo, "followup": updated})
+
+
+@router.post("/{memo_id}/followup/send")
+async def send_followup(
+    memo_id: UUID,
+    payload: FollowupSendRequest,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+) -> dict:
+    """D9: send the reviewed draft from Vocify via Resend, log it in the CRM, and record
+    the hand-off the same way apply_action does for copy/mailto. Idempotent by memo and by
+    the reviewed subject+body: resending the same revision is a no-op, an edited one sends."""
+    if not is_enabled(supabase, membership.company_id, SEND_FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    memo = _require_readable_memo(supabase, str(memo_id), membership.user_id)
+    if str(memo.get("user_id") or "") != membership.user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the memo's author can send its follow-up")
+    current = memo.get("followup") or {}
+    if current.get("status") not in ("ready", "sent"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Follow-up is not ready")
+
+    subject, body = payload.subject.strip(), payload.body.strip()
+    revision = send_hash(subject, body)
+    if current.get("channel") == SENT_CHANNEL and current.get("vocify_send_hash") == revision:
+        return followup_view(memo)  # same reviewed body already sent: nothing to repeat
+
+    rep_name, rep_email = rep_identity(supabase, membership.user_id)
+    sent = await send_followup_email(
+        to=payload.to,
+        subject=subject,
+        body=body,
+        rep_name=rep_name,
+        rep_email=rep_email,
+        idempotency_key=f"followup-send-{memo_id}-{revision}",
+    )
+    if not sent.get("ok"):
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=sent.get("error") or "Could not send email")
+
+    crm_note = await log_followup_note(supabase, memo, body)
+
+    updated = apply_action(
+        current, action="sent", channel=SENT_CHANNEL, subject=subject, body=body, now=datetime.now(timezone.utc),
+    )
+    updated["vocify_send_hash"] = revision
+    updated["crm_note"] = crm_note
+    supabase.table("memos").update({"followup": updated}).eq("id", str(memo_id)).execute()
+
+    samples = _writing_samples(supabase, membership.user_id)
+    learned = next_voice_samples(samples, body, updated["edit_ratio"])
+    if learned != samples:
+        supabase.table("user_profiles").update({"writing_samples": learned}).eq("id", membership.user_id).execute()
 
     return followup_view({**memo, "followup": updated})
 

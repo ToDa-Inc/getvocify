@@ -36,6 +36,7 @@ INVITE_ROLES = frozenset({"admin", "member"})
 REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
 BRIEF_V2_FLAG = "BRIEF_V2_ENABLED"
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
+FOLLOWUP_BY_FLOW_FLAG = "FOLLOWUP_BY_FLOW_ENABLED"
 SALES_ROLES = frozenset({"sdr", "ae", "general"})
 VISIBILITIES = frozenset({"own", "team"})
 
@@ -98,6 +99,24 @@ def _missing_company_schema(exc: BaseException) -> bool:
         or 'relation "company_members" does not exist' in msg
         or ("404" in msg and "company_members" in msg)
     )
+
+
+def _missing_sales_strategy_column(exc: BaseException) -> bool:
+    """True when migration 058_sales_strategy.sql (companies.sales_strategy) has not run
+    yet: an undefined-column error naming that column."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if (code == "42703" or "does not exist" in msg) and "sales_strategy" in msg:
+            return True
+
+    msg = str(exc).lower()
+    return "42703" in msg and "sales_strategy" in msg
 
 
 _SALES_COLUMN_NAMES = ("sales_role", "handoff_ae_user_id", "visibility")
@@ -320,6 +339,10 @@ class CompanyService:
 
     def sales_roles_enabled(self, company_id: str) -> bool:
         return is_enabled(self.supabase, company_id, SALES_ROLES_FLAG)
+
+    def sales_strategy_enabled(self, company_id: str) -> bool:
+        """D10 rides on the follow-up-by-flow flag: that is the only consumer so far."""
+        return is_enabled(self.supabase, company_id, FOLLOWUP_BY_FLOW_FLAG)
 
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
         from app.services.feature_flags import LISTA_3_FLAGS, enabled_features
@@ -834,6 +857,26 @@ class CompanyService:
             .execute()
         )
         return (result.data or [{}])[0]
+
+    def update_sales_strategy(self, company_id: str, value: Optional[str]) -> dict:
+        """D10: owner/admin only (require_manage_role at the API layer). Blank clears it.
+        Tolerant of migration 058_sales_strategy.sql not having run yet."""
+        text = (value or "").strip()
+        try:
+            result = (
+                self.supabase.table("companies")
+                .update({"sales_strategy": text or None, "updated_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+            return (result.data or [{}])[0]
+        except Exception as exc:
+            if _missing_sales_strategy_column(exc):
+                logger.warning(
+                    "sales_strategy unavailable (run migration 058_sales_strategy.sql): %s", exc,
+                )
+                return self.get_company(company_id)
+            raise
 
     def update_seat_limit(self, company_id: str, seat_limit: int) -> dict:
         if seat_limit < 1:

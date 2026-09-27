@@ -105,6 +105,30 @@ class Drafting(unittest.TestCase):
     def test_prompt_is_versioned(self):
         self.assertEqual(PROMPT_VERSION, "followup_v2")
 
+    def test_sales_motion_and_strategy_are_omitted_by_default(self):
+        kwargs = dict(system_prompt="SYS", transcript="t", summary="s", next_steps=["n"],
+                      contact_name="Marina", rep_name="Lucía", voice_samples=[])
+        ctx = json.loads(build_messages(**kwargs)[1]["content"])
+        self.assertNotIn("sales_motion_key", ctx)
+        self.assertNotIn("sales_strategy", ctx)
+
+    def test_sales_motion_and_strategy_land_between_facts_and_voice_samples(self):
+        msgs = build_messages(system_prompt="SYS", transcript="t", summary="s", next_steps=["n"],
+                              contact_name="Marina", rep_name="Lucía", voice_samples=[],
+                              sales_motion_key="discovery", sales_strategy="Land and expand con PyMEs")
+        ctx = json.loads(msgs[1]["content"])
+        self.assertEqual(list(ctx), ["rep_name", "contact_name", "summary", "next_steps", "sales_motion_key",
+                                     "sales_strategy", "voice_samples", "transcript"])
+        self.assertEqual(ctx["sales_motion_key"], "discovery")
+        self.assertEqual(ctx["sales_strategy"], "Land and expand con PyMEs")
+
+    def test_a_blank_sales_strategy_is_omitted_like_absent(self):
+        ctx = json.loads(build_messages(system_prompt="SYS", transcript="t", summary="s", next_steps=[],
+                                        contact_name="M", rep_name="L", voice_samples=[],
+                                        sales_motion_key="closing", sales_strategy="   ")[1]["content"])
+        self.assertNotIn("sales_strategy", ctx)
+        self.assertEqual(ctx["sales_motion_key"], "closing")
+
 
 class C04Facts(unittest.TestCase):
     def test_commitments_meeting_and_pain_in_the_rep_timezone(self):

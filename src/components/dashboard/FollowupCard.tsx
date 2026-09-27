@@ -6,6 +6,7 @@ import { composeTarget } from "@shared/ui/compose.js";
 import { memosApi } from "@/features/memos/api";
 import type { FollowupView } from "@/features/memos/types";
 import { useVElement, type VAction } from "@/hooks/use-v-element";
+import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { htmlLang } from "@/lib/app-language";
 
@@ -30,8 +31,10 @@ export function FollowupCard({
   onSendReady?: (send: (() => void) | null) => void;
 }) {
   const { language, t } = useLanguage();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const uiLang = htmlLang(language);
+  const sendFromVocify = Boolean(user?.company?.features?.includes("FOLLOWUP_SEND_ENABLED"));
   const { data } = useQuery({
     queryKey: ["memo-followup", memoId],
     queryFn: () => memosApi.getFollowup(memoId),
@@ -51,6 +54,12 @@ export function FollowupCard({
           return;
         }
         const channel = value === "whatsapp" ? "whatsapp" : "email";
+        if (channel === "email" && sendFromVocify && view.to) {
+          const next = await memosApi.sendFollowup(memoId, { to: view.to, subject, body });
+          queryClient.setQueryData(["memo-followup", memoId], next);
+          toast.success(t.product.followupSentToast);
+          return;
+        }
         const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
         const url = target.ok ? target.url : target.fallback;
         if (!url) return;
@@ -65,7 +74,7 @@ export function FollowupCard({
         toast.error(t.product.followupCompleteFailed);
       }
     },
-    [memoId, queryClient, t.product],
+    [memoId, queryClient, t.product, sendFromVocify],
   );
 
   const setElement = useVElement(data, onAction);

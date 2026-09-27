@@ -1,7 +1,7 @@
 """Request models for follow-up hand-off actions and the rep's pasted writing samples."""
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 # Raw, before trimming: clean_pasted enforces 40-1500 on the trimmed text, so this only
 # stops an oversized body from reaching it.
@@ -11,6 +11,14 @@ RAW_SAMPLE_MAX = 5000
 class FollowupActionRequest(BaseModel):
     action: Literal["sent", "copied"]
     channel: Literal["email", "whatsapp"] = "email"
+    subject: str = Field("", max_length=300)
+    body: str = Field(..., min_length=1, max_length=8000)
+
+
+class FollowupSendRequest(BaseModel):
+    """D9: sent from Vocify via Resend. subject/body are the rep's final, reviewed text -
+    the same ones the ready draft or a hand edit produced."""
+    to: EmailStr
     subject: str = Field("", max_length=300)
     body: str = Field(..., min_length=1, max_length=8000)
 

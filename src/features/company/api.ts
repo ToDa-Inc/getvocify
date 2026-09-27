@@ -20,6 +20,7 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     canUseDialer: raw.can_use_dialer == null ? true : Boolean(raw.can_use_dialer),
     repWorkspace: Boolean(raw.rep_workspace_enabled),
     briefV2: Boolean(raw.brief_v2_enabled),
+    salesStrategy: (raw.sales_strategy as string | null | undefined) ?? null,
   };
 }
 
@@ -60,9 +61,10 @@ export const companyApi = {
     return mapCompany(raw);
   },
 
-  update: async (data: { name?: string }): Promise<CompanyDetails> => {
+  update: async (data: { name?: string; salesStrategy?: string }): Promise<CompanyDetails> => {
     const raw = await api.patch<Record<string, unknown>>('/company', {
       name: data.name,
+      sales_strategy: data.salesStrategy,
     });
     return mapCompany(raw);
   },

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.services.hoy.names import clean_name
 
 PROMPT_VERSION = "followup_v2"
+PROMPT_VERSION_BY_FLOW = "followup_v3"  # FOLLOWUP_BY_FLOW_ENABLED: adds sales_motion_key + sales_strategy
 STALE_GENERATING = timedelta(minutes=4)  # same as followup.LEASE
 MAX_SUBJECT = 160
 MAX_BODY = 4000
@@ -51,8 +52,10 @@ def should_generate(current: Optional[dict], now: datetime) -> bool:
 
 def build_messages(*, system_prompt: str, transcript: str, summary: str, next_steps: list[str],
                    contact_name: Optional[str], rep_name: Optional[str], voice_samples: list[str],
-                   facts: Optional[dict] = None) -> list[dict]:
-    """Without C04 facts the input is exactly the pre-C04 one."""
+                   facts: Optional[dict] = None, sales_motion_key: Optional[str] = None,
+                   sales_strategy: Optional[str] = None) -> list[dict]:
+    """Without C04 facts the input is exactly the pre-C04 one. sales_motion_key/sales_strategy
+    (FOLLOWUP_BY_FLOW_ENABLED, D9) are omitted the same way: absent, the input is unchanged."""
     context = {
         "rep_name": rep_name or "",
         "contact_name": contact_name or "",
@@ -62,6 +65,10 @@ def build_messages(*, system_prompt: str, transcript: str, summary: str, next_st
     if facts is not None:
         context.update(commitments=facts.get("commitments") or [], meeting=facts.get("meeting"),
                        pain_quote=facts.get("pain_quote"))
+    if sales_motion_key and sales_motion_key.strip():
+        context["sales_motion_key"] = sales_motion_key.strip()
+    if sales_strategy and sales_strategy.strip():
+        context["sales_strategy"] = sales_strategy.strip()
     context.update(voice_samples=voice_samples[-3:], transcript=transcript)
     return [
         {"role": "system", "content": system_prompt},

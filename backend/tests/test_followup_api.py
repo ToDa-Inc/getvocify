@@ -16,9 +16,10 @@ from fastapi.testclient import TestClient
 
 from app.api import followup as followup_api
 from app.config import settings
-from app.deps import get_supabase, get_user_id
+from app.deps import get_membership, get_supabase, get_user_id
 from app.services import feature_flags
 from app.services import followup as followup_service
+from app.services.company import Membership
 
 AUTHOR = "11111111-1111-1111-1111-111111111111"
 MANAGER = "22222222-2222-2222-2222-222222222222"
@@ -222,3 +223,130 @@ def test_an_edit_after_pasting_keeps_the_pasted_samples():
         json={"action": "sent", "channel": "email", "subject": "Caso", "body": edited},
     )
     assert store.samples == [pasted(SAMPLE_A), edited]
+
+
+COMPANY_ID = "co-1"
+SEND_BODY = "Hola Marina, te confirmo el jueves a las once."
+
+
+def send_client_for(user_id: str, memo: dict, store: Store) -> TestClient:
+    app = FastAPI()
+    app.include_router(followup_api.router)
+    app.dependency_overrides[get_supabase] = lambda: store
+    app.dependency_overrides[get_user_id] = lambda: user_id
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="mem-1", company_id=COMPANY_ID, user_id=user_id, role="member", status="active",
+    )
+    followup_api._require_readable_memo = lambda *_a, **_k: memo
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def stub_send_and_note(monkeypatch):
+    """API-level tests only exercise the endpoint's own behaviour (auth, idempotency,
+    flag-gating); the Resend call and the CRM note each have their own module tests."""
+    calls = {"sent": [], "note": []}
+
+    async def fake_send(**kwargs):
+        calls["sent"].append(kwargs)
+        return {"ok": True, "email_id": "email-1"}
+
+    async def fake_note(_supabase, _memo, body):
+        calls["note"].append(body)
+        return {"status": "done", "provider": "hubspot", "note_id": "note-1"}
+
+    monkeypatch.setattr(followup_api, "send_followup_email", fake_send)
+    monkeypatch.setattr(followup_api, "log_followup_note", fake_note)
+    monkeypatch.setattr(followup_api, "rep_identity", lambda *_a, **_k: ("Lucía Pérez", "lucia@acme.com"))
+    return calls
+
+
+def test_send_is_404_when_the_flag_is_off():
+    store = Store()
+    resp = send_client_for(AUTHOR, ready_memo(), store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 404
+
+
+def test_send_requires_the_memos_own_author(stub_send_and_note):
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    resp = send_client_for(MANAGER, ready_memo(), store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 403
+    assert stub_send_and_note["sent"] == []
+
+
+def test_send_conflicts_when_the_draft_is_not_ready(stub_send_and_note):
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    pending = {**ready_memo(), "followup": {"status": "generating"}}
+    resp = send_client_for(AUTHOR, pending, store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 409
+    assert stub_send_and_note["sent"] == []
+
+
+def test_send_delivers_via_resend_logs_the_crm_note_and_records_the_sent_hand_off(stub_send_and_note):
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    resp = send_client_for(AUTHOR, ready_memo(), store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (body["status"], body["channel"]) == ("sent", "vocify_email")
+    assert stub_send_and_note["sent"] == [{
+        "to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY,
+        "rep_name": "Lucía Pérez", "rep_email": "lucia@acme.com",
+        "idempotency_key": stub_send_and_note["sent"][0]["idempotency_key"],
+    }]
+    assert stub_send_and_note["note"] == [SEND_BODY]
+    assert store.followup["channel"] == "vocify_email"
+    assert store.followup["crm_note"] == {"status": "done", "provider": "hubspot", "note_id": "note-1"}
+
+
+def test_resending_the_same_reviewed_body_is_a_no_op(stub_send_and_note):
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    client = send_client_for(AUTHOR, ready_memo(), store)
+    payload = {"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY}
+    first = client.post(f"/api/v1/memos/{MEMO_ID}/followup/send", json=payload)
+    assert first.status_code == 200
+
+    sent_memo = {**ready_memo(), "followup": store.followup}
+    again = send_client_for(AUTHOR, sent_memo, store).post(f"/api/v1/memos/{MEMO_ID}/followup/send", json=payload)
+    assert again.status_code == 200
+    assert len(stub_send_and_note["sent"]) == 1, "same subject+body: nothing sent a second time"
+    assert len(stub_send_and_note["note"]) == 1
+
+
+def test_an_edited_body_sends_again(stub_send_and_note):
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    client = send_client_for(AUTHOR, ready_memo(), store)
+    payload = {"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY}
+    client.post(f"/api/v1/memos/{MEMO_ID}/followup/send", json=payload)
+
+    sent_memo = {**ready_memo(), "followup": store.followup}
+    edited = {**payload, "body": SEND_BODY + " Un saludo."}
+    again = send_client_for(AUTHOR, sent_memo, store).post(f"/api/v1/memos/{MEMO_ID}/followup/send", json=edited)
+    assert again.status_code == 200
+    assert len(stub_send_and_note["sent"]) == 2, "an edited revision is sent again"
+
+
+def test_a_resend_failure_is_a_502_and_nothing_is_recorded(monkeypatch):
+    async def failing_send(**_kwargs):
+        return {"ok": False, "error": "resend_not_configured"}
+
+    monkeypatch.setattr(followup_api, "send_followup_email", failing_send)
+    monkeypatch.setattr(followup_api, "rep_identity", lambda *_a, **_k: ("Lucía Pérez", "lucia@acme.com"))
+    store = Store(flags=[{"company_id": COMPANY_ID, "flag": "FOLLOWUP_SEND_ENABLED", "enabled": True}])
+    resp = send_client_for(AUTHOR, ready_memo(), store).post(
+        f"/api/v1/memos/{MEMO_ID}/followup/send",
+        json={"to": "marina@tenes.io", "subject": "Caso", "body": SEND_BODY},
+    )
+    assert resp.status_code == 502
+    assert store.followup is None

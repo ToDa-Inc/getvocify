@@ -22,6 +22,7 @@ from app.services.feature_flags import is_enabled
 from app.services.followup_logic import (
     DEFAULT_TZ,
     PROMPT_VERSION,
+    PROMPT_VERSION_BY_FLOW,
     build_messages,
     c04_facts,
     is_eligible,
@@ -32,13 +33,15 @@ from app.services.followup_logic import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / f"{PROMPT_VERSION}.md"
+PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
+PROMPT_PATH = PROMPTS_DIR / f"{PROMPT_VERSION}.md"  # kept for scripts/eval_followup.py (the v2/off eval)
 # LLM_TIMEOUT_S is per attempt and providers retry, so LEASE (and STALE_GENERATING) must cover
 # C04_WAIT_S plus every attempt; otherwise the GET safety net reclaims and pays a second call.
 LEASE = timedelta(minutes=4)
 LLM_TIMEOUT_S = 25.0
 C04_WAIT_S = 30.0
 FLAG = "FOLLOWUP_ENABLED"
+BY_FLOW_FLAG = "FOLLOWUP_BY_FLOW_ENABLED"
 # is_current() hashes every memo field C04 reads, so read the row the way ensure_intelligence does.
 MEMO_COLUMNS = "*"
 
@@ -56,14 +59,29 @@ def _first(result: Any) -> Optional[dict]:
     return rows[0] if rows and isinstance(rows[0], dict) else None
 
 
-def _acquire(supabase: Any, memo_id: str, run_id: str, now: datetime) -> bool:
+def _prompt_path(version: str) -> Path:
+    return PROMPTS_DIR / f"{version}.md"
+
+
+def _sales_strategy(supabase: Any, company_id: Optional[str]) -> Optional[str]:
+    """companies.sales_strategy (D10), tolerant of the column not existing yet."""
+    if not company_id:
+        return None
+    try:
+        row = _first(supabase.table("companies").select("sales_strategy").eq("id", company_id).limit(1).execute())
+    except Exception:
+        return None
+    return (row or {}).get("sales_strategy") or None
+
+
+def _acquire(supabase: Any, memo_id: str, run_id: str, now: datetime, prompt_version: str) -> bool:
     started = now.isoformat()
     cutoff = (now - LEASE).isoformat()
     q = (
         supabase.table("memos")
         .update({
             "followup": {"status": "generating", "started_at": started, "run_id": run_id,
-                         "prompt_version": PROMPT_VERSION},
+                         "prompt_version": prompt_version},
             "followup_run_started_at": started,
         })
         .eq("id", memo_id)
@@ -129,14 +147,14 @@ async def compose(llm: Any, messages: list[dict]) -> Optional[dict]:
     return parse_draft(payload)
 
 
-async def _draft(supabase: Any, memo: dict, llm: Any) -> Optional[dict]:
+async def _draft(supabase: Any, memo: dict, llm: Any, *, prompt_version: str, by_flow: bool) -> Optional[dict]:
     profile = _first(
         supabase.table("user_profiles").select("full_name,writing_samples")
         .eq("id", memo["user_id"]).limit(1).execute()
     ) or {}
     extraction = memo.get("extraction") or {}
     messages = build_messages(
-        system_prompt=PROMPT_PATH.read_text(encoding="utf-8"),
+        system_prompt=_prompt_path(prompt_version).read_text(encoding="utf-8"),
         transcript=memo.get("transcript") or "",
         summary=extraction.get("summary") or "",
         next_steps=list(extraction.get("nextSteps") or []),
@@ -144,6 +162,8 @@ async def _draft(supabase: Any, memo: dict, llm: Any) -> Optional[dict]:
         rep_name=profile.get("full_name"),
         voice_samples=voice_texts(profile.get("writing_samples") or []),
         facts=_facts(memo),
+        sales_motion_key=memo.get("sales_motion_key") if by_flow else None,
+        sales_strategy=_sales_strategy(supabase, memo.get("company_id")) if by_flow else None,
     )
     return await compose(llm, messages)
 
@@ -162,9 +182,12 @@ async def ensure_followup(supabase: Any, memo_id: str, *, llm: Any = None) -> No
         now = _utc_now()
         if not memo or not is_eligible(memo) or not should_generate(memo.get("followup"), now):
             return
-        if not is_enabled(supabase, memo.get("company_id"), FLAG):
+        company_id = memo.get("company_id")
+        if not is_enabled(supabase, company_id, FLAG):
             return
-        acquired = _acquire(supabase, memo_id, run_id, now)
+        by_flow = is_enabled(supabase, company_id, BY_FLOW_FLAG)
+        prompt_version = PROMPT_VERSION_BY_FLOW if by_flow else PROMPT_VERSION
+        acquired = _acquire(supabase, memo_id, run_id, now, prompt_version)
         if not acquired:
             return
         memo = await _after_c04(supabase, memo_id, memo)
@@ -172,8 +195,8 @@ async def ensure_followup(supabase: Any, memo_id: str, *, llm: Any = None) -> No
             from app.services.llm import LLMClient
 
             llm = LLMClient()
-        draft = await _draft(supabase, memo, llm)
-        base = {"run_id": run_id, "prompt_version": PROMPT_VERSION, "started_at": now.isoformat()}
+        draft = await _draft(supabase, memo, llm, prompt_version=prompt_version, by_flow=by_flow)
+        base = {"run_id": run_id, "prompt_version": prompt_version, "started_at": now.isoformat()}
         if draft:
             _finish(supabase, memo_id, run_id, {**base, "status": "ready", "ready_at": _utc_now().isoformat(), **draft})
         else:

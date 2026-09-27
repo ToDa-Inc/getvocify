@@ -13,6 +13,7 @@ import type {
   UsageResponse,
   FollowupView,
   FollowupActionPayload,
+  FollowupSendPayload,
 } from './types';
 
 /**
@@ -190,6 +191,14 @@ export const memosApi = {
    */
   followupAction: (id: string, payload: FollowupActionPayload): Promise<FollowupView> => {
     return api.post<FollowupView>(`/memos/${id}/followup`, payload);
+  },
+
+  /**
+   * D9: send the reviewed follow-up from Vocify (FOLLOWUP_SEND_ENABLED). 404s when the
+   * company does not have the flag on.
+   */
+  sendFollowup: (id: string, payload: FollowupSendPayload): Promise<FollowupView> => {
+    return api.post<FollowupView>(`/memos/${id}/followup/send`, payload);
   },
 };
 

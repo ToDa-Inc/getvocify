@@ -20,6 +20,8 @@ export interface CompanySummary {
   salesRole?: SalesRole | null;
   /** Company flags on for this company (Lista 3), e.g. 'SALES_ROLES_ENABLED'. */
   features?: string[];
+  /** D10: the Head of Sales's sales strategy. Only set when FOLLOWUP_BY_FLOW_ENABLED. */
+  salesStrategy?: string | null;
 }
 
 export interface CompanyDetails extends CompanySummary {

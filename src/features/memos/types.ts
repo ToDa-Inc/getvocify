@@ -320,12 +320,20 @@ export interface FollowupView {
   phone?: string;
   subject?: string;
   body?: string;
-  channel?: "email" | "whatsapp";
+  /** "vocify_email" is D9: sent from Vocify via Resend (FOLLOWUP_SEND_ENABLED). */
+  channel?: "email" | "whatsapp" | "vocify_email";
 }
 
 export interface FollowupActionPayload {
   action: "sent" | "copied";
   channel: "email" | "whatsapp";
+  subject: string;
+  body: string;
+}
+
+/** D9: send the reviewed draft from Vocify (FOLLOWUP_SEND_ENABLED). */
+export interface FollowupSendPayload {
+  to: string;
   subject: string;
   body: string;
 }

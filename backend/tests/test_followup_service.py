@@ -406,6 +406,29 @@ def test_followup_off_for_the_company_drafts_nothing():
     assert (llm.calls, memo["followup"]) == (0, None)
 
 
+def test_by_flow_flag_selects_the_v3_prompt_and_adds_motion_and_strategy():
+    memo, llm = company_memo(sales_motion_key="discovery"), FakeLLM()
+    client = flags_client(memo, [("co-1", "FOLLOWUP_BY_FLOW_ENABLED", True)])
+    client.tables["companies"] = [{"id": "co-1", "sales_strategy": "Land and expand con PyMEs"}]
+    asyncio.run(svc.ensure_followup(client, "m1", llm=llm))
+    ctx = context_of(llm)
+    assert ctx["sales_motion_key"] == "discovery"
+    assert ctx["sales_strategy"] == "Land and expand con PyMEs"
+    assert memo["followup"]["prompt_version"] == "followup_v3"
+    assert "sales_motion_key" in llm.messages[0]["content"], "the v3 prompt file, not v2"
+
+
+def test_by_flow_off_keeps_the_v2_prompt_and_todays_input():
+    memo, llm = company_memo(sales_motion_key="closing"), FakeLLM()
+    client = flags_client(memo)
+    client.tables["companies"] = [{"id": "co-1", "sales_strategy": "Land and expand con PyMEs"}]
+    asyncio.run(svc.ensure_followup(client, "m1", llm=llm))
+    ctx = context_of(llm)
+    assert "sales_motion_key" not in ctx
+    assert "sales_strategy" not in ctx
+    assert memo["followup"]["prompt_version"] == "followup_v2"
+
+
 def test_without_a_company_row_followup_is_todays():
     memo, llm = company_memo(), FakeLLM()
     client = flags_client(memo)
