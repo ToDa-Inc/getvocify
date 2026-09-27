@@ -8,12 +8,24 @@ from zoneinfo import ZoneInfo
 
 from app.services.hoy.heat import heat_score
 from app.services.hoy.memo_facts import _pain
-from app.services.hoy.signals import Signal, never_contacted_signal, signals_for_contact, touch_from_intelligence
+from app.services.hoy.signals import (
+    DEFAULT_LIMIT,
+    Signal,
+    never_contacted_signal,
+    signals_for_contact,
+    touch_from_intelligence,
+)
 from app.services.intelligence import extract
 
 
 HOY_MEMO_LIMIT = 40
+HOY_CALL_LIMIT = 200
 DEFAULT_CALLBACK_AFTER_DAYS = 2
+# outbound_calls.call_disposition values (027_call_screening.sql) that mean "no
+# conversation happened" - broader than memos.screening_outcome's UNANSWERED_OUTCOMES
+# because a missed call never gets a memo at all (screening only runs on a connected
+# recording), so this is the only signal an unanswered dial ever leaves behind.
+UNANSWERED_CALL_DISPOSITIONS: frozenset[str] = frozenset({"no_response", "voicemail", "busy", "no_answer"})
 
 
 def as_dt(value) -> datetime | None:
@@ -133,25 +145,116 @@ def fresh_signals(
 
 
 def never_contacted_signals(
-    assigned_items: list[dict],
+    candidates: list[dict],
     *,
-    connection_id: str,
     touched_contact_ids: set[str],
-    coverage: str,
+    limit: int = DEFAULT_LIMIT,
 ) -> list[Signal]:
-    """T5 (D never_contacted): an assigned contact (hoy/assigned.py) never called and with
-    no memo of its own. Never with a partial read - a contact CRM paging has not reached
-    yet is not "never contacted", it is "not seen yet"."""
-    if coverage != "complete":
-        return []
+    """T5 review: `candidates` is `priority.rank_candidates`'s own output (already
+    caller-owned and unambiguous, meeting-agreed/closed-deal already dropped). It reuses
+    that function's `never_called` flag rather than re-deriving the rule, so "contacted"
+    being unknown (None) never counts as "never contacted" and a partial-coverage row
+    never does either - both are `rank_candidates`'s job, already tested there.
+    Ephemeral: never persisted, so no dedupe/retraction is needed here."""
     out: list[Signal] = []
-    for item in assigned_items:
-        contact_id = str(item.get("contact_id") or "")
+    for row in candidates:
+        if not row.get("never_called"):
+            continue
+        contact_id = str(row.get("contact_id") or "")
         if not contact_id or contact_id in touched_contact_ids:
             continue
-        if item.get("contacted"):
+        out.append(never_contacted_signal(
+            contact_id=contact_id,
+            connection_id=row.get("connection_id"),
+            deal_id=row.get("deal_id"),
+        ))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def contact_last_touch_at(memos: list[dict]) -> dict[str, datetime]:
+    """The latest memo timestamp per contact - used to tell a missed call apart from one
+    that already has a later, real conversation on record."""
+    latest: dict[str, datetime] = {}
+    for memo in memos:
+        contact = memo.get("hubspot_contact_id") or memo.get("contact_id")
+        if not contact:
             continue
-        out.append(never_contacted_signal(contact_id=contact_id, connection_id=connection_id, deal_id=item.get("deal_id")))
+        at = as_dt(memo.get("capture_started_at") or memo.get("created_at"))
+        if at is None:
+            continue
+        key = str(contact)
+        if key not in latest or at > latest[key]:
+            latest[key] = at
+    return latest
+
+
+def read_hoy_calls(supabase, *, user_id: str) -> list[dict]:
+    """The rep's newest placed calls (missed ones never get a memo, so this is the only
+    record of them). Tolerant of the table itself being unavailable."""
+    try:
+        stored = (
+            supabase.table("outbound_calls")
+            .select("id,hubspot_contact_id,hubspot_deal_id,call_disposition,created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(HOY_CALL_LIMIT)
+            .execute()
+        )
+    except Exception:
+        return []
+    return list(stored.data or [])
+
+
+def callback_no_answer_from_calls(
+    calls: list[dict],
+    *,
+    last_touch_at: dict[str, datetime],
+    now: datetime,
+    callback_after_days: int,
+) -> list[Signal]:
+    """T5 review: most unanswered calls never produce a memo at all (screening only runs
+    on a connected recording), so callback_no_answer must also come straight from
+    outbound_calls - the latest attempt per contact, and only when nothing later (another
+    call or a memo) already supersedes it."""
+    latest: dict[str, dict] = {}
+    for call in calls:
+        contact = call.get("hubspot_contact_id")
+        if not contact:
+            continue
+        at = as_dt(call.get("created_at"))
+        if at is None:
+            continue
+        key = str(contact)
+        current = latest.get(key)
+        if current is None or at > current["at"]:
+            latest[key] = {"at": at, "call": call}
+    out: list[Signal] = []
+    for contact_id, entry in latest.items():
+        at = entry["at"]
+        call = entry["call"]
+        disposition = str(call.get("call_disposition") or "")
+        if disposition not in UNANSWERED_CALL_DISPOSITIONS:
+            continue
+        newer_touch = last_touch_at.get(contact_id)
+        if newer_touch is not None and newer_touch >= at:
+            continue
+        if now - at < timedelta(days=callback_after_days):
+            continue
+        call_id = str(call.get("id") or "")
+        if not call_id:
+            continue
+        out.append(Signal(
+            "callback_no_answer",
+            contact_id=contact_id,
+            deal_id=str(call.get("hubspot_deal_id")) if call.get("hubspot_deal_id") else None,
+            source_memo_id="",
+            due_at=None,
+            payload={"outcome": disposition, "at": at.isoformat()},
+            dedupe_key=f"callback:call:{call_id}",
+            connection_id=None,
+        ))
     return out
 
 
@@ -200,14 +303,44 @@ def persist_new_signals(supabase, *, company_id: str, user_id: str, signals: lis
 
 def retracted_objection_ids(existing: list[dict], *, memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
     """A pending objection whose memo was re-read and no longer yields it (C04 found none, or it was resolved)."""
+    return _retracted_memo_ids(existing, types={"objection_open"}, memo_ids=memo_ids, fresh_keys=fresh_keys)
+
+
+def retracted_callback_ids(existing: list[dict], *, memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
+    """T5 review (BLOCKING): a pending callback_no_answer whose memo was re-read and no
+    longer yields it - a later connected call/memo means it is resolved, the same way a
+    resolved objection is."""
+    return _retracted_memo_ids(existing, types={"callback_no_answer"}, memo_ids=memo_ids, fresh_keys=fresh_keys)
+
+
+def _retracted_memo_ids(existing: list[dict], *, types: set[str], memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
     return [
         str(row["id"])
         for row in existing
-        if row.get("type") == "objection_open"
+        if row.get("type") in types
         and row.get("status") == "pending"
         and str(row.get("memo_id") or "") in memo_ids
         and str(row.get("dedupe_key") or "") not in fresh_keys
     ]
+
+
+def retracted_call_callback_ids(existing: list[dict], *, call_ids: set[str], fresh_keys: set[str]) -> list[str]:
+    """T5 review: a pending callback_no_answer built from an outbound_calls row (dedupe key
+    `callback:call:{call_id}`) whose call was re-read this window but no longer yields it -
+    a newer call or memo already supersedes it."""
+    out: list[str] = []
+    for row in existing:
+        if row.get("type") != "callback_no_answer" or row.get("status") != "pending":
+            continue
+        key = str(row.get("dedupe_key") or "")
+        if not key.startswith("callback:call:"):
+            continue
+        if key.split(":", 2)[-1] not in call_ids:
+            continue
+        if key in fresh_keys:
+            continue
+        out.append(str(row["id"]))
+    return out
 
 
 def read_hoy_memos(supabase, *, company_id: str, user_id: str) -> list[dict]:
@@ -255,11 +388,31 @@ def refresh_hoy_signals(
         lead_tiers_enabled=lead_tiers_enabled,
         callback_after_days=callback_after_days,
     )
+    calls: list[dict] = []
+    if lead_tiers_enabled:
+        calls = read_hoy_calls(supabase, user_id=user_id)
+        signals = signals + callback_no_answer_from_calls(
+            calls,
+            last_touch_at=contact_last_touch_at(memos),
+            now=now,
+            callback_after_days=callback_after_days,
+        )
     known = {str(row.get("dedupe_key") or "") for row in (existing.data or [])}
+    fresh_keys = {signal.dedupe_key for signal in signals}
     retracted = retracted_objection_ids(
         list(existing.data or []),
         memo_ids={str(memo.get("id") or "") for memo in memos},
-        fresh_keys={signal.dedupe_key for signal in signals},
+        fresh_keys=fresh_keys,
+    )
+    retracted += retracted_callback_ids(
+        list(existing.data or []),
+        memo_ids={str(memo.get("id") or "") for memo in memos},
+        fresh_keys=fresh_keys,
+    )
+    retracted += retracted_call_callback_ids(
+        list(existing.data or []),
+        call_ids={str(call.get("id") or "") for call in calls},
+        fresh_keys=fresh_keys,
     )
     if retracted:
         try:

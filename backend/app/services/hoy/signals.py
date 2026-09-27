@@ -126,7 +126,9 @@ def signals_for_contact(
         out.append(Signal(
             "callback_no_answer",
             due_at=None,
-            payload={"outcome": last.screening_outcome, "days_since": (now - last.at).days},
+            # `at`, not a precomputed day count (review): the card's day count is read off
+            # this timestamp at render time, so it never goes stale between refreshes.
+            payload={"outcome": last.screening_outcome, "at": last.at.isoformat()},
             dedupe_key=f"callback:{last.memo_id}",
             **base,
         ))
@@ -207,7 +209,8 @@ def _rank_key(signal: Signal, now: datetime) -> tuple:
     elif signal.type == "no_reply":
         sub = (0, datetime.fromisoformat(str(signal.payload["email_at"]).replace("Z", "+00:00")).timestamp())
     elif signal.type == "callback_no_answer":
-        sub = (0, -(signal.payload.get("days_since") or 0))
+        raw_at = signal.payload.get("at")
+        sub = (0, datetime.fromisoformat(str(raw_at).replace("Z", "+00:00")).timestamp() if raw_at else 0.0)
     elif signal.type == "going_cold":
         sub = (0 if signal.payload["interest"] == "high" else 1, signal.payload["days_silent"])
     elif signal.type == "never_contacted":

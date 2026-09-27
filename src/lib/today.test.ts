@@ -4,12 +4,14 @@ import { productCatalog } from "./product-catalog.ts";
 import {
   todaySurface,
   cardsAfterDismiss,
+  canShowTodayCall,
   crmContactsUrl,
   crmTasksUrl,
   originKey,
   signalLabelKey,
   splitTodayItems,
   supportingKeys,
+  todayItemHref,
   type TodayView,
   type TodayItem,
 } from "./today.ts";
@@ -224,5 +226,37 @@ describe("dismiss stays undoable", () => {
     assert.equal(cardsAfterDismiss([pending], [dismissed], after)[0].status, "pending");
     assert.equal(cardsAfterDismiss([], [dismissed], before).length, 1);
     assert.equal(cardsAfterDismiss([], [dismissed], after).length, 0);
+  });
+});
+
+describe("T5 review: canShowTodayCall / todayItemHref", () => {
+  const withCrmLink: TodayItem = { ...card.items[0], contact_id: "42", open_url: "https://crm/42" };
+  const noLink: TodayItem = { ...card.items[0], contact_id: "42", open_url: null };
+  const withPhone: TodayItem = { ...noLink, phone: "+34 600 000 000" };
+  const noContact: TodayItem = { ...card.items[0], contact_id: null };
+
+  it("a dialer always allows calling any contact, lead tiers or not", () => {
+    assert.equal(canShowTodayCall(noLink, { canDial: true }, null, null), true);
+    assert.equal(canShowTodayCall(noLink, { canDial: true, leadTiersEnabled: false }, null, null), true);
+    assert.equal(canShowTodayCall(noContact, { canDial: true }, null, null), false);
+  });
+
+  it("without a dialer, lead tiers off never shows the button", () => {
+    assert.equal(canShowTodayCall(withCrmLink, { canDial: false, leadTiersEnabled: false }, null, null), false);
+  });
+
+  it("without a dialer, lead tiers on needs a CRM link or a phone - never a dead button", () => {
+    assert.equal(canShowTodayCall(withCrmLink, { canDial: false, leadTiersEnabled: true }, null, null), true);
+    assert.equal(canShowTodayCall(withPhone, { canDial: false, leadTiersEnabled: true }, null, null), true);
+    assert.equal(canShowTodayCall(noLink, { canDial: false, leadTiersEnabled: true }, null, null), false);
+  });
+
+  it("todayItemHref prefers the item's own open_url over a built record link", () => {
+    assert.equal(todayItemHref(withCrmLink, "hubspot", "99"), "https://crm/42");
+    assert.equal(
+      todayItemHref(noLink, "hubspot", "99"),
+      "https://app.hubspot.com/contacts/99/record/0-1/42",
+    );
+    assert.equal(todayItemHref(noContact, "hubspot", "99"), null);
   });
 });

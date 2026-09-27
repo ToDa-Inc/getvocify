@@ -23,11 +23,13 @@ from app.services.hoy.confirmations import (
 )
 from app.services.handoffs import active_handoffs_for_sdr
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
+from app.services.hoy.context import load_context, snapshot_from_rows
 from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
+from app.services.hoy.priority import rank_candidates
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
-from app.services.hoy.signals import Signal, commitment_task_links
-from app.services.hoy.materialize import read_hoy_memos, refresh_hoy_signals
+from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links
+from app.services.hoy.materialize import exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
 from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
 from app.services.hoy.names import NamePair, memo_directory
 from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
@@ -296,6 +298,26 @@ def _intelligence(rows: list[dict]) -> str:
     return "partial"
 
 
+def _never_contacted_for_rep(
+    supabase, *, company_id: str, user_id: str, now: datetime, touched_contact_ids: set[str],
+) -> list[Signal]:
+    """T5 review: reads the contact_priorities cache only (load_context/snapshot_from_rows -
+    no CRM call in-request, same source as GET /contact-priorities). Ephemeral - these cards
+    are never written to action_signals, so they simply stop appearing once the cache moves
+    on (a call, a memo, a CRM change) instead of needing their own reconcile pass."""
+    try:
+        connected, rows, _provider, _portal_id, _connection = load_context(supabase, company_id)
+        snapshot = snapshot_from_rows(rows, connected=connected)
+        visible = [
+            row for row in snapshot.get("candidates") or []
+            if not row.get("owner_ambiguous") and row.get("owner_user_id") == user_id
+        ]
+        ranked = rank_candidates(visible, now)
+        return never_contacted_signals(ranked, touched_contact_ids=touched_contact_ids, limit=DEFAULT_LIMIT)
+    except Exception:
+        return []
+
+
 @router.get("/today")
 async def get_today(
     background: BackgroundTasks,
@@ -370,6 +392,7 @@ async def get_today(
         visible = [row for row in visible if row.get("type") != MEETING_TYPE]
     # T5/D6: a contact under an active SDR->AE handoff leaves the SDR's/General's Hoy - it
     # is the AE's now. The AE side is unaffected (it gains, it does not lose, contacts).
+    handed_off: set[str] = set()
     if membership.sales_role in (None, "sdr", "general") and is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
         try:
             handed_off = {
@@ -378,8 +401,6 @@ async def get_today(
             }
         except Exception:
             handed_off = set()
-        if handed_off:
-            visible = [row for row in visible if str(row.get("contact_id")) not in handed_off]
     attempt_daily_run_claim(supabase, membership.company_id, now, rep_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:
@@ -399,8 +420,26 @@ async def get_today(
     memos = _user_memos(supabase, membership.user_id)
     signal_keys = {row.get("dedupe_key") for row in stored.data or []}
     task_links = {key: ids for key, ids in commitment_task_links(memos).items() if key in signal_keys}
+    never_contacted: list[Signal] = []
+    if lead_tiers_enabled:
+        touched = {
+            str(memo.get("hubspot_contact_id") or memo.get("contact_id") or "")
+            for memo in memos
+        }
+        touched.discard("")
+        never_contacted = _never_contacted_for_rep(
+            supabase,
+            company_id=membership.company_id,
+            user_id=membership.user_id,
+            now=now,
+            touched_contact_ids=touched,
+        )
+    today_signals = exclude_handoff_contacts(
+        [_signal(row) for row in visible if row.get("type") != CONFIRM_TYPE] + never_contacted,
+        handed_off,
+    )
     view = build_today_view(
-        signals=[_signal(row) for row in visible if row.get("type") != CONFIRM_TYPE],
+        signals=today_signals,
         manual_tasks=manual_tasks,
         now=now,
         coverage=coverage,

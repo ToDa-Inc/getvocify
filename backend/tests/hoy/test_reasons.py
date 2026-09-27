@@ -1,6 +1,6 @@
 """F06: reasons stay short and come from one server-side writer."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.services.hoy.reasons import reason
 from app.services.hoy.signals import Signal
@@ -38,28 +38,31 @@ def test_going_cold_wording_only_changes_with_lead_tiers_and_type_never_changes(
     assert cold.type == "going_cold"  # T5: persisted type stays going_cold, only the wording is "stale_hot"
 
 
-def test_callback_no_answer_reason_names_the_outcome_and_days():
+def test_callback_no_answer_reason_names_the_outcome_and_days_computed_at_render_time():
+    """T5 review: the day count comes from `at` + the `now` passed to reason(), never a
+    frozen count on the payload - the same signal reads differently a day later."""
     called = Signal(
         type="callback_no_answer",
         contact_id="42",
         deal_id=None,
         source_memo_id="memo-1",
         due_at=None,
-        payload={"outcome": "no_response", "days_since": 3},
+        payload={"outcome": "no_response", "at": (NOW - timedelta(days=3)).isoformat()},
         dedupe_key="callback:memo-1",
     )
-    assert reason(called, lang="es") == "Le llamaste hace 3 días y no contestó."
-    assert reason(called, lang="en") == "You called 3 days ago and they did not pick up."
+    assert reason(called, lang="es", now=NOW) == "Le llamaste hace 3 días y no contestó."
+    assert reason(called, lang="en", now=NOW) == "You called 3 days ago and they did not pick up."
+    assert reason(called, lang="es", now=NOW + timedelta(days=1)) == "Le llamaste hace 4 días y no contestó."
     voicemail = Signal(
         type="callback_no_answer",
         contact_id="42",
         deal_id=None,
         source_memo_id="memo-1",
         due_at=None,
-        payload={"outcome": "voicemail", "days_since": 2},
+        payload={"outcome": "voicemail", "at": (NOW - timedelta(days=2)).isoformat()},
         dedupe_key="callback:memo-1",
     )
-    assert "mensaje de voz" in reason(voicemail, lang="es")
+    assert "mensaje de voz" in reason(voicemail, lang="es", now=NOW)
 
 
 def test_never_contacted_reason():

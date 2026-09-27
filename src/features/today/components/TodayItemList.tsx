@@ -10,9 +10,10 @@ import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
-  contactRecordUrl,
+  canShowTodayCall,
   signalLabelKey,
   todayConversationItems,
+  todayItemHref,
   supportingKeys,
   type TodayItem,
 } from "@/lib/today";
@@ -46,10 +47,6 @@ type Props = {
   home?: HomeCards;
   leadTiersEnabled?: boolean;
 };
-
-function openHref(item: TodayItem, provider: string | null, portalId: string | null) {
-  return item.open_url || contactRecordUrl(provider, portalId, item.contact_id ?? null);
-}
 
 function openDialer(
   dialer: ReturnType<typeof useOptionalDialerFocus>,
@@ -178,7 +175,7 @@ function CallCard({
   onCall: (item: TodayItem) => void;
   callLabel?: string;
 }) {
-  const href = openHref(item, provider, portalId);
+  const href = todayItemHref(item, provider, portalId);
   const undoOpen = item.undo_deadline != null && Date.parse(item.undo_deadline) >= Date.now();
 
   return (
@@ -203,12 +200,14 @@ function HomeCallCard({
   leaving,
   onUndo,
   onCall,
+  canCall,
 }: {
   item: TodayItem;
   home: HomeCards;
   leaving: boolean;
   onUndo: (item: TodayItem) => void;
   onCall: (item: TodayItem) => void;
+  canCall: boolean;
 }) {
   const { t } = useLanguage();
   const ref = useRef<HTMLLIElement>(null);
@@ -221,9 +220,6 @@ function HomeCallCard({
   }, [selected]);
 
   const fade = `transition-[border-color,box-shadow,opacity] duration-150 ${leaving ? "opacity-0" : "opacity-100"}`;
-  // T5: with lead tiers on, "Llamar ahora" shows whenever there is a contact - a dialer
-  // dials it, no dialer falls back to opening the CRM record (see `call` below).
-  const canCall = Boolean(item.contact_id) && (home.leadTiersEnabled || home.canDial);
   const key = itemKey(item);
   const inCall = home.inCallKey === key;
   const note = home.rowNotes?.[key] ?? null;
@@ -282,16 +278,42 @@ function HomeCallCard({
 
 const cardKey = (item: TodayItem) => item.id ?? item.dedupe_key ?? item.reason;
 
-function HomeCardList({ items, home, onUndo, onCall }: { items: TodayItem[]; home: HomeCards; onUndo: (item: TodayItem) => void; onCall: (item: TodayItem) => void }) {
+function HomeCardList({
+  items,
+  home,
+  onUndo,
+  onCall,
+  provider,
+  portalId,
+}: {
+  items: TodayItem[];
+  home: HomeCards;
+  onUndo: (item: TodayItem) => void;
+  onCall: (item: TodayItem) => void;
+  provider: string | null;
+  portalId: string | null;
+}) {
   const rows = useLeaving(items, cardKey);
   if (rows.length === 0) return null;
   return (
     <ul className="space-y-2">
       {rows.map(({ entry, leaving }) => (
-        <HomeCallCard key={cardKey(entry)} item={entry} home={home} leaving={leaving} onUndo={onUndo} onCall={onCall} />
+        <HomeCallCard
+          key={cardKey(entry)}
+          item={entry}
+          home={home}
+          leaving={leaving}
+          onUndo={onUndo}
+          onCall={onCall}
+          canCall={canShowCall(entry, home, provider, portalId)}
+        />
       ))}
     </ul>
   );
+}
+
+function canShowCall(item: TodayItem, home: HomeCards, provider: string | null, portalId: string | null): boolean {
+  return canShowTodayCall(item, { canDial: home.canDial, leadTiersEnabled: home.leadTiersEnabled }, provider, portalId);
 }
 
 export function TodayItemList({
@@ -317,13 +339,16 @@ export function TodayItemList({
       openDialer(dialer, item);
       return;
     }
-    if (leadTiers) {
-      const href = openHref(item, provider, portalId);
-      if (href) window.open(href, "_blank", "noopener,noreferrer");
+    if (!leadTiers) return;
+    const href = todayItemHref(item, provider, portalId);
+    if (href) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      return;
     }
+    if (item.phone) window.location.href = `tel:${item.phone}`;
   };
 
-  if (home) return <HomeCardList items={calls} home={home} onUndo={onUndo} onCall={call} />;
+  if (home) return <HomeCardList items={calls} home={home} onUndo={onUndo} onCall={call} provider={provider} portalId={portalId} />;
 
   if (calls.length === 0) return null;
 

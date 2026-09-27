@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import today as today_api
+from app.services import feature_flags as feature_flags_mod
 from app.services import rep_timezone as rep_timezone_module
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
@@ -497,6 +498,73 @@ def test_a_card_names_the_contact_and_keeps_the_quote():
     assert named["company_name"] == "Acme"
     assert named["detail"] == "Es caro para este trimestre"
     assert loose["contact_name"] == "Marina López"
+
+
+def test_get_today_drops_a_contact_under_an_active_handoff():
+    """T5 review (BLOCKING): the SDR's own card for a handed-off contact disappears once
+    HANDOFF_ENABLED is on and deal_handoffs has an active row for it."""
+    feature_flags_mod.clear_cache()
+    STORE.rows = [
+        {
+            "company_id": "co-1", "user_id": "user-a", "status": "pending",
+            "type": "going_cold", "contact_id": "42", "memo_id": "memo-1",
+            "connection_id": "crm-A", "dedupe_key": "cold:42", "coverage": "complete",
+            "payload": {"interest": "high", "days_silent": 12},
+        },
+        {
+            "company_id": "co-1", "user_id": "user-a", "status": "pending",
+            "type": "going_cold", "contact_id": "99", "memo_id": "memo-2",
+            "connection_id": "crm-A", "dedupe_key": "cold:99", "coverage": "complete",
+            "payload": {"interest": "high", "days_silent": 12},
+        },
+    ]
+    STORE.tables["company_feature_flags"] = [
+        {"company_id": "co-1", "flag": "HANDOFF_ENABLED", "enabled": True},
+    ]
+    STORE.tables["deal_handoffs"] = [
+        {"company_id": "co-1", "sdr_user_id": "user-a", "status": "active", "contact_id": "42"},
+    ]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _today_client().get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        STORE.tables["company_feature_flags"] = []
+        STORE.tables["deal_handoffs"] = []
+        feature_flags_mod.clear_cache()
+    assert [item["dedupe_key"] for item in body["items"]] == ["cold:99"]
+
+
+def test_get_today_appends_ephemeral_never_contacted_cards_from_the_priority_cache():
+    """T5 review: only when lead tiers is on, reading the contact_priorities cache
+    (load_context/snapshot_from_rows) - no CRM call in-request - never persisted."""
+    feature_flags_mod.clear_cache()
+    STORE.rows = []
+    STORE.tables["company_feature_flags"] = [
+        {"company_id": "co-1", "flag": "HOY_LEAD_TIERS_ENABLED", "enabled": True},
+    ]
+    STORE.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "refresh_token": None, "token_expires_at": None, "metadata": {},
+    }]
+    STORE.tables["contact_priority_context"] = [{
+        "company_id": "co-1", "connection_id": "crm-A", "contact_id": "77", "deal_id": "",
+        "owner_user_id": "user-a", "owner_ambiguous": False, "coverage": "complete",
+        "history_complete": True, "observed_at": "2026-09-22T08:00:00Z",
+        "payload": {"contacted": False},
+    }]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _today_client().get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        STORE.tables["company_feature_flags"] = []
+        STORE.tables["crm_connections"] = []
+        STORE.tables["contact_priority_context"] = []
+        feature_flags_mod.clear_cache()
+    never_contacted = [item for item in body["items"] if item["type"] == "never_contacted"]
+    assert [item["contact_id"] for item in never_contacted] == ["77"]
+    assert "id" not in never_contacted[0]  # ephemeral: never written to action_signals
 
 
 def test_today_keeps_a_pending_card_when_crm_tasks_were_not_read():

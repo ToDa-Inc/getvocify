@@ -27,6 +27,8 @@ export type TodayItem = {
   timezone?: string | null;
   /** T5 (HOY_LEAD_TIERS_ENABLED): 0-100 second-order ranking signal, absent otherwise. */
   heat?: number | null;
+  /** T5 review: only "Llamar ahora"'s tel: fallback reads this; absent until a source sends it. */
+  phone?: string | null;
 };
 
 export type FollowupRow = {
@@ -192,6 +194,26 @@ export function originKey(origins: string[]): "today_origin_manual" | "today_ori
 
 export function supportingKeys(types: string[]): string[] {
   return types.flatMap((type) => (SUPPORTING_KEYS[type] ? [SUPPORTING_KEYS[type]] : []));
+}
+
+/** Where "Llamar ahora"/the CRM icon opens: the item's own open_url, else a built record link. */
+export function todayItemHref(item: TodayItem, provider: string | null, portalId: string | null): string | null {
+  return item.open_url || contactRecordUrl(provider, portalId, item.contact_id ?? null);
+}
+
+/** T5 review: with a dialer, any contact can be called. Without one, the button only shows
+ * when there is somewhere to send the rep - the CRM record, or (once a source carries it)
+ * a tel: number - never one that would do nothing on click. */
+export function canShowTodayCall(
+  item: TodayItem,
+  opts: { canDial: boolean; leadTiersEnabled?: boolean },
+  provider: string | null,
+  portalId: string | null,
+): boolean {
+  if (!item.contact_id) return false;
+  if (opts.canDial) return true;
+  if (!opts.leadTiersEnabled) return false;
+  return Boolean(todayItemHref(item, provider, portalId) || item.phone);
 }
 
 export function contactRecordUrl(

@@ -188,7 +188,7 @@ def test_callback_no_answer_triggers_exactly_at_the_day_boundary():
         _touch(screening_outcome="no_response", at=NOW - timedelta(days=2)),
     ], now=NOW, day_end=DAY_END, callback_after_days=2)
     assert [signal.type for signal in at_boundary] == ["callback_no_answer"]
-    assert at_boundary[0].payload["days_since"] == 2
+    assert at_boundary[0].payload["at"] == (NOW - timedelta(days=2)).isoformat()
 
     voicemail = signals_for_contact([
         _touch(screening_outcome="voicemail", at=NOW - timedelta(days=3)),

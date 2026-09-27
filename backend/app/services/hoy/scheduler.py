@@ -326,7 +326,7 @@ def build_today_view(
             "contact_id": card.primary.contact_id,
             "connection_id": card.primary.connection_id,
             "deal_id": card.primary.deal_id,
-            "reason": reason(card.primary, lang=lang, lead_tiers=lead_tiers),
+            "reason": reason(card.primary, lang=lang, lead_tiers=lead_tiers, now=now),
             "remote_id": payload.get("remote_id"),
             "origins": payload.get("origins") or ["detected"],
             "supporting": [item.type for item in card.supporting],
