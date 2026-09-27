@@ -38,6 +38,48 @@ export function PostInteractionBrief({
             </div>
           ))}
           {surface.audioNote ? <p>{surface.audioNote}</p> : null}
+          {surface.missed.length > 0 ? (
+            <div>
+              <h3>{t.product.briefMissedHeading}</h3>
+              <ul>
+                {surface.missed.map((item) => (
+                  <li key={item.id}>{item.label}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {surface.phrases.length > 0 ? (
+            <div>
+              <h3>{t.product.briefPhrasesHeading}</h3>
+              <ul>
+                {surface.phrases.map((phrase) => (
+                  <li key={phrase}>{phrase}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {surface.highlights.length > 0 ? (
+            <div>
+              <h3>{t.product.briefHighlightsHeading}</h3>
+              <ul>
+                {surface.highlights.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {surface.progress.length > 0 ? (
+            <div>
+              <h3>{t.product.briefProgressHeading}</h3>
+              <p>{surface.progress.map((value) => (value == null ? "—" : `${Math.round(value * 100)}%`)).join(" · ")}</p>
+            </div>
+          ) : null}
+          {surface.flow === "sdr" && surface.meetingBooked != null ? (
+            <p>{t.product.briefMeetingBooked} {surface.meetingBooked ? t.product.briefYes : t.product.briefNo}</p>
+          ) : null}
+          {surface.flow === "ae" && surface.nextStepAgreed != null ? (
+            <p>{t.product.briefNextStep} {surface.nextStepAgreed ? t.product.briefYes : t.product.briefNo}</p>
+          ) : null}
         </>
       )}
     </section>

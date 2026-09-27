@@ -31,6 +31,14 @@ def motion_for(sales_role: Optional[str], interaction_kind: str) -> Optional[str
     return None
 
 
+_MOTION_FLOW = {"discovery": "sdr", "closing": "ae"}
+
+
+def flow_for_motion(sales_motion_key: Optional[str]) -> Optional[str]:
+    """T10: which rep flow a captured motion belongs to, for the post-interaction brief."""
+    return _MOTION_FLOW.get((sales_motion_key or "").strip())
+
+
 def goal_for(sales_motion_key: str) -> Optional[str]:
     """The flow's objective, or None when the motion has no fixed goal (D4)."""
     return GOAL_FOR_MOTION.get(sales_motion_key)

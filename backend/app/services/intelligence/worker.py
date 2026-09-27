@@ -145,6 +145,7 @@ def database_bindings(supabase, sources_for=None):
         patterns = _store_patterns(supabase, memo, extraction, payload)
         from app.services.coaching.score_assembly import attach_score_to_job_payload
         from app.services.coaching.score_jobs import store_coaching_from_job_payload
+        from app.services.feature_flags import is_enabled
 
         coaching_payload = attach_score_to_job_payload(
             memo,
@@ -152,6 +153,7 @@ def database_bindings(supabase, sources_for=None):
             extraction=extraction,
             patterns=patterns,
             crm_outcome=memo.get("crm_outcome"),
+            objection_credit_enabled=is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED"),
         )
         store_coaching_from_job_payload(supabase, memo, coaching_payload)
 

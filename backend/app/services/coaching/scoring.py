@@ -110,6 +110,9 @@ def publish_memo_score(
     playbook_present: bool = True,
     job_error: bool = False,
     audio_available: bool = False,
+    debrief_v2_enabled: bool = False,
+    memo: dict | None = None,
+    intelligence: dict | None = None,
 ) -> bool:
     """Production score publish: persist memo_scores, then materialize post_interaction_briefs."""
     if not _upsert_score_if_newer(supabase, memo_id, input_revision, revision_seq, score):
@@ -126,6 +129,9 @@ def publish_memo_score(
         job_error=job_error,
         audio_available=audio_available,
         score_already_persisted=True,
+        debrief_v2_enabled=debrief_v2_enabled,
+        memo=memo,
+        intelligence=intelligence,
     )
     return True
 
@@ -143,6 +149,9 @@ def store_memo_score(
     job_error: bool = False,
     audio_available: bool = False,
     score_already_persisted: bool = False,
+    debrief_v2_enabled: bool = False,
+    memo: dict | None = None,
+    intelligence: dict | None = None,
 ) -> bool:
     """Upsert memo_scores unless already written, then upsert post_interaction_briefs from aggregate_brief."""
     if score_already_persisted:
@@ -151,6 +160,13 @@ def store_memo_score(
     elif not _upsert_score_if_newer(supabase, memo_id, input_revision, revision_seq, score):
         return False
     try:
+        debrief_v2_kwargs = {}
+        if debrief_v2_enabled and memo is not None:
+            from app.services.coaching.briefs import debrief_v2_context
+
+            debrief_v2_kwargs = {"debrief_v2": True, **debrief_v2_context(
+                supabase, memo=memo, intelligence=intelligence, score=score, memo_id=memo_id,
+            )}
         brief = materialize_brief(
             screening=screening,
             score=score,
@@ -159,6 +175,7 @@ def store_memo_score(
             job_error=job_error,
             input_revision=input_revision,
             audio_available=audio_available,
+            **debrief_v2_kwargs,
         )
         _upsert_brief_if_newer(
             supabase,

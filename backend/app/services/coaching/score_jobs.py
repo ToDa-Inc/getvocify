@@ -18,6 +18,8 @@ def publish_assembled_score(
     patterns: list[dict] | None = None,
     playbook_present: bool = True,
     job_error: bool = False,
+    debrief_v2_enabled: bool = False,
+    intelligence: dict | None = None,
 ) -> bool:
     """Production path after a score dict is ready. Failed scores are not stored."""
     if score.get("status") == "failed":
@@ -37,6 +39,9 @@ def publish_assembled_score(
         playbook_present=playbook_present,
         job_error=job_error,
         audio_available=bool(memo.get("audio_path") or memo.get("recording_url")),
+        debrief_v2_enabled=debrief_v2_enabled,
+        memo=memo,
+        intelligence=intelligence,
     )
 
 
@@ -78,6 +83,9 @@ def store_coaching_from_job_payload(supabase, memo: dict, payload: dict) -> None
     if revision_seq is None:
         return
     patterns = payload.get("patterns") if isinstance(payload.get("patterns"), list) else None
+    from app.services.feature_flags import is_enabled
+
+    debrief_v2_enabled = is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED")
     try:
         publish_assembled_score(
             supabase,
@@ -87,6 +95,8 @@ def store_coaching_from_job_payload(supabase, memo: dict, payload: dict) -> None
             patterns=patterns,
             playbook_present=bool(payload.get("playbook_present", True)),
             job_error=bool(payload.get("job_error")),
+            debrief_v2_enabled=debrief_v2_enabled,
+            intelligence=payload,
         )
     except Exception:
         logger.exception(

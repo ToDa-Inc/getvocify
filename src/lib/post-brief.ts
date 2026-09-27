@@ -8,6 +8,9 @@ export type BriefHighlight = {
   timezone: string;
 };
 
+export type BriefMissedItem = { id: string; kind: string | null; label: string | null };
+
+/** T10/DEBRIEF_V2_ENABLED: present only when the company has the flag on. */
 export type BriefView = {
   status: "pending" | "partial" | "ready" | "skipped" | "unavailable" | "failed";
   reason: string | null;
@@ -18,6 +21,13 @@ export type BriefView = {
   improvement: string | null;
   waiting: boolean;
   highlight?: BriefHighlight;
+  flow?: "sdr" | "ae" | null;
+  missed?: BriefMissedItem[];
+  phrases?: string[];
+  highlights?: string[];
+  progress?: Array<number | null>;
+  meeting_booked?: boolean | null;
+  next_step_agreed?: boolean | null;
 };
 
 export type BriefSurface = {
@@ -30,6 +40,13 @@ export type BriefSurface = {
   playable: boolean;
   audioNote: string | null;
   highlightNote: string | null;
+  flow: "sdr" | "ae" | null;
+  missed: BriefMissedItem[];
+  phrases: string[];
+  highlights: string[];
+  progress: Array<number | null>;
+  meetingBooked: boolean | null;
+  nextStepAgreed: boolean | null;
 };
 
 export type BriefProductCopy = Pick<
@@ -93,6 +110,13 @@ export function briefSurface(brief: BriefView, copy: BriefProductCopy): BriefSur
     playable: brief.audio_available && sections.some((section) => section.offset_ms != null),
     audioNote: quoteWithoutAudio ? copy.briefAudioUnavailable : null,
     highlightNote: highlightScheduleLine(brief.highlight, copy),
+    flow: brief.flow ?? null,
+    missed: brief.missed ?? [],
+    phrases: brief.phrases ?? [],
+    highlights: brief.highlights ?? [],
+    progress: brief.progress ?? [],
+    meetingBooked: brief.meeting_booked ?? null,
+    nextStepAgreed: brief.next_step_agreed ?? null,
   };
 }
 

@@ -156,4 +156,38 @@ describe("post interaction brief", () => {
     assert.equal(skipped.waiting, false);
     assert.equal(skipped.title, productCatalog.EN.briefTitleSkipped);
   });
+
+  it("defaults T10 debrief fields to empty when the company has the flag off", () => {
+    const surface = briefSurface(partial, productCatalog.ES);
+    assert.equal(surface.flow, null);
+    assert.deepEqual(surface.missed, []);
+    assert.deepEqual(surface.phrases, []);
+    assert.deepEqual(surface.highlights, []);
+    assert.deepEqual(surface.progress, []);
+    assert.equal(surface.meetingBooked, null);
+    assert.equal(surface.nextStepAgreed, null);
+  });
+
+  it("surfaces T10 debrief fields when the brief carries them", () => {
+    const surface = briefSurface(
+      {
+        ...partial,
+        status: "ready",
+        flow: "sdr",
+        missed: [{ id: "confirm_budget", kind: "step", label: "Confirmar presupuesto" }],
+        phrases: ["Compara el coste con lo que ya pierden por no actuar"],
+        highlights: ["min 00:12 · cita temprana"],
+        progress: [0.5, null, 0.8],
+        meeting_booked: true,
+      },
+      productCatalog.ES,
+    );
+    assert.equal(surface.flow, "sdr");
+    assert.equal(surface.missed[0].label, "Confirmar presupuesto");
+    assert.deepEqual(surface.phrases, ["Compara el coste con lo que ya pierden por no actuar"]);
+    assert.deepEqual(surface.highlights, ["min 00:12 · cita temprana"]);
+    assert.deepEqual(surface.progress, [0.5, null, 0.8]);
+    assert.equal(surface.meetingBooked, true);
+    assert.equal(surface.nextStepAgreed, null);
+  });
 });

@@ -113,6 +113,9 @@ def _maybe_publish_score(
     input_revision: str,
     patterns: list[dict] | None,
 ) -> None:
+    from app.services.feature_flags import is_enabled
+
+    objection_credit_enabled = is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED")
     score = build_score_from_extraction(
         extraction=extraction,
         memo=memo,
@@ -120,9 +123,11 @@ def _maybe_publish_score(
         patterns=patterns,
         crm_outcome=memo.get("crm_outcome"),
         screening=memo.get("screening_outcome"),
+        objection_credit_enabled=objection_credit_enabled,
     )
     if score is None:
         return
+    intelligence = extraction.get("intelligence") if isinstance(extraction, dict) else None
     publish_assembled_score(
         supabase,
         memo=memo,
@@ -130,6 +135,8 @@ def _maybe_publish_score(
         score=score,
         patterns=patterns,
         playbook_present=bool(memo.get("playbook_version_id") or score.get("playbook_version_id")),
+        debrief_v2_enabled=is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED"),
+        intelligence=intelligence if isinstance(intelligence, dict) else None,
     )
 
 

@@ -63,9 +63,9 @@ def _cited_refs(intelligence: dict, patterns: list[dict] | None, input_revision:
     return refs
 
 
-def _criteria_statuses(intelligence: dict, *, evidence_ids: list[str]) -> list[str]:
+def _labeled_observations(intelligence: dict, *, evidence_ids: list[str]) -> list[dict]:
     known = set(evidence_ids)
-    statuses: list[str] = []
+    labeled: list[dict] = []
     for obs in intelligence.get("playbook_observations") or []:
         if not isinstance(obs, dict):
             continue
@@ -76,8 +76,51 @@ def _criteria_statuses(intelligence: dict, *, evidence_ids: list[str]) -> list[s
             refs = [str(ref or "").strip() for ref in (obs.get("evidence_refs") or []) if str(ref or "").strip()]
             if not refs or not any(ref in known for ref in refs):
                 status = "unknown"
-        statuses.append(status)
-    return statuses
+        labeled.append({"step_id": obs.get("step_id"), "status": status})
+    return labeled
+
+
+def _criteria_statuses(intelligence: dict, *, evidence_ids: list[str]) -> list[str]:
+    return [item["status"] for item in _labeled_observations(intelligence, evidence_ids=evidence_ids)]
+
+
+def _missed_steps(intelligence: dict, *, evidence_ids: list[str]) -> list[dict]:
+    return [
+        {"kind": "step", "id": str(item["step_id"] or "")}
+        for item in _labeled_observations(intelligence, evidence_ids=evidence_ids)
+        if item["status"] == "missed"
+    ]
+
+
+def _objection_handling(intelligence: dict, *, evidence_ids: list[str]) -> tuple[list[str], list[dict]]:
+    """T10/SCORING_OBJECTION_CREDIT_ENABLED: one synthetic criterion per real, evidenced objection.
+
+    `met` when the rep's answer stuck (resolved, with a cited response); `missed` when the
+    prospect's objection stayed open and the rep never answered; `unknown` otherwise. Without
+    objections this returns nothing, so an easy call neither gains nor loses points."""
+    known = set(evidence_ids)
+    statuses: list[str] = []
+    missed: list[dict] = []
+    for obj in intelligence.get("objections") or []:
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("kind", "objection") != "objection":
+            continue
+        refs = [str(ref or "").strip() for ref in (obj.get("evidence_refs") or []) if str(ref or "").strip()]
+        if not refs or not any(ref in known for ref in refs):
+            continue
+        resolution = obj.get("resolution")
+        response = str(obj.get("response") or "").strip()
+        response_refs = [str(ref or "").strip() for ref in (obj.get("response_evidence_refs") or []) if str(ref or "").strip()]
+        response_backed = bool(response) and (not response_refs or any(ref in known for ref in response_refs))
+        if resolution == "resolved" and response_backed:
+            statuses.append("met")
+        elif resolution == "open" and not response:
+            statuses.append("missed")
+            missed.append({"kind": "objection", "id": str(obj.get("id") or ""), "category": str(obj.get("category") or "other")})
+        else:
+            statuses.append("unknown")
+    return statuses, missed
 
 
 def _playbook_version_id(_intelligence: dict, memo: dict) -> str | None:
@@ -113,6 +156,7 @@ def build_score_from_extraction(
     patterns: list[dict] | None = None,
     crm_outcome: str | None = None,
     screening: str | None = None,
+    objection_credit_enabled: bool = False,
 ) -> dict | None:
     """Return an assembled score dict, or None when there is nothing to score."""
     extraction = extraction if isinstance(extraction, dict) else {}
@@ -128,6 +172,11 @@ def build_score_from_extraction(
     playbook = _playbook_for_assembly(memo, playbook_version_id)
     evidence_refs = _evidence_ids(intelligence)
     criteria_statuses = _criteria_statuses(intelligence, evidence_ids=evidence_refs)
+    missed_items = _missed_steps(intelligence, evidence_ids=evidence_refs)
+    if objection_credit_enabled:
+        objection_statuses, objection_missed = _objection_handling(intelligence, evidence_ids=evidence_refs)
+        criteria_statuses = criteria_statuses + objection_statuses
+        missed_items = missed_items + objection_missed
     cited_refs = _cited_refs(intelligence, patterns, revision)
     proposed_value = _proposed_value(criteria_statuses, screening=screening)
     score = assemble_score(
@@ -142,6 +191,7 @@ def build_score_from_extraction(
     )
     score["strengths"] = []
     score["improvements"] = []
+    score["missed_items"] = missed_items
     return score
 
 
@@ -152,6 +202,7 @@ def attach_score_to_job_payload(
     extraction: dict,
     patterns: list[dict] | None = None,
     crm_outcome: str | None = None,
+    objection_credit_enabled: bool = False,
 ) -> dict:
     """Ensure payload carries a deterministic score when extraction is scoreable."""
     if not isinstance(payload, dict):
@@ -167,6 +218,7 @@ def attach_score_to_job_payload(
         patterns=patterns,
         crm_outcome=crm_outcome,
         screening=memo.get("screening_outcome"),
+        objection_credit_enabled=objection_credit_enabled,
     )
     if score is None:
         return payload
