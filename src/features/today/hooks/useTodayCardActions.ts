@@ -61,7 +61,7 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
   const listed =
     surface.kind === "list" ? cardsAfterDismiss(surface.items, acted, Date.now()) : [];
 
-  const act = useCallback(async (item: TodayItem, action: "dismiss" | "confirm" | "snooze", until?: string) => {
+  const act = useCallback(async (item: TodayItem, action: "dismiss" | "confirm" | "snooze" | "disqualify", until?: string) => {
     if (!item.id || item.version == null) return;
     const requestId = crypto.randomUUID();
     const result = await todayApi.resolve(item.id, {
@@ -85,6 +85,7 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
   const dismiss = useCallback((item: TodayItem) => act(item, "dismiss"), [act]);
   const confirm = useCallback((item: TodayItem) => act(item, "confirm"), [act]);
   const snooze = useCallback((item: TodayItem, until: string) => act(item, "snooze", until), [act]);
+  const disqualify = useCallback((item: TodayItem) => act(item, "disqualify"), [act]);
 
   const undo = useCallback(async (item: TodayItem) => {
     if (!item.id || item.version == null) return;
@@ -105,6 +106,7 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
     dismiss,
     confirm,
     snooze,
+    disqualify,
     undo,
     query,
     contactsUrl,

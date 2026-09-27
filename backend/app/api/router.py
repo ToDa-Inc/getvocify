@@ -34,6 +34,7 @@ from app.api import (
     calls,
     hubspot_recordings,
     company,
+    handoffs,
 )
 
 api_router = APIRouter()
@@ -71,5 +72,6 @@ api_router.include_router(stripe_webhooks.router, prefix="/webhooks")
 api_router.include_router(copilot.router)
 api_router.include_router(voice_enrollment.router)
 api_router.include_router(admin.router)
+api_router.include_router(handoffs.router)
 
 

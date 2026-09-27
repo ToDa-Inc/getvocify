@@ -88,6 +88,23 @@ def test_the_same_request_keeps_the_deadline_and_a_stale_version_conflicts():
     assert conflict.value.row["status"] == "dismissed"
 
 
+def test_disqualify_resolves_the_signal_like_resolve():
+    """T3: 'Descalificar' is a resolve, distinguished later by payload.resolution_reason
+    (stamped at the API layer), not by a different status."""
+    result = apply_action(
+        _row(),
+        action="disqualify",
+        request_id="act-3",
+        expected_version=3,
+        until=None,
+        now=NOW,
+        user_id="user-a",
+        company_id="co-1",
+    )
+    assert result["status"] == "resolved"
+    assert result["replayed"] is False
+
+
 def test_undo_after_five_seconds_leaves_the_signal_and_does_not_name_a_call():
     acted = apply_action(
         _row(),

@@ -35,6 +35,27 @@ export const todayApi = {
     api.patch<{ id: string; status: string; version: number; undo_deadline: string | null }>(`/today/${id}`, body),
 };
 
+export type HandoffRequest = {
+  contact_id: string;
+  connection_id: string;
+  deal_id?: string | null;
+  ae_user_id?: string | null;
+  memo_id?: string | null;
+  meeting_starts_at?: string | null;
+};
+
+export type HandoffResult = {
+  id: string | null;
+  status: string | null;
+  ae_user_id?: string | null;
+  created: boolean;
+  crm_owner_status: string | null;
+};
+
+export const handoffsApi = {
+  create: (body: HandoffRequest): Promise<HandoffResult> => api.post<HandoffResult>("/handoffs", body),
+};
+
 export const homeApi = {
   followups: (): Promise<FollowupRow[]> => api.get<FollowupRow[]>("/followups?status=ready,generating,unavailable"),
   reviews: (): Promise<Memo[]> =>

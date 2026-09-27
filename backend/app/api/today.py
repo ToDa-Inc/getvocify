@@ -575,6 +575,9 @@ async def resolve_today(signal_id: str, body: ResolveBody, membership: Membershi
         }
         if body.action == "confirm":
             update_payload["payload"] = mark_confirm_write_pending(dict(row.get("payload") or {}))
+        elif body.action == "disqualify":
+            # T3: "Descalificar" - resolved, with the reason kept for reporting (T5/T12).
+            update_payload["payload"] = {**dict(row.get("payload") or {}), "resolution_reason": "disqualified"}
         saved = (
             supabase.table("action_signals")
             .update(update_payload)

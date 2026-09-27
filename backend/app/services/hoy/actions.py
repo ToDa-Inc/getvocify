@@ -6,7 +6,14 @@ from datetime import datetime, timedelta, timezone
 
 
 UNDO_WINDOW = timedelta(seconds=5)
-_STATUS = {"resolve": "resolved", "dismiss": "dismissed", "snooze": "snoozed", "confirm": "resolved"}
+_STATUS = {
+    "resolve": "resolved",
+    "dismiss": "dismissed",
+    "snooze": "snoozed",
+    "confirm": "resolved",
+    # T3: "Descalificar" on a Hoy card - resolved, with the reason kept in payload.
+    "disqualify": "resolved",
+}
 
 
 class ActionError(Exception):

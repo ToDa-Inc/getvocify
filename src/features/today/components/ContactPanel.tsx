@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { ArrowSquareOut, X } from "@phosphor-icons/react";
@@ -11,8 +11,11 @@ import { Sheet, SheetPortal } from "@/components/ui/sheet";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { BriefLines } from "@/components/dashboard/memos/ContactBrief";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
+import { useAuth } from "@/features/auth";
+import { companyApi } from "@/features/company/api";
 import type { Memo } from "@/features/memos/types";
-import { api } from "@/shared/lib/api-client";
+import { api, ApiError } from "@/shared/lib/api-client";
+import { handoffsApi } from "../api";
 import { afterCallLine, type CallSummary } from "@/lib/after-call";
 import {
   conversationLine,
@@ -50,6 +53,7 @@ type PanelActions = {
   onConfirm: (item: TodayItem) => void;
   onDismiss: (item: TodayItem) => void;
   onSnooze: (item: TodayItem, until: string) => void;
+  onDisqualify?: (item: TodayItem) => void;
   onOpenMemo: (memoId: string) => void;
   provider: string | null;
   connectionId: string | null;
@@ -78,6 +82,78 @@ function briefFailed(error: unknown): boolean {
   if (typeof error !== "object" || !error || !("status" in error)) return true;
   const status = Number((error as { status?: unknown }).status);
   return status === 401 || status >= 500;
+}
+
+/** T3/D2/D6: "Reunión agendada" on a call the SDR (or General) is working. A 409 needs_ae
+ * opens an inline picker instead of failing - the transfer waits for that answer, it never
+ * silently drops the contact from Hoy. */
+function HandoffAction({ contactId, connectionId }: { contactId: string; connectionId: string | null }) {
+  const { t } = useLanguage();
+  const copy = t.product;
+  const [state, setState] = useState<"idle" | "sending" | "done" | "needs_ae" | "error">("idle");
+  const [aeId, setAeId] = useState<string>("");
+
+  const aeQuery = useQuery({
+    queryKey: ["handoff-ae-candidates"],
+    queryFn: () => companyApi.listMembers(),
+    enabled: state === "needs_ae",
+    staleTime: 60_000,
+  });
+
+  const send = async (chosenAe?: string) => {
+    setState("sending");
+    try {
+      await handoffsApi.create({
+        contact_id: contactId,
+        connection_id: connectionId ?? "",
+        ae_user_id: chosenAe ?? null,
+      });
+      setState("done");
+    } catch (error) {
+      const code = error instanceof ApiError
+        ? (error.data as { detail?: { code?: string } } | null | undefined)?.detail?.code
+        : null;
+      setState(code === "needs_ae" ? "needs_ae" : "error");
+    }
+  };
+
+  if (state === "done") return <p className="text-[13px] text-muted-foreground">{copy.panel_handoff_done}</p>;
+
+  if (state === "needs_ae") {
+    const candidates = (aeQuery.data?.members ?? []).filter(
+      (member) => member.salesRole == null || member.salesRole === "ae" || member.salesRole === "general",
+    );
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select
+          className="h-8 rounded-md border border-border bg-background px-2 text-[13px]"
+          value={aeId}
+          onChange={(event) => setAeId(event.target.value)}
+        >
+          <option value="">{copy.panel_handoff_pick_ae}</option>
+          {candidates.map((member) => (
+            <option key={member.userId} value={member.userId}>
+              {member.fullName || member.email}
+            </option>
+          ))}
+        </select>
+        <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-[13px]" disabled={!aeId} onClick={() => void send(aeId)}>
+          {copy.panel_handoff_confirm}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground disabled:opacity-60"
+      disabled={state === "sending"}
+      onClick={() => void send()}
+    >
+      {copy.panel_handoff_action}
+    </button>
+  );
 }
 
 function PanelBody({
@@ -158,6 +234,9 @@ function PanelBody({
 
   const showCardActions = row.kind === "call" && row.source === "today" && row.item.id && row.item.status === "pending";
   const first = firstName(name);
+  const { user } = useAuth();
+  const handoffEnabled = Boolean(user?.company?.features?.includes("HANDOFF_ENABLED"));
+  const canHandOff = handoffEnabled && user?.company?.salesRole !== "ae" && Boolean(contactId);
 
   return (
     <div className={`flex h-full flex-col p-6 ${THEME_TOKENS.motion.fadeIn}`}>
@@ -276,6 +355,19 @@ function PanelBody({
               <button type="button" className="px-1 py-1.5 hover:text-foreground" onClick={() => actions.onDismiss(row.item)}>
                 {copy.dismiss}
               </button>
+              {actions.onDisqualify ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <button type="button" className="px-1 py-1.5 hover:text-foreground" onClick={() => actions.onDisqualify?.(row.item)}>
+                    {copy.panel_disqualify_action}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {showCardActions && canHandOff && contactId ? (
+            <div className="mt-1">
+              <HandoffAction contactId={contactId} connectionId={actions.connectionId} />
             </div>
           ) : null}
         </div>

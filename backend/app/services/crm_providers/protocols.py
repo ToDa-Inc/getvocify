@@ -114,6 +114,14 @@ class CRMCallOutcomeAvailabilityProtocol(Protocol):
     ) -> CallOutcomeAvailability: ...
 
 
+class CRMOwnerWriteProtocol(Protocol):
+    """T3 handoff (D7): move a deal's (or contact's) CRM owner to the AE's mapped owner id."""
+
+    def find_owner_id(self, email: str) -> Optional[str]: ...
+
+    def set_owner(self, *, object_type: str, object_id: str, owner_id: str) -> bool: ...
+
+
 class CRMFieldSpecsProtocol(Protocol):
     """Curated field metadata for LLM extraction (allowed CRM fields)."""
 

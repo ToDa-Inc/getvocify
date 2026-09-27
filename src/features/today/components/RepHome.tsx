@@ -75,6 +75,7 @@ export function RepHome() {
     dismiss,
     confirm,
     snooze,
+    disqualify,
     undo,
     connected,
     provider,
@@ -210,6 +211,7 @@ export function RepHome() {
   const onDismiss = (item: TodayItem) => void settle(() => dismiss(item));
   const onConfirm = (item: TodayItem) => void settle(() => confirm(item));
   const onSnooze = (item: TodayItem, until: string) => void settle(() => snooze(item, until));
+  const onDisqualify = (item: TodayItem) => void settle(() => disqualify(item));
   const onUndo = (item: TodayItem) => void settle(() => undo(item));
   const record = () => setCaptureOpen(true);
   const toIntegrations = () => navigate("/dashboard/settings/integrations");
@@ -394,6 +396,7 @@ export function RepHome() {
           onConfirm,
           onDismiss,
           onSnooze,
+          onDisqualify,
           onOpenMemo: openMemo,
           provider: provider ?? null,
           connectionId,
