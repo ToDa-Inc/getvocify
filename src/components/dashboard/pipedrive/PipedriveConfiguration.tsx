@@ -14,7 +14,9 @@ import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { QueueStatesPicker } from "@/components/dashboard/crm/QueueStatesPicker";
 import { useLanguage } from "@/lib/i18n";
+import { prepareQueueStatesForSave } from "@/lib/queue-states";
 
 interface PipedriveConfigurationProps {
   onSaved?: () => void;
@@ -83,9 +85,21 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await crmApi.savePipedriveConfiguration(config);
+      const queueStates = prepareQueueStatesForSave({
+        provider: "pipedrive",
+        source: config.queue_state_source,
+        booked: config.queue_booked_states ?? [],
+        ended: config.queue_ended_states ?? [],
+        pipelines,
+        pipedriveStatusLabels: {
+          won: t.product.queueStateWon,
+          lost: t.product.queueStateLost,
+        },
+      });
+      const payload = { ...config, ...queueStates };
+      await crmApi.savePipedriveConfiguration(payload);
       queryClient.setQueryData(crmKeys.pipedriveSetup(), (prev) =>
-        prev ? { ...prev, config } : prev,
+        prev ? { ...prev, config: payload } : prev,
       );
       setDraft(null);
       toast.success("Configuration saved!");
@@ -221,6 +235,17 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             </div>
           </div>
         </div>
+
+        {config.queue_states_enabled ? (
+          <QueueStatesPicker
+            provider="pipedrive"
+            config={config}
+            pipelines={pipelines}
+            readOnly={readOnly}
+            selectClassName="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none disabled:opacity-60"
+            onChange={(patch) => setConfig((prev) => ({ ...prev, ...patch }))}
+          />
+        ) : null}
       </div>
 
       <AutoAcceptCrmToggle

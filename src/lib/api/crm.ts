@@ -57,6 +57,14 @@ export interface CRMConfiguration {
   /** Stage an accepted booked meeting moves the deal to (forward only). null: no move. */
   meeting_booked_pipeline_id?: string | null;
   meeting_booked_stage_id?: string | null;
+  /** HubSpot: deal stage vs hs_lead_status. Pipedrive always deal_stage. */
+  queue_state_source?: "deal_stage" | "lead_status";
+  /** CRM state values that remove a contact from the queue (meeting booked). */
+  queue_booked_states?: string[];
+  /** CRM state values that remove a contact from the queue (closed / lost). */
+  queue_ended_states?: string[];
+  /** Read-only: feature flag on for this company (GET response only). */
+  queue_states_enabled?: boolean;
 }
 
 /** Keep fetched settings/dashboard data for the whole login session. Invalidate on mutate. */

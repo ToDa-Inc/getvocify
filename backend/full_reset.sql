@@ -263,6 +263,12 @@ CREATE TABLE crm_configurations (
   CONSTRAINT crm_configurations_meeting_booked_stage_check
     CHECK (meeting_booked_stage_id IS NULL OR meeting_booked_pipeline_id IS NOT NULL),
 
+  -- F16 (migration 054): queue exit by CRM state. Empty lists = nobody exits by state.
+  queue_state_source TEXT NOT NULL DEFAULT 'deal_stage'
+    CHECK (queue_state_source IN ('deal_stage', 'lead_status')),
+  queue_booked_states TEXT[] NOT NULL DEFAULT '{}',
+  queue_ended_states TEXT[] NOT NULL DEFAULT '{}',
+
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   

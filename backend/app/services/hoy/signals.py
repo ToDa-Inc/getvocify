@@ -56,12 +56,18 @@ class Card:
     supporting: tuple[Signal, ...] = ()
 
 
-def signals_for_contact(touches: list[Touch], *, now: datetime, day_end: datetime) -> list[Signal]:
+def signals_for_contact(
+    touches: list[Touch],
+    *,
+    now: datetime,
+    day_end: datetime,
+    ignore_deal_closed: bool = False,
+) -> list[Signal]:
     """All touches for ONE contact, any order. `day_end` is the end of the rep's local day."""
     if not touches:
         return []
     last = max(touches, key=lambda t: t.at)
-    if last.deal_closed:
+    if last.deal_closed and not ignore_deal_closed:
         return []
 
     base = {

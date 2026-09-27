@@ -169,6 +169,9 @@ class HubSpotCRMProvider:
         skip_deal: bool = False,
         stage_confirm: bool = False,
         meeting_booked_stage: Optional[dict[str, str]] = None,
+        lead_status_confirm: bool = False,
+        queue_booked_states: Optional[list[str]] = None,
+        meeting_agreed_for_lead: bool = False,
     ) -> ApprovalPreview:
         del default_stage_name  # HubSpot Configuration stores canonical IDs, not names
         return await self._preview_service().build_preview(
@@ -190,6 +193,9 @@ class HubSpotCRMProvider:
             skip_deal=skip_deal,
             stage_confirm=stage_confirm,
             meeting_booked_stage=meeting_booked_stage,
+            lead_status_confirm=lead_status_confirm,
+            queue_booked_states=queue_booked_states,
+            meeting_agreed_for_lead=meeting_agreed_for_lead,
         )
 
     async def find_matching_deals(

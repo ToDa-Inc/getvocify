@@ -27,6 +27,7 @@ def build_priority_page(
     now: datetime,
     limit: int = 20,
     cursor: str | None = None,
+    states=None,
 ) -> dict:
     connected = bool(snapshot.get("connected"))
     coverage = snapshot.get("coverage") or "unavailable"
@@ -50,7 +51,7 @@ def build_priority_page(
             continue
         visible.append(row)
 
-    ranked = rank_candidates(visible, now)
+    ranked = rank_candidates(visible, now, states=states)
     if cursor:
         ranked = [row for row in ranked if row["id"] > cursor]
     page = ranked[:limit]
@@ -104,12 +105,18 @@ def fold_context(*, company_id: str, pages: list[dict], members: list[dict], pre
         for item in page.get("items") or []:
             owner_id, ambiguous = resolve_owner(item.get("owner_email"), members)
             deal_id = item.get("deal_id") or ""
+            key = (connection_id, str(item["contact_id"]), deal_id)
             payload = {
-                key: value
-                for key, value in item.items()
-                if key not in {"connection_id", "object_type"}
+                key_name: value
+                for key_name, value in item.items()
+                if key_name not in {"connection_id", "object_type"}
             }
-            stored[(connection_id, str(item["contact_id"]), deal_id)] = {
+            # E11: a failed CRM state read omits crm_state; keep the last known value.
+            if "crm_state" not in payload:
+                previous_payload = (stored.get(key) or {}).get("payload") or {}
+                if "crm_state" in previous_payload:
+                    payload["crm_state"] = previous_payload["crm_state"]
+            stored[key] = {
                 "company_id": company_id,
                 "connection_id": connection_id,
                 "contact_id": str(item["contact_id"]),
@@ -197,6 +204,7 @@ def maybe_refresh_assigned_context(
     observed_at: str,
     fetch_factory: Callable[[dict], Callable[[dict], dict]] = connection_assigned_fetch,
     max_age: timedelta = CONTEXT_MAX_AGE,
+    queue_states=None,
 ) -> tuple[list[dict], dict | None]:
     """Read assigned contacts when the cache is empty or older than max_age and the CRM token is live."""
     if not is_stale(rows, observed_at, max_age):
@@ -207,12 +215,17 @@ def maybe_refresh_assigned_context(
         return rows, None
     connection_id = str(connection.get("id") or "")
     fetch = fetch_factory(connection)
+    if queue_states is None:
+        from app.services.hoy.crm_state import load_queue_states
+
+        queue_states = load_queue_states(supabase, company_id, connection_id=connection_id)
     page = collect_assigned(
         provider,
         fetch,
         connection_id=connection_id,
         observed_at=observed_at,
         member_emails={str(member.get("email") or "") for member in members},
+        queue_states=queue_states,
     )
     if page.get("coverage") == "complete" and not page.get("next_cursor"):
         others = [row for row in rows if row.get("connection_id") != connection_id]

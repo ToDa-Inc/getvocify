@@ -61,7 +61,13 @@ def _commitments(intelligence: dict) -> list[dict]:
     return kept
 
 
-def fresh_signals(memos: list[dict], *, now: datetime, day_end: datetime) -> list:
+def fresh_signals(
+    memos: list[dict],
+    *,
+    now: datetime,
+    day_end: datetime,
+    ignore_deal_closed: bool = False,
+) -> list:
     """One contact, one set of signals, from intelligence already on the memo."""
     groups: dict[str, list] = {}
     for memo in memos:
@@ -88,7 +94,9 @@ def fresh_signals(memos: list[dict], *, now: datetime, day_end: datetime) -> lis
         groups.setdefault(touch.contact_id or touch.memo_id, []).append(touch)
     signals = []
     for touches in groups.values():
-        signals.extend(signals_for_contact(touches, now=now, day_end=day_end))
+        signals.extend(
+            signals_for_contact(touches, now=now, day_end=day_end, ignore_deal_closed=ignore_deal_closed)
+        )
     return signals
 
 
@@ -148,7 +156,15 @@ def refresh_hoy_signals(supabase, *, company_id: str, user_id: str, now: datetim
         )
     except Exception:
         return 0
-    signals = fresh_signals(list(stored.data or []), now=now, day_end=day_end(now, tz_name))
+    from app.services.hoy.crm_state import queue_states_enabled
+
+    ignore_deal_closed = queue_states_enabled(supabase, company_id)
+    signals = fresh_signals(
+        list(stored.data or []),
+        now=now,
+        day_end=day_end(now, tz_name),
+        ignore_deal_closed=ignore_deal_closed,
+    )
     known = {str(row.get("dedupe_key") or "") for row in (existing.data or [])}
     try:
         return persist_new_signals(

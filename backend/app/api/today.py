@@ -16,6 +16,7 @@ from app.services.coaching.brief_preferences import read_preference
 from app.services.feature_flags import is_enabled
 from app.services.hoy.actions import ActionError, apply_action, undo_action
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
+from app.services.hoy.crm_state import contact_exit_states, load_queue_states
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
 from app.services.hoy.signals import Signal
@@ -334,7 +335,6 @@ async def get_today(
     )
     now = _now()
     visible = [row for row in (stored.data or []) if is_today_visible(row, now)]
-    attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
@@ -344,6 +344,28 @@ async def get_today(
             manual_tasks, task_coverage = [], "unavailable"
         else:
             manual_tasks, task_coverage = _read_tasks(connection)
+    states = load_queue_states(
+        supabase,
+        membership.company_id,
+        connection_id=str(connection["id"]) if connection else None,
+    )
+    if states is not None:
+        try:
+            context_rows = (
+                supabase.table("contact_priority_context")
+                .select("contact_id,payload")
+                .eq("company_id", membership.company_id)
+                .execute()
+            )
+            exited = contact_exit_states(list(context_rows.data or []), states)
+            if exited:
+                visible = [
+                    row for row in visible
+                    if str(row.get("contact_id") or "") not in exited
+                ]
+        except Exception:
+            logger.exception("today queue-state filter failed for company %s", membership.company_id)
+    attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
     meta = (connection or {}).get("metadata") or {}
     portal = meta.get("portal_id") or meta.get("hub_id") or meta.get("portalId")
     domain = str(meta.get("company_domain") or "").strip() or None
