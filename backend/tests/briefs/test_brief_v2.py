@@ -80,6 +80,25 @@ def test_hook_without_pain_uses_summary():
     assert brief["lines"][0]["text"] == "11 sep: Hablaron del almacén."
 
 
+def test_hook_keeps_the_first_sentence_of_a_markdown_summary():
+    intel = _current_intelligence(pain_confirmed=False, evidence=[])
+    summary = (
+        "### Interrupción por reunión\n"
+        "* Roberto indicó que entraba a una reunión y pidió retomar la llamada. Otra frase.\n\n"
+        "### Coordinación de contacto\n* Pidió que le llamaran mañana."
+    )
+    memo = _memo(extraction={"summary": summary, "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert brief["lines"][0]["text"] == "11 sep: Roberto indicó que entraba a una reunión y pidió retomar la llamada."
+
+
+def test_legacy_fallback_last_line_is_one_plain_sentence():
+    memo = _memo(extraction={"summary": "## Resumen\n- **Hablaron** del almacén. Y más.", "next_steps": ["Enviar el caso"]})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
+    assert "#" not in brief["lines"][0]["text"] and "*" not in brief["lines"][0]["text"]
+    assert brief["lines"][0]["text"].endswith("Hablaron del almacén.")
+
+
 def test_why_prefers_commitment_over_no_reply_and_task():
     intel = _current_intelligence(
         commitments=[{
@@ -101,7 +120,7 @@ def test_why_prefers_commitment_over_no_reply_and_task():
         crm_task={"text": "Llamar el jueves", "source_ref": "task-1"},
     )
     assert [line["type"] for line in brief["lines"][:2]] == ["hook", "why"]
-    assert brief["lines"][1]["text"] == "Pidió que la llamaras hoy."
+    assert brief["lines"][1]["text"] == "Pidió que le llamaras hoy."
 
 
 def test_why_uses_no_reply_when_flag_data_present_and_no_commitment():

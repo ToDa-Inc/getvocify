@@ -229,6 +229,75 @@ def refresh_meeting_proposal(supabase, memo: dict) -> None:
         logger.exception("meeting proposal refresh failed", extra={"memo_id": memo_id})
 
 
+def _ensure_screening_outcome(supabase, memo: dict) -> dict:
+    if memo.get("screening_outcome"):
+        return memo
+    from app.services.telephony.call_screening import resolve_screening_outcome
+
+    outcome = resolve_screening_outcome(memo, str(memo.get("transcript") or ""))
+    if not outcome:
+        return memo
+    memo_id = str(memo.get("id") or "")
+    if not memo_id:
+        return memo
+    try:
+        supabase.table("memos").update({"screening_outcome": outcome}).eq("id", memo_id).execute()
+    except Exception:
+        logger.exception("screening_outcome persist failed", extra={"memo_id": memo_id})
+        return memo
+    return {**memo, "screening_outcome": outcome}
+
+
+def refresh_coaching_from_intelligence(supabase, memo: dict, extraction: dict) -> None:
+    """Once C04 is current, re-project patterns and publish score/brief for the same revision."""
+    from app.services.intelligence.extract import is_current
+
+    if not is_current({**memo, "extraction": extraction}):
+        return
+    _publish_coaching(supabase, memo, extraction)
+
+
+def publish_coaching_without_intelligence(supabase, memo_id: str) -> None:
+    """C04 was scheduled but stored nothing: coaching must not wait for it forever."""
+    memo = _load_memo(supabase, memo_id)
+    if not memo:
+        return
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    _publish_coaching(supabase, memo, extraction)
+
+
+def _publish_coaching(supabase, memo: dict, extraction: dict) -> None:
+    memo_id = memo.get("id")
+    input_revision = resolve_input_revision(memo, extraction)
+    patterns: list[dict] = []
+    try:
+        patterns = _store_patterns_from_extraction(
+            supabase,
+            memo,
+            extraction,
+            input_revision,
+        ) or []
+    except Exception:
+        logger.exception(
+            "pattern projection failed",
+            extra={"memo_id": memo_id, "input_revision": input_revision},
+        )
+        patterns = []
+    try:
+        _maybe_publish_score(
+            supabase,
+            memo=memo,
+            extraction=extraction,
+            input_revision=input_revision,
+            patterns=patterns,
+        )
+    except Exception:
+        logger.exception(
+            "score publish failed",
+            extra={"memo_id": memo_id, "input_revision": input_revision},
+        )
+
+
 def _load_memo(supabase, memo_id: str) -> dict | None:
     try:
         result = supabase.table("memos").select("*").eq("id", memo_id).limit(1).execute()
@@ -255,40 +324,20 @@ def run_post_extraction_hooks(
     if not memo:
         memo = {"id": memo_id}
     memo = {**memo, "id": str(memo.get("id") or memo_id)}
+    memo = _ensure_screening_outcome(supabase, memo)
     input_revision = resolve_input_revision(memo, extraction)
-    patterns: list[dict] = []
-    try:
-        patterns = _store_patterns_from_extraction(
-            supabase,
-            memo,
-            extraction,
-            input_revision,
-        ) or []
-    except Exception:
-        logger.exception(
-            "post-extraction pattern projection failed",
-            extra={"memo_id": memo_id, "input_revision": input_revision},
-        )
-        patterns = []
-    try:
-        _maybe_publish_score(
-            supabase,
-            memo=memo,
-            extraction=extraction,
-            input_revision=input_revision,
-            patterns=patterns,
-        )
-    except Exception:
-        logger.exception(
-            "post-extraction score failed",
-            extra={"memo_id": memo_id, "input_revision": input_revision},
-        )
+    scheduled = False
     try:
         from app.services.intelligence.extract import schedule_intelligence
 
-        schedule_intelligence(supabase, memo_id, company_id=memo.get("company_id"))
+        scheduled = bool(schedule_intelligence(supabase, memo_id, company_id=memo.get("company_id")))
     except Exception:
         logger.exception("post-extraction intelligence schedule failed", extra={"memo_id": memo_id})
+    from app.services.intelligence.extract import is_current
+
+    # A scheduled C04 run publishes coaching when it stores, or releases it when it fails.
+    if not scheduled or is_current({**memo, "extraction": extraction}):
+        _publish_coaching(supabase, memo, extraction)
     try:
         _maybe_insert_meeting_proposal(
             supabase,

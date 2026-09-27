@@ -177,6 +177,7 @@ def _store_patterns(supabase, memo: dict, extraction: dict, payload: dict) -> li
             memo_id=memo_id,
             input_revision=revision,
             extraction=extraction if isinstance(extraction, dict) else {},
+            memo=memo,
         )
         for row in rows:
             if str(row.get("pattern_id") or "").startswith("objection:"):

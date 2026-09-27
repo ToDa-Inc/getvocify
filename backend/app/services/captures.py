@@ -133,6 +133,67 @@ def content_fingerprint(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def active_playbook_version(
+    supabase: Client,
+    company_id: str,
+    sales_motion_key: Optional[str],
+) -> Optional[str]:
+    if not sales_motion_key:
+        return None
+    try:
+        result = (
+            supabase.table("playbooks")
+            .select("active_version_id")
+            .eq("company_id", company_id)
+            .eq("sales_motion_key", sales_motion_key)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        return None
+    rows = list(getattr(result, "data", None) or [])
+    if not rows:
+        return None
+    return rows[0].get("active_version_id")
+
+
+def playbook_fields_for_capture(
+    supabase: Client,
+    company_id: str,
+    *,
+    sales_motion_key: Optional[str] = None,
+    playbook_version_id: Optional[str] = None,
+    active_version_id: Optional[str] = None,
+    default_when_unspecified: bool = False,
+) -> dict[str, str]:
+    """Pin the published playbook snapshot on a new memo row, same as desktop capture reserve."""
+    from app.services.playbooks.versions import snapshot_for_capture
+
+    motion = (sales_motion_key or "").strip() or None
+    pinned_id = (playbook_version_id or "").strip() or None
+    if not motion and not pinned_id:
+        if not default_when_unspecified:
+            return {}
+        from app.services.copilot.load_grounding import published_playbook_snapshots
+
+        snapshots = published_playbook_snapshots(supabase, company_id=str(company_id))
+        if len(snapshots) != 1:
+            return {}
+        snapshot = snapshots[0]
+        return {
+            "sales_motion_key": str(snapshot["sales_motion_key"]),
+            "playbook_version_id": str(snapshot["version_id"]),
+        }
+    active = None if pinned_id else (active_version_id or active_playbook_version(supabase, company_id, motion))
+    version = snapshot_for_capture(pinned_id, active)
+    fields: dict[str, str] = {}
+    if motion:
+        fields["sales_motion_key"] = motion
+    if version:
+        fields["playbook_version_id"] = str(version)
+    return fields
+
+
 def with_author_company(supabase: Client, row: dict[str, Any]) -> dict[str, Any]:
     """company_id is immutable once set, so it has to be stamped at insert. A failed lookup never blocks capture."""
     if row.get("company_id") or not row.get("user_id"):
@@ -238,17 +299,20 @@ def reserve_capture(
     if existing:
         return _identity_from_row(existing)
 
-    from app.services.playbooks.versions import snapshot_for_capture
-
-    pinned = snapshot_for_capture(playbook_version_id, active_version_id)
+    playbook = playbook_fields_for_capture(
+        supabase,
+        company_id,
+        sales_motion_key=sales_motion_key,
+        playbook_version_id=playbook_version_id,
+        active_version_id=active_version_id,
+    )
     payload = {
         "user_id": user_id,
         "company_id": company_id,
         "client_capture_id": client_id,
         "capture_started_at": _as_iso(started_at),
         "interaction_kind": kind,
-        "sales_motion_key": sales_motion_key,
-        "playbook_version_id": pinned,
+        **playbook,
         "capture_status": "recording",
         "capture_input_revision": 0,
         "status": CAPTURE_STATUS_TO_MEMO_STATUS["recording"],

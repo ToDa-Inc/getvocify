@@ -87,6 +87,8 @@ def reason(signal: Signal, *, lang: str = "es") -> str:
             return f"{lead} y lleváis {days} días sin hablar."
         lead = "Showed strong interest" if payload["interest"] == "high" else "Showed interest"
         return f"{lead}; {days} days without talking."
+    if payload.get("category") == "other":
+        return "Quedó una objeción sin cerrar." if lang == "es" else "An open objection."
     label = CATEGORY[lang].get(payload["category"], payload["category"])
     if lang == "es":
         return f"Quedó una objeción de {label} sin cerrar."

@@ -444,6 +444,33 @@ def test_ambiguous_time_stored_with_null_starts_at():
     assert row["starts_at"] is None
 
 
+def test_coaching_waits_for_intelligence_only_when_it_was_scheduled(monkeypatch):
+    from app.services.intelligence import extract
+
+    monkeypatch.setattr(extract, "schedule_intelligence", lambda *_a, **_k: True)
+    supabase = _SupabaseStub()
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=_memo(), extraction=_scoreable_extraction())
+    assert supabase.tables["memo_scores"] == []
+
+
+def test_coaching_publishes_now_when_intelligence_was_not_scheduled(monkeypatch):
+    from app.services.intelligence import extract
+
+    monkeypatch.setattr(extract, "schedule_intelligence", lambda *_a, **_k: False)
+    supabase = _SupabaseStub()
+    run_post_extraction_hooks(supabase, memo_id=MEMO_ID, memo=_memo(), extraction=_scoreable_extraction())
+    assert len(supabase.tables["memo_scores"]) == 1
+
+
+def test_failed_intelligence_publishes_coaching_from_the_extraction():
+    from app.services.memo_extraction_hooks import publish_coaching_without_intelligence
+
+    supabase = _SupabaseStub()
+    supabase.tables["memos"] = [_memo(extraction=_scoreable_extraction())]
+    publish_coaching_without_intelligence(supabase, MEMO_ID)
+    assert len(supabase.tables["memo_scores"]) == 1
+
+
 def test_score_and_meeting_failures_do_not_raise():
     supabase = _SupabaseStub(fail_score=True, fail_meeting=True)
     memo = _memo()

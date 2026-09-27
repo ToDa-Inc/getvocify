@@ -24,7 +24,7 @@ from app.metrics import (
     record_hubspot_log_duration,
     record_transcription_duration,
 )
-from app.services.captures import interaction_kind_for, with_author_company
+from app.services.captures import interaction_kind_for, playbook_fields_for_capture, with_author_company
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_audio
 from app.services.telephony.call_screening import classify_call_outcome
@@ -110,7 +110,11 @@ async def initiate_vocify_call_memo(
         "hubspot_deal_id": call_row.get("hubspot_deal_id"),
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
     }
-    ins = supabase.table("memos").insert(with_author_company(supabase, row)).execute()
+    row = with_author_company(supabase, row)
+    company_id = row.get("company_id")
+    if company_id:
+        row.update(playbook_fields_for_capture(supabase, str(company_id), default_when_unspecified=True))
+    ins = supabase.table("memos").insert(row).execute()
     if not ins.data:
         return None, False
 

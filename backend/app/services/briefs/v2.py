@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.services.briefs.preparation import legacy_facts, prepare_brief
+from app.services.briefs.preparation import legacy_facts, plain_sentence, prepare_brief
 from app.services.followup_logic import pain_quote
 from app.services.hoy.materialize import day_end
 from app.services.hoy.reasons import CATEGORY, MONTH
@@ -68,7 +68,7 @@ def hook_line(*, memo: dict, intelligence: dict, tz_name: str) -> dict | None:
     if quote:
         text = f'{day}: «{quote}»'
     else:
-        summary = " ".join(str((memo.get("extraction") or {}).get("summary") or "").split())
+        summary = plain_sentence((memo.get("extraction") or {}).get("summary"))
         if not summary:
             return None
         text = f"{day}: {summary}"
@@ -82,8 +82,8 @@ def _commitment_why(commitment: Commitment, *, now: datetime, tz_name: str) -> s
         return None
     if commitment.kind == "call":
         if due_local.date() == local_now.date():
-            return "Pidió que la llamaras hoy." if commitment.origin == "prospect_request" else "Quedaste en llamarle hoy."
-        return "Pidió que la llamaras." if commitment.origin == "prospect_request" else "Quedaste en llamarle."
+            return "Pidió que le llamaras hoy." if commitment.origin == "prospect_request" else "Quedaste en llamarle hoy."
+        return "Pidió que le llamaras." if commitment.origin == "prospect_request" else "Quedaste en llamarle."
     what = commitment.text[:1].lower() + commitment.text[1:] if commitment.text else commitment.text
     if due_local.date() == local_now.date():
         return f"Quedó pendiente para hoy: {what}."

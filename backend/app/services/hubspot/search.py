@@ -562,6 +562,17 @@ class HubSpotSearchService:
         if "@" in q:
             found = await self.find_contact_by_email(q)
             return [found] if found else []
+        if q.isdigit():
+            # Hoy and the dialer focus a contact by its CRM id; a bare number that is no id is a phone.
+            try:
+                row = await self.client.get(
+                    f"/crm/v3/objects/{self.CONTACTS}/{q}",
+                    params={"properties": "email,firstname,lastname,phone,mobilephone,jobtitle"},
+                )
+                if row:
+                    return [HubSpotContact(**row)]
+            except Exception:
+                pass
         digits = normalize_phone_digits(q)
         if len(digits) >= 7:
             phone_hits = await self.find_contacts_by_phone(q, limit=limit)

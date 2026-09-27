@@ -133,6 +133,23 @@ def test_the_post_extraction_hook_passes_the_memo_company(monkeypatch):
     assert seen == [("memo-1", {"company_id": "co-beta"})]
 
 
+@pytest.mark.parametrize("outcome", ["raises", "no_transcript"])
+def test_intelligence_that_does_not_store_releases_the_waiting_coaching(monkeypatch, outcome):
+    from app.services import memo_extraction_hooks
+
+    async def failing(_supabase, _memo_id, **_kwargs):
+        if outcome == "raises":
+            raise RuntimeError("llm down")
+        return {"status": outcome}
+
+    released = []
+    monkeypatch.setattr(extract, "ensure_intelligence", failing)
+    monkeypatch.setattr(memo_extraction_hooks, "publish_coaching_without_intelligence", lambda _db, memo_id: released.append(memo_id))
+    monkeypatch.setattr(settings, FLAG, True)
+    assert _schedule(_db()) is True
+    assert released == ["memo-1"]
+
+
 def test_outside_an_event_loop_nothing_is_scheduled(monkeypatch, recorded):
     monkeypatch.setattr(settings, FLAG, True)
     assert extract.schedule_intelligence(_db(), "memo-1") is False

@@ -92,6 +92,34 @@ def test_categories_stay_on_the_agreed_taxonomy():
     assert row["category"] == "other"
 
 
+def test_c04_objections_replace_legacy_categories_when_intelligence_is_current(monkeypatch):
+    memo = {"id": "memo-1", "extraction": {}}
+    extraction = {
+        "objections": ["Está caro"],
+        "intelligence": {
+            "prompt_version": "intelligence_v3",
+            "input_revision": "rev-c04",
+            "objections": [{
+                "category": "price",
+                "quote": "Está caro",
+                "resolution": "open",
+                "kind": "objection",
+                "evidence_refs": ["ev-1"],
+            }],
+        },
+    }
+    monkeypatch.setattr("app.services.intelligence.extract.is_current", lambda _memo: True)
+    rows = patterns_from_extraction(
+        memo_id="memo-1",
+        input_revision="rev-1",
+        extraction=extraction,
+        memo=memo,
+    )
+    assert len(rows) == 1
+    assert rows[0]["category"] == "price"
+    assert rows[0]["evidence_refs"] == ["ev-1"]
+
+
 def test_driving_now_is_an_obstacle_not_a_commercial_objection():
     rows = patterns_from_extraction(
         memo_id="memo-1",

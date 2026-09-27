@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 
 def prepare_brief(
     *,
@@ -64,6 +66,19 @@ def _line(kind: str, text: str, source_ref, observed_at) -> dict:
     return {"type": kind, "text": text, "source_ref": source_ref, "observed_at": observed_at}
 
 
+def plain_sentence(summary) -> str:
+    """The first sentence of a memo summary, without markdown headings, bullets or emphasis."""
+    lines = []
+    for raw in str(summary or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        lines.append(re.sub(r"^([*\-•]|\d+[.)])\s+", "", line))
+    text = " ".join(" ".join(lines).replace("**", "").replace("__", "").split())
+    match = re.match(r"(.+?[.!?])(\s|$)", text)
+    return match.group(1) if match else text
+
+
 def legacy_facts(rows: list[dict], *, coverage: str = "complete") -> dict:
     """The F03 facts from the newest memo, as prepare_brief reads them."""
     if coverage == "unavailable":
@@ -78,7 +93,7 @@ def legacy_facts(rows: list[dict], *, coverage: str = "complete") -> dict:
     objection = _first_text(extraction.get("objections"))
     intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
     pain = intelligence.get("pain_confirmed") is True or extraction.get("pain_confirmed") is True
-    summary = extraction.get("summary") or ""
+    summary = plain_sentence(extraction.get("summary"))
     return {
         "coverage": coverage,
         "last": {"text": summary, "observed_at": newest.get("created_at"), "source_ref": newest.get("id")},

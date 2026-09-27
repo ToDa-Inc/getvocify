@@ -85,6 +85,26 @@ def _speaker_stats(transcript: str) -> dict[str, dict[str, int]]:
     return stats
 
 
+def resolve_screening_outcome(
+    memo: dict,
+    transcript: str,
+    *,
+    duration: float | None = None,
+) -> ScreeningOutcome | None:
+    """Shared screening for memos that completed extraction. Calls keep their stored outcome."""
+    existing = (memo.get("screening_outcome") or "").strip()
+    if existing:
+        return existing  # type: ignore[return-value]
+    source = str(memo.get("source") or "").strip()
+    kind = str(memo.get("interaction_kind") or "").strip()
+    cleaned = (transcript or "").strip()
+    if source in ("vocify_call", "hubspot_call"):
+        return classify_call_outcome(cleaned, float(duration if duration is not None else memo.get("audio_duration") or 0))
+    if source == "whatsapp" or kind == "visit":
+        return "connected" if cleaned else None
+    return None
+
+
 def classify_call_outcome(transcript: str, duration: float) -> ScreeningOutcome:
     """Classify a connected call from its diarized transcript."""
     cleaned = (transcript or "").strip()

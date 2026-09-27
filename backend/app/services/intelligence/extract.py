@@ -198,7 +198,11 @@ async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -
     supabase.table("memos").update({"extraction": stored}).eq("id", str(memo_id)).execute()
     from app.services.memo_extraction_hooks import refresh_meeting_proposal
 
-    refresh_meeting_proposal(supabase, {**memo, "extraction": stored})
+    memo_with_extraction = {**memo, "extraction": stored}
+    refresh_meeting_proposal(supabase, memo_with_extraction)
+    from app.services.memo_extraction_hooks import refresh_coaching_from_intelligence
+
+    refresh_coaching_from_intelligence(supabase, memo_with_extraction, stored)
     return {"status": "stored", "meta": meta, "intelligence": shaped}
 
 
@@ -227,10 +231,18 @@ def schedule_intelligence(supabase: Any, memo_id: str, company_id: str | None = 
         return False
 
     async def run():
+        status = None
         try:
-            await ensure_intelligence(supabase, str(memo_id))
+            status = (await ensure_intelligence(supabase, str(memo_id))).get("status")
         except Exception:
             logging.getLogger(__name__).exception("intelligence extraction failed", extra={"memo_id": str(memo_id)})
+        if status not in ("stored", "current"):
+            from app.services import memo_extraction_hooks
+
+            try:
+                memo_extraction_hooks.publish_coaching_without_intelligence(supabase, str(memo_id))
+            except Exception:
+                logging.getLogger(__name__).exception("coaching fallback failed", extra={"memo_id": str(memo_id)})
 
     task = loop.create_task(run(), name=f"intelligence:{memo_id}")  # followup._c04_task waits on it
     _tasks.add(task)

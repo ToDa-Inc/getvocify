@@ -37,6 +37,7 @@ from app.services.crm_config import CRMConfigurationService
 from app.services.preview_targets import unique_associated_contact_id
 from app.services.hubspot.contact_identity import (
     CONTACT_CONTEXT_PROPERTIES,
+    display_name,
     stored_contact_phone,
 )
 from app.models.hubspot import (
@@ -1136,7 +1137,7 @@ async def search_hubspot_contacts(
     matches: list[ContactMatch] = []
     for contact in hits:
         props = contact.properties or {}
-        name = f"{props.get('firstname', '')} {props.get('lastname', '')}".strip() or None
+        name = display_name(props)
         matches.append(ContactMatch(
             contact_id=str(contact.id),
             email=(props.get("email") or "") or "",

@@ -20,6 +20,7 @@ import { askCallTargets, dialerAvailable, type AskCallTarget } from "@/lib/ask-c
 import { isDesktopHost } from "@/lib/desktop-host";
 import { askSituation } from "@/lib/ask-situation";
 import { productText } from "@/lib/product-catalog";
+import { plainAnswer } from "@/lib/summary-line";
 import { Check, PaperPlaneTilt, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
@@ -281,7 +282,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
             </p>
           ) : (
             <div key={`${line.role}-${index}`} className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} max-w-[85%] px-4 py-3`}>
-              <p className="text-[15px] leading-relaxed text-foreground">{line.text}</p>
+              <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground">{plainAnswer(line.text)}</p>
             </div>
           )
         ))}

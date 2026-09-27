@@ -17,6 +17,7 @@ from .tasks import format_next_step_task, _next_step_schedule_hints, detected_ta
 from .schema import HubSpotSchemaService
 from .associations import HubSpotAssociationService
 from .contacts import HubSpotContactService
+from .contact_identity import display_name
 from .companies import HubSpotCompanyService
 from .object_properties import (
     contact_properties_from_extraction,
@@ -347,9 +348,7 @@ class HubSpotPreviewService:
                 )
                 current_contact_props = contact.properties or {}
                 cp = current_contact_props
-                current_contact_name_from_deal = (
-                    f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
-                )
+                current_contact_name_from_deal = display_name(cp)
             except Exception:
                 pass
             if selected_contact.company_id and self.company_service:

@@ -26,6 +26,7 @@ import {
 } from "@/lib/contact-panel";
 import { useLanguage } from "@/lib/i18n";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
+import { plainSummary } from "@/lib/summary-line";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { FollowupRow, TodayItem } from "@/lib/today";
 import type { usePanelPrimary } from "../hooks/usePanelPrimary";
@@ -343,7 +344,7 @@ function PanelBody({
                 const kindLabel = productText(line.kindKey, copy);
                 const minutes = line.minutes != null ? copy.panel_minutes.replace("{count}", String(line.minutes)) : null;
                 const meta = [line.date, kindLabel, minutes].filter(Boolean).join(" · ");
-                const summary = memo.extraction?.summary?.trim();
+                const summary = plainSummary(memo.extraction?.summary);
                 return (
                   <li key={memo.id}>
                     <button

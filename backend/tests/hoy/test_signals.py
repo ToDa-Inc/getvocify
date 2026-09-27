@@ -154,3 +154,11 @@ def test_reason_and_due_label_follow_accept_language():
     assert due_label(due.due_at, now=NOW, lang="en") == "Due yesterday"
     cold = signals_for_contact([_touch(interest="high")], now=NOW, day_end=DAY_END)[0]
     assert reason(cold, lang="en").startswith("Showed strong interest")
+
+
+def test_objection_of_category_other_has_no_category_in_the_reason():
+    from app.services.hoy.signals import Signal
+
+    signal = Signal(type="objection_open", contact_id="c", deal_id=None, source_memo_id="m", due_at=None, payload={"category": "other"}, dedupe_key="k")
+    assert reason(signal) == "Quedó una objeción sin cerrar."
+    assert reason(signal, lang="en") == "An open objection."

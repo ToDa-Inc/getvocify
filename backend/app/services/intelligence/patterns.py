@@ -77,9 +77,34 @@ def frequency(rows: list[dict]) -> int:
     return sum(1 for row in rows if not row.get("superseded"))
 
 
-def project_patterns(existing: list[dict], *, memo_id: str, input_revision: str, extraction: dict) -> list[dict]:
+def _objections_for_patterns(extraction: dict, *, memo: dict | None = None) -> list:
+    from app.services.intelligence.extract import is_current
+
+    if memo is not None and is_current({**(memo or {}), "extraction": extraction}):
+        intelligence = extraction.get("intelligence")
+        if isinstance(intelligence, dict):
+            c04 = intelligence.get("objections")
+            if isinstance(c04, list) and c04:
+                return c04
+    legacy = extraction.get("objections")
+    return legacy if isinstance(legacy, list) else []
+
+
+def project_patterns(
+    existing: list[dict],
+    *,
+    memo_id: str,
+    input_revision: str,
+    extraction: dict,
+    memo: dict | None = None,
+) -> list[dict]:
     """A new extraction replaces the objections it owns. Another pattern id stays."""
-    incoming = patterns_from_extraction(memo_id=memo_id, input_revision=input_revision, extraction=extraction or {})
+    incoming = patterns_from_extraction(
+        memo_id=memo_id,
+        input_revision=input_revision,
+        extraction=extraction or {},
+        memo=memo,
+    )
     owned = [row for row in existing if str(row.get("pattern_id") or "").startswith("objection:")]
     other = [row for row in existing if not str(row.get("pattern_id") or "").startswith("objection:")]
     if not incoming:
@@ -89,10 +114,16 @@ def project_patterns(existing: list[dict], *, memo_id: str, input_revision: str,
     return other + owned
 
 
-def patterns_from_extraction(*, memo_id: str, input_revision: str, extraction: dict) -> list[dict]:
+def patterns_from_extraction(
+    *,
+    memo_id: str,
+    input_revision: str,
+    extraction: dict,
+    memo: dict | None = None,
+) -> list[dict]:
     rows = []
     seen = set()
-    for item in extraction.get("objections") or []:
+    for item in _objections_for_patterns(extraction, memo=memo):
         if isinstance(item, str):
             text = item.strip()
             commercial = True
@@ -100,13 +131,17 @@ def patterns_from_extraction(*, memo_id: str, input_revision: str, extraction: d
             resolution = None
             response = None
             pattern_id = None
+            evidence_refs = None
         elif isinstance(item, dict):
-            text = str(item.get("text") or "").strip()
+            text = str(item.get("text") or item.get("quote") or "").strip()
             commercial = item.get("commercial_objection")
+            if commercial is None:
+                commercial = item.get("kind") != "obstacle"
             category = item.get("category") or "other"
             resolution = item.get("resolution")
             response = item.get("response")
             pattern_id = item.get("pattern_id")
+            evidence_refs = item.get("evidence_refs")
         else:
             continue
         if not text:
@@ -123,6 +158,7 @@ def patterns_from_extraction(*, memo_id: str, input_revision: str, extraction: d
             commercial_objection=commercial,
             resolution=resolution,
             response=response,
+            evidence_refs=evidence_refs,
         ))
     return rows
 

@@ -48,6 +48,10 @@ def aggregate_brief(
             return {**base, "status": "partial", "reason": "score_pending", "waiting": score is not None and score.get("status") == "pending"}
         return {**base, "status": "pending", "reason": "waiting_for_sources", "waiting": True}
     if score.get("status") in {"partial", "unavailable"} or score.get("value") is None:
+        if score.get("reason") == "insufficient_evidence" and sections:
+            return _evidence_backed_coaching(
+                {**base, "status": "ready", "reason": None, "strength": None, "improvement": None},
+            )
         return _evidence_backed_coaching({**base, "status": "partial", "reason": score.get("reason") or "score_pending"})
     return _evidence_backed_coaching({**base, "status": "ready", "reason": None})
 
@@ -62,20 +66,37 @@ def _evidence_backed_coaching(brief: dict) -> dict:
 
 
 def _sections(patterns: list[dict], input_revision: str) -> list[dict]:
-    refs: list[str] = []
+    sections: list[dict] = []
+    seen_categories: set[str] = set()
+    legacy_refs: list[str] = []
     for pattern in patterns:
         if pattern.get("input_revision") != input_revision or pattern.get("superseded"):
             continue
-        for ref in pattern.get("evidence_refs") or []:
-            if ref not in refs:
-                refs.append(ref)
-            if len(refs) == 3:
-                break
-        if len(refs) == 3:
+        kind = pattern.get("kind")
+        if kind not in (None, "objection"):
+            continue
+        refs = [ref for ref in (pattern.get("evidence_refs") or []) if ref]
+        if not refs:
+            continue
+        category = str(pattern.get("category") or "").strip()
+        if not category:
+            for ref in refs:
+                if ref not in legacy_refs:
+                    legacy_refs.append(ref)
+            continue
+        if category in seen_categories:
+            continue
+        seen_categories.add(category)
+        sections.append({
+            "kind": "objections",
+            "category": category,
+            "evidence_refs": refs[:3],
+        })
+        if len(sections) >= 3:
             break
-    if not refs:
-        return []
-    return [{"kind": "objections", "evidence_refs": refs}]
+    if legacy_refs and len(sections) < 3:
+        sections.append({"kind": "objections", "evidence_refs": legacy_refs[:3]})
+    return sections
 
 
 def _coaching(score: dict | None, input_revision: str) -> dict:

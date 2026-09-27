@@ -402,20 +402,6 @@ def _c04(world: World) -> dict:
     return memo["extraction"]["intelligence"]
 
 
-WHATSAPP_NO_SCREENING = pytest.mark.xfail(
-    strict=True,
-    reason="WhatsApp memos have no screening_outcome, so the weekly report and Team never count them",
-)
-NO_MOTION = (
-    "dialer and WhatsApp memos pin no playbook_version_id / sales_motion_key, so the brief has no "
-    "playbook line and the post-call brief has no playbook"
-)
-PATTERNS_OTHER = (
-    "interaction_patterns come from the field extraction's plain-string objections (category 'other'); "
-    "C04's category 'price' never reaches Team or the report"
-)
-
-
 def test_one_c04_run_is_current_for_the_stored_conversation(world):
     intel = _c04(world)
     assert [c["kind"] for c in world.llm.calls].count("c04") == 1
@@ -442,7 +428,7 @@ def test_commitment_date_is_the_same_in_c04_crm_task_hoy_brief_and_followup(worl
     assert shown["crm_task_id"] == commitment["crm_task_id"]
 
     why = next(line for line in _brief(world)["lines"] if line["type"] == "why")
-    assert why["text"] == "Pidió que la llamaras hoy."
+    assert why["text"] == "Pidió que le llamaras hoy."
     assert _local(why["observed_at"]).date().isoformat() == COMMITMENT_DAY
 
     draft = world.llm.context("followup")
@@ -484,9 +470,7 @@ def test_only_the_auto_approved_call_confirms_meeting_and_stage_from_hoy(world):
     assert world.crm.stage == BOOKED_STAGE
 
 
-def test_meeting_counted_in_report_and_team(world, request):
-    if world.channel == "whatsapp":
-        request.applymarker(WHATSAPP_NO_SCREENING)
+def test_meeting_counted_in_report_and_team(world):
     mine, team = _reports(world)
     assert mine["metrics"]["meetings_agreed"] == 1
     assert team["metrics"]["meetings_agreed"] == 1
@@ -508,7 +492,6 @@ def test_price_objection_is_the_same_in_c04_and_hoy(world):
     assert OBJECTION_QUOTE.lower() in row["payload"]["quote"].lower()
 
 
-@pytest.mark.xfail(strict=True, reason=PATTERNS_OTHER)
 def test_price_objection_reaches_team_and_report(world):
     mine, team = _reports(world)
     assert [o["name"] for o in mine["objections"]] == ["price"]
@@ -516,7 +499,6 @@ def test_price_objection_reaches_team_and_report(world):
     assert [o["name"] for o in _team_panel(world)["objection_categories"]] == ["price"]
 
 
-@pytest.mark.xfail(strict=True, reason=f"{NO_MOTION}; {PATTERNS_OTHER}")
 def test_price_objection_reaches_the_post_call_brief(world):
     [brief] = world.db.rows("post_interaction_briefs", memo_id=world.memo_id)
     assert brief["status"] == "ready"
@@ -524,7 +506,6 @@ def test_price_objection_reaches_the_post_call_brief(world):
     assert "price" in categories
 
 
-@pytest.mark.xfail(strict=True, reason=NO_MOTION)
 def test_brief_says_the_playbook_line_for_the_price_objection(world):
     says = [line["text"] for line in _brief(world)["lines"] if line["type"] == "say"]
     assert says == ["Precio: compáralo con un comercial más."]
