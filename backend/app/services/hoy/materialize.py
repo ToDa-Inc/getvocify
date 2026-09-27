@@ -132,6 +132,18 @@ def persist_new_signals(supabase, *, company_id: str, user_id: str, signals: lis
     return written
 
 
+def retracted_objection_ids(existing: list[dict], *, memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
+    """A pending objection whose memo was re-read and no longer yields it (C04 found none, or it was resolved)."""
+    return [
+        str(row["id"])
+        for row in existing
+        if row.get("type") == "objection_open"
+        and row.get("status") == "pending"
+        and str(row.get("memo_id") or "") in memo_ids
+        and str(row.get("dedupe_key") or "") not in fresh_keys
+    ]
+
+
 def read_hoy_memos(supabase, *, company_id: str, user_id: str) -> list[dict]:
     """The rep's newest memos: the only window Hoy materializes signals from."""
     stored = (
@@ -151,7 +163,7 @@ def refresh_hoy_signals(supabase, *, company_id: str, user_id: str, now: datetim
         memos = read_hoy_memos(supabase, company_id=company_id, user_id=user_id)
         existing = (
             supabase.table("action_signals")
-            .select("dedupe_key")
+            .select("id,dedupe_key,type,status,memo_id")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .execute()
@@ -160,6 +172,16 @@ def refresh_hoy_signals(supabase, *, company_id: str, user_id: str, now: datetim
         return 0
     signals = fresh_signals(memos, now=now, day_end=day_end(now, tz_name))
     known = {str(row.get("dedupe_key") or "") for row in (existing.data or [])}
+    retracted = retracted_objection_ids(
+        list(existing.data or []),
+        memo_ids={str(memo.get("id") or "") for memo in memos},
+        fresh_keys={signal.dedupe_key for signal in signals},
+    )
+    if retracted:
+        try:
+            supabase.table("action_signals").update({"status": "resolved"}).in_("id", retracted).execute()
+        except Exception:
+            pass
     try:
         return persist_new_signals(
             supabase,
