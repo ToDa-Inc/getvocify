@@ -13,8 +13,12 @@ class UnknownCompanyAuthor(ValueError):
     """author_user_id is not a member of the viewer's company."""
 
 
-def can_view_company_activity(role: Optional[str]) -> bool:
-    return (role or "") in ("owner", "admin")
+def can_view_company_activity(role: Optional[str], visibility: Optional[str] = None) -> bool:
+    """Owners/admins always see company activity; a member with visibility=team also does
+    (read-only: it carries no management permission)."""
+    if (role or "") in ("owner", "admin"):
+        return True
+    return (visibility or "") == "team"
 
 
 def active_member_count(members: list[dict]) -> int:
@@ -73,16 +77,17 @@ def resolve_list_user_ids(
     member_ids: list[str],
     scope: str = "me",
     author_user_id: Optional[str] = None,
+    viewer_visibility: Optional[str] = None,
 ) -> list[str]:
     """User ids a list endpoint may return.
 
-    Members always get themselves. Owners/admins with scope=company get the
-    company (or one teammate when author_user_id is set).
+    Members always get themselves. Owners/admins (or a member with visibility=team)
+    with scope=company get the company (or one teammate when author_user_id is set).
     """
     scope_norm = (scope or "me").strip().lower()
     if scope_norm not in ("me", "company"):
         scope_norm = "me"
-    if scope_norm == "company" and can_view_company_activity(viewer_role):
+    if scope_norm == "company" and can_view_company_activity(viewer_role, viewer_visibility):
         allowed = set(member_ids) or {viewer_id}
         if author_user_id:
             if author_user_id not in allowed:
@@ -98,10 +103,11 @@ def memo_readable_by(
     owner_user_id: str,
     viewer_role: Optional[str],
     same_company: bool,
+    viewer_visibility: Optional[str] = None,
 ) -> bool:
     if viewer_id == owner_user_id:
         return True
-    return bool(can_view_company_activity(viewer_role) and same_company)
+    return bool(can_view_company_activity(viewer_role, viewer_visibility) and same_company)
 
 
 def readable_memo_or_none(
@@ -110,6 +116,7 @@ def readable_memo_or_none(
     viewer_id: str,
     viewer_role: Optional[str],
     member_ids: list[str],
+    viewer_visibility: Optional[str] = None,
 ) -> Optional[dict]:
     """Return the memo row when the viewer may read it; else None."""
     if not memo_data:
@@ -120,6 +127,7 @@ def readable_memo_or_none(
         owner_user_id=owner_id,
         viewer_role=viewer_role,
         same_company=owner_id in set(member_ids),
+        viewer_visibility=viewer_visibility,
     ):
         return None
     return memo_data
@@ -162,6 +170,18 @@ def visible_recordings_for_viewer(
     if can_view_company:
         return recordings
     return [row for row in recordings if row.get("author_user_id") == viewer_id]
+
+
+def effective_visibility(supabase: Client, membership: Optional[Membership]) -> Optional[str]:
+    """membership.visibility, but only once SALES_ROLES_ENABLED — off means today's
+    owner/admin-only behavior, whatever the column happens to hold."""
+    if membership is None:
+        return None
+    from app.services.feature_flags import is_enabled
+
+    if not is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED"):
+        return None
+    return getattr(membership, "visibility", None)
 
 
 def load_viewer_scope(

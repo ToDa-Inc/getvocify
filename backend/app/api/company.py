@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
@@ -44,6 +44,7 @@ class InviteRequest(BaseModel):
     email: EmailStr
     role: str = Field(default="member")
     send_email: bool = True
+    sales_role: Optional[str] = None
 
 
 class InviteResponse(BaseModel):
@@ -53,6 +54,7 @@ class InviteResponse(BaseModel):
     expires_at: str
     email_sent: bool
     invite_url: Optional[str] = None
+    sales_role: Optional[str] = None
 
 
 class MemberResponse(BaseModel):
@@ -63,6 +65,9 @@ class MemberResponse(BaseModel):
     role: str
     status: str
     created_at: Optional[str] = None
+    sales_role: Optional[str] = None
+    handoff_ae_user_id: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class PendingInviteResponse(BaseModel):
@@ -79,7 +84,10 @@ class MembersListResponse(BaseModel):
 
 
 class UpdateMemberRoleRequest(BaseModel):
-    role: str
+    role: Optional[str] = None
+    sales_role: Optional[str] = None
+    handoff_ae_user_id: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class AcceptInviteRequest(BaseModel):
@@ -147,7 +155,8 @@ async def list_members(
 ):
     svc = CompanyService(supabase)
     membership = svc.require_membership(user_id)
-    members = svc.list_members(membership.company_id)
+    sales_roles_on = svc.sales_roles_enabled(membership.company_id)
+    members = svc.list_members(membership.company_id, include_sales_fields=sales_roles_on)
     invites = svc.list_pending_invites(membership.company_id)
     can_see_invites = membership.can_manage_team
     return MembersListResponse(
@@ -166,12 +175,14 @@ async def create_invite(
         raise HTTPException(status_code=400, detail="Invalid role")
     svc = CompanyService(supabase)
     membership = svc.require_manage_role(user_id)
+    sales_role = body.sales_role if svc.sales_roles_enabled(membership.company_id) else None
     invite, invite_url, email_sent = await svc.create_invite(
         company_id=membership.company_id,
         email=body.email,
         role=body.role,
         invited_by=user_id,
         send_email=body.send_email,
+        sales_role=sales_role,
     )
     return InviteResponse(
         id=str(invite["id"]),
@@ -180,6 +191,7 @@ async def create_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
+        sales_role=invite.get("sales_role"),
     )
 
 
@@ -223,13 +235,38 @@ async def update_member_role(
 ):
     svc = CompanyService(supabase)
     membership = svc.require_membership(user_id)
-    updated = svc.update_member_role(
-        company_id=membership.company_id,
-        member_id=member_id,
-        role=body.role,
-        actor=membership,
-    )
-    return {"success": True, "role": updated.get("role")}
+    updated: dict = {}
+    if body.role is not None:
+        updated = svc.update_member_role(
+            company_id=membership.company_id,
+            member_id=member_id,
+            role=body.role,
+            actor=membership,
+        )
+
+    sales_fields_sent = {"sales_role", "handoff_ae_user_id", "visibility"} & body.model_fields_set
+    if sales_fields_sent and svc.sales_roles_enabled(membership.company_id):
+        kwargs: Dict[str, Any] = {}
+        if "sales_role" in sales_fields_sent:
+            kwargs["sales_role"] = body.sales_role
+        if "handoff_ae_user_id" in sales_fields_sent:
+            kwargs["handoff_ae_user_id"] = body.handoff_ae_user_id
+        if "visibility" in sales_fields_sent:
+            kwargs["visibility"] = body.visibility
+        updated = svc.update_member_profile(
+            company_id=membership.company_id,
+            actor=membership,
+            member_id=member_id,
+            **kwargs,
+        )
+
+    return {
+        "success": True,
+        "role": updated.get("role"),
+        "sales_role": updated.get("sales_role"),
+        "handoff_ae_user_id": (str(updated["handoff_ae_user_id"]) if updated.get("handoff_ae_user_id") else None),
+        "visibility": updated.get("visibility"),
+    }
 
 
 @router.delete("/members/{member_id}")

@@ -5,6 +5,7 @@
  */
 
 import { api } from '@/shared/lib/api-client';
+import type { CompanySummary } from '@/features/company/types';
 import type {
   User,
   LoginCredentials,
@@ -58,6 +59,8 @@ export function mapRawUser(raw: Record<string, unknown>): User {
             companyRaw.can_use_dialer == null ? true : Boolean(companyRaw.can_use_dialer),
           repWorkspace: Boolean(companyRaw.rep_workspace_enabled),
           briefV2: Boolean(companyRaw.brief_v2_enabled),
+          salesRole: (companyRaw.sales_role as CompanySummary['salesRole']) ?? null,
+          features: Array.isArray(companyRaw.features) ? (companyRaw.features as string[]) : [],
         }
       : null,
   };

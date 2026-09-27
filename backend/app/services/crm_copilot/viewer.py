@@ -19,10 +19,11 @@ class Viewer:
     company_id: str
     role: str
     members: tuple
+    visibility: Optional[str] = None
 
     @property
     def is_manager(self) -> bool:
-        return can_view_company_activity(self.role)
+        return can_view_company_activity(self.role, self.visibility)
 
     @property
     def member_ids(self) -> list[str]:
@@ -52,6 +53,7 @@ class Viewer:
                 owner_user_id=uid,
                 viewer_role=self.role,
                 same_company=uid in set(self.member_ids),
+                viewer_visibility=self.visibility,
             )
         )
 
@@ -70,11 +72,14 @@ def resolve_viewer(ctx: Any) -> Optional[Viewer]:
         return None
     if membership is None or not membership.is_active or not membership.company_id:
         return None
+    from app.services.activity_scope import effective_visibility
+
     viewer = Viewer(
         user_id=user_id,
         company_id=str(membership.company_id),
         role=str(membership.role or "member"),
         members=tuple(members or ()),
+        visibility=effective_visibility(supabase, membership),
     )
     try:
         ctx.viewer = viewer

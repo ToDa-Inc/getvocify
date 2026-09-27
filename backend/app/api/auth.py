@@ -73,6 +73,8 @@ class CompanySummary(BaseModel):
     can_use_dialer: bool = True
     rep_workspace_enabled: bool = False
     brief_v2_enabled: bool = False
+    sales_role: Optional[str] = None
+    features: List[str] = Field(default_factory=list)
 
 
 class UserResponse(BaseModel):
@@ -124,6 +126,8 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
             can_use_dialer=bool(company_summary.get("can_use_dialer", True)),
             rep_workspace_enabled=bool(company_summary.get("rep_workspace_enabled")),
             brief_v2_enabled=bool(company_summary.get("brief_v2_enabled")),
+            sales_role=company_summary.get("sales_role"),
+            features=list(company_summary.get("features") or []),
         )
         company_row = company_svc.get_company(company_summary["id"])
         product_context = company_row.get("product_context") or ""

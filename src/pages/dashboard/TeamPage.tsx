@@ -5,13 +5,102 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
+import type { CompanyMember, MemberVisibility, SalesRole } from "@/features/company/types";
 import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
+import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+
+const SELECT_FIELD =
+  "rounded-full border border-border/40 bg-secondary/5 px-3 h-7 text-[11px] text-foreground";
+
+interface SalesProfileChange {
+  salesRole?: SalesRole | null;
+  handoffAeUserId?: string | null;
+  visibility?: MemberVisibility;
+}
+
+/** D1/D2/D3: per-member commercial type, SDR->AE routing and activity visibility. Owner/admin only. */
+function MemberSalesControls({
+  member,
+  members,
+  onChange,
+  t,
+}: {
+  member: CompanyMember;
+  members: CompanyMember[];
+  onChange: (vars: SalesProfileChange) => void;
+  t: { [key: string]: string };
+}) {
+  const salesRole = member.salesRole ?? "";
+  const isSdr = salesRole === "sdr";
+  const aeCandidates = members.filter(
+    (candidate) =>
+      candidate.userId !== member.userId &&
+      (candidate.salesRole === "ae" || candidate.salesRole === "general"),
+  );
+
+  return (
+    <>
+      <label className="sr-only" htmlFor={`sales-role-${member.id}`}>
+        {t.teamMemberTypeLabel}
+      </label>
+      <select
+        id={`sales-role-${member.id}`}
+        className={SELECT_FIELD}
+        value={salesRole}
+        onChange={(event) =>
+          onChange({ salesRole: (event.target.value || null) as SalesRole | null })
+        }
+      >
+        <option value="">{t.teamMemberTypeGeneral}</option>
+        <option value="sdr">{t.teamMemberTypeSdr}</option>
+        <option value="ae">{t.teamMemberTypeAe}</option>
+        <option value="general">{t.teamMemberTypeGeneral}</option>
+      </select>
+
+      {isSdr && (
+        <>
+          <label className="sr-only" htmlFor={`handoff-ae-${member.id}`}>
+            {t.teamHandoffLabel}
+          </label>
+          <select
+            id={`handoff-ae-${member.id}`}
+            className={SELECT_FIELD}
+            value={member.handoffAeUserId ?? ""}
+            onChange={(event) =>
+              onChange({ handoffAeUserId: event.target.value || null })
+            }
+          >
+            <option value="">{t.teamHandoffNone}</option>
+            {aeCandidates.map((candidate) => (
+              <option key={candidate.userId} value={candidate.userId}>
+                {candidate.fullName || candidate.email}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
+      <label className="sr-only" htmlFor={`visibility-${member.id}`}>
+        {t.teamVisibilityLabel}
+      </label>
+      <select
+        id={`visibility-${member.id}`}
+        className={SELECT_FIELD}
+        value={member.visibility ?? "own"}
+        onChange={(event) => onChange({ visibility: event.target.value as MemberVisibility })}
+      >
+        <option value="own">{t.teamVisibilityOwn}</option>
+        <option value="team">{t.teamVisibilityTeam}</option>
+      </select>
+    </>
+  );
+}
 
 const ROLE_OPTIONS = [
   {
@@ -37,9 +126,11 @@ function apiErrorMessage(error: unknown, fallback: string) {
 
 const TeamPage = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
+  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole | "">("");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<
     | { kind: "remove"; id: string; name: string }
@@ -48,6 +139,7 @@ const TeamPage = () => {
   >(null);
 
   const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
+  const salesRolesEnabled = Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"));
 
   const { data: company, isLoading: companyLoading } = useQuery({
     queryKey: companyKeys.detail(),
@@ -72,9 +164,11 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () => companyApi.invite(inviteEmail.trim(), inviteRole),
+    mutationFn: () =>
+      companyApi.invite(inviteEmail.trim(), inviteRole, inviteSalesRole || undefined),
     onSuccess: (res) => {
       setInviteEmail("");
+      setInviteSalesRole("");
       setInviteUrl(res.inviteUrl ?? null);
       refreshWorkspace();
       if (res.emailSent) {
@@ -122,6 +216,21 @@ const TeamPage = () => {
     },
     onError: (error) => {
       toast.error(apiErrorMessage(error, "Could not remove member"));
+    },
+  });
+
+  const salesProfileMutation = useMutation({
+    mutationFn: (vars: {
+      memberId: string;
+      salesRole?: SalesRole | null;
+      handoffAeUserId?: string | null;
+      visibility?: MemberVisibility;
+    }) => companyApi.updateMemberSalesProfile(vars.memberId, vars),
+    onSuccess: () => {
+      refreshWorkspace();
+    },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, "Could not update member"));
     },
   });
 
@@ -180,17 +289,25 @@ const TeamPage = () => {
         )}
         <div className="divide-y divide-border/40">
           {(roster?.members ?? []).map((m) => (
-            <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+            <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4 flex-wrap">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
                   {m.fullName || m.email}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-3 shrink-0 flex-wrap">
                 <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
                   {m.role}
                 </span>
+                {salesRolesEnabled && canManage && (
+                  <MemberSalesControls
+                    member={m}
+                    members={roster?.members ?? []}
+                    onChange={(vars) => salesProfileMutation.mutate({ memberId: m.id, ...vars })}
+                    t={t.product}
+                  />
+                )}
                 {canManage && m.userId !== user?.id && m.role !== "owner" && (
                   <IconAction
                     label={`Remove ${m.fullName || m.email}`}
@@ -330,6 +447,25 @@ const TeamPage = () => {
               </div>
               <p className="text-xs text-muted-foreground">{selectedRole?.hint}</p>
             </div>
+
+            {salesRolesEnabled && (
+              <div className="space-y-2">
+                <label htmlFor="invite-sales-role" className={THEME_TOKENS.typography.capsLabel}>
+                  {t.product.inviteSalesRoleLabel}
+                </label>
+                <select
+                  id="invite-sales-role"
+                  className="bg-secondary/5 border border-border/40 rounded-full px-4 h-9 text-sm"
+                  value={inviteSalesRole}
+                  onChange={(e) => setInviteSalesRole(e.target.value as SalesRole | "")}
+                >
+                  <option value="">{t.product.teamMemberTypeGeneral}</option>
+                  <option value="sdr">{t.product.teamMemberTypeSdr}</option>
+                  <option value="ae">{t.product.teamMemberTypeAe}</option>
+                  <option value="general">{t.product.teamMemberTypeGeneral}</option>
+                </select>
+              </div>
+            )}
           </form>
 
           {inviteUrl && (

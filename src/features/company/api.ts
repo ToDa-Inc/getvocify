@@ -1,7 +1,7 @@
 import { api } from '@/shared/lib/api-client';
 import { mapAuthResponse } from '@/features/auth/api';
 import type { AuthResponse } from '@/features/auth/types';
-import type { CompanyDetails, CompanyMember, InvitePreview, PendingInvite } from './types';
+import type { CompanyDetails, CompanyMember, InvitePreview, MemberVisibility, PendingInvite, SalesRole } from './types';
 
 function mapCompany(raw: Record<string, unknown>): CompanyDetails {
   return {
@@ -32,6 +32,9 @@ function mapMember(raw: Record<string, unknown>): CompanyMember {
     role: String(raw.role),
     status: String(raw.status),
     createdAt: raw.created_at as string | undefined,
+    salesRole: (raw.sales_role as SalesRole | null | undefined) ?? null,
+    handoffAeUserId: (raw.handoff_ae_user_id as string | null | undefined) ?? null,
+    visibility: (raw.visibility as MemberVisibility | undefined) ?? 'own',
   };
 }
 
@@ -71,8 +74,17 @@ export const companyApi = {
     return { members, pendingInvites };
   },
 
-  invite: async (email: string, role: 'admin' | 'member' = 'member'): Promise<{ emailSent: boolean; inviteUrl?: string }> => {
-    const raw = await api.post<Record<string, unknown>>('/company/invites', { email, role, send_email: true });
+  invite: async (
+    email: string,
+    role: 'admin' | 'member' = 'member',
+    salesRole?: SalesRole,
+  ): Promise<{ emailSent: boolean; inviteUrl?: string }> => {
+    const raw = await api.post<Record<string, unknown>>('/company/invites', {
+      email,
+      role,
+      send_email: true,
+      sales_role: salesRole,
+    });
     return {
       emailSent: Boolean(raw.email_sent),
       inviteUrl: raw.invite_url as string | undefined,
@@ -93,6 +105,17 @@ export const companyApi = {
 
   updateMemberRole: async (memberId: string, role: string) => {
     return api.patch<Record<string, unknown>>(`/company/members/${memberId}`, { role });
+  },
+
+  updateMemberSalesProfile: async (
+    memberId: string,
+    profile: { salesRole?: SalesRole | null; handoffAeUserId?: string | null; visibility?: MemberVisibility },
+  ) => {
+    const body: Record<string, unknown> = {};
+    if ('salesRole' in profile) body.sales_role = profile.salesRole;
+    if ('handoffAeUserId' in profile) body.handoff_ae_user_id = profile.handoffAeUserId;
+    if ('visibility' in profile) body.visibility = profile.visibility;
+    return api.patch<Record<string, unknown>>(`/company/members/${memberId}`, body);
   },
 
   previewInvite: async (token: string): Promise<InvitePreview> => {

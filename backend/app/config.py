@@ -240,6 +240,37 @@ class Settings(BaseSettings):
     REP_WORKSPACE_ENABLED: bool = False
     # Pre-call brief v2: hook, why, say and playbook progress label from C04. Per company.
     BRIEF_V2_ENABLED: bool = False
+    # Lista 3 (roles, flujos SDR/AE y Head of Sales). All per company, off by default.
+    # T1: company_members.sales_role/handoff_ae_user_id/visibility, exposed via /company and /auth/me.
+    SALES_ROLES_ENABLED: bool = False
+    # T3: SDR->AE handoff on meeting booked (deal_handoffs).
+    HANDOFF_ENABLED: bool = False
+    # T3: writes the CRM owner (deal/contact) to the AE on handoff.
+    HANDOFF_CRM_OWNER_ENABLED: bool = False
+    # T5: Hoy lead tiers (callback_no_answer, stale_hot, never_contacted) and heat score.
+    HOY_LEAD_TIERS_ENABLED: bool = False
+    # T6: Hoy AE section (deals in progress) with pre-meeting brief.
+    HOY_AE_DEALS_ENABLED: bool = False
+    # T8: follow-up sent from Vocify via Resend instead of mailto.
+    FOLLOWUP_SEND_ENABLED: bool = False
+    # T8: follow-up instructions tailored per flow (discovery/closing) plus sales_strategy.
+    FOLLOWUP_BY_FLOW_ENABLED: bool = False
+    # T9: Head of Sales onboarding wizard on first login.
+    ONBOARDING_WIZARD_ENABLED: bool = False
+    # T10: scoring credit for objections handled (objection_handling criterion).
+    SCORING_OBJECTION_CREDIT_ENABLED: bool = False
+    # T10: debrief v2 (flow, missed steps, phrases, highlights, progress).
+    DEBRIEF_V2_ENABLED: bool = False
+    # T11: Playbook tab with the week's best interactions per flow.
+    PLAYBOOK_TAB_ENABLED: bool = False
+    # T12: daily/weekly reports split by sales_role section.
+    REPORTING_BY_FLOW_ENABLED: bool = False
+    # T12: bell adds tasks (Hoy) and feedback (ready briefs) sections.
+    BELL_TASKS_ENABLED: bool = False
+    # T13: /dashboard becomes the Head of Sales' team home.
+    MANAGER_HOME_ENABLED: bool = False
+    # T14: Recall.ai meeting bot (needs RECALL_API_KEY).
+    RECALL_BOT_ENABLED: bool = False
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"

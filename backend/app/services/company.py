@@ -35,6 +35,9 @@ MANAGE_ROLES = frozenset({"owner", "admin"})
 INVITE_ROLES = frozenset({"admin", "member"})
 REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
 BRIEF_V2_FLAG = "BRIEF_V2_ENABLED"
+SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
+SALES_ROLES = frozenset({"sdr", "ae", "general"})
+VISIBILITIES = frozenset({"own", "team"})
 
 
 @dataclass
@@ -44,6 +47,9 @@ class Membership:
     user_id: str
     role: str
     status: str
+    sales_role: Optional[str] = None
+    handoff_ae_user_id: Optional[str] = None
+    visibility: str = "own"
 
     @property
     def is_active(self) -> bool:
@@ -102,7 +108,7 @@ class CompanyService:
         try:
             result = (
                 self.supabase.table("company_members")
-                .select("id, company_id, user_id, role, status")
+                .select("id, company_id, user_id, role, status, sales_role, handoff_ae_user_id, visibility")
                 .eq("user_id", user_id)
                 .limit(1)
                 .execute()
@@ -125,6 +131,9 @@ class CompanyService:
             user_id=str(row["user_id"]),
             role=row["role"],
             status=row["status"],
+            sales_role=row.get("sales_role"),
+            handoff_ae_user_id=(str(row["handoff_ae_user_id"]) if row.get("handoff_ae_user_id") else None),
+            visibility=row.get("visibility") or "own",
         )
 
     def require_membership(self, user_id: str) -> Membership:
@@ -260,7 +269,12 @@ class CompanyService:
     def brief_v2_enabled(self, company_id: str) -> bool:
         return is_enabled(self.supabase, company_id, BRIEF_V2_FLAG)
 
+    def sales_roles_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, SALES_ROLES_FLAG)
+
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
+        from app.services.feature_flags import LISTA_3_FLAGS, enabled_features
+
         membership = self.get_membership(user_id)
         if not membership or not membership.is_active:
             return None
@@ -268,6 +282,7 @@ class CompanyService:
         usage = self.seat_usage(membership.company_id)
         billing = self.billing_for(membership.company_id)
         entitlements = workspace_entitlements(company, billing)
+        sales_roles_on = self.sales_roles_enabled(membership.company_id)
         return {
             "id": membership.company_id,
             "name": company.get("name"),
@@ -283,12 +298,17 @@ class CompanyService:
             "can_use_dialer": entitlements["can_use_dialer"],
             "rep_workspace_enabled": self.rep_workspace_enabled(membership.company_id),
             "brief_v2_enabled": self.brief_v2_enabled(membership.company_id),
+            "sales_role": membership.sales_role if sales_roles_on else None,
+            "features": enabled_features(self.supabase, membership.company_id, LISTA_3_FLAGS),
         }
 
-    def list_members(self, company_id: str) -> List[dict]:
+    def list_members(self, company_id: str, *, include_sales_fields: bool = False) -> List[dict]:
+        select_cols = "id, user_id, role, status, created_at"
+        if include_sales_fields:
+            select_cols += ", sales_role, handoff_ae_user_id, visibility"
         members_result = (
             self.supabase.table("company_members")
-            .select("id, user_id, role, status, created_at")
+            .select(select_cols)
             .eq("company_id", company_id)
             .order("created_at")
             .execute()
@@ -309,17 +329,21 @@ class CompanyService:
         out = []
         for m in members:
             uid = str(m["user_id"])
-            out.append(
-                {
-                    "id": str(m["id"]),
-                    "user_id": uid,
-                    "email": emails.get(uid, ""),
-                    "full_name": profiles.get(uid, {}).get("full_name"),
-                    "role": m["role"],
-                    "status": m["status"],
-                    "created_at": m.get("created_at"),
-                }
-            )
+            row = {
+                "id": str(m["id"]),
+                "user_id": uid,
+                "email": emails.get(uid, ""),
+                "full_name": profiles.get(uid, {}).get("full_name"),
+                "role": m["role"],
+                "status": m["status"],
+                "created_at": m.get("created_at"),
+            }
+            if include_sales_fields:
+                handoff = m.get("handoff_ae_user_id")
+                row["sales_role"] = m.get("sales_role")
+                row["handoff_ae_user_id"] = str(handoff) if handoff else None
+                row["visibility"] = m.get("visibility") or "own"
+            out.append(row)
         return out
 
     def list_pending_invites(self, company_id: str) -> List[dict]:
@@ -383,9 +407,12 @@ class CompanyService:
         role: str,
         invited_by: Optional[str] = None,
         send_email: bool = True,
+        sales_role: Optional[str] = None,
     ) -> Tuple[dict, Optional[str], bool]:
         if role not in INVITE_ROLES:
             raise HTTPException(status_code=400, detail="Invalid invite role")
+        if sales_role is not None and sales_role not in SALES_ROLES:
+            raise HTTPException(status_code=400, detail="Invalid sales_role")
         email_norm = normalize_email(email)
         self.ensure_seat_available(company_id)
 
@@ -417,6 +444,7 @@ class CompanyService:
             "token_hash": hash_token(raw_token),
             "invited_by": invited_by,
             "expires_at": _iso(expires),
+            "sales_role": sales_role,
         }
         result = self.supabase.table("company_invitations").insert(row).execute()
         if not result.data:
@@ -532,6 +560,7 @@ class CompanyService:
         company_id = str(invite["company_id"])
         email = str(invite["email"])
         role = invite["role"]
+        sales_role = invite.get("sales_role")
 
         existing_user_id = self._email_exists_in_auth(email)
         if existing_user_id:
@@ -561,6 +590,7 @@ class CompanyService:
                 "user_id": user_id,
                 "role": role,
                 "status": "active",
+                "sales_role": sales_role,
             }
         ).execute()
         self.supabase.table("user_profiles").update({"company_id": company_id}).eq(
@@ -605,6 +635,65 @@ class CompanyService:
         result = (
             self.supabase.table("company_members")
             .update({"role": role, "updated_at": _iso(_now())})
+            .eq("id", member_id)
+            .eq("company_id", company_id)
+            .execute()
+        )
+        return (result.data or [target])[0]
+
+    def update_member_profile(
+        self,
+        *,
+        company_id: str,
+        actor: Membership,
+        member_id: str,
+        sales_role: Optional[str] = "__unset__",
+        handoff_ae_user_id: Optional[str] = "__unset__",
+        visibility: Optional[str] = "__unset__",
+    ) -> dict:
+        """D1/D2/D3: commercial type, SDR->AE routing and activity visibility.
+
+        Owner/admin only. A sentinel default tells "not provided" apart from
+        "explicitly cleared to null", since every field here is optional.
+        """
+        if not actor.can_manage_team:
+            raise HTTPException(status_code=403, detail="Only owners and admins can edit member profiles")
+
+        target = self._get_member_row(company_id, member_id)
+        updates: Dict[str, Any] = {}
+
+        if sales_role != "__unset__":
+            if sales_role is not None and sales_role not in SALES_ROLES:
+                raise HTTPException(status_code=400, detail="Invalid sales_role")
+            updates["sales_role"] = sales_role
+
+        if visibility != "__unset__":
+            if visibility is not None and visibility not in VISIBILITIES:
+                raise HTTPException(status_code=400, detail="Invalid visibility")
+            updates["visibility"] = visibility or "own"
+
+        if handoff_ae_user_id != "__unset__":
+            if handoff_ae_user_id:
+                if str(handoff_ae_user_id) == str(target["user_id"]):
+                    raise HTTPException(status_code=400, detail="A rep cannot route handoffs to themselves")
+                ae_row = self._get_member_row_by_user_id(company_id, str(handoff_ae_user_id))
+                ae_sales_role = ae_row.get("sales_role")
+                if ae_sales_role not in ("ae", "general"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="handoff_ae_user_id must belong to an AE or general rep in this company",
+                    )
+                updates["handoff_ae_user_id"] = str(handoff_ae_user_id)
+            else:
+                updates["handoff_ae_user_id"] = None
+
+        if not updates:
+            return target
+
+        updates["updated_at"] = _iso(_now())
+        result = (
+            self.supabase.table("company_members")
+            .update(updates)
             .eq("id", member_id)
             .eq("company_id", company_id)
             .execute()
@@ -656,6 +745,19 @@ class CompanyService:
         )
         if not result.data:
             raise HTTPException(status_code=404, detail="Member not found")
+        return result.data
+
+    def _get_member_row_by_user_id(self, company_id: str, user_id: str) -> dict:
+        result = (
+            self.supabase.table("company_members")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("company_id", company_id)
+            .single()
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=400, detail="handoff_ae_user_id is not a member of this company")
         return result.data
 
     def update_company_name(self, company_id: str, name: str) -> dict:
