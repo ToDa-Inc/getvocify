@@ -165,12 +165,28 @@ def playbook_fields_for_capture(
     playbook_version_id: Optional[str] = None,
     active_version_id: Optional[str] = None,
     default_when_unspecified: bool = False,
+    sales_role: Optional[str] = None,
+    interaction_kind: Optional[str] = None,
 ) -> dict[str, str]:
     """Pin the published playbook snapshot on a new memo row, same as desktop capture reserve."""
     from app.services.playbooks.versions import snapshot_for_capture
 
     motion = (sales_motion_key or "").strip() or None
     pinned_id = (playbook_version_id or "").strip() or None
+    if not motion and not pinned_id and interaction_kind:
+        # D5: the rep's role picks the flow, but only behind the flag, and only when that
+        # flow actually has something published. Otherwise the rule below (single published
+        # playbook) still applies, unchanged.
+        from app.services.feature_flags import is_enabled
+
+        if is_enabled(supabase, company_id, "SALES_ROLES_ENABLED"):
+            from app.services.playbooks.motion import motion_for
+
+            candidate = motion_for(sales_role, interaction_kind)
+            candidate_version = active_playbook_version(supabase, company_id, candidate)
+            if candidate_version:
+                motion = candidate
+                active_version_id = candidate_version
     if not motion and not pinned_id:
         if not default_when_unspecified:
             return {}
@@ -281,6 +297,7 @@ def reserve_capture(
     sales_motion_key: Optional[str] = None,
     playbook_version_id: Optional[str] = None,
     active_version_id: Optional[str] = None,
+    sales_role: Optional[str] = None,
 ) -> CaptureIdentity:
     client_id = (client_capture_id or "").strip()
     if not client_id:
@@ -305,6 +322,8 @@ def reserve_capture(
         sales_motion_key=sales_motion_key,
         playbook_version_id=playbook_version_id,
         active_version_id=active_version_id,
+        sales_role=sales_role,
+        interaction_kind=kind,
     )
     payload = {
         "user_id": user_id,

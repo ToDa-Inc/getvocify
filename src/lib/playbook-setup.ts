@@ -73,6 +73,32 @@ export function motionAfterImport(
   return { status, error: null };
 }
 
+/** D4: which motion keys the editor shows. With the flag off, unchanged (base keys + whatever
+ * the company has). With it on, qualification only shows once it has a published version;
+ * discovery/closing (already role-filtered by the API) always show. */
+export function visiblePlaybookKeys(
+  defaultKeys: readonly string[],
+  motions: Record<string, MotionStatus>,
+  salesRolesEnabled: boolean,
+): string[] {
+  if (!salesRolesEnabled) {
+    return Array.from(new Set<string>([...defaultKeys, ...Object.keys(motions)]));
+  }
+  return Object.keys(motions).filter((key) => key !== "qualification" || motions[key] === "published");
+}
+
+/** D4: "Prospección (SDR)" / "Demo y cierre (AE)" once the flag is on; the plain motion name
+ * (and any custom type) otherwise. */
+export function flowLabel(
+  key: string,
+  fallback: string,
+  flowLabels: Record<string, string>,
+  salesRolesEnabled: boolean,
+): string {
+  if (salesRolesEnabled && flowLabels[key]) return flowLabels[key];
+  return fallback;
+}
+
 export function importReview(record: {
   status: string;
   published: boolean;

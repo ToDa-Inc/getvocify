@@ -7,12 +7,18 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from supabase import Client
 
-from app.deps import get_membership
+from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+from app.services.feature_flags import is_enabled
 from app.services.playbooks.imports import start_import
+from app.services.playbooks.motion import goal_for, visible_to_role
 from app.services.playbooks.store import MemoryPlaybookStore
 from app.services.playbooks.versions import PublishError, can_publish
+
+SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
+MANAGE_ROLES = frozenset({"owner", "admin"})
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
@@ -115,8 +121,21 @@ async def create_import(body: ImportRequest, membership: Membership = Depends(ge
 
 
 @router.get("")
-async def list_playbooks(membership: Membership = Depends(get_membership)):
-    return {"motions": get_playbook_store().motions(membership.company_id)}
+async def list_playbooks(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    motions = get_playbook_store().motions(membership.company_id)
+    if not is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG):
+        return {"motions": motions}
+    if membership.role not in MANAGE_ROLES:
+        motions = {
+            key: status_
+            for key, status_ in motions.items()
+            if visible_to_role(key, membership.sales_role)
+        }
+    goals = {key: goal_for(key) for key in motions if goal_for(key)}
+    return {"motions": motions, "goals": goals}
 
 
 @router.post("/{sales_motion_key}/publish")

@@ -2,7 +2,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { applyPublishResult, importReview, motionAfterImport, playbookNotice } from "./playbook-setup.ts";
+import {
+  applyPublishResult,
+  flowLabel,
+  importReview,
+  motionAfterImport,
+  playbookNotice,
+  visiblePlaybookKeys,
+} from "./playbook-setup.ts";
 
 const playbooksSectionSource = readFileSync(
   fileURLToPath(new URL("../features/playbooks/components/PlaybooksSection.tsx", import.meta.url)),
@@ -96,5 +103,55 @@ describe("playbook setup", () => {
     const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
     assert.equal(drafted.status, "draft");
     assert.equal(drafted.error, null);
+  });
+});
+
+describe("visiblePlaybookKeys (T2, D4)", () => {
+  it("flag off: keeps the old behavior, base keys plus whatever the company has", () => {
+    const keys = visiblePlaybookKeys(
+      ["discovery", "qualification", "closing"],
+      { discovery: "published" },
+      false,
+    );
+    assert.deepEqual(new Set(keys), new Set(["discovery", "qualification", "closing"]));
+  });
+
+  it("flag on: qualification only shows once published", () => {
+    const missing = visiblePlaybookKeys(
+      ["discovery", "qualification", "closing"],
+      { discovery: "published", closing: "published", qualification: "draft" },
+      true,
+    );
+    assert.equal(missing.includes("qualification"), false);
+    const published = visiblePlaybookKeys(
+      ["discovery", "qualification", "closing"],
+      { discovery: "published", closing: "published", qualification: "published" },
+      true,
+    );
+    assert.equal(published.includes("qualification"), true);
+  });
+
+  it("flag on: only shows motions the API returned (already role-filtered)", () => {
+    const keys = visiblePlaybookKeys(["discovery", "qualification", "closing"], { discovery: "published" }, true);
+    assert.deepEqual(keys, ["discovery"]);
+  });
+});
+
+describe("flowLabel (T2, D4)", () => {
+  const flowLabels = { discovery: "Prospección (SDR)", closing: "Demo y cierre (AE)" };
+
+  it("flag off: always the plain fallback label", () => {
+    assert.equal(flowLabel("discovery", "Descubrimiento", flowLabels, false), "Descubrimiento");
+    assert.equal(flowLabel("closing", "Cierre", flowLabels, false), "Cierre");
+  });
+
+  it("flag on: the SDR/AE label for discovery and closing", () => {
+    assert.equal(flowLabel("discovery", "Descubrimiento", flowLabels, true), "Prospección (SDR)");
+    assert.equal(flowLabel("closing", "Cierre", flowLabels, true), "Demo y cierre (AE)");
+  });
+
+  it("flag on: a custom type keeps its plain label", () => {
+    assert.equal(flowLabel("qualification", "Calificación", flowLabels, true), "Calificación");
+    assert.equal(flowLabel("outbound", "outbound", flowLabels, true), "outbound");
   });
 });

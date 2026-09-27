@@ -399,6 +399,14 @@ export const productCatalog = {
     playbookPdfNoText: "The PDF has no text. Try another file or paste the text.",
     playbookImportFailed: "The import failed.",
     playbookContradiction: "Some steps contradict each other. Edit the draft before publishing.",
+    playbookFlowLabels: {
+      discovery: "Prospecting (SDR)",
+      closing: "Demo & close (AE)",
+    },
+    playbookGoalLabels: {
+      meeting_booked: "Goal: meeting booked",
+      proposal_and_close: "Goal: proposal & close",
+    },
     homeWelcome: "Welcome back,",
     homeReady: "Ready to update your CRM?",
     capturePaste: "Paste transcript",
@@ -819,6 +827,14 @@ export const productCatalog = {
     playbookPdfNoText: "El PDF no tiene texto. Prueba con otro archivo o pega el texto.",
     playbookImportFailed: "No se ha podido importar.",
     playbookContradiction: "Hay pasos contradictorios. Edita el borrador antes de publicar.",
+    playbookFlowLabels: {
+      discovery: "Prospección (SDR)",
+      closing: "Demo y cierre (AE)",
+    },
+    playbookGoalLabels: {
+      meeting_booked: "Objetivo: reunión agendada",
+      proposal_and_close: "Objetivo: propuesta y cierre",
+    },
     homeWelcome: "Hola de nuevo,",
     homeReady: "¿Listo para actualizar el CRM?",
     capturePaste: "Pegar transcripción",

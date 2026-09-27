@@ -74,6 +74,7 @@ async def create_capture(
         active_version_id=None if body.playbook_version_id else active_playbook_version(
             supabase, membership.company_id, body.sales_motion_key
         ),
+        sales_role=membership.sales_role,
     )
     return _to_response(identity)
 

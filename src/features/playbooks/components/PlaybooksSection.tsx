@@ -3,9 +3,11 @@ import { useAuth } from "@/features/auth";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
 import {
   applyPublishResult,
+  flowLabel,
   importReview,
   motionAfterImport,
   playbookNotice,
+  visiblePlaybookKeys,
   type MotionStatus,
   type PlaybookRole,
 } from "@/lib/playbook-setup";
@@ -28,11 +30,13 @@ export default function PlaybooksSection() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const role = roleOf(user?.company?.role);
+  const salesRolesEnabled = Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"));
   const [motions, setMotions] = useState<Record<string, MotionStatus>>({
     discovery: "missing",
     qualification: "missing",
     closing: "missing",
   });
+  const [goals, setGoals] = useState<Record<string, string>>({});
   const [text, setText] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<Record<string, string>>({});
@@ -42,15 +46,17 @@ export default function PlaybooksSection() {
   const [resumeId, setResumeId] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
   const notice = playbookNotice(role, motions);
-  const keys = Array.from(new Set<string>([...MOTIONS, ...Object.keys(motions)]));
+  const keys = visiblePlaybookKeys(MOTIONS, motions, salesRolesEnabled);
+  const activeKey = salesRolesEnabled ? openKey ?? keys[0] ?? null : openKey;
 
   useEffect(() => {
     let cancelled = false;
     api
-      .get<{ motions: Record<string, MotionStatus> }>("/playbooks")
+      .get<{ motions: Record<string, MotionStatus>; goals?: Record<string, string> }>("/playbooks")
       .then((data) => {
         if (cancelled) return;
         setMotions((current) => ({ ...current, ...data.motions }));
+        if (data.goals) setGoals(data.goals);
       })
       .catch(() => undefined);
     return () => {
@@ -130,6 +136,62 @@ export default function PlaybooksSection() {
     setTypeKey("");
   }
 
+  function flowKeyLabel(key: string): string {
+    return flowLabel(key, motionLabel(key, t.product.motions), t.product.playbookFlowLabels, salesRolesEnabled);
+  }
+
+  function goalKeyLabel(key: string): string | null {
+    const goal = goals[key];
+    if (!goal) return null;
+    return (t.product.playbookGoalLabels as Record<string, string>)[goal] ?? null;
+  }
+
+  function renderEditorBody(key: string) {
+    if (!(notice.canEdit && motions[key] !== "published")) return null;
+    return (
+      <div className="mt-3 space-y-3">
+        <textarea
+          className={field}
+          rows={3}
+          value={text[key] || ""}
+          placeholder={t.product.playbookPastePlaceholder}
+          onChange={(event) => setText((current) => ({ ...current, [key]: event.target.value }))}
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => void saveDraft(key, "text", text[key] || "")}>
+            {t.product.playbookSaveDraft}
+          </Button>
+          <Button type="button" variant="outline" size="sm" asChild>
+            <label>
+              {t.product.playbookImportPdf}
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const value = String(reader.result || "");
+                    const comma = value.indexOf(",");
+                    void saveDraft(key, "pdf", comma >= 0 ? value.slice(comma + 1) : value);
+                  };
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </label>
+          </Button>
+          {motions[key] === "draft" && canPublish[key] !== false ? (
+            <Button type="button" size="sm" onClick={() => void publish(key)}>
+              {t.product.playbookPublish}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   const statusLabel: Record<MotionStatus, string> = {
     missing: t.product.playbookStatusMissing,
     draft: t.product.playbookStatusDraft,
@@ -207,76 +269,68 @@ export default function PlaybooksSection() {
         </form>
         </details>
       ) : null}
-      <ul className="space-y-3">
-        {keys.map((key) => (
-          <li key={key} className="rounded-lg bg-secondary/40 px-4 py-4">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 text-left"
-              onClick={() => setOpenKey((current) => (current === key ? null : key))}
-            >
-              <span className="text-[15px] text-foreground">{motionLabel(key, t.product.motions)}</span>
-              <span className={THEME_TOKENS.typography.capsLabel}>
-                {statusLabel[motions[key] || "missing"]}
-                {versions[key] ? ` · ${t.product.playbookVersion.replace("{id}", versions[key])}` : ""}
-              </span>
-            </button>
-            {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(errors[key], t.product)}</p> : null}
-            {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(warnings[key], t.product)}</p> : null}
-            {notice.canEdit && motions[key] !== "published" && openKey === key ? (
-              <div className="mt-3 space-y-3">
-                <textarea
-                  className={field}
-                  rows={3}
-                  value={text[key] || ""}
-                  placeholder={t.product.playbookPastePlaceholder}
-                  onChange={(event) => setText((current) => ({ ...current, [key]: event.target.value }))}
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void saveDraft(key, "text", text[key] || "")}
-                  >
-                    {t.product.playbookSaveDraft}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" asChild>
-                    <label>
-                      {t.product.playbookImportPdf}
-                      <input
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        className="sr-only"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = () => {
-                            const value = String(reader.result || "");
-                            const comma = value.indexOf(",");
-                            void saveDraft(key, "pdf", comma >= 0 ? value.slice(comma + 1) : value);
-                          };
-                          reader.readAsDataURL(file);
-                        }}
-                      />
-                    </label>
-                  </Button>
-                  {motions[key] === "draft" && canPublish[key] !== false ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => void publish(key)}
-                    >
-                      {t.product.playbookPublish}
-                    </Button>
-                  ) : null}
-                </div>
+      {salesRolesEnabled ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2" role="tablist">
+            {keys.map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={activeKey === key}
+                className={`rounded-lg px-3 py-2 text-sm ${
+                  activeKey === key ? "bg-secondary text-foreground" : "bg-secondary/40 text-muted-foreground"
+                }`}
+                onClick={() => setOpenKey(key)}
+              >
+                {flowKeyLabel(key)}
+              </button>
+            ))}
+          </div>
+          {activeKey ? (
+            <div className="rounded-lg bg-secondary/40 px-4 py-4">
+              <div className="flex w-full items-center justify-between gap-3 text-left">
+                <span className="text-[15px] text-foreground">{flowKeyLabel(activeKey)}</span>
+                <span className={THEME_TOKENS.typography.capsLabel}>
+                  {statusLabel[motions[activeKey] || "missing"]}
+                  {versions[activeKey] ? ` · ${t.product.playbookVersion.replace("{id}", versions[activeKey])}` : ""}
+                </span>
               </div>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+              {goalKeyLabel(activeKey) ? (
+                <p className={`mt-1 ${THEME_TOKENS.typography.capsLabel}`}>{goalKeyLabel(activeKey)}</p>
+              ) : null}
+              {errors[activeKey] ? (
+                <p className="mt-2 text-sm text-muted-foreground">{productText(errors[activeKey], t.product)}</p>
+              ) : null}
+              {warnings[activeKey] ? (
+                <p className="mt-2 text-sm text-muted-foreground">{productText(warnings[activeKey], t.product)}</p>
+              ) : null}
+              {renderEditorBody(activeKey)}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {keys.map((key) => (
+            <li key={key} className="rounded-lg bg-secondary/40 px-4 py-4">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setOpenKey((current) => (current === key ? null : key))}
+              >
+                <span className="text-[15px] text-foreground">{motionLabel(key, t.product.motions)}</span>
+                <span className={THEME_TOKENS.typography.capsLabel}>
+                  {statusLabel[motions[key] || "missing"]}
+                  {versions[key] ? ` · ${t.product.playbookVersion.replace("{id}", versions[key])}` : ""}
+                </span>
+              </button>
+              {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(errors[key], t.product)}</p> : null}
+              {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(warnings[key], t.product)}</p> : null}
+              {openKey === key ? renderEditorBody(key) : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
