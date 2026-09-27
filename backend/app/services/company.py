@@ -70,23 +70,32 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def _api_code(exc: BaseException) -> str:
+    return str(getattr(exc, "code", "") or "").upper()
+
+
+def _api_message(exc: BaseException) -> str:
+    return str(getattr(exc, "message", None) or exc).lower()
+
+
 def _missing_company_schema(exc: BaseException) -> bool:
-    """True when company tables have not been migrated yet."""
+    """True when company tables have not been migrated yet. A missing column is not that."""
     try:
         from postgrest.exceptions import APIError
     except ImportError:
         APIError = ()  # type: ignore[misc, assignment]
 
+    msg = _api_message(exc)
+    if "column" in msg:
+        return False
     if isinstance(exc, APIError):
-        code = str(exc.code or "").upper()
+        code = _api_code(exc)
         if code in ("PGRST205", "404"):
             return True
-        msg = (exc.message or str(exc)).lower()
         if any(t in msg for t in ("company_members", "company_invitations", "companies")):
             if "could not find" in msg or "does not exist" in msg:
                 return True
 
-    msg = str(exc).lower()
     return (
         "pgrst205" in msg
         or 'relation "company_members" does not exist' in msg
@@ -94,18 +103,33 @@ def _missing_company_schema(exc: BaseException) -> bool:
     )
 
 
+def _missing_sales_role_column(exc: BaseException) -> bool:
+    msg = _api_message(exc)
+    return "sales_role" in msg and "column" in msg
+
+
+def _already_a_member(exc: BaseException) -> bool:
+    msg = _api_message(exc)
+    return _api_code(exc) == "23505" or "company_members_user_id_key" in msg
+
+
 class CompanyService:
     def __init__(self, supabase: Client):
         self.supabase = supabase
 
+    def _read_membership_row(self, user_id: str, columns: str) -> Any:
+        return (
+            self.supabase.table("company_members")
+            .select(columns)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+
     def get_membership(self, user_id: str) -> Optional[Membership]:
         try:
-            result = (
-                self.supabase.table("company_members")
-                .select("id, company_id, user_id, role, status, sales_role")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
+            result = self._read_membership_row(
+                user_id, "id, company_id, user_id, role, status, sales_role"
             )
         except Exception as exc:
             if _missing_company_schema(exc):
@@ -114,7 +138,16 @@ class CompanyService:
                     exc,
                 )
                 return None
-            raise
+            if not _missing_sales_role_column(exc):
+                raise
+            try:
+                result = self._read_membership_row(
+                    user_id, "id, company_id, user_id, role, status"
+                )
+            except Exception as fallback_exc:
+                if _missing_company_schema(fallback_exc):
+                    return None
+                raise
         rows = result.data or []
         if not rows:
             return None
@@ -242,6 +275,8 @@ class CompanyService:
                 return
             self.create_company_for_owner(user_id=user_id, name=name, seat_limit=1)
         except Exception as exc:
+            if _already_a_member(exc):
+                return
             if _missing_company_schema(exc):
                 logger.warning(
                     "Skipping company workspace setup until migration 028 is applied: %s",

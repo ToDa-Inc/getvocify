@@ -96,3 +96,69 @@ def test_missing_company_schema_detects_postgrest_error():
         }
     )
     assert _missing_company_schema(err) is True
+
+
+def test_a_missing_sales_role_column_is_not_a_missing_company_table():
+    from postgrest.exceptions import APIError
+
+    err = APIError(
+        {
+            "message": "Could not find the 'sales_role' column of 'company_members' in the schema cache",
+            "code": "PGRST204",
+            "details": None,
+            "hint": None,
+        }
+    )
+    assert _missing_company_schema(err) is False
+
+
+def test_get_membership_reads_without_sales_role_when_the_column_is_missing():
+    from postgrest.exceptions import APIError
+
+    missing_col = APIError(
+        {
+            "message": "Could not find the 'sales_role' column of 'company_members' in the schema cache",
+            "code": "PGRST204",
+            "details": None,
+            "hint": None,
+        }
+    )
+    row = {
+        "id": "m1",
+        "company_id": "co-1",
+        "user_id": "user-1",
+        "role": "owner",
+        "status": "active",
+    }
+    first = MagicMock()
+    first.select.return_value.eq.return_value.limit.return_value.execute.side_effect = missing_col
+    second = MagicMock()
+    second.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(data=[row])
+    supabase = MagicMock()
+    supabase.table.side_effect = [first, second]
+
+    membership = CompanyService(supabase).get_membership("user-1")
+    assert membership is not None
+    assert membership.company_id == "co-1"
+    assert membership.sales_role == "general"
+    assert "sales_role" not in second.select.call_args.args[0]
+
+
+def test_ensure_company_workspace_does_not_fail_when_the_member_already_exists():
+    from postgrest.exceptions import APIError
+
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.get_membership = MagicMock(return_value=None)
+    svc.create_company_for_owner = MagicMock(
+        side_effect=APIError(
+            {
+                "message": 'duplicate key value violates unique constraint "company_members_user_id_key"',
+                "code": "23505",
+                "details": "Key (user_id)=(user-1) already exists.",
+                "hint": None,
+            }
+        )
+    )
+
+    svc.ensure_company_workspace("user-1", name="My workspace")
