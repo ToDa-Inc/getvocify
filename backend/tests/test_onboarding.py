@@ -67,6 +67,29 @@ def test_needs_onboarding_true_for_owner_when_not_completed():
     assert svc.needs_onboarding(_membership()) is True
 
 
+def test_needs_onboarding_false_before_migration_059_when_the_column_is_missing():
+    """The row simply has no `onboarding_completed_at` key pre-migration - that must read as
+    "nothing to ask for", not as "incomplete", or every company would be forced into the
+    wizard the moment the flag flips on ahead of the migration running."""
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.onboarding_wizard_enabled = MagicMock(return_value=True)
+    svc.get_company = MagicMock(return_value={"id": "company-1", "name": "Acme"})
+    assert svc.needs_onboarding(_membership()) is False
+
+
+def test_needs_onboarding_accepts_an_already_fetched_company_row():
+    """company_summary_for_user and GET /company already have the row - passing it in skips
+    a second get_company call."""
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.onboarding_wizard_enabled = MagicMock(return_value=True)
+    svc.get_company = MagicMock(side_effect=AssertionError("should not re-fetch"))
+    assert svc.needs_onboarding(_membership(), {"onboarding_completed_at": None}) is True
+    assert svc.needs_onboarding(_membership(), {"onboarding_completed_at": "2026-09-27T00:00:00Z"}) is False
+    assert svc.needs_onboarding(_membership(), {"id": "company-1"}) is False
+
+
 def test_needs_onboarding_false_once_completed():
     supabase = MagicMock()
     svc = CompanyService(supabase)

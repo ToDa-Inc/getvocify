@@ -379,18 +379,23 @@ class CompanyService:
     def onboarding_wizard_enabled(self, company_id: str) -> bool:
         return is_enabled(self.supabase, company_id, ONBOARDING_WIZARD_FLAG)
 
-    def needs_onboarding(self, membership: "Membership") -> bool:
+    def needs_onboarding(self, membership: "Membership", company: Optional[dict] = None) -> bool:
         """T9: only a Head of Sales (owner/admin) ever gets the wizard, and only while the
-        flag is on. `onboarding_completed_at` comes back through get_company's `select("*")`,
-        so no fallback is needed here - a company on a database before migration 059 simply
-        never has the column, and `.get(...)` reads that as None like an incomplete one; the
-        flag being off by default is what keeps pre-migration behaviour unchanged."""
+        flag is on. Pass `company` when the caller already has the row (company_summary_for_user,
+        GET /company) to skip a second read.
+
+        `onboarding_completed_at` comes back through get_company's `select("*")`, so a company
+        on a database before migration 059 simply has no such key in the row - that reads as
+        "not asking for onboarding" (pre-migration behaviour unchanged), not as "incomplete".
+        Once the column exists, an explicit None means incomplete."""
         if not membership.can_manage_team:
             return False
         if not self.onboarding_wizard_enabled(membership.company_id):
             return False
-        company = self.get_company(membership.company_id)
-        return company.get("onboarding_completed_at") is None
+        row = company if company is not None else self.get_company(membership.company_id)
+        if "onboarding_completed_at" not in row:
+            return False
+        return row.get("onboarding_completed_at") is None
 
     def onboarding_state(self, company_id: str) -> dict:
         """Best-effort read of which onboarding steps already look done, for the wizard to
@@ -457,7 +462,7 @@ class CompanyService:
             "brief_v2_enabled": self.brief_v2_enabled(membership.company_id),
             "sales_role": membership.sales_role if sales_roles_on else None,
             "features": enabled_features(self.supabase, membership.company_id, LISTA_3_FLAGS),
-            "needs_onboarding": self.needs_onboarding(membership),
+            "needs_onboarding": self.needs_onboarding(membership, company),
         }
 
     def list_members(self, company_id: str, *, include_sales_fields: bool = False) -> List[dict]:

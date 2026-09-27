@@ -136,7 +136,7 @@ async def get_company(
         rep_workspace_enabled=svc.rep_workspace_enabled(membership.company_id),
         brief_v2_enabled=svc.brief_v2_enabled(membership.company_id),
         sales_strategy=company.get("sales_strategy") if svc.sales_strategy_enabled(membership.company_id) else None,
-        needs_onboarding=svc.needs_onboarding(membership),
+        needs_onboarding=svc.needs_onboarding(membership, company),
     )
 
 

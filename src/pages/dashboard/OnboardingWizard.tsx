@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SalesStrategySettings } from "@/components/dashboard/settings/SalesStrategySettings";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
+import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
+import type { User } from "@/features/auth/types";
 import { companyApi, companyKeys } from "@/features/company/api";
 import type { OnboardingStep } from "@/features/company/types";
 import { useLanguage } from "@/lib/i18n";
@@ -18,16 +20,25 @@ import TeamPage from "./TeamPage";
  * and SDR->AE routing (D2), SalesStrategySettings for D10. Every step can be skipped;
  * finishing (or skipping through all five) posts /company/onboarding/complete.
  */
-const STEPS: OnboardingStep[] = ["crm", "team", "handoff", "playbooks", "strategy"];
+const ALL_STEPS: OnboardingStep[] = ["crm", "team", "handoff", "playbooks", "strategy"];
 
 const OnboardingWizard = () => {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [stepIndex, setStepIndex] = useState(0);
   const [initialized, setInitialized] = useState(false);
 
-  const { data: onboarding, isLoading } = useQuery({
+  // D10: sales strategy only exists behind FOLLOWUP_BY_FLOW_ENABLED - omit the step
+  // entirely rather than showing a save form nothing will read.
+  const strategyEnabled = Boolean(user?.company?.features?.includes("FOLLOWUP_BY_FLOW_ENABLED"));
+  const steps = useMemo(
+    () => (strategyEnabled ? ALL_STEPS : ALL_STEPS.filter((s) => s !== "strategy")),
+    [strategyEnabled],
+  );
+
+  const { data: onboarding, isLoading, isError } = useQuery({
     queryKey: [...companyKeys.all, "onboarding"],
     queryFn: () => companyApi.getOnboardingState(),
   });
@@ -35,14 +46,20 @@ const OnboardingWizard = () => {
   // Land on the first step that still looks unfinished, computed once from the server.
   useEffect(() => {
     if (initialized || !onboarding) return;
-    const idx = onboarding.nextStep ? STEPS.indexOf(onboarding.nextStep) : 0;
+    const idx = onboarding.nextStep ? steps.indexOf(onboarding.nextStep) : 0;
     setStepIndex(idx >= 0 ? idx : 0);
     setInitialized(true);
-  }, [onboarding, initialized]);
+  }, [onboarding, initialized, steps]);
 
   const finishMutation = useMutation({
     mutationFn: () => companyApi.completeOnboarding(),
     onSuccess: () => {
+      // Update the cached user synchronously so DashboardHome's redirect check sees
+      // needsOnboarding=false right away - an invalidate alone resolves too late and
+      // bounces straight back to /dashboard/onboarding.
+      queryClient.setQueryData<User | null>(authKeys.me(), (prev) =>
+        prev?.company ? { ...prev, company: { ...prev.company, needsOnboarding: false } } : prev,
+      );
       queryClient.invalidateQueries({ queryKey: companyKeys.all });
       queryClient.invalidateQueries({ queryKey: authKeys.me() });
       toast.success(t.product.onboardingSavedToast);
@@ -50,6 +67,17 @@ const OnboardingWizard = () => {
     },
     onError: () => toast.error(t.product.onboardingSaveFailedToast),
   });
+
+  if (isError) {
+    return (
+      <div className="max-w-md mx-auto text-center space-y-4 py-16">
+        <p className="text-sm text-foreground">{t.product.onboardingLoadFailed}</p>
+        <Button type="button" variant="outline" className="rounded-full" onClick={() => navigate("/dashboard")}>
+          {t.product.navHome}
+        </Button>
+      </div>
+    );
+  }
 
   if (isLoading || !initialized) {
     return (
@@ -59,8 +87,8 @@ const OnboardingWizard = () => {
     );
   }
 
-  const step = STEPS[stepIndex];
-  const isLast = stepIndex === STEPS.length - 1;
+  const step = steps[stepIndex];
+  const isLast = stepIndex === steps.length - 1;
   const advance = () => (isLast ? finishMutation.mutate() : setStepIndex((i) => i + 1));
 
   return (
@@ -71,7 +99,7 @@ const OnboardingWizard = () => {
         <p className={`${THEME_TOKENS.typography.capsLabel} mt-3`}>
           {t.product.onboardingStepOf
             .replace("{current}", String(stepIndex + 1))
-            .replace("{total}", String(STEPS.length))}
+            .replace("{total}", String(steps.length))}
         </p>
       </div>
 
