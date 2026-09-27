@@ -20,6 +20,13 @@ class Viewer:
     role: str
     members: tuple
     visibility: Optional[str] = None
+    # T4/D8: contact_id -> sdr_user_id for every handoff (active or closed) to this
+    # viewer as AE. Empty unless HANDOFF_ENABLED - see resolve_viewer.
+    handoff_sdr_ids: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.handoff_sdr_ids is None:
+            object.__setattr__(self, "handoff_sdr_ids", {})
 
     @property
     def is_manager(self) -> bool:
@@ -57,6 +64,16 @@ class Viewer:
             )
         )
 
+    def readable_user_ids_for_contact(self, contact_id: Optional[str]) -> list[str]:
+        """readable_user_ids(), plus the SDR who handed this contact off to me (T4/D8) -
+        never a broader read, since a caller only widens with this when it also filters
+        the read to that exact contact_id."""
+        ids = set(self.readable_user_ids())
+        sdr_id = self.handoff_sdr_ids.get(str(contact_id)) if contact_id else None
+        if sdr_id:
+            ids.add(sdr_id)
+        return sorted(ids)
+
 
 def resolve_viewer(ctx: Any) -> Optional[Viewer]:
     cached = getattr(ctx, "viewer", None)
@@ -73,13 +90,21 @@ def resolve_viewer(ctx: Any) -> Optional[Viewer]:
     if membership is None or not membership.is_active or not membership.company_id:
         return None
     from app.services.activity_scope import effective_visibility
+    from app.services.handoff_visibility import handoff_sdr_ids_for_viewer
+
+    company_id = str(membership.company_id)
+    try:
+        handoff_sdr_ids = handoff_sdr_ids_for_viewer(supabase, company_id=company_id, viewer_id=user_id)
+    except Exception:
+        handoff_sdr_ids = {}
 
     viewer = Viewer(
         user_id=user_id,
-        company_id=str(membership.company_id),
+        company_id=company_id,
         role=str(membership.role or "member"),
         members=tuple(members or ()),
         visibility=effective_visibility(supabase, membership),
+        handoff_sdr_ids=handoff_sdr_ids,
     )
     try:
         ctx.viewer = viewer

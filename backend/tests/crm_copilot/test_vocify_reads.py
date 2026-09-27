@@ -331,6 +331,73 @@ async def test_the_last_conversation_with_a_contact(monkeypatch):
     assert result["has_more"] is True
 
 
+AE_MEMBERS = MEMBERS + [
+    {"user_id": "ae-x", "role": "member", "status": "active", "email": "x@co.es", "full_name": "Xavi"},
+]
+
+
+def _handoff_store(**extra_tables):
+    store = _conversation_store()
+    store.tables["company_feature_flags"] = [
+        {"company_id": CO, "flag": "HANDOFF_ENABLED", "enabled": True},
+    ]
+    store.tables["deal_handoffs"] = [
+        {"company_id": CO, "contact_id": "c-7", "sdr_user_id": "rep-a", "ae_user_id": "ae-x", "status": "active"},
+    ]
+    store.tables.update(extra_tables)
+    return store
+
+
+async def test_ae_reads_the_handed_off_sdr_conversations_for_that_contact(monkeypatch):
+    _patch_viewer(
+        monkeypatch,
+        role_by_user={"rep-a": "member", "rep-b": "member", "boss": "admin", "ae-x": "member"},
+        members=AE_MEMBERS,
+    )
+    result = await execute_tool(
+        "list_conversations", {"contact_id": "c-7"}, _ctx(_handoff_store(), "ae-x"),
+    )
+    assert result["coverage"] == "complete"
+    ids = [item["memo_id"] for item in result["items"]]
+    assert ids == ["own-1", "own-old"]
+
+
+async def test_ae_without_contact_id_does_not_get_the_sdr_added(monkeypatch):
+    _patch_viewer(
+        monkeypatch,
+        role_by_user={"rep-a": "member", "rep-b": "member", "boss": "admin", "ae-x": "member"},
+        members=AE_MEMBERS,
+    )
+    result = await execute_tool("list_conversations", {}, _ctx(_handoff_store(), "ae-x"))
+    assert result["items"] == []
+
+
+async def test_ae_reads_nothing_for_a_contact_not_handed_off_to_them(monkeypatch):
+    _patch_viewer(
+        monkeypatch,
+        role_by_user={"rep-a": "member", "rep-b": "member", "boss": "admin", "ae-x": "member"},
+        members=AE_MEMBERS,
+    )
+    result = await execute_tool(
+        "list_conversations", {"contact_id": "c-9"}, _ctx(_handoff_store(), "ae-x"),
+    )
+    assert result["items"] == []
+
+
+async def test_handoff_flag_off_denies_the_ae_read(monkeypatch):
+    _patch_viewer(
+        monkeypatch,
+        role_by_user={"rep-a": "member", "rep-b": "member", "boss": "admin", "ae-x": "member"},
+        members=AE_MEMBERS,
+    )
+    store = _handoff_store()
+    store.tables["company_feature_flags"] = []
+    result = await execute_tool(
+        "list_conversations", {"contact_id": "c-7"}, _ctx(store, "ae-x"),
+    )
+    assert result["items"] == []
+
+
 async def test_no_conversations_is_complete_and_a_failed_read_is_unavailable(monkeypatch):
     _patch_viewer(monkeypatch)
     empty = await execute_tool("list_conversations", {"contact_id": "nobody"}, _ctx(_conversation_store(), "rep-a"))

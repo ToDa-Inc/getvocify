@@ -4,6 +4,8 @@ import {
   contactPhone,
   conversationLine,
   firstName,
+  handoffHistoryRequest,
+  handoffHistoryTitle,
   historyRequest,
   initials,
   meetingCardLine,
@@ -11,6 +13,7 @@ import {
   panelMeetingLine,
   panelFilledPill,
   panelPrimary,
+  showsHandoffHistory,
   showsHistory,
 } from "./contact-panel.ts";
 
@@ -94,6 +97,22 @@ describe("contact panel history", () => {
     const request = historyRequest("12 34");
     assert.equal(request, "/memos?hubspot_contact_id=12+34&reached_only=true&limit=3");
     assert.equal(request.includes("scope"), false);
+  });
+
+  it("shows the SDR's handoff history only with the flag on and an SDR name", () => {
+    assert.equal(showsHandoffHistory(true, "Ana"), true);
+    assert.equal(showsHandoffHistory(false, "Ana"), false);
+    assert.equal(showsHandoffHistory(true, null), false);
+    assert.equal(showsHandoffHistory(true, "  "), false);
+  });
+
+  it("asks for the SDR's conversations for this contact, scoped to the handoff", () => {
+    const request = handoffHistoryRequest("12 34");
+    assert.equal(request, "/memos?scope=handoffs&hubspot_contact_id=12+34");
+  });
+
+  it("fills the handoff history title with the SDR's name", () => {
+    assert.equal(handoffHistoryTitle("Lo que habló {sdr}", "Ana"), "Lo que habló Ana");
   });
 
   it("names the kind of conversation and its minutes", () => {

@@ -149,6 +149,69 @@ def test_readable_memo_or_none_lets_admin_read_teammate_row():
     ) is None
 
 
+def test_memo_readable_by_handoff_sdr_reads_owner():
+    assert memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="sdr",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_id="sdr",
+    )
+
+
+def test_memo_readable_by_handoff_sdr_id_mismatch_denied():
+    assert not memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="other-sdr",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_id="sdr",
+    )
+
+
+def test_memo_readable_by_no_handoff_denied():
+    assert not memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="sdr",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_id=None,
+    )
+
+
+def test_readable_memo_or_none_handoff_matches_contact_and_sdr():
+    row = {"id": "m1", "user_id": "sdr", "hubspot_contact_id": "c1"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="ae",
+        viewer_role="member",
+        member_ids=["ae", "sdr"],
+        handoff_sdr_ids={"c1": "sdr"},
+    ) is row
+
+
+def test_readable_memo_or_none_handoff_wrong_contact_denied():
+    row = {"id": "m1", "user_id": "sdr", "hubspot_contact_id": "c2"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="ae",
+        viewer_role="member",
+        member_ids=["ae", "sdr"],
+        handoff_sdr_ids={"c1": "sdr"},
+    ) is None
+
+
+def test_readable_memo_or_none_handoff_wrong_sdr_denied():
+    row = {"id": "m1", "user_id": "other-sdr", "hubspot_contact_id": "c1"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="ae",
+        viewer_role="member",
+        member_ids=["ae", "other-sdr"],
+        handoff_sdr_ids={"c1": "sdr"},
+    ) is None
+
+
 def test_memo_readable_by_team_visibility_reads_teammate_not_outsider():
     assert memo_readable_by(
         viewer_id="rep-a",

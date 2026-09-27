@@ -60,14 +60,17 @@ def _in_company(row: dict, viewer: Viewer) -> bool:
 
 
 def _scoped_user_ids(args: dict, viewer: Viewer) -> tuple[Optional[list[str]], str]:
-    """Explicit user_id: yourself, or a teammate if you manage. Otherwise what your role reads."""
+    """Explicit user_id: yourself, or a teammate if you manage. Otherwise what your role
+    reads - widened, for your own scope, by the SDR of a handoff to you (T4/D8) when the
+    caller also asks about that exact contact_id, never more broadly."""
     requested = str(args.get("user_id") or "").strip()
     if requested and requested != viewer.user_id:
         if not viewer.is_manager or not viewer.is_member(requested):
             return None, "forbidden"
         return [requested], "user"
     if requested or not viewer.is_manager:
-        return [viewer.user_id], "me"
+        contact_id = str(args.get("contact_id") or "").strip() or None
+        return viewer.readable_user_ids_for_contact(contact_id), "me"
     return viewer.readable_user_ids(), "team"
 
 

@@ -83,6 +83,26 @@ export function historyRequest(contactId: string): string {
   return `/memos?${params.toString()}`;
 }
 
+/**
+ * T4/D8: the section "Lo que habló {SDR}" - the SDR's memos for a contact handed off to
+ * this AE. Only shown behind HANDOFF_ENABLED and only when there is an SDR name to label
+ * it with (the backend returns nothing for scope=handoffs without an active-or-closed
+ * handoff for this contact anyway, but the panel doesn't render an empty section either).
+ */
+export function showsHandoffHistory(handoffEnabled: boolean, sdrName: string | null | undefined): boolean {
+  return handoffEnabled && !!sdrName?.trim();
+}
+
+export function handoffHistoryRequest(contactId: string): string {
+  const params = new URLSearchParams({ scope: "handoffs", hubspot_contact_id: contactId });
+  return `/memos?${params.toString()}`;
+}
+
+/** "Lo que habló {SDR}" / "What {SDR} said" - i18n owns the template, this only fills it. */
+export function handoffHistoryTitle(template: string, sdrName: string): string {
+  return template.replace("{sdr}", sdrName);
+}
+
 const KIND_KEYS: Record<string, "panel_kind_call" | "panel_kind_meeting" | "panel_kind_visit"> = {
   call: "panel_kind_call",
   meeting: "panel_kind_meeting",

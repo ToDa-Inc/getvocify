@@ -23,6 +23,7 @@ from app.services.activity_scope import (
     resolve_list_user_ids,
 )
 from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row, interaction_kind_of
+from app.services.handoff_visibility import handoff_sdr_ids_for_viewer
 from app.services.followup import schedule_followup
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
@@ -72,6 +73,11 @@ def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict
         viewer_role=membership.role if membership else None,
         member_ids=company_user_ids(members),
         viewer_visibility=effective_visibility(supabase, membership),
+        handoff_sdr_ids=handoff_sdr_ids_for_viewer(
+            supabase,
+            company_id=membership.company_id if membership else None,
+            viewer_id=user_id,
+        ),
     )
     if not memo_data:
         raise HTTPException(
@@ -790,6 +796,11 @@ async def list_memos(
     - hubspot_deal_id: memos from calls on that deal, or approved against it
     - hubspot_contact_id: memos from calls on that contact
 
+    scope=handoffs (T4/D8): the SDR's memos for one handed-off contact, for the AE it
+    was handed to. Requires hubspot_contact_id; with no active-or-closed handoff for
+    that contact and this viewer (or HANDOFF_ENABLED off), it returns an empty list
+    rather than an error - there is simply nothing to show yet.
+
     Optional status: exact pipeline status (e.g. pending_review). Screened-out
     calls (voicemail, no answer) are pending_review too; reached_only=true
     drops them and keeps memos with no screening outcome.
@@ -812,6 +823,28 @@ async def list_memos(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only owners and admins can list company activity",
         )
+    if scope_norm == "handoffs":
+        contact_filter = (hubspot_contact_id or "").strip() or None
+        handoff_map = handoff_sdr_ids_for_viewer(
+            supabase,
+            company_id=membership.company_id if membership else None,
+            viewer_id=user_id,
+        )
+        sdr_id = handoff_map.get(contact_filter) if contact_filter else None
+        return [] if not sdr_id else [
+            _memo_from_row(memo_data, authors.get(sdr_id))
+            for memo_data in (
+                supabase.table("memos")
+                .select("*")
+                .eq("user_id", sdr_id)
+                .eq("hubspot_contact_id", contact_filter)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .offset(offset)
+                .execute()
+                .data or []
+            )
+        ]
     try:
         user_ids = resolve_list_user_ids(
             viewer_id=user_id,
@@ -989,12 +1022,19 @@ async def get_memo(
     memo_data = result.data[0]
     membership, members, authors = load_viewer_scope(supabase, user_id)
     owner_id = str(memo_data.get("user_id") or "")
+    contact_id = str(memo_data.get("hubspot_contact_id") or "")
+    handoff_map = handoff_sdr_ids_for_viewer(
+        supabase,
+        company_id=membership.company_id if membership else None,
+        viewer_id=user_id,
+    )
     if not memo_readable_by(
         viewer_id=user_id,
         owner_user_id=owner_id,
         viewer_role=membership.role if membership else None,
         same_company=owner_id in set(company_user_ids(members)),
         viewer_visibility=effective_visibility(supabase, membership),
+        handoff_sdr_id=handoff_map.get(contact_id) if contact_id else None,
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
