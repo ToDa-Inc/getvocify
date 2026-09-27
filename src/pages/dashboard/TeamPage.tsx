@@ -38,10 +38,13 @@ function MemberSalesControls({
 }) {
   const salesRole = member.salesRole ?? "";
   const isSdr = salesRole === "sdr";
+  // D1: a null sales_role behaves as "general" — both are valid handoff targets,
+  // same as an explicit AE. Only active members can receive a handoff.
   const aeCandidates = members.filter(
     (candidate) =>
       candidate.userId !== member.userId &&
-      (candidate.salesRole === "ae" || candidate.salesRole === "general"),
+      candidate.status === "active" &&
+      (candidate.salesRole == null || candidate.salesRole === "ae" || candidate.salesRole === "general"),
   );
 
   return (
@@ -60,7 +63,6 @@ function MemberSalesControls({
         <option value="">{t.teamMemberTypeGeneral}</option>
         <option value="sdr">{t.teamMemberTypeSdr}</option>
         <option value="ae">{t.teamMemberTypeAe}</option>
-        <option value="general">{t.teamMemberTypeGeneral}</option>
       </select>
 
       {isSdr && (
@@ -462,7 +464,6 @@ const TeamPage = () => {
                   <option value="">{t.product.teamMemberTypeGeneral}</option>
                   <option value="sdr">{t.product.teamMemberTypeSdr}</option>
                   <option value="ae">{t.product.teamMemberTypeAe}</option>
-                  <option value="general">{t.product.teamMemberTypeGeneral}</option>
                 </select>
               </div>
             )}

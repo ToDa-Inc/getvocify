@@ -24,7 +24,6 @@ from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
 from app.services.activity_scope import (
     company_user_ids,
-    effective_visibility,
     load_viewer_scope,
     readable_memo_or_none,
 )
@@ -63,12 +62,13 @@ async def approve_memo_core(
     memo_result = supabase.table("memos").select("*").eq("id", memo_id).execute()
     rows = memo_result.data or []
     membership, members, _authors = load_viewer_scope(supabase, user_id)
+    # Approve is a write path: visibility=team is read-only (D3), so it must NOT
+    # widen who can approve. Owner/admin or the memo's own author only.
     memo_data = readable_memo_or_none(
         rows[0] if rows else None,
         viewer_id=user_id,
         viewer_role=membership.role if membership else None,
         member_ids=company_user_ids(members),
-        viewer_visibility=effective_visibility(supabase, membership),
     )
     if not memo_data:
         raise ValueError("Memo not found")

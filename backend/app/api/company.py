@@ -236,14 +236,9 @@ async def update_member_role(
     svc = CompanyService(supabase)
     membership = svc.require_membership(user_id)
     updated: dict = {}
-    if body.role is not None:
-        updated = svc.update_member_role(
-            company_id=membership.company_id,
-            member_id=member_id,
-            role=body.role,
-            actor=membership,
-        )
 
+    # Sales fields are validated (and applied) before any role change, so a bad
+    # sales_role/handoff/visibility never leaves the role half-updated.
     sales_fields_sent = {"sales_role", "handoff_ae_user_id", "visibility"} & body.model_fields_set
     if sales_fields_sent and svc.sales_roles_enabled(membership.company_id):
         kwargs: Dict[str, Any] = {}
@@ -258,6 +253,14 @@ async def update_member_role(
             actor=membership,
             member_id=member_id,
             **kwargs,
+        )
+
+    if body.role is not None:
+        updated = svc.update_member_role(
+            company_id=membership.company_id,
+            member_id=member_id,
+            role=body.role,
+            actor=membership,
         )
 
     return {

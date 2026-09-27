@@ -100,6 +100,27 @@ def _missing_company_schema(exc: BaseException) -> bool:
     )
 
 
+_SALES_COLUMN_NAMES = ("sales_role", "handoff_ae_user_id", "visibility")
+
+
+def _missing_sales_columns(exc: BaseException) -> bool:
+    """True when migration 054_sales_roles.sql (sales_role/handoff_ae_user_id/visibility)
+    has not run yet: an undefined-column error naming one of those columns."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if (code == "42703" or "does not exist" in msg) and any(n in msg for n in _SALES_COLUMN_NAMES):
+            return True
+
+    msg = str(exc).lower()
+    return "42703" in msg and any(n in msg for n in _SALES_COLUMN_NAMES)
+
+
 class CompanyService:
     def __init__(self, supabase: Client):
         self.supabase = supabase
@@ -114,13 +135,30 @@ class CompanyService:
                 .execute()
             )
         except Exception as exc:
-            if _missing_company_schema(exc):
+            # Checked before _missing_company_schema: an undefined sales_role/etc. column
+            # error also mentions "company_members" and "does not exist", so the more
+            # specific check must run first or it never fires.
+            if _missing_sales_columns(exc):
+                logger.warning(
+                    "sales_role/handoff_ae_user_id/visibility unavailable (run migration "
+                    "054_sales_roles.sql): %s",
+                    exc,
+                )
+                result = (
+                    self.supabase.table("company_members")
+                    .select("id, company_id, user_id, role, status")
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+            elif _missing_company_schema(exc):
                 logger.warning(
                     "Company schema unavailable (run migration 028_companies.sql): %s",
                     exc,
                 )
                 return None
-            raise
+            else:
+                raise
         rows = result.data or []
         if not rows:
             return None
@@ -444,8 +482,11 @@ class CompanyService:
             "token_hash": hash_token(raw_token),
             "invited_by": invited_by,
             "expires_at": _iso(expires),
-            "sales_role": sales_role,
         }
+        # Column only exists after migration 054; omit rather than send when unused so
+        # invites keep working before it is applied.
+        if sales_role:
+            row["sales_role"] = sales_role
         result = self.supabase.table("company_invitations").insert(row).execute()
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to create invite")
@@ -584,15 +625,17 @@ class CompanyService:
             }
             self.supabase.table("user_profiles").insert(profile).execute()
 
-        self.supabase.table("company_members").insert(
-            {
-                "company_id": company_id,
-                "user_id": user_id,
-                "role": role,
-                "status": "active",
-                "sales_role": sales_role,
-            }
-        ).execute()
+        member_row = {
+            "company_id": company_id,
+            "user_id": user_id,
+            "role": role,
+            "status": "active",
+        }
+        # Column only exists after migration 054; omit rather than send when unused so
+        # invite acceptance keeps working before it is applied.
+        if sales_role:
+            member_row["sales_role"] = sales_role
+        self.supabase.table("company_members").insert(member_row).execute()
         self.supabase.table("user_profiles").update({"company_id": company_id}).eq(
             "id", user_id
         ).execute()
@@ -677,8 +720,14 @@ class CompanyService:
                 if str(handoff_ae_user_id) == str(target["user_id"]):
                     raise HTTPException(status_code=400, detail="A rep cannot route handoffs to themselves")
                 ae_row = self._get_member_row_by_user_id(company_id, str(handoff_ae_user_id))
+                if (ae_row.get("status") or "active") != "active":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="handoff_ae_user_id must be an active member",
+                    )
                 ae_sales_role = ae_row.get("sales_role")
-                if ae_sales_role not in ("ae", "general"):
+                # D1: a null sales_role behaves as "general".
+                if ae_sales_role not in (None, "ae", "general"):
                     raise HTTPException(
                         status_code=400,
                         detail="handoff_ae_user_id must belong to an AE or general rep in this company",
@@ -748,17 +797,20 @@ class CompanyService:
         return result.data
 
     def _get_member_row_by_user_id(self, company_id: str, user_id: str) -> dict:
+        # limit(1) rather than single(): single() raises (500) on zero rows, and a
+        # non-member handoff_ae_user_id is an ordinary 400, not a server error.
         result = (
             self.supabase.table("company_members")
             .select("*")
             .eq("user_id", user_id)
             .eq("company_id", company_id)
-            .single()
+            .limit(1)
             .execute()
         )
-        if not result.data:
+        rows = result.data or []
+        if not rows:
             raise HTTPException(status_code=400, detail="handoff_ae_user_id is not a member of this company")
-        return result.data
+        return rows[0]
 
     def update_company_name(self, company_id: str, name: str) -> dict:
         name = name.strip()
