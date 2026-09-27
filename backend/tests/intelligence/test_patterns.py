@@ -120,6 +120,31 @@ def test_c04_objections_replace_legacy_categories_when_intelligence_is_current(m
     assert rows[0]["evidence_refs"] == ["ev-1"]
 
 
+def test_current_c04_with_no_objections_supersedes_the_legacy_text(monkeypatch):
+    monkeypatch.setattr("app.services.intelligence.extract.is_current", lambda _memo: True)
+    rows = patterns_from_extraction(
+        memo_id="memo-1",
+        input_revision="rev-1",
+        extraction={"objections": ["No es el mejor momento"], "intelligence": {"objections": []}},
+        memo={"id": "memo-1"},
+    )
+    assert rows == []
+
+
+def test_an_objection_is_dated_at_its_conversation_not_at_projection():
+    memo = {"id": "memo-1", "created_at": "2026-09-22T11:05:39+00:00"}
+    rows = patterns_from_extraction(
+        memo_id="memo-1",
+        input_revision="rev-1",
+        extraction={"objections": ["Está caro"]},
+        memo=memo,
+    )
+    assert rows[0]["created_at"] == "2026-09-22T11:05:39+00:00"
+    assert "created_at" not in patterns_from_extraction(
+        memo_id="memo-1", input_revision="rev-1", extraction={"objections": ["Está caro"]},
+    )[0]
+
+
 def test_driving_now_is_an_obstacle_not_a_commercial_objection():
     rows = patterns_from_extraction(
         memo_id="memo-1",

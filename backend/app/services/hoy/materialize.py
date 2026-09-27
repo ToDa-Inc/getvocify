@@ -33,7 +33,8 @@ def _intelligence(memo: dict) -> dict:
 
 
 def _objections(extraction: dict, intelligence: dict) -> list[dict]:
-    raw = intelligence.get("objections") or extraction.get("objections") or []
+    c04 = intelligence.get("objections")
+    raw = c04 if isinstance(c04, list) else extraction.get("objections") or []
     open_rows: list[dict] = []
     for item in raw:
         if isinstance(item, str):

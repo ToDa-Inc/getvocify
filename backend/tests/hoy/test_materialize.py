@@ -26,3 +26,20 @@ def test_a_stored_open_objection_becomes_one_signal_without_a_model():
     assert [signal.type for signal in signals] == ["objection_open"]
     assert signals[0].payload["category"] == "price"
     assert "caro" in signals[0].payload["quote"]
+
+
+def test_intelligence_with_no_objections_overrides_the_legacy_text():
+    signals = fresh_signals(
+        [{
+            "id": "memo-1",
+            "hubspot_contact_id": "42",
+            "capture_started_at": "2026-09-20T10:00:00Z",
+            "extraction": {
+                "objections": ["No es el mejor momento"],
+                "intelligence": {"interest": "high", "objections": []},
+            },
+        }],
+        now=NOW,
+        day_end=DAY_END,
+    )
+    assert "objection_open" not in [signal.type for signal in signals]

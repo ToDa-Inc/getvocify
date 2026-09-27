@@ -13,7 +13,7 @@ HUBSPOT_ANALYTICS_SOURCE = {
     "REFERRALS": "referido",
     "OTHER_CAMPAIGNS": "otra campaña",
     "DIRECT_TRAFFIC": "tráfico directo",
-    "OFFLINE": "fuente offline",
+    "OFFLINE": "alta en el CRM",
     "PAID_SOCIAL": "redes de pago",
 }
 # Priority reasons a Hoy card labels (shared/ui/hoy-copy.js). Others have no card wording to reuse.

@@ -122,7 +122,7 @@ def test_partial_read_keeps_verified_lines_and_notice():
         ("REFERRALS", "referido"),
         ("OTHER_CAMPAIGNS", "otra campaña"),
         ("DIRECT_TRAFFIC", "tráfico directo"),
-        ("OFFLINE", "fuente offline"),
+        ("OFFLINE", "alta en el CRM"),
         ("PAID_SOCIAL", "redes de pago"),
     ],
 )

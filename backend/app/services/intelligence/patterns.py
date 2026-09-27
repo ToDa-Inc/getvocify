@@ -84,7 +84,7 @@ def _objections_for_patterns(extraction: dict, *, memo: dict | None = None) -> l
         intelligence = extraction.get("intelligence")
         if isinstance(intelligence, dict):
             c04 = intelligence.get("objections")
-            if isinstance(c04, list) and c04:
+            if isinstance(c04, list):
                 return c04
     legacy = extraction.get("objections")
     return legacy if isinstance(legacy, list) else []
@@ -150,7 +150,7 @@ def patterns_from_extraction(
         if pattern_id in seen:
             continue
         seen.add(pattern_id)
-        rows.append(pattern_from_situation(
+        row = pattern_from_situation(
             pattern_id=pattern_id,
             memo_id=memo_id,
             input_revision=input_revision,
@@ -159,7 +159,11 @@ def patterns_from_extraction(
             resolution=resolution,
             response=response,
             evidence_refs=evidence_refs,
-        ))
+        )
+        # Team and weekly reports bucket objections by created_at; a late projection keeps the conversation's week.
+        if memo and memo.get("created_at"):
+            row["created_at"] = memo["created_at"]
+        rows.append(row)
     return rows
 
 
