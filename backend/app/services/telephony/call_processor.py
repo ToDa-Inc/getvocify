@@ -25,6 +25,7 @@ from app.metrics import (
     record_transcription_duration,
 )
 from app.services.captures import interaction_kind_for, playbook_fields_for_capture, with_author_company
+from app.services.company import sales_role_for_user
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_audio
 from app.services.telephony.call_screening import classify_call_outcome
@@ -113,7 +114,13 @@ async def initiate_vocify_call_memo(
     row = with_author_company(supabase, row)
     company_id = row.get("company_id")
     if company_id:
-        row.update(playbook_fields_for_capture(supabase, str(company_id), default_when_unspecified=True))
+        row.update(playbook_fields_for_capture(
+            supabase,
+            str(company_id),
+            default_when_unspecified=True,
+            sales_role=sales_role_for_user(supabase, call_row["user_id"]),
+            interaction_kind=row["interaction_kind"],
+        ))
     ins = supabase.table("memos").insert(row).execute()
     if not ins.data:
         return None, False

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  applyFetchedMotions,
   applyPublishResult,
   flowLabel,
   importReview,
@@ -103,6 +104,28 @@ describe("playbook setup", () => {
     const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
     assert.equal(drafted.status, "draft");
     assert.equal(drafted.error, null);
+  });
+});
+
+describe("applyFetchedMotions (T2 review fix, D5)", () => {
+  it("flag off: merges onto local defaults, same as before", () => {
+    const merged = applyFetchedMotions(
+      { discovery: "missing", qualification: "missing", closing: "missing" },
+      { discovery: "published" },
+      false,
+    );
+    assert.deepEqual(merged, { discovery: "published", qualification: "missing", closing: "missing" });
+  });
+
+  it("flag on: replaces local state so a role-filtered motion does not linger", () => {
+    // A SDR's local defaults include "closing", but the server already dropped it (D5).
+    const replaced = applyFetchedMotions(
+      { discovery: "missing", qualification: "missing", closing: "missing" },
+      { discovery: "published" },
+      true,
+    );
+    assert.deepEqual(replaced, { discovery: "published" });
+    assert.equal("closing" in replaced, false);
   });
 });
 

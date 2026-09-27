@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
 import {
+  applyFetchedMotions,
   applyPublishResult,
   flowLabel,
   importReview,
@@ -55,14 +56,15 @@ export default function PlaybooksSection() {
       .get<{ motions: Record<string, MotionStatus>; goals?: Record<string, string> }>("/playbooks")
       .then((data) => {
         if (cancelled) return;
-        setMotions((current) => ({ ...current, ...data.motions }));
+        setMotions((current) => applyFetchedMotions(current, data.motions, salesRolesEnabled));
         if (data.goals) setGoals(data.goals);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salesRolesEnabled]);
 
   async function saveDraft(key: string, kind: "text" | "pdf", payload: string) {
     const body = payload.trim();

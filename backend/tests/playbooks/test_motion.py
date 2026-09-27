@@ -7,12 +7,14 @@ def test_sdr_always_prospects_regardless_of_channel():
     assert motion_for("sdr", "call") == "discovery"
     assert motion_for("sdr", "meeting") == "discovery"
     assert motion_for("sdr", "visit") == "discovery"
+    assert motion_for("sdr", "voice_note") == "discovery"
 
 
 def test_ae_always_closes_regardless_of_channel():
     assert motion_for("ae", "call") == "closing"
     assert motion_for("ae", "meeting") == "closing"
     assert motion_for("ae", "visit") == "closing"
+    assert motion_for("ae", "voice_note") == "closing"
 
 
 def test_general_or_missing_role_follows_the_channel():
@@ -25,6 +27,13 @@ def test_general_or_missing_role_follows_the_channel():
 def test_unknown_role_falls_back_to_channel_like_general():
     assert motion_for("closer", "call") == "discovery"
     assert motion_for("closer", "meeting") == "closing"
+
+
+def test_general_or_missing_role_with_no_fixed_channel_has_no_motion():
+    """A voice_note (or any other channel) has no fixed flow for general/no role: the
+    caller falls back to its existing single-published-playbook rule."""
+    for role in ("general", None, "", "  "):
+        assert motion_for(role, "voice_note") is None
 
 
 def test_goal_for_matches_d4_defaults():

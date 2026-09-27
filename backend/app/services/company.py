@@ -121,6 +121,17 @@ def _missing_sales_columns(exc: BaseException) -> bool:
     return "42703" in msg and any(n in msg for n in _SALES_COLUMN_NAMES)
 
 
+def sales_role_for_user(supabase: Client, user_id: str) -> Optional[str]:
+    """Best-effort sales_role lookup for capture routing (D5). Tolerant of the sales_role
+    column not existing yet (delegates to get_membership) and never raises."""
+    try:
+        membership = CompanyService(supabase).get_membership(str(user_id))
+    except Exception as exc:
+        logger.warning("sales_role lookup failed for %s: %s", user_id, exc)
+        return None
+    return membership.sales_role if membership else None
+
+
 class CompanyService:
     def __init__(self, supabase: Client):
         self.supabase = supabase

@@ -73,6 +73,19 @@ export function motionAfterImport(
   return { status, error: null };
 }
 
+/** How a fetched `/playbooks` response is merged into local state. With the flag off, the
+ * server always returns every motion, so merging onto the local defaults is safe. With the
+ * flag on, the server has already dropped the motions this member's sales_role cannot see
+ * (D5) — merging would leave those defaults ("missing") behind and show a flow the member
+ * should not see, so the fetched map replaces local state outright. */
+export function applyFetchedMotions(
+  current: Record<string, MotionStatus>,
+  fetched: Record<string, MotionStatus>,
+  salesRolesEnabled: boolean,
+): Record<string, MotionStatus> {
+  return salesRolesEnabled ? { ...fetched } : { ...current, ...fetched };
+}
+
 /** D4: which motion keys the editor shows. With the flag off, unchanged (base keys + whatever
  * the company has). With it on, qualification only shows once it has a published version;
  * discovery/closing (already role-filtered by the API) always show. */

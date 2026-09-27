@@ -16,12 +16,19 @@ GOAL_FOR_MOTION = {
 }
 
 
-def motion_for(sales_role: Optional[str], interaction_kind: str) -> str:
-    """The sales motion a capture should pin to, from the rep's sales_role and the channel."""
+def motion_for(sales_role: Optional[str], interaction_kind: str) -> Optional[str]:
+    """The sales motion a capture should pin to, from the rep's sales_role and the channel.
+    A SDR/AE always gets their flow, whatever the channel. General (or no role) follows the
+    channel only for call/meeting/visit; anything else (e.g. voice_note) has no fixed flow,
+    so the caller falls back to its existing rule (single published playbook)."""
     role = (sales_role or "").strip().lower()
     if role in _ROLE_MOTION:
         return _ROLE_MOTION[role]
-    return "discovery" if interaction_kind == "call" else "closing"
+    if interaction_kind == "call":
+        return "discovery"
+    if interaction_kind in ("meeting", "visit"):
+        return "closing"
+    return None
 
 
 def goal_for(sales_motion_key: str) -> Optional[str]:
