@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_serializer
 from supabase import Client
 
 from app.deps import get_supabase, get_supabase_auth, get_user_id
 from app.services.billing.entitlement import workspace_entitlements
 from app.services.company import CompanyService, INVITE_ROLES
+from app.services.feature_flags import is_enabled
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/company", tags=["company"])
@@ -42,6 +43,7 @@ class InviteRequest(BaseModel):
     email: EmailStr
     role: str = Field(default="member")
     send_email: bool = True
+    sales_role: Optional[str] = None
 
 
 class InviteResponse(BaseModel):
@@ -51,6 +53,14 @@ class InviteResponse(BaseModel):
     expires_at: str
     email_sent: bool
     invite_url: Optional[str] = None
+    sales_role: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
 
 
 class MemberResponse(BaseModel):
@@ -61,6 +71,14 @@ class MemberResponse(BaseModel):
     role: str
     status: str
     created_at: Optional[str] = None
+    sales_role: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
 
 
 class PendingInviteResponse(BaseModel):
@@ -69,15 +87,28 @@ class PendingInviteResponse(BaseModel):
     role: str
     expires_at: str
     created_at: Optional[str] = None
+    sales_role: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
 
 
 class MembersListResponse(BaseModel):
     members: List[MemberResponse]
     pending_invites: List[PendingInviteResponse]
+    sales_roles_enabled: bool = False
 
 
 class UpdateMemberRoleRequest(BaseModel):
     role: str
+
+
+class UpdateSalesRoleRequest(BaseModel):
+    sales_role: str
 
 
 class AcceptInviteRequest(BaseModel):
@@ -146,9 +177,11 @@ async def list_members(
     members = svc.list_members(membership.company_id)
     invites = svc.list_pending_invites(membership.company_id)
     can_see_invites = membership.can_manage_team
+    roles_enabled = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
     return MembersListResponse(
         members=[MemberResponse(**m) for m in members],
         pending_invites=[PendingInviteResponse(**i) for i in invites] if can_see_invites else [],
+        sales_roles_enabled=roles_enabled,
     )
 
 
@@ -168,7 +201,9 @@ async def create_invite(
         role=body.role,
         invited_by=user_id,
         send_email=body.send_email,
+        sales_role=body.sales_role,
     )
+    roles_enabled = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
     return InviteResponse(
         id=str(invite["id"]),
         email=str(invite["email"]),
@@ -176,6 +211,7 @@ async def create_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
+        sales_role=invite.get("sales_role") if roles_enabled else None,
     )
 
 
@@ -226,6 +262,27 @@ async def update_member_role(
         actor=membership,
     )
     return {"success": True, "role": updated.get("role")}
+
+
+@router.patch("/members/{member_id}/sales-role")
+async def update_member_sales_role(
+    member_id: str,
+    body: UpdateSalesRoleRequest,
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    updated = svc.update_member_sales_role(
+        company_id=membership.company_id,
+        member_id=member_id,
+        sales_role=body.sales_role,
+    )
+    return {
+        "success": True,
+        "sales_role": updated.get("sales_role"),
+        "role": updated.get("role"),
+    }
 
 
 @router.delete("/members/{member_id}")

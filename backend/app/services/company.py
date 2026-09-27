@@ -18,6 +18,8 @@ from app.services.billing.entitlement import (
     access_mode_of,
     workspace_entitlements,
 )
+from app.services.feature_flags import is_enabled
+from app.services.sales_role import SALES_ROLE_VALUES, normalize_sales_role
 from app.emails.templates import (
     build_invite_email_html,
     build_password_changed_email_html,
@@ -41,6 +43,7 @@ class Membership:
     user_id: str
     role: str
     status: str
+    sales_role: str = "general"
 
     @property
     def is_active(self) -> bool:
@@ -99,7 +102,7 @@ class CompanyService:
         try:
             result = (
                 self.supabase.table("company_members")
-                .select("id, company_id, user_id, role, status")
+                .select("id, company_id, user_id, role, status, sales_role")
                 .eq("user_id", user_id)
                 .limit(1)
                 .execute()
@@ -122,6 +125,7 @@ class CompanyService:
             user_id=str(row["user_id"]),
             role=row["role"],
             status=row["status"],
+            sales_role=normalize_sales_role(row.get("sales_role")),
         )
 
     def require_membership(self, user_id: str) -> Membership:
@@ -259,7 +263,7 @@ class CompanyService:
         usage = self.seat_usage(membership.company_id)
         billing = self.billing_for(membership.company_id)
         entitlements = workspace_entitlements(company, billing)
-        return {
+        summary = {
             "id": membership.company_id,
             "name": company.get("name"),
             "role": membership.role,
@@ -273,11 +277,14 @@ class CompanyService:
             "paywalled": entitlements["paywalled"],
             "can_use_dialer": entitlements["can_use_dialer"],
         }
+        if is_enabled(self.supabase, membership.company_id, "SALES_ROLES_ENABLED"):
+            summary["sales_role"] = normalize_sales_role(membership.sales_role)
+        return summary
 
     def list_members(self, company_id: str) -> List[dict]:
         members_result = (
             self.supabase.table("company_members")
-            .select("id, user_id, role, status, created_at")
+            .select("id, user_id, role, status, created_at, sales_role")
             .eq("company_id", company_id)
             .order("created_at")
             .execute()
@@ -295,27 +302,29 @@ class CompanyService:
             for p in prof_result.data or []:
                 profiles[str(p["id"])] = p
         emails = self._auth_emails_by_ids(user_ids)
+        include_sales_role = is_enabled(self.supabase, company_id, "SALES_ROLES_ENABLED")
         out = []
         for m in members:
             uid = str(m["user_id"])
-            out.append(
-                {
-                    "id": str(m["id"]),
-                    "user_id": uid,
-                    "email": emails.get(uid, ""),
-                    "full_name": profiles.get(uid, {}).get("full_name"),
-                    "role": m["role"],
-                    "status": m["status"],
-                    "created_at": m.get("created_at"),
-                }
-            )
+            row = {
+                "id": str(m["id"]),
+                "user_id": uid,
+                "email": emails.get(uid, ""),
+                "full_name": profiles.get(uid, {}).get("full_name"),
+                "role": m["role"],
+                "status": m["status"],
+                "created_at": m.get("created_at"),
+            }
+            if include_sales_role:
+                row["sales_role"] = normalize_sales_role(m.get("sales_role"))
+            out.append(row)
         return out
 
     def list_pending_invites(self, company_id: str) -> List[dict]:
         now = _iso(_now())
         result = (
             self.supabase.table("company_invitations")
-            .select("id, email, role, expires_at, created_at, invited_by")
+            .select("id, email, role, expires_at, created_at, invited_by, sales_role")
             .eq("company_id", company_id)
             .is_("accepted_at", "null")
             .is_("revoked_at", "null")
@@ -323,8 +332,10 @@ class CompanyService:
             .order("created_at", desc=True)
             .execute()
         )
-        return [
-            {
+        include_sales_role = is_enabled(self.supabase, company_id, "SALES_ROLES_ENABLED")
+        out = []
+        for r in result.data or []:
+            row = {
                 "id": str(r["id"]),
                 "email": str(r["email"]),
                 "role": r["role"],
@@ -332,8 +343,10 @@ class CompanyService:
                 "created_at": r.get("created_at"),
                 "invited_by": r.get("invited_by"),
             }
-            for r in (result.data or [])
-        ]
+            if include_sales_role:
+                row["sales_role"] = normalize_sales_role(r.get("sales_role"))
+            out.append(row)
+        return out
 
     def _auth_emails_by_ids(self, user_ids: List[str]) -> Dict[str, str]:
         out: Dict[str, str] = {}
@@ -372,11 +385,26 @@ class CompanyService:
         role: str,
         invited_by: Optional[str] = None,
         send_email: bool = True,
+        sales_role: Optional[str] = None,
     ) -> Tuple[dict, Optional[str], bool]:
         if role not in INVITE_ROLES:
             raise HTTPException(status_code=400, detail="Invalid invite role")
         email_norm = normalize_email(email)
         self.ensure_seat_available(company_id)
+
+        roles_enabled = is_enabled(self.supabase, company_id, "SALES_ROLES_ENABLED")
+        if roles_enabled:
+            if sales_role is None:
+                resolved_sales_role = "general"
+            elif sales_role not in SALES_ROLE_VALUES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid sales_role: {sales_role}",
+                )
+            else:
+                resolved_sales_role = sales_role
+        else:
+            resolved_sales_role = "general"
 
         # Already a member?
         existing_user_id = self._email_exists_in_auth(email_norm)
@@ -403,6 +431,7 @@ class CompanyService:
             "company_id": company_id,
             "email": email_norm,
             "role": role,
+            "sales_role": resolved_sales_role,
             "token_hash": hash_token(raw_token),
             "invited_by": invited_by,
             "expires_at": _iso(expires),
@@ -521,6 +550,7 @@ class CompanyService:
         company_id = str(invite["company_id"])
         email = str(invite["email"])
         role = invite["role"]
+        member_sales_role = normalize_sales_role(invite.get("sales_role"))
 
         existing_user_id = self._email_exists_in_auth(email)
         if existing_user_id:
@@ -550,6 +580,7 @@ class CompanyService:
                 "user_id": user_id,
                 "role": role,
                 "status": "active",
+                "sales_role": member_sales_role,
             }
         ).execute()
         self.supabase.table("user_profiles").update({"company_id": company_id}).eq(
@@ -599,6 +630,28 @@ class CompanyService:
             .execute()
         )
         return (result.data or [target])[0]
+
+    def update_member_sales_role(
+        self,
+        *,
+        company_id: str,
+        member_id: str,
+        sales_role: str,
+    ) -> dict:
+        if sales_role not in SALES_ROLE_VALUES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid sales_role: {sales_role}",
+            )
+        target = self._get_member_row(company_id, member_id)
+        result = (
+            self.supabase.table("company_members")
+            .update({"sales_role": sales_role, "updated_at": _iso(_now())})
+            .eq("id", member_id)
+            .eq("company_id", company_id)
+            .execute()
+        )
+        return (result.data or [{**target, "sales_role": sales_role}])[0]
 
     def remove_member(
         self,
