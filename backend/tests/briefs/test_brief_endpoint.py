@@ -53,7 +53,7 @@ SCHEMA = {
 class _Query:
     def __init__(self, db, name):
         self.db, self.name = db, name
-        self.eqs, self.desc, self.n = [], False, None
+        self.eqs, self.ins, self.desc, self.n = [], [], False, None
 
     def select(self, cols):
         known = SCHEMA.get(self.name)
@@ -65,6 +65,10 @@ class _Query:
 
     def eq(self, column, value):
         self.eqs.append((column, value))
+        return self
+
+    def in_(self, column, values):
+        self.ins.append((column, set(values)))
         return self
 
     def order(self, _column, desc=False):
@@ -81,6 +85,7 @@ class _Query:
         if self.name in self.db.failing:
             raise RuntimeError(f"{self.name} down")
         rows = [row for row in self.db.tables.get(self.name, []) if all(row.get(c) == v for c, v in self.eqs)]
+        rows = [row for row in rows if all(row.get(c) in v for c, v in self.ins)]
         rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=self.desc)
         return SimpleNamespace(data=rows[: self.n] if self.n else rows)
 
@@ -112,10 +117,10 @@ def _no_live_crm(*_args, **_kwargs):
     raise AssertionError("tests never build a live CRM provider")
 
 
-def _get(db, **params):
+def _get(db, *, membership=None, **params):
     app = FastAPI()
     app.include_router(briefs_api.router)
-    app.dependency_overrides[get_membership] = lambda: Membership(
+    app.dependency_overrides[get_membership] = lambda: membership or Membership(
         id="m", company_id="co-1", user_id="user-a", role="member", status="active",
     )
     app.dependency_overrides[get_supabase] = lambda: db
@@ -568,6 +573,109 @@ def test_cold_hoy_reason_does_not_depend_on_the_caller_owning_the_row(monkeypatc
     _fake_hubspot(monkeypatch)
     body = _get(_cold(priority=[_priority_row(owner="user-b")]))
     assert body["lines"][1] == UNCALLED_WHY
+
+
+# --- T4 review (BLOCKING #5): HANDOFF_ENABLED restricts a non-manager to their own memos
+# plus a still-active handoff SDR's, for this contact - flag off or a manager/team rep
+# keeps today's full-company read. ---
+
+def test_handoff_restricted_user_ids_none_when_flag_off():
+    membership = Membership(id="m", company_id="co-1", user_id="ae-1", role="member", status="active")
+    db = _Db({"company_feature_flags": []})
+    assert briefs_api._handoff_restricted_user_ids(
+        db, membership, connection_id="hubspot", contact_id="42",
+    ) is None
+
+
+def test_handoff_restricted_user_ids_none_for_a_manager():
+    membership = Membership(id="m", company_id="co-1", user_id="boss", role="admin", status="active")
+    db = _Db({"company_feature_flags": _flags(HANDOFF_ENABLED=True)})
+    assert briefs_api._handoff_restricted_user_ids(
+        db, membership, connection_id="hubspot", contact_id="42",
+    ) is None
+
+
+def test_handoff_restricted_user_ids_includes_the_active_sdr():
+    membership = Membership(id="m", company_id="co-1", user_id="ae-1", role="member", status="active")
+    db = _Db({
+        "company_feature_flags": _flags(HANDOFF_ENABLED=True),
+        "deal_handoffs": [
+            {"company_id": "co-1", "connection_id": "hubspot", "contact_id": "42",
+             "sdr_user_id": "rep-a", "ae_user_id": "ae-1", "status": "active"},
+        ],
+        "company_members": [{"company_id": "co-1", "user_id": "rep-a", "status": "active"}],
+    })
+    result = briefs_api._handoff_restricted_user_ids(db, membership, connection_id="hubspot", contact_id="42")
+    assert result == ["ae-1", "rep-a"]
+
+
+def test_handoff_restricted_user_ids_excludes_an_sdr_no_longer_in_the_company():
+    membership = Membership(id="m", company_id="co-1", user_id="ae-1", role="member", status="active")
+    db = _Db({
+        "company_feature_flags": _flags(HANDOFF_ENABLED=True),
+        "deal_handoffs": [
+            {"company_id": "co-1", "connection_id": "hubspot", "contact_id": "42",
+             "sdr_user_id": "rep-a", "ae_user_id": "ae-1", "status": "active"},
+        ],
+        "company_members": [{"company_id": "co-1", "user_id": "rep-a", "status": "removed"}],
+    })
+    result = briefs_api._handoff_restricted_user_ids(db, membership, connection_id="hubspot", contact_id="42")
+    assert result == ["ae-1"]
+
+
+def test_read_memos_restricts_to_allowed_user_ids():
+    own_memo = _memo(id="memo-ae", user_id="ae-1", created_at="2026-09-20T08:00:00Z")
+    sdr_memo = _memo(id="memo-sdr", user_id="rep-a", created_at="2026-09-21T08:00:00Z")
+    other_memo = _memo(id="memo-other", user_id="rep-b", created_at="2026-09-22T08:00:00Z")
+    db = _Db({"memos": [own_memo, sdr_memo, other_memo]})
+    rows, coverage = briefs_api._read_memos(
+        db, "co-1", "42", allowed_user_ids=["ae-1", "rep-a"],
+    )
+    assert coverage == "complete"
+    assert {row["id"] for row in rows} == {"memo-ae", "memo-sdr"}
+
+
+def test_read_memos_empty_allowed_user_ids_skips_the_query_entirely():
+    db = _Db({"memos": [_memo(id="memo-ae", user_id="ae-1")]})
+    rows, coverage = briefs_api._read_memos(db, "co-1", "42", allowed_user_ids=[])
+    assert rows == []
+    assert coverage == "complete"
+    assert "memos" not in db.reads
+
+
+def test_brief_restricts_to_own_and_handoff_sdr_memos_for_a_member(monkeypatch):
+    """End to end: an AE's brief for this contact is ready, restricted by HANDOFF_ENABLED
+    through the same _read_memos path the unit tests above cover directly."""
+    briefs_api.set_brief_tasks(_tasks([]))
+    ae_membership = Membership(id="m", company_id="co-1", user_id="ae-1", role="member", status="active")
+    own_memo = _memo(id="memo-ae", user_id="ae-1", created_at="2026-09-20T08:00:00Z")
+    sdr_memo = _memo(id="memo-sdr", user_id="rep-a", created_at="2026-09-21T08:00:00Z")
+    other_memo = _memo(id="memo-other", user_id="rep-b", created_at="2026-09-22T08:00:00Z")
+    db = _Db({
+        **_tables(
+            [own_memo, sdr_memo, other_memo],
+            flags=_flags(BRIEF_V2_ENABLED=True, HANDOFF_ENABLED=True),
+        ),
+        "deal_handoffs": [
+            {"company_id": "co-1", "connection_id": "hubspot", "contact_id": "42",
+             "sdr_user_id": "rep-a", "ae_user_id": "ae-1", "status": "active"},
+        ],
+        "company_members": [{"company_id": "co-1", "user_id": "rep-a", "status": "active"}],
+    })
+    body = _get(db, membership=ae_membership)
+    assert body["status"] == "ready"
+
+
+def test_brief_flag_off_keeps_reading_every_company_memo_for_the_contact():
+    """Flag off (today's behaviour, unchanged): a member's brief for this contact still
+    reads a teammate's memo with no restriction at all."""
+    briefs_api.set_brief_tasks(_tasks([]))
+    member_membership = Membership(id="m", company_id="co-1", user_id="ae-1", role="member", status="active")
+    own_memo = _memo(id="memo-ae", user_id="ae-1")
+    other_memo = _memo(id="memo-other", user_id="rep-b", created_at="2026-09-22T08:00:00Z")
+    db = _Db(_tables([own_memo, other_memo], flags=_flags(BRIEF_V2_ENABLED=True)))
+    body = _get(db, membership=member_membership)
+    assert body["status"] == "ready"
 
 
 def test_flag_on_with_memo_is_exactly_the_e3_brief_and_reads_no_profile(monkeypatch):

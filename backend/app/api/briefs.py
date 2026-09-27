@@ -9,11 +9,17 @@ from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
+from app.services.activity_scope import can_view_company_activity, effective_visibility
 from app.services.briefs.contact_read import ContactProfileReadFailed, read_contact_profile
 from app.services.briefs.preparation import legacy_facts, prepare_brief
 from app.services.briefs.v2 import prepare_brief_v2
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
+from app.services.handoff_visibility import (
+    active_member_ids,
+    handoff_sdr_map_for_viewer,
+    sdr_ids_for_contact,
+)
 from app.services.playbooks.versions import get_published_playbook
 from app.services.hoy.no_reply import NO_REPLY_FLAG
 from app.services.hoy.context import snapshot_from_rows
@@ -51,6 +57,34 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+HANDOFF_FLAG = "HANDOFF_ENABLED"
+
+
+def _handoff_restricted_user_ids(
+    supabase,
+    membership: Membership,
+    *,
+    connection_id: str | None,
+    contact_id: str,
+) -> list[str] | None:
+    """T4/D8: with HANDOFF_ENABLED, a rep without company-wide visibility reads this
+    contact's memos only from themselves and whichever still-active SDR(s) handed it off
+    to them. None means "no restriction" (flag off, or a manager/visibility=team rep -
+    today's behaviour: every company memo for the contact)."""
+    if not is_enabled(supabase, membership.company_id, HANDOFF_FLAG):
+        return None
+    visibility = effective_visibility(supabase, membership)
+    if can_view_company_activity(membership.role, visibility):
+        return None
+    handoff_map = handoff_sdr_map_for_viewer(
+        supabase, company_id=membership.company_id, viewer_id=membership.user_id,
+    )
+    sdr_ids = sdr_ids_for_contact(handoff_map, contact_id, connection_id=connection_id)
+    if sdr_ids:
+        sdr_ids = active_member_ids(supabase, company_id=membership.company_id, user_ids=sdr_ids)
+    return sorted({membership.user_id} | sdr_ids)
+
+
 @router.get("/briefs")
 async def get_brief(
     connection_id: str,
@@ -68,6 +102,10 @@ async def get_brief(
         )
         return prepare_brief(**facts)
 
+    allowed_user_ids = _handoff_restricted_user_ids(
+        supabase, membership, connection_id=connection_id, contact_id=contact_id,
+    )
+
     if not is_enabled(supabase, membership.company_id, BRIEF_V2_FLAG):
         return prepare_brief(**_from_memos(
             supabase,
@@ -75,6 +113,7 @@ async def get_brief(
             contact_id,
             connection_id=connection_id,
             deal_id=deal_id,
+            allowed_user_ids=allowed_user_ids,
         ))
 
     rows, coverage = _read_memos(
@@ -83,6 +122,7 @@ async def get_brief(
         contact_id,
         connection_id=connection_id,
         deal_id=deal_id,
+        allowed_user_ids=allowed_user_ids,
     )
     tz_name = rep_timezone(membership.user_id)
     if coverage == "unavailable":
@@ -153,9 +193,18 @@ def _read_memos(
     *,
     connection_id: str | None = None,
     deal_id: str | None = None,
+    allowed_user_ids: list[str] | None = None,
 ) -> tuple[list[dict], str]:
-    """memos has no CRM connection column; the contact id and the company scope the read."""
+    """memos has no CRM connection column; the contact id and the company scope the read.
+
+    allowed_user_ids (T4/D8, HANDOFF_ENABLED): restricts to those authors - the viewer plus
+    any still-active handoff SDR(s) - when the rep has no company-wide visibility. None
+    (flag off, or a manager/team rep) keeps today's behaviour: every company memo for the
+    contact. An empty list is a real "nobody" and short-circuits to no rows.
+    """
     del connection_id
+    if allowed_user_ids is not None and not allowed_user_ids:
+        return [], "complete"
     try:
         query = (
             supabase.table("memos")
@@ -168,6 +217,8 @@ def _read_memos(
             .order("created_at", desc=True)
             .limit(100)
         )
+        if allowed_user_ids is not None:
+            query = query.in_("user_id", allowed_user_ids)
         stored = query.execute()
         rows = list(stored.data or [])
         if deal_id:
@@ -189,6 +240,7 @@ def _from_memos(
     *,
     connection_id: str | None = None,
     deal_id: str | None = None,
+    allowed_user_ids: list[str] | None = None,
 ) -> dict:
     rows, coverage = _read_memos(
         supabase,
@@ -196,6 +248,7 @@ def _from_memos(
         contact_id,
         connection_id=connection_id,
         deal_id=deal_id,
+        allowed_user_ids=allowed_user_ids,
     )
     return legacy_facts(rows, coverage=coverage)
 

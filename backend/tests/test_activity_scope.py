@@ -155,7 +155,7 @@ def test_memo_readable_by_handoff_sdr_reads_owner():
         owner_user_id="sdr",
         viewer_role="member",
         same_company=True,
-        handoff_sdr_id="sdr",
+        handoff_sdr_ids={"sdr"},
     )
 
 
@@ -165,7 +165,7 @@ def test_memo_readable_by_handoff_sdr_id_mismatch_denied():
         owner_user_id="other-sdr",
         viewer_role="member",
         same_company=True,
-        handoff_sdr_id="sdr",
+        handoff_sdr_ids={"sdr"},
     )
 
 
@@ -175,7 +175,17 @@ def test_memo_readable_by_no_handoff_denied():
         owner_user_id="sdr",
         viewer_role="member",
         same_company=True,
-        handoff_sdr_id=None,
+        handoff_sdr_ids=None,
+    )
+
+
+def test_memo_readable_by_handoff_supports_multiple_sdrs():
+    assert memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="sdr-2",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_ids={"sdr-1", "sdr-2"},
     )
 
 
@@ -186,7 +196,7 @@ def test_readable_memo_or_none_handoff_matches_contact_and_sdr():
         viewer_id="ae",
         viewer_role="member",
         member_ids=["ae", "sdr"],
-        handoff_sdr_ids={"c1": "sdr"},
+        handoff_map={"c1": {"sdr"}},
     ) is row
 
 
@@ -197,7 +207,7 @@ def test_readable_memo_or_none_handoff_wrong_contact_denied():
         viewer_id="ae",
         viewer_role="member",
         member_ids=["ae", "sdr"],
-        handoff_sdr_ids={"c1": "sdr"},
+        handoff_map={"c1": {"sdr"}},
     ) is None
 
 
@@ -208,7 +218,7 @@ def test_readable_memo_or_none_handoff_wrong_sdr_denied():
         viewer_id="ae",
         viewer_role="member",
         member_ids=["ae", "other-sdr"],
-        handoff_sdr_ids={"c1": "sdr"},
+        handoff_map={"c1": {"sdr"}},
     ) is None
 
 

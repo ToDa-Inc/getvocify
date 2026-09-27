@@ -20,13 +20,14 @@ class Viewer:
     role: str
     members: tuple
     visibility: Optional[str] = None
-    # T4/D8: contact_id -> sdr_user_id for every handoff (active or closed) to this
-    # viewer as AE. Empty unless HANDOFF_ENABLED - see resolve_viewer.
-    handoff_sdr_ids: dict = None  # type: ignore[assignment]
+    # T4/D8: (connection_id, contact_id) -> sdr_user_id set, for every handoff (active or
+    # closed) to this viewer as AE. Empty unless HANDOFF_ENABLED - see resolve_viewer, which
+    # also skips fetching it at all for a manager (is_manager already reads everyone).
+    handoff_map: dict = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
-        if self.handoff_sdr_ids is None:
-            object.__setattr__(self, "handoff_sdr_ids", {})
+        if self.handoff_map is None:
+            object.__setattr__(self, "handoff_map", {})
 
     @property
     def is_manager(self) -> bool:
@@ -65,14 +66,16 @@ class Viewer:
         )
 
     def readable_user_ids_for_contact(self, contact_id: Optional[str]) -> list[str]:
-        """readable_user_ids(), plus the SDR who handed this contact off to me (T4/D8) -
-        never a broader read, since a caller only widens with this when it also filters
-        the read to that exact contact_id."""
+        """readable_user_ids(), plus the SDR(s) who handed this contact off to me (T4/D8),
+        still active in the company - never a broader read, since a caller only widens
+        with this when it also filters the read to that exact contact_id. Callers: only
+        vocify_reads.list_conversations, which does exactly that (objections and every
+        other Ask tool keep plain readable_user_ids())."""
+        from app.services.handoff_visibility import sdr_ids_for_contact
+
         ids = set(self.readable_user_ids())
-        sdr_id = self.handoff_sdr_ids.get(str(contact_id)) if contact_id else None
-        if sdr_id:
-            ids.add(sdr_id)
-        return sorted(ids)
+        sdr_ids = sdr_ids_for_contact(self.handoff_map, contact_id) & set(self.member_ids)
+        return sorted(ids | sdr_ids)
 
 
 def resolve_viewer(ctx: Any) -> Optional[Viewer]:
@@ -90,21 +93,27 @@ def resolve_viewer(ctx: Any) -> Optional[Viewer]:
     if membership is None or not membership.is_active or not membership.company_id:
         return None
     from app.services.activity_scope import effective_visibility
-    from app.services.handoff_visibility import handoff_sdr_ids_for_viewer
 
     company_id = str(membership.company_id)
-    try:
-        handoff_sdr_ids = handoff_sdr_ids_for_viewer(supabase, company_id=company_id, viewer_id=user_id)
-    except Exception:
-        handoff_sdr_ids = {}
+    role = str(membership.role or "member")
+    visibility = effective_visibility(supabase, membership)
+
+    # A manager already reads the whole company via readable_user_ids() - the handoff
+    # lookup exists only to widen a non-manager's own scope, so skip the query entirely
+    # when it can't change the answer (T4 review).
+    handoff_map: dict = {}
+    if not can_view_company_activity(role, visibility):
+        from app.services.handoff_visibility import handoff_sdr_map_for_viewer
+
+        handoff_map = handoff_sdr_map_for_viewer(supabase, company_id=company_id, viewer_id=user_id)
 
     viewer = Viewer(
         user_id=user_id,
         company_id=company_id,
-        role=str(membership.role or "member"),
+        role=role,
         members=tuple(members or ()),
-        visibility=effective_visibility(supabase, membership),
-        handoff_sdr_ids=handoff_sdr_ids,
+        visibility=visibility,
+        handoff_map=handoff_map,
     )
     try:
         ctx.viewer = viewer

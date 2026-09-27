@@ -398,6 +398,28 @@ async def test_handoff_flag_off_denies_the_ae_read(monkeypatch):
     assert result["items"] == []
 
 
+async def test_objections_does_not_widen_to_a_handoff_sdr_even_with_contact_id(monkeypatch):
+    """T4 review (BLOCKING #2): only list_conversations widens on a handoff; get_objections
+    (and every other Ask tool) keeps the caller's own scope regardless of contact_id."""
+    _patch_viewer(
+        monkeypatch,
+        role_by_user={"rep-a": "member", "rep-b": "member", "boss": "admin", "ae-x": "member"},
+        members=AE_MEMBERS,
+    )
+    store = _objection_store()
+    store.tables["company_feature_flags"] = [
+        {"company_id": CO, "flag": "HANDOFF_ENABLED", "enabled": True},
+    ]
+    store.tables["deal_handoffs"] = [
+        {"company_id": CO, "contact_id": "c-7", "sdr_user_id": "rep-a", "ae_user_id": "ae-x", "status": "active"},
+    ]
+    result = await execute_tool("get_objections", {"contact_id": "c-7"}, _ctx(store, "ae-x"))
+    assert result["scope"] == "me"
+    assert result["conversations"] == 0
+    assert result["categories"] == []
+    assert "es caro" not in str(result)
+
+
 async def test_no_conversations_is_complete_and_a_failed_read_is_unavailable(monkeypatch):
     _patch_viewer(monkeypatch)
     empty = await execute_tool("list_conversations", {"contact_id": "nobody"}, _ctx(_conversation_store(), "rep-a"))

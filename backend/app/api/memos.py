@@ -18,12 +18,14 @@ from app.services.activity_scope import (
     company_user_ids,
     effective_visibility,
     load_viewer_scope,
-    memo_readable_by,
     readable_memo_or_none,
     resolve_list_user_ids,
 )
 from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row, interaction_kind_of
-from app.services.handoff_visibility import handoff_sdr_ids_for_viewer
+from app.services.handoff_visibility import (
+    handoff_sdr_map_for_viewer,
+    sdr_ids_for_contact,
+)
 from app.services.followup import schedule_followup
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
@@ -64,6 +66,9 @@ _DEAL_STAGE_INFERENCE_HINT = (
 
 
 def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict:
+    """Approve/preview: never a handoff read. These write to the memo (matched_deal_*,
+    approval, CRM sync) - T4/D8 only grants the AE a *read* of the SDR's memo, not a hand
+    on its approval/CRM flow. See _require_viewable_memo below for that read."""
     result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
     rows = result.data or []
     membership, members, _authors = load_viewer_scope(supabase, user_id)
@@ -73,11 +78,6 @@ def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict
         viewer_role=membership.role if membership else None,
         member_ids=company_user_ids(members),
         viewer_visibility=effective_visibility(supabase, membership),
-        handoff_sdr_ids=handoff_sdr_ids_for_viewer(
-            supabase,
-            company_id=membership.company_id if membership else None,
-            viewer_id=user_id,
-        ),
     )
     if not memo_data:
         raise HTTPException(
@@ -85,6 +85,79 @@ def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict
             detail="Memo not found",
         )
     return memo_data
+
+
+def _active_handoff_sdr_ids_for_contact(
+    supabase: Client,
+    *,
+    membership,
+    members: list[dict],
+    contact_id: Optional[str],
+    viewer_id: str,
+) -> set[str]:
+    """T4/D8, gated to callers that actually need it: the still-active SDR(s) a handoff
+    makes contact_id's memos readable from, for this viewer as AE. Never queries
+    deal_handoffs at all without a contact_id to key on."""
+    if not contact_id:
+        return set()
+    handoff_map = handoff_sdr_map_for_viewer(
+        supabase,
+        company_id=membership.company_id if membership else None,
+        viewer_id=viewer_id,
+    )
+    sdr_ids = sdr_ids_for_contact(handoff_map, contact_id)
+    if not sdr_ids:
+        return set()
+    active_ids = {
+        str(member.get("user_id"))
+        for member in members
+        if member.get("user_id") and (member.get("status") or "active") == "active"
+    }
+    return sdr_ids & active_ids
+
+
+def _require_viewable_memo(supabase: Client, memo_id: str, user_id: str) -> tuple[dict, dict[str, dict]]:
+    """GET /memos/{id}: read-only, so (unlike _require_readable_memo above) this also
+    honours a handoff - T4/D8, an AE reads the SDR's memo for a contact handed off to
+    them. The handoff lookup only runs when the memo isn't already readable without it
+    (own memo, or a manager/team-visibility teammate) - never a needless query. Returns
+    the memo row plus the company's authors-by-user_id, since the caller needs both."""
+    result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
+    rows = result.data or []
+    memo_data = rows[0] if rows else None
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    role = membership.role if membership else None
+    visibility = effective_visibility(supabase, membership)
+    readable = readable_memo_or_none(
+        memo_data,
+        viewer_id=user_id,
+        viewer_role=role,
+        member_ids=company_user_ids(members),
+        viewer_visibility=visibility,
+    )
+    if not readable and memo_data:
+        contact_id = str(memo_data.get("hubspot_contact_id") or "") or None
+        sdr_ids = _active_handoff_sdr_ids_for_contact(
+            supabase,
+            membership=membership,
+            members=members,
+            contact_id=contact_id,
+            viewer_id=user_id,
+        )
+        readable = readable_memo_or_none(
+            memo_data,
+            viewer_id=user_id,
+            viewer_role=role,
+            member_ids=company_user_ids(members),
+            viewer_visibility=visibility,
+            handoff_map={contact_id: sdr_ids} if contact_id else None,
+        )
+    if not readable:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    return readable, authors
 
 
 async def _curated_field_specs_for_primary_crm(
@@ -825,25 +898,27 @@ async def list_memos(
         )
     if scope_norm == "handoffs":
         contact_filter = (hubspot_contact_id or "").strip() or None
-        handoff_map = handoff_sdr_ids_for_viewer(
+        sdr_ids = sorted(_active_handoff_sdr_ids_for_contact(
             supabase,
-            company_id=membership.company_id if membership else None,
+            membership=membership,
+            members=members,
+            contact_id=contact_filter,
             viewer_id=user_id,
+        ))
+        if not sdr_ids:
+            return []
+        query = (
+            supabase.table("memos")
+            .select("*")
+            .eq("hubspot_contact_id", contact_filter)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .offset(offset)
         )
-        sdr_id = handoff_map.get(contact_filter) if contact_filter else None
-        return [] if not sdr_id else [
-            _memo_from_row(memo_data, authors.get(sdr_id))
-            for memo_data in (
-                supabase.table("memos")
-                .select("*")
-                .eq("user_id", sdr_id)
-                .eq("hubspot_contact_id", contact_filter)
-                .order("created_at", desc=True)
-                .limit(limit)
-                .offset(offset)
-                .execute()
-                .data or []
-            )
+        query = query.eq("user_id", sdr_ids[0]) if len(sdr_ids) == 1 else query.in_("user_id", sdr_ids)
+        return [
+            _memo_from_row(memo_data, authors.get(str(memo_data.get("user_id"))))
+            for memo_data in (query.execute().data or [])
         ]
     try:
         user_ids = resolve_list_user_ids(
@@ -1011,35 +1086,8 @@ async def get_memo(
     user_id: str = Depends(get_user_id),
 ):
     """Get a single memo by ID"""
-    result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
-
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found"
-        )
-
-    memo_data = result.data[0]
-    membership, members, authors = load_viewer_scope(supabase, user_id)
+    memo_data, authors = _require_viewable_memo(supabase, str(memo_id), user_id)
     owner_id = str(memo_data.get("user_id") or "")
-    contact_id = str(memo_data.get("hubspot_contact_id") or "")
-    handoff_map = handoff_sdr_ids_for_viewer(
-        supabase,
-        company_id=membership.company_id if membership else None,
-        viewer_id=user_id,
-    )
-    if not memo_readable_by(
-        viewer_id=user_id,
-        owner_user_id=owner_id,
-        viewer_role=membership.role if membership else None,
-        same_company=owner_id in set(company_user_ids(members)),
-        viewer_visibility=effective_visibility(supabase, membership),
-        handoff_sdr_id=handoff_map.get(contact_id) if contact_id else None,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found"
-        )
     return _memo_from_row(memo_data, authors.get(owner_id), supabase=supabase)
 
 

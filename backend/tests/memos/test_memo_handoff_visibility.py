@@ -1,6 +1,6 @@
 """T4/D8: the AE reads the SDR's memos of a contact handed off to them - detail (get_memo)
 and list (scope=handoffs) - never another SDR's, another contact's, or the reverse (SDR
-reading the AE)."""
+reading the AE). Approve/preview never grant a handoff read (T4 review, BLOCKING #1)."""
 
 import os
 from uuid import UUID
@@ -210,3 +210,64 @@ async def test_list_scope_handoffs_wrong_contact_is_empty(monkeypatch):
         supabase=_store(), user_id="ae-1", scope="handoffs", hubspot_contact_id="c-2",
     )
     assert result == []
+
+
+async def test_list_scope_handoffs_pools_multiple_sdrs_for_the_same_contact(monkeypatch):
+    _patch_viewer(monkeypatch, role_by_user={"ae-1": "member"})
+    store = _store()
+    store.tables["deal_handoffs"].append(
+        {"company_id": COMPANY, "contact_id": "c-1", "sdr_user_id": "sdr-2", "ae_user_id": "ae-1", "status": "closed"}
+    )
+    store.tables["memos"] = [_memo(M1, "sdr-1", contact="c-1"), _memo(M2, "sdr-2", contact="c-1")]
+    result = await api.list_memos(
+        supabase=store, user_id="ae-1", scope="handoffs", hubspot_contact_id="c-1",
+    )
+    assert {str(m.id) for m in result} == {M1, M2}
+
+
+async def test_list_scope_handoffs_excludes_an_sdr_no_longer_in_the_company(monkeypatch):
+    def fake_scope(_supabase, viewer_id):
+        if viewer_id != "ae-1":
+            return None, [], {}
+        members = [
+            {"user_id": "sdr-1", "role": "member", "status": "removed", "email": "s@co.es", "full_name": "Sara"},
+            {"user_id": "ae-1", "role": "member", "status": "active", "email": "a@co.es", "full_name": "Alex"},
+        ]
+        from app.services.activity_scope import authors_by_user_id
+        membership = Membership(id="m", company_id=COMPANY, user_id="ae-1", role="member", status="active")
+        return membership, members, authors_by_user_id(members)
+
+    monkeypatch.setattr(api, "load_viewer_scope", fake_scope)
+    result = await api.list_memos(
+        supabase=_store(), user_id="ae-1", scope="handoffs", hubspot_contact_id="c-1",
+    )
+    assert result == []
+
+
+# --- BLOCKING review fix: approve/preview never grant a handoff read (T4 review) ---
+
+async def test_ae_gets_404_approving_the_sdr_memo(monkeypatch):
+    _patch_viewer(monkeypatch, role_by_user={"ae-1": "member"})
+    store = _store()
+    store.tables["memos"] = [_memo(M1, "sdr-1", contact="c-1")]
+    with pytest.raises(HTTPException) as exc:
+        await api.approve_memo(UUID(M1), None, supabase=store, user_id="ae-1")
+    assert exc.value.status_code == 404
+
+
+async def test_ae_gets_404_get_preview_of_the_sdr_memo(monkeypatch):
+    _patch_viewer(monkeypatch, role_by_user={"ae-1": "member"})
+    store = _store()
+    store.tables["memos"] = [_memo(M1, "sdr-1", contact="c-1")]
+    with pytest.raises(HTTPException) as exc:
+        await api.get_approval_preview(UUID(M1), supabase=store, user_id="ae-1")
+    assert exc.value.status_code == 404
+
+
+async def test_ae_gets_404_post_preview_of_the_sdr_memo(monkeypatch):
+    _patch_viewer(monkeypatch, role_by_user={"ae-1": "member"})
+    store = _store()
+    store.tables["memos"] = [_memo(M1, "sdr-1", contact="c-1")]
+    with pytest.raises(HTTPException) as exc:
+        await api.post_approval_preview(UUID(M1), None, supabase=store, user_id="ae-1")
+    assert exc.value.status_code == 404

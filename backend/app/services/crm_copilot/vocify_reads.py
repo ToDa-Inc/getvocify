@@ -61,16 +61,16 @@ def _in_company(row: dict, viewer: Viewer) -> bool:
 
 def _scoped_user_ids(args: dict, viewer: Viewer) -> tuple[Optional[list[str]], str]:
     """Explicit user_id: yourself, or a teammate if you manage. Otherwise what your role
-    reads - widened, for your own scope, by the SDR of a handoff to you (T4/D8) when the
-    caller also asks about that exact contact_id, never more broadly."""
+    reads. T4/D8's handoff widening is list_conversations' own business (only there is a
+    contact_id filter guaranteed to apply to the query too) - objections, call_priorities
+    and every other tool stay at plain own/team scope."""
     requested = str(args.get("user_id") or "").strip()
     if requested and requested != viewer.user_id:
         if not viewer.is_manager or not viewer.is_member(requested):
             return None, "forbidden"
         return [requested], "user"
     if requested or not viewer.is_manager:
-        contact_id = str(args.get("contact_id") or "").strip() or None
-        return viewer.readable_user_ids_for_contact(contact_id), "me"
+        return [viewer.user_id], "me"
     return viewer.readable_user_ids(), "team"
 
 
@@ -168,12 +168,17 @@ def list_conversations(args: dict, viewer: Viewer, supabase, *, now: datetime) -
     user_ids, scope = _scoped_user_ids(args, viewer)
     if user_ids is None:
         return _forbidden()
+    contact_id = str(args.get("contact_id") or "").strip() or None
+    if scope == "me" and contact_id:
+        # T4/D8: the caller is also filtering to this exact contact below, so widening
+        # here to the handoff SDR (if any) never leaks a broader read.
+        user_ids = viewer.readable_user_ids_for_contact(contact_id)
     limit = _bounded(args.get("limit"), default=5, low=1, high=10)
     days = _bounded(args.get("days"), default=None, low=1, high=365)
     needle = str(args.get("query") or "").strip().lower()
     query = supabase.table("memos").select(_MEMO_COLUMNS).in_("user_id", user_ids)
-    if args.get("contact_id"):
-        query = query.eq("hubspot_contact_id", str(args["contact_id"]))
+    if contact_id:
+        query = query.eq("hubspot_contact_id", contact_id)
     if args.get("deal_id"):
         query = query.eq("hubspot_deal_id", str(args["deal_id"]))
     if days:

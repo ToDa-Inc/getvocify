@@ -104,17 +104,18 @@ def memo_readable_by(
     viewer_role: Optional[str],
     same_company: bool,
     viewer_visibility: Optional[str] = None,
-    handoff_sdr_id: Optional[str] = None,
+    handoff_sdr_ids: Optional[set] = None,
 ) -> bool:
     """T4/D8: beyond your own and (with company visibility) your team's, an AE also reads a
-    memo whose author is the SDR of a handoff for that memo's contact - handoff_sdr_id is
-    that SDR's user_id, resolved by the caller from the memo's contact, or None when there
-    is no such handoff (HANDOFF_ENABLED off, no row, or a different contact/SDR)."""
+    memo whose author is one of the SDRs of a handoff for that memo's contact -
+    handoff_sdr_ids is that set of user_ids, resolved by the caller from the memo's
+    contact, empty/None when there is no such handoff (HANDOFF_ENABLED off, no row, or a
+    different contact/SDR)."""
     if viewer_id == owner_user_id:
         return True
     if can_view_company_activity(viewer_role, viewer_visibility) and same_company:
         return True
-    return bool(handoff_sdr_id) and handoff_sdr_id == owner_user_id
+    return owner_user_id in (handoff_sdr_ids or set())
 
 
 def readable_memo_or_none(
@@ -124,25 +125,25 @@ def readable_memo_or_none(
     viewer_role: Optional[str],
     member_ids: list[str],
     viewer_visibility: Optional[str] = None,
-    handoff_sdr_ids: Optional[dict[str, str]] = None,
+    handoff_map: Optional[dict[str, set]] = None,
 ) -> Optional[dict]:
     """Return the memo row when the viewer may read it; else None.
 
-    handoff_sdr_ids is contact_id -> sdr_user_id (T4/D8), scoped to the viewer as AE; the
-    memo's own hubspot_contact_id picks out the one handoff (if any) that applies to it.
+    handoff_map is contact_id -> set of sdr_user_id (T4/D8), scoped to the viewer as AE;
+    the memo's own hubspot_contact_id picks out the handoff(s) (if any) that apply to it.
     """
     if not memo_data:
         return None
     owner_id = str(memo_data.get("user_id") or "")
     contact_id = str(memo_data.get("hubspot_contact_id") or "")
-    handoff_sdr_id = (handoff_sdr_ids or {}).get(contact_id) if contact_id else None
+    handoff_sdr_ids = (handoff_map or {}).get(contact_id) if contact_id else None
     if not memo_readable_by(
         viewer_id=viewer_id,
         owner_user_id=owner_id,
         viewer_role=viewer_role,
         same_company=owner_id in set(member_ids),
         viewer_visibility=viewer_visibility,
-        handoff_sdr_id=handoff_sdr_id,
+        handoff_sdr_ids=handoff_sdr_ids,
     ):
         return None
     return memo_data
