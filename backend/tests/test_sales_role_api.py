@@ -658,22 +658,67 @@ def _company_client(user_id: str, membership: Membership, supabase=None) -> Test
 
 
 def test_e5_member_patch_sales_role_403():
-    """E5: member cannot PATCH sales-role."""
+    """E5: member cannot PATCH sales-role — real require_manage_role rejects."""
     supabase = MagicMock()
-    svc_membership = _membership(role="member", user_id="u-member", member_id="m-mem")
+    member = _membership(role="member", user_id="u-member", member_id="m-mem")
 
-    with patch.object(CompanyService, "require_manage_role") as require_manage:
-        require_manage.side_effect = HTTPException(
-            status_code=403, detail="Insufficient permissions"
+    with patch.object(CompanyService, "get_membership", return_value=member):
+        client = _company_client("u-member", member, supabase)
+        resp = client.patch(
+            "/api/v1/company/members/m-other/sales-role",
+            json={"sales_role": "sdr"},
         )
-        with patch.object(CompanyService, "require_membership", return_value=svc_membership):
-            client = _company_client("u-member", svc_membership, supabase)
-            # Patch require_manage_role on instances via the class side_effect above
-            resp = client.patch(
-                "/api/v1/company/members/m-other/sales-role",
-                json={"sales_role": "sdr"},
-            )
     assert resp.status_code == 403
+
+
+def test_resend_invite_includes_sales_role_when_flag_on():
+    """Resend InviteResponse includes sales_role when SALES_ROLES_ENABLED is on."""
+    supabase = MagicMock()
+    owner = _membership(role="owner", user_id="u-owner")
+    invite = {
+        "id": "inv-1",
+        "email": "a@b.com",
+        "role": "member",
+        "expires_at": "2099-01-01T00:00:00+00:00",
+        "sales_role": "sdr",
+    }
+
+    with patch.object(CompanyService, "require_manage_role", return_value=owner):
+        with patch.object(
+            CompanyService,
+            "resend_invite",
+            new=AsyncMock(return_value=(invite, "https://invite", True)),
+        ):
+            with patch("app.api.company.is_enabled", return_value=True):
+                client = _company_client("u-owner", owner, supabase)
+                resp = client.post("/api/v1/company/invites/inv-1/resend")
+    assert resp.status_code == 200
+    assert resp.json()["sales_role"] == "sdr"
+
+
+def test_resend_invite_omits_sales_role_when_flag_off():
+    """Resend InviteResponse omits sales_role key when SALES_ROLES_ENABLED is off."""
+    supabase = MagicMock()
+    owner = _membership(role="owner", user_id="u-owner")
+    invite = {
+        "id": "inv-1",
+        "email": "a@b.com",
+        "role": "member",
+        "expires_at": "2099-01-01T00:00:00+00:00",
+        "sales_role": "sdr",
+    }
+
+    with patch.object(CompanyService, "require_manage_role", return_value=owner):
+        with patch.object(
+            CompanyService,
+            "resend_invite",
+            new=AsyncMock(return_value=(invite, "https://invite", True)),
+        ):
+            with patch("app.api.company.is_enabled", return_value=False):
+                client = _company_client("u-owner", owner, supabase)
+                resp = client.post("/api/v1/company/invites/inv-1/resend")
+    assert resp.status_code == 200
+    assert "sales_role" not in resp.json()
 
 
 def test_e6_admin_can_patch_owner_sales_role():

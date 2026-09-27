@@ -224,6 +224,7 @@ async def resend_invite(
     svc = CompanyService(supabase)
     membership = svc.require_manage_role(user_id)
     invite, invite_url, email_sent = await svc.resend_invite(invite_id, membership.company_id)
+    roles_enabled = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
     return InviteResponse(
         id=str(invite["id"]),
         email=str(invite["email"]),
@@ -231,6 +232,7 @@ async def resend_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
+        sales_role=invite.get("sales_role") if roles_enabled else None,
     )
 
 
