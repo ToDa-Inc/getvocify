@@ -1,15 +1,18 @@
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { formatPercent, hasAnyPeer, objectionCountsLine } from "@/lib/rep-coaching";
+import { objectionDisplayName } from "@/lib/team-insights";
 import { useCoachProcess } from "./useRepCoaching";
 
-function weekLabel(iso: string): string {
+// In the app's language, not the browser's.
+function weekLabel(iso: string, language: string): string {
   const date = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const locale = language === "EN" ? "en-GB" : "es-ES";
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString(locale, { day: "numeric", month: "short" });
 }
 
 export function CoachingProcess() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const p = t.product;
   const query = useCoachProcess();
   const data = query.data;
@@ -28,8 +31,8 @@ export function CoachingProcess() {
               <tr className="text-left text-muted-foreground">
                 <th className="py-2 pr-4 font-normal">{p.coachProcessStep}</th>
                 {data.weeks.map((week) => (
-                  <th key={week} className="px-2 py-2 font-normal">
-                    {weekLabel(week)}
+                  <th key={week} className="px-2 py-2 font-normal whitespace-nowrap">
+                    {weekLabel(week, language)}
                   </th>
                 ))}
                 <th className="px-2 py-2 font-normal">{p.coachProcessOverall}</th>
@@ -41,12 +44,12 @@ export function CoachingProcess() {
                 <tr key={step.step_id} className="border-t border-border/60">
                   <td className="py-2 pr-4 text-foreground">{step.label}</td>
                   {data.weeks.map((week, index) => (
-                    <td key={week} className="px-2 py-2 text-foreground">
+                    <td key={week} className="px-2 py-2 text-foreground whitespace-nowrap">
                       {formatPercent(step.by_week[index]?.rate)}
                     </td>
                   ))}
-                  <td className="px-2 py-2 text-foreground">{formatPercent(step.rate)}</td>
-                  {showPeer ? <td className="px-2 py-2 text-muted-foreground">{formatPercent(step.peer_median)}</td> : null}
+                  <td className="px-2 py-2 text-foreground whitespace-nowrap">{formatPercent(step.rate)}</td>
+                  {showPeer ? <td className="px-2 py-2 text-muted-foreground whitespace-nowrap">{formatPercent(step.peer_median)}</td> : null}
                 </tr>
               ))}
             </tbody>
@@ -61,7 +64,7 @@ export function CoachingProcess() {
           <ul className="space-y-1">
             {data.objections.map((o) => (
               <li key={o.category} className="flex justify-between gap-4 text-sm">
-                <span className="text-foreground">{o.category}</span>
+                <span className="text-foreground">{objectionDisplayName(o.category, p.objections)}</span>
                 <span className="text-muted-foreground">{objectionCountsLine(p, o)}</span>
               </li>
             ))}

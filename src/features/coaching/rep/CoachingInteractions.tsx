@@ -15,11 +15,16 @@ import { useCoachInteractions, useCoachSummary } from "./useRepCoaching";
 const SELECT = "rounded-full border border-border bg-card px-4 py-1.5 text-sm text-foreground";
 
 function Row({ item }: { item: CoachInteraction }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const p = t.product;
   const done = stepsDoneLine(p, item.steps);
   const duration = durationLabel(p, item.duration_s);
-  const date = item.observed_at ? new Date(item.observed_at).toLocaleDateString() : "";
+  const locale = language === "EN" ? "en-GB" : "es-ES";
+  const date = item.observed_at
+    ? new Date(item.observed_at).toLocaleDateString(locale, { day: "numeric", month: "short" })
+    : "";
+  // Plan §3.2: a missed step shows the moment it should have happened, when the engine has it.
+  const missedWithQuote = item.steps.filter((step) => step.state === "missing" && step.quote);
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4 space-y-2`} data-testid="coach-interaction-row">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -31,17 +36,27 @@ function Row({ item }: { item: CoachInteraction }) {
         </Link>
       </div>
       {item.summary_line ? <p className="text-sm text-foreground">{item.summary_line}</p> : null}
-      <div className="flex flex-wrap items-center gap-3 text-sm">
+      <ul className="flex flex-wrap items-center gap-1.5 text-xs" aria-label={done ?? undefined}>
         {item.steps.map((step) => {
           const view = stateView(step.state);
           return (
-            <span key={step.step_id} title={`${step.label}: ${String(p[view.labelKey])}`} aria-label={`${step.label}: ${String(p[view.labelKey])}`}>
-              {view.glyph}
-            </span>
+            <li
+              key={step.step_id}
+              className="inline-flex items-center gap-1 rounded-full border border-border/70 px-2 py-0.5 text-foreground"
+              title={String(p[view.labelKey])}
+            >
+              <span>{step.label}</span>
+              <span aria-label={String(p[view.labelKey])}>{view.glyph}</span>
+            </li>
           );
         })}
-        {done ? <span className="text-muted-foreground">{done}</span> : null}
-      </div>
+        {done ? <li className="pl-1 text-muted-foreground">{done}</li> : null}
+      </ul>
+      {missedWithQuote.map((step) => (
+        <p key={step.step_id} className="text-xs text-muted-foreground">
+          {step.label}: <span className="italic">“{step.quote}”</span>
+        </p>
+      ))}
     </li>
   );
 }

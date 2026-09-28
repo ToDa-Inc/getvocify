@@ -91,3 +91,12 @@ Siempre sobre el usuario que llama: no hay `user_id` en la petición. Vale para 
 - `node --experimental-strip-types --test src/lib/*.test.ts src/features/**/*.test.ts` y `node --test shared/ui/*.test.js` en verde.
 - `npx tsc -p tsconfig.app.json --noEmit` ≤ 39 errores; `npm run build` OK.
 - Lista 4: no se toca la rama `member` de `navItemsFor` salvo la **etiqueta** de Coach; `settings-nav` no se toca.
+
+## 7. Estado (2026-09-28)
+
+- ✅ Motor y API del comercial (`/coaching/me/*`, `/coaching/examples`). Solo se evalúan conversaciones; las lecturas paginan.
+- ✅ Pestaña **Coaching** del comercial (SDR «Mis llamadas», AE «Mis reuniones») con Resumen, Mi proceso y Ejemplos.
+- ✅ Foco de cada comercial en el Equipo del Head of Sales (columna Foco y CSV).
+- ✅ Línea de coaching en los informes propios detrás de `COACHING_MESSAGES_ENABLED` (apagado). El informe diario sale a las 18:00 del día que cubre, así que la línea habla de «hoy» y del foco de la semana. El email escapa el texto.
+- Para activar los mensajes en una empresa: `INSERT INTO company_feature_flags (company_id, flag, enabled) VALUES ('<company_id>', 'COACHING_MESSAGES_ENABLED', true) ON CONFLICT (company_id, flag) DO UPDATE SET enabled = true;`
+- ⏳ Siguiente: ✅ vs 🟡 con criterio que falla (paso ampliado + prompt con evals), fuera de orden, minuto exacto, reescritura sugerida, disputas, modo sombra, cuestionario y plantillas, «Mis deals» del AE.

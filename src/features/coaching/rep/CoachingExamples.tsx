@@ -1,6 +1,7 @@
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useCoachExamples } from "./useRepCoaching";
+import { objectionDisplayName } from "@/lib/team-insights";
 
 export function CoachingExamples() {
   const { t } = useLanguage();
@@ -36,7 +37,7 @@ export function CoachingExamples() {
       {data.objections.length > 0 ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.coachExamplesObjectionsHeading}</h2> : null}
       {data.objections.map((o) => (
         <section key={o.category} className={`${card} space-y-2`}>
-          <h3 className="text-foreground">{o.category}</h3>
+          <h3 className="text-foreground">{objectionDisplayName(o.category, p.objections)}</h3>
           {o.guidance ? (
             <div>
               <p className={THEME_TOKENS.typography.capsLabel}>{p.coachExamplesGuidance}</p>
