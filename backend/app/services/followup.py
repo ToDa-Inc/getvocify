@@ -10,6 +10,7 @@ C04_WAIT_S) so it promises what the CRM and Hoy show.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import uuid
@@ -19,6 +20,7 @@ from typing import Any, Optional
 
 from app.config import settings
 from app.services.feature_flags import is_enabled
+from app.services.text_guard import email_filler, strip_email_filler, word_count
 from app.services.followup_logic import (
     DEFAULT_TZ,
     PROMPT_VERSION,
@@ -141,10 +143,44 @@ def _facts(memo: dict) -> Optional[dict]:
     return c04_facts(memo["extraction"]["intelligence"], _rep_timezone(memo.get("user_id")))
 
 
+MIN_WORDS_AFTER_STRIP = 25
+
+
 async def compose(llm: Any, messages: list[dict]) -> Optional[dict]:
-    """The model call every draft makes, evals included."""
+    """The model call every draft makes, evals included.
+
+    Filler guard: a draft carrying a known filler phrase ("quedo a tu disposición", "gran
+    oportunidad"…) is asked for once more, naming the phrases. Whatever still slips
+    through is dropped sentence by sentence, as long as a real email remains."""
     payload = await llm.chat_json(messages, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S)
-    return parse_draft(payload)
+    draft = parse_draft(payload)
+    if not draft:
+        return draft
+    found = email_filler(f"{draft['subject']}\n{draft['body']}")
+    if not found:
+        return draft
+    retry = [
+        *messages,
+        {"role": "assistant", "content": json.dumps(payload, ensure_ascii=False)},
+        {
+            "role": "user",
+            "content": "Rewrite it without these phrases, keeping every fact, the tone and the "
+            f"length: {'; '.join(found)}. Return the same JSON.",
+        },
+    ]
+    try:
+        second = parse_draft(
+            await llm.chat_json(retry, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S)
+        )
+    except Exception:
+        logger.warning("followup: filler retry failed; stripping instead", exc_info=True)
+        second = None
+    draft = second or draft
+    if email_filler(draft["body"]):
+        stripped = strip_email_filler(draft["body"])
+        if word_count(stripped) >= MIN_WORDS_AFTER_STRIP:
+            draft = {**draft, "body": stripped}
+    return draft
 
 
 async def _draft(supabase: Any, memo: dict, llm: Any, *, prompt_version: str, by_flow: bool) -> Optional[dict]:

@@ -52,7 +52,7 @@ export function PostInteractionBrief({
                   type="button"
                   onClick={() => requestBriefSectionPlay(surface.playable, section.offset_ms, onPlay)}
                 >
-                  Reproducir tramo
+                  {t.product.briefPlaySection}
                 </button>
               ) : null}
             </div>

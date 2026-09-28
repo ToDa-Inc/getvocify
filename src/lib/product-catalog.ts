@@ -575,6 +575,7 @@ export const productCatalog = {
     activityAll: "All",
     askExample: "What is still pending with this contact?",
     askSending: "Sending…",
+    briefPlaySection: "Play this moment",
     askStepLabels: {
       search_contacts: "Searching contacts",
       get_contact: "Reading the contact",
@@ -1199,6 +1200,7 @@ export const productCatalog = {
     activityAll: "Todas",
     askExample: "¿Qué quedó pendiente con este contacto?",
     askSending: "Enviando…",
+    briefPlaySection: "Reproducir este momento",
     askStepLabels: {
       search_contacts: "Buscando contactos",
       get_contact: "Leyendo la ficha del contacto",
