@@ -29,6 +29,15 @@ export interface CompanyMember {
   role: string;
   status: string;
   createdAt?: string;
+  salesRole: SalesRole;
+  startedOn: string | null;
+}
+
+/** The job a member does. Separate from `role`, which is permissions. */
+export type SalesRole = 'sdr' | 'ae' | 'manager' | 'other';
+
+export interface SalesSettings {
+  usefulCallSeconds: number;
 }
 
 export interface PendingInvite {

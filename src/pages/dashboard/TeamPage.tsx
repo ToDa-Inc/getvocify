@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Mail, RefreshCw, Trash2, Users } from "lucide-react";
+import { Copy, Gauge, Mail, RefreshCw, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
+import type { SalesRole } from "@/features/company/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SALES_ROLE_LABEL } from "@/components/dashboard/sales/format";
 import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
@@ -25,6 +28,8 @@ const ROLE_OPTIONS = [
     hint: "Invite the team, edit CRM and offer. Activity defaults to Mine; All shows every teammate’s labeled calls and memos.",
   },
 ];
+
+const SALES_ROLE_OPTIONS: SalesRole[] = ["sdr", "ae", "manager", "other"];
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
@@ -113,6 +118,50 @@ const TeamPage = () => {
     },
   });
 
+  const salesProfileMutation = useMutation({
+    mutationFn: ({ id, salesRole }: { id: string; salesRole: SalesRole }) =>
+      companyApi.updateSalesProfile(id, { salesRole }),
+    onSuccess: (member) => {
+      queryClient.invalidateQueries({ queryKey: companyKeys.members() });
+      queryClient.invalidateQueries({ queryKey: ["team"] });
+      toast.success(`${member.fullName || member.email} is now ${SALES_ROLE_LABEL[member.salesRole]}`);
+    },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, "Could not update position"));
+    },
+  });
+
+  const { data: salesSettings } = useQuery({
+    queryKey: companyKeys.salesSettings(),
+    queryFn: () => companyApi.getSalesSettings(),
+    enabled: canManage,
+  });
+  const [usefulSecondsDraft, setUsefulSecondsDraft] = useState<string | null>(null);
+  const usefulSeconds = usefulSecondsDraft ?? String(salesSettings?.usefulCallSeconds ?? 60);
+
+  const salesSettingsMutation = useMutation({
+    mutationFn: (seconds: number) => companyApi.updateSalesSettings({ usefulCallSeconds: seconds }),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(companyKeys.salesSettings(), saved);
+      queryClient.invalidateQueries({ queryKey: ["team"] });
+      setUsefulSecondsDraft(null);
+      toast.success("Metric settings saved");
+    },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, "Could not save metric settings"));
+    },
+  });
+
+  const saveUsefulSeconds = (event: React.FormEvent) => {
+    event.preventDefault();
+    const seconds = Number(usefulSeconds);
+    if (!Number.isInteger(seconds) || seconds < 5 || seconds > 1800) {
+      toast.error("Enter a whole number of seconds between 5 and 1800");
+      return;
+    }
+    salesSettingsMutation.mutate(seconds);
+  };
+
   const removeMutation = useMutation({
     mutationFn: (id: string) => companyApi.removeMember(id),
     onSuccess: () => {
@@ -188,6 +237,34 @@ const TeamPage = () => {
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
+                {canManage ? (
+                  <Select
+                    value={m.salesRole}
+                    onValueChange={(value) =>
+                      salesProfileMutation.mutate({ id: m.id, salesRole: value as SalesRole })
+                    }
+                    disabled={salesProfileMutation.isPending && salesProfileMutation.variables?.id === m.id}
+                  >
+                    <SelectTrigger
+                      className="h-7 w-[7.5rem] rounded-full text-[11px]"
+                      aria-label={`Position of ${m.fullName || m.email}`}
+                      data-testid="member-sales-role"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SALES_ROLE_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option} className="text-xs">
+                          {SALES_ROLE_LABEL[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
+                    {SALES_ROLE_LABEL[m.salesRole]}
+                  </span>
+                )}
                 <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
                   {m.role}
                 </span>
@@ -207,6 +284,13 @@ const TeamPage = () => {
           ))}
         </div>
       </div>
+
+      {canManage && (
+        <p className="text-xs text-muted-foreground leading-relaxed -mt-3 px-1">
+          Position is the job someone does (SDR, AE…). The Sales team dashboard only compares people in the same
+          position. Permissions stay with the role (owner, admin, member).
+        </p>
+      )}
 
       {(roster?.pendingInvites?.length ?? 0) > 0 && (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
@@ -350,6 +434,50 @@ const TeamPage = () => {
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {canManage && (
+        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+          <div className="mb-5">
+            <div className="flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-beige" />
+              <h2 className={THEME_TOKENS.typography.sectionTitle}>Team metrics</h2>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              How the Sales team dashboard counts activity for everyone in this workspace.
+            </p>
+          </div>
+          <form onSubmit={saveUsefulSeconds} className="space-y-2">
+            <label htmlFor="useful-call-seconds" className={THEME_TOKENS.typography.capsLabel}>
+              Useful conversation
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  id="useful-call-seconds"
+                  type="number"
+                  inputMode="numeric"
+                  min={5}
+                  max={1800}
+                  value={usefulSeconds}
+                  onChange={(e) => setUsefulSecondsDraft(e.target.value)}
+                  className="bg-secondary/5 border-border/40 rounded-full px-5 h-10 w-28 tabular-nums"
+                />
+                <span className="text-sm text-muted-foreground">seconds or longer</span>
+              </div>
+              <Button
+                type="submit"
+                disabled={salesSettingsMutation.isPending || usefulSecondsDraft === null}
+                className="rounded-full bg-beige text-cream px-6 h-10"
+              >
+                {salesSettingsMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              A connected call this long counts as a real conversation, not a quick hang-up.
+            </p>
+          </form>
         </div>
       )}
 

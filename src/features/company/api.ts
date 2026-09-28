@@ -1,7 +1,16 @@
 import { api } from '@/shared/lib/api-client';
 import { mapAuthResponse } from '@/features/auth/api';
 import type { AuthResponse } from '@/features/auth/types';
-import type { CompanyDetails, CompanyMember, InvitePreview, PendingInvite } from './types';
+import type {
+  CompanyDetails,
+  CompanyMember,
+  InvitePreview,
+  PendingInvite,
+  SalesRole,
+  SalesSettings,
+} from './types';
+
+const SALES_ROLES: readonly SalesRole[] = ['sdr', 'ae', 'manager', 'other'];
 
 function mapCompany(raw: Record<string, unknown>): CompanyDetails {
   return {
@@ -30,7 +39,13 @@ function mapMember(raw: Record<string, unknown>): CompanyMember {
     role: String(raw.role),
     status: String(raw.status),
     createdAt: raw.created_at as string | undefined,
+    salesRole: SALES_ROLES.includes(raw.sales_role as SalesRole) ? (raw.sales_role as SalesRole) : 'other',
+    startedOn: (raw.started_on as string) ?? null,
   };
+}
+
+function mapSalesSettings(raw: Record<string, unknown>): SalesSettings {
+  return { usefulCallSeconds: Number(raw.useful_call_seconds ?? 60) };
 }
 
 function mapInvite(raw: Record<string, unknown>): PendingInvite {
@@ -47,6 +62,7 @@ export const companyKeys = {
   all: ['company'] as const,
   detail: () => [...companyKeys.all, 'detail'] as const,
   members: () => [...companyKeys.all, 'members'] as const,
+  salesSettings: () => [...companyKeys.all, 'sales-settings'] as const,
 };
 
 export const companyApi = {
@@ -91,6 +107,29 @@ export const companyApi = {
 
   updateMemberRole: async (memberId: string, role: string) => {
     return api.patch<Record<string, unknown>>(`/company/members/${memberId}`, { role });
+  },
+
+  updateSalesProfile: async (
+    memberId: string,
+    data: { salesRole?: SalesRole; startedOn?: string | null },
+  ): Promise<CompanyMember> => {
+    const body: Record<string, unknown> = {};
+    if (data.salesRole !== undefined) body.sales_role = data.salesRole;
+    if (data.startedOn !== undefined) body.started_on = data.startedOn;
+    const raw = await api.patch<Record<string, unknown>>(`/company/members/${memberId}/sales-profile`, body);
+    return mapMember(raw);
+  },
+
+  getSalesSettings: async (): Promise<SalesSettings> => {
+    const raw = await api.get<Record<string, unknown>>('/company/sales-settings');
+    return mapSalesSettings(raw);
+  },
+
+  updateSalesSettings: async (data: SalesSettings): Promise<SalesSettings> => {
+    const raw = await api.patch<Record<string, unknown>>('/company/sales-settings', {
+      useful_call_seconds: data.usefulCallSeconds,
+    });
+    return mapSalesSettings(raw);
   },
 
   previewInvite: async (token: string): Promise<InvitePreview> => {

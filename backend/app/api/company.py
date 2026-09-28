@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from datetime import date
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
@@ -61,6 +62,8 @@ class MemberResponse(BaseModel):
     role: str
     status: str
     created_at: Optional[str] = None
+    sales_role: str = "other"
+    started_on: Optional[str] = None
 
 
 class PendingInviteResponse(BaseModel):
@@ -78,6 +81,16 @@ class MembersListResponse(BaseModel):
 
 class UpdateMemberRoleRequest(BaseModel):
     role: str
+
+
+class UpdateSalesProfileRequest(BaseModel):
+    sales_role: Optional[Literal["sdr", "ae", "manager", "other"]] = None
+    # Explicit null clears the date; omitting the field leaves it as is.
+    started_on: Optional[date] = None
+
+
+class SalesSettingsModel(BaseModel):
+    useful_call_seconds: int = Field(default=60, ge=5, le=1800)
 
 
 class AcceptInviteRequest(BaseModel):
@@ -226,6 +239,56 @@ async def update_member_role(
         actor=membership,
     )
     return {"success": True, "role": updated.get("role")}
+
+
+@router.patch("/members/{member_id}/sales-profile", response_model=MemberResponse)
+async def update_member_sales_profile(
+    member_id: str,
+    body: UpdateSalesProfileRequest,
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    fields = body.model_fields_set
+    svc.update_member_sales_profile(
+        company_id=membership.company_id,
+        member_id=member_id,
+        sales_role=body.sales_role if "sales_role" in fields else None,
+        started_on=body.started_on.isoformat() if body.started_on else None,
+        clear_started_on="started_on" in fields and body.started_on is None,
+    )
+    member = next(
+        (m for m in svc.list_members(membership.company_id) if m["id"] == member_id),
+        None,
+    )
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return MemberResponse(**member)
+
+
+@router.get("/sales-settings", response_model=SalesSettingsModel)
+async def get_sales_settings(
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    svc = CompanyService(supabase)
+    membership = svc.require_membership(user_id)
+    return SalesSettingsModel(**svc.get_sales_settings(membership.company_id))
+
+
+@router.patch("/sales-settings", response_model=SalesSettingsModel)
+async def update_sales_settings(
+    body: SalesSettingsModel,
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    merged = svc.update_sales_settings(
+        membership.company_id, body.model_dump(exclude_unset=True)
+    )
+    return SalesSettingsModel(**merged)
 
 
 @router.delete("/members/{member_id}")

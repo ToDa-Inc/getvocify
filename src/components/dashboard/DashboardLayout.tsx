@@ -11,6 +11,7 @@ import {
   Headphones,
   Phone,
   LogOut,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
@@ -27,6 +28,7 @@ const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
   { icon: Mic, label: "Voice Memos", path: "/dashboard/memos" },
   { icon: Headphones, label: "Call Copilot", path: "/dashboard/copilot", beta: true },
+  { icon: BarChart3, label: "Sales team", path: "/dashboard/sales-team", managersOnly: true },
   { icon: Settings, label: "Settings", path: "/dashboard/settings" },
 ];
 
@@ -88,7 +90,9 @@ const DashboardLayout = () => {
         </div>
 
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-          {!paywalled && navItems.map((item) => (
+          {!paywalled && navItems
+            .filter((item) => !("managersOnly" in item && item.managersOnly) || canManageBilling)
+            .map((item) => (
             <Link
               key={item.path}
               to={item.path}

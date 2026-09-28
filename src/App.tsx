@@ -34,6 +34,7 @@ import GlossarySection from "./pages/dashboard/settings/GlossarySection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
+import SalesTeamPage from "./pages/dashboard/SalesTeamPage";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
 import AdminAccountDetailPage from "./pages/admin/AdminAccountDetailPage";
@@ -178,6 +179,7 @@ const App = () => (
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />
               <Route path="usage" element={<Navigate to="/dashboard/settings/usage" replace />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
+              <Route path="sales-team" element={<SalesTeamPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>
             <Route path="*" element={<NotFound />} />

@@ -32,6 +32,8 @@ INVITE_TOKEN_EXPIRY_DAYS = 7
 PASSWORD_RESET_EXPIRY_HOURS = 1
 MANAGE_ROLES = frozenset({"owner", "admin"})
 INVITE_ROLES = frozenset({"admin", "member"})
+SALES_ROLES = frozenset({"sdr", "ae", "manager", "other"})
+DEFAULT_SALES_ROLE = "other"
 
 
 @dataclass
@@ -88,6 +90,14 @@ def _missing_company_schema(exc: BaseException) -> bool:
         "pgrst205" in msg
         or 'relation "company_members" does not exist' in msg
         or ("404" in msg and "company_members" in msg)
+    )
+
+
+def _missing_sales_profile_columns(exc: BaseException) -> bool:
+    """True when migration 037 (sales_role / started_on / sales_settings) is not applied."""
+    msg = str(exc).lower()
+    return any(col in msg for col in ("sales_role", "started_on", "sales_settings")) and (
+        "does not exist" in msg or "could not find" in msg or "42703" in msg or "pgrst204" in msg
     )
 
 
@@ -274,15 +284,31 @@ class CompanyService:
             "can_use_dialer": entitlements["can_use_dialer"],
         }
 
+    def _member_rows(self, company_id: str) -> List[dict]:
+        base = "id, user_id, role, status, created_at"
+        try:
+            result = (
+                self.supabase.table("company_members")
+                .select(f"{base}, sales_role, started_on")
+                .eq("company_id", company_id)
+                .order("created_at")
+                .execute()
+            )
+        except Exception as exc:
+            if not _missing_sales_profile_columns(exc):
+                raise
+            logger.warning("Sales profile columns missing (run migration 037_sales_roles.sql)")
+            result = (
+                self.supabase.table("company_members")
+                .select(base)
+                .eq("company_id", company_id)
+                .order("created_at")
+                .execute()
+            )
+        return result.data or []
+
     def list_members(self, company_id: str) -> List[dict]:
-        members_result = (
-            self.supabase.table("company_members")
-            .select("id, user_id, role, status, created_at")
-            .eq("company_id", company_id)
-            .order("created_at")
-            .execute()
-        )
-        members = members_result.data or []
+        members = self._member_rows(company_id)
         user_ids = [m["user_id"] for m in members]
         profiles: Dict[str, dict] = {}
         if user_ids:
@@ -307,6 +333,8 @@ class CompanyService:
                     "role": m["role"],
                     "status": m["status"],
                     "created_at": m.get("created_at"),
+                    "sales_role": m.get("sales_role") or DEFAULT_SALES_ROLE,
+                    "started_on": m.get("started_on"),
                 }
             )
         return out
@@ -646,6 +674,62 @@ class CompanyService:
         if not result.data:
             raise HTTPException(status_code=404, detail="Member not found")
         return result.data
+
+    def update_member_sales_profile(
+        self,
+        *,
+        company_id: str,
+        member_id: str,
+        sales_role: Optional[str] = None,
+        started_on: Optional[str] = None,
+        clear_started_on: bool = False,
+    ) -> dict:
+        """Set a member's sales position and start date. Caller checks manage role."""
+        patch: Dict[str, Any] = {}
+        if sales_role is not None:
+            if sales_role not in SALES_ROLES:
+                raise HTTPException(status_code=400, detail="Invalid sales role")
+            patch["sales_role"] = sales_role
+        if clear_started_on:
+            patch["started_on"] = None
+        elif started_on is not None:
+            patch["started_on"] = started_on
+        target = self._get_member_row(company_id, member_id)
+        if not patch:
+            return target
+        patch["updated_at"] = _iso(_now())
+        result = (
+            self.supabase.table("company_members")
+            .update(patch)
+            .eq("id", member_id)
+            .eq("company_id", company_id)
+            .execute()
+        )
+        return (result.data or [{**target, **patch}])[0]
+
+    def get_sales_settings(self, company_id: str) -> dict:
+        try:
+            result = (
+                self.supabase.table("companies")
+                .select("sales_settings")
+                .eq("id", company_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:
+            if _missing_sales_profile_columns(exc):
+                return {}
+            raise
+        rows = result.data or []
+        raw = rows[0].get("sales_settings") if rows else None
+        return raw if isinstance(raw, dict) else {}
+
+    def update_sales_settings(self, company_id: str, patch: Dict[str, Any]) -> dict:
+        merged = {**self.get_sales_settings(company_id), **patch}
+        self.supabase.table("companies").update(
+            {"sales_settings": merged, "updated_at": _iso(_now())}
+        ).eq("id", company_id).execute()
+        return merged
 
     def update_company_name(self, company_id: str, name: str) -> dict:
         name = name.strip()

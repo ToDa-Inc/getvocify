@@ -96,3 +96,47 @@ def test_missing_company_schema_detects_postgrest_error():
         }
     )
     assert _missing_company_schema(err) is True
+
+
+def test_update_member_sales_profile_rejects_unknown_role():
+    svc = CompanyService(MagicMock())
+    svc._get_member_row = MagicMock(return_value={"id": "m1", "role": "member"})
+    with pytest.raises(HTTPException) as exc:
+        svc.update_member_sales_profile(company_id="c1", member_id="m1", sales_role="closer")
+    assert exc.value.status_code == 400
+
+
+def test_update_member_sales_profile_writes_role_and_clears_date():
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc._get_member_row = MagicMock(return_value={"id": "m1", "role": "member"})
+    svc.update_member_sales_profile(
+        company_id="c1", member_id="m1", sales_role="sdr", clear_started_on=True
+    )
+    patch = supabase.table.return_value.update.call_args.args[0]
+    assert patch["sales_role"] == "sdr"
+    assert patch["started_on"] is None
+
+
+def test_list_members_falls_back_when_sales_columns_missing():
+    from postgrest.exceptions import APIError
+
+    supabase = MagicMock()
+    select = supabase.table.return_value.select
+    old_shape = MagicMock()
+    old_shape.eq.return_value.order.return_value.execute.return_value.data = [
+        {"id": "m1", "user_id": "u1", "role": "owner", "status": "active"}
+    ]
+
+    def fake_select(cols, *args, **kwargs):
+        if "sales_role" in cols:
+            raise APIError(
+                {"message": "column company_members.sales_role does not exist", "code": "42703", "details": None, "hint": None}
+            )
+        return old_shape
+
+    select.side_effect = fake_select
+    svc = CompanyService(supabase)
+    svc._auth_emails_by_ids = MagicMock(return_value={"u1": "a@x.com"})
+    rows = svc._member_rows("c1")
+    assert rows[0]["user_id"] == "u1"

@@ -68,6 +68,9 @@
     --beige: 35 25% 35%;
     --beige-light: 35 20% 50%;
     --beige-dark: 35 30% 25%;
+
+    /* Single-series activity charts (validated: light #9a6a1c, dark #b8862f) */
+    --chart-activity: 37 69% 36%;
     
     /* Status colors */
     --success: 142 76% 36%;
@@ -96,6 +99,7 @@
   }
 
   .dark {
+    --chart-activity: 38 59% 45%;
     --background: 0 0% 4%;
     --foreground: 40 33% 96%;
     --card: 0 0% 8%;

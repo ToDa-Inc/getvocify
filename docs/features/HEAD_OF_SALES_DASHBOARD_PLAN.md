@@ -246,6 +246,12 @@ Mientras el plan de coaching no esté listo, las columnas Adherencia y Foco mues
 | **H4 · Salud del proceso + reporting** | Estado de cada playbook, recomendaciones aplicables, email semanal | Análisis del §5.2 con muestra mínima, ciclo de versiones, emails y campana |
 | **V2** | — | Team leads, pestaña Pipeline con forecast y precisión, dashboard personalizable vía chat |
 
+### Estado (2026-09-28)
+
+- ✅ **H0 (parcial):** `company_members.sales_role` + `started_on`, `companies.sales_settings` (migración 037); puesto por persona y umbral de "conversación útil" en Ajustes → Team; capa de métricas `backend/app/services/team_metrics.py` + `GET /api/v1/team/metrics`.
+- ✅ **H1 (actividad):** página *Sales team* (`/dashboard/sales-team`, solo owner/admin) con Overview (3 KPIs vs periodo comparable, embudo, llamadas por semana) y Team (tabla por persona con mediana, total y CSV). Fuente: dialer de Vocify (`outbound_calls`).
+- ⏳ **Pendiente de H0/H1:** matriz de permisos, objetivos, sincronización de HubSpot + mapeo de etapas, editor de proceso de venta y playbooks.
+
 **H1 es bloqueante para el plan de coaching**, porque sin proceso no hay nada contra lo que puntuar.
 
 ---
