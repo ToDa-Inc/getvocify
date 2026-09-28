@@ -246,11 +246,16 @@ Mientras el plan de coaching no esté listo, las columnas Adherencia y Foco mues
 | **H4 · Salud del proceso + reporting** | Estado de cada playbook, recomendaciones aplicables, email semanal | Análisis del §5.2 con muestra mínima, ciclo de versiones, emails y campana |
 | **V2** | — | Team leads, pestaña Pipeline con forecast y precisión, dashboard personalizable vía chat |
 
-### Estado (2026-09-28)
+### Estado (2026-09-28, sobre `staging`)
 
-- ✅ **H0 (parcial):** `company_members.sales_role` + `started_on`, `companies.sales_settings` (migración 037); puesto por persona y umbral de "conversación útil" en Ajustes → Team; capa de métricas `backend/app/services/team_metrics.py` + `GET /api/v1/team/metrics`.
-- ✅ **H1 (actividad):** página *Sales team* (`/dashboard/sales-team`, solo owner/admin) con Overview (3 KPIs vs periodo comparable, embudo, llamadas por semana) y Team (tabla por persona con mediana, total y CSV). Fuente: dialer de Vocify (`outbound_calls`).
-- ⏳ **Pendiente de H0/H1:** matriz de permisos, objetivos, sincronización de HubSpot + mapeo de etapas, editor de proceso de venta y playbooks.
+Gran parte de H0–H4 ya existía en `staging` (Listas 2–4): `sales_role` sdr/ae/general (054), playbooks por flujo, scoring (045), resultados del CRM (049), informes (048) y la página **Equipo** (`/dashboard/insights`). La fase 2 se construye encima, sin productores nuevos:
+
+- ✅ **Retirada la página paralela de la fase 1** (`/dashboard/sales-team`): contaba llamadas desde `outbound_calls` mientras Equipo cuenta desde `memos.screening_outcome` — dos productores del mismo hecho.
+- ✅ **064** repara `sales_role` donde se ejecutó a mano el borrador 037 (vuelve al contrato de 054).
+- ✅ **Equipo, solo Head of Sales** (`isManagerRole`): periodo (semana, mes, 30 días, trimestre) con comparación contra el mismo tramo anterior, filtro SDR/AE, 4 cifras (intentos, conversaciones, reuniones acordadas, adherencia), tabla por persona alfabética con mediana, total y CSV.
+- ✅ **¿Falla el comercial o el playbook?** (§0/§5): por flujo, siguen/no siguen el playbook × consiguen/no el objetivo, con veredicto y muestra mínima de 10 por grupo. Solo se mide el objetivo visible en una interacción (discovery → reunión acordada); closing no se inventa.
+- Un `member` con `visibility=team` ve Equipo exactamente como antes (misma petición, mismos componentes).
+- ⏳ Pendiente: impacto por paso del playbook y recomendaciones aplicables (§5.2), objetivos, matriz de permisos, rediseño de la navegación del Head of Sales.
 
 **H1 es bloqueante para el plan de coaching**, porque sin proceso no hay nada contra lo que puntuar.
 

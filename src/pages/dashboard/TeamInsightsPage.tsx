@@ -7,6 +7,17 @@ import { AdherenceTrend } from "@/features/team-insights/components/AdherenceTre
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
 import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
+import { ManagerOverview } from "@/features/team-insights/components/ManagerOverview";
+import { ProcessHealth } from "@/features/team-insights/components/ProcessHealth";
+import {
+  HOS_PERIODS,
+  adherenceParams,
+  type HosPeriod,
+  type HosRep,
+  type HosSalesRole,
+  type ProcessHealthFlow,
+} from "@/lib/head-of-sales";
+import { isManagerRole } from "@/lib/nav";
 import { useLanguage } from "@/lib/i18n";
 import {
   teamAdherenceHasData,
@@ -25,25 +36,40 @@ const field = "mt-1 block w-full rounded-lg border border-border bg-card px-3 py
 
 const EMPTY_FILTERS: TeamFilters = { period: "week", motion: null, userId: null };
 
-function adherenceQuery(filters: TeamFilters): string {
-  const params = new URLSearchParams();
-  if (filters.userId) params.set("user_id", filters.userId);
-  if (filters.motion) params.set("motion", filters.motion);
-  const qs = params.toString();
+// Head of Sales phase 2: a manager also sends period and sales_role; a member with
+// visibility=team sends exactly what it sent before (adherenceParams).
+function adherenceQuery(filters: TeamFilters, manager: boolean, salesRole: HosSalesRole): string {
+  const qs = adherenceParams({
+    manager,
+    period: filters.period as HosPeriod,
+    salesRole,
+    userId: filters.userId,
+    motion: filters.motion,
+  });
   return qs ? `/team/adherence?${qs}` : "/team/adherence";
 }
+
+type PhaseTwoTotals = { attempts: number; connected: number; meetings: number; adherence: number | null };
+
+const ROLE_FILTERS: { value: HosSalesRole; key: "hosRoleAll" | "hosRoleSdr" | "hosRoleAe" }[] = [
+  { value: "all", key: "hosRoleAll" },
+  { value: "sdr", key: "hosRoleSdr" },
+  { value: "ae", key: "hosRoleAe" },
+];
 
 export default function TeamInsightsPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const role = user?.company?.role ?? "member";
   const [filters, setFilters] = useState<TeamFilters>(EMPTY_FILTERS);
+  const manager = isManagerRole(role);
+  const [salesRole, setSalesRole] = useState<HosSalesRole>("all");
   // T1/D3: a member with visibility=team also reads this page (read-only) - the backend
   // is the source of truth (403 otherwise), this only decides whether to fire the query.
   const allowed = role === "owner" || role === "admin" || user?.company?.visibility === "team";
   const managerHomeEnabled = Boolean(user?.company?.features?.includes("MANAGER_HOME_ENABLED"));
   const query = useQuery({
-    queryKey: ["team-adherence", filters],
+    queryKey: ["team-adherence", filters, manager ? salesRole : null],
     queryFn: () =>
       api.get<{
         adherence: number | null;
@@ -62,7 +88,9 @@ export default function TeamInsightsPage() {
         competitor_mentions?: { name: string; count: number; quotes?: { quote: string; date: string }[] }[];
         reps?: TeamRep[];
         review?: { memo_id: string; line: string }[];
-      }>(adherenceQuery(filters)),
+        previous?: PhaseTwoTotals;
+        process_health?: ProcessHealthFlow[];
+      }>(adherenceQuery(filters, manager, salesRole)),
     enabled: allowed,
     retry: false,
   });
@@ -119,6 +147,42 @@ export default function TeamInsightsPage() {
       <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.teamTitle}</h1>
       {view.kind === "denied" ? <p>{view.title}</p> : null}
       {view.kind === "new" ? <p>{view.title}</p> : null}
+      {manager ? (
+        <div className="flex flex-wrap items-end gap-3" data-testid="hos-filters">
+          <label className={THEME_TOKENS.typography.capsLabel}>
+            {t.product.hosPeriodLabel}
+            <select
+              className={field}
+              value={filters.period}
+              onChange={(event) => setFilters((prev) => ({ ...prev, period: event.target.value }))}
+            >
+              {HOS_PERIODS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {String(t.product[option.labelKey])}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div role="group" aria-label={t.product.hosRoleLabel} className="inline-flex rounded-full border border-border bg-card p-1">
+            {ROLE_FILTERS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={salesRole === option.value}
+                onClick={() => {
+                  setSalesRole(option.value);
+                  setFilters((prev) => ({ ...prev, userId: null }));
+                }}
+                className={`rounded-full px-3.5 py-1 text-xs transition-colors ${
+                  salesRole === option.value ? "bg-beige text-cream" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.product[option.key]}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {allowed ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={THEME_TOKENS.typography.capsLabel}>
@@ -185,7 +249,25 @@ export default function TeamInsightsPage() {
               </ul>
             </section>
           ) : null}
-          <TeamOverview metrics={view.metrics} reps={view.reps} showRepDetail={managerHomeEnabled} />
+          {manager ? (
+            <>
+              <ManagerOverview
+                current={{
+                  attempts: view.metrics.attempts,
+                  connected: view.metrics.connected,
+                  meetings: view.metrics.meetings,
+                  adherence: view.metrics.adherence,
+                }}
+                previous={query.data?.previous ?? null}
+                reps={(query.data?.reps ?? []) as HosRep[]}
+                showRepDetail={managerHomeEnabled}
+                csvName={`team-${filters.period}.csv`}
+              />
+              <ProcessHealth flows={query.data?.process_health ?? []} playbookHref="/dashboard/settings/playbooks" />
+            </>
+          ) : (
+            <TeamOverview metrics={view.metrics} reps={view.reps} showRepDetail={managerHomeEnabled} />
+          )}
           <AdherenceBreakdown metrics={view.metrics}>
             <AdherenceTrend filters={filters} />
           </AdherenceBreakdown>
@@ -193,6 +275,7 @@ export default function TeamInsightsPage() {
             categories={query.data?.objection_categories ?? []}
             competitors={query.data?.competitor_mentions}
             sampleLimited={query.data?.sample_limited === true}
+            emptyText={manager && filters.period !== "week" ? t.product.hosObjectionsEmptyPeriod : undefined}
           />
           <OutcomeBreakdown
             metrics={view.metrics}

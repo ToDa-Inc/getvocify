@@ -19,14 +19,17 @@ export function ObjectionBreakdown({
   categories,
   competitors,
   sampleLimited,
+  emptyText,
 }: {
   categories: ObjectionCategory[];
   competitors?: CompetitorMention[];
   sampleLimited?: boolean;
+  /** Head of Sales phase 2: the manager's period is not always "this week". */
+  emptyText?: string;
 }) {
   const { t } = useLanguage();
   const p = t.product;
-  const emptyMessage = objectionCategoriesEmptyMessage(categories, p.objections, p.teamObjectionsEmptyWeek);
+  const emptyMessage = objectionCategoriesEmptyMessage(categories, p.objections, emptyText ?? p.teamObjectionsEmptyWeek);
   const visible = visibleObjectionCategories(categories, p.objections);
   const namedCompetitors = (competitors ?? []).filter((item) => item.count > 0);
   const maxCount = visible.reduce((max, item) => Math.max(max, item.count), 0);
