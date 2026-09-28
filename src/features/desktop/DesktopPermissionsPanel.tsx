@@ -82,12 +82,12 @@ function SigningBlocker() {
               <Terminal className="h-3.5 w-3.5" />
               Terminal (once)
             </div>
-            <p>bash ~/getvocify-desktop/scripts/ensure-dev-signing.sh</p>
+            <p>bash ~/getvocify-desktop/scripts/create-dev-signing-cert.sh</p>
             <p>CODESIGN_IDENTITY=&quot;Vocify Dev&quot; ~/getvocify-desktop/scripts/dev-desktop.sh</p>
           </div>
           <p className="text-xs text-muted-foreground">
-            Keychain Access → Certificate Assistant → Create a Certificate → Code Signing → name it{" "}
-            <strong>Vocify Dev</strong>. Then rebuild. Vocify will appear in Settings and drag-to-allow works.
+            The script creates a local <strong>Vocify Dev</strong> cert and trusts it for code signing.
+            Then rebuild — Vocify will appear in Settings and drag-to-allow works.
           </p>
         </div>
       </div>
