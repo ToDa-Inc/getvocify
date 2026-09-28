@@ -20,6 +20,7 @@ import TeamPage from "./pages/dashboard/TeamPage";
 import TeamInsightsPage from "./pages/dashboard/TeamInsightsPage";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
 import PlaybookPage from "./pages/dashboard/PlaybookPage";
+import CoachPage from "./pages/dashboard/CoachPage";
 import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
@@ -186,6 +187,7 @@ const App = () => (
               </Route>
               <Route path="insights" element={<TeamInsightsPage />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
+              <Route path="coach" element={<CoachPage />} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
                   this is where "go to my Today" points a manager who also sells. */}
               <Route path="today" element={<RepHome />} />

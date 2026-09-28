@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
@@ -72,6 +72,8 @@ export default function TeamInsightsPage() {
     enabled: allowed,
     retry: false,
   });
+  // Lista 4 E5: a rep who can't read the team panel has Coach instead of Team.
+  if (user && !allowed) return <Navigate to="/dashboard/coach" replace />;
   if (allowed && (query.isLoading || query.isError)) {
     return (
       <main className={`max-w-5xl mx-auto space-y-4 ${THEME_TOKENS.motion.fadeIn}`}>
