@@ -11,10 +11,16 @@ export const CONFIRM_GROUP_AT = 3;
 export const FOLLOWUP_POLL_MS = 5000;
 export const FOLLOWUP_POLL_FOR_MS = 120_000;
 export const HOME_WIDE_PX = 1280;
+// Lista 4 T2 (E7): /today caps Tareas and Seguimiento itself; Nuevos also takes the
+// never-called contacts from /contact-priorities, so the home caps it once merged.
+export const SDR_NEW_CAP = 10;
 
 const MEETING = "meeting_today";
 const CONFIRM = "confirm_pending";
 const TASK = "manual_task";
+const FOLLOWUP = "followup_due";
+const NEVER_CONTACTED = "never_contacted";
+const SDR_SECTIONS = ["tasks", "followups", "new"];
 const PRIORITY_TYPES = { pain_agree_next_step: "pain_confirmed", no_calls_logged: "uncalled" };
 const DONE_KINDS = new Set(["call", "followup", "signal", "confirmation"]);
 const MANAGERS = new Set(["owner", "admin"]);
@@ -25,6 +31,9 @@ export function composeHome(input) {
   if (today === undefined) {
     return { state: "loading", canManage, incompleteAt: null, pulse: null, folded: null, sections: [] };
   }
+
+  // HOY_SDR_SECTIONS_ENABLED with /today's own split: Tareas / Seguimiento / Nuevos.
+  if (input.sdrSections && Array.isArray(today?.sections?.tasks)) return composeSdrHome(input, canManage);
 
   const items = today ? mergeActed(today.items || [], input.acted || [], now) : [];
   const meetings = items.filter((item) => item.type === MEETING && !item.memo_id);
@@ -49,50 +58,113 @@ export function composeHome(input) {
   const lastHoy = shownCalls.length ? "calls" : confirmRows.rows.length ? "needs_ok" : shownMeetings.length ? "meetings" : null;
 
   const needsOk = [...confirmRows.rows, ...followupRows(input.followups), ...reviewRows(input.reviews)];
-  const upcoming = (input.upcoming || []).map((row) => ({
-    ...row,
-    inCrm: Boolean(row.crm_task_id),
-    when: dayLabel(row.due_at, now, input),
-  }));
-  const done = doneRows(input.done, input);
 
   const sections = [];
   if (shownMeetings.length) {
     sections.push({ id: "meetings", items: shownMeetings.map((item) => meetingEntry(item, input)) });
   }
-  if (needsOk.length) {
-    sections.push({
-      id: "needs_ok",
-      rows: needsOk,
-      shown: needsOk.slice(0, NEEDS_OK_VISIBLE),
-      more: Math.max(0, needsOk.length - NEEDS_OK_VISIBLE),
-    });
-  }
+  if (needsOk.length) sections.push(needsOkSection(needsOk));
   if (shownCalls.length) sections.push({ id: "calls", items: shownCalls });
-  if (upcoming.length) sections.push({ id: "upcoming", rows: upcoming });
-  if (done.length) sections.push({ id: "done", rows: done, count: done.length });
+  sections.push(...tailSections(input));
 
+  const pending = shownMeetings.length + needsOk.length + shownCalls.length > 0;
+  const todayCards = meetings.length + confirms.length + todayCalls.length > 0;
+  return {
+    ...homeState(input, { pending, todayCards }),
+    canManage,
+    folded: foldedCount > 0 ? { count: foldedCount, after: lastHoy } : null,
+    sections,
+  };
+}
+
+/**
+ * The SDR's home (Lista 4 T2, E7): meetings, Tareas, Falta tu OK, Seguimiento, Nuevos.
+ * Each block keeps what /today sent (it caps each one on its own), so new leads never
+ * vanish behind hot contacts. Falta tu OK sits under Tareas: its follow-up emails to send
+ * are tasks too. Coming up and done stay as they are.
+ */
+function composeSdrHome(input, canManage) {
+  const { today, now } = input;
+  const served = today.sections;
+  const items = mergeActed([...served.tasks, ...(served.followups || []), ...(served.new || [])], input.acted || [], now);
+  const meetings = items.filter((item) => item.type === MEETING && !item.memo_id);
+  const confirms = items.filter((item) => item.type === CONFIRM);
+  const tasks = items.filter(
+    (item) => !(item.type === MEETING && !item.memo_id) && ![CONFIRM, TASK, FOLLOWUP, NEVER_CONTACTED].includes(item.type),
+  );
+  const followups = items.filter((item) => item.type === FOLLOWUP);
+  // Only never-called contacts join Nuevos: a hot contact comes back on its cadence date,
+  // not every day from /contact-priorities.
+  const freshAll = [
+    ...items.filter((item) => item.type === NEVER_CONTACTED).map((item) => ({ source: "today", item })),
+    ...priorityCalls(input.priorities, items).filter((entry) => entry.item.type === "uncalled"),
+  ];
+  const fresh = freshAll.slice(0, SDR_NEW_CAP);
+  const confirmRows = confirmationRows(confirms, Infinity);
+  const needsOk = [...confirmRows.rows, ...followupRows(input.followups), ...reviewRows(input.reviews)];
+  const blocks = {
+    tasks: tasks.map((item) => ({ source: "today", item })),
+    followups: followups.map((item) => ({ source: "today", item })),
+    new: fresh,
+  };
+
+  const sections = [];
+  if (meetings.length) sections.push({ id: "meetings", items: meetings.map((item) => meetingEntry(item, input)) });
+  if (blocks.tasks.length) sections.push({ id: "tasks", items: blocks.tasks });
+  if (needsOk.length) sections.push(needsOkSection(needsOk));
+  if (blocks.followups.length) sections.push({ id: "followups", items: blocks.followups });
+  if (blocks.new.length) sections.push({ id: "new", items: blocks.new });
+  sections.push(...tailSections(input));
+
+  const servedFolded = Object.values(today.sections_folded || {}).reduce((sum, count) => sum + (Number(count) || 0), 0);
+  const foldedCount = servedFolded + (freshAll.length - fresh.length);
+  const painted = ["tasks", "needs_ok", "followups", "new"].filter((id) => sections.some((entry) => entry.id === id));
+  const pending = meetings.length + needsOk.length + tasks.length + followups.length + fresh.length > 0;
+  const todayCards = meetings.length + confirms.length + tasks.length + followups.length
+    + items.filter((item) => item.type === NEVER_CONTACTED).length > 0;
+  return {
+    ...homeState(input, { pending, todayCards }),
+    canManage,
+    folded: foldedCount > 0 ? { count: foldedCount, after: painted.at(-1) ?? null } : null,
+    sections,
+  };
+}
+
+function needsOkSection(rows) {
+  return { id: "needs_ok", rows, shown: rows.slice(0, NEEDS_OK_VISIBLE), more: Math.max(0, rows.length - NEEDS_OK_VISIBLE) };
+}
+
+/** Coming up and done today: the same for every home. */
+function tailSections(input) {
+  const upcoming = (input.upcoming || []).map((row) => ({
+    ...row,
+    inCrm: Boolean(row.crm_task_id),
+    when: dayLabel(row.due_at, input.now, input),
+  }));
+  const done = doneRows(input.done, input);
+  const out = [];
+  if (upcoming.length) out.push({ id: "upcoming", rows: upcoming });
+  if (done.length) out.push({ id: "done", rows: done, count: done.length });
+  return out;
+}
+
+function homeState(input, { pending, todayCards }) {
+  const { today } = input;
+  const done = doneRows(input.done, input);
   const deciding = [input.priorities, input.followups, input.reviews];
   const settled = deciding.every((read) => read !== undefined) && input.connected !== undefined;
   const sideFailed = deciding.some((read) => read === null);
   const incomplete = Boolean(today) && (input.todayStale || sideFailed || !sourcesComplete(today.coverage));
-  const pending = shownMeetings.length + needsOk.length + shownCalls.length > 0;
-  const todayCards = meetings.length + confirms.length + todayCalls.length > 0;
-
   let state = "day";
   if (today === null) state = "error";
   else if (input.connected === false && !todayCards) state = "connect";
   else if (!pending && !incomplete && settled) {
     state = input.priorities?.title === "title_no_assigned" ? "no_assigned" : "clear";
   }
-
   return {
     state,
-    canManage,
     incompleteAt: incomplete ? clock(today.generated_at, input) : null,
     pulse: pulse(done, input),
-    folded: foldedCount > 0 ? { count: foldedCount, after: lastHoy } : null,
-    sections,
   };
 }
 
@@ -110,29 +182,35 @@ export function needsOkKey(entry) {
 const settledItem = (item) => item.status != null && item.status !== "pending";
 
 /**
- * Every selectable row, in the order it is painted: meetings, Falta tu OK, calls.
+ * Every selectable row, in the order it is painted: meetings, Falta tu OK, calls - or, on
+ * the SDR's home, meetings, Tareas, Falta tu OK, Seguimiento, Nuevos.
  * The confirmation group is not a contact and a card waiting on its undo is not a row.
  */
 export function homeRows(view, { needsOkOpen = false, groupOpen = false } = {}) {
   const rows = [];
-  const byId = (id) => view.sections.find((entry) => entry.id === id);
-  for (const entry of byId("meetings")?.items || []) {
-    if (settledItem(entry.item)) continue;
-    rows.push({ key: itemKey(entry.item), kind: "meeting", contactId: entry.item.contact_id ?? null, name: entry.item.contact_name ?? null, item: entry.item, time: entry.time });
-  }
-  const needsOk = byId("needs_ok");
-  for (const entry of (needsOkOpen ? needsOk?.rows : needsOk?.shown) || []) {
-    const confirms = entry.kind === "confirm" ? [entry.item] : entry.kind === "confirm_group" && groupOpen ? entry.items : [];
-    for (const item of confirms) {
-      if (!settledItem(item)) rows.push({ key: itemKey(item), kind: "confirm", contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+  for (const section of view.sections) {
+    if (section.id === "meetings") {
+      for (const entry of section.items) {
+        if (settledItem(entry.item)) continue;
+        rows.push({ key: itemKey(entry.item), kind: "meeting", contactId: entry.item.contact_id ?? null, name: entry.item.contact_name ?? null, item: entry.item, time: entry.time });
+      }
+    } else if (section.id === "needs_ok") {
+      for (const entry of (needsOkOpen ? section.rows : section.shown) || []) {
+        const confirms = entry.kind === "confirm" ? [entry.item] : entry.kind === "confirm_group" && groupOpen ? entry.items : [];
+        for (const item of confirms) {
+          if (!settledItem(item)) rows.push({ key: itemKey(item), kind: "confirm", contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+        }
+        if (entry.kind === "followup" || entry.kind === "review") {
+          rows.push({ key: needsOkKey(entry), kind: entry.kind, contactId: entry.contactId ?? null, name: entry.name, entry });
+        }
+      }
+    } else if (section.id === "calls" || SDR_SECTIONS.includes(section.id)) {
+      // Tareas, Seguimiento and Nuevos are all people to call: the same row as "calls".
+      for (const { source, item } of section.items) {
+        if (settledItem(item)) continue;
+        rows.push({ key: itemKey(item), kind: "call", source, contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+      }
     }
-    if (entry.kind === "followup" || entry.kind === "review") {
-      rows.push({ key: needsOkKey(entry), kind: entry.kind, contactId: entry.contactId ?? null, name: entry.name, entry });
-    }
-  }
-  for (const { source, item } of byId("calls")?.items || []) {
-    if (settledItem(item)) continue;
-    rows.push({ key: itemKey(item), kind: "call", source, contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
   }
   return rows;
 }
@@ -272,6 +350,9 @@ export function holdOrder(order, view) {
     meetings: (section) => [section.items, (entry) => itemKey(entry.item)],
     needs_ok: (section) => [section.rows, needsOkKey],
     calls: (section) => [section.items, (entry) => itemKey(entry.item)],
+    tasks: (section) => [section.items, (entry) => itemKey(entry.item)],
+    followups: (section) => [section.items, (entry) => itemKey(entry.item)],
+    new: (section) => [section.items, (entry) => itemKey(entry.item)],
   };
   const nextOrder = {};
   const sections = view.sections.map((section) => {

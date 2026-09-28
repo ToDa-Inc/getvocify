@@ -14,7 +14,7 @@ declare module "@shared/ui/brief.js" {
     missing_steps?: string[];
     lines?: { type?: string; text?: string | null; source?: string | null; reason?: string | null; since?: string | null }[];
   };
-  export type BriefRow = { text: string; playbook: boolean };
+  export type BriefRow = { text: string; playbook: boolean; company: boolean };
   export type BriefRows = { notice: string | null; rows: BriefRow[]; label: string | null };
   export type PanelBrief = BriefRows & { state: "none" | "loading" | "failed" | "ready" };
 
@@ -80,6 +80,7 @@ declare module "@shared/ui/home.js" {
   export const FOLLOWUP_POLL_MS: number;
   export const FOLLOWUP_POLL_FOR_MS: number;
   export const HOME_WIDE_PX: number;
+  export const SDR_NEW_CAP: number;
 
   export type HomeNeedsOkRow =
     | { kind: "confirm"; item: TodayItem; action: "confirm" }
@@ -91,6 +92,10 @@ declare module "@shared/ui/home.js" {
     | { id: "meetings"; items: { item: TodayItem; time: string | null; past: boolean }[] }
     | { id: "needs_ok"; rows: HomeNeedsOkRow[]; shown: HomeNeedsOkRow[]; more: number }
     | { id: "calls"; items: { source: "today" | "priority"; item: TodayItem }[] }
+    // Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): the SDR's Tareas / Seguimiento / Nuevos.
+    | { id: "tasks"; items: { source: "today" | "priority"; item: TodayItem }[] }
+    | { id: "followups"; items: { source: "today" | "priority"; item: TodayItem }[] }
+    | { id: "new"; items: { source: "today" | "priority"; item: TodayItem }[] }
     | { id: "upcoming"; rows: (UpcomingRow & { inCrm: boolean; when: string | null })[] }
     | { id: "done"; rows: { kind: string; name: string | null; contactId: string | null; at: string; memoId: string | null; time: string | null }[]; count: number };
 
@@ -101,7 +106,7 @@ declare module "@shared/ui/home.js" {
     canManage: boolean;
     incompleteAt: string | null;
     pulse: { calls: number; savedTo: string | null } | null;
-    folded: { count: number; after: "meetings" | "needs_ok" | "calls" | null } | null;
+    folded: { count: number; after: "meetings" | "needs_ok" | "calls" | "tasks" | "followups" | "new" | null } | null;
     sections: HomeSection[];
   };
 
@@ -121,6 +126,8 @@ declare module "@shared/ui/home.js" {
     now: number;
     locale: string;
     timeZone?: string;
+    /** HOY_SDR_SECTIONS_ENABLED: paint /today's `sections.tasks/followups/new` when sent. */
+    sdrSections?: boolean;
   }): HomeView;
 
   export function meetingEntry(

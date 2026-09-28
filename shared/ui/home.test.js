@@ -837,3 +837,102 @@ describe("home selection", () => {
     assert.equal(after.items[after.index], "hoy:sig-3");
   });
 });
+
+// Lista 4 T2 (E7, HOY_SDR_SECTIONS_ENABLED): Tareas, Seguimiento and Nuevos, each capped by
+// /today on its own; Falta tu OK sits under Tareas; meetings, coming up and done stay.
+describe("composeHome SDR sections", () => {
+  const followupCard = (n, extra = {}) => card(n, {
+    type: "followup_due",
+    dedupe_key: `followup:m${n}`,
+    reason: "Le interesó; frenó por precio (hace 8 días).",
+    ...extra,
+  });
+  const newCard = (n) => card(n, { type: "never_contacted", id: null, dedupe_key: `never_contacted::c${n}`, reason: "Nunca has hablado con este contacto." });
+  const sdrView = ({ tasks = [], followups = [], fresh = [], folded } = {}, items = [...tasks, ...followups, ...fresh].slice(0, 7)) =>
+    view(items, {
+      sections: { tasks, followups, new: fresh },
+      ...(folded ? { sections_folded: folded } : {}),
+    });
+  const sdrHome = (overrides) => composeHome(input({ sdrSections: true, ...overrides }));
+  const contacts = (home, id) => section(home, id).items.map((entry) => entry.item.contact_id);
+
+  it("paints meetings, Tareas, Falta tu OK, Seguimiento and Nuevos in that order", () => {
+    const home = sdrHome({
+      today: sdrView({ tasks: [meeting(1), confirmation(2), card(3)], followups: [followupCard(4)], fresh: [newCard(5)] }),
+      followups: [followup(6)],
+      upcoming: [{ memo_id: "m9", contact_id: "c9", contact_name: "N", company_name: null, text: "Seguimiento · frenó por precio", due_at: "2026-10-02T10:00:00+00:00", precision: "date", crm_task_id: null, kind: "followup" }],
+    });
+    assert.deepEqual(ids(home), ["meetings", "tasks", "needs_ok", "followups", "new", "upcoming"]);
+    assert.deepEqual(contacts(home, "tasks"), ["c3"]);
+    assert.deepEqual(contacts(home, "followups"), ["c4"]);
+    assert.deepEqual(contacts(home, "new"), ["c5"]);
+    assert.deepEqual(section(home, "needs_ok").rows.map((row) => row.kind), ["confirm", "followup"]);
+  });
+
+  it("does not cap the sections at seven: each keeps what /today sent", () => {
+    const tasks = Array.from({ length: 12 }, (_, i) => card(i));
+    const followups = Array.from({ length: 7 }, (_, i) => followupCard(20 + i));
+    const fresh = Array.from({ length: 10 }, (_, i) => newCard(40 + i));
+    const home = sdrHome({ today: sdrView({ tasks, followups, fresh }) });
+    assert.equal(section(home, "tasks").items.length, 12);
+    assert.equal(section(home, "followups").items.length, 7);
+    assert.equal(section(home, "new").items.length, 10);
+    assert.equal(home.folded, null);
+  });
+
+  it("puts never-called priority contacts in Nuevos, deduped, up to ten, and leaves confirmed pain to the cadence", () => {
+    const fresh = Array.from({ length: 8 }, (_, i) => newCard(i));
+    const home = sdrHome({
+      today: sdrView({ tasks: [card(20)], fresh }),
+      priorities: priorities([priority(1), priority(20), priority(30), priority(31), priority(32), priority(33, "pain_agree_next_step")]),
+    });
+    assert.deepEqual(contacts(home, "new"), ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c30", "c31"]);
+    assert.equal(section(home, "new").items[8].source, "priority");
+    assert.equal(section(home, "new").items[8].item.type, "uncalled");
+    assert.equal(home.sections.some((entry) => entry.id === "calls"), false);
+    assert.deepEqual(home.folded, { count: 1, after: "new" });
+  });
+
+  it("folds what /today capped per section under the last section painted", () => {
+    const home = sdrHome({
+      today: sdrView({ tasks: [card(1)], followups: [followupCard(2)], folded: { tasks: 3, followups: 2, new: 0 } }),
+    });
+    assert.deepEqual(home.folded, { count: 5, after: "followups" });
+  });
+
+  it("walks the rows in the order they are painted, every section a call row", () => {
+    const home = sdrHome({
+      today: sdrView({ tasks: [meeting(1), card(2)], followups: [followupCard(3)], fresh: [newCard(4)] }),
+      followups: [followup(5)],
+    });
+    const rows = homeRows(home);
+    assert.deepEqual(rows.map((row) => row.key), ["hoy:sig-1", "hoy:sig-2", "followup:f5", "hoy:sig-3", "never_contacted::c4"]);
+    assert.deepEqual(rows.map((row) => row.kind), ["meeting", "call", "followup", "call", "call"]);
+  });
+
+  it("keeps a dismissed follow-up in its own section during its undo window", () => {
+    const acted = followupCard(3, { status: "dismissed", version: 2, undo_deadline: "2026-09-29T08:30:04+02:00" });
+    const home = sdrHome({ today: sdrView({ tasks: [card(1)] }), acted: [acted] });
+    assert.deepEqual(contacts(home, "followups"), ["c3"]);
+    assert.equal(section(home, "followups").items[0].item.status, "dismissed");
+  });
+
+  it("holds each section's order across reads", () => {
+    const first = sdrHome({ today: sdrView({ followups: [followupCard(1), followupCard(2)] }) });
+    const { order } = holdOrder(null, first);
+    const second = sdrHome({ today: sdrView({ followups: [followupCard(3), followupCard(2), followupCard(1)] }) });
+    const held = holdOrder(order, second).view;
+    assert.deepEqual(contacts(held, "followups"), ["c1", "c2", "c3"]);
+  });
+
+  it("says nothing is urgent when every section is empty", () => {
+    const home = sdrHome({ today: sdrView({}) });
+    assert.equal(home.state, "clear");
+  });
+
+  it("keeps today's rendering with the flag off or without sections from /today", () => {
+    const today = sdrView({ tasks: [card(1)], followups: [followupCard(2)] });
+    assert.deepEqual(ids(composeHome(input({ today }))), ["calls"]);
+    assert.deepEqual(ids(sdrHome({ today: view([card(1)]) })), ["calls"]);
+  });
+});

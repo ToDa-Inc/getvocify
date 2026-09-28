@@ -100,6 +100,27 @@ describe('contact brief box (extension popup)', () => {
     assert.equal(screen.classList.contains('has-brief'), true);
   });
 
+  it('paints the company hook after the facts, marked apart', () => {
+    const { box } = paint({
+      brief: {
+        status: 'ready',
+        text: null,
+        notice: null,
+        label: null,
+        lines: [
+          { type: 'who', text: 'Directora comercial en Factorial' },
+          { type: 'company', text: 'En Factorial ya hablaste con Manuel García el 12 sep: Le interesó el fichaje.' },
+        ],
+      },
+    });
+    assert.deepEqual(box.children.map((child) => child.textContent), [
+      'Directora comercial en Factorial',
+      'En Factorial ya hablaste con Manuel García el 12 sep: Le interesó el fichaje.',
+    ]);
+    assert.equal(box.children[0].classList.contains('brief-company'), false);
+    assert.equal(box.children[1].classList.contains('brief-company'), true);
+  });
+
   it('puts the partial notice first', () => {
     const { box } = paint({
       brief: {

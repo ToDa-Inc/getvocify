@@ -309,14 +309,18 @@ def build_today_view(
     confirm_rows: list[dict] | None = None,
     tz_name: str | None = None,
     lead_tiers: bool = False,
+    limit: int = DEFAULT_LIMIT,
 ) -> dict:
     """task_links: signal key -> CRM task ids written for that commitment. Those tasks are
-    the commitment, so they never show as manual tasks; the card carries the first id."""
+    the commitment, so they never show as manual tasks; the card carries the first id.
+
+    `limit` is the global card cap; GET /today raises it for the SDR sections (Lista 4 T2),
+    which cap each section on their own."""
     task_links = task_links or {}
     written = {task_id for ids in task_links.values() for task_id in ids}
     manual_tasks = [task for task in manual_tasks if str(task.get("remote_id") or "") not in written]
     linked, loose = attach_manual(signals, manual_tasks)
-    cards, folded = rank_cards(linked, now=now) if linked else ([], 0)
+    cards, folded = rank_cards(linked, now=now, limit=limit) if linked else ([], 0)
     items = []
     for card in cards:
         payload = card.primary.payload
@@ -383,7 +387,7 @@ def build_today_view(
         for row in (confirm_rows or [])
     ]
     items = confirm_items + items
-    visible = items[:DEFAULT_LIMIT]
+    visible = items[:limit]
     folded += len(items) - len(visible)
     complete = bool(coverage) and all(value == "complete" for value in coverage.values())
     return {

@@ -77,6 +77,9 @@ export type UpcomingRow = {
   due_at: string;
   precision: "date" | "time" | null;
   crm_task_id: string | null;
+  /** Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): "followup" for a contact the cadence brings back
+   * on this date; absent for a commitment. */
+  kind?: "followup";
 };
 
 export type DoneRow = {
@@ -94,11 +97,17 @@ export type TodaySections = {
   calls?: TodayItem[];
   meetings?: TodayItem[];
   deals?: TodayItem[];
+  /** Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED, SDR/General): each capped on its own. */
+  tasks?: TodayItem[];
+  followups?: TodayItem[];
+  new?: TodayItem[];
 };
 
 export type TodayView = {
   items: TodayItem[];
   sections?: TodaySections;
+  /** How many cards each SDR section left out past its cap. */
+  sections_folded?: { tasks: number; followups: number; new: number };
   pulse: number | null;
   folded_count: number;
   generated_at: string;
@@ -200,6 +209,7 @@ const SUPPORTING_KEYS: Record<string, string> = {
   manual_task: "today_origin_manual",
   callback_no_answer: "today_signal_callback_no_answer",
   never_contacted: "today_signal_never_contacted",
+  followup_due: "today_signal_followup",
   deal_in_progress: "today_signal_deal",
 };
 

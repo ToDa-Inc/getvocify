@@ -233,3 +233,37 @@ def test_patch_company_only_saves_callback_days_with_lead_tiers_on(flag_on, expe
             company_api.UpdateCompanyRequest(callback_after_days=4), user_id="u1", supabase=MagicMock(),
         ))
     assert svc.update_callback_after_days.call_count == expected_calls
+
+
+# --- followup_cadence (Lista 4 T2, E8: companies.followup_cadence, migration 062) ---
+
+
+def test_followup_cadence_reads_only_valid_overrides():
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.get_company = MagicMock(return_value={"id": "company-1", "followup_cadence": {"price": 3, "timing": 0, "x": 4}})
+    assert svc.followup_cadence("company-1") == {"price": 3}
+
+
+def test_followup_cadence_is_empty_before_migration_062_or_when_the_read_fails():
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.get_company = MagicMock(return_value={"id": "company-1"})
+    assert svc.followup_cadence("company-1") == {}
+    svc.get_company = MagicMock(side_effect=RuntimeError("boom"))
+    assert svc.followup_cadence("company-1") == {}
+
+
+def test_the_sdr_sections_flag_reaches_the_client():
+    from app.services.feature_flags import CLIENT_FLAGS
+
+    assert "HOY_SDR_SECTIONS_ENABLED" in CLIENT_FLAGS
+    assert "HOY_LEAD_TIERS_ENABLED" in CLIENT_FLAGS
+
+
+def test_the_brief_company_hook_flag_reaches_the_client():
+    from app.config import settings
+    from app.services.feature_flags import CLIENT_FLAGS
+
+    assert "BRIEF_COMPANY_HOOK_ENABLED" in CLIENT_FLAGS
+    assert settings.BRIEF_COMPANY_HOOK_ENABLED is False

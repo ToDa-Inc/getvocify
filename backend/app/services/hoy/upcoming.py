@@ -1,12 +1,16 @@
-"""Próximas: C04 commitments due from tomorrow on, in the rep's zone. No I/O."""
+"""Próximas: C04 commitments due from tomorrow on, in the rep's zone - and, with
+HOY_SDR_SECTIONS_ENABLED (Lista 4 T2), the follow-ups whose cadence date is still ahead. No I/O."""
 
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.services.hoy.materialize import _commitments, _intelligence, as_dt, fresh_signals
+from app.services.hoy.cadence import followup_due_at, stopper_for
+from app.services.hoy.materialize import _commitments, _intelligence, as_dt, contact_touches, fresh_signals
 from app.services.hoy.names import clean_name, lookup, memo_directory
+from app.services.hoy.reasons import followup_upcoming_text
+from app.services.hoy.signals import UNANSWERED_OUTCOMES
 
 DEFAULT_DAYS = 7
 MIN_DAYS = 1
@@ -65,6 +69,48 @@ def upcoming_commitments(memos: list[dict], *, now: datetime, tz_name: str | Non
             "due_at": signal.due_at.isoformat(),
             "precision": item.get("temporal_precision") or item.get("precision") or None,
             "crm_task_id": item.get("crm_task_id") or None,
+        })
+    rows.sort(key=lambda row: (as_dt(row["due_at"]), row["memo_id"]))
+    return rows
+
+
+def upcoming_followups(
+    memos: list[dict],
+    *,
+    now: datetime,
+    tz_name: str | None,
+    days: int = DEFAULT_DAYS,
+    overrides: dict[str, int] | None = None,
+    lang: str = "es",
+) -> list[dict]:
+    """Follow-ups due in [tomorrow 00:00, tomorrow + days 00:00) local: the contacts Hoy is
+    deliberately not showing yet, so the rep sees when each comes back. Same rules as
+    signals_for_contact's followup_due - the latest touch only; a closed deal, any dated
+    commitment (it is a task, listed above on its own date) or an unanswered last call
+    (a callback) means no follow-up row."""
+    start = local_midnight(now, tz_name, days=1)
+    end = local_midnight(now, tz_name, days=1 + days)
+    directory = memo_directory(memos)
+    groups, _pain = contact_touches(memos)
+    rows: list[dict] = []
+    for touches in groups.values():
+        last = max(touches, key=lambda t: t.at)
+        if last.deal_closed or last.commitments or last.screening_outcome in UNANSWERED_OUTCOMES:
+            continue
+        due = followup_due_at(last, overrides)
+        if due is None or not start <= due < end:
+            continue
+        name, company = lookup(directory, last.memo_id, last.contact_id)
+        rows.append({
+            "memo_id": last.memo_id,
+            "contact_id": last.contact_id,
+            "contact_name": name,
+            "company_name": company,
+            "text": followup_upcoming_text(stopper_for(last), lang),
+            "due_at": due.isoformat(),
+            "precision": "date",
+            "crm_task_id": None,
+            "kind": "followup",
         })
     rows.sort(key=lambda row: (as_dt(row["due_at"]), row["memo_id"]))
     return rows

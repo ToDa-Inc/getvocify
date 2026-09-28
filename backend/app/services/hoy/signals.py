@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Literal, Optional
 
+from app.services.hoy.cadence import followup_due_at, stopper_for
+
 Interest = Literal["high", "medium", "low", "none"]
 SignalType = Literal[
     "commitment_due",
@@ -15,6 +17,7 @@ SignalType = Literal[
     "meeting_today",
     "callback_no_answer",
     "never_contacted",
+    "followup_due",
 ]
 CommitmentKind = Literal["call", "email", "send", "meeting", "other"]
 ScreeningOutcome = Literal["connected", "voicemail", "no_response"]
@@ -30,6 +33,9 @@ TIER: dict[str, int] = {
     "callback_no_answer": 1,
     "no_reply": 1,
     "going_cold": 2,
+    # Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): replaces going_cold and objection_open for a
+    # SDR/General rep, on the date the stopper's cadence sets (hoy/cadence.py).
+    "followup_due": 2,
     "objection_open": 3,
     "never_contacted": 4,
 }
@@ -61,6 +67,10 @@ class Touch:
     deal_closed: bool = False
     connection_id: Optional[str] = None
     screening_outcome: Optional[ScreeningOutcome] = None
+    # Lista 4 (migration 062, written by T4 after the call): the date the rep picked to come
+    # back, and the outcome they recorded. None when unknown or not yet written.
+    followup_at: Optional[datetime] = None
+    rep_outcome: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -87,12 +97,17 @@ def signals_for_contact(
     now: datetime,
     day_end: datetime,
     callback_after_days: Optional[int] = None,
+    cadence: Optional[dict[str, int]] = None,
 ) -> list[Signal]:
     """All touches for ONE contact, any order. `day_end` is the end of the rep's local day.
 
     `callback_after_days` is None unless HOY_LEAD_TIERS_ENABLED is on for a SDR/General rep
     (T5): with it None, no callback_no_answer is ever produced, so the flag off behaves
-    exactly as before."""
+    exactly as before.
+
+    `cadence` is None unless HOY_SDR_SECTIONS_ENABLED is on for a SDR/General rep (Lista 4
+    T2); otherwise it is the company's overrides ({} = E8 defaults). With it, going_cold and
+    objection_open give way to one followup_due that only exists from its due day on."""
     if not touches:
         return []
     last = max(touches, key=lambda t: t.at)
@@ -134,6 +149,13 @@ def signals_for_contact(
         ))
 
     waiting_on_future = any(commitment.due_at > day_end for commitment in last.commitments)
+    if cadence is not None:
+        if not out and not waiting_on_future:
+            followup = _followup_due(last, now=now, day_end=day_end, overrides=cadence, base=base)
+            if followup is not None:
+                out.append(followup)
+        return out
+
     if last.interest in WARM and now - last.at >= COLD_AFTER and not out and not waiting_on_future:
         out.append(Signal(
             "going_cold",
@@ -153,6 +175,34 @@ def signals_for_contact(
             **base,
         ))
     return out
+
+
+def _followup_due(last: Touch, *, now: datetime, day_end: datetime, overrides: dict, base: dict) -> Optional[Signal]:
+    """Nothing before its due day (the rep's local day, like a commitment): a contact called
+    yesterday is not called again today to say the same thing."""
+    due = followup_due_at(last, overrides)
+    if due is None or due > day_end:
+        return None
+    payload = {
+        "stopper": stopper_for(last),
+        "interest": last.interest,
+        "days_since": (now - last.at).days,
+        # The card's day count is read off this at render time (reasons.py), like callbacks.
+        "touch_at": last.at.isoformat(),
+        "due_at": due.isoformat(),
+    }
+    if last.objections:
+        category, quote = last.objections[-1]
+        payload.update({"category": category, "quote": quote})
+    return Signal(
+        "followup_due",
+        due_at=due,
+        payload=payload,
+        # Stable per memo and due day: a dismissed or snoozed follow-up is never resurrected
+        # by reconcile, but a new date the rep picks later (memos.followup_at) is a new key.
+        dedupe_key=f"followup:{last.memo_id}:{due.date().isoformat()}",
+        **base,
+    )
 
 
 def never_contacted_signal(*, contact_id: str, connection_id: Optional[str], deal_id: Optional[str] = None) -> Signal:
@@ -215,6 +265,10 @@ def _rank_key(signal: Signal, now: datetime) -> tuple:
         sub = (0 if signal.payload["interest"] == "high" else 1, signal.payload["days_silent"])
     elif signal.type == "never_contacted":
         sub = (0, 0)
+    elif signal.type == "followup_due":
+        raw_due = signal.payload.get("due_at")
+        due = datetime.fromisoformat(str(raw_due).replace("Z", "+00:00")).timestamp() if raw_due else 0.0
+        sub = (0 if signal.payload.get("interest") == "high" else 1, due)
     else:
         sub = (0, -datetime.fromisoformat(signal.payload["touch_at"]).timestamp())
     return (tier, -heat, *sub)
@@ -252,6 +306,8 @@ def touch_from_intelligence(
     history_complete: bool = True,
     legacy_objections: Optional[str] = None,
     screening_outcome: Optional[str] = None,
+    followup_at: Optional[datetime] = None,
+    rep_outcome: Optional[str] = None,
 ) -> Optional[Touch]:
     """Unknown interest stays unknown. A resolved objection is not open, even if legacy text exists."""
     if at is None or (not history_complete and not intelligence):
@@ -294,4 +350,6 @@ def touch_from_intelligence(
         deal_closed=deal_closed,
         connection_id=connection_id,
         screening_outcome=screening_outcome if screening_outcome in UNANSWERED_OUTCOMES | {"connected"} else None,
+        followup_at=followup_at,
+        rep_outcome=rep_outcome,
     )

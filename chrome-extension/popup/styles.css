@@ -2264,6 +2264,12 @@ body {
   color: var(--muted);
 }
 
+/* Lista 4 E9: the «gancho de empresa» line, set apart from the brief's own facts. */
+#contact-brief p.brief-company {
+  padding-left: 10px;
+  border-left: 2px solid var(--hairline);
+}
+
 #screen-record.has-brief .record-btn {
   width: 44px;
   height: 44px;
