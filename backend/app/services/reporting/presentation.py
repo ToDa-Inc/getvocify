@@ -6,6 +6,13 @@ from html import escape
 
 UNAVAILABLE_ES = "No disponible"
 
+FLOW_LABELS_ES = {
+    "handoffs": "Traspasos",
+    "meetings_held": "Reuniones hechas",
+    "deals_in_progress": "Deals en curso",
+    "proposals_sent": "Propuestas enviadas",
+}
+
 OBJECTION_LABELS_ES = {
     "price": "Precio",
     "timing": "Plazo",
@@ -30,7 +37,7 @@ def adherence_display(snapshot: dict, *, unavailable: str = UNAVAILABLE_ES) -> s
 
 def snapshot_metric_cells(snapshot: dict, *, unavailable: str = UNAVAILABLE_ES) -> dict[str, str]:
     metrics = snapshot.get("metrics") or {}
-    return {
+    cells = {
         "attempts": str(int(metrics.get("attempts") or 0)),
         "connected_calls": str(int(metrics.get("connected_calls") or 0)),
         "conversations": channels_text(snapshot) or str(int(metrics.get("connected_calls") or 0)),
@@ -38,6 +45,21 @@ def snapshot_metric_cells(snapshot: dict, *, unavailable: str = UNAVAILABLE_ES) 
         "deals_won": metric_display(metrics.get("deals_won"), unavailable=unavailable),
         "adherence": adherence_display(snapshot, unavailable=unavailable),
     }
+    for key in ("handoffs", "meetings_held", "deals_in_progress", "proposals_sent"):
+        if key in metrics:
+            cells[key] = metric_display(metrics.get(key), unavailable=unavailable)
+    return cells
+
+
+def _flow_rows(snapshot: dict) -> str:
+    """T12: extra rows for a rep whose report is split by flow (sections present).
+    Absent for every report from before REPORTING_BY_FLOW_ENABLED - same email as always."""
+    sections = snapshot.get("sections")
+    if not isinstance(sections, list) or not sections:
+        return ""
+    cells = snapshot_metric_cells(snapshot)
+    shown = [key for key in sections if key in FLOW_LABELS_ES]
+    return "".join(f"<tr><th>{FLOW_LABELS_ES[key]}</th><td>{cells[key]}</td></tr>" for key in shown)
 
 
 def _count(value: int, singular: str, plural: str) -> str:
@@ -179,7 +201,7 @@ def email_html_for_snapshot(snapshot: dict, *, report_id: str, app_origin: str =
     coaching_block = f"<p>{coaching}</p>" if isinstance(coaching, str) and coaching.strip() else ""
     return (
         f"<p>{summary_line(snapshot)}</p>"
-        f"<table>{rows}</table>"
+        f"<table>{rows}{_flow_rows(snapshot)}</table>"
         f"{_trend_block(snapshot)}"
         f"{_objections_block(snapshot)}"
         f"{coaching_block}"

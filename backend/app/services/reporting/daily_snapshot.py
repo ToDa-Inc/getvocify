@@ -6,6 +6,9 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app.services.company import sales_role_for_user
+from app.services.feature_flags import is_enabled
+from app.services.handoffs import active_handoffs_for_ae
 from app.services.reporting.aggregate import build_snapshot
 from app.services.reporting.channels import interaction_channels
 from app.services.reporting.delivery import period_bounds
@@ -15,6 +18,8 @@ from app.services.reporting.preferences import is_opted_in, load_preference_rows
 logger = logging.getLogger(__name__)
 
 _SCREENING = frozenset({"voicemail", "no_response", "connected"})
+_MEETING_KINDS = frozenset({"meeting", "visit"})
+FLOW_FLAG = "REPORTING_BY_FLOW_ENABLED"
 
 
 def _parse_iso(value) -> str | None:
@@ -103,7 +108,8 @@ def _load_memos_for_user(supabase, *, company_id: str, user_id: str) -> list[dic
             supabase.table("memos")
             .select(
                 "id,user_id,company_id,source,source_type,interaction_kind,"
-                "screening_outcome,extraction,capture_started_at,created_at"
+                "screening_outcome,extraction,capture_started_at,created_at,"
+                "sales_motion_key,followup"
             )
             .eq("company_id", company_id)
             .eq("user_id", user_id)
@@ -113,6 +119,64 @@ def _load_memos_for_user(supabase, *, company_id: str, user_id: str) -> list[dic
     except Exception:
         logger.exception("daily report: load memos failed")
         return []
+
+
+def _meetings_held(period_memos: list[dict]) -> int:
+    """T12 AE card "reuniones hechas": captured interactions that were a meeting or visit,
+    not a call - independent of whether a meeting was ever agreed."""
+    return sum(1 for memo in period_memos if memo.get("interaction_kind") in _MEETING_KINDS)
+
+
+def _proposals_sent(period_memos: list[dict]) -> int:
+    """T12 AE card "propuestas enviadas": follow-ups sent (D9, any channel, T8's vocify_email
+    included) on the closing flow - the AE's proposal, not the SDR's invitation."""
+    count = 0
+    for memo in period_memos:
+        if memo.get("sales_motion_key") != "closing":
+            continue
+        followup = memo.get("followup") or {}
+        if isinstance(followup, dict) and followup.get("status") == "sent":
+            count += 1
+    return count
+
+
+def _handoffs_created(supabase, *, company_id: str, user_id: str, start_iso: str, end_iso: str) -> int | None:
+    """T12 SDR card "traspasos": handoffs this SDR created in the period. A read failure
+    (including migration 056 not applied yet) is unavailable, never a fabricated zero."""
+    try:
+        rows = (
+            supabase.table("deal_handoffs")
+            .select("id,created_at")
+            .eq("company_id", company_id)
+            .eq("sdr_user_id", user_id)
+            .gte("created_at", start_iso)
+            .execute()
+        ).data or []
+    except Exception:
+        logger.exception("daily report: load handoffs failed")
+        return None
+    return sum(1 for row in rows if str(row.get("created_at") or "") < end_iso)
+
+
+def _deals_in_progress(supabase, *, company_id: str, user_id: str) -> int | None:
+    """Active handoffs into this AE right now - a gauge, not a period count."""
+    try:
+        return len(active_handoffs_for_ae(supabase, company_id=company_id, ae_user_id=user_id))
+    except Exception:
+        logger.exception("daily report: load deals in progress failed")
+        return None
+
+
+def _flow_facts(
+    supabase, *, company_id: str, user_id: str, period_memos: list[dict], start_iso: str, end_iso: str,
+) -> dict:
+    deals_in_progress = _deals_in_progress(supabase, company_id=company_id, user_id=user_id)
+    return {
+        "handoffs": _handoffs_created(supabase, company_id=company_id, user_id=user_id, start_iso=start_iso, end_iso=end_iso),
+        "meetings_held": _meetings_held(period_memos),
+        "deals_in_progress": deals_in_progress,
+        "proposals_sent": _proposals_sent(period_memos),
+    }
 
 
 def _load_outcome_observations(supabase, company_id: str) -> list[dict] | None:
@@ -200,6 +264,18 @@ def ensure_self_daily_report(
     interactions = [row for memo in period_memos if (row := _interaction_from_memo(memo)) is not None]
     observations = _load_outcome_observations(supabase, company_id)
     outcomes = _outcomes_for_snapshot(observations, user_id=user_id)
+    sales_role = None
+    flow_facts = None
+    if is_enabled(supabase, company_id, FLOW_FLAG):
+        sales_role = sales_role_for_user(supabase, user_id) or "general"
+        flow_facts = _flow_facts(
+            supabase,
+            company_id=company_id,
+            user_id=user_id,
+            period_memos=period_memos,
+            start_iso=period_start_iso,
+            end_iso=period_end_iso,
+        )
     snapshot = build_snapshot(
         scope="self",
         period_start=period_start_iso,
@@ -209,6 +285,8 @@ def ensure_self_daily_report(
         outcomes=outcomes,
         adherence_parts=None,
         channels=interaction_channels(period_memos, start=period_start, end=period_end),
+        sales_role=sales_role,
+        flow_facts=flow_facts,
     )
     report_id = _existing_report_id(
         supabase,

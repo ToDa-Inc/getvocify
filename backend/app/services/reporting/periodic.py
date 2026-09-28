@@ -8,9 +8,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from app.config import settings
+from app.services.company import sales_role_for_user
 from app.services.feature_flags import is_enabled
 from app.services.reporting.channels import interaction_channels, load_team_channel_memos
 from app.services.reporting.daily_snapshot import (
+    FLOW_FLAG,
+    _flow_facts,
     _load_memos_for_user,
     _load_outcome_observations,
     _load_recent_memos_for_tick,
@@ -167,6 +170,18 @@ def ensure_self_weekly_report(supabase, *, company_id: str, user_id: str, timezo
     memos = _memos_in_period(_load_memos_for_user(supabase, company_id=company_id, user_id=user_id), start, end)
     if not memos:
         return None
+    sales_role = None
+    flow_facts = None
+    if is_enabled(supabase, company_id, FLOW_FLAG):
+        sales_role = sales_role_for_user(supabase, user_id) or "general"
+        flow_facts = _flow_facts(
+            supabase,
+            company_id=company_id,
+            user_id=user_id,
+            period_memos=memos,
+            start_iso=start.isoformat(),
+            end_iso=end.isoformat(),
+        )
     snapshot = weekly_self_snapshot(
         memos=memos,
         pattern_rows=_load_patterns(supabase, [str(memo["id"]) for memo in memos if memo.get("id")]),
@@ -175,6 +190,8 @@ def ensure_self_weekly_report(supabase, *, company_id: str, user_id: str, timezo
         timezone=timezone,
         generated_at=now,
         outcomes=_outcomes_for_snapshot(_load_outcome_observations(supabase, company_id), user_id=user_id),
+        sales_role=sales_role,
+        flow_facts=flow_facts,
     )
     report_id = _create_once(
         supabase, company_id=company_id, user_id=user_id, scope="self", period_start=start.isoformat(), snapshot=snapshot,

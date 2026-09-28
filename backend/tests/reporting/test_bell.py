@@ -245,6 +245,51 @@ def test_unreadable_activity_is_null_not_empty():
     assert body["items"]
 
 
+# ---------- T12: tasks and feedback ----------
+
+
+def _bell_db_with_tasks_and_feedback():
+    db = _db(flags=("BELL_TASKS_ENABLED",))
+    for memo in db.tables["memos"]:
+        if memo.get("id") == "m-1":
+            memo["created_at"] = "2026-09-25T09:00:00+00:00"
+    db.tables["action_signals"] = [{
+        "id": "sig-1", "company_id": COMPANY, "user_id": USER, "type": "commitment_due",
+        "status": "pending", "contact_id": "c-1", "memo_id": "m-1",
+        "updated_at": "2026-09-25T10:00:00+00:00", "created_at": "2026-09-25T10:00:00+00:00",
+    }]
+    db.tables["post_interaction_briefs"] = [{
+        "memo_id": "m-1", "input_revision": "r1", "revision_seq": 1, "status": "ready",
+        "body": {}, "created_at": "2026-09-25T09:00:00+00:00",
+    }]
+    db.tables["brief_seen"] = []
+    return db
+
+
+def test_tasks_and_feedback_appear_only_with_bell_tasks_flag():
+    body = _client(_bell_db_with_tasks_and_feedback()).get("/api/v1/notifications").json()
+    assert [item["id"] for item in body["tasks"]] == ["sig-1"]
+    assert [item["memo_id"] for item in body["feedback"]] == ["m-1"]
+    # Neither block counts as unread mail.
+    assert body["unread"] == sum(1 for item in body["items"] if not item["read_at"])
+
+
+def test_tasks_and_feedback_absent_without_the_flag():
+    body = _client(_db()).get("/api/v1/notifications").json()
+    assert "tasks" not in body
+    assert "feedback" not in body
+
+
+def test_marking_feedback_seen_removes_it_from_the_next_bell_read():
+    client = _client(_bell_db_with_tasks_and_feedback())
+    first = client.get("/api/v1/notifications").json()
+    assert first["feedback"]
+    response = client.patch("/api/v1/notifications/feedback/m-1")
+    assert response.status_code == 200
+    second = client.get("/api/v1/notifications").json()
+    assert second["feedback"] == []
+
+
 # ---------- team report reads ----------
 
 

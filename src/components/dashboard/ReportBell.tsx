@@ -28,6 +28,19 @@ export function ReportBell() {
   const count = bellCount(query.isSuccess ? query.data.unread : null);
   const items = query.data?.items ?? [];
   const activity = query.data?.activity ?? null;
+  // BELL_TASKS_ENABLED: undefined (flag off) keeps the bell exactly as it was, no headers.
+  const tasks = query.data?.tasks;
+  const feedback = query.data?.feedback;
+  const sectioned = tasks !== undefined || feedback !== undefined;
+
+  const openFeedback = (memoId: string) => {
+    setOpen(false);
+    void reportsApi
+      .markFeedbackSeen(memoId)
+      .catch(() => undefined)
+      .finally(() => queryClient.invalidateQueries({ queryKey: reportKeys.notifications }));
+    navigate(`/dashboard/memos/${memoId}`);
+  };
 
   const openReport = (item: BellReportItem) => {
     setOpen(false);
@@ -60,6 +73,29 @@ export function ReportBell() {
         ) : null}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 max-h-[70vh] overflow-y-auto p-2">
+        {sectioned && tasks?.length ? (
+          <div className="pb-2">
+            <p className="px-2 pb-1 text-xs text-muted-foreground">{t.product.bellSectionTasks}</p>
+            <ul>
+              {tasks.map((task) => (
+                <li key={task.id}>
+                  {task.memo_id ? (
+                    <Link
+                      to={`/dashboard/memos/${task.memo_id}`}
+                      onClick={() => setOpen(false)}
+                      className="block rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-secondary/60"
+                    >
+                      {task.reason}
+                    </Link>
+                  ) : (
+                    <p className="block rounded-md px-2 py-1.5 text-sm text-foreground">{task.reason}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {sectioned ? <p className="px-2 pb-1 text-xs text-muted-foreground">{t.product.bellSectionSummary}</p> : null}
         {items.length ? (
           <ul>
             {items.map((item) => (
@@ -100,6 +136,24 @@ export function ReportBell() {
                   </li>
                 );
               })}
+            </ul>
+          </div>
+        ) : null}
+        {sectioned && feedback?.length ? (
+          <div className="mt-1 border-t border-border/60 pt-2">
+            <p className="px-2 pb-1 text-xs text-muted-foreground">{t.product.bellSectionFeedback}</p>
+            <ul>
+              {feedback.map((entry) => (
+                <li key={entry.memo_id}>
+                  <button
+                    type="button"
+                    onClick={() => openFeedback(entry.memo_id)}
+                    className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-foreground hover:bg-secondary/60"
+                  >
+                    {t.product.bellFeedbackReady}
+                  </button>
+                </li>
+              ))}
             </ul>
           </div>
         ) : null}

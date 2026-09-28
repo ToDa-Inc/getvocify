@@ -420,6 +420,10 @@ export const productCatalog = {
     bellMeetingStage: "Deal moved to the meeting booked stage",
     bellBecause: "From your conversation with {subject}",
     bellBecauseUnnamed: "From one of your conversations",
+    bellSectionTasks: "Tasks",
+    bellSectionSummary: "Summary",
+    bellSectionFeedback: "Feedback",
+    bellFeedbackReady: "New feedback on a conversation",
     listAnd: "and",
     crmResources: {
       deal: "deal",
@@ -913,6 +917,10 @@ export const productCatalog = {
     bellMeetingStage: "Deal movido a la etapa de reunión agendada",
     bellBecause: "Por tu conversación con {subject}",
     bellBecauseUnnamed: "Por una de tus conversaciones",
+    bellSectionTasks: "Tareas",
+    bellSectionSummary: "Resumen",
+    bellSectionFeedback: "Feedback",
+    bellFeedbackReady: "Nuevo feedback de una conversación",
     listAnd: "y",
     crmResources: {
       deal: "deal",

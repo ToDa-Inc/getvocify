@@ -10,7 +10,9 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.reporting.activity import load_vocify_activity
+from app.services.reporting.feedback import load_unseen_feedback, mark_feedback_seen
 from app.services.reporting.preferences import TEAM_ROLES, read_preferences, write_preferences
+from app.services.reporting.tasks import load_pending_tasks
 
 router = APIRouter(prefix="/api/v1", tags=["reports"])
 
@@ -128,10 +130,15 @@ async def list_notifications(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    """Reports this person may still read, newest first. What Vocify did rides along, outside the count."""
+    """Reports this person may still read, newest first. What Vocify did, today's pending
+    Hoy tasks and unseen post-interaction feedback ride along, outside the count (same as
+    activity): none of the three is a report notification, so none is unread mail."""
     flags = {
         name: is_enabled(supabase, membership.company_id, name)
-        for name in ("REPORTING_WEEKLY_ENABLED", "REPORTING_TEAM_ENABLED", "NOTIFICATIONS_ACTIVITY_ENABLED")
+        for name in (
+            "REPORTING_WEEKLY_ENABLED", "REPORTING_TEAM_ENABLED", "NOTIFICATIONS_ACTIVITY_ENABLED",
+            "BELL_TASKS_ENABLED",
+        )
     }
     body: dict = {"unread": None, "items": []}
     try:
@@ -175,7 +182,25 @@ async def list_notifications(
         body["activity"] = load_vocify_activity(
             supabase, user_id=membership.user_id, company_id=membership.company_id, now=_now(),
         )
+    if flags["BELL_TASKS_ENABLED"]:
+        body["tasks"] = load_pending_tasks(
+            supabase, user_id=membership.user_id, company_id=membership.company_id,
+        )
+        body["feedback"] = load_unseen_feedback(
+            supabase, user_id=membership.user_id, company_id=membership.company_id, now=_now(),
+        )
     return body
+
+
+@notifications.patch("/notifications/feedback/{memo_id}")
+async def mark_feedback_notification_seen(
+    memo_id: str,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """Marks one of the bell's Feedback items seen (brief_seen), so it does not come back."""
+    mark_feedback_seen(supabase, user_id=membership.user_id, memo_id=memo_id, now=_now())
+    return {"memo_id": memo_id}
 
 
 @notifications.patch("/notifications/{notification_id}")

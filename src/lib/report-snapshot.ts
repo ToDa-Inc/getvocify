@@ -239,10 +239,27 @@ export type VocifyActivityItem = {
   at: string;
 };
 
+export type BellTaskType = "commitment_due" | "callback_no_answer";
+
+export type BellTaskItem = {
+  id: string;
+  type: BellTaskType;
+  contact_id: string | null;
+  memo_id: string | null;
+  reason: string;
+};
+
+export type BellFeedbackItem = {
+  memo_id: string;
+  highlight_at: string;
+};
+
 export type NotificationsResponse = {
   unread: number | null;
   items: BellReportItem[];
   activity?: VocifyActivityItem[] | null;
+  tasks?: BellTaskItem[] | null;
+  feedback?: BellFeedbackItem[] | null;
 };
 
 type BellCopy = {
