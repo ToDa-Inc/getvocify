@@ -88,10 +88,13 @@ export const memosApi = {
   uploadTranscriptAndExtract: (
     transcript: string,
     sourceType: 'voice_memo' | 'meeting_transcript' = 'voice_memo',
+    options?: { speakersVerified?: boolean; notes?: string },
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
       transcript,
       source_type: sourceType,
+      speakers_verified: Boolean(options?.speakersVerified),
+      notes: options?.notes?.trim() || undefined,
     });
   },
 

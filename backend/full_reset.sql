@@ -323,6 +323,7 @@ CREATE TABLE memos (
   -- Origin + WhatsApp/HubSpot-call integration fields (migrations 009-011).
   source TEXT DEFAULT 'web' CHECK (source IN ('web', 'voice_memo', 'whatsapp', 'unipile', 'hubspot_call')),
   source_type VARCHAR(50) DEFAULT 'voice_memo',
+  user_notes TEXT,
   whatsapp_message_id TEXT,
   conversation_id UUID,
   hubspot_engagement_id TEXT,

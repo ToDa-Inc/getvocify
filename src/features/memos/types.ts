@@ -193,6 +193,8 @@ export interface Memo {
   hubspotDealId?: Nullable<string>;
   /** Dialer screening result for vocify_call memos */
   screeningOutcome?: Nullable<ScreeningOutcome>;
+  /** What the rep typed while the meeting recorded (desktop). */
+  userNotes?: Nullable<string>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;

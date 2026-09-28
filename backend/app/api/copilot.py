@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.deps import get_user_id
+from supabase import Client
+
+from app.deps import get_supabase, get_user_id
 from app.services.copilot.suggest import stream_objection_suggestion
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
@@ -27,15 +29,22 @@ class SuggestRequest(BaseModel):
 @router.post("/suggest")
 async def suggest_objection_handling(
     body: SuggestRequest,
-    _user_id: str = Depends(get_user_id),
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
+    product_context = (body.product_context or "").strip()
+    if not product_context:
+        # Desktop meetings don't carry the offer; use the one the rep saved for extraction.
+        from app.services.extraction_context import load_product_context
+
+        product_context = load_product_context(supabase, user_id)
 
     async def event_gen():
         async for event in stream_objection_suggestion(
             transcript_window=body.transcript_window,
             latest_turn=body.latest_turn,
-            product_context=body.product_context,
+            product_context=product_context or None,
             language=body.language,
             call_mode=body.call_mode,
             speaker_role=body.speaker_role,

@@ -26,11 +26,16 @@ unless `whoami` fails.** MCP `user-railway` reuses the same CLI session.
 | Project | `magnificent-celebration` | `4c68b2b8-116f-49fd-9a2e-1db9a4297d03` |
 | Service | `getvocify` | `ac08092e-f71e-4536-bb84-66ec96106813` |
 | Environment | `production` | `72257ae8-4260-4cb4-aaa6-9e5eb083f09b` |
+| Environment | `staging` | `2b38e5b7-ebed-43f8-88e4-baab117a144c` |
 
-Ignore the extra `prod` environment (failed/unused). Live domains:
-`https://api.getvocify.com` and `getvocify-production.up.railway.app`.
-Root directory on Railway is `backend`. GitHub repo `ToDa-Inc/getvocify`
-auto-deploys `main`.
+Production domains: `https://api.getvocify.com` and
+`getvocify-production.up.railway.app`. Staging API:
+`https://getvocify-staging.up.railway.app` (auto-deploys branch `staging`).
+Root directory on Railway is `backend`. GitHub repo `ToDa-Inc/getvocify`:
+`main` → production, `staging` → staging. Do **not** use
+`railway service source connect --branch` to switch env branches — that
+mutates the shared service source. Change the per-environment
+Deployment Trigger instead.
 
 CLI binary: `$HOME/.railway/bin/railway` (or `source "$HOME/.railway/env"`).
 Helper: [scripts/vocify-railway.sh](scripts/vocify-railway.sh).

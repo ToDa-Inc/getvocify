@@ -254,35 +254,28 @@ make ngrok-url        # print the HTTPS base URL
 Set `BACKEND_PUBLIC_URL` to the tunnel URL (no trailing slash). Point the
 Credential Connection webhook at `{BACKEND_PUBLIC_URL}/webhooks/telnyx/voice`.
 
-## Telnyx support diagnosis (2026-09-09)
+## Telnyx support diagnosis & routing resolution (2026-09-25)
 
-Support diagnosed sessions `c9dedeb0` and `08588568`. This matches our CDRs.
+Telnyx Product Support Engineer (Nestor Leal) investigated sessions
+`c9dedeb0-ac23-11f1-928c-02420a1f1070` and `08588568-ac26-11f1-852e-02420a1f0d70`
+and confirmed:
 
-- First-priority carrier **Tata-ICA** returns SIP **486** in <1s (screening, not a timeout).
-- CLI `+34669701069` is PAI `<sip:+34669701069@sip.telnyx.com>`, STIR **B**.
-- All 6 routes: `vendor_local_calling=false`, group `intl_conv_eea_orig`.
-- `fail_on_single_reject` includes **USER_BUSY**, so 486 does not try
-  Ibasis_Zone1, BTS-EEA, BICS-EEA-OBR, Wavecrest-Eea, DIDWW-ICA.
-
-`fail_on_single_reject` is **not** on our public objects (Credential
-Connection, Call Control App “Vocify Dialer PSTN”, OVP `Default`
-`service_plan=global` / ES+US+CA). It is Telnyx routing. We cannot PATCH
-it. They queued a human for: remove USER_BUSY from that fail list, local
-calling for ES mobiles, PCAP on Tata-ICA, try the other five carriers.
-
-A Telnyx-owned ES DID would be STIR **A**. That is a product change
-(owned CLI, not BYO). Do not buy unless asked.
-
-### Reply to the queued ticket
-
-Please remove USER_BUSY / 486 from fail_on_single_reject on Call Control
-app 3044633068150195974 / OVP 3044421853813671360 so Tata-ICA 486
-failovers to Ibasis_Zone1, BTS-EEA, BICS-EEA-OBR, Wavecrest-Eea,
-DIDWW-ICA. Also enable vendor_local_calling / domestic ES treatment for
-ES-to-ES with Verified Number CLI +34669701069 (today
-intl_conv_eea_orig). We are not changing Vocify Dial headers further
-until that routing change is live. Sessions c9dedeb0-ac23-11f1-928c-02420a1f1070
-and 08588568-ac26-11f1-852e-02420a1f0d70.
+- First-priority carrier **Tata-ICA** returned SIP **486** in <1s on every attempt
+  due to carrier-side CLI screening on international-originated +34 calls.
+- Because `USER_BUSY` was configured as a terminal rejection on the connection,
+  the call ended immediately without trying the 5 alternate carriers on the route.
+- **Carrier routing change applied by Telnyx:** The Telnyx routing team has
+  **removed Tata-ICA from all Mobile Telefonica Spain routing lists**. Outbound
+  calls to Spanish mobile destinations now route through **Ibasis** as primary
+  and cascade through remaining vendors if needed.
+- **Failover behavior:** Removing `USER_BUSY` from `fail_on_single_reject` is a
+  platform-level routing configuration under investigation with Telnyx engineering.
+- **Domestic ES routing (`vendor_local_calling`):** Requires a Telnyx-owned
+  Spanish DID. Since `+34669701069` is an external verified number, it cannot
+  qualify for domestic routing classification (attestation B). A Telnyx-owned
+  DID would get attestation A and domestic treatment.
+- Support requested a test call to confirmed destinations (e.g., `+34648739267`)
+  to verify that calls now complete via Ibasis.
 
 ## Ask Telnyx sales in writing (still open)
 

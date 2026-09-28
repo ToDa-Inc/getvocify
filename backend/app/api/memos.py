@@ -23,7 +23,7 @@ from app.services.activity_scope import (
 )
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
-from app.services.extraction import ExtractionService
+from app.services.extraction import USER_NOTES_MAX_CHARS, ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
@@ -162,6 +162,7 @@ def _memo_from_row(
             hubspotContactId=memo_data.get("hubspot_contact_id"),
             hubspotDealId=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
             screeningOutcome=memo_data.get("screening_outcome"),
+            userNotes=memo_data.get("user_notes"),
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -193,6 +194,7 @@ async def extract_memo_async(
     trigger: str = "extract",
     call_date: Optional[str] = None,
     existing_values: Optional[dict] = None,
+    user_notes: Optional[str] = None,
 ):
     """
     Background task to extract structured data from pre-transcribed memo.
@@ -238,18 +240,18 @@ async def extract_memo_async(
             extraction_complete_update,
             is_two_party_source,
             prepare_transcript_for_extraction,
+            speakers_are_verified,
         )
 
-        memo_row = None
+        fetched = (
+            supabase.table("memos")
+            .select("transcript_stt_meta,created_at,source,source_type")
+            .eq("id", memo_id)
+            .limit(1)
+            .execute()
+        )
+        memo_row = (fetched.data or [None])[0]
         if call_date is None:
-            fetched = (
-                supabase.table("memos")
-                .select("transcript_stt_meta,created_at,source,source_type")
-                .eq("id", memo_id)
-                .limit(1)
-                .execute()
-            )
-            memo_row = (fetched.data or [None])[0]
             call_date = _call_date_from_memo(memo_row)
 
         with pipeline_run(run_id=run_id, trigger=trigger) as stages:
@@ -274,6 +276,7 @@ async def extract_memo_async(
                 existing_values,
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
                 two_party=is_two_party_source(source_type),
+                speakers_verified=speakers_are_verified((memo_row or {}).get("transcript_stt_meta")),
             )
             extraction = await extraction_service.extract(
                 transcript,
@@ -283,6 +286,7 @@ async def extract_memo_async(
                 product_context=product_context,
                 existing_values=existing_values,
                 call_date=call_date,
+                user_notes=user_notes,
             )
 
         update_memo_row(
@@ -344,6 +348,7 @@ async def start_extraction_from_transcript(
     run_id: Optional[str] = None,
     call_date: Optional[str] = None,
     trigger: str = "extract",
+    user_notes: Optional[str] = None,
 ) -> None:
     """
     Persist transcript and kick off background CRM field extraction.
@@ -382,6 +387,7 @@ async def start_extraction_from_transcript(
         run_id=run_id,
         trigger=trigger,
         call_date=call_date,
+        user_notes=user_notes,
     )
     if run_id:
         await extract_coro
@@ -621,6 +627,10 @@ class UploadTranscriptRequest(BaseModel):
     """Transcript-only upload (from real-time transcription or meeting transcript paste)"""
     transcript: str
     source_type: Optional[str] = None  # 'voice_memo' | 'meeting_transcript', default voice_memo
+    # True when speakers come from separate audio channels (desktop: mic = rep, meeting audio = others).
+    speakers_verified: bool = False
+    # What the rep typed during the meeting; steers the summary.
+    notes: Optional[str] = None
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -702,20 +712,24 @@ async def upload_transcript_and_extract(
     from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
     transcript_raw = transcript
-    transcript = await sanitize_user_transcript(transcript_raw, user_id, supabase)
+    transcript = await sanitize_user_transcript(
+        transcript_raw, user_id, supabase, speakers_verified=body.speakers_verified
+    )
 
     field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
     stt_meta = {
         "provider": "upload",
         "raw_speaker_count": raw_speaker_count(transcript_raw),
     }
+    if body.speakers_verified:
+        stt_meta["speakers"] = "channels"
 
     source_type = body.source_type or "voice_memo"
     if source_type not in ("voice_memo", "meeting_transcript"):
         source_type = "voice_memo"
 
     estimated_duration = len(transcript) / 15
-    result = supabase.table("memos").insert({
+    row = {
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
@@ -723,7 +737,12 @@ async def upload_transcript_and_extract(
         "transcript": transcript,
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
-    }).execute()
+    }
+    user_notes = (body.notes or "").strip()[:USER_NOTES_MAX_CHARS] or None
+    if user_notes:
+        # Only written when present, so memos without notes never depend on migration 037.
+        row["user_notes"] = user_notes
+    result = supabase.table("memos").insert(row).execute()
 
     memo_id = result.data[0]["id"]
 
@@ -735,6 +754,7 @@ async def upload_transcript_and_extract(
         field_specs=field_specs,
         source_type=source_type,
         extra_update={"transcript_raw": transcript_raw, "transcript_stt_meta": stt_meta},
+        user_notes=user_notes,
     )
 
     return UploadResponse(
@@ -1948,6 +1968,7 @@ async def re_extract_memo(
         is_two_party_source,
         prepare_transcript_for_extraction,
         schedule_transcript_polish,
+        speakers_are_verified,
     )
 
     source_type = extraction_source_type(
@@ -1967,6 +1988,7 @@ async def re_extract_memo(
                 existing_values,
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
                 two_party=is_two_party_source(source_type),
+                speakers_verified=speakers_are_verified(memo_data.get("transcript_stt_meta")),
             )
             extraction_service = ExtractionService()
             extraction = await extraction_service.extract(
@@ -1976,6 +1998,7 @@ async def re_extract_memo(
                 product_context=product_context,
                 existing_values=existing_values,
                 call_date=call_date,
+                user_notes=memo_data.get("user_notes"),
             )
     except Exception as e:
         err_msg = str(e)

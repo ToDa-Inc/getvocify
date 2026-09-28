@@ -1,4 +1,4 @@
-import { meetingHasSpeech, type MeetingTranscript } from "./meeting-transcript.ts";
+import { meetingHasSpeech, normalizeMeetingTranscript, type MeetingTranscript } from "./meeting-transcript.ts";
 
 /** A meeting kept on disk from its first words until the memo exists. */
 export type MeetingDraft = {
@@ -7,6 +7,8 @@ export type MeetingDraft = {
   startedAt: number;
   updatedAt: number;
   transcript: MeetingTranscript;
+  /** What the rep typed during the meeting. */
+  notes?: string;
 };
 
 function isDraft(value: unknown): value is MeetingDraft {
@@ -16,7 +18,8 @@ function isDraft(value: unknown): value is MeetingDraft {
       typeof draft.id === "string" &&
       typeof draft.userId === "string" &&
       typeof draft.startedAt === "number" &&
-      Array.isArray(draft.transcript?.turns),
+      Boolean(draft.transcript) &&
+      (Array.isArray(draft.transcript.segments) || Array.isArray((draft.transcript as { turns?: unknown }).turns)),
   );
 }
 
@@ -31,7 +34,7 @@ export function sortDrafts(
   const mine = stored
     .filter(isDraft)
     .filter((draft) => draft.userId === userId)
-    .map((draft) => ({ ...draft, transcript: { turns: draft.transcript.turns, interims: draft.transcript.interims ?? {} } }));
+    .map((draft) => ({ ...draft, transcript: normalizeMeetingTranscript(draft.transcript) }));
   return {
     send: mine.filter((draft) => meetingHasSpeech(draft.transcript)).sort((a, b) => a.startedAt - b.startedAt),
     discard: mine.filter((draft) => !meetingHasSpeech(draft.transcript)),

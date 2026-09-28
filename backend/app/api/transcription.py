@@ -309,6 +309,11 @@ class SpeechmaticsProxy:
                             }
                             if words:
                                 response["words"] = words
+                            meta = data.get("metadata") or {}
+                            if isinstance(meta.get("start_time"), (int, float)):
+                                # Seconds since the stream began; lets clients order both channels by speech time.
+                                response["start"] = meta["start_time"]
+                                response["end"] = meta.get("end_time", meta["start_time"])
                             audio_channel = speechmatics_audio_channel(data)
                             if audio_channel:
                                 # Keep Deepgram-shaped `channel.alternatives` for text;
@@ -362,6 +367,10 @@ class SpeechmaticsProxy:
                             logger.warning(
                                 "Speechmatics warning: %s", data.get("reason")
                             )
+
+                        elif msg_type == "EndOfTranscript":
+                            # Every final is out: clients can finish without waiting for the socket to close.
+                            await client_ws.send_json({"type": "EndOfTranscript"})
 
                 await asyncio.gather(send_audio(), receive_transcripts())
 

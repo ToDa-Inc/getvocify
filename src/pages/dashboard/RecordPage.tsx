@@ -2,11 +2,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
 import { DesktopPermissionsPanel } from "@/features/desktop/DesktopPermissionsPanel";
+import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { MeetingLiveView } from "@/features/desktop/MeetingLiveView";
 import { ROUTES } from "@/shared/lib/constants";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 
 const RecordPage = () => {
   const navigate = useNavigate();
+  const meeting = useDesktopMeeting();
+
+  if (meeting.available && ["live", "stopping", "uploading"].includes(meeting.phase)) {
+    return <MeetingLiveView />;
+  }
 
   return (
     <div className={`max-w-3xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>

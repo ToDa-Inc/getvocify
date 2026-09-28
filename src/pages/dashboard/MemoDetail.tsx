@@ -478,6 +478,13 @@ const MemoDetail = () => {
             </div>
           )}
 
+          {memo.userNotes?.trim() ? (
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 shrink-0`}>
+              <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-4`}>Your notes</h3>
+              <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-foreground">{memo.userNotes}</p>
+            </div>
+          ) : null}
+
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${canSeeReview ? "flex-1 min-h-0" : ""}`}>
             <div className="flex items-center justify-between gap-3 mb-6 shrink-0">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>

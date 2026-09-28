@@ -31,6 +31,7 @@ import { useAuth } from "@/features/auth";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { MeetingLiveView } from "@/features/desktop/MeetingLiveView";
 import { useDesktopPermissions } from "@/features/desktop/useDesktopPermissions";
 import { draftMinutes, meetingStartedLabel } from "@/lib/meeting-draft";
 
@@ -270,51 +271,7 @@ export const VoiceRecorderWidget = ({
   const showAudioFallback = state === "stopped" && !hasTranscript && Boolean(audio);
 
   if (desktopMeeting && ["live", "stopping", "uploading"].includes(meeting.phase)) {
-    const live = meeting.phase === "live";
-    return (
-      <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-left`, className)}>
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-sm tabular-nums text-muted-foreground">
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                live ? "bg-destructive animate-pulse motion-reduce:animate-none" : "bg-muted-foreground/40",
-              )}
-            />
-            <span>{meeting.elapsed}</span>
-          </div>
-          {live ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void meeting.stop()}
-              className="rounded-full gap-1.5"
-            >
-              <Square className="h-3 w-3 fill-current" />
-              Stop
-            </Button>
-          ) : (
-            <p className="text-sm text-muted-foreground" role="status">
-              {meeting.phase === "stopping" ? "Finishing transcript…" : "Preparing review…"}
-            </p>
-          )}
-        </div>
-        <LiveTranscript
-          finalTranscript=""
-          interimTranscript=""
-          turns={meeting.turns}
-          isActive={live}
-          listeningHint="You and Them appear here as the meeting goes."
-          className="min-h-[320px] max-h-[min(62vh,680px)] border-0 bg-transparent p-1 shadow-none ring-0"
-        />
-        {live && meeting.warning ? (
-          <p className="mt-4 text-xs text-muted-foreground" aria-live="polite">
-            {meeting.warning}
-          </p>
-        ) : null}
-      </div>
-    );
+    return <MeetingLiveView />;
   }
 
   // 1. Error state
@@ -610,3 +567,4 @@ export const VoiceRecorderWidget = ({
 };
 
 export default VoiceRecorderWidget;
+

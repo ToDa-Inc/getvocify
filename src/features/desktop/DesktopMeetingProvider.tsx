@@ -27,6 +27,7 @@ import {
   meetingDisplayTurns,
   meetingHasSpeech,
   meetingLastLine,
+  meetingOverlay,
   meetingUploadText,
   settleMeeting,
   type MeetingDisplayTurn,
@@ -43,9 +44,13 @@ type DesktopMeeting = {
   available: boolean;
   phase: MeetingPhase;
   elapsed: string;
+  /** 0–1 loudness of each side, for the live bars. */
+  levels: { you: number; them: number };
   error: string | null;
   warning: string | null;
   turns: MeetingDisplayTurn[];
+  notes: string;
+  setNotes: (notes: string) => void;
   /** Meetings that could not be sent yet, oldest first. */
   pending: MeetingDraft[];
   /** Whether unsent meetings survive a quit (the host keeps drafts on disk). */
@@ -71,6 +76,20 @@ function formatElapsed(ms: number): string {
   return h ? `${h}:${m}:${s}` : `${m}:${s}`;
 }
 
+/** Loudness of one PCM16 chunk, eased so normal speech sits around 0.5. */
+function pcmLevel(pcm: ArrayBuffer): number {
+  const samples = new Int16Array(pcm);
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < samples.length; i += 8) {
+    const v = samples[i] / 32768;
+    sum += v * v;
+    count++;
+  }
+  const rms = count ? Math.sqrt(sum / count) : 0;
+  return Math.min(1, Math.sqrt(rms * 6));
+}
+
 function newDraftId(): string {
   return crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -85,9 +104,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [phase, setPhaseState] = useState<MeetingPhase>("idle");
   const [transcript, setTranscript] = useState<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
   const [elapsed, setElapsed] = useState("00:00");
+  const [levels, setLevels] = useState({ you: 0, them: 0 });
+  const levelRef = useRef({ you: 0, them: 0 });
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [pending, setPending] = useState<MeetingDraft[]>([]);
+  const [notes, setNotesState] = useState("");
+  const notesRef = useRef("");
 
   const phaseRef = useRef<MeetingPhase>("idle");
   const transcriptRef = useRef<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
@@ -122,6 +145,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       userId: userIdRef.current,
       updatedAt: Date.now(),
       transcript: transcriptRef.current,
+      notes: notesRef.current,
     };
   }, []);
 
@@ -131,7 +155,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       saveTimerRef.current = null;
     }
     const draft = currentDraft();
-    if (draft && meetingHasSpeech(draft.transcript)) void getDesktopBridge()?.drafts?.save(draft);
+    if (draft && (meetingHasSpeech(draft.transcript) || draft.notes?.trim())) {
+      void getDesktopBridge()?.drafts?.save(draft);
+    }
   }, [currentDraft]);
 
   const scheduleSave = useCallback(() => {
@@ -146,11 +172,25 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     (next: MeetingTranscript) => {
       transcriptRef.current = next;
       setTranscript(next);
-      getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next) });
+      getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next) });
       if (draftRef.current) scheduleSave();
     },
     [scheduleSave],
   );
+
+  const setNotes = useCallback(
+    (next: string) => {
+      notesRef.current = next;
+      setNotesState(next);
+      if (draftRef.current) scheduleSave();
+    },
+    [scheduleSave],
+  );
+
+  const clearNotes = useCallback(() => {
+    notesRef.current = "";
+    setNotesState("");
+  }, []);
 
   /** Creates the memo, then forgets the draft. Throws when the send fails. */
   const sendDraft = useCallback(
@@ -158,6 +198,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const res = await memosApi.uploadTranscriptAndExtract(
         meetingUploadText(draft.transcript),
         "meeting_transcript",
+        { speakersVerified: true, notes: draft.notes },
       );
       await getDesktopBridge()?.drafts?.remove(draft.id);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
@@ -171,6 +212,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    levelRef.current = { you: 0, them: 0 };
+    setLevels({ you: 0, them: 0 });
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
     micRef.current?.getTracks().forEach((track) => track.stop());
@@ -192,6 +235,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         type?: string;
         is_final?: boolean;
         audio_channel?: unknown;
+        start?: unknown;
+        end?: unknown;
         error?: unknown;
         channel?: { alternatives?: Array<{ transcript?: string }> };
       };
@@ -205,6 +250,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           text: data.channel?.alternatives?.[0]?.transcript ?? "",
           isFinal: Boolean(data.is_final),
           audioChannel: data.audio_channel,
+          start: data.start,
+          end: data.end,
         });
         if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "Error") {
@@ -230,15 +277,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       await new Promise<void>((resolve) => {
-        const timer = window.setTimeout(resolve, DRAIN_MS);
-        ws.addEventListener(
-          "close",
-          () => {
-            window.clearTimeout(timer);
-            resolve();
-          },
-          { once: true },
-        );
+        const done = () => {
+          window.clearTimeout(timer);
+          ws.removeEventListener("message", onMessage);
+          resolve();
+        };
+        // The last finals arrive before EndOfTranscript; the close is only a fallback.
+        const onMessage = (event: MessageEvent) => {
+          if (String(event.data).includes('"EndOfTranscript"')) done();
+        };
+        const timer = window.setTimeout(done, DRAIN_MS);
+        ws.addEventListener("message", onMessage);
+        ws.addEventListener("close", done, { once: true });
         ws.send(JSON.stringify({ type: "CloseStream" }));
       });
     }
@@ -250,10 +300,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (phaseRef.current !== "live") return;
     setPhase("stopping");
     const bridge = getDesktopBridge();
+    // The pill goes away on the click; finishing the transcript happens behind it.
+    bridge?.shell.setState({ listening: false });
+    void bridge?.shell.hideOverlay();
     await releaseAudio();
     await drainSocket();
-    await bridge?.shell.hideOverlay();
-    bridge?.shell.setState({ listening: false });
 
     transcriptRef.current = settleMeeting(transcriptRef.current);
     const draft = currentDraft();
@@ -274,11 +325,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setPhase("uploading");
     try {
       const memoId = await sendDraft(draft);
+      clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
       navigate(ROUTES.MEMO_DETAIL(memoId));
     } catch {
       setPending((list) => [...list, draft]);
+      clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
       fail(
@@ -287,7 +340,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           : "Couldn't send the meeting. Retry before closing Vocify.",
       );
     }
-  }, [currentDraft, drainSocket, fail, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
+  }, [clearNotes, currentDraft, drainSocket, fail, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
   const start = useCallback(async () => {
     const bridge = getDesktopBridge();
@@ -323,7 +376,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         throw new Error(
           native.reason === "needs_restart"
             ? "System audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again."
-            : "Tap Allow on system audio above — drag Vocify into Settings.",
+            : "Allow system audio in the panel above, then try again.",
         );
       }
 
@@ -333,12 +386,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
       const startedAt = Date.now();
       draftRef.current = { id: newDraftId(), startedAt };
+      clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       reconnectsRef.current = 0;
       setPhase("live");
+      navigate(ROUTES.RECORD);
       openSocket();
 
       const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
+        const side = channel === "rep" ? "you" : "them";
+        levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, pcm));
       };
@@ -351,12 +408,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       ];
 
       setElapsed("00:00");
+      let ticks = 0;
       timerRef.current = window.setInterval(() => {
+        const { you, them } = levelRef.current;
+        setLevels({ you, them });
+        levelRef.current = { you: you * 0.6, them: them * 0.6 };
+        if (++ticks % 4) return;
         const next = formatElapsed(Date.now() - startedAt);
         setElapsed(next);
         bridge.shell.setState({ elapsed: next });
-      }, 500);
-      bridge.shell.setState({ listening: true, elapsed: "00:00", lastLine: "" });
+      }, 125);
+      bridge.shell.setState({ listening: true, elapsed: "00:00", lastLine: "", overlay: meetingOverlay(EMPTY_MEETING_TRANSCRIPT) });
       await bridge.shell.showOverlay();
     } catch (e) {
       draftRef.current = null;
@@ -366,7 +428,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setPhase("idle");
       fail(e instanceof Error && e.message ? e.message : "Could not start recording.");
     }
-  }, [fail, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
+  }, [clearNotes, fail, navigate, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -466,16 +528,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       available,
       phase,
       elapsed,
+      levels,
       error,
       warning,
       turns,
+      notes,
+      setNotes,
       pending,
       savedOnDevice,
       start,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, error, warning, turns, pending, savedOnDevice, start, stop, retryPending],
+    [available, phase, elapsed, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, start, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

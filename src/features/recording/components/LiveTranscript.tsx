@@ -11,6 +11,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { MeetingDisplayTurn } from '@/lib/meeting-transcript';
+import { bubblesForTurn } from '@/lib/transcript-bubbles';
 import { cn } from '@/lib/utils';
 
 /** Distance from the bottom that still counts as "reading live". */
@@ -96,36 +97,42 @@ export function LiveTranscript({
             </p>
           </div>
         ) : turns ? (
-          <div className="space-y-6">
+          <div className="flex flex-col gap-4">
             {turns.map((turn) => {
               const you = turn.speaker === 'rep';
+              const bubbles = bubblesForTurn(turn.text);
+              if (!bubbles.length) bubbles.push('');
               return (
                 <div
                   key={turn.key}
                   className={cn(
-                    'border-l-2 pl-4 animate-in fade-in duration-300 motion-reduce:animate-none',
-                    you ? 'border-beige' : 'border-foreground/15',
+                    'flex max-w-[80%] flex-col gap-1 animate-in fade-in slide-in-from-bottom-1 duration-300 motion-reduce:animate-none',
+                    you ? 'self-end items-end' : 'self-start items-start',
                   )}
                 >
-                  {turn.label ? (
-                    <p
-                      className={cn(
-                        'mb-1 text-[11px] uppercase tracking-[0.08em]',
-                        you ? 'text-beige' : 'text-muted-foreground',
-                      )}
-                    >
-                      {turn.label}
-                    </p>
+                  {!you && turn.label ? (
+                    <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
                   ) : null}
-                  <p className="text-[17px] leading-7 tracking-tight text-foreground">
-                    {turn.text}
-                    {turn.pending ? (
-                      <span className="text-muted-foreground/70 italic">
-                        {turn.text ? ' ' : ''}
-                        {turn.pending}
-                      </span>
-                    ) : null}
-                  </p>
+                  {bubbles.map((bubble, index) => {
+                    const lastBubble = index === bubbles.length - 1;
+                    return (
+                      <div
+                        key={index}
+                        className={cn(
+                          'rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed text-foreground animate-in fade-in duration-200 motion-reduce:animate-none',
+                          you ? 'bg-[hsl(36_52%_87%)]' : 'bg-[#f3f0eb]',
+                        )}
+                      >
+                        {bubble}
+                        {lastBubble && turn.pending ? (
+                          <span className="text-muted-foreground/70 italic">
+                            {bubble ? ' ' : ''}
+                            {turn.pending}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
