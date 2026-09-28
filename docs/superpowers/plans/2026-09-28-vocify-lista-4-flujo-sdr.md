@@ -95,7 +95,8 @@
 - Resultado de la llamada y fecha de seguimiento visibles en la cabecera.
 - Tests del endpoint de reenvío.
 
-### T6 · Coach del comercial (E5)
+### T6 · Coach del comercial (E5) — **solo la base**
+- Queda la entrada «Coach» y una página mínima (T1). El contenido lo hace el founder en otra sesión.
 - `GET /api/v1/coach/me`: las mismas cifras de `team_adherence` con `user_id` = el propio comercial (sin exigir permiso de equipo), tendencia propia, objeciones con cómo resolverlas (sin nombres de compañeros) y sus últimos debriefs/feedback.
 - Página `CoachPage` reutilizando `AdherenceBreakdown`, `AdherenceTrend`, `ObjectionBreakdown`.
 - Tests: un member solo recibe lo suyo; no puede pedir otro `user_id`.
@@ -133,3 +134,36 @@ Los puntos 2–7 del AE (Grabaciones solo suyas, sin Copiloto, Preguntar y Llama
 
 ## Gates por tarea
 1. Test que falla primero y luego pasa. 2. Suite backend y JS en verde. 3. `tsc` sin errores nuevos. 4. Revisión del diff antes de la siguiente. 5. Un commit por tarea: `feat(lista-4): Tn …`.
+
+---
+
+## Estado final (28 sep 2026)
+
+Todo en `staging`. Lo nuevo de Hoy, brief y al colgar va detrás de flags apagados por defecto; para activarlo: `2026-09-28-activacion-lista-4.sql` (migraciones 062–063 + 3 flags). La navegación no lleva flag.
+
+| Pedido | Estado | Dónde |
+|---|---|---|
+| Copiloto fuera del dashboard | Hecho | T1 (la ruta sigue, sin enlace) |
+| Preguntar y Llamar en la barra superior, a la izquierda | Hecho | T1, todos los roles |
+| «Notas de voz» → «Grabaciones», solo las propias | Hecho | T1 (el comercial ya veía solo las suyas; ahora también con visibilidad de equipo) |
+| Equipo solo para el Head of Sales; el comercial ve «Coach» | Hecho (base) | T1; contenido de Coach en otra sesión |
+| Ajustes del comercial: Llamadas, Glosario, Uso | Hecho | T1 (el glosario es de solo lectura para el comercial: editarlo es del Head of Sales). Ojo: un commit posterior de otra sesión (`9134f94`) devolvió «Resúmenes» a los comerciales |
+| SDR Hoy: Tareas, Seguimiento, Nuevos | Hecho | T2 |
+| Seguimiento que no repite al mismo contacto: fecha según el freno | Hecho | T2 (cadencia E8, editable por el Head of Sales en Ajustes → Oferta) |
+| Brief de cold call con CRM, empresa y gancho de otros contactos de la empresa, en dashboard y extensión | Hecho | T3 (coincidencia por nombre de empresa: los memos no guardan el id de empresa del CRM) |
+| Al colgar: propuesta CRM + nota, resultado (reunión/seguimiento/no interesado/descalificado), estado del contacto, follow-up si se prometió, siguiente | Hecho | T4 |
+| Cuándo un lead pasa a deal, configurable | Hecho | T4 (`deal_creation_rule`, Ajustes → CRM; no aplica a Salesforce) |
+| Match de email Vocify ↔ owner del CRM; campos que cada uno puede tocar | Ya existía | `hubspot/sync.py`, `hoy/assigned.py`, `crm_config` |
+| Grabaciones: revisar y enviar/reenviar el follow-up | Ya existía | `MemoDetail` + `FollowupCard` |
+| AE Hoy: Tareas, Seguimiento, Demos de hoy | Hecho | T8 |
+| General: Tareas, Seguimiento, Demos de hoy, Nuevos | Hecho | T8 |
+| Brief de demo | Ya existía | Lista 3 T6 (sin etapa/importe del deal ni gancho: mejora opcional) |
+| Al colgar del AE (after demo) | Fuera | Desktop app (Dani) |
+
+**Verificación:** suite backend, tests JS, `tsc` (39, ninguno nuevo) y `npm run build` en verde tras cada tarea. Reticle no está disponible en esta sesión y el backend necesita Supabase real: las pantallas quedan por ver en staging con sesión real y los flags encendidos.
+
+**Límites conocidos:**
+- En la web, el panel al colgar enseña los resultados de SDR a todos los roles (el after demo del AE va en el desktop).
+- Un deal no se crea a posteriori en un memo ya auto-aprobado aunque la regla lo permita; el panel lo avisa.
+- Con `AFTER_CALL_FLOW_ENABLED`, la regla lead→deal aplica a toda aprobación (también MemoDetail, extensión y auto-approve): sin resultado marcado solo se crea deal con la regla «siempre».
+- El estado de lead solo se escribe en HubSpot, y solo con los valores que el Head of Sales configuró.
