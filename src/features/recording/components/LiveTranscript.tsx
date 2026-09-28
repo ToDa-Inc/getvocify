@@ -96,23 +96,39 @@ export function LiveTranscript({
             </p>
           </div>
         ) : turns ? (
-          <div className="space-y-4 text-base md:text-lg font-normal leading-relaxed tracking-tight text-foreground">
-            {turns.map((turn) => (
-              <p key={turn.key} className="animate-in fade-in duration-300 motion-reduce:animate-none">
-                {turn.label ? (
-                  <span className="block mb-0.5 text-xs font-medium tracking-normal text-muted-foreground">
-                    {turn.label}
-                  </span>
-                ) : null}
-                <span>{turn.text}</span>
-                {turn.pending ? (
-                  <span className="text-muted-foreground/60 italic">
-                    {turn.text ? ' ' : ''}
-                    {turn.pending}
-                  </span>
-                ) : null}
-              </p>
-            ))}
+          <div className="space-y-6">
+            {turns.map((turn) => {
+              const you = turn.speaker === 'rep';
+              return (
+                <div
+                  key={turn.key}
+                  className={cn(
+                    'border-l-2 pl-4 animate-in fade-in duration-300 motion-reduce:animate-none',
+                    you ? 'border-beige' : 'border-foreground/15',
+                  )}
+                >
+                  {turn.label ? (
+                    <p
+                      className={cn(
+                        'mb-1 text-[11px] uppercase tracking-[0.08em]',
+                        you ? 'text-beige' : 'text-muted-foreground',
+                      )}
+                    >
+                      {turn.label}
+                    </p>
+                  ) : null}
+                  <p className="text-[17px] leading-7 tracking-tight text-foreground">
+                    {turn.text}
+                    {turn.pending ? (
+                      <span className="text-muted-foreground/70 italic">
+                        {turn.text ? ' ' : ''}
+                        {turn.pending}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="relative space-y-2 text-base md:text-lg font-normal leading-relaxed tracking-tight text-foreground">

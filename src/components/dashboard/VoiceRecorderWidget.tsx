@@ -272,48 +272,47 @@ export const VoiceRecorderWidget = ({
   if (desktopMeeting && ["live", "stopping", "uploading"].includes(meeting.phase)) {
     const live = meeting.phase === "live";
     return (
-      <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-center`, className)}>
-        <div
-          className={cn(
-            "inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border mb-6 tabular-nums transition-colors duration-300",
-            live
-              ? "bg-destructive/10 text-destructive border-destructive/20"
-              : "bg-secondary/40 text-muted-foreground border-border/60",
-          )}
-        >
-          <span className={cn("w-2 h-2 rounded-full", live ? "bg-destructive animate-pulse" : "bg-muted-foreground/40")} />
-          {meeting.elapsed}
-        </div>
-        <div className="max-w-xl mx-auto mb-3 text-left">
-          <LiveTranscript
-            finalTranscript=""
-            interimTranscript=""
-            turns={meeting.turns}
-            isActive={live}
-            listeningHint="Listening. The transcript appears as people talk."
-            className="max-h-[360px]"
-          />
-        </div>
-        <p className="min-h-5 mb-5 text-xs text-muted-foreground" aria-live="polite">
-          {live ? meeting.warning ?? "" : ""}
-        </p>
-        {live ? (
-          <Button
-            type="button"
-            variant="destructive"
-            size="xl"
-            onClick={() => void meeting.stop()}
-            className="rounded-full px-8 gap-2"
-          >
-            <Square className="h-4 w-4 fill-current" />
-            Stop
-          </Button>
-        ) : (
-          <div className="h-12 flex items-center justify-center gap-2.5 text-sm text-muted-foreground" role="status">
-            <div className="w-4 h-4 border-2 border-beige border-t-transparent rounded-full animate-spin" />
-            {meeting.phase === "stopping" ? "Finishing transcript…" : "Preparing review…"}
+      <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-left`, className)}>
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm tabular-nums text-muted-foreground">
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                live ? "bg-destructive animate-pulse motion-reduce:animate-none" : "bg-muted-foreground/40",
+              )}
+            />
+            <span>{meeting.elapsed}</span>
           </div>
-        )}
+          {live ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void meeting.stop()}
+              className="rounded-full gap-1.5"
+            >
+              <Square className="h-3 w-3 fill-current" />
+              Stop
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground" role="status">
+              {meeting.phase === "stopping" ? "Finishing transcript…" : "Preparing review…"}
+            </p>
+          )}
+        </div>
+        <LiveTranscript
+          finalTranscript=""
+          interimTranscript=""
+          turns={meeting.turns}
+          isActive={live}
+          listeningHint="You and Them appear here as the meeting goes."
+          className="min-h-[320px] max-h-[min(62vh,680px)] border-0 bg-transparent p-1 shadow-none ring-0"
+        />
+        {live && meeting.warning ? (
+          <p className="mt-4 text-xs text-muted-foreground" aria-live="polite">
+            {meeting.warning}
+          </p>
+        ) : null}
       </div>
     );
   }
