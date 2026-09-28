@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { processHealthView, type ProcessHealthFlow, type ProcessTone } from "@/lib/head-of-sales";
@@ -12,7 +11,7 @@ const TONE_DOT: Record<ProcessTone, string> = {
 };
 
 /** Plan §0/§5: tells a rep problem (coaching) from a playbook problem (fix the process). */
-export function ProcessHealth({ flows, playbookHref }: { flows: ProcessHealthFlow[]; playbookHref: string }) {
+export function ProcessHealth({ flows }: { flows: ProcessHealthFlow[] }) {
   const { t } = useLanguage();
   const p = t.product;
   if (!flows.length) return null;
@@ -31,9 +30,9 @@ export function ProcessHealth({ flows, playbookHref }: { flows: ProcessHealthFlo
           <h2 id="hos-process" className={THEME_TOKENS.typography.sectionTitle}>{p.hosProcessHeading}</h2>
           <p className="text-xs text-muted-foreground mt-1">{p.hosProcessSubtitle}</p>
         </div>
-        <Link to={playbookHref} className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+        <a href="#playbooks" className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
           {p.hosProcessReview}
-        </Link>
+        </a>
       </div>
       <ul className="space-y-4">
         {ordered.map((flow) => {

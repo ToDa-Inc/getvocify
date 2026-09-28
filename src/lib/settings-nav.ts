@@ -35,7 +35,8 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", managerOnly: true },
   { id: "glossary", to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary", managerOnly: false },
   { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: true },
-  { id: "playbooks", to: "/dashboard/settings/playbooks", labelKey: "settingsNavPlaybooks", managerOnly: true },
+  // "playbooks" moved to the Head of Sales' Proceso de venta page (/dashboard/process);
+  // /dashboard/settings/playbooks redirects there.
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
   { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", managerOnly: true },

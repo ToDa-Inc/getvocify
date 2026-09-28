@@ -252,10 +252,12 @@ Gran parte de H0–H4 ya existía en `staging` (Listas 2–4): `sales_role` sdr/
 
 - ✅ **Retirada la página paralela de la fase 1** (`/dashboard/sales-team`): contaba llamadas desde `outbound_calls` mientras Equipo cuenta desde `memos.screening_outcome` — dos productores del mismo hecho.
 - ✅ **064** repara `sales_role` donde se ejecutó a mano el borrador 037 (vuelve al contrato de 054).
-- ✅ **Equipo, solo Head of Sales** (`isManagerRole`): periodo (semana, mes, 30 días, trimestre) con comparación contra el mismo tramo anterior, filtro SDR/AE, 4 cifras (intentos, conversaciones, reuniones acordadas, adherencia), tabla por persona alfabética con mediana, total y CSV.
-- ✅ **¿Falla el comercial o el playbook?** (§0/§5): por flujo, siguen/no siguen el playbook × consiguen/no el objetivo, con veredicto y muestra mínima de 10 por grupo. Solo se mide el objetivo visible en una interacción (discovery → reunión acordada); closing no se inventa.
-- Un `member` con `visibility=team` ve Equipo exactamente como antes (misma petición, mismos componentes).
-- ⏳ Pendiente: impacto por paso del playbook y recomendaciones aplicables (§5.2), objetivos, matriz de permisos, rediseño de la navegación del Head of Sales.
+- ✅ **Navegación del Head of Sales (§2):** Resumen · Equipo · Proceso de venta · Ajustes; Preguntar en la barra superior, sin Llamar. Sin Hoy, Notas de voz ni Copiloto (sus rutas siguen, sin enlace). Si el Head of Sales también vende (`repWorkspace`), Resumen enlaza a «Mi día».
+- ✅ **Resumen (§3.1)** en `/dashboard`: una frase de diagnóstico (¿equipo o proceso?), 4 cifras con comparación contra el mismo tramo anterior (por defecto «Este mes») y el embudo intentos → conversaciones → reuniones.
+- ✅ **Equipo (§3.2):** tabla por persona, alfabética, con mediana, total y CSV; enlace a la ficha si `MANAGER_HOME_ENABLED`.
+- ✅ **Proceso de venta (§4–5)** en `/dashboard/process`: «¿Falla el comercial o el playbook?» por flujo (siguen/no siguen × consiguen/no el objetivo, mínimo 10 por grupo; closing no se inventa), objeciones y competidores, y el editor de playbooks (movido desde Ajustes; `/dashboard/settings/playbooks` redirige).
+- Comerciales sin cambios: su menú, su barra superior y Equipo con `visibility=team` son los de la Lista 4.
+- ⏳ Pendiente: impacto por paso del playbook y recomendaciones aplicables (§5.2), objetivos, matriz de permisos.
 
 **H1 es bloqueante para el plan de coaching**, porque sin proceso no hay nada contra lo que puntuar.
 

@@ -6,6 +6,8 @@ import {
   adherenceParams,
   countDelta,
   processHealthView,
+  summaryDiagnosis,
+  flowShortName,
   rateDelta,
   repActivityCsv,
   repActivityRows,
@@ -155,5 +157,49 @@ describe("HOS_PERIODS", () => {
     for (const copy of [ES, EN]) {
       for (const period of HOS_PERIODS) assert.ok(copy[period.labelKey]);
     }
+  });
+});
+
+describe("summaryDiagnosis", () => {
+  const f = (verdict: ProcessHealthFlow["verdict"], motion = "discovery") => flow({ verdict, motion });
+
+  it("no activity says so before anything else", () => {
+    assert.equal(summaryDiagnosis({ attempts: 0, adherence: 0.8, processHealth: [f("playbook_underperforms")] }).key, "hosDiagNoActivity");
+  });
+
+  it("a playbook problem wins over a coaching one and links to the process", () => {
+    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps", "closing"), f("playbook_underperforms")] });
+    assert.deepEqual(d, { tone: "process", key: "hosDiagPlaybook", motion: "discovery", href: "/dashboard/process" });
+  });
+
+  it("coaching links to the team", () => {
+    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps")] });
+    assert.equal(d.key, "hosDiagCoach");
+    assert.equal(d.href, "/dashboard/insights");
+  });
+
+  it("without scored calls it asks for the process", () => {
+    assert.equal(summaryDiagnosis({ attempts: 10, adherence: null, processHealth: [] }).key, "hosDiagNoProcess");
+  });
+
+  it("not enough data is 'collecting', a working playbook is ok", () => {
+    assert.equal(summaryDiagnosis({ attempts: 10, adherence: 0.7, processHealth: [f("insufficient_data")] }).key, "hosDiagCollecting");
+    assert.equal(summaryDiagnosis({ attempts: 10, adherence: 0.7, processHealth: [f("playbook_works")] }).tone, "ok");
+  });
+
+  it("every diagnosis has copy in both languages", () => {
+    for (const copy of [ES, EN]) {
+      for (const key of ["hosDiagNoActivity", "hosDiagPlaybook", "hosDiagPlaybookNoEffect", "hosDiagCoach", "hosDiagNoProcess", "hosDiagWorks", "hosDiagCollecting"] as const) {
+        assert.ok(copy[key], key);
+      }
+    }
+  });
+});
+
+describe("flowShortName", () => {
+  it("names the role flows by role and anything else by its label", () => {
+    assert.equal(flowShortName("discovery", "Flujo SDR"), "SDR");
+    assert.equal(flowShortName("closing", "Flujo AE"), "AE");
+    assert.equal(flowShortName("qualification", "Cualificación"), "Cualificación");
   });
 });

@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Users,
   BookOpen,
+  Workflow,
   GraduationCap,
   Headphones,
   type LucideIcon,
@@ -33,7 +34,7 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
+import { isManagerRole, managerTopBarAsk, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
@@ -46,6 +47,7 @@ const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   insights: Users,
   coach: GraduationCap,
   playbook: BookOpen,
+  process: Workflow,
   settings: Settings,
 };
 
@@ -66,6 +68,8 @@ const DashboardLayout = () => {
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
   const repTopBar = topBarActions(user?.company?.role);
+  // Head of Sales: Ask (manager chat) in the top bar; no Call, they don't dial.
+  const askInTopBar = repTopBar || managerTopBarAsk(user?.company?.role);
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
@@ -247,10 +251,10 @@ const DashboardLayout = () => {
             <Menu className="h-5 w-5" />
           </Button>
 
-          {/* Lista 4 E3: for reps, Ask and Call live in the top bar, left side. A manager keeps
-              them in the sidebar (the Head of Sales' layout is redesigned separately). */}
+          {/* Lista 4 E3: for reps, Ask and Call live in the top bar, left side. The Head of
+              Sales gets Ask there too, without Call. */}
           <div className="flex flex-1 items-center gap-1.5 lg:gap-2">
-            {repTopBar && !paywalled ? (
+            {askInTopBar && !paywalled ? (
               <button
                 type="button"
                 aria-label={t.product.navAsk}

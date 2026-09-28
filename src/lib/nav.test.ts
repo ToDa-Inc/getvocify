@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isManagerRole, navItemsFor, topBarActions, usesRepHome, type NavItem } from "./nav.ts";
+import { isManagerRole, managerTopBarAsk, navItemsFor, topBarActions, usesRepHome, type NavItem } from "./nav.ts";
 
 const home: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
 const memos: NavItem = { id: "memos", labelKey: "navMemos", path: "/dashboard/memos" };
@@ -52,23 +52,26 @@ describe("navItemsFor for a rep (Lista 4 E1–E5)", () => {
   });
 });
 
-describe("navItemsFor for the Head of Sales is left as it was", () => {
-  it("keeps Copilot, Ask, Team and Call in the sidebar with the workspace off", () => {
+const summary: NavItem = { ...home, labelKey: "navSummary" };
+const process: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/process" };
+
+describe("navItemsFor for the Head of Sales (HEAD_OF_SALES_DASHBOARD_PLAN §2)", () => {
+  it("is Resumen, Equipo, Proceso de venta and Ajustes, whatever the flags", () => {
     for (const role of ["owner", "admin"]) {
-      assert.deepEqual(navItemsFor({ role, repWorkspace: false, playbookTabEnabled: true }), {
-        items: [home, memos, copilot, ask, playbook, insights, settings, call],
-        showPlans: true,
-      });
+      for (const repWorkspace of [false, true]) {
+        for (const playbookTabEnabled of [false, true]) {
+          assert.deepEqual(navItemsFor({ role, repWorkspace, playbookTabEnabled }), {
+            items: [summary, insights, process, settings],
+            showPlans: true,
+          });
+        }
+      }
     }
   });
 
-  it("keeps the workspace order", () => {
-    for (const role of ["owner", "admin"]) {
-      assert.deepEqual(navItemsFor({ role, repWorkspace: true }), {
-        items: [today, conversations, copilot, ask, call, insights, settings],
-        showPlans: true,
-      });
-    }
+  it("never links the rep places: Today, recordings, Copilot, Call, Coach", () => {
+    const ids: string[] = navItemsFor({ role: "owner", repWorkspace: true, playbookTabEnabled: true }).items.map((i) => i.id);
+    for (const gone of ["memos", "copilot", "ask", "call", "coach", "playbook"]) assert.equal(ids.includes(gone), false, gone);
   });
 });
 
@@ -78,6 +81,13 @@ describe("topBarActions", () => {
     assert.equal(topBarActions(null), true);
     assert.equal(topBarActions("owner"), false);
     assert.equal(topBarActions("admin"), false);
+  });
+
+  it("gives the Head of Sales Ask (without Call) in the top bar", () => {
+    assert.equal(managerTopBarAsk("owner"), true);
+    assert.equal(managerTopBarAsk("admin"), true);
+    assert.equal(managerTopBarAsk("member"), false);
+    assert.equal(managerTopBarAsk(null), false);
   });
 });
 

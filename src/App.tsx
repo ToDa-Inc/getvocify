@@ -17,7 +17,8 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
-import TeamInsightsPage from "./pages/dashboard/TeamInsightsPage";
+import { InsightsRoute, ManagerOnly } from "./pages/dashboard/headOfSalesRoutes";
+import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
 import PlaybookPage from "./pages/dashboard/PlaybookPage";
 import CoachPage from "./pages/dashboard/CoachPage";
@@ -179,13 +180,16 @@ const App = () => (
                 <Route path="offer" element={<OfferSection />} />
                 <Route path="glossary" element={<GlossarySection />} />
                 <Route path="brief" element={<BriefHighlightSection />} />
-                <Route path="playbooks" element={<PlaybooksSection />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
               </Route>
-              <Route path="insights" element={<TeamInsightsPage />} />
+              <Route path="insights" element={<InsightsRoute />} />
+              <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
+              {/* The playbook editor moved from Ajustes to Proceso de venta; outside the settings
+                  layout so its tab guard doesn't bounce the old URL first. */}
+              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process#playbooks" replace />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
               <Route path="coach" element={<CoachPage />} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;

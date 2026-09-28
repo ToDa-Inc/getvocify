@@ -204,3 +204,51 @@ export function processHealthView(flow: ProcessHealthFlow, copy: ProductTranslat
     .replace("{needed}", String(flow.needed ?? 0));
   return { tone: entry.tone, title: String(copy[entry.title]), detail };
 }
+
+export const HOS_DEFAULT_PERIOD: HosPeriod = "month";
+
+export type DiagnosisTone = ProcessTone;
+export type Diagnosis = {
+  tone: DiagnosisTone;
+  key:
+    | "hosDiagNoActivity"
+    | "hosDiagPlaybook"
+    | "hosDiagPlaybookNoEffect"
+    | "hosDiagCoach"
+    | "hosDiagNoProcess"
+    | "hosDiagWorks"
+    | "hosDiagCollecting";
+  motion: string | null;
+  href: string | null;
+};
+
+const PROCESS_HREF = "/dashboard/process";
+const TEAM_HREF = "/dashboard/insights";
+
+/** Resumen's one sentence (plan §3.1): is the problem the people or the process? Rules, not an LLM. */
+export function summaryDiagnosis(input: {
+  attempts: number | null;
+  adherence: number | null;
+  processHealth: ProcessHealthFlow[];
+}): Diagnosis {
+  const flows = input.processHealth ?? [];
+  const find = (verdict: ProcessHealthVerdict) => flows.find((f) => f.verdict === verdict);
+  if (!input.attempts) return { tone: "neutral", key: "hosDiagNoActivity", motion: null, href: null };
+  const broken = find("playbook_underperforms");
+  if (broken) return { tone: "process", key: "hosDiagPlaybook", motion: broken.motion, href: PROCESS_HREF };
+  const flat = find("no_difference");
+  if (flat) return { tone: "process", key: "hosDiagPlaybookNoEffect", motion: flat.motion, href: PROCESS_HREF };
+  const coach = find("coach_reps");
+  if (coach) return { tone: "rep", key: "hosDiagCoach", motion: coach.motion, href: TEAM_HREF };
+  if (input.adherence == null) return { tone: "neutral", key: "hosDiagNoProcess", motion: null, href: PROCESS_HREF };
+  const works = find("playbook_works");
+  if (works) return { tone: "ok", key: "hosDiagWorks", motion: works.motion, href: null };
+  return { tone: "neutral", key: "hosDiagCollecting", motion: null, href: PROCESS_HREF };
+}
+
+/** Short name for a flow inside a sentence: "SDR" / "AE" for the two role flows. */
+export function flowShortName(motion: string | null, fallback: string): string {
+  if (motion === "discovery") return "SDR";
+  if (motion === "closing") return "AE";
+  return fallback;
+}
