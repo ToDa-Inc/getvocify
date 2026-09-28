@@ -121,6 +121,7 @@ describe("today surface", () => {
     assert.deepEqual(supportingKeys(["going_cold", "unknown"]), ["today_signal_cold"]);
     assert.equal(signalLabelKey("no_reply"), "today_signal_no_reply");
     assert.equal(signalLabelKey("callback_no_answer"), "today_signal_callback_no_answer");
+    assert.equal(signalLabelKey("followup_due"), "today_signal_followup");
     assert.equal(signalLabelKey("never_contacted"), "today_signal_never_contacted");
     assert.equal(crmContactsUrl("hubspot", "99"), "https://app.hubspot.com/contacts/99/objects/0-1");
     assert.equal(crmContactsUrl("hubspot", null), null);

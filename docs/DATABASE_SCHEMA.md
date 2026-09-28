@@ -274,3 +274,7 @@ above.
 ## 040 — playbooks (F08)
 
 `backend/migrations/040_company_playbooks.sql` adds `playbooks` and `playbook_versions`. `publish_playbook_version` leaves one `active_version_id`. Older published versions stay readable so a meeting keeps the snapshot it started with.
+
+## 062 — SDR follow-up cadence (Lista 4 T2)
+
+`backend/migrations/062_sdr_followup_cadence.sql` adds `companies.followup_cadence` (JSONB, NULL = E8 defaults; `{stopper: days}`, validated in the app to known stoppers and 1–90 days), `memos.followup_at` (the date the rep picked after the call; beats the cadence) and `memos.rep_outcome` (CHECK `meeting_booked|follow_up|not_interested|disqualified`). Hoy (`HOY_SDR_SECTIONS_ENABLED`) reads them tolerantly: before the migration there is no rep date and no outcome.

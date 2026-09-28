@@ -102,6 +102,9 @@ export function RepHome() {
     wasTicking.current = ticking;
   }, [ticking, refetch]);
 
+  // Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): Tareas / Seguimiento / Nuevos instead of one
+  // "A quién llamar" list, when GET /today sends them (SDR/General only).
+  const sdrSections = Boolean(user?.company?.features?.includes("HOY_SDR_SECTIONS_ENABLED"));
   const homeRaw = composeHome({
     today: settled(query),
     todayStale: query.isError && Boolean(query.data),
@@ -116,6 +119,7 @@ export function RepHome() {
     crm: provider ? CRM_PROVIDER_CONFIGS[provider as CRMProvider]?.name ?? null : null,
     now,
     locale: copy.hourLocale,
+    sdrSections,
   });
 
   const settle = useCallback(
@@ -222,17 +226,21 @@ export function RepHome() {
   const meetings = section("meetings");
   const needsOk = section("needs_ok");
   const calls = section("calls");
+  const tasks = section("tasks");
+  const followups = section("followups");
+  const fresh = section("new");
   const upcoming = section("upcoming");
   const done = section("done");
-  const callItems = (calls?.items ?? []).map(({ source, item }) =>
-    source === "priority" ? { ...item, reason: productText(item.reason, copy) } : item,
-  );
+  const cardItems = (entries: { source: "today" | "priority"; item: TodayItem }[] | undefined) =>
+    (entries ?? []).map(({ source, item }) =>
+      source === "priority" ? { ...item, reason: productText(item.reason, copy) } : item,
+    );
   const foldedLine = home.folded ? (
     <p className={`mx-0.5 mt-2.5 ${THEME_TOKENS.typography.capsLabel}`}>
       {copy.home_folded.replace("{count}", String(home.folded.count))}
     </p>
   ) : null;
-  const foldedUnder = (id: "meetings" | "needs_ok" | "calls") => (home.folded?.after === id ? foldedLine : null);
+  const foldedUnder = (id: NonNullable<HomeView["folded"]>["after"]) => (home.folded?.after === id ? foldedLine : null);
   const recordText = (
     <button type="button" className={textAction} onClick={record}>{copy.today_record}</button>
   );
@@ -270,6 +278,48 @@ export function RepHome() {
   // promised, open objections). Prospecting tiers never reach an AE - the backend only
   // computes them for SDR/General.
   const deals = dealsEnabled ? dealItems(settled(query)) : [];
+
+  // Falta tu OK: on the SDR's home it sits right under Tareas (its follow-up emails to
+  // send are tasks too); otherwise where it always was, above "A quién llamar".
+  const needsOkSection = (
+    <HomeSection title={copy.home_needs_ok}>
+      {needsOk ? (
+        <>
+          <NeedsOk
+            section={needsOk}
+            now={now}
+            copy={copy}
+            onConfirm={onConfirm}
+            onUndo={onUndo}
+            onOpen={openMemo}
+            expanded={needsOkOpen}
+            onExpandedChange={setNeedsOkOpen}
+            groupOpen={confirmGroupOpen}
+            onGroupOpenChange={setConfirmGroupOpen}
+            {...selectionProps}
+          />
+          {foldedUnder("needs_ok")}
+        </>
+      ) : null}
+    </HomeSection>
+  );
+  const cardSection = (
+    entries: { source: "today" | "priority"; item: TodayItem }[] | undefined,
+    id: "calls" | "tasks" | "followups" | "new",
+  ) =>
+    entries ? (
+      <>
+        <TodayItemList
+          items={cardItems(entries)}
+          onDismiss={onDismiss}
+          onUndo={onUndo}
+          provider={provider}
+          portalId={portalId}
+          home={homeCards}
+        />
+        {foldedUnder(id)}
+      </>
+    ) : null;
 
   return (
     <>
@@ -342,41 +392,19 @@ export function RepHome() {
               </>
             ) : null}
           </HomeSection>
-          <HomeSection title={copy.home_needs_ok}>
-            {needsOk ? (
-              <>
-                <NeedsOk
-                  section={needsOk}
-                  now={now}
-                  copy={copy}
-                  onConfirm={onConfirm}
-                  onUndo={onUndo}
-                  onOpen={openMemo}
-                  expanded={needsOkOpen}
-                  onExpandedChange={setNeedsOkOpen}
-                  groupOpen={confirmGroupOpen}
-                  onGroupOpenChange={setConfirmGroupOpen}
-                  {...selectionProps}
-                />
-                {foldedUnder("needs_ok")}
-              </>
-            ) : null}
-          </HomeSection>
-          <HomeSection title={copy.home_calls}>
-            {calls ? (
-              <>
-                <TodayItemList
-                  items={callItems}
-                  onDismiss={onDismiss}
-                  onUndo={onUndo}
-                  provider={provider}
-                  portalId={portalId}
-                  home={homeCards}
-                />
-                {foldedUnder("calls")}
-              </>
-            ) : null}
-          </HomeSection>
+          {tasks || followups || fresh ? (
+            <>
+              <HomeSection title={copy.home_tasks}>{cardSection(tasks?.items, "tasks")}</HomeSection>
+              {needsOkSection}
+              <HomeSection title={copy.home_followups}>{cardSection(followups?.items, "followups")}</HomeSection>
+              <HomeSection title={copy.home_new}>{cardSection(fresh?.items, "new")}</HomeSection>
+            </>
+          ) : (
+            <>
+              {needsOkSection}
+              <HomeSection title={copy.home_calls}>{cardSection(calls?.items, "calls")}</HomeSection>
+            </>
+          )}
           {dealsEnabled && deals.length > 0 ? (
             <HomeSection title={copy.home_deals}>
               <TodayItemList

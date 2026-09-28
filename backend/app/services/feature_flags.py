@@ -67,6 +67,11 @@ LISTA_3_FLAGS: tuple[str, ...] = (
     "MANAGER_HOME_ENABLED",
     "RECALL_BOT_ENABLED",
 )
+# Lista 4 flags, exposed the same way.
+LISTA_4_FLAGS: tuple[str, ...] = (
+    "HOY_SDR_SECTIONS_ENABLED",
+)
+CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS
 
 
 def enabled_features(supabase: Any, company_id: Optional[str], names: "list[str] | tuple[str, ...]") -> list[str]:

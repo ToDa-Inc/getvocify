@@ -30,6 +30,36 @@ CATEGORY = {
 }
 
 
+# Lista 4 T2: the stopper behind a followup_due, as a short clause ("frenó por precio").
+STOPPER = {
+    "es": {
+        "price": "frenó por precio",
+        "timing": "frenó por el momento",
+        "authority": "frenó por el decisor",
+        "competitor": "frenó por la competencia",
+        "status_quo": "frenó por el statu quo",
+        "trust": "frenó por confianza",
+        "other": "quedó una objeción abierta",
+        "interest_high": "interés alto, sin siguiente paso",
+        "interest_medium": "interés medio, sin siguiente paso",
+        "interest_low": "interés bajo",
+    },
+    "en": {
+        "price": "stalled on price",
+        "timing": "stalled on timing",
+        "authority": "stalled on the decision-maker",
+        "competitor": "stalled on a competitor",
+        "status_quo": "stalled on the status quo",
+        "trust": "stalled on trust",
+        "other": "an objection stayed open",
+        "interest_high": "high interest, no next step",
+        "interest_medium": "medium interest, no next step",
+        "interest_low": "low interest",
+    },
+}
+FOLLOWUP_LABEL = {"es": "Seguimiento", "en": "Follow-up"}
+
+
 MONTH = {
     "es": ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"),
     "en": ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
@@ -87,6 +117,8 @@ def reason(signal: Signal, *, lang: str = "es", lead_tiers: bool = False, now: d
         return _no_reply(payload, lang)
     if signal.type == "callback_no_answer":
         return _callback_no_answer(payload, lang, now or datetime.now(timezone.utc))
+    if signal.type == "followup_due":
+        return _followup_due(payload, lang, now or datetime.now(timezone.utc))
     if signal.type == "never_contacted":
         return "Nunca has hablado con este contacto." if lang == "es" else "You have never spoken with this contact."
     if signal.type == "going_cold":
@@ -121,6 +153,42 @@ def meeting_detail(payload: dict, *, lang: str = "es", tz_name: str | None = Non
     if lang == "es":
         return f"acordada el {local.day} {MONTH['es'][local.month - 1]}"
     return f"agreed on {MONTH['en'][local.month - 1]} {local.day}"
+
+
+def followup_upcoming_text(stopper: str | None, lang: str = "es") -> str:
+    """Próximos' line for a follow-up not due yet: «Seguimiento · frenó por precio»."""
+    lang = _lang(lang)
+    clause = STOPPER[lang].get(stopper or "")
+    return f"{FOLLOWUP_LABEL[lang]} · {clause}" if clause else FOLLOWUP_LABEL[lang]
+
+
+def _ago(days: int, lang: str) -> str:
+    if lang == "es":
+        return "hace 1 día" if days == 1 else f"hace {days} días"
+    return "1 day ago" if days == 1 else f"{days} days ago"
+
+
+def _followup_due(payload: dict, lang: str, now: datetime) -> str:
+    """Worded by the stopper; the day count is read off `touch_at` at render time."""
+    at = _as_dt(payload.get("touch_at"))
+    days = max(0, (now.date() - at.date()).days) if at else int(payload.get("days_since") or 0)
+    ago = _ago(days, lang)
+    interest = payload.get("interest")
+    stopper = payload.get("stopper") or ""
+    if interest not in ("high", "medium", "low"):
+        # Only a date the rep picked brings back a contact of unknown or no interest.
+        return "Quedaste en volver a llamarle." if lang == "es" else "You planned to call them back."
+    if stopper.startswith("interest_") or stopper not in STOPPER[lang]:
+        if lang == "es":
+            lead = {"high": "Mostró mucho interés", "medium": "Mostró interés", "low": "Mostró poco interés"}[interest]
+            return f"{lead} {ago}, sin siguiente paso."
+        lead = {"high": "Showed strong interest", "medium": "Showed interest", "low": "Showed little interest"}[interest]
+        return f"{lead} {ago}, no next step."
+    if lang == "es":
+        lead = {"high": "Le interesó", "medium": "Le interesó", "low": "Mostró poco interés"}[interest]
+    else:
+        lead = {"high": "Was interested", "medium": "Was interested", "low": "Showed little interest"}[interest]
+    return f"{lead}; {STOPPER[lang][stopper]} ({ago})."
 
 
 def _callback_no_answer(payload: dict, lang: str, now: datetime) -> str:

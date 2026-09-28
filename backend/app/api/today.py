@@ -38,16 +38,21 @@ from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.priority import rank_candidates
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks, contact_record_url
-from app.services.hoy.sections import sections_for_role, split_items_by_type
+from app.services.hoy.sections import SDR_NEW_CAP, SDR_SOURCE_LIMIT, sdr_sections, sections_for_role, split_items_by_type
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links, never_contacted_signal
-from app.services.hoy.materialize import HOY_MEMO_LIMIT, exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
+from app.services.hoy.materialize import HOY_MEMO_LIMIT, as_dt, exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
 from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
 from app.services.hoy.names import NamePair, memo_directory
-from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
+from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments, upcoming_followups
 from app.services.hoy.visibility import is_today_visible
 from app.services.rep_timezone import rep_timezone
 
 AE_DEALS_FLAG = "HOY_AE_DEALS_ENABLED"
+SDR_SECTIONS_FLAG = "HOY_SDR_SECTIONS_ENABLED"
+# Lista 4 T2: with the cadence on, followup_due replaces these two; their stored rows are
+# hidden on read (not resolved), and followup_due rows are hidden with it off.
+CADENCE_REPLACED_TYPES = frozenset({"going_cold", "objection_open"})
+FOLLOWUP_TYPE = "followup_due"
 NEVER_CONTACTED_TYPE = "never_contacted"
 
 logger = logging.getLogger(__name__)
@@ -312,8 +317,16 @@ def _intelligence(rows: list[dict]) -> str:
     return "partial"
 
 
+def _sdr_sections_enabled(supabase, membership: Membership) -> bool:
+    """Lista 4 T2 (E7/E8): Tareas/Seguimiento/Nuevos and the follow-up cadence are for a
+    SDR or General rep only, like lead tiers."""
+    return membership.sales_role in (None, "sdr", "general") and is_enabled(
+        supabase, membership.company_id, SDR_SECTIONS_FLAG,
+    )
+
+
 def _never_contacted_for_rep(
-    supabase, *, company_id: str, user_id: str, now: datetime, touched_contact_ids: set[str],
+    supabase, *, company_id: str, user_id: str, now: datetime, touched_contact_ids: set[str], limit: int = DEFAULT_LIMIT,
 ) -> list[Signal]:
     """T5 review: reads the contact_priorities cache only (load_context/snapshot_from_rows -
     no CRM call in-request, same source as GET /contact-priorities). Ephemeral - these cards
@@ -327,7 +340,7 @@ def _never_contacted_for_rep(
             if not row.get("owner_ambiguous") and row.get("owner_user_id") == user_id
         ]
         ranked = rank_candidates(visible, now)
-        return never_contacted_signals(ranked, touched_contact_ids=touched_contact_ids, limit=DEFAULT_LIMIT)
+        return never_contacted_signals(ranked, touched_contact_ids=touched_contact_ids, limit=limit)
     except Exception:
         return []
 
@@ -520,10 +533,14 @@ async def get_today(
     tz_name = rep_timezone(membership.user_id)
     # T5: lead tiers (callback_no_answer, stale_hot wording, heat) are for a SDR or General
     # rep only - the AE's Hoy is deals-focused (T6), not this list.
-    lead_tiers_enabled = (
+    # Lista 4 T2: the SDR sections are built on lead tiers (Tareas holds the callbacks, Nuevos
+    # the never-contacted leads), so turning them on turns lead tiers on for that rep too.
+    sdr_sections_enabled = _sdr_sections_enabled(supabase, membership)
+    lead_tiers_enabled = sdr_sections_enabled or (
         membership.sales_role in (None, "sdr", "general")
         and is_enabled(supabase, membership.company_id, "HOY_LEAD_TIERS_ENABLED")
     )
+    cadence = CompanyService(supabase).followup_cadence(membership.company_id) if sdr_sections_enabled else None
     callback_after_days = (
         CompanyService(supabase).callback_after_days(membership.company_id) if lead_tiers_enabled else None
     )
@@ -537,6 +554,7 @@ async def get_today(
                 tz_name=tz_name,
                 lead_tiers_enabled=lead_tiers_enabled,
                 callback_after_days=callback_after_days or 2,
+                cadence=cadence,
             )
         except Exception:
             pass
@@ -574,6 +592,8 @@ async def get_today(
     ]
     if not is_enabled(supabase, membership.company_id, MEETINGS_FLAG):
         visible = [row for row in visible if row.get("type") != MEETING_TYPE]
+    hidden_types = CADENCE_REPLACED_TYPES if sdr_sections_enabled else {FOLLOWUP_TYPE}
+    visible = [row for row in visible if row.get("type") not in hidden_types]
     # T5/D6: a contact under an active SDR->AE handoff leaves the SDR's/General's Hoy - it
     # is the AE's now. The AE side is unaffected (it gains, it does not lose, contacts).
     handed_off: set[str] = set()
@@ -624,6 +644,7 @@ async def get_today(
             user_id=membership.user_id,
             now=now,
             touched_contact_ids=touched | persisted,
+            limit=SDR_NEW_CAP if sdr_sections_enabled else DEFAULT_LIMIT,
         )
         visible = _drop_touched_never_contacted(visible, touched)
     today_signals = exclude_handoff_contacts(
@@ -644,9 +665,19 @@ async def get_today(
         confirm_rows=confirm_rows,
         tz_name=rep_timezone(membership.user_id),
         lead_tiers=lead_tiers_enabled,
+        limit=SDR_SOURCE_LIMIT if sdr_sections_enabled else DEFAULT_LIMIT,
     )
     directory = memo_directory(memos + _handoff_contact_memos(supabase, membership.company_id, received_handoffs))
     _stamp_contact_names(view, visible, directory)
+    sdr_view: dict | None = None
+    if sdr_sections_enabled:
+        # Every card was ranked (SDR_SOURCE_LIMIT); each section takes its own cap, and
+        # `items` goes back to the old global cap for anything still reading it.
+        all_items = view["items"]
+        sections, sections_folded = sdr_sections(all_items)
+        sdr_view = {"sections": sections, "folded": sections_folded}
+        view["items"] = all_items[:DEFAULT_LIMIT]
+        view["folded_count"] += len(all_items) - len(view["items"])
     if is_enabled(supabase, membership.company_id, AE_DEALS_FLAG):
         calls_items, meeting_items = split_items_by_type(view.get("items") or [])
         deals_items: list[dict] = []
@@ -669,6 +700,11 @@ async def get_today(
         view["sections"] = sections_for_role(
             membership.sales_role, calls=calls_items, meetings=meeting_items, deals=deals_items,
         )
+    if sdr_view is not None:
+        # Added next to the role's own sections (T6) when both flags are on; the client
+        # reads tasks/followups/new instead of calls.
+        view["sections"] = {**(view.get("sections") or {}), **sdr_view["sections"]}
+        view["sections_folded"] = sdr_view["folded"]
     return view
 
 
@@ -722,6 +758,7 @@ async def get_today_upcoming(
     days: int = Query(DEFAULT_DAYS),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
+    accept_language: str | None = Header(default=None, alias="Accept-Language"),
 ):
     require_rep_workspace(supabase, membership.company_id)
     if not MIN_DAYS <= days <= MAX_DAYS:
@@ -730,12 +767,26 @@ async def get_today_upcoming(
             detail=f"days must be between {MIN_DAYS} and {MAX_DAYS}",
         )
     now = _now()
-    return upcoming_commitments(
-        read_hoy_memos(supabase, company_id=membership.company_id, user_id=membership.user_id),
-        now=now,
-        tz_name=rep_timezone(membership.user_id),
-        days=days,
+    tz_name = rep_timezone(membership.user_id)
+    sdr_sections_enabled = _sdr_sections_enabled(supabase, membership)
+    memos = read_hoy_memos(
+        supabase, company_id=membership.company_id, user_id=membership.user_id, with_followup=sdr_sections_enabled,
     )
+    rows = upcoming_commitments(memos, now=now, tz_name=tz_name, days=days)
+    if not sdr_sections_enabled:
+        return rows
+    # Lista 4 T2 (E8): the follow-ups the cadence is holding back, on the date they return.
+    lang = "en" if (accept_language or "").lower().startswith("en") else "es"
+    rows += upcoming_followups(
+        memos,
+        now=now,
+        tz_name=tz_name,
+        days=days,
+        overrides=CompanyService(supabase).followup_cadence(membership.company_id),
+        lang=lang,
+    )
+    rows.sort(key=lambda row: (as_dt(row["due_at"]), row["memo_id"]))
+    return rows
 
 
 @router.get("/today/done")

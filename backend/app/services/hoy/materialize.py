@@ -84,18 +84,17 @@ def _commitments(intelligence: dict) -> list[dict]:
     return kept
 
 
-def fresh_signals(
-    memos: list[dict],
-    *,
-    now: datetime,
-    day_end: datetime,
-    lead_tiers_enabled: bool = False,
-    callback_after_days: int = DEFAULT_CALLBACK_AFTER_DAYS,
-) -> list:
-    """One contact, one set of signals, from intelligence already on the memo.
+def _stored_followup_at(memo: dict) -> datetime | None:
+    """memos.followup_at (migration 062). Absent, empty or unreadable = no rep date."""
+    try:
+        return as_dt(memo.get("followup_at"))
+    except (TypeError, ValueError):
+        return None
 
-    `lead_tiers_enabled` is HOY_LEAD_TIERS_ENABLED for a SDR/General rep (T5): off, this
-    is byte-identical to before (no callback_no_answer, no heat on the payload)."""
+
+def contact_touches(memos: list[dict]) -> tuple[dict[str, list], dict[str, bool]]:
+    """Each contact's touches, read off the intelligence already on its memos, and whether
+    each memo confirmed pain (heat reads it)."""
     groups: dict[str, list] = {}
     pain_by_memo: dict[str, bool] = {}
     for memo in memos:
@@ -119,10 +118,30 @@ def fresh_signals(
             intelligence=shaped if shaped.get("objections") or shaped.get("commitments") or shaped.get("interest") else None,
             history_complete=True,
             screening_outcome=memo.get("screening_outcome"),
+            followup_at=_stored_followup_at(memo),
+            rep_outcome=memo.get("rep_outcome"),
         )
         if touch is None:
             continue
         groups.setdefault(touch.contact_id or touch.memo_id, []).append(touch)
+    return groups, pain_by_memo
+
+
+def fresh_signals(
+    memos: list[dict],
+    *,
+    now: datetime,
+    day_end: datetime,
+    lead_tiers_enabled: bool = False,
+    callback_after_days: int = DEFAULT_CALLBACK_AFTER_DAYS,
+    cadence: dict[str, int] | None = None,
+) -> list:
+    """One contact, one set of signals, from intelligence already on the memo.
+
+    `lead_tiers_enabled` is HOY_LEAD_TIERS_ENABLED for a SDR/General rep (T5): off, this
+    is byte-identical to before (no callback_no_answer, no heat on the payload).
+    `cadence` is HOY_SDR_SECTIONS_ENABLED's company overrides (Lista 4 T2), None when off."""
+    groups, pain_by_memo = contact_touches(memos)
     signals = []
     for touches in groups.values():
         contact_signals = signals_for_contact(
@@ -130,6 +149,7 @@ def fresh_signals(
             now=now,
             day_end=day_end,
             callback_after_days=callback_after_days if lead_tiers_enabled else None,
+            cadence=cadence,
         )
         if lead_tiers_enabled and contact_signals:
             last = max(touches, key=lambda t: t.at)
@@ -306,6 +326,12 @@ def retracted_objection_ids(existing: list[dict], *, memo_ids: set[str], fresh_k
     return _retracted_memo_ids(existing, types={"objection_open"}, memo_ids=memo_ids, fresh_keys=fresh_keys)
 
 
+def retracted_followup_ids(existing: list[dict], *, memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
+    """Lista 4 T2: a pending followup_due whose memo was re-read and no longer yields it - a
+    newer conversation, a commitment, or an outcome that closes the contact."""
+    return _retracted_memo_ids(existing, types={"followup_due"}, memo_ids=memo_ids, fresh_keys=fresh_keys)
+
+
 def retracted_callback_ids(existing: list[dict], *, memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
     """T5 review (BLOCKING): a pending callback_no_answer whose memo was re-read and no
     longer yields it - a later connected call/memo means it is resolved, the same way a
@@ -343,21 +369,38 @@ def retracted_call_callback_ids(existing: list[dict], *, call_ids: set[str], fre
     return out
 
 
-def read_hoy_memos(supabase, *, company_id: str, user_id: str) -> list[dict]:
-    """The rep's newest memos: the only window Hoy materializes signals from."""
-    stored = (
-        supabase.table("memos")
-        .select(
-            "id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at,"
-            "company_id,user_id,playbook_version_id,screening_outcome"
+HOY_MEMO_COLUMNS = (
+    "id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at,"
+    "company_id,user_id,playbook_version_id,screening_outcome"
+)
+# Lista 4 (migration 062): only read with HOY_SDR_SECTIONS_ENABLED on.
+FOLLOWUP_MEMO_COLUMNS = ",followup_at,rep_outcome"
+
+
+def read_hoy_memos(supabase, *, company_id: str, user_id: str, with_followup: bool = False) -> list[dict]:
+    """The rep's newest memos: the only window Hoy materializes signals from.
+
+    `with_followup` adds memos.followup_at/rep_outcome; before migration 062 that select
+    fails, and the memos are read without them (no rep date, no outcome) rather than not
+    at all."""
+    def read(columns: str) -> list[dict]:
+        stored = (
+            supabase.table("memos")
+            .select(columns)
+            .eq("user_id", user_id)
+            .or_(f"company_id.eq.{company_id},company_id.is.null")
+            .order("created_at", desc=True)
+            .limit(HOY_MEMO_LIMIT)
+            .execute()
         )
-        .eq("user_id", user_id)
-        .or_(f"company_id.eq.{company_id},company_id.is.null")
-        .order("created_at", desc=True)
-        .limit(HOY_MEMO_LIMIT)
-        .execute()
-    )
-    return list(stored.data or [])
+        return list(stored.data or [])
+
+    if with_followup:
+        try:
+            return read(HOY_MEMO_COLUMNS + FOLLOWUP_MEMO_COLUMNS)
+        except Exception:
+            pass
+    return read(HOY_MEMO_COLUMNS)
 
 
 def refresh_hoy_signals(
@@ -369,9 +412,10 @@ def refresh_hoy_signals(
     tz_name: str,
     lead_tiers_enabled: bool = False,
     callback_after_days: int = DEFAULT_CALLBACK_AFTER_DAYS,
+    cadence: dict[str, int] | None = None,
 ) -> int:
     try:
-        memos = read_hoy_memos(supabase, company_id=company_id, user_id=user_id)
+        memos = read_hoy_memos(supabase, company_id=company_id, user_id=user_id, with_followup=cadence is not None)
         existing = (
             supabase.table("action_signals")
             .select("id,dedupe_key,type,status,memo_id")
@@ -387,6 +431,7 @@ def refresh_hoy_signals(
         day_end=day_end(now, tz_name),
         lead_tiers_enabled=lead_tiers_enabled,
         callback_after_days=callback_after_days,
+        cadence=cadence,
     )
     calls: list[dict] = []
     if lead_tiers_enabled:
@@ -399,7 +444,10 @@ def refresh_hoy_signals(
         )
     known = {str(row.get("dedupe_key") or "") for row in (existing.data or [])}
     fresh_keys = {signal.dedupe_key for signal in signals}
-    retracted = retracted_objection_ids(
+    # With the cadence on, objection_open is no longer produced: its pending rows are hidden
+    # on read (GET /today), not resolved, so turning the flag off brings them back untouched.
+    retract_memo_rows = retracted_objection_ids if cadence is None else retracted_followup_ids
+    retracted = retract_memo_rows(
         list(existing.data or []),
         memo_ids={str(memo.get("id") or "") for memo in memos},
         fresh_keys=fresh_keys,

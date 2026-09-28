@@ -28,3 +28,30 @@ def sections_for_role(sales_role: str | None, *, calls: list[dict], meetings: li
     if role == "sdr":
         return {"calls": calls}
     return {"calls": calls, "meetings": meetings, "deals": deals}
+
+
+# Lista 4 T2 (E7, HOY_SDR_SECTIONS_ENABLED): the SDR's/General's Hoy in three blocks, each
+# with its own cap so the new leads never vanish behind the hot ones.
+SDR_TASKS_CAP = 20
+SDR_FOLLOWUPS_CAP = 7
+SDR_NEW_CAP = 10
+FOLLOWUP_TYPE = "followup_due"
+NEW_TYPE = "never_contacted"
+# build_today_view's cap while the sections are built from its items: high enough that no
+# card is dropped before the per-section caps apply.
+SDR_SOURCE_LIMIT = 1000
+
+
+def sdr_sections(items: list[dict]) -> tuple[dict, dict]:
+    """(sections, folded per section) from the ranked items, order kept. Tasks are everything
+    that is neither a follow-up nor a new lead: commitments due, callbacks, no-reply emails,
+    today's meetings, confirmations and the rep's manual CRM tasks."""
+    buckets: dict[str, list[dict]] = {"tasks": [], "followups": [], "new": []}
+    for item in items:
+        kind = item.get("type")
+        key = "followups" if kind == FOLLOWUP_TYPE else "new" if kind == NEW_TYPE else "tasks"
+        buckets[key].append(item)
+    caps = {"tasks": SDR_TASKS_CAP, "followups": SDR_FOLLOWUPS_CAP, "new": SDR_NEW_CAP}
+    sections = {key: rows[:caps[key]] for key, rows in buckets.items()}
+    folded = {key: max(0, len(rows) - caps[key]) for key, rows in buckets.items()}
+    return sections, folded

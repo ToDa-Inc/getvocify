@@ -272,6 +272,19 @@ class CompanyService:
         value = company.get("callback_after_days")
         return int(value) if isinstance(value, int) and value > 0 else DEFAULT_CALLBACK_AFTER_DAYS
 
+    def followup_cadence(self, company_id: str) -> dict[str, int]:
+        """Lista 4 T2 (companies.followup_cadence, migration 062): the Head of Sales' own
+        follow-up waits per stopper, validated (hoy/cadence.parse_overrides). Read with
+        select("*") like callback_after_days, so before the migration - or on any failed
+        read - it is {} and E8's defaults apply."""
+        from app.services.hoy.cadence import parse_overrides
+
+        try:
+            company = self.get_company(company_id)
+        except Exception:
+            return {}
+        return parse_overrides(company.get("followup_cadence"))
+
     def count_active_members(self, company_id: str) -> int:
         result = (
             self.supabase.table("company_members")
@@ -445,7 +458,7 @@ class CompanyService:
             raise
 
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
-        from app.services.feature_flags import LISTA_3_FLAGS, enabled_features
+        from app.services.feature_flags import CLIENT_FLAGS, enabled_features
 
         membership = self.get_membership(user_id)
         if not membership or not membership.is_active:
@@ -475,7 +488,7 @@ class CompanyService:
             # visibility=team member it may load /dashboard/insights, same rule as
             # activity_scope.can_view_company_activity.
             "visibility": membership.visibility if sales_roles_on else None,
-            "features": enabled_features(self.supabase, membership.company_id, LISTA_3_FLAGS),
+            "features": enabled_features(self.supabase, membership.company_id, CLIENT_FLAGS),
             "needs_onboarding": self.needs_onboarding(membership, company),
         }
 
