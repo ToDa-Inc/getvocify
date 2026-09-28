@@ -99,8 +99,34 @@
 - Página `CoachPage` reutilizando `AdherenceBreakdown`, `AdherenceTrend`, `ObjectionBreakdown`.
 - Tests: un member solo recibe lo suyo; no puede pedir otro `user_id`.
 
-### T7 · Cierre
+### T7 · Cierre (se ejecuta al final, después de T10)
 - Suites, `tsc`, build. SQL de activación `2026-09-28-activacion-lista-4.sql` (migraciones 062–063 + flags). Estado final en este documento.
+
+---
+
+## Ampliación: AE y General (pedido del founder, 28 sep)
+
+Los puntos 2–7 del AE (Grabaciones solo suyas, sin Copiloto, Preguntar y Llamar arriba, Coach en vez de Equipo, Ajustes Llamadas/Glosario/Uso) son los mismos que los del SDR y ya los cubre T1 para todo el que no es Head of Sales. Lo que el AE ve del SDR que tuvo antes el contacto ya existe (Lista 3 T4/D8) y se mantiene en brief, contexto y Ask.
+
+| # | Decisión |
+|---|---|
+| E13 | Hoy del AE en tres bloques: **Tareas** (emails prometidos, compromisos con fecha, respuestas pendientes, confirmaciones), **Seguimiento** (deals/contactos calientes cuya fecha de seguimiento llegó y no se ha hecho: misma cadencia E8 por freno, sobre sus deals propios y los traspasados) y **Demos de hoy** (reuniones del día, incluidas las que agendó el SDR). La lista de «Deals en curso» deja de salir entera en Hoy: un deal vuelve cuando le toca. |
+| E14 | **Brief de demo** (se despliega en cada demo de hoy y en el panel): empresa (sector, tamaño), deal (etapa, importe, fecha de cierre si están en el CRM), **qué habló el SDR** (resumen, dolor confirmado, interés, cita), objeciones abiertas, compromisos pendientes, otras personas/deals de la misma empresa (gancho E9), y los pasos del playbook de cierre que faltan por cubrir. Determinista, sin LLM. |
+| E15 | **Al colgar (AE):** mismos pasos que E10 pero el resultado es el **estado del deal**: selector de etapa del pipeline del CRM (prefijado con la propuesta), más resultado: Siguiente paso (con fecha, E8) · Propuesta enviada · Ganado · Perdido (motivo). Estado del contacto editable. Después, propuesta de email de follow-up/propuesta según lo hablado (flujo `closing`, Lista 3 T8). |
+| E16 | **General** = SDR + AE en uno: Hoy con Tareas, Seguimiento, Demos de hoy y Nuevos. Al colgar, el resultado depende de la interacción: contacto sin deal y llamada → resultados de SDR (E10, regla lead→deal E11); con deal o reunión → resultados de AE (E15). Un General con AE asignado puede traspasar al agendar; sin AE, la reunión agendada se queda en su propio Hoy. |
+
+### T8 · Hoy del AE y del General (E13, E16)
+- `GET /today` con `HOY_SDR_SECTIONS_ENABLED` (se reutiliza el flag: es el Hoy por bloques): AE → `tasks`, `followups`, `demos`; General → `tasks`, `followups`, `demos`, `new`. La cadencia E8 se aplica también al AE, sobre sus memos y los deals traspasados (fecha desde la última interacción del AE o, si no hay, desde el traspaso). `demos` = `meeting_today` (propias y de traspasos).
+- Frontend: `RepHome` pinta los bloques según las secciones presentes, en este orden: Demos de hoy · Tareas · Seguimiento · Nuevos.
+
+### T9 · Brief de demo completo (E14)
+- Amplía `services/briefs/meeting.py` y `GET /briefs/meeting` con deal (etapa, importe, cierre), bloque «Lo que habló {SDR}» (resumen, dolor, interés, cita), objeciones abiertas, compromisos, gancho de empresa (reutiliza `company_hook`) y pasos de cierre pendientes. Se ve en la tarjeta de la demo y en el panel. Tests por cada hecho ausente.
+
+### T10 · Al colgar del AE y del General (E15, E16)
+- Migración `064`: amplía el CHECK de `memos.rep_outcome` con `next_step`, `proposal_sent`, `won`, `lost`.
+- `after_call.py`: resultados por rol/interacción; `won`/`lost` → `call_outcome` y etapa de fin; `next_step`/`proposal_sent` → fecha de seguimiento (E8). La etapa elegida se escribe en el deal (respeta los campos permitidos).
+- `GET /memos/{id}/after-call` devuelve `mode` (`sdr`|`ae`) y las etapas del pipeline del deal.
+- `AfterCallReview` pinta el modo AE (selector de etapa + resultados E15) y el General elige el modo por la regla E16. Follow-up en modo propuesta.
 
 ## Gates por tarea
 1. Test que falla primero y luego pasa. 2. Suite backend y JS en verde. 3. `tsc` sin errores nuevos. 4. Revisión del diff antes de la siguiente. 5. Un commit por tarea: `feat(lista-4): Tn …`.
