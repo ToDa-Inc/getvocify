@@ -9,6 +9,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-today-sections")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-today-sections")
 
+import time
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
@@ -210,5 +211,66 @@ def test_an_open_deal_stage_is_never_closed():
     finally:
         today_api.set_today_fetch(None)
         feature_flags_mod.clear_cache()
+    assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
+    assert store.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_a_timed_out_stage_read_leaves_the_handoff_open_and_the_deal_listed(monkeypatch):
+    _isolate()
+    monkeypatch.setattr(today_api, "DEAL_STAGE_DEADLINE", 0.05)
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    store.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "metadata": {},
+    }]
+
+    def slow_fetch(request):
+        if request["path"] == "/crm/v3/objects/tasks/search":
+            return {"results": []}
+        time.sleep(0.3)
+        return {"results": [{"id": "d1", "properties": {"dealstage": "closedwon"}}]}
+
+    today_api.set_today_fetch(slow_fetch)
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        feature_flags_mod.clear_cache()
+    assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
+    assert store.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_a_handoff_from_a_different_connection_is_never_stage_read_or_closed():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-OLD", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    store.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "metadata": {},
+    }]
+    fetched_deal_ids: list[str] = []
+
+    def fake_fetch(request):
+        if request["path"] == "/crm/v3/objects/tasks/search":
+            return {"results": []}
+        fetched_deal_ids.extend(row["id"] for row in request["json"]["inputs"])
+        return {"results": [{"id": "d1", "properties": {"dealstage": "closedwon"}}]}
+
+    today_api.set_today_fetch(fake_fetch)
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        feature_flags_mod.clear_cache()
+    assert fetched_deal_ids == []
     assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
     assert store.tables["deal_handoffs"][0]["status"] == "active"

@@ -267,6 +267,9 @@ export function RepHome() {
   // their own deals with a memo, from GET /today's `sections`, not from the calls list.
   const dealsEnabled = Boolean(user?.company?.features?.includes("HOY_AE_DEALS_ENABLED"));
   const deals = dealsEnabled ? dealItems(settled(query)) : [];
+  // T6 review: the AE's Hoy is deals-focused (backend `sections` never gives an AE a
+  // `calls` bucket) - "A quién llamar" must not show the flat calls list to an AE either.
+  const hideCallsForAe = dealsEnabled && user?.company?.salesRole === "ae";
 
   return (
     <>
@@ -360,7 +363,7 @@ export function RepHome() {
             ) : null}
           </HomeSection>
           <HomeSection title={copy.home_calls}>
-            {calls ? (
+            {calls && !hideCallsForAe ? (
               <>
                 <TodayItemList
                   items={callItems}

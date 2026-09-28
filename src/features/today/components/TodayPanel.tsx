@@ -10,9 +10,11 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { currentItem, initialQueue, queueReducer } from "@/lib/today-queue";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useAuth } from "@/features/auth";
-import { splitTodayItems } from "@/lib/today";
+import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
+import { dealItems, splitTodayItems } from "@/lib/today";
 import { useTodayCardActions, useTodayUndoClock } from "../hooks/useTodayCardActions";
 import { ContactPriorities } from "./ContactPriorities";
+import { HomeSection } from "./HomeSection";
 import { TodayItemList } from "./TodayItemList";
 
 function formatStamp(iso: string, locale: string) {
@@ -29,9 +31,10 @@ function formatStamp(iso: string, locale: string) {
 export function TodayPanel() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { surface, listed, dismiss, confirm, undo, contactsUrl, provider, portalId } = useTodayCardActions();
+  const { surface, listed, dismiss, confirm, undo, contactsUrl, provider, portalId, query } = useTodayCardActions();
   const dialer = useOptionalDialerFocus();
   const { user } = useAuth();
+  const integrations = useIntegrations();
   useTodayUndoClock(surface.kind === "list");
 
   const [queue, dispatchQueue] = useReducer(queueReducer, initialQueue);
@@ -44,8 +47,14 @@ export function TodayPanel() {
   const active = queue.mode === "queue";
   const done = queue.mode === "done";
   const current = currentItem(queue);
-  const calls = splitTodayItems(listed).calls;
+  // T6 review: when HOY_AE_DEALS_ENABLED, the calling queue is only the `calls` bucket
+  // GET /today gave this rep (an AE gets none) - not every flat "call-shaped" item.
+  const dealsEnabled = Boolean(user?.company?.features?.includes("HOY_AE_DEALS_ENABLED"));
+  const sections = dealsEnabled ? query.data?.sections : undefined;
+  const calls = sections ? sections.calls ?? [] : splitTodayItems(listed).calls;
   const canStart = calls.length > 0 && (queue.mode === "idle" || queue.mode === "done");
+  const connectionId = integrations.data?.find((connection) => connection.status === "connected")?.id ?? null;
+  const deals = dealsEnabled ? dealItems(query.data) : [];
 
   const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 space-y-3`;
 
@@ -155,7 +164,49 @@ export function TodayPanel() {
             </div>
           ) : null}
           {done ? <p className={THEME_TOKENS.typography.body}>{t.product.queueDone}</p> : null}
-          {!active ? (
+          {!active && sections ? (
+            <>
+              <HomeSection title={t.product.home_calls}>
+                {sections.calls?.length ? (
+                  <TodayItemList
+                    items={sections.calls}
+                    onDismiss={dismiss}
+                    onConfirm={confirm}
+                    onReview={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
+                    onUndo={undo}
+                    provider={provider}
+                    portalId={portalId}
+                    leadTiersEnabled={Boolean(user?.company?.features?.includes("HOY_LEAD_TIERS_ENABLED"))}
+                  />
+                ) : null}
+              </HomeSection>
+              <HomeSection title={t.product.home_meetings}>
+                {sections.meetings?.length ? (
+                  <TodayItemList
+                    items={sections.meetings}
+                    onDismiss={dismiss}
+                    onConfirm={confirm}
+                    onUndo={undo}
+                    provider={provider}
+                    portalId={portalId}
+                  />
+                ) : null}
+              </HomeSection>
+              <HomeSection title={t.product.home_deals}>
+                {deals.length > 0 ? (
+                  <TodayItemList
+                    items={deals}
+                    onDismiss={dismiss}
+                    onUndo={undo}
+                    provider={provider}
+                    portalId={portalId}
+                    connectionId={connectionId}
+                  />
+                ) : null}
+              </HomeSection>
+            </>
+          ) : null}
+          {!active && !sections ? (
             <TodayItemList
               items={listed}
               onDismiss={dismiss}

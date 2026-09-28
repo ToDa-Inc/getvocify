@@ -4,9 +4,11 @@ CRM deal stages best-effort."""
 from __future__ import annotations
 
 from app.services.hoy.deals import (
+    HUBSPOT_BATCH_LIMIT,
     deal_reason,
     deal_stages_by_provider,
     merge_deal_candidates,
+    newest_first,
     own_deal_candidates,
     stage_known_ended,
 )
@@ -79,6 +81,31 @@ def test_deal_stages_by_provider_swallows_a_transport_error():
         raise TimeoutError("boom")
 
     assert deal_stages_by_provider(fetch, "pipedrive", ["9"]) == {}
+
+
+def test_hubspot_stage_reads_are_chunked_to_the_batch_limit():
+    calls = []
+
+    def fetch(request):
+        ids = [row["id"] for row in request["json"]["inputs"]]
+        calls.append(ids)
+        return {"results": [{"id": deal_id, "properties": {"dealstage": "open"}} for deal_id in ids]}
+
+    ids = [str(i) for i in range(HUBSPOT_BATCH_LIMIT + 50)]
+    stages = deal_stages_by_provider(fetch, "hubspot", ids)
+    assert len(calls) == 2
+    assert len(calls[0]) == HUBSPOT_BATCH_LIMIT
+    assert len(calls[1]) == 50
+    assert len(stages) == len(ids)
+
+
+def test_newest_first_sorts_by_created_at_descending_and_caps_at_limit():
+    rows = [
+        {"deal_id": "old", "created_at": "2026-09-01T10:00:00Z"},
+        {"deal_id": "new", "created_at": "2026-09-20T10:00:00Z"},
+        {"deal_id": "missing"},
+    ]
+    assert [row["deal_id"] for row in newest_first(rows, limit=2)] == ["new", "old"]
 
 
 def test_stage_known_ended_needs_an_actual_read_never_guesses():

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -29,6 +30,7 @@ from app.services.hoy.deals import (
     deal_reason,
     deal_stages_by_provider,
     merge_deal_candidates,
+    newest_first,
     own_deal_candidates,
     stage_known_ended,
 )
@@ -38,7 +40,7 @@ from app.services.hoy.priority import rank_candidates
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks, contact_record_url
 from app.services.hoy.sections import sections_for_role, split_items_by_type
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links
-from app.services.hoy.materialize import exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
+from app.services.hoy.materialize import HOY_MEMO_LIMIT, exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
 from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
 from app.services.hoy.names import NamePair, memo_directory
 from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
@@ -329,13 +331,18 @@ def _never_contacted_for_rep(
         return []
 
 
-def _own_deal_memos(supabase, user_id: str) -> list[dict]:
-    """A failed read yields no own deals - the section keeps whatever handoffs give it."""
+def _own_deal_memos(supabase, company_id: str, user_id: str) -> list[dict]:
+    """A failed read yields no own deals - the section keeps whatever handoffs give it.
+    T6 review: scoped to this company, newest first, capped like every other Hoy memo
+    read (HOY_MEMO_LIMIT) - the same bound meetings/today.py's own `_read_memos` uses."""
     try:
         stored = (
             supabase.table("memos")
             .select("id,user_id,hubspot_contact_id,hubspot_deal_id,created_at")
+            .eq("company_id", company_id)
             .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(HOY_MEMO_LIMIT)
             .execute()
         )
     except Exception:
@@ -343,7 +350,25 @@ def _own_deal_memos(supabase, user_id: str) -> list[dict]:
     return stored.data or []
 
 
-def _deal_items(
+DEAL_STAGE_DEADLINE = 3.0
+
+
+async def _read_deal_stages(connection: dict, provider_name: str, deal_ids: list[str]) -> dict[str, dict]:
+    """T6 review: `deal_stages_by_provider` is synchronous CRM I/O, so it runs off the
+    event loop in a threadpool, under a total deadline - a slow CRM (or one that never
+    answers) yields {} rather than blocking GET /today. {} reads as "unknown" everywhere
+    this is used: the deal stays listed, and no handoff closes on it."""
+    fetch = _FETCH if _FETCH is not None else (lambda request: _http_task_page(connection, request))
+    try:
+        return await asyncio.wait_for(
+            run_in_threadpool(deal_stages_by_provider, fetch, provider_name, deal_ids),
+            timeout=DEAL_STAGE_DEADLINE,
+        )
+    except Exception:
+        return {}
+
+
+async def _deal_items(
     supabase,
     *,
     membership: Membership,
@@ -365,19 +390,27 @@ def _deal_items(
             handoffs = active_handoffs_for_ae(supabase, company_id=company_id, ae_user_id=user_id)
         except Exception:
             handoffs = []
-    own = own_deal_candidates(_own_deal_memos(supabase, user_id))
-    candidates = merge_deal_candidates(handoffs, own)
+    own = own_deal_candidates(_own_deal_memos(supabase, company_id, user_id))
+    # T6 review: newest_first + the DEFAULT_LIMIT cut happens BEFORE any CRM read - a
+    # company with many deals never spends a stage read on a candidate the card list
+    # would fold away anyway.
+    candidates = newest_first(merge_deal_candidates(handoffs, own), limit=DEFAULT_LIMIT)
     if not candidates:
         return []
     provider_name = str(provider or "")
+    current_connection_id = str((connection or {}).get("id") or "")
+    # T6 review: a handoff created against a different CRM connection than the one now
+    # connected is never stage-read, excluded or closed here - its deal id would not even
+    # resolve against this connection's API. "Own" deals carry no connection_id (memos
+    # have no such column) and are always read against the single connected CRM.
+    readable_ids = [
+        row["deal_id"] for row in candidates
+        if row.get("deal_id")
+        and (row.get("source") != "handoff" or (current_connection_id and row.get("connection_id") == current_connection_id))
+    ]
     stages: dict[str, dict] = {}
-    if connection is not None:
-        deal_ids = [row["deal_id"] for row in candidates if row.get("deal_id")]
-        try:
-            fetch = _FETCH if _FETCH is not None else (lambda request: _http_task_page(connection, request))
-            stages = deal_stages_by_provider(fetch, provider_name, deal_ids)
-        except Exception:
-            stages = {}
+    if connection is not None and readable_ids:
+        stages = await _read_deal_stages(connection, provider_name, readable_ids)
     for row in candidates:
         if row.get("source") != "handoff" or not row.get("deal_id"):
             continue
@@ -397,7 +430,7 @@ def _deal_items(
     open_candidates = [
         row for row in candidates
         if not stage_known_ended(stages, row.get("deal_id"), provider=provider_name)
-    ][:DEFAULT_LIMIT]
+    ]
     items = []
     for row in open_candidates:
         items.append({
@@ -554,7 +587,7 @@ async def get_today(
         deals_items: list[dict] = []
         if membership.sales_role in (None, "ae", "general"):
             try:
-                deals_items = _deal_items(
+                deals_items = await _deal_items(
                     supabase,
                     membership=membership,
                     connection=connection,
