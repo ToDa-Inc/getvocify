@@ -268,7 +268,7 @@ const TeamPage = () => {
                 <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
                   {rolePillLabel(m.role, t.product)}
                 </span>
-                {salesRolesEnabled && canManage && m.role === "member" && (
+                {salesRolesEnabled && canManage && (
                   <MemberSalesControls
                     member={m}
                     onChange={(vars) => salesProfileMutation.mutate({ memberId: m.id, ...vars })}
