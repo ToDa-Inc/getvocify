@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  desktopPermissionsBlocker,
   desktopPermissionsReady,
   normalizePermissionStatus,
   permissionAction,
@@ -30,8 +31,21 @@ describe("desktopPermissionsReady", () => {
       false,
     );
     assert.equal(
-      desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "authorized" }),
+      desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "authorized", signing: "signed" }),
       true,
+    );
+    assert.equal(
+      desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "authorized", signing: "adhoc" }),
+      false,
+    );
+  });
+});
+
+describe("desktopPermissionsBlocker", () => {
+  it("prioritises signing over permissions", () => {
+    assert.equal(
+      desktopPermissionsBlocker({ platform: "darwin", microphone: "never_requested", systemAudio: "never_requested", signing: "adhoc" }),
+      "signing",
     );
   });
 });

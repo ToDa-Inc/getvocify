@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DESKTOP_PERMISSION,
+  desktopPermissionsBlocker,
   desktopPermissionsReady,
   normalizePermissionStatus,
   type DesktopPermissionSnapshot,
@@ -8,13 +9,24 @@ import {
 } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost } from "@/lib/desktop-host";
 
-const POLL_MS = 2000;
+const POLL_MS = 2500;
 
 const EMPTY: DesktopPermissionSnapshot = {
   platform: "darwin",
   microphone: "never_requested",
   systemAudio: "never_requested",
 };
+
+function parseSnapshot(raw: Record<string, unknown>): DesktopPermissionSnapshot {
+  return {
+    platform: String(raw.platform ?? "darwin"),
+    microphone: normalizePermissionStatus(raw.microphone),
+    systemAudio: normalizePermissionStatus(raw.systemAudio),
+    signing: raw.signing === "signed" ? "signed" : raw.signing === "adhoc" ? "adhoc" : undefined,
+    signingAuthority: typeof raw.signingAuthority === "string" ? raw.signingAuthority : undefined,
+    systemAudioError: typeof raw.systemAudioError === "string" ? raw.systemAudioError : undefined,
+  };
+}
 
 export function useDesktopPermissions() {
   const available = isDesktopHost();
@@ -31,12 +43,8 @@ export function useDesktopPermissions() {
       setLoading(false);
       return EMPTY;
     }
-    const raw = await bridge.permissions.status();
-    const next: DesktopPermissionSnapshot = {
-      platform: raw.platform,
-      microphone: normalizePermissionStatus(raw.microphone),
-      systemAudio: normalizePermissionStatus(raw.systemAudio),
-    };
+    const raw = (await bridge.permissions.status()) as Record<string, unknown>;
+    const next = parseSnapshot(raw);
     setSnapshot(next);
     setLoading(false);
     if (desktopPermissionsReady(next)) setGuideActive(false);
@@ -51,21 +59,14 @@ export function useDesktopPermissions() {
     [refresh],
   );
 
-  /** Opens the native floating drag card beside System Settings (Codex flow). */
   const guide = useCallback(
     async (type: DesktopPermissionType) => {
+      if (snapshotRef.current.signing === "adhoc") return refresh();
       setGuideActive(true);
       await getDesktopBridge()?.permissions.guide(type);
       return refresh();
     },
     [refresh],
-  );
-
-  const openSettings = useCallback(
-    async (type: DesktopPermissionType) => {
-      await guide(type);
-    },
-    [guide],
   );
 
   useEffect(() => {
@@ -84,7 +85,8 @@ export function useDesktopPermissions() {
     const offChanged = bridge?.permissions.onChanged?.(() => void refresh());
 
     const id = window.setInterval(() => {
-      if (!desktopPermissionsReady(snapshotRef.current)) void refresh();
+      const block = desktopPermissionsBlocker(snapshotRef.current);
+      if (block !== "none") void refresh();
     }, POLL_MS);
 
     return () => {
@@ -97,13 +99,13 @@ export function useDesktopPermissions() {
     available,
     loading,
     snapshot,
+    blocker: desktopPermissionsBlocker(snapshot),
     ready: desktopPermissionsReady(snapshot),
     appName,
     guideActive,
     refresh,
     request,
     guide,
-    openSettings,
   };
 }
 

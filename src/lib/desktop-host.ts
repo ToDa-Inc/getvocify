@@ -13,6 +13,9 @@ export type VocifyDesktopBridge = {
       platform: string;
       microphone: DesktopPermissionStatus;
       systemAudio: DesktopPermissionStatus;
+      signing?: "adhoc" | "signed";
+      signingAuthority?: string;
+      systemAudioError?: string;
     }>;
     request(type: "microphone" | "systemAudio"): Promise<unknown>;
     open(type: "microphone" | "systemAudio"): Promise<void>;
