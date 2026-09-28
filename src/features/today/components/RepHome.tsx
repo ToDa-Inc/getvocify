@@ -266,10 +266,10 @@ export function RepHome() {
   // T6 (HOY_AE_DEALS_ENABLED): the AE's/General's "Deals en curso" - active handoffs plus
   // their own deals with a memo, from GET /today's `sections`, not from the calls list.
   const dealsEnabled = Boolean(user?.company?.features?.includes("HOY_AE_DEALS_ENABLED"));
+  // The AE keeps "A quién llamar": those are the AE's own follow-ups (callbacks they
+  // promised, open objections). Prospecting tiers never reach an AE - the backend only
+  // computes them for SDR/General.
   const deals = dealsEnabled ? dealItems(settled(query)) : [];
-  // T6 review: the AE's Hoy is deals-focused (backend `sections` never gives an AE a
-  // `calls` bucket) - "A quién llamar" must not show the flat calls list to an AE either.
-  const hideCallsForAe = dealsEnabled && user?.company?.salesRole === "ae";
 
   return (
     <>
@@ -363,7 +363,7 @@ export function RepHome() {
             ) : null}
           </HomeSection>
           <HomeSection title={copy.home_calls}>
-            {calls && !hideCallsForAe ? (
+            {calls ? (
               <>
                 <TodayItemList
                   items={callItems}

@@ -16,12 +16,15 @@ def split_items_by_type(items: list[dict]) -> tuple[list[dict], list[dict]]:
 
 
 def sections_for_role(sales_role: str | None, *, calls: list[dict], meetings: list[dict], deals: list[dict]) -> dict:
-    """D1: null behaves as general. AE's Hoy is deals-focused (no calls bucket); SDR's is
-    calls-focused (no deals, no separate meetings bucket - a booked meeting already left
-    its Hoy via the handoff); General keeps every bucket, same as before this task."""
+    """D1: null behaves as general. SDR's Hoy is calls-focused (no deals, no separate
+    meetings bucket - a booked meeting already left its Hoy via the handoff); AE and
+    General get every bucket.
+
+    The AE keeps `calls`: those are the AE's own follow-ups ("te llamo el jueves", an
+    open objection, a confirmation) - dropping them would lose promises the AE made.
+    Prospecting cards (never_contacted, callback_no_answer) never reach an AE anyway:
+    lead tiers are only computed for SDR/General."""
     role = sales_role or "general"
-    if role == "ae":
-        return {"meetings": meetings, "deals": deals}
     if role == "sdr":
         return {"calls": calls}
     return {"calls": calls, "meetings": meetings, "deals": deals}

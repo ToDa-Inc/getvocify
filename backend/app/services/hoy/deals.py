@@ -55,6 +55,8 @@ def merge_deal_candidates(handoffs: list[dict], own: list[dict]) -> list[dict]:
             "source": "handoff",
             "sdr_user_id": row.get("sdr_user_id"),
             "created_at": row.get("created_at"),
+            "handoff_id": str(row.get("id")) if row.get("id") else None,
+            "meeting_starts_at": row.get("meeting_starts_at"),
         }
         order.append(key)
     for row in own:

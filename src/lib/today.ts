@@ -29,7 +29,34 @@ export type TodayItem = {
   heat?: number | null;
   /** T5 review: only "Llamar ahora"'s tel: fallback reads this; absent until a source sends it. */
   phone?: string | null;
+  /** Deal cards (HOY_AE_DEALS_ENABLED): the meeting the SDR booked, when the handoff carries it. */
+  meeting_starts_at?: string | null;
+  /** Deal cards: the handoff behind a handed-off deal (absent for the rep's own deals). */
+  handoff_id?: string | null;
 };
+
+/**
+ * The AE's deal card line for the meeting an SDR booked: "Reunión: mar, 29 sept, 11:00".
+ * Null without a (valid) time - the card then just says it was handed off.
+ */
+export function dealMeetingLine(
+  item: Pick<TodayItem, "meeting_starts_at">,
+  { locale, template, timeZone }: { locale: string; template: string; timeZone?: string },
+): string | null {
+  const raw = item.meeting_starts_at;
+  if (!raw) return null;
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) return null;
+  const when = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  }).format(at);
+  return template.replace("{when}", when);
+}
 
 export type FollowupRow = {
   memo_id: string;

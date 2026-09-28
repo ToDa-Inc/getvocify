@@ -24,6 +24,13 @@ def meeting_dedupe_key(proposal_id: str) -> str:
     return f"meeting_today:{proposal_id}"
 
 
+HANDOFF_KEY_PREFIX = "meeting_today:handoff:"
+
+
+def handoff_meeting_dedupe_key(handoff_id: str) -> str:
+    return f"{HANDOFF_KEY_PREFIX}{handoff_id}"
+
+
 def _local_date(value: datetime, tz_name: str):
     return value.astimezone(ZoneInfo(tz_name or DEFAULT_TZ)).date()
 
@@ -75,6 +82,38 @@ def meeting_today_signal(
         payload=payload,
         dedupe_key=meeting_dedupe_key(str(proposal.get("proposal_id") or "")),
         connection_id=str(memo.get("connection_id") or "") or None,
+    )
+
+
+def handoff_meeting_signal(handoff: dict, *, now: datetime, tz_name: str) -> Signal | None:
+    """An active SDR->AE handoff whose meeting is today becomes the AE's "Reunión hoy"
+    card. The meeting was agreed in the SDR's conversation, so the AE's own memos never
+    carry its proposal - without this the AE would not see the meeting they received."""
+    if (handoff.get("status") or "active") != "active":
+        return None
+    starts_raw = handoff.get("meeting_starts_at")
+    starts_at = as_dt(starts_raw)
+    if not _is_today(starts_at, now=now, tz_name=tz_name):
+        return None
+    contact_id = handoff.get("contact_id")
+    handoff_id = handoff.get("id")
+    if not contact_id or not handoff_id:
+        return None
+    return Signal(
+        MEETING_TYPE,
+        contact_id=str(contact_id),
+        deal_id=str(handoff.get("deal_id")) if handoff.get("deal_id") else None,
+        source_memo_id=str(handoff.get("source_memo_id") or "") or None,
+        due_at=starts_at,
+        payload={
+            "starts_at": starts_raw,
+            "precision": "time",
+            "accepted_at": handoff.get("created_at"),
+            "handoff_id": str(handoff_id),
+            "sdr_user_id": handoff.get("sdr_user_id"),
+        },
+        dedupe_key=handoff_meeting_dedupe_key(str(handoff_id)),
+        connection_id=str(handoff.get("connection_id") or "") or None,
     )
 
 
@@ -145,8 +184,13 @@ def refresh_meeting_today(
     user_id: str,
     now: datetime,
     tz_name: str,
+    handoffs: list[dict] | None = None,
 ) -> int:
-    """Materialize today's meetings and resolve the ones that are no longer today. A failed read resolves nothing."""
+    """Materialize today's meetings and resolve the ones that are no longer today. A failed read resolves nothing.
+
+    `handoffs` are the active handoffs received by this rep (the AE side): their meeting
+    today is a card too. None means "not read" (flag off or the read failed), so any
+    handoff-sourced card already stored is left alone rather than resolved."""
     if not is_enabled(supabase, company_id, MEETINGS_FLAG):
         return 0
     try:
@@ -167,6 +211,16 @@ def refresh_meeting_today(
         return 0
 
     fresh = collect_meeting_today(proposals, memos_by_id, now=now, tz_name=tz_name)
+    if handoffs is None:
+        stored = [row for row in stored if not str(row.get("dedupe_key") or "").startswith(HANDOFF_KEY_PREFIX)]
+    else:
+        seen = {signal.dedupe_key for signal in fresh}
+        for handoff in handoffs:
+            signal = handoff_meeting_signal(handoff, now=now, tz_name=tz_name)
+            if signal is not None and signal.dedupe_key not in seen:
+                seen.add(signal.dedupe_key)
+                fresh.append(signal)
+        fresh.sort(key=lambda item: (item.due_at or now).timestamp())
     plan = plan_reconcile(stored=stored, fresh=fresh, now=now, source_available=True)
     inserted = 0
     by_key = {row.get("dedupe_key"): row for row in stored}

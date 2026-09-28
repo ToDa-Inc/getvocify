@@ -282,3 +282,9 @@ def test_omit_does_not_create_a_handoff():
         json={"decision": "omit", "proposal_id": "meet-1"},
     )
     assert STORE.tables.get("deal_handoffs", []) == []
+
+
+def test_the_handoff_carries_the_accepted_meeting_time():
+    client = _client()
+    client.post(f"/api/v1/memos/{MEMO}/meeting-proposal/accept", json={"decision": "accept", "proposal_id": "meet-1"})
+    assert STORE.tables["deal_handoffs"][0]["meeting_starts_at"] == "2026-09-29T15:00:00+00:00"

@@ -113,7 +113,7 @@ def test_flag_off_never_adds_a_sections_key():
     assert "sections" not in body
 
 
-def test_ae_sections_have_no_calls_bucket_and_include_the_active_handoff():
+def test_ae_sections_keep_calls_and_include_the_active_handoff():
     _isolate()
     store = _Supabase()
     store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
@@ -127,7 +127,7 @@ def test_ae_sections_have_no_calls_bucket_and_include_the_active_handoff():
     finally:
         today_api.set_today_tasks(None)
         feature_flags_mod.clear_cache()
-    assert set(body["sections"]) == {"meetings", "deals"}
+    assert set(body["sections"]) == {"calls", "meetings", "deals"}
     assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
     assert body["sections"]["deals"][0]["reason"] == "Traspasado a ti"
 
@@ -274,3 +274,52 @@ def test_a_handoff_from_a_different_connection_is_never_stage_read_or_closed():
     assert fetched_deal_ids == []
     assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
     assert store.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_the_ae_keeps_their_own_follow_up_card_in_calls():
+    """An AE's own "te llamo el jueves" must not vanish from their Hoy."""
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True)
+    store.tables["action_signals"] = [{
+        "id": "sig-1", "company_id": "co-1", "user_id": "ae-1", "connection_id": "crm-A",
+        "contact_id": "77", "deal_id": None, "memo_id": "memo-ae", "type": "commitment_due",
+        "dedupe_key": "commitment:1", "payload": {"kind": "call", "origin": "rep_promise", "text": "llamar el jueves", "due_at": NOW.isoformat()},
+        "status": "pending", "version": 1,
+    }]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    assert [item["contact_id"] for item in body["sections"]["calls"]] == ["77"]
+
+
+def test_a_handed_off_deal_card_is_named_from_the_sdrs_memo_and_carries_the_meeting():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "id": "h-1", "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+        "meeting_starts_at": "2026-09-29T09:00:00+00:00",
+    }]
+    store.tables["memos"] = [
+        {"id": "m-sdr", "company_id": "co-1", "user_id": "sdr-1", "hubspot_contact_id": "42",
+         "extraction": {"contactName": "Marina Ortiz", "companyName": "Acme"}},
+        # Another SDR's memo on another contact never names anything here.
+        {"id": "m-other", "company_id": "co-1", "user_id": "sdr-2", "hubspot_contact_id": "99",
+         "extraction": {"contactName": "Otro", "companyName": "Otra"}},
+    ]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    deal = body["sections"]["deals"][0]
+    assert deal["contact_name"] == "Marina Ortiz"
+    assert deal["company_name"] == "Acme"
+    assert deal["meeting_starts_at"] == "2026-09-29T09:00:00+00:00"
+    assert deal["handoff_id"] == "h-1"

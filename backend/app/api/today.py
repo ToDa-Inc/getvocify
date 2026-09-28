@@ -350,6 +350,59 @@ def _own_deal_memos(supabase, company_id: str, user_id: str) -> list[dict]:
     return stored.data or []
 
 
+def _received_handoffs(supabase, membership: Membership) -> list[dict] | None:
+    """Active handoffs where this rep is the AE. None when not applicable or unreadable
+    (flag off, an SDR, or a failed read) - callers treat None as "unknown", never as "none"."""
+    if membership.sales_role not in (None, "ae", "general"):
+        return None
+    if not is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
+        return None
+    try:
+        return active_handoffs_for_ae(supabase, company_id=membership.company_id, ae_user_id=membership.user_id)
+    except Exception:
+        return None
+
+
+def _handoff_contact_memos(supabase, company_id: str, handoffs: list[dict] | None) -> list[dict]:
+    """The handing-off SDRs' memos about the handed-off contacts - only to name those
+    contacts on the AE's cards (T4/D8 already lets the AE read exactly these memos)."""
+    rows = handoffs or []
+    sdr_ids = sorted({str(row.get("sdr_user_id")) for row in rows if row.get("sdr_user_id")})
+    contact_ids = sorted({str(row.get("contact_id")) for row in rows if row.get("contact_id")})
+    if not sdr_ids or not contact_ids:
+        return []
+    try:
+        stored = (
+            supabase.table("memos")
+            .select("id,user_id,hubspot_contact_id,extraction")
+            .eq("company_id", company_id)
+            .in_("user_id", sdr_ids)
+            .in_("hubspot_contact_id", contact_ids)
+            .order("created_at", desc=True)
+            .limit(HOY_MEMO_LIMIT)
+            .execute()
+        )
+    except Exception:
+        return []
+    return list(stored.data or [])
+
+
+def _stamp_names_by_contact(items: list[dict], directory: tuple[dict, dict]) -> None:
+    """Deal cards are built after the Hoy items were named; give them the same names."""
+    _by_memo, by_contact = directory
+    for item in items:
+        if item.get("contact_name"):
+            continue
+        found = by_contact.get(str(item.get("contact_id") or ""))
+        if not found:
+            continue
+        name, company = found
+        if name:
+            item["contact_name"] = name
+        if company and not item.get("company_name"):
+            item["company_name"] = company
+
+
 DEAL_STAGE_DEADLINE = 3.0
 
 
@@ -378,18 +431,14 @@ async def _deal_items(
     domain: str | None,
     now: datetime,
     lang: str,
+    handoffs: list[dict] | None = None,
 ) -> list[dict]:
     """T6: the AE's (or General's) 'deals en curso' - active handoffs to them plus their
     own deals with a memo, minus whichever the CRM now shows in an end stage. A
     handed-off deal observed there closes its handoff (lazy close, D6/T3) - the only
     trigger for that."""
     company_id, user_id = membership.company_id, membership.user_id
-    handoffs: list[dict] = []
-    if is_enabled(supabase, company_id, "HANDOFF_ENABLED"):
-        try:
-            handoffs = active_handoffs_for_ae(supabase, company_id=company_id, ae_user_id=user_id)
-        except Exception:
-            handoffs = []
+    handoffs = list(handoffs or [])
     own = own_deal_candidates(_own_deal_memos(supabase, company_id, user_id))
     # T6 review: newest_first + the DEFAULT_LIMIT cut happens BEFORE any CRM read - a
     # company with many deals never spends a stage read on a candidate the card list
@@ -439,6 +488,8 @@ async def _deal_items(
             "deal_id": row.get("deal_id"),
             "connection_id": row.get("connection_id"),
             "reason": deal_reason(row.get("source") or "own", lang=lang),
+            "meeting_starts_at": row.get("meeting_starts_at"),
+            "handoff_id": row.get("handoff_id"),
             "open_url": contact_record_url(
                 provider=provider, contact_id=row.get("contact_id"), portal_id=portal_id, company_domain=domain,
             ),
@@ -488,6 +539,9 @@ async def get_today(
             )
         except Exception:
             pass
+    # Handoffs this rep received (AE, or General with a route): read once, reused for
+    # their "Reunión hoy" cards, the contact names on those cards and the deal section.
+    received_handoffs = _received_handoffs(supabase, membership)
     try:
         refresh_meeting_today(
             supabase,
@@ -495,6 +549,7 @@ async def get_today(
             user_id=membership.user_id,
             now=now,
             tz_name=tz_name,
+            handoffs=received_handoffs,
         )
     except Exception:
         pass
@@ -581,7 +636,8 @@ async def get_today(
         tz_name=rep_timezone(membership.user_id),
         lead_tiers=lead_tiers_enabled,
     )
-    _stamp_contact_names(view, visible, memo_directory(memos))
+    directory = memo_directory(memos + _handoff_contact_memos(supabase, membership.company_id, received_handoffs))
+    _stamp_contact_names(view, visible, directory)
     if is_enabled(supabase, membership.company_id, AE_DEALS_FLAG):
         calls_items, meeting_items = split_items_by_type(view.get("items") or [])
         deals_items: list[dict] = []
@@ -596,9 +652,11 @@ async def get_today(
                     domain=domain,
                     now=now,
                     lang=lang,
+                    handoffs=received_handoffs,
                 )
             except Exception:
                 deals_items = []
+            _stamp_names_by_contact(deals_items, directory)
         view["sections"] = sections_for_role(
             membership.sales_role, calls=calls_items, meetings=meeting_items, deals=deals_items,
         )

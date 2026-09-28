@@ -16,18 +16,16 @@ import { companyApi } from "@/features/company/api";
 import type { Memo } from "@/features/memos/types";
 import { api, ApiError } from "@/shared/lib/api-client";
 import { handoffsApi, todayKeys } from "../api";
+import { HandoffHistory } from "./HandoffHistory";
 import { afterCallLine, type CallSummary } from "@/lib/after-call";
 import {
   conversationLine,
   firstName,
-  handoffHistoryRequest,
-  handoffHistoryTitle,
   historyRequest,
   initials,
   panelHeaderSubtitle,
   panelFilledPill,
   panelMeetingLine,
-  showsHandoffHistory,
   showsHistory,
 } from "@/lib/contact-panel";
 import { useLanguage } from "@/lib/i18n";
@@ -232,20 +230,8 @@ function PanelBody({
     staleTime: 30_000,
   });
 
-  // T4/D8: "Lo que habló {SDR}" - only for the AE/General side of a handoff, never the SDR
-  // reading themselves back, and only once HANDOFF_ENABLED. scope=handoffs already returns
-  // nothing without an active-or-closed handoff for this contact, so an empty result here
-  // just means there is no handoff to show - not an error.
   const { user } = useAuth();
   const handoffEnabled = Boolean(user?.company?.features?.includes("HANDOFF_ENABLED"));
-  const canReadHandoffHistory = handoffEnabled && user?.company?.salesRole !== "sdr";
-  const handoffHistoryQuery = useQuery({
-    queryKey: ["home-panel-handoff-history", contactId],
-    queryFn: () => api.get<Memo[]>(handoffHistoryRequest(contactId as string)),
-    enabled: Boolean(contactId && canReadHandoffHistory),
-    staleTime: 30_000,
-  });
-  const handoffSdrName = handoffHistoryQuery.data?.[0]?.authorName ?? null;
 
   const followup = row.kind === "followup"
     ? row.entry
@@ -494,39 +480,7 @@ function PanelBody({
         </>
       ) : null}
 
-      {showsHandoffHistory(canReadHandoffHistory, handoffSdrName) && contactId && handoffHistoryQuery.data ? (
-        <>
-          <hr className="my-5 border-0 border-t border-[hsl(var(--hairline))]" />
-          <section aria-label={handoffHistoryTitle(copy.panel_handoff_history_title, handoffSdrName as string)}>
-            <p className={`mb-3 ${THEME_TOKENS.typography.capsLabel}`}>
-              {handoffHistoryTitle(copy.panel_handoff_history_title, handoffSdrName as string)}
-            </p>
-            <ul className="grid gap-3.5">
-              {handoffHistoryQuery.data.map((memo) => {
-                const line = conversationLine(memo, { locale: copy.hourLocale, timeZone });
-                const kindLabel = productText(line.kindKey, copy);
-                const minutes = line.minutes != null ? copy.panel_minutes.replace("{count}", String(line.minutes)) : null;
-                const meta = [line.date, kindLabel, minutes].filter(Boolean).join(" · ");
-                const summary = plainSummary(memo.extraction?.summary);
-                return (
-                  <li key={memo.id}>
-                    <button
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => actions.onOpenMemo(String(memo.id))}
-                    >
-                      <p className={THEME_TOKENS.typography.capsLabel}>{meta}</p>
-                      {summary ? (
-                        <p className="mt-0.5 line-clamp-2 text-[14px] leading-snug text-foreground/90">{summary}</p>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        </>
-      ) : null}
+      <HandoffHistory contactId={contactId} onOpenMemo={actions.onOpenMemo} divider />
     </div>
   );
 }

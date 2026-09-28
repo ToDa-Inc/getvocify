@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { Phone } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { productText } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
   canShowTodayCall,
+  dealMeetingLine,
   signalLabelKey,
   todayConversationItems,
   todayItemHref,
@@ -20,6 +22,7 @@ import {
   type TodayItem,
 } from "@/lib/today";
 import { useLeaving, useSettleRow } from "../hooks/useHomeMotion";
+import { HandoffHistory } from "./HandoffHistory";
 import { TodayCardActions } from "./TodayCardActions";
 import { cardSelected, textAction, undoOpen } from "./home/shared";
 
@@ -122,16 +125,54 @@ function DealBriefPanel({ contactId, connectionId }: { contactId: string; connec
   );
 }
 
-function DealCard({ item, compact, connectionId }: { item: TodayItem; compact?: boolean; connectionId: string | null }) {
+function DealCard({
+  item,
+  compact,
+  connectionId,
+  provider,
+  portalId,
+  onCall,
+}: {
+  item: TodayItem;
+  compact?: boolean;
+  connectionId: string | null;
+  provider: string | null;
+  portalId: string | null;
+  onCall: (item: TodayItem) => void;
+}) {
+  const { t } = useLanguage();
+  const navigate = useNavigate();
+  const dialer = useOptionalDialerFocus();
   const [open, setOpen] = useState(false);
+  const href = todayItemHref(item, provider, portalId);
+  // The meeting the SDR booked, when the handoff carries it; otherwise the plain reason.
+  const meetingLine = dealMeetingLine(item, {
+    locale: t.product.hourLocale,
+    template: t.product.deal_meeting_line,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  });
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
-      <button type="button" className="w-full text-left" onClick={() => setOpen((value) => !value)}>
-        <CardBody item={item} compact={compact} quoted={false} />
-      </button>
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <CardBody item={{ ...item, detail: meetingLine ?? item.detail }} compact={compact} quoted={false} />
+        </button>
+        <TodayCardActions
+          onCall={dialer && item.contact_id ? () => onCall(item) : undefined}
+          crmHref={href}
+        />
+      </div>
       {open && item.contact_id ? (
-        <div className="mt-3 border-t border-border/60 pt-3">
+        <div className="mt-3 space-y-4 border-t border-border/60 pt-3">
           <DealBriefPanel contactId={item.contact_id} connectionId={item.connection_id ?? connectionId} />
+          {item.handoff_id ? (
+            <HandoffHistory contactId={item.contact_id} onOpenMemo={(memoId) => navigate(`/dashboard/memos/${memoId}`)} />
+          ) : null}
         </div>
       ) : null}
     </li>
@@ -467,6 +508,9 @@ export function TodayItemList({
             item={item}
             compact={compact}
             connectionId={connectionId}
+            provider={provider}
+            portalId={portalId}
+            onCall={call}
           />
         ) : (
           <CallCard

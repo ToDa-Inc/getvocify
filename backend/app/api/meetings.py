@@ -159,14 +159,43 @@ async def accept_meeting_proposal_route(
         writer_factory=_WRITER_FACTORY,
     )
     if payload.decision in ("accept", "corrected") and membership.sales_role == "sdr":
-        _maybe_create_handoff(supabase, membership=membership, memo_id=memo_id)
+        _maybe_create_handoff(
+            supabase,
+            membership=membership,
+            memo_id=memo_id,
+            proposal_id=payload.proposal_id,
+            corrected_starts_at=payload.starts_at if payload.decision == "corrected" else None,
+        )
     return result
 
 
-def _maybe_create_handoff(supabase, *, membership: Membership, memo_id: str) -> None:
+def _accepted_starts_at(supabase, *, memo_id: str, proposal_id: str) -> Optional[str]:
+    """The agreed time of the proposal just accepted (newest revision), for the AE's card."""
+    rows = (
+        supabase.table("meeting_proposals")
+        .select("*")
+        .eq("memo_id", memo_id)
+        .execute()
+    ).data or []
+    matches = [row for row in rows if row.get("proposal_id") == proposal_id]
+    if not matches:
+        return None
+    newest = max(matches, key=lambda item: str(item.get("created_at") or item.get("input_revision") or ""))
+    return newest.get("starts_at")
+
+
+def _maybe_create_handoff(
+    supabase,
+    *,
+    membership: Membership,
+    memo_id: str,
+    proposal_id: Optional[str] = None,
+    corrected_starts_at: Optional[str] = None,
+) -> None:
     """D6/F14: accepting a meeting proposal is one of the two moments a handoff is
     created. Best-effort - a failure here must never turn an accepted meeting into an
-    error response."""
+    error response. The handoff carries the agreed time so the AE sees the meeting in
+    their Hoy on the day."""
     if not is_enabled(supabase, membership.company_id, HANDOFF_FLAG):
         return
     try:
@@ -192,6 +221,12 @@ def _maybe_create_handoff(supabase, *, membership: Membership, memo_id: str) -> 
             return
         deal_id = memo.get("hubspot_deal_id") or memo.get("matched_deal_id")
         connection_id = str(connection["id"])
+        starts_at = corrected_starts_at
+        if not starts_at and proposal_id:
+            try:
+                starts_at = _accepted_starts_at(supabase, memo_id=memo_id, proposal_id=proposal_id)
+            except Exception:
+                starts_at = None
         row = create_handoff(
             supabase,
             company_id=membership.company_id,
@@ -201,6 +236,7 @@ def _maybe_create_handoff(supabase, *, membership: Membership, memo_id: str) -> 
             ae_user_id=ae_user_id,
             deal_id=str(deal_id) if deal_id else None,
             source_memo_id=str(memo_id),
+            meeting_starts_at=starts_at,
         )
         if row.get("created") and is_enabled(supabase, membership.company_id, CRM_OWNER_FLAG):
             _apply_crm_owner_effect(

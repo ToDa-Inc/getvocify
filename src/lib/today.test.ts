@@ -8,6 +8,7 @@ import {
   crmContactsUrl,
   crmTasksUrl,
   dealItems,
+  dealMeetingLine,
   originKey,
   signalLabelKey,
   splitTodayItems,
@@ -287,4 +288,15 @@ describe("T6: dealItems reads sections.deals", () => {
   it("returns the deals section's cards", () => {
     assert.deepEqual(dealItems({ ...emptyComplete, sections: { deals: [dealCard] } }), [dealCard]);
   });
+});
+
+it("dealMeetingLine shows the handed-off meeting time and nothing without one", () => {
+  const line = dealMeetingLine(
+    { meeting_starts_at: "2026-09-29T09:00:00Z" },
+    { locale: "es-ES", template: "Reunión: {when}", timeZone: "Europe/Madrid" },
+  );
+  assert.ok(line?.startsWith("Reunión: "));
+  assert.ok(line?.includes("11:00"));
+  assert.equal(dealMeetingLine({ meeting_starts_at: null }, { locale: "es-ES", template: "{when}" }), null);
+  assert.equal(dealMeetingLine({ meeting_starts_at: "not a date" }, { locale: "es-ES", template: "{when}" }), null);
 });
