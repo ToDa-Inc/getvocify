@@ -6,7 +6,7 @@ import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.deps import get_membership, get_supabase
@@ -14,6 +14,13 @@ from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.imports import start_import
 from app.services.playbooks.motion import goal_for, visible_to_role
+from app.services.playbooks.structured import (
+    OBJECTION_CATEGORIES,
+    PlaybookDraftError,
+    editor_view,
+    normalize_objections,
+    normalize_steps,
+)
 from app.services.playbooks.store import MemoryPlaybookStore
 from app.services.playbooks.versions import PublishError, can_publish
 
@@ -26,6 +33,8 @@ _IMPORTS: dict[str, dict] = {}
 _MOTIONS: dict[str, dict[str, str]] = {}
 _LATEST: dict[tuple[str, str], dict] = {}
 _ACTIVATED: dict[tuple[str, str], str] = {}
+_STRUCTURED: dict[tuple[str, str], dict] = {}
+_PUBLISHED_VERSIONS: dict[tuple[str, str], dict] = {}
 _store = None
 _transcriber = None
 
@@ -53,7 +62,7 @@ async def _audio_text(payload: str) -> str:
 def get_playbook_store():
     if _store is not None:
         return _store
-    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED)
+    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS)
 
 
 def set_playbook_store(store) -> None:
@@ -160,3 +169,75 @@ async def get_import(import_id: str, membership: Membership = Depends(get_member
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Importación no encontrada")
     return record
+
+
+class StructuredStep(BaseModel):
+    step_id: Optional[str] = None
+    label: str = ""
+    criterion: str = ""
+    example: Optional[str] = None
+
+
+class StructuredObjection(BaseModel):
+    category: str
+    guidance: str = ""
+
+
+class StructuredDraftRequest(BaseModel):
+    steps: list[StructuredStep] = Field(default_factory=list)
+    objections: list[StructuredObjection] = Field(default_factory=list)
+
+
+@router.get("/{sales_motion_key}/editor")
+async def get_playbook_editor(
+    sales_motion_key: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """The playbook as steps and objection answers. A Head of Sales gets the pending draft
+    when there is one (else the live version); a rep only ever reads the live version,
+    and only of a flow their role can see (D5)."""
+    manager = membership.role in MANAGE_ROLES
+    if (
+        not manager
+        and is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG)
+        and not visible_to_role(sales_motion_key, membership.sales_role)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
+    store = get_playbook_store()
+    source, version = store.editor_version(membership.company_id, sales_motion_key, include_draft=manager)
+    view = editor_view(version)
+    return {
+        "sales_motion_key": sales_motion_key,
+        "source": source,
+        "version_id": (version or {}).get("id"),
+        "categories": list(OBJECTION_CATEGORIES),
+        **view,
+    }
+
+
+@router.put("/{sales_motion_key}/draft")
+async def save_structured_playbook_draft(
+    sales_motion_key: str,
+    body: StructuredDraftRequest,
+    membership: Membership = Depends(get_membership),
+):
+    """Saves the edited steps and objection answers as a new draft. Publishing it is the
+    existing POST /{key}/publish. Validation errors are 422 with a code the UI translates."""
+    _guard(membership)
+    try:
+        steps = normalize_steps([step.model_dump() for step in body.steps])
+        entries = normalize_objections([item.model_dump() for item in body.objections])
+    except PlaybookDraftError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code, "index": exc.index},
+        ) from exc
+    version = get_playbook_store().save_structured_draft(membership.company_id, sales_motion_key, steps, entries)
+    return {
+        "sales_motion_key": sales_motion_key,
+        "source": "draft",
+        "version_id": version.get("id"),
+        "categories": list(OBJECTION_CATEGORIES),
+        **editor_view({"steps": steps, "entries": entries}),
+    }

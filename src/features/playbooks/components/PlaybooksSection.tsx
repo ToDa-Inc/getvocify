@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth";
+import { PlaybookEditor } from "@/features/playbooks/components/PlaybookEditor";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
 import {
   applyFetchedMotions,
   applyPublishResult,
   flowLabel,
-  importReview,
   motionAfterImport,
   playbookNotice,
   visiblePlaybookKeys,
@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
-import { productText } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
 
@@ -38,13 +37,7 @@ export default function PlaybooksSection() {
     closing: "missing",
   });
   const [goals, setGoals] = useState<Record<string, string>>({});
-  const [text, setText] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [warnings, setWarnings] = useState<Record<string, string>>({});
-  const [canPublish, setCanPublish] = useState<Record<string, boolean>>({});
-  const [versions, setVersions] = useState<Record<string, string>>({});
   const [typeKey, setTypeKey] = useState("");
-  const [resumeId, setResumeId] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
   const notice = playbookNotice(role, motions);
   const keys = visiblePlaybookKeys(MOTIONS, motions, salesRolesEnabled);
@@ -66,50 +59,20 @@ export default function PlaybooksSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [salesRolesEnabled]);
 
-  async function saveDraft(key: string, kind: "text" | "pdf", payload: string) {
-    const body = payload.trim();
-    if (!body) return;
-    const record = await api.post<{
-      status: string;
-      published: boolean;
-      reason?: string | null;
-      draft?: { text?: string; contradictions?: string[] } | null;
-    }>(
+  /** PDF/audio -> text only. No sales_motion_key, so the server never stores the raw text
+   * as a one-block draft: the editor turns it into steps and saves those. */
+  async function importText(kind: "pdf" | "audio", payload: string) {
+    const record = await api.post<{ status: string; published: boolean; reason?: string | null; draft?: { text?: string } | null }>(
       "/playbooks/imports",
-      {
-        import_id: crypto.randomUUID(),
-        kind,
-        payload: body,
-        sales_motion_key: key,
-      },
+      { import_id: crypto.randomUUID(), kind, payload },
     );
-    const next = motionAfterImport(motions[key] || "missing", record);
-    const review = importReview(record);
-    setErrors((current) => {
-      const copy = { ...current };
-      if (next.error) copy[key] = next.error;
-      else delete copy[key];
-      return copy;
-    });
-    setWarnings((current) => {
-      const copy = { ...current };
-      if (review.warning) copy[key] = review.warning;
-      else delete copy[key];
-      return copy;
-    });
-    setCanPublish((current) => ({ ...current, [key]: review.canPublish }));
-    if (review.text) {
-      setText((current) => ({ ...current, [key]: review.text }));
-    }
-    if (next.status !== (motions[key] || "missing")) {
-      setMotions((current) => ({ ...current, [key]: next.status }));
-    }
+    const outcome = motionAfterImport("missing", record);
+    return { text: record.draft?.text ?? null, error: outcome.error };
   }
 
-  async function publish(key: string) {
-    if (motions[key] !== "draft") return;
+  async function publish(key: string): Promise<boolean> {
     try {
-      const data = await api.post<{ motions: Record<string, MotionStatus>; activated?: Record<string, string> }>(
+      const data = await api.post<{ motions: Record<string, MotionStatus> }>(
         `/playbooks/${key}/publish`,
       );
       setMotions((current) =>
@@ -119,11 +82,9 @@ export default function PlaybooksSection() {
           status: data.motions[key],
         }),
       );
-      if (data.activated?.[key]) {
-        setVersions((current) => ({ ...current, [key]: data.activated?.[key] || "" }));
-      }
+      return data.motions[key] === "published";
     } catch {
-      setMotions((current) => applyPublishResult(current, key, { ok: false }));
+      return false;
     }
   }
 
@@ -148,49 +109,17 @@ export default function PlaybooksSection() {
     return (t.product.playbookGoalLabels as Record<string, string>)[goal] ?? null;
   }
 
-  function renderEditorBody(key: string) {
-    if (!(notice.canEdit && motions[key] !== "published")) return null;
+  function renderEditor(key: string) {
     return (
-      <div className="mt-3 space-y-3">
-        <textarea
-          className={field}
-          rows={3}
-          value={text[key] || ""}
-          placeholder={t.product.playbookPastePlaceholder}
-          onChange={(event) => setText((current) => ({ ...current, [key]: event.target.value }))}
-        />
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void saveDraft(key, "text", text[key] || "")}>
-            {t.product.playbookSaveDraft}
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <label>
-              {t.product.playbookImportPdf}
-              <input
-                type="file"
-                accept="application/pdf,.pdf"
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const value = String(reader.result || "");
-                    const comma = value.indexOf(",");
-                    void saveDraft(key, "pdf", comma >= 0 ? value.slice(comma + 1) : value);
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-            </label>
-          </Button>
-          {motions[key] === "draft" && canPublish[key] !== false ? (
-            <Button type="button" size="sm" onClick={() => void publish(key)}>
-              {t.product.playbookPublish}
-            </Button>
-          ) : null}
-        </div>
-      </div>
+      <PlaybookEditor
+        key={key}
+        motionKey={key}
+        canEdit={notice.canEdit}
+        status={motions[key] || "missing"}
+        importText={importText}
+        publish={() => publish(key)}
+        onStatus={(next) => setMotions((current) => ({ ...current, [key]: next }))}
+      />
     );
   }
 
@@ -225,50 +154,6 @@ export default function PlaybooksSection() {
             {t.product.playbookAddType}
           </Button>
         </form>
-        <form
-          className="mt-3 flex flex-wrap gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const id = resumeId.trim();
-            if (!id) return;
-            void api
-              .get<{
-                status: string;
-                published: boolean;
-                sales_motion_key?: string;
-                draft?: { text?: string; contradictions?: string[] } | null;
-              }>(`/playbooks/imports/${id}`)
-              .then((record) => {
-                const key = record.sales_motion_key;
-                if (!key || record.published) return;
-                const review = importReview(record);
-                setMotions((current) => ({
-                  ...current,
-                  [key]: review.status === "draft" ? "draft" : current[key] || "missing",
-                }));
-                if (review.text) setText((current) => ({ ...current, [key]: review.text }));
-                setWarnings((current) => {
-                  const copy = { ...current };
-                  if (review.warning) copy[key] = review.warning;
-                  else delete copy[key];
-                  return copy;
-                });
-                setCanPublish((current) => ({ ...current, [key]: review.canPublish }));
-                setResumeId("");
-              })
-              .catch(() => undefined);
-          }}
-        >
-          <input
-            className={`${field} max-w-xs`}
-            value={resumeId}
-            placeholder={t.product.playbookImportIdPlaceholder}
-            onChange={(event) => setResumeId(event.target.value)}
-          />
-          <Button type="submit" variant="outline" size="sm">
-            {t.product.playbookResumeImport}
-          </Button>
-        </form>
         </details>
       ) : null}
       {salesRolesEnabled ? (
@@ -295,19 +180,12 @@ export default function PlaybooksSection() {
                 <span className="text-[15px] text-foreground">{flowKeyLabel(activeKey)}</span>
                 <span className={THEME_TOKENS.typography.capsLabel}>
                   {statusLabel[motions[activeKey] || "missing"]}
-                  {versions[activeKey] ? ` · ${t.product.playbookVersion.replace("{id}", versions[activeKey])}` : ""}
                 </span>
               </div>
               {goalKeyLabel(activeKey) ? (
                 <p className={`mt-1 ${THEME_TOKENS.typography.capsLabel}`}>{goalKeyLabel(activeKey)}</p>
               ) : null}
-              {errors[activeKey] ? (
-                <p className="mt-2 text-sm text-muted-foreground">{productText(errors[activeKey], t.product)}</p>
-              ) : null}
-              {warnings[activeKey] ? (
-                <p className="mt-2 text-sm text-muted-foreground">{productText(warnings[activeKey], t.product)}</p>
-              ) : null}
-              {renderEditorBody(activeKey)}
+              {renderEditor(activeKey)}
             </div>
           ) : null}
         </div>
@@ -323,12 +201,9 @@ export default function PlaybooksSection() {
                 <span className="text-[15px] text-foreground">{motionLabel(key, t.product.motions)}</span>
                 <span className={THEME_TOKENS.typography.capsLabel}>
                   {statusLabel[motions[key] || "missing"]}
-                  {versions[key] ? ` · ${t.product.playbookVersion.replace("{id}", versions[key])}` : ""}
                 </span>
               </button>
-              {errors[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(errors[key], t.product)}</p> : null}
-              {warnings[key] ? <p className="mt-2 text-sm text-muted-foreground">{productText(warnings[key], t.product)}</p> : null}
-              {openKey === key ? renderEditorBody(key) : null}
+              {openKey === key ? renderEditor(key) : null}
             </li>
           ))}
         </ul>
