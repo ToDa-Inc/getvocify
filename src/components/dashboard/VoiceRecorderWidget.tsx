@@ -30,6 +30,9 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
+import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { useDesktopPermissions } from "@/features/desktop/useDesktopPermissions";
+import { draftMinutes, meetingStartedLabel } from "@/lib/meeting-draft";
 
 export interface VoiceRecorderWidgetProps {
   /** Callback fired with the created memo ID when recording/import succeeds */
@@ -50,6 +53,10 @@ export const VoiceRecorderWidget = ({
 }: VoiceRecorderWidgetProps) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const meeting = useDesktopMeeting();
+  const desktopMeeting = meeting.available;
+  const desktopPermissions = useDesktopPermissions();
+  const desktopReady = !desktopMeeting || desktopPermissions.ready;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isSubmitLocked = useRef(false);
 
@@ -193,7 +200,7 @@ export const VoiceRecorderWidget = ({
     isSubmitLocked.current = true;
 
     try {
-      const memoId = await uploadTranscriptAndExtract(trimmed);
+      const memoId = await uploadTranscriptAndExtract(trimmed, { sourceType: "meeting_transcript" });
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("AI is extracting CRM fields...");
       setPastedTranscript("");
@@ -261,6 +268,55 @@ export const VoiceRecorderWidget = ({
 
   const hasTranscript = Boolean(fullTranscript?.trim());
   const showAudioFallback = state === "stopped" && !hasTranscript && Boolean(audio);
+
+  if (desktopMeeting && ["live", "stopping", "uploading"].includes(meeting.phase)) {
+    const live = meeting.phase === "live";
+    return (
+      <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-center`, className)}>
+        <div
+          className={cn(
+            "inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border mb-6 tabular-nums transition-colors duration-300",
+            live
+              ? "bg-destructive/10 text-destructive border-destructive/20"
+              : "bg-secondary/40 text-muted-foreground border-border/60",
+          )}
+        >
+          <span className={cn("w-2 h-2 rounded-full", live ? "bg-destructive animate-pulse" : "bg-muted-foreground/40")} />
+          {meeting.elapsed}
+        </div>
+        <div className="max-w-xl mx-auto mb-3 text-left">
+          <LiveTranscript
+            finalTranscript=""
+            interimTranscript=""
+            turns={meeting.turns}
+            isActive={live}
+            listeningHint="Listening. The transcript appears as people talk."
+            className="max-h-[360px]"
+          />
+        </div>
+        <p className="min-h-5 mb-5 text-xs text-muted-foreground" aria-live="polite">
+          {live ? meeting.warning ?? "" : ""}
+        </p>
+        {live ? (
+          <Button
+            type="button"
+            variant="destructive"
+            size="xl"
+            onClick={() => void meeting.stop()}
+            className="rounded-full px-8 gap-2"
+          >
+            <Square className="h-4 w-4 fill-current" />
+            Stop
+          </Button>
+        ) : (
+          <div className="h-12 flex items-center justify-center gap-2.5 text-sm text-muted-foreground" role="status">
+            <div className="w-4 h-4 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+            {meeting.phase === "stopping" ? "Finishing transcript…" : "Preparing review…"}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // 1. Error state
   if (state === "error" && recorderError) {
@@ -387,15 +443,19 @@ export const VoiceRecorderWidget = ({
       <div className="flex flex-col items-center justify-center mb-6">
         <button
           type="button"
-          onClick={handleRecordToggle}
-          disabled={state === "requesting"}
-          aria-label="Start recording voice memo"
+          onClick={() => {
+            if (desktopMeeting) void meeting.start();
+            else void handleRecordToggle();
+          }}
+          disabled={state === "requesting" || meeting.phase === "starting" || !desktopReady}
+          aria-label={desktopMeeting ? "Record meeting" : "Start recording voice memo"}
           className={cn(
             "group relative w-20 h-20 rounded-full glass-panel border border-white/70 shadow-lg flex items-center justify-center",
-            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-beige"
+            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-beige",
+            desktopReady ? "cursor-pointer" : "opacity-50 cursor-not-allowed hover:scale-100"
           )}
         >
-          {state === "requesting" ? (
+          {state === "requesting" || meeting.phase === "starting" ? (
             <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin" />
           ) : (
             <div className="w-7 h-7 rounded-full bg-beige group-hover:scale-110 transition-transform duration-200 shadow-xs flex items-center justify-center text-cream">
@@ -405,12 +465,42 @@ export const VoiceRecorderWidget = ({
         </button>
 
         <span className="text-sm font-medium text-foreground mt-3">
-          {state === "requesting" ? "Requesting microphone..." : "Record"}
+          {state === "requesting"
+            ? "Requesting microphone..."
+            : meeting.phase === "starting"
+              ? "Starting…"
+              : desktopMeeting
+                ? "Record meeting"
+                : "Record"}
         </span>
-        <span className="text-xs text-muted-foreground mt-0.5">
-          Tap to record or import transcript
-        </span>
+        {!desktopMeeting ? (
+          <span className="text-xs text-muted-foreground mt-0.5">
+            Tap to record or import transcript
+          </span>
+        ) : null}
       </div>
+      {desktopMeeting && (meeting.pending.length || meeting.error) ? (
+        <div className="mb-5 flex flex-col items-center gap-2" role="alert">
+          {meeting.pending.length ? (
+            <p className="text-sm text-muted-foreground max-w-md">
+              {meeting.pending.length === 1
+                ? `Meeting from ${meetingStartedLabel(meeting.pending[0])} · ${draftMinutes(meeting.pending[0])} min isn't sent yet.`
+                : `${meeting.pending.length} meetings aren't sent yet.`}
+              {meeting.savedOnDevice
+                ? meeting.pending.length === 1 ? " It's saved on this Mac." : " They're saved on this Mac."
+                : ""}
+            </p>
+          ) : (
+            <p className="text-sm text-destructive max-w-md">{meeting.error}</p>
+          )}
+          {meeting.pending.length ? (
+            <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => void meeting.retryPending()}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Retry sending
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Quick Actions Row */}
       <div className="flex items-center justify-center gap-3 mb-6">

@@ -54,13 +54,16 @@ export function useAudioUpload(): UseAudioUploadReturn {
    * Upload transcript and start AI extraction in one call.
    * Use when recording stops with live STT text.
    */
-  const uploadTranscriptAndExtract = useCallback(async (transcript: string): Promise<string> => {
+  const uploadTranscriptAndExtract = useCallback(async (
+    transcript: string,
+    options?: { sourceType?: 'voice_memo' | 'meeting_transcript' },
+  ): Promise<string> => {
     setIsUploading(true);
     setError(null);
     setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
 
     try {
-      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim());
+      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim(), options?.sourceType);
       setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
       return response.id;
     } catch (err) {

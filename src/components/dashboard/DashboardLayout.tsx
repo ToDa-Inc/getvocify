@@ -22,6 +22,9 @@ import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
 import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
+import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
+import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
+import { isDesktopHost } from "@/lib/desktop-host";
 
 const navItems = [
   { icon: Home, label: "Home", path: "/dashboard" },
@@ -43,7 +46,7 @@ const DashboardLayout = () => {
   const dialerActive = dialerOpen || dialerLive;
   const canManageBilling = user?.company?.role === "owner" || user?.company?.role === "admin";
   const paywalled = companyIsPaywalled(user?.company);
-  const showDialer = !paywalled && companyCanUseDialer(user?.company);
+  const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
 
   if (paywalled && location.pathname !== BILLING_PATH) {
     return <Navigate to={BILLING_PATH} replace />;
@@ -57,6 +60,7 @@ const DashboardLayout = () => {
   };
 
   return (
+    <DesktopMeetingProvider>
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
         <div
@@ -173,7 +177,9 @@ const DashboardLayout = () => {
             <Menu className="h-5 w-5" />
           </Button>
 
-          <div className="flex-1" />
+          <div className="flex-1 flex items-center">
+            <DesktopRecordingChip />
+          </div>
 
           <div className="flex items-center gap-3">
             <div className="hidden md:block text-right">
@@ -225,6 +231,7 @@ const DashboardLayout = () => {
         />
       ) : null}
     </div>
+    </DesktopMeetingProvider>
   );
 };
 

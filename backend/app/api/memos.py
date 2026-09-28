@@ -710,6 +710,10 @@ async def upload_transcript_and_extract(
         "raw_speaker_count": raw_speaker_count(transcript_raw),
     }
 
+    source_type = body.source_type or "voice_memo"
+    if source_type not in ("voice_memo", "meeting_transcript"):
+        source_type = "voice_memo"
+
     estimated_duration = len(transcript) / 15
     result = supabase.table("memos").insert({
         "user_id": user_id,
@@ -717,13 +721,11 @@ async def upload_transcript_and_extract(
         "audio_duration": estimated_duration,
         "status": "extracting",
         "transcript": transcript,
+        "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
     }).execute()
 
     memo_id = result.data[0]["id"]
-    source_type = body.source_type or "voice_memo"
-    if source_type not in ("voice_memo", "meeting_transcript"):
-        source_type = "voice_memo"
 
     await start_extraction_from_transcript(
         str(memo_id),

@@ -85,8 +85,14 @@ export const memosApi = {
    * Use when recording stops with live STT text.
    * Returns memo ID with status "extracting".
    */
-  uploadTranscriptAndExtract: (transcript: string): Promise<UploadMemoResponse> => {
-    return api.post<UploadMemoResponse>('/memos/upload-and-extract', { transcript });
+  uploadTranscriptAndExtract: (
+    transcript: string,
+    sourceType: 'voice_memo' | 'meeting_transcript' = 'voice_memo',
+  ): Promise<UploadMemoResponse> => {
+    return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
+      transcript,
+      source_type: sourceType,
+    });
   },
 
   /**
