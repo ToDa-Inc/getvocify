@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 from app.services.activity_scope import author_display_name, can_view_company_activity
@@ -14,6 +16,8 @@ from app.services.team_insights.outcomes import adherence_crm_outcomes
 from app.services.team_insights.period import Window
 from app.services.team_insights.process_health import process_health
 
+logger = logging.getLogger(__name__)
+
 _MADRID = ZoneInfo("Europe/Madrid")
 
 _TEAM_ROLES = frozenset({"owner", "admin"})
@@ -22,6 +26,19 @@ _SCREENING_ATTEMPTS = frozenset({"voicemail", "no_response", "connected"})
 # T13: the SDR/AE flows a memo's sales_motion_key maps to, for the per-rep adherence
 # columns. Anything else (qualification, none) contributes to neither column.
 _FLOW_FOR_MOTION = {"discovery": "sdr", "closing": "ae"}
+
+# PostgREST caps a response (1000 rows by default): page every read, and keep `.in_()`
+# lists short enough not to overflow the request URL.
+_PAGE_SIZE = 1000
+_IN_BATCH = 100
+# capture_started_at <= created_at, so created_at >= since - margin loses no conversation.
+_CAPTURE_MARGIN = timedelta(days=1)
+# Callers without a period only read the current Madrid week plus the 3 latest summaries.
+_NO_PERIOD_LOOKBACK = timedelta(days=8)
+
+
+class _NoRepsInRole(Exception):
+    """sales_role filter matched nobody: nothing to read."""
 
 
 class TeamAccessError(Exception):
@@ -195,8 +212,9 @@ def load_team_reps(supabase, company_id: str) -> list[dict]:
 
 
 def reps_for_sales_role(reps: list[dict], sales_role: str | None) -> list[dict]:
-    """sdr / ae keep reps with that sales_role; anything else keeps everyone. NULL = general."""
-    if sales_role not in ("sdr", "ae"):
+    """sdr / ae keep reps with that sales_role; anything else keeps everyone. NULL = general.
+    Reps without a `salesRole` key at all (sales roles off) are not filterable: keep everyone."""
+    if sales_role not in ("sdr", "ae") or not any("salesRole" in rep for rep in reps):
         return reps
     return [rep for rep in reps if rep.get("salesRole") == sales_role]
 
@@ -226,6 +244,47 @@ def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
     return [{"memo_id": memo_id, "line": line} for _, memo_id, line in ranked[:limit]]
 
 
+def _paged(build: Callable[[], object]) -> list[dict]:
+    """Every row of a query, `_PAGE_SIZE` at a time until a short page. `build()` returns a
+    fresh, stably ordered query for each page."""
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        page = list(build().range(offset, offset + _PAGE_SIZE - 1).execute().data or [])
+        rows.extend(page)
+        if len(page) < _PAGE_SIZE:
+            return rows
+        offset += _PAGE_SIZE
+
+
+def _paged_in(supabase, table: str, columns: str, column: str, ids: list[str], order: tuple[str, ...]) -> list[dict]:
+    """`table` rows whose `column` is in `ids`: batches of `_IN_BATCH`, each response paged."""
+    rows: list[dict] = []
+    for index in range(0, len(ids), _IN_BATCH):
+        batch = ids[index : index + _IN_BATCH]
+
+        def build(batch=batch):
+            query = supabase.table(table).select(columns).in_(column, batch)
+            for key in order:
+                query = query.order(key)
+            return query
+
+        rows.extend(_paged(build))
+    return rows
+
+
+def _current_scores(rows: list[dict]) -> dict[str, dict]:
+    """The latest revision (max revision_seq, then created_at) of each memo's score."""
+    latest: dict[str, dict] = {}
+    for row in rows:
+        key = str(row.get("memo_id"))
+        rank = (int(row.get("revision_seq") or 0), str(row.get("created_at") or ""))
+        held = latest.get(key)
+        if held is None or rank >= (int(held.get("revision_seq") or 0), str(held.get("created_at") or "")):
+            latest[key] = row
+    return latest
+
+
 def load_team_adherence_inputs(
     supabase,
     company_id: str,
@@ -234,12 +293,15 @@ def load_team_adherence_inputs(
     motion: str | None = None,
     period: tuple[Window, Window] | None = None,
     sales_role: str | None = None,
+    with_focus: bool = False,
 ) -> dict:
     """Memos and scores for the company. Empty lists when the read fails.
 
     period (Head of Sales phase 2) is (current, previous); None keeps the Madrid week and
     adds no comparison, which is what every caller before phase 2 gets. sales_role (sdr/ae)
-    narrows the team to reps with that role."""
+    narrows the team to reps with that role (ignored when sales roles are off). with_focus
+    (with a period) also computes reps' coaching focus. Memos are read from the oldest
+    window start (period) or the current Madrid week (no period), with a margin."""
     activity_rows: list[dict] = []
     review_source: list[dict] = []
     parts: list[dict] = []
@@ -248,76 +310,87 @@ def load_team_adherence_inputs(
     playbook_entries: list[dict] = []
     playbook_present = False
     health_rows: list[dict] = []
-    reps = reps_for_sales_role(load_team_reps(supabase, company_id), sales_role)
+    load_reps = load_team_reps(supabase, company_id)
+    reps = reps_for_sales_role(load_reps, sales_role)
     filter_user = (user_id or "").strip() or None
     filter_motion = (motion or "").strip() or None
     member_ids = [str(rep.get("userId")) for rep in reps if rep.get("userId")]
+    if period is None:
+        since = madrid_week_bounds()[0] - _NO_PERIOD_LOOKBACK
+    else:
+        since = min(period[0].start, period[1].start) - _CAPTURE_MARGIN
+    role_filtered = sales_role in ("sdr", "ae") and any("salesRole" in rep for rep in load_reps)
     try:
-        query = (
-            supabase.table("memos")
-            .select(
-                "id,user_id,company_id,playbook_version_id,"
-                "sales_motion_key,screening_outcome,extraction,"
-                "capture_started_at,created_at"
-            )
-        )
         # Older memos have no company_id. Members' memos without one still belong to the team.
-        if sales_role in ("sdr", "ae") and not member_ids:
-            raise LookupError("no reps with this sales role")
-        if member_ids:
-            query = query.in_("user_id", member_ids).or_(
-                f"company_id.eq.{company_id},company_id.is.null"
+        if role_filtered and not member_ids:
+            raise _NoRepsInRole()
+
+        def build_memos():
+            query = (
+                supabase.table("memos")
+                .select(
+                    "id,user_id,company_id,playbook_version_id,"
+                    "sales_motion_key,screening_outcome,extraction,"
+                    "capture_started_at,created_at"
+                )
+                .gte("created_at", since.isoformat())
             )
-        else:
-            query = query.eq("company_id", company_id)
-        if filter_user:
-            query = query.eq("user_id", filter_user)
-        if filter_motion:
-            query = query.eq("sales_motion_key", filter_motion)
-        memos = query.execute()
+            if member_ids:
+                query = query.in_("user_id", member_ids).or_(
+                    f"company_id.eq.{company_id},company_id.is.null"
+                )
+            else:
+                query = query.eq("company_id", company_id)
+            if filter_user:
+                query = query.eq("user_id", filter_user)
+            if filter_motion:
+                query = query.eq("sales_motion_key", filter_motion)
+            return query.order("created_at").order("id")
+
         memo_ids: list[str] = []
         memo_meta: dict[str, dict] = {}
-        for memo in memos.data or []:
+        for memo in _paged(build_memos):
             memo_id = str(memo.get("id"))
             memo_ids.append(memo_id)
             memo_meta[memo_id] = {
                 "user_id": str(memo.get("user_id") or ""),
                 "motion": memo.get("sales_motion_key"),
                 "goal_met": memo_meeting_agreed(memo),
+                # The memo's own time, so adherence and activity describe the same calls.
+                "observed_at": memo.get("capture_started_at") or memo.get("created_at"),
             }
             review_source.append(memo)
             row = activity_row_from_memo(memo)
             if row is not None:
                 activity_rows.append(row)
         if memo_ids:
-            scores = (
-                supabase.table("memo_scores")
-                .select("memo_id,score,created_at")
-                .in_("memo_id", memo_ids)
-                .execute()
+            scores = _paged_in(
+                supabase, "memo_scores", "memo_id,revision_seq,score,created_at", "memo_id", memo_ids,
+                ("memo_id", "revision_seq"),
             )
-            for item in scores.data or []:
+            for item in _current_scores(scores).values():
                 score = item.get("score") or {}
+                meta = memo_meta.get(str(item.get("memo_id")))
                 part = adherence_part_from_score(
                     score if isinstance(score, dict) else {},
-                    observed_at=item.get("created_at"),
+                    observed_at=meta["observed_at"] if meta else item.get("created_at"),
                 )
                 if part is not None:
                     parts.append(part)
-                    meta = memo_meta.get(str(item.get("memo_id")))
                     if meta and meta.get("user_id"):
                         rep_motion_parts.append(
                             {**part, "user_id": meta["user_id"], "motion": meta["motion"]}
                         )
                     if meta:
                         health_rows.append({**part, "motion": meta["motion"], "goal_met": meta["goal_met"]})
-            patterns = (
-                supabase.table("interaction_patterns")
-                .select("category,kind,resolution,response,superseded,created_at")
-                .in_("memo_id", memo_ids)
-                .execute()
+            pattern_rows = _paged_in(
+                supabase,
+                "interaction_patterns",
+                "category,kind,resolution,response,superseded,created_at",
+                "memo_id",
+                memo_ids,
+                ("memo_id", "pattern_id", "input_revision"),
             )
-            pattern_rows = list(patterns.data or [])
         published = (
             supabase.table("playbooks")
             .select("id, active_version_id, playbook_versions!inner(id,status,entries)")
@@ -337,8 +410,10 @@ def load_team_adherence_inputs(
             chosen = [v for v in versions if active_id and str(v.get("id")) == str(active_id)] or versions
             for version in chosen:
                 playbook_entries.extend(version.get("entries") or [])
-    except Exception:
+    except _NoRepsInRole:
         pass
+    except Exception:
+        logger.warning("team adherence inputs: read failed, returning partial data", exc_info=True)
     outcome_observations: list[dict] | None = None
     try:
         observations = (
@@ -357,12 +432,14 @@ def load_team_adherence_inputs(
         current, previous = period
         period_start, period_end = current.start, current.end
         comparison = {"previous_period_start": previous.start, "previous_period_end": previous.end}
-        try:
-            from app.services.coaching.rep_focus import coaching_focus_by_user
+        if with_focus:
+            try:
+                from app.services.coaching.rep_focus import coaching_focus_by_user
 
-            comparison["coaching_focus_by_user"] = coaching_focus_by_user(supabase, company_id, reps)
-        except Exception:
-            comparison["coaching_focus_by_user"] = {}
+                comparison["coaching_focus_by_user"] = coaching_focus_by_user(supabase, company_id, reps)
+            except Exception:
+                logger.warning("team adherence inputs: coaching focus failed", exc_info=True)
+                comparison["coaching_focus_by_user"] = {}
     return {
         **comparison,
         "health_rows": health_rows,
@@ -462,7 +539,8 @@ def team_adherence(
             start=activity_period_start,
             end=activity_period_end,
         )
-        return attach_phase_two(body)
+        # Members (visibility=team) get exactly the pre-phase-2 body.
+        return attach_phase_two(body) if role in _TEAM_ROLES else body
 
     def attach_phase_two(body: dict) -> dict:
         """Head of Sales phase 2, additive: per-rep activity, the comparable previous
@@ -482,10 +560,12 @@ def team_adherence(
         body["process_health"] = process_health(health_parts)
         if previous_period_start is not None and previous_period_end is not None:
             # Period-only, like `previous`: pre-phase-2 callers keep their exact rep items.
-            focus = coaching_focus_by_user or {}
-            body["reps"] = [
-                {**rep, "coaching_focus": focus.get(str(rep.get("userId") or ""))} for rep in body["reps"]
-            ]
+            # Only when the caller asked for it (with_focus): the Head of Sales Equipo page.
+            if coaching_focus_by_user is not None:
+                focus = coaching_focus_by_user
+                body["reps"] = [
+                    {**rep, "coaching_focus": focus.get(str(rep.get("userId") or ""))} for rep in body["reps"]
+                ]
             before_parts = adherence_parts_in_period(
                 parts, start=previous_period_start, end=previous_period_end
             )

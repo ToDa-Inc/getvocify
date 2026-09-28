@@ -206,3 +206,11 @@ def test_non_conversations_are_activity_not_evaluated():
     [rate] = step_rates([talk, voicemail, voicemail], steps)
     assert (rate["done"], rate["missing"], rate["rate"]) == (1, 0, 1.0)
     assert process_complete(voicemail) is False
+
+
+def test_repeated_step_observations_keep_the_first():
+    row = interaction_row(_memo([_obs("a", "met", "primera"), _obs("a", "missed", "segunda"), _obs("b", "missed")]))
+    assert [(s["step_id"], s["state"], s["quote"]) for s in row["steps"]] == [
+        ("a", "done", "primera"), ("b", "missing", None),
+    ]
+    assert step_rates([row], STEPS)[0]["applicable"] == 1

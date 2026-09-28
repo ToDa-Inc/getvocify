@@ -14,8 +14,9 @@ from app.services.coaching.brief_preferences import highlight_at, read_preferenc
 from app.services.coaching.briefs import absent_brief
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
-from app.services.coaching.rep_focus import resolve_flow
-from app.services.company import Membership
+from app.services.coaching.rep_focus import FLOW_MOTION, FLOW_WEEKS, published_flows, resolve_flow
+from app.services.activity_scope import effective_visibility, memo_readable_by
+from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
 from app.services.team_insights.objections import objection_counts
@@ -53,21 +54,57 @@ def _attach_highlight(body: dict, *, user_id: str, ready_at: datetime) -> dict:
     }
 
 
+def _require_readable_memo(supabase, membership: Membership, memo_id: str) -> None:
+    """404 unless the memo is in the caller's company AND readable by the caller: their own,
+    a manager's / visibility=team reader's view of the company, or (T4/D8) an AE reading the
+    SDR's memo of a handed-off contact. Same rule as GET /memos/{id}."""
+    result = (
+        supabase.table("memos")
+        .select("id,company_id,user_id,hubspot_contact_id")
+        .eq("id", memo_id)
+        .execute()
+    )
+    rows = result.data or []
+    memo = rows[0] if rows else None
+    if not memo or memo.get("company_id") != membership.company_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    viewer_id = membership.user_id
+    visibility = effective_visibility(supabase, membership)
+
+    def readable(handoff_sdr_ids: set | None = None) -> bool:
+        return memo_readable_by(
+            viewer_id=viewer_id,
+            owner_user_id=str(memo.get("user_id") or ""),
+            viewer_role=membership.role,
+            same_company=True,
+            viewer_visibility=visibility,
+            handoff_sdr_ids=handoff_sdr_ids,
+        )
+
+    if readable():
+        return
+    contact_id = str(memo.get("hubspot_contact_id") or "") or None
+    if contact_id:
+        from app.api.memos import _active_handoff_sdr_ids_for_contact
+
+        try:
+            members = CompanyService(supabase).list_members(membership.company_id)
+        except Exception:
+            members = []
+        if readable(_active_handoff_sdr_ids_for_contact(
+            supabase, membership=membership, members=members, contact_id=contact_id, viewer_id=viewer_id,
+        )):
+            return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+
+
 @router.get("/memos/{memo_id}/score")
 async def get_memo_score(
     memo_id: str,
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    memo = (
-        supabase.table("memos")
-        .select("id,company_id")
-        .eq("id", memo_id)
-        .execute()
-    )
-    rows = memo.data or []
-    if not rows or rows[0].get("company_id") != membership.company_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    _require_readable_memo(supabase, membership, memo_id)
     stored = (
         supabase.table("memo_scores")
         .select("*")
@@ -98,15 +135,7 @@ async def get_memo_brief(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    memo = (
-        supabase.table("memos")
-        .select("id,company_id")
-        .eq("id", memo_id)
-        .execute()
-    )
-    rows = memo.data or []
-    if not rows or rows[0].get("company_id") != membership.company_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    _require_readable_memo(supabase, membership, memo_id)
     stored = (
         supabase.table("post_interaction_briefs")
         .select("*")
@@ -219,10 +248,13 @@ async def get_coaching_best(
 
 # --- Rep coaching tab: always the caller's own data --------------------------------------
 
-_FLOW_MOTION = {"sdr": "discovery", "ae": "closing"}
-_OWN_WEEKS = 8
+_FLOW_MOTION = FLOW_MOTION
+_OWN_WEEKS = FLOW_WEEKS  # also the window that decides a general rep's flow
 _PEER_WEEKS = 4
 _MAX_MOMENTS = 3
+_MIN_PEERS = 3  # an anonymous example needs this many distinct contributors
+
+Flow = Literal["sdr", "ae"]
 
 
 def _week_starts(count: int) -> list[datetime]:
@@ -241,14 +273,33 @@ def _in_window(rows: list[dict], start: datetime, end: datetime) -> list[dict]:
     return [r for r in rows if start <= engine.parse_instant(r["observed_at"]) < end]
 
 
-def _rep_context(supabase, membership: Membership, *, weeks: int = _OWN_WEEKS, peers: bool = True) -> dict:
+def _rep_context(
+    supabase, membership: Membership, *, weeks: int = _OWN_WEEKS, peers: bool = True, flow: Optional[str] = None
+) -> dict:
     starts = _week_starts(weeks)
     week_start, week_end = madrid_week_bounds()
-    all_own = _rows_of(reads.load_memos(supabase, membership.company_id, [membership.user_id], start=starts[0]))
-    flow = resolve_flow(membership.sales_role, _in_window(all_own, starts[0], week_end))
+    # The flow is always resolved over the FLOW_WEEKS window, whatever `weeks` shows.
+    flow_start = _week_starts(FLOW_WEEKS)[0]
+    all_own = _rows_of(
+        reads.load_memos(supabase, membership.company_id, [membership.user_id], start=min(starts[0], flow_start))
+    )
+    playbooks: dict[str, dict] = {}
+
+    def playbook_for(motion: str) -> dict:
+        if motion not in playbooks:
+            playbooks[motion] = reads.load_published_playbook(supabase, membership.company_id, motion)
+        return playbooks[motion]
+
+    available = published_flows(playbook_for)
+    # `flow` is only honoured for general/NULL reps; SDR/AE always get their own.
+    flow = resolve_flow(membership.sales_role, _in_window(all_own, flow_start, week_end), available, flow)
     motion = _FLOW_MOTION[flow]
-    playbook = reads.load_published_playbook(supabase, membership.company_id, motion)
-    own = [r for r in all_own if r["motion"] == motion] if playbook["published"] else []
+    playbook = playbook_for(motion)
+    own = (
+        [r for r in _in_window(all_own, starts[0], week_end) if r["motion"] == motion]
+        if playbook["published"]
+        else []
+    )
     peer_rows_by_user: dict[str, list[dict]] = {}
     if peers and playbook["published"]:
         peer_start = starts[-1] - timedelta(weeks=_PEER_WEEKS - 1)
@@ -257,6 +308,7 @@ def _rep_context(supabase, membership: Membership, *, weeks: int = _OWN_WEEKS, p
             peer_rows_by_user.setdefault(row["user_id"], []).append(row)
     return {
         "flow": flow,
+        "available_flows": available,
         "motion": motion,
         "week_start": week_start,
         "week_end": week_end,
@@ -286,33 +338,58 @@ def _example_for(step: dict, peer_rows: list[dict]) -> Optional[str]:
 
 
 def _moments(peer_rows: list[dict], step_id: str) -> list[dict]:
-    """Anonymous quotes of a step done in a conversation that ended with a meeting."""
+    """Anonymous quotes of a step done in a conversation that ended with a meeting. Empty
+    unless at least _MIN_PEERS distinct peers contributed one: with fewer, a quote is
+    attributable."""
     seen: set[str] = set()
+    contributors: set[str] = set()
     out: list[dict] = []
     for row in sorted(peer_rows, key=lambda r: r["observed_at"], reverse=True):
         if not (row["is_conversation"] and row["meeting_agreed"]):
             continue
         for step in row["steps"]:
             quote = step["quote"]
-            if step["step_id"] == step_id and step["state"] == "done" and quote and quote not in seen:
-                seen.add(quote)
-                out.append({"quote": quote})
-        if len(out) >= _MAX_MOMENTS:
-            break
+            if step["step_id"] == step_id and step["state"] == "done" and quote:
+                contributors.add(row["user_id"])
+                if quote not in seen:
+                    seen.add(quote)
+                    out.append({"quote": quote})
+    if len(contributors) < _MIN_PEERS:
+        return []
     return out[:_MAX_MOMENTS]
+
+
+def _peer_objection_contributors(
+    patterns: list[dict], memo_users: dict[str, str], *, start: datetime, end: datetime
+) -> dict[str, set[str]]:
+    """category -> the peers with a resolved, worded response in [start, end)."""
+    found: dict[str, set[str]] = {}
+    for row in patterns:
+        if row.get("superseded") or row.get("kind") != "objection" or row.get("resolution") != "resolved":
+            continue
+        if not str(row.get("response") or "").strip() or not row.get("category"):
+            continue
+        instant = engine.parse_instant(row.get("created_at"))
+        user = memo_users.get(str(row.get("memo_id")))
+        if user is None or instant is None or not (start <= instant < end):
+            continue
+        found.setdefault(str(row["category"]).strip().lower(), set()).add(user)
+    return found
 
 
 @router.get("/coaching/me/summary")
 async def get_my_coaching_summary(
+    flow: Optional[Flow] = Query(None),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    ctx = _rep_context(supabase, membership)
+    ctx = _rep_context(supabase, membership, flow=flow)
     steps = ctx["playbook"]["steps"]
     this_week = _in_window(ctx["own"], ctx["week_start"], ctx["week_end"])
     prev_week = _in_window(ctx["own"], ctx["prev_start"], ctx["week_start"])
     body = {
         "flow": ctx["flow"],
+        "available_flows": ctx["available_flows"],
         "motion": ctx["motion"],
         "week_start": engine.madrid_day(ctx["week_start"]).isoformat(),
         "steps": [],
@@ -336,7 +413,11 @@ async def get_my_coaching_summary(
         }
         for r in engine.step_rates(this_week, steps)
     ]
-    chosen = engine.choose_focus(prev_week, steps, medians)
+    # No peer tie-break: the Head of Sales column and the messages (rep_focus) choose the
+    # focus without it, so every surface names the same step. peer_median is still shown.
+    chosen = engine.choose_focus(prev_week, steps)
+    if chosen:
+        chosen = {**chosen, "peer_median": medians.get(chosen["step_id"])}
     if chosen:
         definition = next(s for s in steps if str(s["step_id"]) == chosen["step_id"])
         peer_rows = [r for rows in ctx["peers"].values() for r in rows]
@@ -358,10 +439,11 @@ async def get_my_coaching_interactions(
     state: Optional[Literal["done", "missing", "no_evidence", "not_reached"]] = Query(None),
     meeting: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    flow: Optional[Flow] = Query(None),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    ctx = _rep_context(supabase, membership, peers=False)
+    ctx = _rep_context(supabase, membership, peers=False, flow=flow)
 
     def keep(row: dict) -> bool:
         if meeting is not None and row["meeting_agreed"] != meeting:
@@ -380,10 +462,11 @@ async def get_my_coaching_interactions(
 @router.get("/coaching/me/process")
 async def get_my_coaching_process(
     weeks: int = Query(_OWN_WEEKS, ge=1, le=12),
+    flow: Optional[Flow] = Query(None),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    ctx = _rep_context(supabase, membership, weeks=weeks)
+    ctx = _rep_context(supabase, membership, weeks=weeks, flow=flow)
     starts = ctx["week_starts"]
     ends = starts[1:] + [ctx["week_end"]]
     steps = ctx["playbook"]["steps"]
@@ -412,10 +495,11 @@ async def get_my_coaching_process(
 
 @router.get("/coaching/examples")
 async def get_coaching_examples(
+    flow: Optional[Flow] = Query(None),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    ctx = _rep_context(supabase, membership)
+    ctx = _rep_context(supabase, membership, flow=flow)
     body: dict = {"steps": [], "objections": []}
     if not ctx["playbook"]["published"]:
         return body
@@ -429,18 +513,27 @@ async def get_coaching_examples(
             "moments": _moments(peer_rows, str(step["step_id"])),
         })
     patterns = reads.load_patterns(supabase, [r["memo_id"] for r in [*ctx["own"], *peer_rows]])
+    window_start = ctx["week_starts"][-1] - timedelta(weeks=_PEER_WEEKS - 1)
     counted = objection_counts(
         patterns,
-        start=ctx["week_starts"][-1] - timedelta(weeks=_PEER_WEEKS - 1),
+        start=window_start,
         end=ctx["week_end"],
         playbook_entries=ctx["playbook"]["entries"],
         include_guidance=True,
     )
+    memo_users = {r["memo_id"]: r["user_id"] for r in peer_rows}
+    contributors = _peer_objection_contributors(patterns, memo_users, start=window_start, end=ctx["week_end"])
     seen = set()
     for item in counted:
         seen.add(item["name"])
+        # An anonymous response needs _MIN_PEERS distinct peers behind it.
+        enough = len(contributors.get(item["name"], ())) >= _MIN_PEERS
         body["objections"].append(
-            {"category": item["name"], "guidance": item["how_to"], "best_response": item["best_example"]}
+            {
+                "category": item["name"],
+                "guidance": item["how_to"],
+                "best_response": item["best_example"] if enough else None,
+            }
         )
     for entry in ctx["playbook"]["entries"]:
         category = str(entry.get("category") or "").strip().lower()

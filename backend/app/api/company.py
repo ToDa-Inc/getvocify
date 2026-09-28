@@ -107,6 +107,7 @@ class PendingInviteResponse(BaseModel):
     role: str
     expires_at: str
     created_at: Optional[str] = None
+    sales_role: Optional[str] = None
 
 
 class MembersListResponse(BaseModel):
@@ -303,6 +304,7 @@ async def resend_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
+        sales_role=invite.get("sales_role"),
     )
 
 

@@ -45,6 +45,10 @@ class _Query:
         self._filters: list[tuple[str, object]] = []
         self._in_filters: list[tuple[str, list]] = []
         self._limit: int | None = None
+        self._gte: list[tuple[str, str]] = []
+        self._range: tuple[int, int] | None = None
+        self._orders: list[str] = []
+        self.in_sizes: list[int] = []
 
     def select(self, *_args, **_kwargs):
         return self
@@ -55,6 +59,15 @@ class _Query:
 
     def in_(self, column, values):
         self._in_filters.append((column, list(values)))
+        self._store.in_calls.append((self._name, column, len(list(values))))
+        return self
+
+    def gte(self, column, value):
+        self._gte.append((column, str(value)))
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
         return self
 
     def or_(self, expression: str):
@@ -65,7 +78,8 @@ class _Query:
         self._limit = n
         return self
 
-    def order(self, _column: str):
+    def order(self, column: str, **_kwargs):
+        self._orders.append(column)
         return self
 
     def execute(self):
@@ -75,6 +89,8 @@ class _Query:
         for column, values in self._in_filters:
             allowed = {str(v) for v in values}
             rows = [row for row in rows if str(row.get(column)) in allowed]
+        for column, value in self._gte:
+            rows = [row for row in rows if row.get(column) is not None and str(row.get(column)) >= value]
         expression = getattr(self, "_or", None)
         if expression:
             wanted = [part.split(".", 2) for part in expression.split(",")]
@@ -88,6 +104,10 @@ class _Query:
                 return False
 
             rows = [row for row in rows if keep(row)]
+        if self._orders:
+            rows = sorted(rows, key=lambda row: tuple(str(row.get(c) or "") for c in self._orders))
+        if self._range is not None:
+            rows = rows[self._range[0] : self._range[1] + 1]
         if self._limit is not None:
             rows = rows[: self._limit]
         return _Result(rows)
@@ -96,6 +116,7 @@ class _Query:
 class _Supabase:
     def __init__(self, tables: dict[str, list[dict]]):
         self.tables = tables
+        self.in_calls: list[tuple[str, str, int]] = []
 
     def table(self, name: str):
         return _Query(self, name)

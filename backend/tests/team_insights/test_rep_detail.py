@@ -86,10 +86,16 @@ def test_a_plain_member_is_denied_but_visibility_team_is_allowed():
     team_adherence(role="member", visibility="team", parts=[], playbook_present=True, sample_size=0)
 
 
-def test_rep_detail_needs_the_manager_home_flag():
-    db = _db()
-    response = _app(db, role="owner").get(f"/api/v1/team/rep/{SDR}")
+def test_rep_detail_flag_gates_a_member_with_visibility_team():
+    db = _db(SALES_ROLES_ENABLED=True)
+    response = _app(db, role="member", visibility="team").get(f"/api/v1/team/rep/{SDR}")
     assert response.status_code == 404
+
+
+def test_rep_detail_owner_and_admin_do_not_need_the_manager_home_flag():
+    for role in ("owner", "admin"):
+        response = _app(_db(), role=role).get(f"/api/v1/team/rep/{SDR}")
+        assert response.status_code == 200
 
 
 def test_rep_detail_is_denied_to_a_plain_member():

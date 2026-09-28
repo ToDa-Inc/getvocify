@@ -72,16 +72,21 @@ def interaction_row(memo: dict) -> dict | None:
         duration is None or duration >= MIN_CONVERSATION_SECONDS
     )
     meeting = intel.get("meeting") if isinstance(intel.get("meeting"), dict) else {}
-    steps = [
-        {
-            "step_id": str(item.get("step_id")),
-            "label": str(item.get("label") or item.get("step_id")),
+    steps: list[dict] = []
+    seen_steps: set[str] = set()
+    for item in observations:
+        if not isinstance(item, dict) or not item.get("step_id"):
+            continue
+        step_id = str(item.get("step_id"))
+        if step_id in seen_steps:  # a step is observed once per interaction: keep the first
+            continue
+        seen_steps.add(step_id)
+        steps.append({
+            "step_id": step_id,
+            "label": str(item.get("label") or step_id),
             "state": _STATE.get(item.get("status"), "no_evidence"),
             "quote": item.get("quote") or None,
-        }
-        for item in observations
-        if isinstance(item, dict) and item.get("step_id")
-    ]
+        })
     return {
         "memo_id": str(memo.get("id") or ""),
         "user_id": str(memo.get("user_id") or ""),

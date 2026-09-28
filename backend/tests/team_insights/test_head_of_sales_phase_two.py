@@ -159,3 +159,66 @@ def test_endpoint_rejects_unknown_period_and_role(_flags_off):
 def test_member_still_gets_403_with_the_new_params(_flags_off, monkeypatch):
     monkeypatch.setattr(team_api, "effective_visibility", lambda *_a, **_k: "own")
     assert _client("member").get("/api/v1/team/adherence?period=month").status_code == 403
+
+
+def _spy_loader(monkeypatch):
+    calls: list[dict] = []
+    real = team_api.load_team_adherence_inputs
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(team_api, "load_team_adherence_inputs", spy)
+    return calls
+
+
+def test_member_with_team_visibility_gets_the_pre_phase_two_body(_flags_off, monkeypatch):
+    monkeypatch.setattr(team_api, "effective_visibility", lambda *_a, **_k: "team")
+    calls = _spy_loader(monkeypatch)
+    res = _client("member").get("/api/v1/team/adherence?period=month&sales_role=sdr&with_focus=true")
+    assert res.status_code == 200
+    body = res.json()
+    assert "previous" not in body and "period" not in body
+    assert "process_health" not in body
+    assert all("activity" not in rep and "coaching_focus" not in rep for rep in body["reps"])
+    assert calls[0]["period"] is None and calls[0]["sales_role"] is None and calls[0]["with_focus"] is False
+
+
+def test_member_403_happens_before_any_read(_flags_off, monkeypatch):
+    monkeypatch.setattr(team_api, "effective_visibility", lambda *_a, **_k: "own")
+    calls = _spy_loader(monkeypatch)
+    assert _client("member").get("/api/v1/team/adherence?period=month").status_code == 403
+    assert calls == []
+
+
+def test_coaching_focus_only_with_with_focus(_flags_off, monkeypatch):
+    import app.services.coaching.rep_focus as rep_focus
+
+    monkeypatch.setattr(
+        rep_focus, "coaching_focus_by_user",
+        lambda *_a, **_k: {USER_A: {"step_id": "open", "label": "Apertura", "rate": 0.0}},
+    )
+    client = _client("owner")
+    without = client.get("/api/v1/team/adherence?period=month").json()
+    assert all("coaching_focus" not in rep for rep in without["reps"])
+    with_focus = client.get("/api/v1/team/adherence?period=month&with_focus=true").json()
+    by_id = {rep["userId"]: rep["coaching_focus"] for rep in with_focus["reps"]}
+    assert by_id[USER_A]["step_id"] == "open" and by_id[USER_B] is None
+
+
+def test_team_adherence_hides_phase_two_from_members():
+    body = team_adherence(
+        role="member", visibility="team", parts=[], playbook_present=False, sample_size=0,
+        activity_rows=ROWS, activity_period_start=CURRENT.start, activity_period_end=CURRENT.end, reps=REPS,
+        previous_period_start=PREVIOUS.start, previous_period_end=PREVIOUS.end,
+        coaching_focus_by_user={"u1": {"step_id": "open", "label": "A", "rate": 0.0}},
+    )
+    assert "previous" not in body and "process_health" not in body
+    assert all("activity" not in rep and "coaching_focus" not in rep for rep in body["reps"])
+
+
+def test_sales_role_is_ignored_when_reps_carry_no_sales_role():
+    inputs = load_team_adherence_inputs(_store(), COMPANY, sales_role="ae")
+    assert {rep["userId"] for rep in inputs["reps"]} == {USER_A, USER_B}
+    assert {row["user_id"] for row in inputs["activity_rows"]} == {USER_A, USER_B}

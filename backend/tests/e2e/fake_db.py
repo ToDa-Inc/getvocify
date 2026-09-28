@@ -119,6 +119,7 @@ class _Query:
         self._ors: list[list[tuple[str, str, Any]]] = []
         self._order: list[tuple[str, bool]] = []
         self._limit: int | None = None
+        self._range: tuple[int, int] | None = None
         self._single = False
         self._op: str | None = None
         self._payload = None
@@ -176,6 +177,11 @@ class _Query:
 
     def limit(self, n):
         self._limit = n
+        return self
+
+    def range(self, start, end):
+        """PostgREST-style inclusive [start, end] page."""
+        self._range = (start, end)
         return self
 
     def single(self):
@@ -272,6 +278,8 @@ class _Query:
             return SimpleNamespace(data=[copy.deepcopy(r) for r in rows])
         for column, desc in reversed(self._order):
             rows.sort(key=lambda r: (r.get(column) is None, str(r.get(column) or "")), reverse=desc)
+        if self._range is not None:
+            rows = rows[self._range[0] : self._range[1] + 1]
         if self._limit is not None:
             rows = rows[: self._limit]
         return self._result(rows)

@@ -267,3 +267,86 @@ def test_the_brief_company_hook_flag_reaches_the_client():
 
     assert "BRIEF_COMPANY_HOOK_ENABLED" in CLIENT_FLAGS
     assert settings.BRIEF_COMPANY_HOOK_ENABLED is False
+
+
+class _InviteChain:
+    """Any query method returns self; execute() serves rows and can reject sales_role."""
+
+    def __init__(self, rows, *, reject_sales_role=False):
+        self.rows = rows
+        self.reject_sales_role = reject_sales_role
+        self.selects: list[str] = []
+        self.updates: list[dict] = []
+        self._cols = ""
+        self._updated = False
+
+    def table(self, _name):
+        return self
+
+    def select(self, cols):
+        self._cols = cols
+        self.selects.append(cols)
+        return self
+
+    def update(self, values):
+        self.updates.append(values)
+        self._updated = True
+        return self
+
+    def single(self):
+        return self
+
+    def __getattr__(self, _name):
+        return lambda *args, **kwargs: self
+
+    def execute(self):
+        if self.reject_sales_role and "sales_role" in self._cols:
+            raise Exception("42703 column company_invitations.sales_role does not exist")
+        result = MagicMock()
+        result.data = [self.rows] if self._updated and isinstance(self.rows, dict) else self.rows
+        self._updated = False
+        return result
+
+
+_INVITE_ROW = {
+    "id": "inv-1",
+    "email": "a@b.co",
+    "role": "member",
+    "expires_at": "2099-01-01T00:00:00Z",
+    "created_at": "2026-01-01T00:00:00Z",
+    "invited_by": None,
+    "sales_role": "sdr",
+}
+
+
+def test_list_pending_invites_returns_sales_role():
+    chain = _InviteChain([dict(_INVITE_ROW)])
+    invites = CompanyService(chain).list_pending_invites("company-1")
+    assert invites[0]["sales_role"] == "sdr"
+    assert "sales_role" in chain.selects[0]
+
+
+def test_list_pending_invites_tolerates_missing_sales_role_column():
+    row = {k: v for k, v in _INVITE_ROW.items() if k != "sales_role"}
+    chain = _InviteChain([row], reject_sales_role=True)
+    invites = CompanyService(chain).list_pending_invites("company-1")
+    assert invites[0]["email"] == "a@b.co"
+    assert invites[0]["sales_role"] is None
+    assert len(chain.selects) == 2
+
+
+@pytest.mark.asyncio
+async def test_resend_invite_keeps_sales_role():
+    chain = _InviteChain(dict(_INVITE_ROW))
+    svc = CompanyService(chain)
+    svc.get_company = MagicMock(return_value={"name": "Acme"})
+    sent = {}
+
+    async def fake_send(**kwargs):
+        sent.update(kwargs)
+        return True
+
+    svc._send_invite_email = fake_send
+    invite, _url, _sent = await svc.resend_invite("inv-1", "company-1")
+    assert invite["sales_role"] == "sdr"
+    assert sent["sales_role"] == "sdr"

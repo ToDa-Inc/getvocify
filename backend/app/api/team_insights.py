@@ -15,7 +15,13 @@ from app.services.feature_flags import is_enabled
 from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TREND_FLAG, adherence_trend
 from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG
 from app.services.team_insights.competitors import COMPETITORS_FLAG
-from app.services.team_insights.aggregate import TeamAccessError, assert_team_reader, load_team_adherence_inputs, team_adherence
+from app.services.team_insights.aggregate import (
+    _TEAM_ROLES,
+    TeamAccessError,
+    assert_team_reader,
+    load_team_adherence_inputs,
+    team_adherence,
+)
 from app.services.team_insights.period import period_windows
 from app.services.team_insights.rep_detail import name_handoff_contacts, rep_handoffs, rep_in_company, rep_name, rep_sales_role
 
@@ -45,9 +51,22 @@ async def get_team_adherence(
     # Head of Sales phase 2. Without period the response is exactly the pre-phase-2 week.
     period: Optional[Literal["week", "month", "last_30", "quarter"]] = Query(None),
     sales_role: Optional[Literal["sdr", "ae"]] = Query(None),
+    # Coaching focus per rep: only the Head of Sales Equipo page asks for it.
+    with_focus: bool = Query(False),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
+    visibility = effective_visibility(supabase, membership)
+    # 403 before any heavy read.
+    try:
+        assert_team_reader(membership.role, visibility)
+    except TeamAccessError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes ver el equipo") from error
+    # A member reading the team (visibility=team) gets exactly the pre-phase-2 body:
+    # period, sales_role and with_focus are for managers.
+    is_manager = membership.role in _TEAM_ROLES
+    if not is_manager:
+        period, sales_role, with_focus = None, None, False
     windows = period_windows(period, now=_trend_now()) if period else None
     try:
         if _LOADER is not None:
@@ -69,13 +88,14 @@ async def get_team_adherence(
                 motion=motion,
                 period=windows,
                 sales_role=sales_role,
+                with_focus=with_focus,
             )
         # T11: how_to/best_example only when the Playbook tab is on for this company —
         # off keeps the objection_categories items in the pre-T11 shape.
         include_guidance = is_enabled(supabase, membership.company_id, PLAYBOOK_TAB_FLAG)
         body = team_adherence(
             role=membership.role,
-            visibility=effective_visibility(supabase, membership),
+            visibility=visibility,
             include_objection_guidance=include_guidance,
             **inputs,
         )
@@ -122,7 +142,8 @@ async def get_team_rep_detail(
     """T13: what the per-rep detail page needs beyond /team/adherence?user_id= and
     /team/adherence/trend?user_id= (both already generic) - the rep's own sales_role and
     its handoffs, SDR past / AE received."""
-    if not is_enabled(supabase, membership.company_id, MANAGER_HOME_FLAG):
+    # Owner/admin do not need the flag; a member with visibility=team still does.
+    if membership.role not in _TEAM_ROLES and not is_enabled(supabase, membership.company_id, MANAGER_HOME_FLAG):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     try:
         assert_team_reader(membership.role, effective_visibility(supabase, membership))

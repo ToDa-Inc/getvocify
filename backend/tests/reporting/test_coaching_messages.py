@@ -120,3 +120,40 @@ def test_flag_defaults_off_and_reaches_the_client():
 
     assert Settings.model_fields["COACHING_MESSAGES_ENABLED"].default is False
     assert "COACHING_MESSAGES_ENABLED" in CLIENT_FLAGS
+
+
+def test_daily_looks_up_existing_report_before_computing_coaching(monkeypatch):
+    from app.services.reporting import daily_snapshot
+
+    calls: list[str] = []
+    real_existing = daily_snapshot._existing_report_id
+
+    def existing(*args, **kwargs):
+        calls.append("existing")
+        return real_existing(*args, **kwargs)
+
+    def coaching(*args, **kwargs):
+        calls.append("coaching")
+        return None
+
+    monkeypatch.setattr(daily_snapshot, "_existing_report_id", existing)
+    monkeypatch.setattr(daily_snapshot, "self_daily_coaching", coaching)
+    db = _db(PREV + TODAY, on=True)
+    ensure_self_daily_report(db, company_id=COMPANY, user_id=REP, timezone=MADRID, now=THURSDAY)
+    assert calls == ["existing", "coaching"]
+
+
+def test_coaching_line_reads_the_same_eight_week_flow_window_as_the_tab():
+    from app.services.coaching.rep_focus import flow_window_start
+    from app.services.reporting import coaching_line
+    from app.services.team_insights.aggregate import madrid_week_bounds
+
+    old = _memo("old", "2026-08-05T09:00:00+00:00", {"open": "met"})  # ~7 weeks before THURSDAY
+    db = _db([old] + PREV + TODAY, on=True)
+    reference = THURSDAY
+    rows, _role, _playbook_for, _prev, week_start = coaching_line._context(
+        db, COMPANY, REP, reference=reference, since=reference
+    )
+    assert week_start == madrid_week_bounds(now=reference)[0]
+    assert "old" in {r["memo_id"] for r in rows}
+    assert flow_window_start(week_start).isoformat() <= old["created_at"]

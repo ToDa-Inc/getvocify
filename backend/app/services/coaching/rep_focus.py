@@ -11,12 +11,32 @@ from app.services.coaching import rep_coaching_reads as reads
 from app.services.playbooks.motion import flow_for_motion
 
 FLOW_MOTION = {"sdr": "discovery", "ae": "closing"}
+# Weeks of a rep's interactions that decide which flow a general/NULL rep is coached on.
+FLOW_WEEKS = 8
 
 
-def resolve_flow(sales_role: str | None, rows: list[dict]) -> str:
-    """sdr -> discovery, ae -> closing; general -> the flow with most of the rep's interactions."""
+def published_flows(playbook_for) -> list[str]:
+    """The flows (sdr, ae order) whose motion has a published playbook."""
+    return [flow for flow, motion in FLOW_MOTION.items() if playbook_for(motion)["published"]]
+
+
+def resolve_flow(
+    sales_role: str | None,
+    rows: list[dict],
+    published: list[str] | None = None,
+    requested: str | None = None,
+) -> str:
+    """sdr -> discovery, ae -> closing, always (a `requested` flow is ignored for them).
+    A general/NULL rep gets `requested` when valid; else, among the flows with a published
+    playbook (`published`, when known), the one with most of the rep's interactions - a single
+    published flow wins outright, a tie goes to sdr."""
     if sales_role in FLOW_MOTION:
         return sales_role
+    if requested in FLOW_MOTION:
+        return requested
+    candidates = [flow for flow in (published or []) if flow in FLOW_MOTION]
+    if len(candidates) == 1:
+        return candidates[0]
     counts = {"sdr": 0, "ae": 0}
     for row in rows:
         flow = flow_for_motion(row["motion"])
@@ -31,6 +51,14 @@ def previous_week_start(week_start: datetime) -> datetime:
     return madrid_week_bounds(now=week_start - timedelta(hours=12))[0]
 
 
+def flow_window_start(week_start: datetime) -> datetime:
+    """Monday of the oldest of the last FLOW_WEEKS Madrid weeks (the current one included)."""
+    start = week_start
+    for _ in range(FLOW_WEEKS - 1):
+        start = previous_week_start(start)
+    return start
+
+
 def in_window(rows: list[dict], start: datetime, end: datetime) -> list[dict]:
     return [r for r in rows if start <= engine.parse_instant(r["observed_at"]) < end]
 
@@ -40,11 +68,23 @@ def rows_of(memos: list[dict]) -> list[dict]:
 
 
 def rep_focus(
-    rows: list[dict], sales_role: str | None, playbook_for, *, prev_start: datetime, week_start: datetime
+    rows: list[dict],
+    sales_role: str | None,
+    playbook_for,
+    *,
+    prev_start: datetime,
+    week_start: datetime,
+    flow: str | None = None,
 ) -> dict | None:
     """{motion, steps, focus} for one rep or None when their flow has no published playbook.
-    `rows` are the rep's interaction rows (any motion); focus is chosen over [prev_start, week_start)."""
-    motion = FLOW_MOTION[resolve_flow(sales_role, rows)]
+    `rows` are the rep's interaction rows (any motion) from at least flow_window_start(week_start);
+    the flow is resolved over those FLOW_WEEKS weeks, the focus over [prev_start, week_start)."""
+    from app.services.team_insights.aggregate import madrid_week_bounds
+
+    week_end = madrid_week_bounds(now=week_start)[1]
+    flow_rows = in_window(rows, flow_window_start(week_start), week_end)
+    resolved = resolve_flow(sales_role, flow_rows, published_flows(playbook_for), flow)
+    motion = FLOW_MOTION[resolved]
     playbook = playbook_for(motion)
     if not playbook["published"]:
         return None
@@ -63,11 +103,12 @@ def coaching_focus_by_user(
     try:
         week_start, week_end = madrid_week_bounds(now=now or datetime.now(timezone.utc))
         prev_start = previous_week_start(week_start)
-        memos = reads.load_memos(supabase, company_id, ids, start=prev_start)
+        flow_start = flow_window_start(week_start)
+        memos = reads.load_memos(supabase, company_id, ids, start=flow_start)
     except Exception:
         return out
     rows_by_user: dict[str, list[dict]] = {}
-    for row in in_window(rows_of(memos), prev_start, week_end):
+    for row in in_window(rows_of(memos), flow_start, week_end):
         rows_by_user.setdefault(row["user_id"], []).append(row)
     playbooks: dict[str, dict] = {}
 

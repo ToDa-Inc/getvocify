@@ -299,15 +299,16 @@ def ensure_self_daily_report(
         sales_role=sales_role,
         flow_facts=flow_facts,
     )
-    snapshot["coaching"] = self_daily_coaching(
-        supabase, company_id=company_id, user_id=user_id, period_start=period_start, period_end=period_end
-    )
+    # Look the report up before the coaching line: that read set is the expensive part.
     report_id = _existing_report_id(
         supabase,
         company_id=company_id,
         user_id=user_id,
         period_start_iso=period_start_iso,
     ) or str(uuid.uuid4())
+    snapshot["coaching"] = self_daily_coaching(
+        supabase, company_id=company_id, user_id=user_id, period_start=period_start, period_end=period_end
+    )
     payload = {
         "id": report_id,
         "company_id": company_id,

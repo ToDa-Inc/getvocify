@@ -248,12 +248,26 @@ class _LoaderQuery:
         self._or = expression
         return self
 
+    def gte(self, column, value):
+        self._gte = getattr(self, "_gte", []) + [(column, str(value))]
+        return self
+
+    def order(self, column: str, **_kwargs):
+        self._orders = getattr(self, "_orders", []) + [column]
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
+
     def limit(self, n: int):
         self._limit = n
         return self
 
     def execute(self):
         rows = list(self._store.tables.get(self._name, []))
+        for column, value in getattr(self, "_gte", []):
+            rows = [row for row in rows if row.get(column) is not None and str(row.get(column)) >= value]
         for column, value in self._filters:
             rows = [row for row in rows if row.get(column) == value]
         for column, values in self._in_filters:
@@ -272,6 +286,8 @@ class _LoaderQuery:
                 return False
 
             rows = [row for row in rows if keep(row)]
+        if getattr(self, "_range", None) is not None:
+            rows = rows[self._range[0] : self._range[1] + 1]
         if self._limit is not None:
             rows = rows[: self._limit]
         if self._columns:
@@ -297,7 +313,11 @@ class _LoaderSupabase:
         return _LoaderQuery(self, name)
 
 
-def test_loader_revision_columns_keep_competitors_current():
+def test_loader_revision_columns_keep_competitors_current(monkeypatch):
+    from app.services.team_insights import aggregate
+
+    real_week_bounds = aggregate.madrid_week_bounds
+    monkeypatch.setattr(aggregate, "madrid_week_bounds", lambda *, now=None: real_week_bounds(now=now or _WEEK_END))
     from app.services.intelligence.worker import revision_for_memo
 
     memo = _memo("m-loader", mentions=[{"name": "Acme"}])

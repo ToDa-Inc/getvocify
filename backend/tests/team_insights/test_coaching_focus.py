@@ -77,6 +77,42 @@ def test_read_failure_is_null_not_an_error():
     assert coaching_focus_by_user(db, COMPANY, REPS, now=NOW) == {ANA: None, LUIS: None}
 
 
+def _both_published_db(memos):
+    db = _db(memos)
+    db.tables["playbooks"].append(
+        {"id": "pb2", "company_id": COMPANY, "sales_motion_key": "closing", "active_version_id": "v2"}
+    )
+    db.tables["playbook_versions"].append(
+        {"id": "v2", "playbook_id": "pb2", "status": "published", "steps": STEPS, "entries": []}
+    )
+    return db
+
+
+def test_general_rep_flow_is_resolved_over_eight_weeks_with_a_published_playbook():
+    from app.services.coaching import rep_coaching_reads as reads
+    from app.services.coaching.rep_focus import flow_window_start, rep_focus, rows_of, previous_week_start
+    from app.services.team_insights.aggregate import madrid_week_bounds
+
+    # Closing interactions five weeks ago outweigh one discovery interaction last week.
+    memos = [_memo(f"c{i}", ANA, {"open": "met"}, 35, motion="closing") for i in range(3)]
+    memos.append(_memo("d", ANA, {"open": "met"}, 7))
+    db = _both_published_db(memos)
+    week_start = madrid_week_bounds(now=NOW)[0]
+    rows = rows_of(reads.load_memos(db, COMPANY, [ANA], start=flow_window_start(week_start)))
+    found = rep_focus(
+        rows, None, lambda motion: reads.load_published_playbook(db, COMPANY, motion),
+        prev_start=previous_week_start(week_start), week_start=week_start,
+    )
+    assert found["motion"] == "closing"
+
+
+def test_general_rep_with_only_one_published_flow_uses_it():
+    memos = [_memo(f"d{i}", ANA, {"open": "missed", "pain": "met"}, 7) for i in range(3)]
+    db = _db(memos)  # only discovery published; the rep has no interactions in closing
+    focus = coaching_focus_by_user(db, COMPANY, [{"userId": ANA, "name": "Ana"}], now=NOW)
+    assert focus[ANA]["step_id"] == "open"
+
+
 def test_team_adherence_adds_the_field_only_with_a_period():
     kwargs = dict(role="owner", parts=[], playbook_present=False, sample_size=0, reps=REPS,
                   activity_period_start=CURRENT.start, activity_period_end=CURRENT.end,

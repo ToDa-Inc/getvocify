@@ -543,16 +543,27 @@ class CompanyService:
 
     def list_pending_invites(self, company_id: str) -> List[dict]:
         now = _iso(_now())
-        result = (
-            self.supabase.table("company_invitations")
-            .select("id, email, role, expires_at, created_at, invited_by")
-            .eq("company_id", company_id)
-            .is_("accepted_at", "null")
-            .is_("revoked_at", "null")
-            .gt("expires_at", now)
-            .order("created_at", desc=True)
-            .execute()
-        )
+        base_cols = "id, email, role, expires_at, created_at, invited_by"
+
+        def _read(columns: str):
+            return (
+                self.supabase.table("company_invitations")
+                .select(columns)
+                .eq("company_id", company_id)
+                .is_("accepted_at", "null")
+                .is_("revoked_at", "null")
+                .gt("expires_at", now)
+                .order("created_at", desc=True)
+                .execute()
+            )
+
+        try:
+            result = _read(f"{base_cols}, sales_role")
+        except Exception as exc:
+            # Column only exists after migration 054; keep listing invites without it.
+            if not _missing_sales_columns(exc):
+                raise
+            result = _read(base_cols)
         return [
             {
                 "id": str(r["id"]),
@@ -561,6 +572,7 @@ class CompanyService:
                 "expires_at": r["expires_at"],
                 "created_at": r.get("created_at"),
                 "invited_by": r.get("invited_by"),
+                "sales_role": r.get("sales_role"),
             }
             for r in (result.data or [])
         ]
@@ -714,6 +726,7 @@ class CompanyService:
             to=str(invite["email"]),
             company_name=company.get("name") or "Vocify",
             invite_url=invite_url,
+            sales_role=invite.get("sales_role"),
         )
         return invite, invite_url if not email_sent else None, email_sent
 

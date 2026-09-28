@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
-from app.services.coaching.rep_focus import in_window, previous_week_start, rep_focus, rows_of
+from app.services.coaching.rep_focus import flow_window_start, in_window, previous_week_start, rep_focus, rows_of
 from app.services.coaching.rep_messages import daily_coaching_line, weekly_coaching_line
 from app.services.company import sales_role_for_user
 from app.services.feature_flags import is_enabled
@@ -22,7 +22,8 @@ FLAG = "COACHING_MESSAGES_ENABLED"
 def _context(supabase, company_id: str, user_id: str, *, reference: datetime, since: datetime):
     week_start, week_end = madrid_week_bounds(now=reference)
     prev_start = previous_week_start(week_start)
-    rows = rows_of(reads.load_memos(supabase, company_id, [user_id], start=min(since, prev_start)))
+    # The same FLOW_WEEKS window as the coaching tab, so a general rep gets the same flow.
+    rows = rows_of(reads.load_memos(supabase, company_id, [user_id], start=min(since, flow_window_start(week_start))))
     playbooks: dict[str, dict] = {}
 
     def playbook_for(motion: str) -> dict:

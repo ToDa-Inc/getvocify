@@ -25,14 +25,15 @@ SECTIONS = [{"kind": "objections", "evidence_refs": ["ev-1"]}]
 
 
 class BriefStore:
-    def __init__(self, *, briefs: list[dict] | None = None):
+    def __init__(self, *, briefs: list[dict] | None = None, owner_id: str = USER_ID):
         self.briefs = briefs or []
+        self.owner_id = owner_id
 
     def table(self, name: str):
         query = MagicMock()
         if name == "memos":
             query.execute.return_value = SimpleNamespace(
-                data=[{"id": MEMO_ID, "company_id": COMPANY_ID}],
+                data=[{"id": MEMO_ID, "company_id": COMPANY_ID, "user_id": self.owner_id}],
             )
         elif name == "post_interaction_briefs":
             query.execute.return_value = SimpleNamespace(data=list(self.briefs))
@@ -157,3 +158,21 @@ def test_not_started_has_no_highlight_at():
     body = got.json()
     assert body["reason"] == "not_started"
     assert "highlight" not in body
+
+
+def _member_client(store: BriefStore, *, role="member", visibility="own") -> TestClient:
+    client = _client(store)
+    client.app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id=COMPANY_ID, user_id=USER_ID, role=role, status="active", visibility=visibility,
+    )
+    return client
+
+
+def test_a_member_cannot_read_a_teammates_brief():
+    store_ = BriefStore(owner_id="someone-else")
+    assert _member_client(store_).get(f"/api/v1/memos/{MEMO_ID}/brief").status_code == 404
+
+
+def test_a_manager_reads_a_teammates_brief():
+    store_ = BriefStore(owner_id="someone-else")
+    assert _member_client(store_, role="admin").get(f"/api/v1/memos/{MEMO_ID}/brief").status_code == 200

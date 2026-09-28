@@ -352,6 +352,14 @@ def world(request, monkeypatch) -> World:
     db = _database()
     crm, llm, confirm_writes = FakeHubSpot(), FakeLLM(), []
     _install_io_fakes(monkeypatch, crm, llm, confirm_writes)
+    # The team loader reads memos from the current Madrid week (minus a margin): pin "now"
+    # to the story's week so the test does not depend on the wall clock.
+    from app.services.team_insights import aggregate as team_aggregate
+
+    real_week_bounds = team_aggregate.madrid_week_bounds
+    monkeypatch.setattr(
+        team_aggregate, "madrid_week_bounds", lambda *, now=None: real_week_bounds(now=now or REPORT_NOW)
+    )
     world = World(channel=request.param, db=db, llm=llm, crm=crm, whatsapp=FakeWhatsApp(),
                   confirm_writes=confirm_writes)
     asyncio.run(_call(world) if world.channel == "call" else _whatsapp(world))

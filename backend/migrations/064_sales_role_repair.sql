@@ -22,6 +22,24 @@ ALTER TABLE company_members ALTER COLUMN sales_role DROP DEFAULT;
 ALTER TABLE company_members
   DROP CONSTRAINT IF EXISTS company_members_sales_role_check;
 
+-- The draft may have left its CHECK under another name (or an auto-generated one):
+-- drop every remaining CHECK on company_members that references sales_role, otherwise
+-- it keeps rejecting 'general' after the 054 constraint is back.
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  FOR c IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'company_members'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%sales_role%'
+  LOOP
+    EXECUTE format('ALTER TABLE company_members DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
+
 UPDATE company_members
   SET sales_role = NULL
   WHERE sales_role IS NOT NULL AND sales_role NOT IN ('sdr', 'ae', 'general');
