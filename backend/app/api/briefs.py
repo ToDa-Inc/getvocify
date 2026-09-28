@@ -59,6 +59,16 @@ def _now() -> datetime:
 
 
 HANDOFF_FLAG = "HANDOFF_ENABLED"
+SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
+
+
+def _sdr_two_line_brief(supabase, membership: Membership) -> bool:
+    """T7/D1: the SDR two-line brief format applies for a call (this endpoint, not
+    /briefs/meeting) only with SALES_ROLES_ENABLED on and a viewer who is sdr or general
+    (null sales_role counts as general). The AE keeps the 3-line format."""
+    if not is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG):
+        return False
+    return membership.sales_role in (None, "sdr", "general")
 
 
 def _handoff_restricted_user_ids(
@@ -117,6 +127,8 @@ async def get_brief(
             allowed_user_ids=allowed_user_ids,
         ))
 
+    sdr_two_line = _sdr_two_line_brief(supabase, membership)
+
     rows, coverage = _read_memos(
         supabase,
         membership.company_id,
@@ -155,6 +167,7 @@ async def get_brief(
         crm_task=crm_task,
         playbook_steps=steps,
         playbook_entries=entries,
+        sdr_two_line=sdr_two_line,
     )
 
 

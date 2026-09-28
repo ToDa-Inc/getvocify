@@ -356,3 +356,119 @@ def test_missing_steps_lists_the_missed_playbook_steps_next_to_the_label():
 
     without_steps = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW)
     assert without_steps["missing_steps"] == []
+
+
+# --- T7: SDR/general two-line brief (sdr_two_line=True), calls only ---
+
+def test_sdr_two_line_hook_has_date_summary_and_pending():
+    intel = _current_intelligence(
+        pain_confirmed=False,
+        evidence=[],
+        commitments=[{
+            "id": "com-1",
+            "kind": "next_step",
+            "origin": "rep_promise",
+            "text": "Enviar la propuesta",
+            "due_at": "2026-09-25T09:00:00+02:00",
+            "temporal_precision": "date",
+        }],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert len(brief["lines"]) <= 2
+    assert brief["lines"][0]["type"] == "hook"
+    assert brief["lines"][0]["text"] == "11 sep: Hablaron del almacén. Pendiente: enviar la propuesta."
+
+
+def test_sdr_two_line_why_uses_call_commitment_and_pain_quote_as_gancho():
+    intel = _current_intelligence(
+        commitments=[{
+            "id": "com-1",
+            "kind": "call",
+            "origin": "prospect_request",
+            "text": "llamar hoy",
+            "due_at": "2026-09-26T09:00:00+02:00",
+            "temporal_precision": "time",
+        }],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    types = [line["type"] for line in brief["lines"]]
+    assert "why" in types
+    why = next(line for line in brief["lines"] if line["type"] == "why")
+    assert why["text"] == 'Llama porque pidió que le llamaras hoy. Gancho: "se nos quedan leads sin llamar los viernes"'
+
+
+def test_sdr_two_line_omits_pending_when_no_commitment():
+    intel = _current_intelligence(pain_confirmed=False, evidence=[])
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert brief["lines"][0]["text"] == "11 sep: Hablaron del almacén."
+
+
+def test_sdr_two_line_omits_summary_when_missing_keeps_pending():
+    intel = _current_intelligence(
+        pain_confirmed=False,
+        evidence=[],
+        commitments=[{
+            "id": "com-1",
+            "kind": "next_step",
+            "origin": "rep_promise",
+            "text": "Enviar la propuesta",
+            "due_at": "2026-09-25T09:00:00+02:00",
+            "temporal_precision": "date",
+        }],
+    )
+    memo = _memo(extraction={"summary": "", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert brief["lines"][0]["text"] == "11 sep. Pendiente: enviar la propuesta."
+
+
+def test_sdr_two_line_why_falls_back_to_no_reply_when_no_call_commitment():
+    intel = _current_intelligence(pain_confirmed=False, evidence=[])
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(
+        coverage="complete",
+        memos=[memo],
+        tz_name=TZ,
+        now=NOW,
+        sdr_two_line=True,
+        no_reply={"text": "Le escribiste y no ha respondido.", "source_ref": "email-1"},
+    )
+    why = next((line for line in brief["lines"] if line["type"] == "why"), None)
+    assert why is not None
+    assert why["text"] == "Llama porque le escribiste y no ha respondido."
+
+
+def test_sdr_two_line_why_omitted_when_no_porque_and_no_quote():
+    intel = _current_intelligence(pain_confirmed=False, evidence=[])
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert [line["type"] for line in brief["lines"]] == ["hook"]
+
+
+def test_sdr_two_line_ignores_say_line_playbook_guidance():
+    intel = _current_intelligence(
+        pain_confirmed=False,
+        evidence=[],
+        objections=[{"id": "obj-1", "category": "price", "quote": "Es caro.", "resolution": "open"}],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del precio.", "intelligence": intel})
+    brief = prepare_brief_v2(
+        coverage="complete", memos=[memo], tz_name=TZ, now=NOW,
+        sdr_two_line=True, playbook_entries=PLAYBOOK_ENTRIES,
+    )
+    assert "say" not in [line["type"] for line in brief["lines"]]
+
+
+def test_three_line_format_unchanged_when_sdr_two_line_false():
+    intel = _current_intelligence(
+        commitments=[{
+            "id": "com-1", "kind": "call", "origin": "prospect_request",
+            "text": "llamar hoy", "due_at": "2026-09-26T09:00:00+02:00", "temporal_precision": "time",
+        }],
+    )
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=False)
+    assert [line["type"] for line in brief["lines"]] == ["hook", "why"]
+    assert brief["lines"][1]["text"] == "Pidió que le llamaras hoy."

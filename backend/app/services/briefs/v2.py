@@ -90,15 +90,9 @@ def _commitment_why(commitment: Commitment, *, now: datetime, tz_name: str) -> s
     return f"Quedó pendiente: {what}."
 
 
-def why_line(
-    *,
-    intelligence: dict,
-    memo: dict,
-    tz_name: str,
-    now: datetime,
-    no_reply: dict | None,
-    crm_task: dict | None,
-) -> dict | None:
+def _due_commitment(*, memo: dict, intelligence: dict, now: datetime, tz_name: str) -> Commitment | None:
+    """The same `commitment_due` Hoy signal `why_line` and the T7 SDR two-line format read:
+    the nearest commitment already due, whatever its kind. None if nothing is due yet."""
     at = _as_dt(memo.get("capture_started_at")) or _as_dt(memo.get("created_at"))
     dated = [
         item for item in intelligence.get("commitments") or []
@@ -112,20 +106,35 @@ def why_line(
         intelligence={**intelligence, "commitments": dated},
         history_complete=True,
     )
-    if touch:
-        end = day_end(now, tz_name)
-        for signal in signals_for_contact([touch], now=now, day_end=end):
-            if signal.type != "commitment_due":
-                continue
-            commitment = Commitment(
-                kind=signal.payload["kind"],
-                origin=signal.payload["origin"],
-                text=signal.payload["text"],
-                due_at=signal.due_at or now,
-            )
-            text = _commitment_why(commitment, now=now, tz_name=tz_name)
-            if text:
-                return _line("why", text, source_ref=memo.get("id"), observed_at=signal.due_at)
+    if not touch:
+        return None
+    end = day_end(now, tz_name)
+    for signal in signals_for_contact([touch], now=now, day_end=end):
+        if signal.type != "commitment_due":
+            continue
+        return Commitment(
+            kind=signal.payload["kind"],
+            origin=signal.payload["origin"],
+            text=signal.payload["text"],
+            due_at=signal.due_at or now,
+        )
+    return None
+
+
+def why_line(
+    *,
+    intelligence: dict,
+    memo: dict,
+    tz_name: str,
+    now: datetime,
+    no_reply: dict | None,
+    crm_task: dict | None,
+) -> dict | None:
+    commitment = _due_commitment(memo=memo, intelligence=intelligence, now=now, tz_name=tz_name)
+    if commitment is not None:
+        text = _commitment_why(commitment, now=now, tz_name=tz_name)
+        if text:
+            return _line("why", text, source_ref=memo.get("id"), observed_at=commitment.due_at)
     if no_reply and no_reply.get("text"):
         return _line(
             "why",
@@ -141,6 +150,84 @@ def why_line(
             observed_at=crm_task.get("observed_at"),
         )
     return None
+
+
+def _lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:] if text else text
+
+
+def _strip_final_period(text: str) -> str:
+    text = text.strip()
+    return text[:-1] if text.endswith(".") else text
+
+
+def sdr_hook_line(*, memo: dict, intelligence: dict, tz_name: str, now: datetime) -> dict | None:
+    """T7: SDR/general two-line format, L1 - «{fecha}: {qué se habló}. Pendiente: {pendiente}.»
+    Only C04 facts; a missing summary or pending action just drops that clause."""
+    when = next(
+        (value for value in (memo.get("capture_started_at"), memo.get("created_at")) if _as_dt(value)),
+        None,
+    )
+    day = _day_label(when, tz_name)
+    if not day:
+        return None
+    summary = plain_sentence((memo.get("extraction") or {}).get("summary"))
+    commitment = _due_commitment(memo=memo, intelligence=intelligence, now=now, tz_name=tz_name)
+    pending = None
+    if commitment is not None and commitment.kind != "call" and commitment.text:
+        pending = _lower_first(commitment.text)
+    if not summary and not pending:
+        return None
+    if summary:
+        text = f"{day}: {summary}"
+    else:
+        text = f"{day}."
+    if pending:
+        text = f"{text} Pendiente: {pending}."
+    return _line("hook", text, source_ref=memo.get("id"), observed_at=when)
+
+
+def sdr_why_line(
+    *,
+    intelligence: dict,
+    memo: dict,
+    tz_name: str,
+    now: datetime,
+    no_reply: dict | None,
+    crm_task: dict | None,
+) -> dict | None:
+    """T7: SDR/general two-line format, L2 - «Llama porque {porqué}. Gancho: "{cita}".»
+    `porqué` is the same reason `why_line` uses (a due call commitment, then no_reply, then
+    a CRM task); `cita` is the pain quote `hook_line` shows the AE. Either half can be
+    missing on its own; both missing drops the line entirely."""
+    porque = None
+    source_ref = None
+    observed_at = None
+    commitment = _due_commitment(memo=memo, intelligence=intelligence, now=now, tz_name=tz_name)
+    if commitment is not None and commitment.kind == "call":
+        reason = _commitment_why(commitment, now=now, tz_name=tz_name)
+        if reason:
+            porque = _lower_first(_strip_final_period(reason))
+            source_ref, observed_at = memo.get("id"), commitment.due_at
+    if porque is None and no_reply and no_reply.get("text"):
+        porque = _lower_first(_strip_final_period(str(no_reply["text"])))
+        source_ref, observed_at = no_reply.get("source_ref"), no_reply.get("observed_at")
+    if porque is None and crm_task and crm_task.get("text"):
+        porque = _lower_first(_strip_final_period(str(crm_task["text"])))
+        source_ref, observed_at = crm_task.get("source_ref"), crm_task.get("observed_at")
+
+    quote = " ".join(str(pain_quote(intelligence) or "").split())
+
+    if not porque and not quote:
+        return None
+    parts = []
+    if porque:
+        parts.append(f"Llama porque {porque}.")
+    if quote:
+        parts.append(f'Gancho: "{quote}"')
+        if source_ref is None:
+            source_ref = memo.get("id")
+    return _line("why", " ".join(parts), source_ref=source_ref, observed_at=observed_at)
 
 
 def _open_objections(intelligence: dict) -> list[dict]:
@@ -256,6 +343,7 @@ def prepare_brief_v2(
     playbook_entries: list[dict] | None = None,
     cold_profile: dict | None = None,
     hoy_priority: dict | None = None,
+    sdr_two_line: bool = False,
 ) -> dict:
     now = now or datetime.now(timezone.utc)
     failed = coverage in {"partial", "unavailable"}
@@ -282,22 +370,38 @@ def prepare_brief_v2(
     intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
 
     lines: list[dict] = []
-    hook = hook_line(memo=latest, intelligence=intelligence, tz_name=tz_name)
-    if hook:
-        lines.append(hook)
-    why = why_line(
-        intelligence=intelligence,
-        memo=latest,
-        tz_name=tz_name,
-        now=now,
-        no_reply=no_reply,
-        crm_task=crm_task,
-    )
-    if why:
-        lines.append(why)
-    say = say_line(intelligence=intelligence, playbook_entries=playbook_entries)
-    if say:
-        lines.append(say)
+    if sdr_two_line:
+        # T7: SDR/general, brief for a call - two lines, no playbook `say` line.
+        hook = sdr_hook_line(memo=latest, intelligence=intelligence, tz_name=tz_name, now=now)
+        if hook:
+            lines.append(hook)
+        why = sdr_why_line(
+            intelligence=intelligence,
+            memo=latest,
+            tz_name=tz_name,
+            now=now,
+            no_reply=no_reply,
+            crm_task=crm_task,
+        )
+        if why:
+            lines.append(why)
+    else:
+        hook = hook_line(memo=latest, intelligence=intelligence, tz_name=tz_name)
+        if hook:
+            lines.append(hook)
+        why = why_line(
+            intelligence=intelligence,
+            memo=latest,
+            tz_name=tz_name,
+            now=now,
+            no_reply=no_reply,
+            crm_task=crm_task,
+        )
+        if why:
+            lines.append(why)
+        say = say_line(intelligence=intelligence, playbook_entries=playbook_entries)
+        if say:
+            lines.append(say)
     lines = lines[:MAX_LINES]
 
     label = progress_label(steps=playbook_steps or [], observations=intelligence.get("playbook_observations") or [])

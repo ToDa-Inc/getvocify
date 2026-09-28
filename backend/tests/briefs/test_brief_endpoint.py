@@ -698,3 +698,66 @@ def test_flag_on_with_memo_is_exactly_the_e3_brief_and_reads_no_profile(monkeypa
     assert body == json.loads(json.dumps(expected))
     assert built == []
     assert "contact_priority_context" not in db.reads
+
+
+# --- T7: SALES_ROLES_ENABLED gates the SDR two-line format at the endpoint ---
+
+def test_sdr_membership_with_sales_roles_flag_gets_two_line_brief():
+    briefs_api.set_brief_tasks(_tasks([]))
+    sdr_membership = Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active", sales_role="sdr",
+    )
+    memo = _memo()
+    db = _Db(_tables([memo], flags=_flags(BRIEF_V2_ENABLED=True, SALES_ROLES_ENABLED=True)))
+    body = _get(db, membership=sdr_membership)
+    assert body["status"] == "ready"
+    assert len(body["lines"]) <= 2
+
+
+def test_null_sales_role_counts_as_general_for_the_two_line_brief():
+    """D1: null sales_role behaves as general."""
+    briefs_api.set_brief_tasks(_tasks([]))
+    general_membership = Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active", sales_role=None,
+    )
+    memo = _memo()
+    db = _Db(_tables([memo], flags=_flags(BRIEF_V2_ENABLED=True, SALES_ROLES_ENABLED=True)))
+    body = _get(db, membership=general_membership)
+    expected = prepare_brief_v2(
+        coverage="complete", memos=[memo], tz_name="Europe/Madrid", now=NOW,
+        no_reply=None, crm_task=None, playbook_steps=[], playbook_entries=[], sdr_two_line=True,
+    )
+    assert body == json.loads(json.dumps(expected))
+
+
+def test_ae_membership_keeps_the_three_line_brief_even_with_sales_roles_flag_on():
+    briefs_api.set_brief_tasks(_tasks([]))
+    ae_membership = Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active", sales_role="ae",
+    )
+    memo = _memo(intelligence={
+        "pain_confirmed": True,
+        "evidence": [{"id": "ev-1", "quote": "se nos escapan leads", "source_type": "transcript", "source_id": "memo-1"}],
+    })
+    db = _Db(_tables([memo], flags=_flags(BRIEF_V2_ENABLED=True, SALES_ROLES_ENABLED=True)))
+    body = _get(db, membership=ae_membership)
+    expected = prepare_brief_v2(
+        coverage="complete", memos=[memo], tz_name="Europe/Madrid", now=NOW,
+        no_reply=None, crm_task=None, playbook_steps=[], playbook_entries=[], sdr_two_line=False,
+    )
+    assert body == json.loads(json.dumps(expected))
+
+
+def test_sales_roles_flag_off_keeps_the_three_line_brief_for_an_sdr():
+    briefs_api.set_brief_tasks(_tasks([]))
+    sdr_membership = Membership(
+        id="m", company_id="co-1", user_id="user-a", role="member", status="active", sales_role="sdr",
+    )
+    memo = _memo()
+    db = _Db(_tables([memo], flags=_flags(BRIEF_V2_ENABLED=True)))
+    body = _get(db, membership=sdr_membership)
+    expected = prepare_brief_v2(
+        coverage="complete", memos=[memo], tz_name="Europe/Madrid", now=NOW,
+        no_reply=None, crm_task=None, playbook_steps=[], playbook_entries=[], sdr_two_line=False,
+    )
+    assert body == json.loads(json.dumps(expected))
