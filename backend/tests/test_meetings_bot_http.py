@@ -9,6 +9,8 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-recall-3232b")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-recall-3232b")
 
+from unittest.mock import patch
+
 import httpx
 import respx
 from fastapi import FastAPI
@@ -124,8 +126,20 @@ def test_no_api_key_is_503():
 def test_recall_error_is_502_not_500():
     respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(return_value=httpx.Response(422, text="bad url"))
     client = _client()
-    response = client.post("/api/v1/meetings/bot", json={"meeting_url": "not-a-url"})
+    response = client.post("/api/v1/meetings/bot", json={"meeting_url": "https://zoom.us/j/1"})
     assert response.status_code == 502
+
+
+def test_a_non_allowed_meeting_url_is_422():
+    client = _client()
+    response = client.post("/api/v1/meetings/bot", json={"meeting_url": "https://evil.example/j/1"})
+    assert response.status_code == 422
+
+
+def test_a_non_https_meeting_url_is_422():
+    client = _client()
+    response = client.post("/api/v1/meetings/bot", json={"meeting_url": "http://zoom.us/j/1"})
+    assert response.status_code == 422
 
 
 @respx.mock
@@ -148,6 +162,24 @@ def test_successful_create_reserves_the_capture():
     assert memo["source_type"] == "recall_bot"
     assert memo["interaction_kind"] == "meeting"
     assert memo["hubspot_contact_id"] == "contact-9"
+
+
+@respx.mock
+def test_a_reserve_failure_deletes_the_orphan_bot_and_returns_502():
+    respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(
+        return_value=httpx.Response(201, json={"id": "bot-orphan"})
+    )
+    delete_route = respx.delete("https://us-west-2.recall.ai/api/v1/bot/bot-orphan/").mock(
+        return_value=httpx.Response(204)
+    )
+    # An empty client_capture_id makes reserve_recall_capture's underlying
+    # reserve_capture raise (400), simulating any reservation failure.
+    with patch("app.services.meetings.recall_bot.client_capture_id_for_bot", return_value=""):
+        client = _client()
+        response = client.post("/api/v1/meetings/bot", json={"meeting_url": "https://zoom.us/j/1"})
+    assert response.status_code == 502
+    assert delete_route.called
+    assert STORE.tables.get("memos", []) == []
 
 
 @respx.mock

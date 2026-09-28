@@ -132,6 +132,23 @@ def test_turns_from_recall_transcript_without_rep_name_is_unknown_not_a_guess():
     assert all(t["speaker_role"] == "unknown" for t in turns)
 
 
+def test_turns_from_recall_transcript_matches_full_name_not_just_a_substring():
+    segments = [
+        {"participant": {"name": "Marta Vendedora"}, "words": [{"text": "Hola"}]},
+        {"participant": {"name": "Mariana Cliente"}, "words": [{"text": "Hola"}]},
+    ]
+    _, turns = rc.turns_from_recall_transcript(segments, rep_name="Marta")
+    # "Marta" is a substring of "Mariana" but not the same first name - must not match.
+    assert turns[0]["speaker_role"] == "rep"
+    assert turns[1]["speaker_role"] == "prospect"
+
+
+def test_turns_from_recall_transcript_matches_full_name_token_order_independent():
+    segments = [{"participant": {"name": "Vendedora Marta"}, "words": [{"text": "Hola"}]}]
+    _, turns = rc.turns_from_recall_transcript(segments, rep_name="Marta Vendedora")
+    assert turns[0]["speaker_role"] == "rep"
+
+
 def test_turns_from_recall_transcript_skips_empty_segments():
     _, turns = rc.turns_from_recall_transcript(SEGMENTS, rep_name="Marta")
     # The "Sin palabras" segment has no words and produces no turn.

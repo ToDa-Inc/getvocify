@@ -98,7 +98,8 @@ def interaction_kind_for(
         return "call"
     if origin == "whatsapp":
         return "visit"
-    return "meeting" if (source_type or "").strip() == "meeting_transcript" else "call"
+    kind_hint = (source_type or "").strip()
+    return "meeting" if kind_hint in ("meeting_transcript", "recall_bot") else "call"
 
 
 def interaction_kind_of(memo: dict[str, Any]) -> str:
@@ -109,6 +110,27 @@ def interaction_kind_of(memo: dict[str, Any]) -> str:
 def _is_unique_violation(exc: BaseException) -> bool:
     text = str(exc).lower()
     return "duplicate key" in text or "23505" in text
+
+
+def _is_memos_source_check_violation(exc: BaseException) -> bool:
+    """True for a memos_source_check violation (23514): migration 061_memos_source_recall.sql
+    (adding 'recall') has not run yet. Tolerant so the Recall bot capture (T14) still
+    reserves - with source='web' until the migration lands - instead of a 500. Postgres'
+    check-violation message doesn't echo the value, so this can't be narrower than the
+    constraint name; reserve_capture only retries it for its own known source overrides."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if code == "23514" and "memos_source_check" in msg:
+            return True
+
+    text = str(exc).lower()
+    return "23514" in text and "memos_source_check" in text
 
 
 def _as_iso(value: Any) -> str:
@@ -352,11 +374,18 @@ def reserve_capture(
     try:
         created = insert_memo_row(supabase, payload)
     except Exception as exc:
-        if not _is_unique_violation(exc):
+        if _is_memos_source_check_violation(exc) and payload["source"] != "web":
+            # Migration 061 hasn't run yet: this source value isn't in the DB's
+            # check constraint. Never invented silently for an unknown value - only
+            # for the one override reserve_capture itself set (source="recall").
+            payload["source"] = "web"
+            created = insert_memo_row(supabase, payload)
+        elif not _is_unique_violation(exc):
             raise
-        created = _find_own_capture(supabase, user_id, client_id)
-        if not created:
-            raise
+        else:
+            created = _find_own_capture(supabase, user_id, client_id)
+            if not created:
+                raise
     return _identity_from_row(created)
 
 

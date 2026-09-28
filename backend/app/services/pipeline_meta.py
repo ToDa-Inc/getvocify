@@ -29,6 +29,8 @@ _EXTRACTION_SOURCE_TYPES = frozenset(
 
 def extraction_source_type(raw: Optional[str]) -> str:
     value = (raw or "").strip()
+    if value == "recall_bot":  # T14: a bot-recorded meeting, same as a manual meeting_transcript
+        return "meeting_transcript"
     if value in _EXTRACTION_SOURCE_TYPES:
         return value
     return "voice_memo"

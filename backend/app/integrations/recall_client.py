@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -40,6 +41,26 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REGION = "us-west-2"
 DEFAULT_BOT_NAME = "Vocify"
+
+# A bot only ever needs to join a real video call - not any https URL. Zoom hosts a
+# meeting on a per-tenant subdomain (*.zoom.us); Meet and Teams don't.
+ALLOWED_MEETING_URL_SUFFIXES = (".zoom.us",)
+ALLOWED_MEETING_URL_HOSTS = ("zoom.us", "meet.google.com", "teams.microsoft.com", "teams.live.com")
+
+
+def is_allowed_meeting_url(url: str) -> bool:
+    try:
+        parsed = urlparse((url or "").strip())
+    except Exception:
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    if host in ALLOWED_MEETING_URL_HOSTS:
+        return True
+    return any(host.endswith(suffix) for suffix in ALLOWED_MEETING_URL_SUFFIXES)
 
 CREATE_BOT_PATH = "/api/v1/bot/"
 BOT_DETAIL_PATH = "/api/v1/bot/{bot_id}/"
@@ -86,6 +107,19 @@ class RecallClient:
                 f"Recall create bot error {response.status_code}: {response.text[:500]}"
             )
         return response.json()
+
+    async def delete_bot(self, bot_id: str) -> None:
+        """Cancels/removes a bot that never got a capture behind it (e.g. reserve_capture
+        failed after create_bot succeeded) - best-effort cleanup, not the pipeline path."""
+        if not self.api_key:
+            return
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            try:
+                await client.delete(
+                    f"{self.base_url}{BOT_DETAIL_PATH.format(bot_id=bot_id)}", headers=self._headers()
+                )
+            except Exception:
+                logger.warning("Recall delete bot failed for %s", bot_id, exc_info=True)
 
     async def get_bot(self, bot_id: str) -> dict[str, Any]:
         if not self.api_key:
@@ -134,11 +168,12 @@ def turns_from_recall_transcript(
     """Recall's per-participant word segments -> (plain transcript, C01 turns).
 
     speaker_role is a best-effort match against the rep's own display name (there is
-    no reliable "this participant is the rep" flag from Recall): a participant whose
-    name contains the rep's name is `rep`, everyone else is `prospect`. Without a
-    rep_name to match against, every turn is `unknown` rather than a guess.
+    no reliable "this participant is the rep" flag from Recall): a participant matches
+    the rep by full name-token equality or by first-name equality (see
+    `_is_rep_name_match`), everyone else is `prospect`. Without a rep_name to match
+    against, every turn is `unknown` rather than a guess.
     """
-    needle = (rep_name or "").strip().lower()
+    rep_tokens = _name_tokens(rep_name)
     turns: list[dict[str, Any]] = []
     lines: list[str] = []
     for i, segment in enumerate(segments or []):
@@ -150,8 +185,8 @@ def turns_from_recall_transcript(
         name = str(participant.get("name") or "").strip()
 
         speaker_role = "unknown"
-        if needle:
-            speaker_role = "rep" if name and needle in name.lower() else "prospect"
+        if rep_tokens:
+            speaker_role = "rep" if _is_rep_name_match(rep_tokens, name) else "prospect"
 
         start_ms = _relative_ms(words[0].get("start_timestamp")) if words else None
         end_ms = _relative_ms(words[-1].get("end_timestamp")) if words else None
@@ -166,6 +201,23 @@ def turns_from_recall_transcript(
         })
         lines.append(f"{name}: {text}" if name else text)
     return "\n".join(lines), turns
+
+
+def _name_tokens(name: Optional[str]) -> tuple[str, ...]:
+    return tuple(t for t in (name or "").strip().lower().split() if t)
+
+
+def _is_rep_name_match(rep_tokens: tuple[str, ...], participant_name: str) -> bool:
+    """Full-name-token equality, or first-name equality - not a substring match, which
+    would false-positive "Ana" against "Mariana" or "Marta" against "Martazo"."""
+    if not rep_tokens or not participant_name:
+        return False
+    participant_tokens = _name_tokens(participant_name)
+    if not participant_tokens:
+        return False
+    if set(participant_tokens) == set(rep_tokens):
+        return True
+    return participant_tokens[0] == rep_tokens[0]
 
 
 def _relative_ms(timestamp: Any) -> Optional[int]:

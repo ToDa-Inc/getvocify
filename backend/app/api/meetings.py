@@ -58,10 +58,17 @@ async def create_meeting_bot(
             detail="Recall.ai no está configurado",
         )
 
-    from app.integrations.recall_client import RecallClient, RecallClientError
+    from app.integrations.recall_client import RecallClient, RecallClientError, is_allowed_meeting_url
 
+    if not is_allowed_meeting_url(body.meeting_url):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El enlace debe ser una reunión de Zoom, Meet o Teams (https)",
+        )
+
+    client = RecallClient()
     try:
-        bot = await RecallClient().create_bot(body.meeting_url)
+        bot = await client.create_bot(body.meeting_url)
     except RecallClientError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
@@ -72,15 +79,27 @@ async def create_meeting_bot(
             detail="Recall no devolvió un bot_id",
         )
 
-    identity = reserve_recall_capture(
-        supabase,
-        user_id=membership.user_id,
-        company_id=membership.company_id,
-        started_at=datetime.now(timezone.utc),
-        bot_id=bot_id,
-        sales_role=membership.sales_role,
-        contact_id=body.contact_id,
-    )
+    # The capture can only be reserved once the bot exists (its id is the reservation
+    # key, D1/C01), so this can't happen before create_bot. A bot with no capture behind
+    # it would sit in the meeting recording nothing usable - better to cancel it and
+    # fail the request than leave an orphan.
+    try:
+        identity = reserve_recall_capture(
+            supabase,
+            user_id=membership.user_id,
+            company_id=membership.company_id,
+            started_at=datetime.now(timezone.utc),
+            bot_id=bot_id,
+            sales_role=membership.sales_role,
+            contact_id=body.contact_id,
+        )
+    except Exception as exc:
+        await client.delete_bot(bot_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo reservar la captura para el bot",
+        ) from exc
+
     return MeetingBotResponse(
         capture_id=identity.capture_id,
         memo_id=identity.memo_id,

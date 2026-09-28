@@ -1480,11 +1480,18 @@ async def recall_webhook(request: Request):
         if not ok:
             inc_webhook_message("recall", "error")
             return PlainTextResponse("Forbidden", status_code=403)
-    else:
+    elif settings.ENVIRONMENT == "development":
         logger.warning(
             "Recall webhook accepted without RECALL_WEBHOOK_SECRET (dev only)",
             extra=log_domain(DOMAIN_WEBHOOK, "recall_no_secret"),
         )
+    else:
+        logger.warning(
+            "Recall webhook rejected: RECALL_WEBHOOK_SECRET is not configured",
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_no_secret_rejected"),
+        )
+        inc_webhook_message("recall", "error")
+        return PlainTextResponse("Forbidden", status_code=403)
 
     try:
         payload = json.loads(raw_body.decode("utf-8") or "null") or {}
@@ -1522,6 +1529,18 @@ async def recall_webhook(request: Request):
         inc_webhook_message("recall", "skipped")
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
+    if memo_row.get("transcript_complete") or memo_row.get("capture_content_fingerprint"):
+        # A replayed bot.done (Recall retries on a non-2xx, or a duplicate delivery):
+        # this capture already has its transcript, so re-downloading and re-completing
+        # would either no-op (complete_capture's own fingerprint check) or, worse, race
+        # a later edit. Ack without doing the work again.
+        logger.info(
+            "Recall webhook: bot %s already completed, skipping replay", bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_already_complete", bot_id=bot_id),
+        )
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
     try:
         client = RecallClient()
         bot_detail = await client.get_bot(bot_id)
@@ -1542,7 +1561,21 @@ async def recall_webhook(request: Request):
         inc_webhook_message("recall", "error")
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
-    identity = complete_recall_capture(supabase, memo_row, transcript=transcript, turns=turns)
+    from app.services.captures import CaptureContentConflict
+
+    try:
+        identity = complete_recall_capture(supabase, memo_row, transcript=transcript, turns=turns)
+    except CaptureContentConflict:
+        # A second bot.done (or a manual re-run) with different content than what was
+        # already reviewed - same "needs a new review" rule complete_capture enforces
+        # for a desktop capture. Ack; nothing here overwrites a finalized review.
+        logger.warning(
+            "Recall webhook: bot %s transcript conflicts with an already-reviewed capture",
+            bot_id, extra=log_domain(DOMAIN_WEBHOOK, "recall_content_conflict", bot_id=bot_id),
+        )
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
     if identity.should_start_pipeline and transcript.strip():
         from app.api.memos import start_extraction_from_transcript
 

@@ -54,6 +54,7 @@ def find_capture_by_bot_id(supabase: Client, bot_id: str) -> Optional[dict]:
         supabase.table("memos")
         .select("*")
         .eq("client_capture_id", client_capture_id_for_bot(bot_id))
+        .eq("source_type", "recall_bot")
         .limit(1)
         .execute()
     ).data or []

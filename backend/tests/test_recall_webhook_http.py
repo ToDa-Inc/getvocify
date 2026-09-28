@@ -99,6 +99,7 @@ def _memo_row():
         "user_id": "rep-1",
         "company_id": "co-1",
         "client_capture_id": f"recall:{BOT_ID}",
+        "source_type": "recall_bot",
         "extraction": None,
     }
 
@@ -111,6 +112,30 @@ def setup_function():
 def teardown_function():
     settings.RECALL_WEBHOOK_SECRET = None
     settings.RECALL_API_KEY = None
+    settings.ENVIRONMENT = "development"
+
+
+def test_no_secret_is_403_outside_development():
+    settings.RECALL_WEBHOOK_SECRET = None
+    settings.ENVIRONMENT = "production"
+    supabase = _Supabase({"memos": [_memo_row()]})
+    body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
+    try:
+        with patch("app.api.webhooks.get_supabase", return_value=supabase):
+            response = _test_client().post("/webhooks/recall", content=body, headers={"content-type": "application/json"})
+        assert response.status_code == 403
+    finally:
+        settings.ENVIRONMENT = "development"
+
+
+def test_no_secret_is_accepted_in_development():
+    settings.RECALL_WEBHOOK_SECRET = None
+    settings.ENVIRONMENT = "development"
+    supabase = _Supabase({"memos": []})
+    body = json.dumps({"event": "bot.status_change", "data": {"bot": {"id": "bot-x"}}}).encode("utf-8")
+    with patch("app.api.webhooks.get_supabase", return_value=supabase):
+        response = _test_client().post("/webhooks/recall", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 200
 
 
 def test_invalid_signature_is_403_and_no_write():
@@ -225,6 +250,80 @@ def test_bot_done_downloads_and_completes_the_capture():
     assert args[1] == "rep-1"
     assert args[2] == "Marta: Hola"
     assert kwargs["source_type"] == "meeting_transcript"
+
+
+def test_bot_done_replay_after_already_complete_is_skipped_without_a_recall_call():
+    memo = _memo_row()
+    memo["transcript_complete"] = True
+    memo["transcript"] = "Ya completado"
+    supabase = _Supabase({"memos": [memo]})
+    body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
+    ts = str(int(time.time()))
+    with patch("app.api.webhooks.get_supabase", return_value=supabase):
+        response = _test_client().post(
+            "/webhooks/recall",
+            content=body,
+            headers={
+                "webhook-id": "msg-1",
+                "webhook-timestamp": ts,
+                "webhook-signature": _sign("msg-1", ts, body),
+                "content-type": "application/json",
+            },
+        )
+    assert response.status_code == 200
+    # unchanged - proves no download/complete was attempted (no respx route registered
+    # for this test, so an attempt would raise ConnectionError, not a clean 200).
+    assert supabase.tables["memos"][0]["transcript"] == "Ya completado"
+
+
+@respx.mock
+def test_bot_done_content_conflict_is_acked_not_500():
+    memo = _memo_row()
+    memo["transcript_complete"] = True
+    memo["capture_content_fingerprint"] = None
+    supabase = _Supabase({"memos": [memo], "user_profiles": []})
+    body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
+    ts = str(int(time.time()))
+
+    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": BOT_ID,
+                "recordings": [
+                    {"media_shortcuts": {"transcript": {"data": {"download_url": "https://cdn.example/t.json"}}}}
+                ],
+            },
+        )
+    )
+    respx.get("https://cdn.example/t.json").mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"participant": {"name": "Marta"}, "words": [{"text": "Hola"}]}],
+        )
+    )
+
+    from unittest.mock import patch as _patch
+    with (
+        patch("app.api.webhooks.get_supabase", return_value=supabase),
+        _patch("app.services.meetings.recall_bot.complete_capture") as fake_complete,
+    ):
+        from app.services.captures import CaptureContentConflict
+
+        fake_complete.side_effect = CaptureContentConflict(
+            capture_id="memo-1", memo_id="memo-1", status="processing"
+        )
+        response = _test_client().post(
+            "/webhooks/recall",
+            content=body,
+            headers={
+                "webhook-id": "msg-1",
+                "webhook-timestamp": ts,
+                "webhook-signature": _sign("msg-1", ts, body),
+                "content-type": "application/json",
+            },
+        )
+    assert response.status_code == 200
 
 
 @respx.mock
