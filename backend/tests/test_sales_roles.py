@@ -446,3 +446,29 @@ def test_approve_denies_a_team_visibility_member_reading_a_teammates_memo():
 
     with pytest.raises(ValueError, match="Memo not found"):
         asyncio.run(memo_approval.approve_memo_core(db, memo_id, "viewer-1", None))
+
+
+def test_http_write_guard_denies_a_team_visibility_member_on_a_teammates_memo(monkeypatch):
+    """The HTTP approve/preview routes use api.memos._require_readable_memo, not
+    approve_memo_core. visibility=team (read-only, D3) must not open those either -
+    while the same viewer still *reads* the memo through _require_viewable_memo."""
+    from app.api import memos as memos_api
+
+    memo = {"id": "memo-1", "user_id": "owner-1", "company_id": "co-1", "hubspot_contact_id": None}
+    viewer = Membership(
+        id="m-viewer", company_id="co-1", user_id="viewer-1", role="member", status="active",
+        sales_role=None, handoff_ae_user_id=None, visibility="team",
+    )
+    members = [{"user_id": "viewer-1", "status": "active"}, {"user_id": "owner-1", "status": "active"}]
+
+    supabase = MagicMock()
+    supabase.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[memo])
+    monkeypatch.setattr(memos_api, "load_viewer_scope", lambda _s, _u: (viewer, members, {}))
+    monkeypatch.setattr(memos_api, "effective_visibility", lambda _s, _m: "team")
+
+    with pytest.raises(HTTPException) as excinfo:
+        memos_api._require_readable_memo(supabase, "memo-1", "viewer-1")
+    assert excinfo.value.status_code == 404
+
+    readable, _authors = memos_api._require_viewable_memo(supabase, "memo-1", "viewer-1")
+    assert readable["id"] == "memo-1"

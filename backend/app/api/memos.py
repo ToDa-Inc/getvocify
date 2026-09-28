@@ -68,7 +68,11 @@ _DEAL_STAGE_INFERENCE_HINT = (
 def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict:
     """Approve/preview: never a handoff read. These write to the memo (matched_deal_*,
     approval, CRM sync) - T4/D8 only grants the AE a *read* of the SDR's memo, not a hand
-    on its approval/CRM flow. See _require_viewable_memo below for that read."""
+    on its approval/CRM flow. See _require_viewable_memo below for that read.
+
+    visibility=team is read-only too (D3): it is deliberately not passed here, so a
+    teammate with company-wide read never approves, previews or pushes another rep's
+    memo - same rule as memo_approval.approve_memo_core."""
     result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
     rows = result.data or []
     membership, members, _authors = load_viewer_scope(supabase, user_id)
@@ -77,7 +81,6 @@ def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict
         viewer_id=user_id,
         viewer_role=membership.role if membership else None,
         member_ids=company_user_ids(members),
-        viewer_visibility=effective_visibility(supabase, membership),
     )
     if not memo_data:
         raise HTTPException(
