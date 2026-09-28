@@ -574,7 +574,11 @@ const MemoDetail = () => {
               />
             ) : null}
             {isOwnMemo && id ? (
-              <PostInteractionBrief memoId={id} onPlay={memo.audioUrl ? playMemoAtOffset : undefined} />
+              <PostInteractionBrief
+                memoId={id}
+                onPlay={memo.audioUrl ? playMemoAtOffset : undefined}
+                markSeen={Boolean(user?.id && memo.userId === user.id)}
+              />
             ) : null}
             {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
             {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}

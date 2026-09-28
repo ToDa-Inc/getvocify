@@ -280,3 +280,16 @@ def test_company_summary_exposes_the_viewers_own_visibility_when_sales_roles_are
     svc.sales_roles_enabled = MagicMock(return_value=False)
     summary = svc.company_summary_for_user(OWNER)
     assert summary["visibility"] is None
+
+
+def test_rep_detail_names_the_handoff_contacts_from_memos():
+    db = _db(MANAGER_HOME_ENABLED=True, HANDOFF_ENABLED=True)
+    db.tables["memos"] = [
+        {"id": "m1", "company_id": COMPANY, "hubspot_contact_id": "c1",
+         "extraction": {"contactName": "Marina Ortiz", "companyName": "Acme"}},
+    ]
+    body = _app(db, role="owner").get(f"/api/v1/team/rep/{SDR}").json()
+    rows = {row["id"]: row for row in body["handoffs"]["as_sdr"]}
+    assert rows["h1"]["contact_name"] == "Marina Ortiz"
+    assert rows["h1"]["company_name"] == "Acme"
+    assert "contact_name" not in rows["h2"]  # no memo: the page falls back to the id

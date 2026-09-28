@@ -16,7 +16,7 @@ from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TR
 from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG
 from app.services.team_insights.competitors import COMPETITORS_FLAG
 from app.services.team_insights.aggregate import TeamAccessError, assert_team_reader, load_team_adherence_inputs, team_adherence
-from app.services.team_insights.rep_detail import rep_handoffs, rep_in_company, rep_sales_role
+from app.services.team_insights.rep_detail import name_handoff_contacts, rep_handoffs, rep_in_company, rep_name, rep_sales_role
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
 
@@ -118,4 +118,10 @@ async def get_team_rep_detail(
     handoffs = None
     if is_enabled(supabase, membership.company_id, HANDOFF_FLAG):
         handoffs = rep_handoffs(supabase, company_id=membership.company_id, user_id=user_id)
-    return JSONResponse({"user_id": user_id, "sales_role": sales_role, "handoffs": handoffs})
+        handoffs = name_handoff_contacts(supabase, company_id=membership.company_id, handoffs=handoffs)
+    return JSONResponse({
+        "user_id": user_id,
+        "name": rep_name(supabase, company_id=membership.company_id, user_id=user_id),
+        "sales_role": sales_role,
+        "handoffs": handoffs,
+    })

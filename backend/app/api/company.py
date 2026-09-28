@@ -35,12 +35,16 @@ class CompanyResponse(BaseModel):
     rep_workspace_enabled: bool = False
     brief_v2_enabled: bool = False
     sales_strategy: Optional[str] = None
+    # T5: days after an unanswered call before Hoy suggests calling back. Only sent while
+    # HOY_LEAD_TIERS_ENABLED is on for the company (None otherwise).
+    callback_after_days: Optional[int] = None
     needs_onboarding: bool = False
 
 
 class UpdateCompanyRequest(BaseModel):
     name: Optional[str] = None
     sales_strategy: Optional[str] = None
+    callback_after_days: Optional[int] = Field(default=None, ge=1, le=30)
 
 
 class InviteRequest(BaseModel):
@@ -137,6 +141,9 @@ async def get_company(
         rep_workspace_enabled=svc.rep_workspace_enabled(membership.company_id),
         brief_v2_enabled=svc.brief_v2_enabled(membership.company_id),
         sales_strategy=company.get("sales_strategy") if svc.sales_strategy_enabled(membership.company_id) else None,
+        callback_after_days=(
+            svc.callback_after_days(membership.company_id) if svc.lead_tiers_enabled(membership.company_id) else None
+        ),
         needs_onboarding=svc.needs_onboarding(membership, company),
     )
 
@@ -153,6 +160,8 @@ async def update_company(
         svc.update_company_name(membership.company_id, body.name)
     if body.sales_strategy is not None and svc.sales_strategy_enabled(membership.company_id):
         svc.update_sales_strategy(membership.company_id, body.sales_strategy)
+    if body.callback_after_days is not None and svc.lead_tiers_enabled(membership.company_id):
+        svc.update_callback_after_days(membership.company_id, body.callback_after_days)
     return await get_company(user_id=user_id, supabase=supabase)
 
 

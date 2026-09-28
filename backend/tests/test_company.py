@@ -185,3 +185,51 @@ def test_callback_after_days_falls_back_when_the_company_read_fails():
     svc = CompanyService(supabase)
     svc.get_company = MagicMock(side_effect=RuntimeError("boom"))
     assert svc.callback_after_days("company-1") == 2
+
+
+# --- callback_after_days (T5 setting, Lista 3 fix: it had no way to be changed) ---
+
+
+def test_update_callback_after_days_writes_the_value():
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    svc.update_callback_after_days("company-1", 5)
+    written = supabase.table.return_value.update.call_args[0][0]
+    assert written["callback_after_days"] == 5
+
+
+def test_update_callback_after_days_never_raises_before_migration_057():
+    supabase = MagicMock()
+    supabase.table.return_value.update.return_value.eq.return_value.execute.side_effect = RuntimeError("42703")
+    CompanyService(supabase).update_callback_after_days("company-1", 5)
+
+
+def test_callback_after_days_request_is_bounded():
+    from pydantic import ValidationError
+
+    from app.api.company import UpdateCompanyRequest
+
+    assert UpdateCompanyRequest(callback_after_days=5).callback_after_days == 5
+    for bad in (0, 31, -1):
+        with pytest.raises(ValidationError):
+            UpdateCompanyRequest(callback_after_days=bad)
+
+
+@pytest.mark.parametrize("flag_on,expected_calls", [(True, 1), (False, 0)])
+def test_patch_company_only_saves_callback_days_with_lead_tiers_on(flag_on, expected_calls):
+    import asyncio
+
+    from app.api import company as company_api
+
+    svc = MagicMock()
+    svc.require_manage_role.return_value = MagicMock(company_id="company-1")
+    svc.lead_tiers_enabled.return_value = flag_on
+    svc.sales_strategy_enabled.return_value = False
+    with (
+        patch.object(company_api, "CompanyService", return_value=svc),
+        patch.object(company_api, "get_company", new=MagicMock(return_value=asyncio.sleep(0, result={}))),
+    ):
+        asyncio.run(company_api.update_company(
+            company_api.UpdateCompanyRequest(callback_after_days=4), user_id="u1", supabase=MagicMock(),
+        ))
+    assert svc.update_callback_after_days.call_count == expected_calls

@@ -127,7 +127,9 @@ const OnboardingWizard = () => {
             <p className="text-sm text-muted-foreground">
               {step === "team" ? t.product.onboardingStepTeamBody : t.product.onboardingStepHandoffBody}
             </p>
-            <TeamPage />
+            {/* Routing is chosen at handoff time now (no per-SDR select), so only the Team
+                step embeds the team page; the routing step only explains how it works. */}
+            {step === "team" ? <TeamPage /> : null}
           </div>
         )}
 

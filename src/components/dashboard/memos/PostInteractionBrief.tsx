@@ -1,3 +1,7 @@
+import { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/features/auth";
+import { reportKeys, reportsApi } from "@/lib/api/reports";
 import { briefSurface, requestBriefSectionPlay } from "@/lib/post-brief";
 import { usePostInteractionBrief } from "@/features/coaching/hooks/usePostInteractionBrief";
 import { useLanguage } from "@/lib/i18n";
@@ -5,12 +9,28 @@ import { useLanguage } from "@/lib/i18n";
 export function PostInteractionBrief({
   memoId,
   onPlay,
+  markSeen = false,
 }: {
   memoId: string;
   onPlay?: (offsetMs: number) => void;
+  /** The rep reading their own ready debrief here clears it from the bell's Feedback. */
+  markSeen?: boolean;
 }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const query = usePostInteractionBrief(memoId);
+  const ready = query.data?.status === "ready";
+  const bellTasks = Boolean(user?.company?.features?.includes("BELL_TASKS_ENABLED"));
+  const markedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!markSeen || !bellTasks || !ready || markedFor.current === memoId) return;
+    markedFor.current = memoId;
+    void reportsApi
+      .markFeedbackSeen(memoId)
+      .catch(() => undefined)
+      .finally(() => queryClient.invalidateQueries({ queryKey: reportKeys.notifications }));
+  }, [markSeen, bellTasks, ready, memoId, queryClient]);
   const surface = query.data ? briefSurface(query.data, t.product) : null;
   const title = query.isError
     ? t.product.briefReadFailed

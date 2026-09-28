@@ -85,3 +85,45 @@ def rep_handoffs(supabase: Any, *, company_id: str, user_id: str, limit: int = 2
             return {"as_sdr": [], "as_ae": []}
         raise
     return {"as_sdr": _sorted_recent(sdr_rows, limit=limit), "as_ae": _sorted_recent(ae_rows, limit=limit)}
+
+
+def name_handoff_contacts(supabase: Any, *, company_id: str, handoffs: dict) -> dict:
+    """Adds contact_name/company_name to each handoff row from the company's memos about
+    that contact, so the page never shows a bare CRM id. A failed read leaves rows as
+    they were (the page falls back to the id)."""
+    rows = list(handoffs.get("as_sdr") or []) + list(handoffs.get("as_ae") or [])
+    contact_ids = sorted({str(row.get("contact_id")) for row in rows if row.get("contact_id")})
+    if not contact_ids:
+        return handoffs
+    try:
+        memos = (
+            supabase.table("memos")
+            .select("id,hubspot_contact_id,extraction")
+            .eq("company_id", company_id)
+            .in_("hubspot_contact_id", contact_ids)
+            .execute()
+        ).data or []
+    except Exception:
+        return handoffs
+    from app.services.hoy.names import memo_directory
+
+    _by_memo, by_contact = memo_directory(memos)
+
+    def named(row: dict) -> dict:
+        found = by_contact.get(str(row.get("contact_id") or ""))
+        if not found:
+            return row
+        name, company = found
+        return {**row, "contact_name": name, "company_name": company}
+
+    return {key: [named(row) for row in handoffs.get(key) or []] for key in ("as_sdr", "as_ae")}
+
+
+def rep_name(supabase: Any, *, company_id: str, user_id: str) -> Optional[str]:
+    """The rep's display name for the page title; None if not an active member."""
+    from app.services.team_insights.aggregate import load_team_reps
+
+    for rep in load_team_reps(supabase, company_id):
+        if rep.get("userId") == str(user_id):
+            return rep.get("name")
+    return None

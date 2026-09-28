@@ -14,9 +14,17 @@ import {
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api, ApiError } from "@/shared/lib/api-client";
 
-type HandoffRow = { id: string; contact_id: string; status: string; created_at?: string };
+type HandoffRow = {
+  id: string;
+  contact_id: string;
+  status: string;
+  created_at?: string;
+  contact_name?: string | null;
+  company_name?: string | null;
+};
 type RepDetail = {
   user_id: string;
+  name?: string | null;
   sales_role: "sdr" | "ae" | "general" | null;
   handoffs: { as_sdr: HandoffRow[]; as_ae: HandoffRow[] } | null;
 };
@@ -38,16 +46,31 @@ type AdherencePayload = {
   review?: { memo_id: string; line: string }[];
 };
 
+const HANDOFF_STATUS_KEYS = {
+  active: "handoffStatusActive",
+  closed: "handoffStatusClosed",
+  cancelled: "handoffStatusCancelled",
+} as const;
+
 function HandoffList({ rows, empty }: { rows: HandoffRow[]; empty: string }) {
+  const { t } = useLanguage();
   if (rows.length === 0) return <p className={THEME_TOKENS.typography.body}>{empty}</p>;
+  const date = new Intl.DateTimeFormat(t.product.hourLocale, { day: "numeric", month: "short" });
   return (
     <ul className="space-y-1 text-sm">
-      {rows.map((row) => (
-        <li key={row.id} className="flex items-center justify-between gap-2">
-          <span className="text-foreground">{row.contact_id}</span>
-          <span className="text-muted-foreground">{row.status}</span>
-        </li>
-      ))}
+      {rows.map((row) => {
+        const statusKey = HANDOFF_STATUS_KEYS[row.status as keyof typeof HANDOFF_STATUS_KEYS];
+        const when = row.created_at ? date.format(new Date(row.created_at)) : null;
+        const who = [row.contact_name || row.contact_id, row.company_name].filter(Boolean).join(" · ");
+        return (
+          <li key={row.id} className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-foreground">{who}</span>
+            <span className="shrink-0 text-muted-foreground">
+              {[when, statusKey ? t.product[statusKey] : row.status].filter(Boolean).join(" · ")}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -107,7 +130,10 @@ export default function TeamRepDetailPage() {
   return (
     <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
       <div className="flex items-center justify-between">
-        <h1 className={THEME_TOKENS.typography.pageTitle}>{p.teamRepDetailTitle}</h1>
+        <div className="min-w-0">
+          <h1 className={THEME_TOKENS.typography.pageTitle}>{repQuery.data?.name || p.teamRepDetailTitle}</h1>
+          {repQuery.data?.name ? <p className={THEME_TOKENS.typography.capsLabel}>{p.teamRepDetailTitle}</p> : null}
+        </div>
         <Link className="text-sm underline text-foreground" to="/dashboard/insights">
           {p.teamRepDetailBack}
         </Link>

@@ -382,6 +382,10 @@ class CompanyService:
         """D10 rides on the follow-up-by-flow flag: that is the only consumer so far."""
         return is_enabled(self.supabase, company_id, FOLLOWUP_BY_FLOW_FLAG)
 
+    def lead_tiers_enabled(self, company_id: str) -> bool:
+        """T5: callback_after_days only matters (and is only editable) with lead tiers on."""
+        return is_enabled(self.supabase, company_id, "HOY_LEAD_TIERS_ENABLED")
+
     def onboarding_wizard_enabled(self, company_id: str) -> bool:
         return is_enabled(self.supabase, company_id, ONBOARDING_WIZARD_FLAG)
 
@@ -1028,6 +1032,20 @@ class CompanyService:
             .execute()
         )
         return (result.data or [{}])[0]
+
+    def update_callback_after_days(self, company_id: str, days: int) -> None:
+        """T5: owner/admin only (require_manage_role at the API layer), 1-30 days (validated
+        by the request model). Tolerant of migration 057 not having run yet: logged, and
+        Hoy keeps using the default."""
+        try:
+            (
+                self.supabase.table("companies")
+                .update({"callback_after_days": int(days), "updated_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+        except Exception:
+            logger.warning("callback_after_days not saved for %s (migration 057?)", company_id, exc_info=True)
 
     def update_sales_strategy(self, company_id: str, value: Optional[str]) -> dict:
         """D10: owner/admin only (require_manage_role at the API layer). Blank clears it.

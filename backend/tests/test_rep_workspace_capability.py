@@ -200,6 +200,7 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "rep_workspace_enabled": False,
         "brief_v2_enabled": False,
         "sales_strategy": None,
+        "callback_after_days": None,
         "needs_onboarding": False,
     }
 

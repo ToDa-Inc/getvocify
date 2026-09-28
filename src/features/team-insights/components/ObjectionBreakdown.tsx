@@ -8,6 +8,13 @@ import {
   type ObjectionCategory,
 } from "@/lib/team-insights";
 
+function quoteDate(value: string, locale: string): string {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime())
+    ? ""
+    : new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(at);
+}
+
 export function ObjectionBreakdown({
   categories,
   competitors,
@@ -99,8 +106,12 @@ export function ObjectionBreakdown({
                   <span>{item.name}</span>
                   <span>{item.count}</span>
                 </div>
-                {(item.quotes ?? []).slice(0, 1).map((mention) => (
-                  <p key={mention.date} className="text-sm text-muted-foreground">
+                {/* T11: the last 3 quotes, each with its date, as the backend sends them. */}
+                {(item.quotes ?? []).slice(0, 3).map((mention, index) => (
+                  <p key={`${mention.date}-${index}`} className="text-sm text-muted-foreground">
+                    {mention.date ? (
+                      <span className={`${THEME_TOKENS.typography.capsLabel} mr-1.5`}>{quoteDate(mention.date, p.hourLocale)}</span>
+                    ) : null}
                     {p.prospectQuote.replace("{quote}", mention.quote)}
                   </p>
                 ))}
