@@ -4,12 +4,14 @@ import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
   STEP_STATES,
+  type CoachFlow,
   durationLabel,
   stateView,
   stepsDoneLine,
   type CoachInteraction,
   type InteractionFilters,
 } from "@/lib/rep-coaching";
+import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachInteractions, useCoachSummary } from "./useRepCoaching";
 
 const SELECT = "rounded-full border border-border bg-card px-4 py-1.5 text-sm text-foreground";
@@ -61,12 +63,13 @@ function Row({ item }: { item: CoachInteraction }) {
   );
 }
 
-export function CoachingInteractions() {
+export function CoachingInteractions({ flow }: { flow?: CoachFlow | null }) {
   const { t } = useLanguage();
   const p = t.product;
   const [filters, setFilters] = useState<InteractionFilters>({ stepId: "", state: "", meetingOnly: false });
-  const summary = useCoachSummary();
-  const query = useCoachInteractions(filters);
+  const summary = useCoachSummary(flow);
+  const query = useCoachInteractions(filters, flow);
+  const filtered = Boolean(filters.stepId || filters.state || filters.meetingOnly);
   const steps = summary.data?.steps ?? [];
   return (
     <div className="space-y-4">
@@ -97,11 +100,11 @@ export function CoachingInteractions() {
         </button>
       </div>
       {query.isError ? (
-        <p className={THEME_TOKENS.typography.body}>{p.coachLoadFailed}</p>
+        <CoachError onRetry={() => void query.refetch()} />
       ) : !query.data ? (
-        <p className={THEME_TOKENS.typography.body}>{p.coachLoading}</p>
+        <CoachLoading />
       ) : query.data.items.length === 0 ? (
-        <p className={THEME_TOKENS.typography.body}>{p.coachInteractionsEmpty}</p>
+        <CoachEmpty text={filtered ? p.coachInteractionsEmpty : (flow ?? summary.data?.flow) === "ae" ? p.coachMeetingsEmpty : p.coachCallsEmpty} />
       ) : (
         <ul className="space-y-3">
           {query.data.items.map((item) => (

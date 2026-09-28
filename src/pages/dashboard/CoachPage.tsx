@@ -4,8 +4,9 @@ import { CoachingInteractions } from "@/features/coaching/rep/CoachingInteractio
 import { CoachingProcess } from "@/features/coaching/rep/CoachingProcess";
 import { CoachingSummary } from "@/features/coaching/rep/CoachingSummary";
 import { useCoachSummary } from "@/features/coaching/rep/useRepCoaching";
+import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
-import { interactionsTabKey } from "@/lib/rep-coaching";
+import { canPickFlow, interactionsTabKey, viewingFlowKey, type CoachFlow } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 type Tab = "summary" | "interactions" | "process" | "examples";
@@ -15,10 +16,17 @@ export default function CoachPage() {
   const { t } = useLanguage();
   const p = t.product;
   const [tab, setTab] = useState<Tab>("summary");
-  const summary = useCoachSummary();
+  const { user } = useAuth();
+  const salesRole = user?.company?.salesRole;
+  // null = let the backend resolve the default; only a general rep ever sets it.
+  const [picked, setPicked] = useState<CoachFlow | null>(null);
+  const summary = useCoachSummary(picked);
+  const flow: CoachFlow | null = summary.data?.flow ?? picked;
+  const showToggle = canPickFlow(salesRole, summary.data?.available_flows);
+  const viewingKey = viewingFlowKey(salesRole, summary.data?.available_flows, summary.data?.flow);
   const tabs: { id: Tab; label: string }[] = [
     { id: "summary", label: p.coachTabSummary },
-    { id: "interactions", label: String(p[interactionsTabKey(summary.data?.flow)]) },
+    { id: "interactions", label: String(p[interactionsTabKey(flow)]) },
     { id: "process", label: p.coachTabProcess },
     { id: "examples", label: p.coachTabExamples },
   ];
@@ -28,6 +36,7 @@ export default function CoachPage() {
         <h1 className={THEME_TOKENS.typography.pageTitle}>{p.navCoach}</h1>
         <p className={THEME_TOKENS.typography.body}>{p.coachSubtitle}</p>
       </div>
+      <div className="flex flex-wrap items-center gap-3">
       <div role="group" className="inline-flex flex-wrap rounded-full border border-border bg-card p-1">
         {tabs.map((option) => (
           <button
@@ -44,10 +53,33 @@ export default function CoachPage() {
           </button>
         ))}
       </div>
-      {tab === "summary" ? <CoachingSummary onOpenProcess={() => setTab("process")} /> : null}
-      {tab === "interactions" ? <CoachingInteractions /> : null}
-      {tab === "process" ? <CoachingProcess /> : null}
-      {tab === "examples" ? <CoachingExamples /> : null}
+      {showToggle ? (
+        <div role="group" aria-label={p.coachFlowLabel} className="inline-flex rounded-full border border-border bg-card p-1" data-testid="coach-flow-toggle">
+          {(["sdr", "ae"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              data-testid={`coach-flow-${option}`}
+              aria-pressed={flow === option}
+              onClick={() => setPicked(option)}
+              className={`rounded-full px-3.5 py-1 text-xs transition-colors ${
+                flow === option ? "bg-beige text-cream" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {option === "ae" ? p.coachFlowMeetings : p.coachFlowCalls}
+            </button>
+          ))}
+        </div>
+      ) : viewingKey ? (
+        <p className="text-xs text-muted-foreground" data-testid="coach-viewing-flow">
+          {p[viewingKey]}
+        </p>
+      ) : null}
+      </div>
+      {tab === "summary" ? <CoachingSummary flow={picked} onOpenProcess={() => setTab("process")} /> : null}
+      {tab === "interactions" ? <CoachingInteractions flow={picked} /> : null}
+      {tab === "process" ? <CoachingProcess flow={picked} /> : null}
+      {tab === "examples" ? <CoachingExamples flow={picked} /> : null}
     </main>
   );
 }

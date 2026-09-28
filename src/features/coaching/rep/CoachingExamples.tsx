@@ -1,17 +1,19 @@
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachExamples } from "./useRepCoaching";
 import { objectionDisplayName } from "@/lib/team-insights";
+import type { CoachFlow } from "@/lib/rep-coaching";
 
-export function CoachingExamples() {
+export function CoachingExamples({ flow }: { flow?: CoachFlow | null }) {
   const { t } = useLanguage();
   const p = t.product;
-  const query = useCoachExamples();
+  const query = useCoachExamples(flow);
   const data = query.data;
-  if (query.isError) return <p className={THEME_TOKENS.typography.body}>{p.coachLoadFailed}</p>;
-  if (!data) return <p className={THEME_TOKENS.typography.body}>{p.coachLoading}</p>;
+  if (query.isError) return <CoachError onRetry={() => void query.refetch()} />;
+  if (!data) return <CoachLoading />;
   if (data.steps.length === 0 && data.objections.length === 0) {
-    return <p className={THEME_TOKENS.typography.body}>{p.coachExamplesEmpty}</p>;
+    return <CoachEmpty text={p.coachExamplesEmptyWhy} />;
   }
   const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5`;
   return (

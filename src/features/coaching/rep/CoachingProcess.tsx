@@ -1,7 +1,8 @@
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { formatPercent, hasAnyPeer, objectionCountsLine } from "@/lib/rep-coaching";
+import { formatPercent, hasAnyPeer, objectionCountsLine, type CoachFlow } from "@/lib/rep-coaching";
 import { objectionDisplayName } from "@/lib/team-insights";
+import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachProcess } from "./useRepCoaching";
 
 // In the app's language, not the browser's.
@@ -11,14 +12,15 @@ function weekLabel(iso: string, language: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString(locale, { day: "numeric", month: "short" });
 }
 
-export function CoachingProcess() {
+export function CoachingProcess({ flow }: { flow?: CoachFlow | null }) {
   const { t, language } = useLanguage();
   const p = t.product;
-  const query = useCoachProcess();
+  const query = useCoachProcess(flow);
   const data = query.data;
-  if (query.isError) return <p className={THEME_TOKENS.typography.body}>{p.coachLoadFailed}</p>;
-  if (!data) return <p className={THEME_TOKENS.typography.body}>{p.coachLoading}</p>;
-  if (data.steps.length === 0) return <p className={THEME_TOKENS.typography.body}>{p.coachNoPlaybook}</p>;
+  if (query.isError) return <CoachError onRetry={() => void query.refetch()} />;
+  if (!data) return <CoachLoading />;
+  if (data.steps.length === 0) return <CoachEmpty text={p.coachNoPlaybook} />;
+  if (data.steps.every((step) => step.rate === null)) return <CoachEmpty text={p.coachProcessEmpty} />;
   const showPeer = hasAnyPeer(data.steps);
   const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5`;
   return (

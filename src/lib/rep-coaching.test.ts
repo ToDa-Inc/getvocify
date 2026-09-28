@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
 import {
   STATE_VIEW,
+  canPickFlow,
   conversionSentence,
+  isGeneralRep,
+  latestSelfReportId,
+  meetingsTileKey,
+  viewingFlowKey,
   durationLabel,
   focusTitle,
   focusWhy,
@@ -117,5 +122,60 @@ describe("catalog", () => {
     }
     assert.equal(EN.navCoach, "Coaching");
     assert.equal(ES.navCoach, "Coaching");
+  });
+});
+
+describe("flow-aware copy and toggle", () => {
+  const conv = { complete_rate: 0.4, incomplete_rate: 0.1, complete_n: 10, incomplete_n: 20 };
+  it("keeps the SDR conversion sentence and reframes the AE one", () => {
+    assert.match(conversionSentence(ES, conv, "sdr") ?? "", /acordaste reunión en el 40 % de las conversaciones.*10 y 20 conversaciones/);
+    assert.equal(conversionSentence(ES, conv), conversionSentence(ES, conv, "sdr"));
+    assert.equal(
+      conversionSentence(ES, conv, "ae"),
+      "Siguiendo el proceso completo cerraste siguiente reunión en el 40 % de las reuniones; sin él, en el 10 % (10 y 20 reuniones).",
+    );
+    assert.match(conversionSentence(EN, conv, "ae") ?? "", /next meeting in 40 % of meetings; without it, 10 % \(10 and 20 meetings\)/);
+    assert.equal(conversionSentence(ES, null, "ae"), null);
+  });
+  it("names the meetings tile by flow", () => {
+    assert.equal(meetingsTileKey("sdr"), "coachNumMeetings");
+    assert.equal(ES.coachNumMeetings, "Reuniones acordadas");
+    assert.equal(meetingsTileKey("ae"), "coachNumMeetingsAe");
+    assert.equal(ES.coachNumMeetingsAe, "Siguiente reunión acordada");
+    assert.equal(EN.coachNumMeetingsAe, "Next meeting agreed");
+  });
+  it("shows the toggle only to general reps with both flows", () => {
+    assert.equal(isGeneralRep(null), true);
+    assert.equal(isGeneralRep(undefined), true);
+    assert.equal(isGeneralRep("general"), true);
+    assert.equal(isGeneralRep("sdr"), false);
+    assert.equal(canPickFlow(null, ["sdr", "ae"]), true);
+    assert.equal(canPickFlow("general", ["sdr"]), false);
+    assert.equal(canPickFlow("sdr", ["sdr", "ae"]), false);
+    assert.equal(canPickFlow("ae", ["sdr", "ae"]), false);
+    assert.equal(canPickFlow(null, undefined), false);
+  });
+  it("shows the viewing line only to general reps with a single flow", () => {
+    assert.equal(viewingFlowKey(null, ["sdr"], "sdr"), "coachViewingCalls");
+    assert.equal(viewingFlowKey("general", ["ae"], "ae"), "coachViewingMeetings");
+    assert.equal(viewingFlowKey(null, ["sdr", "ae"], "sdr"), null);
+    assert.equal(viewingFlowKey("ae", ["ae"], "ae"), null);
+    assert.equal(ES.coachViewingCalls, "Estás viendo: llamadas");
+  });
+  it("passes the flow to the interactions query", () => {
+    assert.equal(interactionsQuery({ stepId: "", state: "", meetingOnly: false }, "ae"), "limit=50&flow=ae");
+  });
+  it("picks the newest self report", () => {
+    assert.equal(latestSelfReportId([]), null);
+    assert.equal(latestSelfReportId(null), null);
+    assert.equal(latestSelfReportId([{ report_id: "t", scope: "team", period_start: "2026-09-20" }]), null);
+    assert.equal(
+      latestSelfReportId([
+        { report_id: "old", scope: "self", period_start: "2026-09-01" },
+        { report_id: "new", scope: "self", period_start: "2026-09-22" },
+        { report_id: "team", scope: "team", period_start: "2026-09-27" },
+      ]),
+      "new",
+    );
   });
 });

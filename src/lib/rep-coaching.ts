@@ -19,6 +19,7 @@ export type CoachFocus = {
 export type CoachConversion = { complete_rate: number | null; incomplete_rate: number | null; complete_n: number; incomplete_n: number };
 export type CoachSummary = {
   flow: CoachFlow;
+  available_flows?: CoachFlow[];
   motion: string;
   week_start: string;
   steps: CoachStepRate[];
@@ -108,9 +109,13 @@ export function weekTotalLine(p: Product, total: CoachFocus["week_total"]): stri
 }
 
 /** Only when the backend sent a conversion split (it hides it below the minimum sample). */
-export function conversionSentence(p: Product, conversion: CoachConversion | null | undefined): string | null {
+export function conversionSentence(
+  p: Product,
+  conversion: CoachConversion | null | undefined,
+  flow: CoachFlow | null | undefined = "sdr",
+): string | null {
   if (!conversion) return null;
-  return fill(p.coachConversion, {
+  return fill(flow === "ae" ? p.coachConversionAe : p.coachConversion, {
     complete: formatPercent(conversion.complete_rate),
     incomplete: formatPercent(conversion.incomplete_rate),
     completeN: conversion.complete_n,
@@ -145,6 +150,38 @@ export function interactionsTabKey(flow: CoachFlow | null | undefined): CoachKey
   return flow === "ae" ? "coachTabMeetings" : "coachTabCalls";
 }
 
+/** The AE goal is the next meeting; the SDR one is the meeting agreed on the call. */
+export function meetingsTileKey(flow: CoachFlow | null | undefined): CoachKey {
+  return flow === "ae" ? "coachNumMeetingsAe" : "coachNumMeetings";
+}
+
+/** Only a general rep (role null/general) picks a flow, and only when both have a published playbook. */
+export function isGeneralRep(salesRole: string | null | undefined): boolean {
+  return salesRole === null || salesRole === undefined || salesRole === "general";
+}
+
+export function canPickFlow(salesRole: string | null | undefined, available: CoachFlow[] | null | undefined): boolean {
+  return isGeneralRep(salesRole) && !!available && available.includes("sdr") && available.includes("ae");
+}
+
+/** The muted "viewing" line: general reps with a single published flow. */
+export function viewingFlowKey(
+  salesRole: string | null | undefined,
+  available: CoachFlow[] | null | undefined,
+  flow: CoachFlow | null | undefined,
+): CoachKey | null {
+  if (!isGeneralRep(salesRole) || canPickFlow(salesRole, available) || !flow) return null;
+  return flow === "ae" ? "coachViewingMeetings" : "coachViewingCalls";
+}
+
+/** Newest self report from the bell's notifications; null when there is none. */
+export function latestSelfReportId(items: { report_id: string; scope: string; period_start: string }[] | null | undefined): string | null {
+  const own = (items ?? []).filter((item) => item.scope === "self");
+  if (own.length === 0) return null;
+  own.sort((a, b) => (a.period_start < b.period_start ? 1 : a.period_start > b.period_start ? -1 : 0));
+  return own[0].report_id;
+}
+
 export function peerMedianLabel(p: Product, median: number | null | undefined): string | null {
   if (median === null || median === undefined) return null;
   return fill(p.coachPeerMedian, { value: formatPercent(median) });
@@ -160,12 +197,13 @@ export function numberVsLast(p: Product, previous: number): string {
 
 export type InteractionFilters = { stepId: string; state: string; meetingOnly: boolean };
 
-export function interactionsQuery(filters: InteractionFilters): string {
+export function interactionsQuery(filters: InteractionFilters, flow?: CoachFlow | null): string {
   const params = new URLSearchParams();
   if (filters.stepId) params.set("step_id", filters.stepId);
   if (filters.state) params.set("state", filters.state);
   if (filters.meetingOnly) params.set("meeting", "true");
   params.set("limit", "50");
+  if (flow) params.set("flow", flow);
   return params.toString();
 }
 
