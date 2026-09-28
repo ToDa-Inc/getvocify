@@ -264,6 +264,27 @@ Todo va detrás de flags por empresa, apagados por defecto. Para activarlo en st
 
 **Verificación:** suite backend, tests JS, `tsc` (39 errores, ninguno nuevo) y `npm run build`. Reticle no está disponible en esta sesión y el backend necesita Supabase real, así que las pantallas quedan por ver en staging con sesión real.
 
+## Correcciones tras la revisión del código (28 sep 2026)
+
+La tabla de arriba marcaba todo como «Hecho». Al seguir cada flujo en el código aparecieron huecos; estos commits los cierran (todos en `staging`, suite backend, tests JS, `tsc` sin errores nuevos y `build` en verde):
+
+| Hueco | Arreglo | Commit |
+|---|---|---|
+| `visibility=team` (solo lectura, D3) dejaba aprobar y previsualizar memos de otro comercial por HTTP | La ruta aplica la misma regla que `approve_memo_core` | `719bc0f` |
+| El AE perdía sus propios callbacks en Hoy; la reunión que agendó el SDR no le salía como «Reunión hoy»; las tarjetas de deal decían «Contacto»; «Lo que habló {SDR}» no se podía abrir desde un deal | El AE conserva `calls`; el traspaso guarda la hora (también al aceptar F14) y genera `meeting_today` para el AE; deals con nombre, hora, llamar/CRM y el historial del SDR | `ac68628` |
+| Un traspaso no se podía deshacer ni cerrar; en pipelines propios de HubSpot nunca se cerraba; los errores eran silenciosos (un General nunca podía traspasar); los leads nunca contactados no tenían Descalificar ni Reunión agendada; borrar un miembro dejaba traspasos huérfanos | `POST /handoffs/{id}/close`, Deshacer en el panel, «Deal cerrado»/«Devolver al SDR» en el deal, `hs_is_closed`, selector de AE y mensajes, `POST /today/never-contacted`, liberación al borrar o pasar a SDR | `c7a4625` |
+| Subidas, grabaciones de la extensión y HubSpot calling no fijaban playbook: sin nota, debrief ni adherencia | Mismo pin que el marcador | `64ce59f` |
+| Un bot de Recall que fallaba dejaba la captura «grabando» para siempre; si la transcripción llegaba tarde se marcaba fallida | `bot.fatal`/`transcript.failed` la marcan fallida; `transcript.done` la completa | `684a7c3` |
+| Onboarding apuntaba a un select eliminado; `callback_after_days` sin ajuste; detalle del comercial sin nombre y con ids del CRM; competidores con 1 cita sin fecha; el feedback de la campana no se limpiaba al leerlo | Textos, ajuste en Ajustes → Oferta, nombres, 3 citas con fecha, marcar visto desde la nota | `cc0c263` |
+
+**Sigue pendiente (no es código de este plan o necesita decisión):**
+- Verificar en staging con sesión real (Reticle no está disponible en esta sesión) y aplicar migraciones 054–061 + SQL de activación si no se ha hecho.
+- Nombres de eventos de Recall: confirmar en el panel de Recall que el endpoint tiene `bot.done`, `transcript.done`, `bot.fatal` y `transcript.failed`, y el idioma de la transcripción (no se fija idioma al crear el bot).
+- El comercial sigue sin vista propia de objeciones con «cómo resolverla» (solo el Head of Sales).
+- Pestaña Playbook: enseña nombre y nota de compañeros a todos; choca con «sin ranking» de la Lista 2. Decisión de producto.
+- Prompts: `intelligence_v3` se editó sin cambiar de versión ni correr evals; `followup_v3` no tiene casos de eval por flujo.
+- Extensión: cambios desde la 1.0.23 sin publicar. Nada de esto está en `main`.
+
 ## Gates por tarea
 1. Test que falla primero y luego pasa.
 2. Suite backend completa en verde y tests JS en verde.
