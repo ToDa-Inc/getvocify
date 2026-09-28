@@ -277,12 +277,22 @@ La tabla de arriba marcaba todo como «Hecho». Al seguir cada flujo en el códi
 | Un bot de Recall que fallaba dejaba la captura «grabando» para siempre; si la transcripción llegaba tarde se marcaba fallida | `bot.fatal`/`transcript.failed` la marcan fallida; `transcript.done` la completa | `684a7c3` |
 | Onboarding apuntaba a un select eliminado; `callback_after_days` sin ajuste; detalle del comercial sin nombre y con ids del CRM; competidores con 1 cita sin fecha; el feedback de la campana no se limpiaba al leerlo | Textos, ajuste en Ajustes → Oferta, nombres, 3 citas con fecha, marcar visto desde la nota | `cc0c263` |
 
+**Segunda revisión (UX, Ask, playbook, coaching):**
+
+| Hueco | Arreglo | Commit |
+|---|---|---|
+| El playbook solo se podía pegar o subir en PDF y se guardaba como **un único paso** con todo el documento; una vez publicado desaparecía el editor | Editor de pasos y respuestas por tipo de objeción, plantillas por flujo, pegar/PDF/audio convertidos en pasos, validación, guardar/publicar con estados; se ve la versión activa | `5920519` |
+| C04 devolvía siempre `playbook_observations: []` y `competitor_mentions: []`, y el scoring ponía `strengths/improvements: []`: adherencia, pasos fallados, frases, checklist, «Qué hiciste bien / Qué mejorar» y competidores con nombre nunca salían | `intelligence_v4` detrás de `PLAYBOOK_OBSERVATIONS_ENABLED`: un estado por paso con cita y competidores con cita; líneas de coaching deterministas desde esas citas; evals `cases_v4.json` + `eval_intelligence.py --v4` | `91b2cd9` |
+| Ask: un spinner y nada más; un fallo no se veía; memoria compartida entre pestañas; prompt de «WhatsApp» y «HubSpot» para todos | Pasos en vivo («Buscando contactos · Marc»), pasos plegados bajo la respuesta, error con reintentar, memoria por conversación y «Nueva conversación», prompt neutro | `130f5fc` |
+| Nada impedía el relleno de IA en follow-ups y Ask | Guardia determinista: reintento nombrando las frases y, si sigue, se quita la frase | `bbcf61a` |
+
 **Sigue pendiente (no es código de este plan o necesita decisión):**
 - Verificar en staging con sesión real (Reticle no está disponible en esta sesión) y aplicar migraciones 054–061 + SQL de activación si no se ha hecho.
 - Nombres de eventos de Recall: confirmar en el panel de Recall que el endpoint tiene `bot.done`, `transcript.done`, `bot.fatal` y `transcript.failed`, y el idioma de la transcripción (no se fija idioma al crear el bot).
 - El comercial sigue sin vista propia de objeciones con «cómo resolverla» (solo el Head of Sales).
 - Pestaña Playbook: enseña nombre y nota de compañeros a todos; choca con «sin ranking» de la Lista 2. Decisión de producto.
-- Prompts: `intelligence_v3` se editó sin cambiar de versión ni correr evals; `followup_v3` no tiene casos de eval por flujo.
+- Prompts: `intelligence_v3` se editó sin cambiar de versión ni correr evals; `followup_v3` no tiene casos de eval por flujo. `intelligence_v4` tiene casos pero **no se han corrido** (no había clave de OpenRouter en esta sesión): correr `python -u scripts/eval_intelligence.py --v4` 3 veces antes de encender `PLAYBOOK_OBSERVATIONS_ENABLED`.
+- Para que haya coaching de verdad: publicar el playbook de Vocify con pasos reales en el editor nuevo y después encender `PLAYBOOK_OBSERVATIONS_ENABLED`.
 - Extensión: cambios desde la 1.0.23 sin publicar. Nada de esto está en `main`.
 
 ## Gates por tarea
