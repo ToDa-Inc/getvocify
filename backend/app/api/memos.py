@@ -637,7 +637,7 @@ async def upload_memo(
         transcript_raw = transcript.strip()
         transcript = await sanitize_user_transcript(transcript_raw, user_id, supabase)
         estimated_duration = len(transcript) / 15  # rough: ~15 chars/sec speech
-        created = insert_memo_row(supabase, {
+        created = insert_memo_row(supabase, pin_playbook=True, payload={
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
@@ -691,7 +691,7 @@ async def upload_memo(
             extra=log_domain(DOMAIN_MEMO, "upload", user_id=user_id, has_transcript=False, audio_len=len(audio_bytes)),
         )
         estimated_duration = len(audio_bytes) / (1024 * 1024) * 60
-        created = insert_memo_row(supabase, {
+        created = insert_memo_row(supabase, pin_playbook=True, payload={
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
@@ -759,7 +759,7 @@ async def upload_transcript_only(
     }
 
     estimated_duration = len(transcript) / 15
-    created = insert_memo_row(supabase, {
+    created = insert_memo_row(supabase, pin_playbook=True, payload={
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
@@ -820,7 +820,7 @@ async def upload_transcript_and_extract(
     if source_type not in ("voice_memo", "meeting_transcript"):
         source_type = "voice_memo"
 
-    created = insert_memo_row(supabase, {
+    created = insert_memo_row(supabase, pin_playbook=True, payload={
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,

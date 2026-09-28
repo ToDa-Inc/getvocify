@@ -246,12 +246,42 @@ def with_author_company(supabase: Client, row: dict[str, Any]) -> dict[str, Any]
     return {**row, "company_id": company_id} if company_id else row
 
 
-def insert_memo_row(supabase: Client, payload: dict[str, Any]) -> dict:
-    """Shared memo insert. source_type is always persisted."""
+def pin_playbook_on_row(supabase: Client, row: dict[str, Any]) -> dict[str, Any]:
+    """Pin the company's playbook on a new memo row the same way the dialer does
+    (the rep's flow per D5, else the single published playbook). Without a pin a memo is
+    never scored against the playbook: no adherence, no debrief, no Playbook tab entry.
+    A row that already carries a pin keeps it; a failed lookup never blocks the capture."""
+    if row.get("playbook_version_id") or row.get("sales_motion_key"):
+        return row
+    company_id = row.get("company_id")
+    user_id = row.get("user_id")
+    if not company_id or not user_id:
+        return row
+    try:
+        from app.services.company import sales_role_for_user
+
+        fields = playbook_fields_for_capture(
+            supabase,
+            str(company_id),
+            default_when_unspecified=True,
+            sales_role=sales_role_for_user(supabase, str(user_id)),
+            interaction_kind=interaction_kind_of(row),
+        )
+    except Exception:
+        logger.warning("playbook pin failed for a new memo", exc_info=True)
+        return row
+    return {**row, **fields}
+
+
+def insert_memo_row(supabase: Client, payload: dict[str, Any], *, pin_playbook: bool = False) -> dict:
+    """Shared memo insert. source_type is always persisted. pin_playbook stamps the
+    company's playbook like every other capture path (uploads, extension recordings)."""
     row = with_author_company(supabase, dict(payload))
     source_type = str(row.get("source_type") or "voice_memo").strip() or "voice_memo"
     row["source_type"] = source_type
     row["interaction_kind"] = interaction_kind_of(row)
+    if pin_playbook:
+        row = pin_playbook_on_row(supabase, row)
     result = supabase.table("memos").insert(row).execute()
     data = result.data or []
     if not data:
