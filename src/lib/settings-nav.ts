@@ -1,8 +1,7 @@
 /**
- * Which Settings tabs a role can see (Lista 3, item 2). Company-wide sections (CRM,
- * Offer/strategy, Glossary, Playbooks editing, Team, Usage, Billing) are the Head of
- * Sales's (owner/admin's) call; a rep only ever sees their own personal settings
- * (Calling, Brief/timing). Interface language is not a route here - it's rendered by
+ * Which Settings tabs a role can see (Lista 3, item 2; Lista 4 E6). Company-wide sections
+ * (CRM, Offer/strategy, Brief/timing, Playbooks editing, Team, Billing) are the Head of
+ * Sales's (owner/admin's) call; a rep sees Calling, the shared Glossary and Usage. Interface language is not a route here - it's rendered by
  * SettingsLayout for everyone regardless of this list.
  *
  * Pure and role-only on purpose: SettingsLayout uses it both to filter the nav and to
@@ -34,11 +33,11 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "crm", to: "/dashboard/settings", labelKey: "settingsNavCrm", end: true, managerOnly: true },
   { id: "calling", to: "/dashboard/settings/calling", labelKey: "settingsNavCalling", managerOnly: false },
   { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", managerOnly: true },
-  { id: "glossary", to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary", managerOnly: true },
-  { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: false },
+  { id: "glossary", to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary", managerOnly: false },
+  { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: true },
   { id: "playbooks", to: "/dashboard/settings/playbooks", labelKey: "settingsNavPlaybooks", managerOnly: true },
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
-  { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: true },
+  { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", managerOnly: true },
 ] as const;
 

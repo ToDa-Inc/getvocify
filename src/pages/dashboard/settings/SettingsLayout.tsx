@@ -24,9 +24,9 @@ const SettingsLayout = () => {
   const { t } = useLanguage();
   const location = useLocation();
   const paywalled = companyIsPaywalled(user?.company);
-  // Item 2: a rep (member) only sees their personal settings (Calling, Brief/timing);
-  // the Head of Sales (owner/admin) sees everything, including the company-wide
-  // sections (CRM, Offer, Glossary, Playbooks, Team, Usage, Billing).
+  // Item 2 / Lista 4 E6: a rep (member) sees Calling, the shared Glossary (read-only)
+  // and their own Usage; the Head of Sales (owner/admin) sees everything, including the
+  // company-wide sections (CRM, Offer, Brief, Playbooks, Team, Billing).
   const isManager = isManagerRole(user?.company?.role);
 
   const sections = useMemo(() => visibleSettingsTabs(isManager), [isManager]);

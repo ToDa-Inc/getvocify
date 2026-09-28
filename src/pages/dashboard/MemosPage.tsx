@@ -19,6 +19,7 @@ import {
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { formatRecordedAtLabel } from "@/lib/memo-dates";
 import { formatDistanceToNow } from "date-fns";
+import { useLanguage } from "@/lib/i18n";
 
 const getStatusBadge = (status: string, screeningOutcome?: string | null) => {
   if (status === "pending_review") {
@@ -72,6 +73,9 @@ const getStatusBadge = (status: string, screeningOutcome?: string | null) => {
 
 const MemosPage = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
+  // Lista 4 E4: role only. A member always lists their own recordings (scope=me, no
+  // author filter), even when the company gives them visibility=team elsewhere.
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [searchTerm, setSearchTerm] = useState("");
   const [authorOverride, setAuthorOverride] = useState<string | null | undefined>(undefined);
@@ -131,10 +135,8 @@ const MemosPage = () => {
     <div className={`max-w-4xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div className={V_PATTERNS.dashboardHeader}>
-          <h1 className={THEME_TOKENS.typography.pageTitle}>
-            Voice <span className={THEME_TOKENS.typography.accentTitle}>Memos</span>
-          </h1>
-          <p className={THEME_TOKENS.typography.body}>Manage and review your sales conversations.</p>
+          <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.navMemos}</h1>
+          <p className={THEME_TOKENS.typography.body}>{t.product.recordingsSubtitle}</p>
         </div>
         
         <div className="flex flex-col items-stretch md:items-end gap-3">
@@ -150,7 +152,7 @@ const MemosPage = () => {
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 group-focus-within:text-beige transition-colors" />
             <Input 
-              placeholder="Search memos..." 
+              placeholder={t.product.recordingsSearch}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-11 pr-6 h-10 bg-card border-border rounded-lg w-full md:w-64"
@@ -180,8 +182,8 @@ const MemosPage = () => {
             {searchTerm
               ? "No matches found"
               : viewingTeammate
-                ? "No memos for this teammate"
-                : "No voice memos yet"}
+                ? t.product.recordingsEmptyTeammate
+                : t.product.recordingsEmpty}
           </h3>
           <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
             {searchTerm

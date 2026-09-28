@@ -15,7 +15,7 @@ describe("visibleSettingsTabs", () => {
   it("gives a rep only the personal tabs", () => {
     assert.deepEqual(
       visibleSettingsTabs(false).map((t) => t.id),
-      ["calling", "brief"],
+      ["calling", "glossary", "usage"],
     );
   });
 });
@@ -42,15 +42,15 @@ describe("isSettingsPathAllowed", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/team", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/billing", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/offer", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/playbooks", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", false), false);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/brief", false), false);
   });
 
   it("lets a rep onto their personal tabs, including nested paths", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", false), true);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/brief", false), true);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/brief/anything", false), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", false), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", false), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage/anything", false), true);
   });
 
   it("does not let the CRM index match a rep's calling path by prefix", () => {

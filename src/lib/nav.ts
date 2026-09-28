@@ -1,16 +1,14 @@
-export type NavItemId = "home" | "memos" | "copilot" | "ask" | "insights" | "playbook" | "settings" | "call";
+export type NavItemId = "home" | "memos" | "insights" | "coach" | "playbook" | "settings";
 
 export type NavLabelKey =
   | "navHome"
   | "navToday"
   | "navMemos"
   | "navConversations"
-  | "navCopilot"
-  | "navAsk"
   | "navInsights"
+  | "navCoach"
   | "navPlaybook"
-  | "navSettings"
-  | "navCall";
+  | "navSettings";
 
 export type NavItem = {
   id: NavItemId;
@@ -23,17 +21,17 @@ export type NavMenu = { items: NavItem[]; showPlans: boolean };
 
 const HOME: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
 const MEMOS: NavItem = { id: "memos", labelKey: "navMemos", path: "/dashboard/memos" };
-const COPILOT: NavItem = { id: "copilot", labelKey: "navCopilot", path: "/dashboard/copilot", beta: true };
-const ASK: NavItem = { id: "ask", labelKey: "navAsk", path: "/dashboard/ask" };
 const INSIGHTS: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
+const COACH: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
 const PLAYBOOK: NavItem = { id: "playbook", labelKey: "navPlaybook", path: "/dashboard/playbook" };
 const SETTINGS: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
-const CALL: NavItem = { id: "call", labelKey: "navCall" };
 
 export function isManagerRole(role?: string | null): boolean {
   return role === "owner" || role === "admin";
 }
 
+// Lista 4 E1–E5: the sidebar is only the rep's places. Copilot has no link (its route
+// stays), Ask and Call live in the top bar, and a rep gets Coach where a manager gets Team.
 export function navItemsFor({
   role,
   repWorkspace,
@@ -44,22 +42,13 @@ export function navItemsFor({
   playbookTabEnabled?: boolean;
 }): NavMenu {
   const manager = isManagerRole(role);
-  // T11: the Playbook tab is for every company member (SDR, AE, General, owner/admin
-  // alike), not just managers, so it sits next to Ask rather than beside Team.
+  // T11: the Playbook tab is for every company member (SDR, AE, General, owner/admin alike).
   const playbook = playbookTabEnabled ? [PLAYBOOK] : [];
-  if (!repWorkspace) {
-    return {
-      items: [HOME, MEMOS, COPILOT, ASK, ...playbook, ...(manager ? [INSIGHTS] : []), SETTINGS, CALL],
-      showPlans: true,
-    };
-  }
-  const today: NavItem = { ...HOME, labelKey: "navToday" };
-  const conversations: NavItem = { ...MEMOS, labelKey: "navConversations" };
+  const home: NavItem = repWorkspace ? { ...HOME, labelKey: "navToday" } : HOME;
+  const recordings: NavItem = repWorkspace ? { ...MEMOS, labelKey: "navConversations" } : MEMOS;
   return {
-    items: manager
-      ? [today, conversations, COPILOT, ASK, ...playbook, CALL, INSIGHTS, SETTINGS]
-      : [today, conversations, ASK, ...playbook, CALL, SETTINGS],
-    showPlans: manager,
+    items: [home, recordings, ...playbook, manager ? INSIGHTS : COACH, SETTINGS],
+    showPlans: repWorkspace ? manager : true,
   };
 }
 
