@@ -30,6 +30,8 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     briefV2: Boolean(raw.brief_v2_enabled),
     salesStrategy: (raw.sales_strategy as string | null | undefined) ?? null,
     callbackAfterDays: typeof raw.callback_after_days === 'number' ? raw.callback_after_days : null,
+    followupCadence: (raw.followup_cadence as Record<string, number> | null | undefined) ?? null,
+    followupCadenceDefaults: (raw.followup_cadence_defaults as Record<string, number> | null | undefined) ?? null,
     needsOnboarding: Boolean(raw.needs_onboarding),
   };
 }
@@ -71,11 +73,17 @@ export const companyApi = {
     return mapCompany(raw);
   },
 
-  update: async (data: { name?: string; salesStrategy?: string; callbackAfterDays?: number }): Promise<CompanyDetails> => {
+  update: async (data: {
+    name?: string;
+    salesStrategy?: string;
+    callbackAfterDays?: number;
+    followupCadence?: Record<string, number>;
+  }): Promise<CompanyDetails> => {
     const raw = await api.patch<Record<string, unknown>>('/company', {
       name: data.name,
       sales_strategy: data.salesStrategy,
       callback_after_days: data.callbackAfterDays,
+      followup_cadence: data.followupCadence,
     });
     return mapCompany(raw);
   },

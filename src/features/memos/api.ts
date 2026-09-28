@@ -15,6 +15,7 @@ import type {
   FollowupActionPayload,
   FollowupSendPayload,
 } from './types';
+import type { AfterCallContext, AfterCallHint, OutcomePayload } from '@/lib/after-call-flow';
 
 /**
  * Query keys for TanStack Query
@@ -199,6 +200,22 @@ export const memosApi = {
    */
   sendFollowup: (id: string, payload: FollowupSendPayload): Promise<FollowupView> => {
     return api.post<FollowupView>(`/memos/${id}/followup/send`, payload);
+  },
+
+  /**
+   * Lista 4 T4 (AFTER_CALL_FLOW_ENABLED): what Hoy's after-call panel prefills. 404 with the
+   * flag off; 403 on someone else's memo.
+   */
+  afterCall: (id: string): Promise<AfterCallContext> => {
+    return api.get<AfterCallContext>(`/memos/${id}/after-call`);
+  },
+
+  /**
+   * Lista 4 T4: the outcome of a call whose memo is already approved (auto-approve). A memo
+   * still in review takes the same fields on approve instead.
+   */
+  recordOutcome: (id: string, payload: OutcomePayload): Promise<{ after_call: AfterCallHint }> => {
+    return api.post<{ after_call: AfterCallHint }>(`/memos/${id}/outcome`, payload);
   },
 };
 

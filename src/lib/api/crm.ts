@@ -57,6 +57,9 @@ export interface CRMConfiguration {
   /** Stage an accepted booked meeting moves the deal to (forward only). null: no move. */
   meeting_booked_pipeline_id?: string | null;
   meeting_booked_stage_id?: string | null;
+  /** Lista 4 E11 (AFTER_CALL_FLOW_ENABLED): when Vocify creates a deal for a contact without
+   * one. null only before migration 063; the backend keeps the stored rule when it is unset. */
+  deal_creation_rule?: "always" | "meeting_booked" | "follow_up_or_meeting" | "never" | null;
 }
 
 /** Keep fetched settings/dashboard data for the whole login session. Invalidate on mutate. */
@@ -290,7 +293,14 @@ export const crmApi = {
     dealId?: string,
     isNewDeal: boolean = false,
     extraction?: any,
-    opts?: { contactId?: string; companyId?: string; skipDeal?: boolean; createCompany?: boolean }
+    opts?: {
+      contactId?: string;
+      companyId?: string;
+      skipDeal?: boolean;
+      createCompany?: boolean;
+      /** Lista 4 T4: the after-call outcome fields (rep_outcome, followup_at, ...). */
+      extra?: Record<string, unknown> | null;
+    }
   ) {
     return api.post(`/memos/${memoId}/approve`, {
       deal_id: dealId,
@@ -300,6 +310,7 @@ export const crmApi = {
       company_id: opts?.companyId,
       skip_deal: opts?.skipDeal || false,
       ...(opts?.createCompany ? { create_company: true } : {}),
+      ...(opts?.extra ?? {}),
     });
   },
 };

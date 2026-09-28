@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/fill-policy";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
 import { useLanguage } from "@/lib/i18n";
 
 interface HubSpotConfigurationProps {
@@ -263,6 +264,12 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
           </label>
         </div>
       </div>
+
+      <DealCreationRuleField
+        value={config.deal_creation_rule}
+        disabled={readOnly}
+        onChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
+      />
 
       <AutoAcceptCrmToggle
         checked={Boolean(config.auto_sync_hubspot_calls)}

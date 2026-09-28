@@ -17,6 +17,7 @@ import type { Memo } from "@/features/memos/types";
 import { api, ApiError } from "@/shared/lib/api-client";
 import { handoffsApi, todayKeys } from "../api";
 import { HandoffHistory } from "./HandoffHistory";
+import { AfterCallReview } from "./AfterCallReview";
 import { afterCallLine, type CallSummary } from "@/lib/after-call";
 import {
   conversationLine,
@@ -305,6 +306,9 @@ function PanelBody({
 
   const { user } = useAuth();
   const handoffEnabled = Boolean(user?.company?.features?.includes("HANDOFF_ENABLED"));
+  // Lista 4 T4 (E10): after the call, the panel walks proposal -> outcome -> follow-up itself
+  // instead of sending the rep to the memo's page.
+  const afterCallFlow = Boolean(user?.company?.features?.includes("AFTER_CALL_FLOW_ENABLED"));
 
   const followup = row.kind === "followup"
     ? row.entry
@@ -312,7 +316,11 @@ function PanelBody({
   const followupMemoId = followup ? ("memoId" in followup ? followup.memoId : followup.memo_id) : null;
   const memoIdForFollowup = inReview ? call.memoId : followupMemoId;
   const line = inReview ? afterCallLine(call.summary, call.crmName) : null;
-  const filled = panelFilledPill({ primary, inReview, reviewSave: line?.kind === "review" });
+  const afterCallMemoId =
+    afterCallFlow && line && (line.kind === "review" || line.kind === "saved")
+      ? (line.kind === "review" ? line.memoId : call.memoId)
+      : null;
+  const filled = panelFilledPill({ primary, inReview, reviewSave: line?.kind === "review" && !afterCallMemoId });
 
   const onPrimary = () => {
     void panel.runPrimary({
@@ -386,7 +394,21 @@ function PanelBody({
         </div>
       ) : null}
 
-      {line ? (
+      {line && afterCallMemoId ? (
+        <div className="mt-6">
+          <AfterCallReview
+            memoId={afterCallMemoId}
+            crmName={call.crmName}
+            onOpenMemo={actions.onOpenMemo}
+            registerSend={registerSend}
+            handoffFallback={
+              canHandOff && contactId ? (
+                <HandoffAction contactId={contactId} connectionId={actions.connectionId} memoId={afterCallMemoId} />
+              ) : null
+            }
+          />
+        </div>
+      ) : line ? (
         <div className="mt-6">
           {line.kind === "processing" ? (
             <p className={THEME_TOKENS.typography.body}>{copy.panel_processing}</p>
@@ -473,7 +495,7 @@ function PanelBody({
         </div>
       ) : null}
 
-      {memoIdForFollowup && (row.kind === "followup" || inReview) ? (
+      {afterCallMemoId ? null : memoIdForFollowup && (row.kind === "followup" || inReview) ? (
         <>
           <hr className="my-5 border-0 border-t border-[hsl(var(--hairline))]" />
           <section aria-label={copy.panel_followup}>

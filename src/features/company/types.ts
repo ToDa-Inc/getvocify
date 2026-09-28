@@ -28,6 +28,10 @@ export interface CompanySummary {
   /** T5: days after an unanswered call before Hoy suggests calling back. Only set when
    * HOY_LEAD_TIERS_ENABLED. */
   callbackAfterDays?: number | null;
+  /** Lista 4 (E8): the Head of Sales' follow-up waits per stopper, and the defaults they
+   * override. Only set when HOY_SDR_SECTIONS_ENABLED. */
+  followupCadence?: Record<string, number> | null;
+  followupCadenceDefaults?: Record<string, number> | null;
   /** T9: owner/admin whose company hasn't finished the onboarding wizard yet.
    * Only meaningful when ONBOARDING_WIZARD_ENABLED; false for members and off by default. */
   needsOnboarding?: boolean;

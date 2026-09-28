@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -54,6 +54,16 @@ interface HubSpotSyncPreviewProps {
   reviewAuthorName?: string | null;
   onSuccess: (data: any) => void;
   onContactName?: (name: string | null) => void;
+  /** Lista 4 T4: Hoy's 400px side panel - tighter spacing, errors inline under the button. */
+  compact?: boolean;
+  /** Rendered right above the confirm button (the after-call outcome step). */
+  beforeConfirm?: ReactNode;
+  /** Extra approve fields (the after-call outcome). */
+  approveExtra?: Record<string, unknown> | null;
+  /** When set, the confirm button is disabled and says why (e.g. "Pick the outcome"). */
+  confirmBlockedLabel?: string | null;
+  /** Replaces the confirm button's label when nothing blocks it. */
+  confirmLabel?: string | null;
 }
 
 /**
@@ -120,6 +130,11 @@ export const HubSpotSyncPreview = ({
   readOnly = false,
   reviewAuthorName = null,
   onContactName,
+  compact = false,
+  beforeConfirm = null,
+  approveExtra = null,
+  confirmBlockedLabel = null,
+  confirmLabel = null,
 }: HubSpotSyncPreviewProps) => {
   const { user } = useAuth();
   const loggedAs = user?.fullName || user?.email;
@@ -130,6 +145,7 @@ export const HubSpotSyncPreview = ({
   const [extractionError, setExtractionError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [reExtracting, setReExtracting] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Active target selection tracking
   const [selectedContactId, setSelectedContactId] = useState<string | null>(initialContactId || null);
@@ -596,8 +612,9 @@ export const HubSpotSyncPreview = ({
   };
 
   const handleSync = async () => {
-    if (readOnly) return;
+    if (readOnly || confirmBlockedLabel) return;
     setSyncing(true);
+    setSyncError(null);
     try {
       const extraction = await buildExtractionForSync();
       const contactId = selectedContact?.contact_id || preview?.selected_contact?.contact_id;
@@ -613,12 +630,16 @@ export const HubSpotSyncPreview = ({
           companyId,
           skipDeal: effectiveSkipDeal,
           createCompany: Boolean(preview?.new_company && !companyId),
+          extra: approveExtra,
         },
       );
       toast.success(effectiveSkipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
       onSuccess(result);
     } catch (err: any) {
-      toast.error(err?.data?.detail || err?.message || "Failed to sync with CRM");
+      const detail = err?.data?.detail;
+      const message = (typeof detail === "string" ? detail : null) || err?.message || "Failed to sync with CRM";
+      if (compact) setSyncError(message);
+      toast.error(message);
     } finally {
       setSyncing(false);
     }
@@ -708,7 +729,7 @@ export const HubSpotSyncPreview = ({
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-300">
+    <div className={`${compact ? "space-y-5" : "space-y-8"} animate-in fade-in duration-300`}>
       {/* 1. CONTACT TARGET SECTION */}
       <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
@@ -1318,6 +1339,8 @@ export const HubSpotSyncPreview = ({
         )}
       </div>
 
+      {beforeConfirm}
+
       {/* 5. SYNC ACTION BUTTON */}
       <div className="pt-4 border-t border-border/40">
         {readOnly ? (
@@ -1329,7 +1352,9 @@ export const HubSpotSyncPreview = ({
         <Button
           variant="hero"
           onClick={handleSync}
-          disabled={syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade)}
+          disabled={
+            syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade) || Boolean(confirmBlockedLabel)
+          }
           className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-sm font-medium h-12 shadow-md transition-all"
         >
           {syncing ? <VocifySpinner size={16} className="mr-2" /> : <Check className="h-4 w-4 mr-2" />}
@@ -1339,6 +1364,10 @@ export const HubSpotSyncPreview = ({
               ? "Select a contact first"
               : needsDealDecision && !dealDecisionMade
                 ? "Select a deal first"
+                : confirmBlockedLabel
+                  ? confirmBlockedLabel
+                  : confirmLabel
+                    ? confirmLabel
                 : alreadyWritten
                   ? "Write correction"
                   : skipDeal && selectedContact
@@ -1347,6 +1376,9 @@ export const HubSpotSyncPreview = ({
                       ? "Confirm & Update Deal"
                       : "Confirm & Create Deal"}
         </Button>
+        {syncError ? (
+          <p role="alert" className="mt-3 text-center text-[12px] text-destructive">{syncError}</p>
+        ) : null}
         {alreadyWritten ? (
           <p className="text-[10px] text-muted-foreground text-center mt-3">
             This was written after processing. Edit anything that is wrong and write the correction.

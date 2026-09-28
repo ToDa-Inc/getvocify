@@ -14,6 +14,7 @@ import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
 import { useLanguage } from "@/lib/i18n";
 
 interface PipedriveConfigurationProps {
@@ -222,6 +223,12 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
           </div>
         </div>
       </div>
+
+      <DealCreationRuleField
+        value={config.deal_creation_rule}
+        disabled={readOnly}
+        onChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
+      />
 
       <AutoAcceptCrmToggle
         checked={Boolean(config.auto_sync_hubspot_calls)}
