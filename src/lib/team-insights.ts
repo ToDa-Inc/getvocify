@@ -2,7 +2,10 @@
 
 import type { ProductTranslations } from "./product-catalog";
 
-export type TeamRep = { userId: string; name: string };
+/** T13: per-rep adherence in each flow, null when there is no scored interaction there. */
+export type TeamRepFlows = { sdr: number | null; ae: number | null };
+
+export type TeamRep = { userId: string; name: string; flows?: TeamRepFlows };
 
 export type TeamFilters = { period: string; motion: string | null; userId: string | null };
 
@@ -134,6 +137,23 @@ export function repsByName(reps: TeamRep[]): TeamRep[] {
   return [...reps].sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
+/** D4: the motion filter shows "Flujo SDR / Flujo AE" for discovery/closing, and the
+ * plain motion catalog for anything else (qualification, or an unknown key). */
+export function teamFlowFilterLabel(
+  key: string,
+  copy: { teamFlowSdr: string; teamFlowAe: string },
+  motions: ObjectionCatalog,
+): string {
+  if (key === "discovery") return copy.teamFlowSdr;
+  if (key === "closing") return copy.teamFlowAe;
+  return motions[key] ?? key;
+}
+
+/** A percentage string for a rep's flow adherence, or the "no data" copy when null. */
+export function repFlowAdherenceText(value: number | null, noData: string): string {
+  return value === null ? noData : `${Math.round(value * 100)}%`;
+}
+
 export function winsForFilter(deals: TeamDeal[], userId: string | null): TeamDeal[] {
   const won = deals.filter((deal) => deal.status === "won");
   if (!userId) return won;
@@ -142,6 +162,7 @@ export function winsForFilter(deals: TeamDeal[], userId: string | null): TeamDea
 
 export function teamInsightsView(input: {
   role: string;
+  visibility?: string | null;
   companyEmpty: boolean;
   filters: TeamFilters;
   reps: TeamRep[];
@@ -158,7 +179,9 @@ export function teamInsightsView(input: {
 } {
   const reps = repsByName(input.reps);
   const { copy } = input;
-  if (input.role !== "owner" && input.role !== "admin") {
+  // T1/D3: a member with visibility=team reads this page too, read-only.
+  const canView = input.role === "owner" || input.role === "admin" || input.visibility === "team";
+  if (!canView) {
     return {
       kind: "denied",
       title: copy.teamDenied,

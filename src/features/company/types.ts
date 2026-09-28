@@ -18,6 +18,9 @@ export interface CompanySummary {
   briefV2?: boolean;
   /** The current user's own sales_role. Only set when SALES_ROLES_ENABLED. */
   salesRole?: SalesRole | null;
+  /** T1/D3: the current user's own visibility ('own'/'team'). Only set when
+   * SALES_ROLES_ENABLED; a member with 'team' also reads /dashboard/insights. */
+  visibility?: MemberVisibility | null;
   /** Company flags on for this company (Lista 3), e.g. 'SALES_ROLES_ENABLED'. */
   features?: string[];
   /** D10: the Head of Sales's sales strategy. Only set when FOLLOWUP_BY_FLOW_ENABLED. */

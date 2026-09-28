@@ -227,9 +227,11 @@ def adherence_trend(
     user_id: str | None = None,
     motion: str | None = None,
     tz_name: str = DEFAULT_TZ,
+    visibility: str | None = None,
 ) -> dict:
-    """Owner/admin only. Callers outside GET /team/adherence/trend must also check FLAG."""
-    assert_team_reader(role)
+    """Owner/admin, or a member with visibility=team (T1/D3, read-only). Callers outside
+    GET /team/adherence/trend must also check FLAG."""
+    assert_team_reader(role, visibility)
     instant = now or datetime.now(timezone.utc)
     if instant.tzinfo is None:
         instant = instant.replace(tzinfo=timezone.utc)

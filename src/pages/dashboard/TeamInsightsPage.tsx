@@ -8,10 +8,10 @@ import { ObjectionBreakdown } from "@/features/team-insights/components/Objectio
 import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
 import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
 import { useLanguage } from "@/lib/i18n";
-import { motionLabel } from "@/lib/motion-label";
 import {
   teamAdherenceHasData,
   teamCrmCoverage,
+  teamFlowFilterLabel,
   teamInsightsView,
   type ObjectionCategory,
   type TeamFilters,
@@ -38,7 +38,10 @@ export default function TeamInsightsPage() {
   const { user } = useAuth();
   const role = user?.company?.role ?? "member";
   const [filters, setFilters] = useState<TeamFilters>(EMPTY_FILTERS);
-  const allowed = role === "owner" || role === "admin";
+  // T1/D3: a member with visibility=team also reads this page (read-only) - the backend
+  // is the source of truth (403 otherwise), this only decides whether to fire the query.
+  const allowed = role === "owner" || role === "admin" || user?.company?.visibility === "team";
+  const managerHomeEnabled = Boolean(user?.company?.features?.includes("MANAGER_HOME_ENABLED"));
   const query = useQuery({
     queryKey: ["team-adherence", filters],
     queryFn: () =>
@@ -98,6 +101,7 @@ export default function TeamInsightsPage() {
       : null;
   const view = teamInsightsView({
     role,
+    visibility: user?.company?.visibility,
     companyEmpty: false,
     filters,
     reps,
@@ -150,7 +154,7 @@ export default function TeamInsightsPage() {
               <option value="">{t.product.teamFilterAllMotions}</option>
               {motionKeys.map((key) => (
                 <option key={key} value={key}>
-                  {motionLabel(key, t.product.motions)}
+                  {teamFlowFilterLabel(key, t.product, t.product.motions)}
                 </option>
               ))}
             </select>
@@ -179,7 +183,7 @@ export default function TeamInsightsPage() {
               </ul>
             </section>
           ) : null}
-          <TeamOverview metrics={view.metrics} reps={view.reps} />
+          <TeamOverview metrics={view.metrics} reps={view.reps} showRepDetail={managerHomeEnabled} />
           <AdherenceBreakdown metrics={view.metrics}>
             <AdherenceTrend filters={filters} />
           </AdherenceBreakdown>

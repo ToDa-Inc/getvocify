@@ -9,8 +9,10 @@ import {
   adherenceBarRatio,
   objectionCategoriesEmptyMessage,
   objectionResolutionCountsText,
+  repFlowAdherenceText,
   repsByName,
   teamAdherenceHasData,
+  teamFlowFilterLabel,
   teamInsightsView,
   visibleObjectionCategories,
   winsForFilter,
@@ -212,5 +214,43 @@ describe("team insights", () => {
       copy: en,
     });
     assert.equal(deniedEn.title, en.teamDenied);
+  });
+
+  it("T1/D3: a member with visibility=team reads the page like a manager", () => {
+    const es = productCatalog.ES;
+    const member = teamInsightsView({
+      role: "member",
+      visibility: "team",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics,
+      copy: es,
+    });
+    assert.equal(member.kind, "ready");
+    const memberOwn = teamInsightsView({
+      role: "member",
+      visibility: "own",
+      companyEmpty: false,
+      filters: { period: "week", motion: null, userId: null },
+      reps,
+      metrics,
+      copy: es,
+    });
+    assert.equal(memberOwn.kind, "denied");
+  });
+
+  it("T13: the motion filter shows Flujo SDR/AE for discovery/closing, plain labels otherwise", () => {
+    const es = productCatalog.ES;
+    assert.equal(teamFlowFilterLabel("discovery", es, es.motions), es.teamFlowSdr);
+    assert.equal(teamFlowFilterLabel("closing", es, es.motions), es.teamFlowAe);
+    assert.equal(teamFlowFilterLabel("qualification", es, es.motions), es.motions.qualification);
+    assert.equal(teamFlowFilterLabel("unknown_key", es, es.motions), "unknown_key");
+  });
+
+  it("T13: a rep's flow adherence renders as a percentage, or 'no data' when null", () => {
+    const es = productCatalog.ES;
+    assert.equal(repFlowAdherenceText(0.8, es.teamRepFlowNoData), "80%");
+    assert.equal(repFlowAdherenceText(null, es.teamRepFlowNoData), es.teamRepFlowNoData);
   });
 });

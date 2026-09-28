@@ -45,14 +45,23 @@ def is_opted_in(rows: dict[str, dict], user_id: str, key: str) -> bool:
     return True if value is None else bool(value)
 
 
+# T13: the team weekly report is the company's one fixed report for owner/admin - it is
+# not a preference they can turn off, unlike daily/weekly which stay personal opt-outs.
+def _fixed_key(key: str, role: str) -> bool:
+    return key == "team" and role in TEAM_ROLES
+
+
 def read_preferences(supabase, *, user_id: str, company_id: str, role: str) -> dict[str, bool]:
     rows = load_preference_rows(supabase, [user_id])
-    return {key: is_opted_in(rows, user_id, key) for key in applicable_keys(supabase, company_id=company_id, role=role)}
+    return {
+        key: True if _fixed_key(key, role) else is_opted_in(rows, user_id, key)
+        for key in applicable_keys(supabase, company_id=company_id, role=role)
+    }
 
 
 def write_preferences(supabase, *, user_id: str, company_id: str, role: str, changes: dict) -> dict[str, bool]:
     keys = applicable_keys(supabase, company_id=company_id, role=role)
-    unknown = [key for key in changes if key not in keys]
+    unknown = [key for key in changes if key not in keys or _fixed_key(key, role)]
     if unknown:
         raise ValueError(f"preferencia no disponible: {unknown[0]}")
     if any(not isinstance(value, bool) for value in changes.values()):

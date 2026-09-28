@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.services.activity_scope import author_display_name
+from app.services.activity_scope import author_display_name, can_view_company_activity
 from app.services.coaching.metrics import aggregate_adherence
 from app.services.company import CompanyService
 from app.services.team_insights.competitors import competitor_counts
@@ -17,20 +17,28 @@ _MADRID = ZoneInfo("Europe/Madrid")
 _TEAM_ROLES = frozenset({"owner", "admin"})
 _SCREENING_ATTEMPTS = frozenset({"voicemail", "no_response", "connected"})
 
+# T13: the SDR/AE flows a memo's sales_motion_key maps to, for the per-rep adherence
+# columns. Anything else (qualification, none) contributes to neither column.
+_FLOW_FOR_MOTION = {"discovery": "sdr", "closing": "ae"}
+
 
 class TeamAccessError(Exception):
     pass
 
 
-def assert_team_reader(role: str) -> None:
-    if role not in _TEAM_ROLES:
+def assert_team_reader(role: str, visibility: str | None = None) -> None:
+    """Owner/admin always. T1/D3: a member with visibility=team also reads the team page,
+    read-only - same rule as activity_scope.can_view_company_activity."""
+    if not can_view_company_activity(role, visibility):
         raise TeamAccessError("equipo denegado")
 
 
-def authorized_scope(*, role: str, requested_user_id: str | None, instruction: str) -> dict:
-    """Free text never widens the scope. The role is the server's."""
+def authorized_scope(
+    *, role: str, requested_user_id: str | None, instruction: str, visibility: str | None = None
+) -> dict:
+    """Free text never widens the scope. The role (and visibility=team) is the server's."""
     del instruction
-    assert_team_reader(role)
+    assert_team_reader(role, visibility)
     if requested_user_id:
         return {"scope": "user", "user_id": requested_user_id}
     return {"scope": "team", "user_id": None}
@@ -196,6 +204,7 @@ def load_team_adherence_inputs(
     activity_rows: list[dict] = []
     review_source: list[dict] = []
     parts: list[dict] = []
+    rep_motion_parts: list[dict] = []
     pattern_rows: list[dict] = []
     playbook_entries: list[dict] = []
     playbook_present = False
@@ -225,8 +234,14 @@ def load_team_adherence_inputs(
             query = query.eq("sales_motion_key", filter_motion)
         memos = query.execute()
         memo_ids: list[str] = []
+        memo_meta: dict[str, dict] = {}
         for memo in memos.data or []:
-            memo_ids.append(str(memo.get("id")))
+            memo_id = str(memo.get("id"))
+            memo_ids.append(memo_id)
+            memo_meta[memo_id] = {
+                "user_id": str(memo.get("user_id") or ""),
+                "motion": memo.get("sales_motion_key"),
+            }
             review_source.append(memo)
             row = activity_row_from_memo(memo)
             if row is not None:
@@ -246,6 +261,9 @@ def load_team_adherence_inputs(
                 )
                 if part is not None:
                     parts.append(part)
+                    meta = memo_meta.get(str(item.get("memo_id")))
+                    if meta and meta.get("user_id"):
+                        rep_motion_parts.append({**part, **meta})
             patterns = (
                 supabase.table("interaction_patterns")
                 .select("category,kind,resolution,response,superseded,created_at")
@@ -288,6 +306,7 @@ def load_team_adherence_inputs(
     period_start, period_end = madrid_week_bounds()
     return {
         "parts": parts,
+        "rep_motion_parts": rep_motion_parts,
         "playbook_present": playbook_present,
         "sample_size": len(parts),
         "activity_rows": activity_rows,
@@ -301,6 +320,41 @@ def load_team_adherence_inputs(
         "outcome_observations": outcome_observations,
         "outcome_user_id": filter_user,
     }
+
+
+def _flow_for_motion(motion: str | None) -> str | None:
+    return _FLOW_FOR_MOTION.get(str(motion or "").strip())
+
+
+def reps_with_flow_adherence(
+    reps: list[dict],
+    rep_motion_parts: list[dict],
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[dict]:
+    """T13: each rep plus its own SDR-flow and AE-flow adherence for the period, so the
+    reps table can show two columns. A rep with no scored interaction in a flow gets
+    None there - never a manufactured zero."""
+    if not rep_motion_parts:
+        return [dict(rep) for rep in reps]
+    week_parts = adherence_parts_in_period(rep_motion_parts, start=start, end=end)
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for part in week_parts:
+        flow = _flow_for_motion(part.get("motion"))
+        uid = str(part.get("user_id") or "")
+        if not flow or not uid:
+            continue
+        grouped.setdefault((uid, flow), []).append(part)
+    out: list[dict] = []
+    for rep in reps:
+        uid = str(rep.get("userId") or "")
+        flows: dict[str, float | None] = {}
+        for flow in ("sdr", "ae"):
+            group = grouped.get((uid, flow))
+            flows[flow] = aggregate_adherence(group)["adherence"] if group else None
+        out.append({**rep, "flows": flows})
+    return out
 
 
 def team_adherence(
@@ -320,8 +374,10 @@ def team_adherence(
     memo_rows: list[dict] | None = None,
     outcome_observations: list[dict] | None = None,
     outcome_user_id: str | None = None,
+    rep_motion_parts: list[dict] | None = None,
+    visibility: str | None = None,
 ) -> dict:
-    assert_team_reader(role)
+    assert_team_reader(role, visibility)
 
     def with_crm_outcomes(body: dict) -> dict:
         if outcome_observations is None:
@@ -376,7 +432,9 @@ def team_adherence(
             playbook_entries=playbook_entries,
             include_guidance=include_objection_guidance,
         )
-        body["reps"] = reps or []
+        body["reps"] = reps_with_flow_adherence(
+            reps or [], rep_motion_parts or [], start=activity_period_start, end=activity_period_end
+        )
         body["review"] = review or []
         return with_crm_outcomes(attach_competitors(body))
     metrics = aggregate_adherence(week_parts)
@@ -400,6 +458,8 @@ def team_adherence(
         playbook_entries=playbook_entries,
         include_guidance=include_objection_guidance,
     )
-    body["reps"] = reps or []
+    body["reps"] = reps_with_flow_adherence(
+        reps or [], rep_motion_parts or [], start=activity_period_start, end=activity_period_end
+    )
     body["review"] = review or []
     return with_crm_outcomes(attach_competitors(body))

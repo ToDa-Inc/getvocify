@@ -18,6 +18,7 @@ import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
 import TeamInsightsPage from "./pages/dashboard/TeamInsightsPage";
+import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
 import PlaybookPage from "./pages/dashboard/PlaybookPage";
 import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
@@ -27,6 +28,7 @@ import DashboardLayout from "./components/dashboard/DashboardLayout";
 import DashboardHome from "./pages/dashboard/DashboardHome";
 import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
+import { RepHome } from "@/features/today/components/RepHome";
 import MemosPage from "./pages/dashboard/MemosPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
 import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
@@ -183,6 +185,10 @@ const App = () => (
                 <Route path="billing" element={<BillingPage />} />
               </Route>
               <Route path="insights" element={<TeamInsightsPage />} />
+              <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
+              {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
+                  this is where "go to my Today" points a manager who also sells. */}
+              <Route path="today" element={<RepHome />} />
               <Route path="playbook" element={<PlaybookPage />} />
               <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
               <Route path="reports/:id" element={<ReportPage />} />

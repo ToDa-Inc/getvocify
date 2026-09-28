@@ -85,12 +85,15 @@ def team_metrics(args: dict, viewer: Viewer, supabase) -> dict:
             role=viewer.role,
             requested_user_id=requested,
             instruction=str(args.get("instruction") or ""),
+            visibility=viewer.visibility,
         )
     except TeamAccessError:
         return _forbidden()
     motion = str(args.get("motion") or "").strip() or None
     inputs = load_team_adherence_inputs(supabase, viewer.company_id, user_id=scope.get("user_id"), motion=motion)
-    metrics = team_adherence(role=viewer.role, **inputs)
+    # T13: same function, same parameters as GET /team/adherence - Ask must never see a
+    # different answer than the endpoint for the same viewer and filters.
+    metrics = team_adherence(role=viewer.role, visibility=viewer.visibility, **inputs)
     if not is_enabled(supabase, viewer.company_id, COMPETITORS_FLAG):
         metrics.pop("competitor_mentions", None)
     return {"ok": True, "scope": scope, "metrics": metrics, "source": "team_adherence"}

@@ -467,6 +467,10 @@ class CompanyService:
             "rep_workspace_enabled": self.rep_workspace_enabled(membership.company_id),
             "brief_v2_enabled": self.brief_v2_enabled(membership.company_id),
             "sales_role": membership.sales_role if sales_roles_on else None,
+            # T13: the current user's own visibility, so the frontend can tell a
+            # visibility=team member it may load /dashboard/insights, same rule as
+            # activity_scope.can_view_company_activity.
+            "visibility": membership.visibility if sales_roles_on else None,
             "features": enabled_features(self.supabase, membership.company_id, LISTA_3_FLAGS),
             "needs_onboarding": self.needs_onboarding(membership, company),
         }

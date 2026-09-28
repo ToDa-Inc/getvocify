@@ -82,6 +82,16 @@ def test_put_keeps_values_it_does_not_mention():
     assert client.get("/api/v1/me/report-preferences").json() == {"daily": False, "weekly": False}
 
 
+def test_team_report_cannot_be_turned_off_by_owner_or_admin():
+    # T13: the team weekly report is the company's one fixed report for owner/admin -
+    # not a personal opt-out like daily/weekly.
+    db = _db(REPORTING_TEAM_ENABLED=True)
+    response = _client(db, "owner").put("/api/v1/me/report-preferences", json={"team": False})
+    assert response.status_code == 422
+    assert db.tables["report_preferences"] == []
+    assert _client(db, "owner").get("/api/v1/me/report-preferences").json() == {"daily": True, "team": True}
+
+
 def test_put_rejects_a_report_that_does_not_apply():
     assert _client(_db(REPORTING_TEAM_ENABLED=True), "member").put(
         "/api/v1/me/report-preferences", json={"team": False},
