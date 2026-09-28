@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from supabase import Client
 
 from app.deps import get_supabase, get_supabase_auth, get_user_id
@@ -38,6 +38,10 @@ class CompanyResponse(BaseModel):
     # T5: days after an unanswered call before Hoy suggests calling back. Only sent while
     # HOY_LEAD_TIERS_ENABLED is on for the company (None otherwise).
     callback_after_days: Optional[int] = None
+    # Lista 4 T4 (E8): the Head of Sales' follow-up waits per stopper, and the defaults they
+    # override. Only sent while HOY_SDR_SECTIONS_ENABLED is on (None otherwise).
+    followup_cadence: Optional[Dict[str, int]] = None
+    followup_cadence_defaults: Optional[Dict[str, int]] = None
     needs_onboarding: bool = False
 
 
@@ -45,6 +49,25 @@ class UpdateCompanyRequest(BaseModel):
     name: Optional[str] = None
     sales_strategy: Optional[str] = None
     callback_after_days: Optional[int] = Field(default=None, ge=1, le=30)
+    # {stopper: days}. {} clears every override (E8's defaults apply again).
+    followup_cadence: Optional[Dict[str, Any]] = None
+
+    @field_validator("followup_cadence")
+    @classmethod
+    def _valid_cadence(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, int]]:
+        """Same rules hoy/cadence.parse_overrides reads with - known stoppers, whole days in
+        1..90 - but a bad entry is a 422 here, not silently dropped: the Head of Sales should
+        see the mistake instead of a wait that quietly didn't change."""
+        if value is None:
+            return None
+        from app.services.hoy.cadence import DEFAULT_WAIT_DAYS, MAX_WAIT_DAYS, MIN_WAIT_DAYS, parse_overrides
+
+        for key, days in value.items():
+            if key not in DEFAULT_WAIT_DAYS:
+                raise ValueError(f"unknown stopper: {key}")
+            if isinstance(days, bool) or not isinstance(days, int) or not MIN_WAIT_DAYS <= days <= MAX_WAIT_DAYS:
+                raise ValueError(f"{key}: days must be a whole number from {MIN_WAIT_DAYS} to {MAX_WAIT_DAYS}")
+        return parse_overrides(value)
 
 
 class InviteRequest(BaseModel):
@@ -144,8 +167,20 @@ async def get_company(
         callback_after_days=(
             svc.callback_after_days(membership.company_id) if svc.lead_tiers_enabled(membership.company_id) else None
         ),
+        **_followup_cadence_fields(svc, membership.company_id),
         needs_onboarding=svc.needs_onboarding(membership, company),
     )
+
+
+def _followup_cadence_fields(svc: CompanyService, company_id: str) -> dict:
+    if not svc.sdr_sections_enabled(company_id):
+        return {}
+    from app.services.hoy.cadence import DEFAULT_WAIT_DAYS
+
+    return {
+        "followup_cadence": svc.followup_cadence(company_id),
+        "followup_cadence_defaults": dict(DEFAULT_WAIT_DAYS),
+    }
 
 
 @router.patch("", response_model=CompanyResponse)
@@ -162,6 +197,8 @@ async def update_company(
         svc.update_sales_strategy(membership.company_id, body.sales_strategy)
     if body.callback_after_days is not None and svc.lead_tiers_enabled(membership.company_id):
         svc.update_callback_after_days(membership.company_id, body.callback_after_days)
+    if body.followup_cadence is not None and svc.sdr_sections_enabled(membership.company_id):
+        svc.update_followup_cadence(membership.company_id, body.followup_cadence)
     return await get_company(user_id=user_id, supabase=supabase)
 
 

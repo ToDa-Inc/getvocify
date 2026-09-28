@@ -278,6 +278,9 @@ class Settings(BaseSettings):
     HOY_SDR_SECTIONS_ENABLED: bool = False
     # Lista 4 T3: the brief adds a «gancho de empresa» line from another contact of the same company.
     BRIEF_COMPANY_HOOK_ENABLED: bool = False
+    # Lista 4 T4: after the call, Hoy's panel walks proposal -> outcome -> follow-up -> next,
+    # and the company's deal_creation_rule decides when a contact without a deal gets one.
+    AFTER_CALL_FLOW_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's

@@ -399,6 +399,11 @@ class CompanyService:
         """T5: callback_after_days only matters (and is only editable) with lead tiers on."""
         return is_enabled(self.supabase, company_id, "HOY_LEAD_TIERS_ENABLED")
 
+    def sdr_sections_enabled(self, company_id: str) -> bool:
+        """Lista 4: the follow-up cadence only matters (and is only editable) with the SDR's
+        Tareas / Seguimiento / Nuevos on - it is what brings a contact back to Seguimiento."""
+        return is_enabled(self.supabase, company_id, "HOY_SDR_SECTIONS_ENABLED")
+
     def onboarding_wizard_enabled(self, company_id: str) -> bool:
         return is_enabled(self.supabase, company_id, ONBOARDING_WIZARD_FLAG)
 
@@ -1059,6 +1064,20 @@ class CompanyService:
             )
         except Exception:
             logger.warning("callback_after_days not saved for %s (migration 057?)", company_id, exc_info=True)
+
+    def update_followup_cadence(self, company_id: str, overrides: dict[str, int]) -> None:
+        """Lista 4 T4: owner/admin only (require_manage_role at the API layer), validated by
+        the request model. {} stores NULL (E8's defaults). Tolerant of migration 062 not
+        having run yet, like update_callback_after_days."""
+        try:
+            (
+                self.supabase.table("companies")
+                .update({"followup_cadence": dict(overrides) or None, "updated_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+        except Exception:
+            logger.warning("followup_cadence not saved for %s (migration 062?)", company_id, exc_info=True)
 
     def update_sales_strategy(self, company_id: str, value: Optional[str]) -> dict:
         """D10: owner/admin only (require_manage_role at the API layer). Blank clears it.

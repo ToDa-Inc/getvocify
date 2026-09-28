@@ -42,7 +42,8 @@ from app.services.hubspot.preview import replay_written_fields
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
-from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
+from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest, RecordOutcomeRequest
+from app.api import after_call as after_call_api
 from app.models.crm_update import CRMUpdate
 from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
 from app.logging_config import log_domain, DOMAIN_MEMO
@@ -1153,6 +1154,16 @@ async def approve_memo(
             detail="No extraction data available. Please wait for processing to complete."
         )
     
+    # Lista 4 T4 (AFTER_CALL_FLOW_ENABLED): the rep's after-call outcome rides on the approval.
+    # Only the rep who made the call records it (a manager approving a teammate's memo syncs
+    # the fields, not an outcome - no handoff in someone else's name).
+    after_call_on = bool(
+        payload is not None
+        and payload.rep_outcome
+        and str(memo_data.get("user_id") or "") == str(user_id)
+        and after_call_api.enabled(supabase, memo_data.get("company_id"))
+    )
+
     # Idempotency check: If already approved and extraction hasn't changed, return existing
     if memo_data.get("status") == "approved" and memo_data.get("approved_at"):
         # Check if extraction was edited (re-approval with changes)
@@ -1160,7 +1171,23 @@ async def approve_memo(
             # Extraction was edited, allow re-approval
             pass
         else:
-            # Same extraction, already approved - return existing memo (idempotent)
+            # Same extraction, already approved - return existing memo (idempotent). Lista 4
+            # T4: an outcome sent here (auto-approve landed while the rep was in the panel)
+            # is still recorded, the same way POST /memos/{id}/outcome records it.
+            outcome_hint = None
+            if after_call_on and payload is not None:
+                outcome_hint = await after_call_api.apply_outcome_to_approved(
+                    supabase,
+                    memo=memo_data,
+                    membership=after_call_api._membership_or_none(supabase, user_id),
+                    user_id=user_id,
+                    body=RecordOutcomeRequest(
+                        rep_outcome=payload.rep_outcome,
+                        followup_at=payload.followup_at,
+                        disqualify_reason=payload.disqualify_reason or payload.lost_reason,
+                        lead_status=payload.lead_status,
+                    ),
+                )
             return Memo(
                 id=memo_data["id"],
                 userId=memo_data["user_id"],
@@ -1174,10 +1201,23 @@ async def approve_memo(
                 createdAt=memo_data["created_at"],
                 processedAt=memo_data.get("processed_at"),
                 approvedAt=memo_data.get("approved_at"),
+                after_call=outcome_hint,
             )
     
     try:
-        return await approve_memo_core(supabase, str(memo_id), user_id, payload)
+        result = await approve_memo_core(supabase, str(memo_id), user_id, payload)
+        if after_call_on and payload is not None:
+            # The CRM took the call (and its outcome): now what the outcome does in Vocify.
+            result.after_call = after_call_api.record_outcome_for_user(
+                supabase,
+                memo=memo_data,
+                user_id=user_id,
+                rep_outcome=payload.rep_outcome,
+                followup_at=payload.followup_at,
+                contact_id=getattr(result, "contact_id", None),
+                deal_id=getattr(result, "deal_id", None),
+            )
+        return result
     except CRMSyncError as e:
         # A predictable business failure from the CRM provider (e.g. "Salesforce
         # needs a deal") is not a server bug: a 500 hides it in the same bucket as

@@ -85,6 +85,59 @@ class HubSpotCRMProvider:
             company_service=HubSpotCompanyService(self._client, search),
         )
 
+    async def record_call_outcome(
+        self,
+        *,
+        memo_id: str,
+        user_id: str,
+        call_outcome: str,
+        lost_reason: Optional[str],
+        lost_reason_deal_property: Optional[str],
+        lost_lead_status_value: Optional[str],
+        on_hold_lead_status_value: Optional[str],
+        contact_id: Optional[str],
+        deal_id: Optional[str],
+        company_id: Optional[str],
+        contact_name: Optional[str],
+        extraction: Optional[MemoExtraction] = None,
+    ):
+        """Lista 4 T4: sync's Step 8 on its own, for a memo that is already approved (auto-approve
+        wrote it before the rep recorded the outcome). Same writer, same crm_updates dedupe, so
+        a retry never writes the status, note or task twice."""
+        from app.services.hubspot.call_outcome import CallOutcomeContext, apply_call_outcome
+        from app.services.hubspot.sync import _get_hubspot_owner_id_for_user
+
+        sync = self._sync_service()
+        previous_updates = await sync.crm_updates.get_memo_updates(str(memo_id))
+        owner_id = await _get_hubspot_owner_id_for_user(self._client, self._supabase, user_id, self._connection_id)
+        ctx = CallOutcomeContext(
+            memo_id=str(memo_id),
+            user_id=user_id,
+            connection_id=self._connection_id,
+            call_outcome=call_outcome,  # type: ignore[arg-type]
+            lost_reason=lost_reason,
+            lost_reason_deal_property_configured=lost_reason_deal_property,
+            lost_lead_status_value=lost_lead_status_value,
+            on_hold_lead_status_value=on_hold_lead_status_value,
+            contact_id=contact_id,
+            deal_id=deal_id,
+            company_id=company_id,
+            contact_name=contact_name,
+            hubspot_owner_id=owner_id,
+            previous_updates=previous_updates,
+            extraction=extraction,
+        )
+        return await apply_call_outcome(
+            ctx,
+            crm_updates=sync.crm_updates,
+            contacts=sync.contacts,
+            deals=sync.deals,
+            tasks=sync.tasks,
+            client=self._client,
+            associations=sync.associations,
+            schema_service=sync.deals.schema,
+        )
+
     async def sync_memo(
         self,
         memo_id: Union[UUID, str],

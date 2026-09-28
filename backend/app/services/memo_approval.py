@@ -11,7 +11,7 @@ from supabase import Client
 
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
-from app.services import commitment_tasks
+from app.services import after_call, commitment_tasks
 from app.services.crm_config import CRMConfigurationService
 from app.services.deal_stage_confirm import STAGE_FIELD, stage_sync_kwargs
 from app.services.crm_providers import (
@@ -28,8 +28,11 @@ from app.services.activity_scope import (
     readable_memo_or_none,
 )
 from app.services.hubspot.types import SyncResult
+from app.services.feature_flags import is_enabled
 
 logger = logging.getLogger(__name__)
+
+AFTER_CALL_FLAG = "AFTER_CALL_FLOW_ENABLED"
 
 
 class CRMSyncError(ValueError):
@@ -234,6 +237,35 @@ async def approve_memo_core(
         auto_create_companies = None
         auto_create_contacts = None
 
+    # Lista 4 T4 (E10, E11), AFTER_CALL_FLOW_ENABLED: the rep's after-call outcome becomes the
+    # sync's call_outcome, and the company's deal rule decides whether a contact without a
+    # deal gets one - for every approval, so the rule holds whichever client approves.
+    outcome_status_overrides: dict = {}
+    if is_enabled(supabase, memo_data.get("company_id") or crm_connection.get("company_id"), AFTER_CALL_FLAG):
+        rep_outcome = getattr(payload, "rep_outcome", None) if payload else None
+        rule = getattr(config, "deal_creation_rule", None) if config else None
+        has_deal = bool(deal_id) and not is_new_deal and not skip_deal
+        provider_name = (crm_connection.get("provider") or "").lower()
+        if rep_outcome:
+            plan = after_call.approval_plan(
+                rep_outcome=rep_outcome,
+                reason=payload.disqualify_reason or payload.lost_reason,
+                lead_status=payload.lead_status,
+                provider=provider_name,
+                rule=rule,
+                has_deal=has_deal,
+                config=config,
+            )
+            call_outcome, lost_reason = plan["call_outcome"], plan["lost_reason"]
+            outcome_status_overrides = {
+                key: plan[key] for key in ("lost_lead_status_value", "on_hold_lead_status_value") if key in plan
+            }
+            force_skip = plan["skip_deal"]
+        else:
+            force_skip = provider_name != "salesforce" and after_call.must_skip_deal(rule, None, has_deal=has_deal)
+        if force_skip:
+            skip_deal, is_new_deal, deal_id = True, False, None
+
     if deal_id and not is_new_deal and not skip_deal:
         auto_create_contact_company = False
         auto_create_companies = False
@@ -259,6 +291,8 @@ async def approve_memo_core(
     lost_reason_deal_property = (config.lost_reason_deal_property or None) if config else None
     lost_lead_status_value = (config.lost_lead_status_value or None) if config else None
     on_hold_lead_status_value = (config.on_hold_lead_status_value or None) if config else None
+    lost_lead_status_value = outcome_status_overrides.get("lost_lead_status_value", lost_lead_status_value)
+    on_hold_lead_status_value = outcome_status_overrides.get("on_hold_lead_status_value", on_hold_lead_status_value)
 
     stage_kwargs = stage_sync_kwargs(
         supabase,

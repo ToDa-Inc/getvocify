@@ -71,6 +71,7 @@ LISTA_3_FLAGS: tuple[str, ...] = (
 LISTA_4_FLAGS: tuple[str, ...] = (
     "HOY_SDR_SECTIONS_ENABLED",
     "BRIEF_COMPANY_HOOK_ENABLED",
+    "AFTER_CALL_FLOW_ENABLED",
 )
 CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS
 

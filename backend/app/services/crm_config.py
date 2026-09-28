@@ -119,6 +119,7 @@ class CRMConfigurationService:
             auto_sync_hubspot_calls=bool(config_data.get("auto_sync_hubspot_calls", False)),
             meeting_booked_pipeline_id=config_data.get("meeting_booked_pipeline_id"),
             meeting_booked_stage_id=config_data.get("meeting_booked_stage_id"),
+            deal_creation_rule=config_data.get("deal_creation_rule"),
             created_at=config_data.get("created_at") or "",
             updated_at=config_data.get("updated_at") or "",
         )
@@ -184,6 +185,10 @@ class CRMConfigurationService:
             "auto_sync_hubspot_calls": config.auto_sync_hubspot_calls,
             **_meeting_booked_stage(config),
         }
+        # Lista 4 T4: only written when sent, so saving from an older client (or before
+        # migration 063 adds the column) never fails or resets the Head of Sales' choice.
+        if config.deal_creation_rule is not None:
+            config_data["deal_creation_rule"] = config.deal_creation_rule
         
         # Upsert configuration
         result = self.supabase.table("crm_configurations").upsert(
@@ -222,6 +227,7 @@ class CRMConfigurationService:
             auto_sync_hubspot_calls=bool(saved_config.get("auto_sync_hubspot_calls", False)),
             meeting_booked_pipeline_id=saved_config.get("meeting_booked_pipeline_id"),
             meeting_booked_stage_id=saved_config.get("meeting_booked_stage_id"),
+            deal_creation_rule=saved_config.get("deal_creation_rule"),
             created_at=saved_config["created_at"],
             updated_at=saved_config["updated_at"],
         )

@@ -201,6 +201,8 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "brief_v2_enabled": False,
         "sales_strategy": None,
         "callback_after_days": None,
+        "followup_cadence": None,
+        "followup_cadence_defaults": None,
         "needs_onboarding": False,
     }
 

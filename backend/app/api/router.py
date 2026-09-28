@@ -35,6 +35,7 @@ from app.api import (
     hubspot_recordings,
     company,
     handoffs,
+    after_call,
 )
 
 api_router = APIRouter()
@@ -45,6 +46,7 @@ api_router.include_router(auth.router)
 api_router.include_router(company.router)
 api_router.include_router(billing.router)
 api_router.include_router(memos.router)
+api_router.include_router(after_call.router)
 api_router.include_router(followup.router)
 api_router.include_router(followup.listing)
 api_router.include_router(playbooks.router)
