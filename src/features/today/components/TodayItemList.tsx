@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { Phone } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { itemKey, meetingEntry } from "@shared/ui/home.js";
 import { meetingCardLine } from "@/lib/contact-panel";
 import { IconAction } from "@/components/ui/icon-action";
+import { api } from "@/shared/lib/api-client";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
@@ -46,7 +48,95 @@ type Props = {
   compact?: boolean;
   home?: HomeCards;
   leadTiersEnabled?: boolean;
+  /** T6: the company's connected CRM, used to read a deal card's meeting brief when the
+   * item itself carries no connection_id (an "own" deal, never a handoff). */
+  connectionId?: string | null;
 };
+
+/** T6: GET /briefs/meeting's shape - deterministic, no model call. */
+type MeetingBrief = {
+  company: { name: string | null; sector: string | null; size: string | null } | null;
+  interactions: { date: string; author: string | null; text: string }[];
+  open_items: {
+    objections: { text: string }[];
+    commitments: { text: string; due_at: string | null }[];
+    missing_playbook_steps: string[];
+  };
+};
+
+function meetingBriefRequest(contactId: string, connectionId: string | null): string {
+  const params = new URLSearchParams({ contact_id: contactId, connection_id: connectionId || "" });
+  return `/briefs/meeting?${params.toString()}`;
+}
+
+function DealBriefPanel({ contactId, connectionId }: { contactId: string; connectionId: string | null }) {
+  const { t } = useLanguage();
+  const query = useQuery({
+    queryKey: ["meeting-brief", contactId, connectionId],
+    queryFn: () => api.get<MeetingBrief>(meetingBriefRequest(contactId, connectionId)),
+    staleTime: 30_000,
+  });
+  if (query.isLoading) return null;
+  const brief = query.data;
+  const hasAnything =
+    Boolean(brief?.company) ||
+    Boolean(brief?.interactions.length) ||
+    Boolean(brief?.open_items.objections.length) ||
+    Boolean(brief?.open_items.commitments.length) ||
+    Boolean(brief?.open_items.missing_playbook_steps.length);
+  if (!hasAnything) return <p className={THEME_TOKENS.typography.body}>{t.product.meeting_brief_empty}</p>;
+  const company = brief?.company
+    ? [brief.company.name, brief.company.sector, brief.company.size].filter(Boolean).join(" · ")
+    : null;
+  return (
+    <div className="space-y-2">
+      {company ? (
+        <p className={THEME_TOKENS.typography.capsLabel}>{t.product.meeting_brief_company}: {company}</p>
+      ) : null}
+      {brief && brief.interactions.length > 0 ? (
+        <div className="space-y-1">
+          <p className={THEME_TOKENS.typography.capsLabel}>{t.product.meeting_brief_interactions}</p>
+          {brief.interactions.map((line, index) => (
+            <p key={index} className="text-[13px] leading-snug text-foreground">
+              {line.author ? `${line.author}: ` : ""}{line.text}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {brief && brief.open_items.objections.length > 0 ? (
+        <p className="text-[13px] text-foreground">
+          {t.product.meeting_brief_open_objections}: {brief.open_items.objections.map((row) => row.text).join(" · ")}
+        </p>
+      ) : null}
+      {brief && brief.open_items.commitments.length > 0 ? (
+        <p className="text-[13px] text-foreground">
+          {t.product.meeting_brief_pending_commitments}: {brief.open_items.commitments.map((row) => row.text).join(" · ")}
+        </p>
+      ) : null}
+      {brief && brief.open_items.missing_playbook_steps.length > 0 ? (
+        <p className="text-[13px] text-foreground">
+          {t.product.meeting_brief_missing_steps}: {brief.open_items.missing_playbook_steps.join(" · ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function DealCard({ item, compact, connectionId }: { item: TodayItem; compact?: boolean; connectionId: string | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
+      <button type="button" className="w-full text-left" onClick={() => setOpen((value) => !value)}>
+        <CardBody item={item} compact={compact} quoted={false} />
+      </button>
+      {open && item.contact_id ? (
+        <div className="mt-3 border-t border-border/60 pt-3">
+          <DealBriefPanel contactId={item.contact_id} connectionId={item.connection_id ?? connectionId} />
+        </div>
+      ) : null}
+    </li>
+  );
+}
 
 function openDialer(
   dialer: ReturnType<typeof useOptionalDialerFocus>,
@@ -327,6 +417,7 @@ export function TodayItemList({
   compact,
   home,
   leadTiersEnabled,
+  connectionId = null,
 }: Props) {
   const { t } = useLanguage();
   const dialer = useOptionalDialerFocus();
@@ -369,6 +460,13 @@ export function TodayItemList({
             key={item.id ?? item.dedupe_key ?? item.reason}
             item={item}
             compact={compact}
+          />
+        ) : item.type === "deal_in_progress" ? (
+          <DealCard
+            key={item.id ?? item.dedupe_key ?? item.deal_id ?? item.contact_id ?? item.reason}
+            item={item}
+            compact={compact}
+            connectionId={connectionId}
           />
         ) : (
           <CallCard

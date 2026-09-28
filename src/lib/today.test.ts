@@ -7,6 +7,7 @@ import {
   canShowTodayCall,
   crmContactsUrl,
   crmTasksUrl,
+  dealItems,
   originKey,
   signalLabelKey,
   splitTodayItems,
@@ -258,5 +259,32 @@ describe("T5 review: canShowTodayCall / todayItemHref", () => {
       "https://app.hubspot.com/contacts/99/record/0-1/42",
     );
     assert.equal(todayItemHref(noContact, "hubspot", "99"), null);
+  });
+});
+
+describe("T6: dealItems reads sections.deals", () => {
+  const dealCard: TodayItem = {
+    type: "deal_in_progress",
+    dedupe_key: null,
+    contact_id: "42",
+    deal_id: "d1",
+    reason: "Traspasado a ti",
+    remote_id: null,
+    origins: ["detected"],
+    supporting: [],
+  };
+
+  it("returns [] when there is no sections field (flag off)", () => {
+    assert.deepEqual(dealItems(emptyComplete), []);
+    assert.deepEqual(dealItems(null), []);
+    assert.deepEqual(dealItems(undefined), []);
+  });
+
+  it("returns [] when the flag is on but this rep has no deals section", () => {
+    assert.deepEqual(dealItems({ ...emptyComplete, sections: { calls: [] } }), []);
+  });
+
+  it("returns the deals section's cards", () => {
+    assert.deepEqual(dealItems({ ...emptyComplete, sections: { deals: [dealCard] } }), [dealCard]);
   });
 });

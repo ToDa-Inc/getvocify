@@ -21,13 +21,22 @@ from app.services.hoy.confirmations import (
     mark_confirm_write_pending,
     schedule_confirm_write,
 )
-from app.services.handoffs import active_handoffs_for_sdr
+from app.services.handoffs import active_handoffs_for_ae, active_handoffs_for_sdr, close_handoff
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.context import load_context, snapshot_from_rows
+from app.services.hoy.deals import (
+    DEAL_TYPE,
+    deal_reason,
+    deal_stages_by_provider,
+    merge_deal_candidates,
+    own_deal_candidates,
+    stage_known_ended,
+)
 from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.priority import rank_candidates
-from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks
+from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks, contact_record_url
+from app.services.hoy.sections import sections_for_role, split_items_by_type
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links
 from app.services.hoy.materialize import exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
 from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
@@ -35,6 +44,8 @@ from app.services.hoy.names import NamePair, memo_directory
 from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments
 from app.services.hoy.visibility import is_today_visible
 from app.services.rep_timezone import rep_timezone
+
+AE_DEALS_FLAG = "HOY_AE_DEALS_ENABLED"
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +329,90 @@ def _never_contacted_for_rep(
         return []
 
 
+def _own_deal_memos(supabase, user_id: str) -> list[dict]:
+    """A failed read yields no own deals - the section keeps whatever handoffs give it."""
+    try:
+        stored = (
+            supabase.table("memos")
+            .select("id,user_id,hubspot_contact_id,hubspot_deal_id,created_at")
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        return []
+    return stored.data or []
+
+
+def _deal_items(
+    supabase,
+    *,
+    membership: Membership,
+    connection: dict | None,
+    provider: str | None,
+    portal_id: str | None,
+    domain: str | None,
+    now: datetime,
+    lang: str,
+) -> list[dict]:
+    """T6: the AE's (or General's) 'deals en curso' - active handoffs to them plus their
+    own deals with a memo, minus whichever the CRM now shows in an end stage. A
+    handed-off deal observed there closes its handoff (lazy close, D6/T3) - the only
+    trigger for that."""
+    company_id, user_id = membership.company_id, membership.user_id
+    handoffs: list[dict] = []
+    if is_enabled(supabase, company_id, "HANDOFF_ENABLED"):
+        try:
+            handoffs = active_handoffs_for_ae(supabase, company_id=company_id, ae_user_id=user_id)
+        except Exception:
+            handoffs = []
+    own = own_deal_candidates(_own_deal_memos(supabase, user_id))
+    candidates = merge_deal_candidates(handoffs, own)
+    if not candidates:
+        return []
+    provider_name = str(provider or "")
+    stages: dict[str, dict] = {}
+    if connection is not None:
+        deal_ids = [row["deal_id"] for row in candidates if row.get("deal_id")]
+        try:
+            fetch = _FETCH if _FETCH is not None else (lambda request: _http_task_page(connection, request))
+            stages = deal_stages_by_provider(fetch, provider_name, deal_ids)
+        except Exception:
+            stages = {}
+    for row in candidates:
+        if row.get("source") != "handoff" or not row.get("deal_id"):
+            continue
+        if not stage_known_ended(stages, row["deal_id"], provider=provider_name):
+            continue
+        try:
+            close_handoff(
+                supabase,
+                company_id=company_id,
+                connection_id=str(row.get("connection_id") or ""),
+                contact_id=str(row.get("contact_id") or ""),
+                reason="deal_closed",
+                now=now,
+            )
+        except Exception:
+            pass
+    open_candidates = [
+        row for row in candidates
+        if not stage_known_ended(stages, row.get("deal_id"), provider=provider_name)
+    ][:DEFAULT_LIMIT]
+    items = []
+    for row in open_candidates:
+        items.append({
+            "type": DEAL_TYPE,
+            "contact_id": row.get("contact_id"),
+            "deal_id": row.get("deal_id"),
+            "connection_id": row.get("connection_id"),
+            "reason": deal_reason(row.get("source") or "own", lang=lang),
+            "open_url": contact_record_url(
+                provider=provider, contact_id=row.get("contact_id"), portal_id=portal_id, company_domain=domain,
+            ),
+        })
+    return items
+
+
 @router.get("/today")
 async def get_today(
     background: BackgroundTasks,
@@ -454,6 +549,26 @@ async def get_today(
         lead_tiers=lead_tiers_enabled,
     )
     _stamp_contact_names(view, visible, memo_directory(memos))
+    if is_enabled(supabase, membership.company_id, AE_DEALS_FLAG):
+        calls_items, meeting_items = split_items_by_type(view.get("items") or [])
+        deals_items: list[dict] = []
+        if membership.sales_role in (None, "ae", "general"):
+            try:
+                deals_items = _deal_items(
+                    supabase,
+                    membership=membership,
+                    connection=connection,
+                    provider=(connection or {}).get("provider"),
+                    portal_id=str(portal) if portal else None,
+                    domain=domain,
+                    now=now,
+                    lang=lang,
+                )
+            except Exception:
+                deals_items = []
+        view["sections"] = sections_for_role(
+            membership.sales_role, calls=calls_items, meetings=meeting_items, deals=deals_items,
+        )
     return view
 
 

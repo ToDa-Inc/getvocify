@@ -14,7 +14,7 @@ import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { useLanguage } from "@/lib/i18n";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import type { TodayItem } from "@/lib/today";
+import { dealItems, type TodayItem } from "@/lib/today";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 import { useHomeReads } from "../hooks/useHomeReads";
 import { useHomeSelection } from "../hooks/useHomeSelection";
@@ -263,6 +263,11 @@ export function RepHome() {
   const connectionId =
     integrations.data?.find((connection) => connection.status === "connected")?.id ?? null;
 
+  // T6 (HOY_AE_DEALS_ENABLED): the AE's/General's "Deals en curso" - active handoffs plus
+  // their own deals with a memo, from GET /today's `sections`, not from the calls list.
+  const dealsEnabled = Boolean(user?.company?.features?.includes("HOY_AE_DEALS_ENABLED"));
+  const deals = dealsEnabled ? dealItems(settled(query)) : [];
+
   return (
     <>
       <div className={`mx-auto max-w-[680px] ${THEME_TOKENS.motion.fadeIn}`} aria-busy={home.state === "loading"}>
@@ -369,6 +374,18 @@ export function RepHome() {
               </>
             ) : null}
           </HomeSection>
+          {dealsEnabled && deals.length > 0 ? (
+            <HomeSection title={copy.home_deals}>
+              <TodayItemList
+                items={deals}
+                onDismiss={onDismiss}
+                onUndo={onUndo}
+                provider={provider}
+                portalId={portalId}
+                connectionId={connectionId}
+              />
+            </HomeSection>
+          ) : null}
           {home.folded?.after === null ? foldedLine : null}
           <HomeSection title={copy.home_upcoming}>
             {upcoming ? <Upcoming section={upcoming} copy={copy} /> : null}

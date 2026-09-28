@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
 from app.services.activity_scope import can_view_company_activity, effective_visibility
 from app.services.briefs.contact_read import ContactProfileReadFailed, read_contact_profile
+from app.services.briefs.meeting import prepare_meeting_brief
 from app.services.briefs.preparation import legacy_facts, prepare_brief
 from app.services.briefs.v2 import prepare_brief_v2
 from app.services.company import Membership
@@ -155,6 +156,96 @@ async def get_brief(
         playbook_steps=steps,
         playbook_entries=entries,
     )
+
+
+@router.get("/briefs/meeting")
+async def get_meeting_brief(
+    connection_id: str,
+    contact_id: str,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """T6: the AE's pre-meeting brief - deterministic, no model call. `memos` already
+    carries whichever handoff SDR's memos this viewer may read (T4/D8), same restriction
+    GET /briefs uses."""
+    if not is_enabled(supabase, membership.company_id, "HOY_AE_DEALS_ENABLED"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    allowed_user_ids = _handoff_restricted_user_ids(
+        supabase, membership, connection_id=connection_id, contact_id=contact_id,
+    )
+    rows, _coverage = _read_memos(
+        supabase, membership.company_id, contact_id,
+        connection_id=connection_id, allowed_user_ids=allowed_user_ids,
+    )
+    author_names = _author_names(supabase, {str(row.get("user_id") or "") for row in rows if row.get("user_id")})
+    try:
+        steps = _closing_playbook_steps(supabase, membership.company_id)
+    except Exception:
+        steps = []
+    profile = None
+    try:
+        profile = await run_in_threadpool(
+            _read_contact_profile, supabase, membership.company_id, connection_id, contact_id,
+        )
+    except _ReadFailed:
+        profile = None
+    return prepare_meeting_brief(
+        company_profile=profile,
+        memos=rows,
+        author_names=author_names,
+        playbook_steps=steps,
+        now=_now(),
+    )
+
+
+def _author_names(supabase, user_ids: set[str]) -> dict[str, str]:
+    """user_id -> display name, from user_profiles.full_name. A missing/failed read just
+    leaves that author unnamed - prepare_meeting_brief then shows their user_id."""
+    if not user_ids:
+        return {}
+    try:
+        stored = (
+            supabase.table("user_profiles")
+            .select("id,full_name")
+            .in_("id", list(user_ids))
+            .execute()
+        )
+    except Exception:
+        return {}
+    return {
+        str(row.get("id")): str(row.get("full_name"))
+        for row in (getattr(stored, "data", None) or [])
+        if row.get("id") and row.get("full_name")
+    }
+
+
+def _closing_playbook_steps(supabase, company_id: str) -> list[dict]:
+    """The published closing playbook's steps (D4: AE plays the `closing` motion). No
+    published version is no steps, never an error."""
+    try:
+        result = (
+            supabase.table("playbooks")
+            .select("id,company_id,sales_motion_key,active_version_id")
+            .eq("company_id", company_id)
+            .eq("sales_motion_key", "closing")
+            .limit(1)
+            .execute()
+        )
+        playbooks = list(getattr(result, "data", None) or [])
+        if not playbooks:
+            return []
+        playbook = playbooks[0]
+        versions = (
+            supabase.table("playbook_versions")
+            .select("id,status,steps,entries")
+            .eq("playbook_id", playbook["id"])
+            .execute()
+        )
+        snapshot = get_published_playbook(playbook, list(getattr(versions, "data", None) or []), version_id=None)
+    except Exception:
+        logger.warning("meeting brief playbook read failed", extra={"company_id": company_id}, exc_info=True)
+        return []
+    return list((snapshot or {}).get("steps") or [])
 
 
 async def _cold_brief(supabase, membership: Membership, connection_id: str, contact_id: str, tz_name: str) -> dict:

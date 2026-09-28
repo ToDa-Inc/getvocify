@@ -60,13 +60,28 @@ export type DoneRow = {
   memo_id: string | null;
 };
 
+/** T6 (HOY_AE_DEALS_ENABLED): the same items, split by role - "items" keeps working for
+ * compatibility. A role's own keys are the only ones present (an SDR gets `calls` only,
+ * an AE `meetings`+`deals`, General all three) - see build_today_view's sections_for_role. */
+export type TodaySections = {
+  calls?: TodayItem[];
+  meetings?: TodayItem[];
+  deals?: TodayItem[];
+};
+
 export type TodayView = {
   items: TodayItem[];
+  sections?: TodaySections;
   pulse: number | null;
   folded_count: number;
   generated_at: string;
   coverage: Record<string, string>;
 };
+
+/** The AE's "deals en curso" cards, or [] when the flag is off or this rep has none. */
+export function dealItems(view: TodayView | null | undefined): TodayItem[] {
+  return view?.sections?.deals ?? [];
+}
 
 export type TodaySurface =
   | { kind: "loading" }
@@ -158,6 +173,7 @@ const SUPPORTING_KEYS: Record<string, string> = {
   manual_task: "today_origin_manual",
   callback_no_answer: "today_signal_callback_no_answer",
   never_contacted: "today_signal_never_contacted",
+  deal_in_progress: "today_signal_deal",
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
