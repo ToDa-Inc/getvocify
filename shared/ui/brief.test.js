@@ -125,6 +125,20 @@ describe("contact panel brief", () => {
     assert.equal(ready.rows.length, 3);
   });
 
+  it("adds the company hook after three facts, once, marked apart", () => {
+    const facts = [1, 2, 3, 4].map((n) => ({ type: "last", text: `Hecho ${n}` }));
+    const hook = { type: "company", text: "En Factorial ya hablaste con Manuel García el 12 sep: Le interesó el fichaje." };
+    const view = briefRows({ status: "ready", text: null, lines: [...facts, hook, { ...hook, text: "Otro gancho" }] });
+    assert.deepEqual(texts(view), ["Hecho 1", "Hecho 2", "Hecho 3", hook.text]);
+    assert.deepEqual(view.rows.map((row) => row.company), [false, false, false, true]);
+    assert.deepEqual(view.rows.map((row) => row.playbook), [false, false, false, false]);
+
+    const cold = briefRows({ status: "no_conversation", text: "Sin conversación todavía.", lines: [hook] });
+    assert.deepEqual(texts(cold), ["Sin conversación todavía.", hook.text]);
+    assert.deepEqual(visibleBrief({ status: "ready", text: null, lines: [facts[0], hook] }), ["Hecho 1", hook.text]);
+    assert.deepEqual(texts(briefRows({ status: "ready", lines: [{ type: "company", text: "  " }] })), []);
+  });
+
   it("says there is no conversation yet, with a CRM task under it", () => {
     const view = briefRows({
       status: "no_conversation",

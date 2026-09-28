@@ -57,17 +57,28 @@ export function shouldApplyBriefResponse(flightContactId, responseContactId) {
 
 export const BRIEF_MAX_LINES = 3;
 
-/** Panel rows: at most three facts. "Could not load everything" is a notice, not a fact. */
+/**
+ * Panel rows: at most three facts. "Could not load everything" is a notice, not a fact.
+ * The «gancho de empresa» line (type "company", Lista 4 E9) is not one of the three: at
+ * most one, always last, flagged so a surface can set it apart.
+ */
 export function briefRows(brief) {
   const notice = clean(brief?.notice);
   const rows = [];
+  let hook = null;
   const text = clean(brief?.text);
-  if (text && text !== notice) rows.push({ text, playbook: false });
+  if (text && text !== notice) rows.push({ text, playbook: false, company: false });
   for (const line of brief?.lines || []) {
     const rowText = clean(lineText(line));
-    if (rowText) rows.push({ text: rowText, playbook: line.source === "playbook" });
+    if (!rowText) continue;
+    if (line.type === "company") {
+      hook = hook || { text: rowText, playbook: false, company: true };
+      continue;
+    }
+    rows.push({ text: rowText, playbook: line.source === "playbook", company: false });
   }
-  return { notice, rows: rows.slice(0, BRIEF_MAX_LINES), label: clean(brief?.label) };
+  const facts = rows.slice(0, BRIEF_MAX_LINES);
+  return { notice, rows: hook ? [...facts, hook] : facts, label: clean(brief?.label) };
 }
 
 /** What the contact panel paints for the selected contact. Only that contact's read, never the previous one. */

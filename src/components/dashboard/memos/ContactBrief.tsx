@@ -44,7 +44,7 @@ export function BriefLines({
       {brief.rows.map((row: BriefRow, index: number) => (
         <p
           key={`${index}-${row.text}`}
-          className={`${bodyClass} ${row.playbook ? "border-l-2 border-beige/60 pl-[11px]" : ""}`}
+          className={`${bodyClass} ${row.playbook ? "border-l-2 border-beige/60 pl-[11px]" : ""} ${row.company ? "border-l-2 border-border pl-[11px] text-muted-foreground" : ""}`}
         >
           {row.text}
         </p>

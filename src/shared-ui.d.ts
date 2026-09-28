@@ -14,7 +14,7 @@ declare module "@shared/ui/brief.js" {
     missing_steps?: string[];
     lines?: { type?: string; text?: string | null; source?: string | null; reason?: string | null; since?: string | null }[];
   };
-  export type BriefRow = { text: string; playbook: boolean };
+  export type BriefRow = { text: string; playbook: boolean; company: boolean };
   export type BriefRows = { notice: string | null; rows: BriefRow[]; label: string | null };
   export type PanelBrief = BriefRows & { state: "none" | "loading" | "failed" | "ready" };
 

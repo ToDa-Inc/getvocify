@@ -761,3 +761,181 @@ def test_sales_roles_flag_off_keeps_the_three_line_brief_for_an_sdr():
         no_reply=None, crm_task=None, playbook_steps=[], playbook_entries=[], sdr_two_line=False,
     )
     assert body == json.loads(json.dumps(expected))
+
+
+# --- Lista 4 T3 (E9): BRIEF_COMPANY_HOOK_ENABLED adds one «gancho de empresa» line from
+# another contact of the same company that the viewer may read. Off = unchanged. ---
+
+def _colleague(memo_id="memo-manuel", *, user_id="user-a", contact_id="77", company="Factorial S.L.",
+               created_at="2026-09-12T08:00:00Z", summary="Le interesó el fichaje. Pidió precios."):
+    return {
+        "id": memo_id,
+        "company_id": "co-1",
+        "user_id": user_id,
+        "created_at": created_at,
+        "capture_started_at": created_at,
+        "hubspot_contact_id": contact_id,
+        "hubspot_deal_id": None,
+        "matched_deal_id": None,
+        "playbook_version_id": None,
+        "sales_motion_key": None,
+        "extraction": {"companyName": company, "contactName": "Manuel García", "summary": summary},
+    }
+
+
+FACTORIAL_PROPS = {**HUBSPOT_PROPS, "company": "Factorial"}
+MANUEL_HOOK = {
+    "type": "company",
+    "text": "En Factorial ya hablaste con Manuel García el 12 sep: Le interesó el fichaje.",
+    "source_ref": "memo-manuel",
+    "observed_at": "2026-09-12T08:00:00Z",
+}
+
+
+def _cold_with(colleagues, *, flags, failing=(), extra=None):
+    return _Db(
+        {
+            **_tables(colleagues, flags=flags),
+            "crm_connections": [HUBSPOT_CONN],
+            "contact_priority_context": [_priority_row()],
+            **(extra or {}),
+        },
+        failing=failing,
+    )
+
+
+def test_company_hook_flag_off_leaves_the_cold_brief_unchanged(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    off = _get(_cold_with([_colleague()], flags=_flags(BRIEF_V2_ENABLED=True)))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    without_colleague = _get(_cold_with([], flags=_flags(BRIEF_V2_ENABLED=True)))
+    assert off == without_colleague
+    assert "company" not in {line["type"] for line in off["lines"]}
+
+
+def test_company_hook_on_appends_the_colleague_line_to_the_cold_brief(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    body = _get(_cold_with([_colleague()], flags=flags))
+    assert body["status"] == "ready"
+    assert [line["type"] for line in body["lines"]] == ["who", "why", "company"]
+    assert body["lines"][-1] == MANUEL_HOOK
+
+
+def test_company_hook_does_not_count_toward_max_lines(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    memo = _memo(
+        {"pain_confirmed": True, "evidence": [{"id": "ev-1", "quote": "Perdemos horas"}],
+         "competitor_mentions": [{"name": "Holded"}]},
+        extraction={"summary": "Hablaron del almacén.", "companyName": "Factorial"},
+    )
+    db = _Db(_tables(
+        [memo, _colleague()], flags=flags, signals=[NO_REPLY_ROW],
+    ))
+    db.tables["company_feature_flags"] += _flags(HOY_NO_REPLY_ENABLED=True)
+    body = _get(db)
+    assert [line["type"] for line in body["lines"]][-1] == "company"
+    assert [line["type"] for line in body["lines"]] == ["hook", "why", "say", "company"]
+
+
+def test_company_hook_on_history_brief_uses_the_memo_company_name_without_reading_the_crm(monkeypatch):
+    built = []
+    monkeypatch.setattr(crm_providers, "build_crm_provider", lambda *args: built.append(args))
+    briefs_api.set_brief_tasks(_tasks([]))
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    memo = _memo(extraction={"summary": "Hablaron del almacén.", "companyName": "FACTORIAL"})
+    db = _Db({**_tables([memo, _colleague()], flags=flags), "crm_connections": [HUBSPOT_CONN]})
+    body = _get(db)
+    assert body["status"] == "ready"
+    assert body["lines"][-1] == {**MANUEL_HOOK, "text": MANUEL_HOOK["text"].replace("En Factorial", "En FACTORIAL")}
+    assert built == []
+
+
+def test_company_hook_history_brief_falls_back_to_the_crm_company(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    db = _Db({**_tables([_memo(), _colleague()], flags=flags), "crm_connections": [HUBSPOT_CONN]})
+    assert _get(db)["lines"][-1] == MANUEL_HOOK
+
+
+def test_company_hook_excludes_a_colleague_memo_the_member_may_not_read(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    teammate = _colleague("memo-teammate", user_id="user-b", created_at="2026-09-20T08:00:00Z")
+    body = _get(_cold_with([teammate], flags=flags))
+    assert "company" not in {line["type"] for line in body["lines"]}
+
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    body = _get(_cold_with([teammate, _colleague()], flags=flags))
+    assert body["lines"][-1]["source_ref"] == "memo-manuel"
+
+
+def test_company_hook_reads_a_teammate_memo_for_a_manager_and_words_it_se_hablo(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    teammate = _colleague("memo-teammate", user_id="user-b", created_at="2026-09-20T08:00:00Z")
+    admin = Membership(id="m", company_id="co-1", user_id="user-a", role="admin", status="active")
+    body = _get(_cold_with([teammate, _colleague()], flags=flags), membership=admin)
+    assert body["lines"][-1]["source_ref"] == "memo-teammate"
+    assert body["lines"][-1]["text"].startswith("En Factorial ya se habló con Manuel García el 20 sep:")
+
+
+def test_company_hook_reads_the_handoff_sdr_memo_of_that_contact_only(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True, HANDOFF_ENABLED=True)
+    ae = Membership(id="m", company_id="co-1", user_id="ae-1", role="member", status="active")
+    handed = _colleague("memo-handed", user_id="rep-a", contact_id="77", created_at="2026-09-10T08:00:00Z")
+    not_handed = _colleague("memo-not-handed", user_id="rep-a", contact_id="88", created_at="2026-09-20T08:00:00Z")
+    extra = {
+        "deal_handoffs": [
+            {"company_id": "co-1", "connection_id": "hubspot", "contact_id": "77",
+             "sdr_user_id": "rep-a", "ae_user_id": "ae-1", "status": "active"},
+        ],
+        "company_members": [{"company_id": "co-1", "user_id": "rep-a", "status": "active"}],
+    }
+    body = _get(_cold_with([handed, not_handed], flags=flags, extra=extra), membership=ae)
+    assert body["lines"][-1]["source_ref"] == "memo-handed"
+    assert "ya se habló" in body["lines"][-1]["text"]
+
+
+def test_company_hook_failed_colleague_read_is_just_no_line(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    real = briefs_api._colleague_memos
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("memos down")
+
+    monkeypatch.setattr(briefs_api, "_colleague_memos", boom)
+    body = _get(_cold_with([_colleague()], flags=flags))
+    monkeypatch.setattr(briefs_api, "_colleague_memos", real)
+    assert body["status"] == "ready"
+    assert [line["type"] for line in body["lines"]] == ["who", "why"]
+
+
+def test_company_hook_without_a_crm_company_reads_no_colleagues(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props={**HUBSPOT_PROPS, "company": ""})
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    db = _cold_with([_colleague()], flags=flags)
+    body = _get(db)
+    assert "company" not in {line["type"] for line in body["lines"]}
+    assert [name for name, eqs, _n in db.queries if name == "memos" and "hubspot_contact_id" not in eqs] == []
+
+
+def test_company_hook_scan_is_capped_and_scoped_to_the_company(monkeypatch):
+    briefs_api.set_brief_tasks(_tasks([]))
+    _fake_hubspot(monkeypatch, props=FACTORIAL_PROPS)
+    flags = _flags(BRIEF_V2_ENABLED=True, BRIEF_COMPANY_HOOK_ENABLED=True)
+    db = _cold_with([_colleague()], flags=flags)
+    _get(db)
+    scans = [(eqs, n) for name, eqs, n in db.queries if name == "memos" and "hubspot_contact_id" not in eqs]
+    assert scans == [({"company_id": "co-1"}, briefs_api.COMPANY_HOOK_SCAN)]

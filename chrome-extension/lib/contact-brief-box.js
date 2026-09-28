@@ -11,6 +11,7 @@ export function paintBriefBox({ box, screen, brief, flatLines, captureActive, do
       const line = doc.createElement('p');
       line.textContent = row.text;
       if (row.playbook) line.classList.add('brief-playbook');
+      if (row.company) line.classList.add('brief-company');
       box.appendChild(line);
     }
     if (view.label) {

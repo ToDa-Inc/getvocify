@@ -259,3 +259,11 @@ def test_the_sdr_sections_flag_reaches_the_client():
 
     assert "HOY_SDR_SECTIONS_ENABLED" in CLIENT_FLAGS
     assert "HOY_LEAD_TIERS_ENABLED" in CLIENT_FLAGS
+
+
+def test_the_brief_company_hook_flag_reaches_the_client():
+    from app.config import settings
+    from app.services.feature_flags import CLIENT_FLAGS
+
+    assert "BRIEF_COMPANY_HOOK_ENABLED" in CLIENT_FLAGS
+    assert settings.BRIEF_COMPANY_HOOK_ENABLED is False

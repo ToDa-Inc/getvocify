@@ -276,6 +276,8 @@ class Settings(BaseSettings):
     RECALL_BOT_ENABLED: bool = False
     # Lista 4 T2: SDR's Hoy in Tareas/Seguimiento/Nuevos, follow-ups on a cadence per stopper.
     HOY_SDR_SECTIONS_ENABLED: bool = False
+    # Lista 4 T3: the brief adds a «gancho de empresa» line from another contact of the same company.
+    BRIEF_COMPANY_HOOK_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's

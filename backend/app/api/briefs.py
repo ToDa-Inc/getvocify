@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
-from app.services.activity_scope import can_view_company_activity, effective_visibility
+from app.services.activity_scope import can_view_company_activity, effective_visibility, memo_readable_by
+from app.services.briefs.company_hook import company_hook_line
 from app.services.briefs.contact_read import ContactProfileReadFailed, read_contact_profile
 from app.services.briefs.meeting import prepare_meeting_brief
 from app.services.briefs.preparation import legacy_facts, prepare_brief
@@ -34,6 +35,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["briefs"])
 
 BRIEF_V2_FLAG = "BRIEF_V2_ENABLED"
+# Lista 4 T3 (E9): one extra «gancho de empresa» line from another contact of the same company.
+COMPANY_HOOK_FLAG = "BRIEF_COMPANY_HOOK_ENABLED"
+COMPANY_HOOK_SCAN = 200
 _LOADER = None
 _TASKS = None
 
@@ -128,6 +132,7 @@ async def get_brief(
         ))
 
     sdr_two_line = _sdr_two_line_brief(supabase, membership)
+    company_hook = is_enabled(supabase, membership.company_id, COMPANY_HOOK_FLAG)
 
     rows, coverage = _read_memos(
         supabase,
@@ -142,7 +147,9 @@ async def get_brief(
         return prepare_brief_v2(coverage=coverage, memos=[], tz_name=tz_name)
 
     if not rows:
-        return await _cold_brief(supabase, membership, connection_id, contact_id, tz_name)
+        return await _cold_brief(
+            supabase, membership, connection_id, contact_id, tz_name, company_hook=company_hook,
+        )
 
     complete = True
     try:
@@ -158,7 +165,7 @@ async def get_brief(
     except _ReadFailed:
         crm_task, complete = None, False
 
-    return prepare_brief_v2(
+    brief = prepare_brief_v2(
         coverage=coverage if complete else "partial",
         memos=rows,
         tz_name=tz_name,
@@ -169,6 +176,23 @@ async def get_brief(
         playbook_entries=entries,
         sdr_two_line=sdr_two_line,
     )
+    if not company_hook:
+        return brief
+    company_name = _memo_company_name(rows)
+    if not company_name:
+        try:
+            profile = await run_in_threadpool(
+                _read_contact_profile, supabase, membership.company_id, connection_id, contact_id,
+            )
+        except Exception:
+            # A failed read only costs the hook line, never the brief.
+            profile = None
+        company_name = (profile or {}).get("company_name")
+    line = _company_hook(
+        supabase, membership,
+        connection_id=connection_id, contact_id=contact_id, company_name=company_name, tz_name=tz_name,
+    )
+    return _with_company_hook(brief, line)
 
 
 @router.get("/briefs/meeting")
@@ -261,7 +285,15 @@ def _closing_playbook_steps(supabase, company_id: str) -> list[dict]:
     return list((snapshot or {}).get("steps") or [])
 
 
-async def _cold_brief(supabase, membership: Membership, connection_id: str, contact_id: str, tz_name: str) -> dict:
+async def _cold_brief(
+    supabase,
+    membership: Membership,
+    connection_id: str,
+    contact_id: str,
+    tz_name: str,
+    *,
+    company_hook: bool = False,
+) -> dict:
     """No conversation yet: who the contact is in the CRM and why Hoy puts them on the list."""
     complete = True
     try:
@@ -279,7 +311,7 @@ async def _cold_brief(supabase, membership: Membership, connection_id: str, cont
     except _ReadFailed:
         crm_task, complete = None, False
 
-    return prepare_brief_v2(
+    brief = prepare_brief_v2(
         coverage="complete" if complete else "partial",
         memos=[],
         tz_name=tz_name,
@@ -288,6 +320,102 @@ async def _cold_brief(supabase, membership: Membership, connection_id: str, cont
         cold_profile=profile,
         hoy_priority=priority,
     )
+    if not company_hook:
+        return brief
+    line = _company_hook(
+        supabase, membership,
+        connection_id=connection_id, contact_id=contact_id,
+        company_name=(profile or {}).get("company_name"), tz_name=tz_name,
+    )
+    return _with_company_hook(brief, line)
+
+
+def _memo_company_name(rows: list[dict]) -> str | None:
+    """The company the newest memo of this contact that names one says it is."""
+    for row in sorted(rows, key=lambda row: str(row.get("created_at") or ""), reverse=True):
+        extraction = row.get("extraction") if isinstance(row.get("extraction"), dict) else {}
+        name = " ".join(str(extraction.get("companyName") or extraction.get("company_name") or "").split())
+        if name:
+            return name
+    return None
+
+
+def _with_company_hook(brief: dict, line: dict | None) -> dict:
+    """E9: the hook goes after the brief's own lines, outside MAX_LINES; status unchanged."""
+    if not line or brief.get("status") == "unavailable":
+        return brief
+    return {**brief, "lines": [*(brief.get("lines") or []), line]}
+
+
+def _colleague_memos(supabase, membership: Membership, *, connection_id: str | None, contact_id: str) -> list[dict]:
+    """The newest company memos of OTHER contacts that this viewer may read (the same rule
+    as reading a memo: their own, everyone's with company-wide visibility, else a still-
+    active SDR's who handed that contact off to them). memos has no CRM company id, so the
+    company match is the caller's, on the name; the scan is capped."""
+    visibility = effective_visibility(supabase, membership)
+    company_wide = can_view_company_activity(membership.role, visibility)
+    query = (
+        supabase.table("memos")
+        .select("id,created_at,capture_started_at,extraction,hubspot_contact_id,user_id,company_id")
+        .eq("company_id", membership.company_id)
+        .order("created_at", desc=True)
+        .limit(COMPANY_HOOK_SCAN)
+    )
+    handoff_map: dict = {}
+    active_sdrs: set[str] = set()
+    if not company_wide:
+        handoff_map = handoff_sdr_map_for_viewer(
+            supabase, company_id=membership.company_id, viewer_id=membership.user_id,
+        )
+        handed = set().union(*handoff_map.values()) if handoff_map else set()
+        if handed:
+            active_sdrs = active_member_ids(supabase, company_id=membership.company_id, user_ids=handed)
+        query = query.in_("user_id", sorted({membership.user_id} | active_sdrs))
+    rows = [
+        row for row in (query.execute().data or [])
+        if str(row.get("hubspot_contact_id") or "") != contact_id
+    ]
+    if company_wide:
+        return rows
+    return [
+        row for row in rows
+        if memo_readable_by(
+            viewer_id=membership.user_id,
+            owner_user_id=str(row.get("user_id") or ""),
+            viewer_role=membership.role,
+            same_company=True,
+            viewer_visibility=visibility,
+            handoff_sdr_ids=sdr_ids_for_contact(
+                handoff_map, str(row.get("hubspot_contact_id") or ""), connection_id=connection_id,
+            ) & active_sdrs,
+        )
+    ]
+
+
+def _company_hook(
+    supabase,
+    membership: Membership,
+    *,
+    connection_id: str | None,
+    contact_id: str,
+    company_name,
+    tz_name: str,
+) -> dict | None:
+    """E9's line, or None. A failed read never fails the brief - it just has no hook."""
+    if not " ".join(str(company_name or "").split()):
+        return None
+    try:
+        memos = _colleague_memos(supabase, membership, connection_id=connection_id, contact_id=contact_id)
+        return company_hook_line(
+            company_name=company_name,
+            colleague_memos=memos,
+            current_contact_id=contact_id,
+            tz_name=tz_name,
+            viewer_id=membership.user_id,
+        )
+    except Exception:
+        logger.warning("brief company hook read failed", extra={"company_id": membership.company_id}, exc_info=True)
+        return None
 
 
 def _read_memos(
