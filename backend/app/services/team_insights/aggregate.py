@@ -187,8 +187,11 @@ def sort_reps_by_name(reps: list[dict]) -> list[dict]:
         return sorted(reps, key=lambda rep: str(rep.get("name") or "").casefold())
 
 
-def load_team_reps(supabase, company_id: str) -> list[dict]:
-    """Active company members as {userId, name}; never invent non-members."""
+def load_team_reps(supabase, company_id: str, *, exclude_managers: bool = False) -> list[dict]:
+    """Active company members as {userId, name}; never invent non-members.
+
+    exclude_managers (the Head of Sales pages): owners/admins are the Head of Sales, not
+    reps - they don't sell, so they are not a row, nor part of totals or the median."""
     try:
         members = CompanyService(supabase).list_members(company_id)
     except Exception:
@@ -196,6 +199,8 @@ def load_team_reps(supabase, company_id: str) -> list[dict]:
     reps: list[dict] = []
     for member in members:
         if (member.get("status") or "active") != "active":
+            continue
+        if exclude_managers and member.get("role") in _TEAM_ROLES:
             continue
         uid = str(member.get("user_id") or "").strip()
         if not uid:
@@ -310,7 +315,8 @@ def load_team_adherence_inputs(
     playbook_entries: list[dict] = []
     playbook_present = False
     health_rows: list[dict] = []
-    load_reps = load_team_reps(supabase, company_id)
+    # A period only comes from the Head of Sales pages (members are served the week).
+    load_reps = load_team_reps(supabase, company_id, exclude_managers=period is not None)
     reps = reps_for_sales_role(load_reps, sales_role)
     filter_user = (user_id or "").strip() or None
     filter_motion = (motion or "").strip() or None

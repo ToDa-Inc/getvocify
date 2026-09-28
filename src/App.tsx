@@ -17,7 +17,7 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
-import { InsightsRoute, ManagerOnly } from "./pages/dashboard/headOfSalesRoutes";
+import { InsightsRoute, ManagerOnly, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
 import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
 import PlaybookPage from "./pages/dashboard/PlaybookPage";
@@ -191,7 +191,7 @@ const App = () => (
                   layout so its tab guard doesn't bounce the old URL first. */}
               <Route path="settings/playbooks" element={<Navigate to="/dashboard/process#playbooks" replace />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
-              <Route path="coach" element={<CoachPage />} />
+              <Route path="coach" element={<RepOnly><CoachPage /></RepOnly>} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
                   this is where "go to my Today" points a manager who also sells. */}
               <Route path="today" element={<RepHome />} />

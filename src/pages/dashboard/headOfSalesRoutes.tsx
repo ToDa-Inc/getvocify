@@ -31,3 +31,11 @@ export function ManagerOnly({ children }: { children: ReactNode }) {
   if (!isManagerRole(user.company?.role)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
+
+/** Coaching is the rep's own page; the Head of Sales reads each rep's focus in Equipo. */
+export function RepOnly({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user) return <RouteLoader />;
+  if (isManagerRole(user.company?.role)) return <Navigate to="/dashboard/insights" replace />;
+  return <>{children}</>;
+}

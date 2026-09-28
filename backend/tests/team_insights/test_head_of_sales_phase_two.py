@@ -88,8 +88,8 @@ def test_process_health_reads_scored_rows_in_the_period_only():
 def _roles(monkeypatch, roles):
     real = aggregate.load_team_reps
 
-    def with_roles(supabase, company_id):
-        return [{**rep, "salesRole": roles[rep["userId"]]} for rep in real(supabase, company_id)]
+    def with_roles(supabase, company_id, **kwargs):
+        return [{**rep, "salesRole": roles[rep["userId"]]} for rep in real(supabase, company_id, **kwargs)]
 
     monkeypatch.setattr(aggregate, "load_team_reps", with_roles)
 
@@ -222,3 +222,18 @@ def test_sales_role_is_ignored_when_reps_carry_no_sales_role():
     inputs = load_team_adherence_inputs(_store(), COMPANY, sales_role="ae")
     assert {rep["userId"] for rep in inputs["reps"]} == {USER_A, USER_B}
     assert {row["user_id"] for row in inputs["activity_rows"]} == {USER_A, USER_B}
+
+
+def test_head_of_sales_pages_do_not_list_the_managers_as_reps(monkeypatch):
+    """The Head of Sales doesn't sell: not a row, not in totals or the median."""
+    from app.services.team_insights import aggregate as agg
+
+    members = [
+        {"user_id": "boss", "full_name": "Marta", "role": "owner", "status": "active"},
+        {"user_id": "lead", "full_name": "Luis", "role": "admin", "status": "active"},
+        {"user_id": "rep", "full_name": "Toni", "role": "member", "status": "active"},
+    ]
+    monkeypatch.setattr(agg.CompanyService, "list_members", lambda self, company_id: members)
+    assert [r["userId"] for r in agg.load_team_reps(None, "c", exclude_managers=True)] == ["rep"]
+    # Members' view and pre-phase-2 callers keep the full list.
+    assert len(agg.load_team_reps(None, "c")) == 3
