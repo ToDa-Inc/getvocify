@@ -61,7 +61,18 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
   const listed =
     surface.kind === "list" ? cardsAfterDismiss(surface.items, acted, Date.now()) : [];
 
-  const act = useCallback(async (item: TodayItem, action: "dismiss" | "confirm" | "snooze" | "disqualify", until?: string) => {
+  const act = useCallback(async (input: TodayItem, action: "dismiss" | "confirm" | "snooze" | "disqualify", until?: string) => {
+    let item = input;
+    // A never-contacted lead is computed on the fly and has no id yet: persist it first so
+    // snooze/dismiss/disqualify (and their undo) work exactly like on any other card.
+    const persisted = !item.id && item.type === "never_contacted" && Boolean(item.contact_id);
+    if (persisted) {
+      const row = await todayApi.persistNeverContacted({
+        contact_id: String(item.contact_id),
+        ...(item.connection_id ? { connection_id: item.connection_id } : {}),
+      });
+      item = { ...item, id: row.id, version: row.version, status: row.status };
+    }
     if (!item.id || item.version == null) return;
     const requestId = crypto.randomUUID();
     const result = await todayApi.resolve(item.id, {
@@ -80,7 +91,9 @@ export function useTodayCardActions({ fresh = false }: { fresh?: boolean } = {})
         last_action_request_id: requestId,
       },
     ]);
-  }, []);
+    // The list still holds the id-less card: re-read so the server's row replaces it.
+    if (persisted) await query.refetch();
+  }, [query]);
 
   const dismiss = useCallback((item: TodayItem) => act(item, "dismiss"), [act]);
   const confirm = useCallback((item: TodayItem) => act(item, "confirm"), [act]);

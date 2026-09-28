@@ -4,6 +4,7 @@ import {
   contactPhone,
   conversationLine,
   firstName,
+  handoffAeCandidates,
   handoffHistoryRequest,
   handoffHistoryTitle,
   historyRequest,
@@ -169,5 +170,18 @@ describe("contact panel names", () => {
     assert.equal(initials("marina"), "M");
     assert.equal(initials("Ana María de la Fuente"), "AF");
     assert.equal(initials(""), "");
+  });
+});
+
+describe("handoffAeCandidates", () => {
+  it("offers active AEs and Generals, never the rep, an SDR or an inactive member", () => {
+    const members = [
+      { userId: "me", status: "active", salesRole: "general" },
+      { userId: "ae", status: "active", salesRole: "ae" },
+      { userId: "gen", status: "active", salesRole: null },
+      { userId: "sdr", status: "active", salesRole: "sdr" },
+      { userId: "gone", status: "pending", salesRole: "ae" },
+    ];
+    assert.deepEqual(handoffAeCandidates(members, "me").map((m) => m.userId), ["ae", "gen"]);
   });
 });

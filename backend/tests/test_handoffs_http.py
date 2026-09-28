@@ -262,3 +262,67 @@ def test_get_handoffs_lists_active_rows_for_the_caller():
 
     response = ae_client.get("/api/v1/handoffs", params={"role": "sdr"})
     assert response.json()["handoffs"] == []
+
+
+# --- close / cancel (Lista 3 fix: a handoff could never be undone or ended by hand) ---
+
+
+def _active_handoff(**overrides) -> dict:
+    row = {
+        "id": "h-1", "company_id": COMPANY, "connection_id": "conn-1", "contact_id": "c-1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }
+    row.update(overrides)
+    return row
+
+
+def _close(reason: str, handoff_id: str = "h-1"):
+    return _client().post(f"/api/v1/handoffs/{handoff_id}/close", json={"reason": reason})
+
+
+def test_the_sdr_can_cancel_their_own_handoff():
+    STORE.tables["deal_handoffs"] = [_active_handoff()]
+    response = _close("cancelled")
+    assert response.status_code == 200
+    assert response.json() == {"id": "h-1", "status": "cancelled", "changed": True}
+    assert STORE.tables["deal_handoffs"][0]["status"] == "cancelled"
+
+
+def test_the_sdr_cannot_close_the_deal_for_the_ae():
+    STORE.tables["deal_handoffs"] = [_active_handoff()]
+    assert _close("closed").status_code == 403
+    assert STORE.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_the_ae_can_close_the_deal():
+    global MEMBERSHIP
+    MEMBERSHIP = _membership(sales_role="ae", user_id="ae-1")
+    STORE.tables["deal_handoffs"] = [_active_handoff()]
+    response = _close("closed")
+    assert response.status_code == 200
+    assert STORE.tables["deal_handoffs"][0]["status"] == "closed"
+
+
+def test_a_stranger_gets_404_and_nothing_changes():
+    global MEMBERSHIP
+    MEMBERSHIP = _membership(sales_role="sdr", user_id="sdr-2")
+    STORE.tables["deal_handoffs"] = [_active_handoff()]
+    assert _close("cancelled").status_code == 404
+    assert STORE.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_another_companys_handoff_is_404():
+    STORE.tables["deal_handoffs"] = [_active_handoff(company_id="other-co")]
+    assert _close("cancelled").status_code == 404
+
+
+def test_closing_twice_is_idempotent():
+    STORE.tables["deal_handoffs"] = [_active_handoff(status="cancelled")]
+    response = _close("cancelled")
+    assert response.status_code == 200
+    assert response.json()["changed"] is False
+
+
+def test_an_invalid_reason_is_422():
+    STORE.tables["deal_handoffs"] = [_active_handoff()]
+    assert _close("deleted").status_code == 422

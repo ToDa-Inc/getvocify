@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { Phone } from "@phosphor-icons/react";
@@ -22,6 +22,7 @@ import {
   type TodayItem,
 } from "@/lib/today";
 import { useLeaving, useSettleRow } from "../hooks/useHomeMotion";
+import { handoffsApi, todayKeys } from "../api";
 import { HandoffHistory } from "./HandoffHistory";
 import { TodayCardActions } from "./TodayCardActions";
 import { cardSelected, textAction, undoOpen } from "./home/shared";
@@ -171,11 +172,47 @@ function DealCard({
         <div className="mt-3 space-y-4 border-t border-border/60 pt-3">
           <DealBriefPanel contactId={item.contact_id} connectionId={item.connection_id ?? connectionId} />
           {item.handoff_id ? (
-            <HandoffHistory contactId={item.contact_id} onOpenMemo={(memoId) => navigate(`/dashboard/memos/${memoId}`)} />
+            <>
+              <HandoffHistory contactId={item.contact_id} onOpenMemo={(memoId) => navigate(`/dashboard/memos/${memoId}`)} />
+              <HandoffEndActions handoffId={item.handoff_id} />
+            </>
           ) : null}
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** A handed-off deal the CRM cannot tell us is over (no deal, or a stage we cannot read)
+ * would stay here forever: the AE can close it, or give it back to the SDR. */
+function HandoffEndActions({ handoffId }: { handoffId: string }) {
+  const { t } = useLanguage();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const end = async (reason: "closed" | "cancelled") => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await handoffsApi.close(handoffId, reason);
+      await queryClient.invalidateQueries({ queryKey: todayKeys.view() });
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-[13px] text-muted-foreground">
+      <button type="button" className="px-1 py-1.5 hover:text-foreground" disabled={busy} onClick={() => void end("closed")}>
+        {t.product.deal_close_action}
+      </button>
+      <span aria-hidden="true">·</span>
+      <button type="button" className="px-1 py-1.5 hover:text-foreground" disabled={busy} onClick={() => void end("cancelled")}>
+        {t.product.deal_return_action}
+      </button>
+      {failed ? <span role="alert" className="ml-2">{t.product.deal_action_failed}</span> : null}
+    </div>
   );
 }
 

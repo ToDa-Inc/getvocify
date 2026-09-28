@@ -31,6 +31,9 @@ export const todayApi = {
   get: (): Promise<TodayView> => api.get<TodayView>("/today"),
   resolve: (id: string, body: { action: string; request_id: string; expected_version: number; until?: string }) =>
     api.post<{ id: string; status: string; version: number; undo_deadline: string | null }>(`/today/${id}/resolve`, body),
+  /** Persists an id-less never-contacted card so it can be acted on (idempotent per contact). */
+  persistNeverContacted: (body: { contact_id: string; connection_id?: string }) =>
+    api.post<{ id: string; status: string; version: number; undo_deadline: string | null }>("/today/never-contacted", body),
   undo: (id: string, body: { request_id: string; expected_version: number }) =>
     api.patch<{ id: string; status: string; version: number; undo_deadline: string | null }>(`/today/${id}`, body),
 };
@@ -54,6 +57,9 @@ export type HandoffResult = {
 
 export const handoffsApi = {
   create: (body: HandoffRequest): Promise<HandoffResult> => api.post<HandoffResult>("/handoffs", body),
+  /** "cancelled": undo / give back to the SDR. "closed": the deal is done (AE or Head of Sales). */
+  close: (id: string, reason: "cancelled" | "closed") =>
+    api.post<{ id: string; status: string; changed: boolean }>(`/handoffs/${encodeURIComponent(id)}/close`, { reason }),
 };
 
 export const homeApi = {

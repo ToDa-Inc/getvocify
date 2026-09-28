@@ -323,3 +323,46 @@ def test_a_handed_off_deal_card_is_named_from_the_sdrs_memo_and_carries_the_meet
     assert deal["company_name"] == "Acme"
     assert deal["meeting_starts_at"] == "2026-09-29T09:00:00+00:00"
     assert deal["handoff_id"] == "h-1"
+
+
+# --- never-contacted cards can be acted on (Lista 3 fix) ---
+
+
+class _UpsertSupabase(_Supabase):
+    def table(self, name):
+        query = _Query(self, name.split("(")[0])
+        store = self
+
+        def upsert(payload, **_kwargs):
+            rows = store.tables.setdefault(name, [])
+            if not any(row.get("dedupe_key") == payload["dedupe_key"] and row.get("user_id") == payload["user_id"] for row in rows):
+                rows.append({"id": f"sig-{len(rows) + 1}", "version": 1, **payload})
+            return query
+
+        query.upsert = upsert
+        return query
+
+
+def test_persisting_a_never_contacted_card_is_idempotent_and_returns_an_id():
+    _isolate()
+    store = _UpsertSupabase()
+    client = _client(store, user_id="sdr-1", sales_role="sdr")
+    first = client.post("/api/v1/today/never-contacted", json={"contact_id": "55", "connection_id": "crm-A"}).json()
+    second = client.post("/api/v1/today/never-contacted", json={"contact_id": "55", "connection_id": "crm-A"}).json()
+    assert first["id"] and first["id"] == second["id"]
+    assert first["status"] == "pending" and first["version"] == 1
+    assert len(store.tables["action_signals"]) == 1
+    row = store.tables["action_signals"][0]
+    assert row["type"] == "never_contacted" and row["user_id"] == "sdr-1"
+
+
+def test_a_persisted_never_contacted_card_hides_once_the_lead_has_a_conversation():
+    from app.api.today import _drop_touched_never_contacted
+
+    rows = [
+        {"type": "never_contacted", "contact_id": "55"},
+        {"type": "never_contacted", "contact_id": "56"},
+        {"type": "commitment_due", "contact_id": "55"},
+    ]
+    kept = _drop_touched_never_contacted(rows, {"55"})
+    assert kept == [{"type": "never_contacted", "contact_id": "56"}, {"type": "commitment_due", "contact_id": "55"}]

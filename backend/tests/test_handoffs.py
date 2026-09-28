@@ -339,3 +339,90 @@ def test_active_handoffs_for_ae_and_sdr_and_missing_table_fallback():
     missing = _Supabase(missing_tables={"deal_handoffs"})
     assert active_handoffs_for_ae(missing, company_id="co-1", ae_user_id="ae-1") == []
     assert active_handoffs_for_sdr(missing, company_id="co-1", sdr_user_id="sdr-1") == []
+
+
+# --- release on member removal / role change (Lista 3 fix) ---
+
+
+class _ReleaseQuery:
+    def __init__(self, tables, name):
+        self.tables, self.name = tables, name
+        self.filters = []
+        self.payload = None
+
+    def update(self, payload):
+        self.payload = payload
+        return self
+
+    def eq(self, column, value):
+        self.filters.append((column, value))
+        return self
+
+    def execute(self):
+        rows = [r for r in self.tables.get(self.name, []) if all(r.get(c) == v for c, v in self.filters)]
+        for row in rows:
+            row.update(self.payload or {})
+        return type("R", (), {"data": rows})()
+
+
+class _ReleaseDB:
+    def __init__(self, **tables):
+        self.tables = tables
+
+    def table(self, name):
+        return _ReleaseQuery(self.tables, name)
+
+
+def test_release_cancels_both_sides_and_clears_routes_to_the_member():
+    from app.services.handoffs import release_member_handoffs
+
+    db = _ReleaseDB(
+        deal_handoffs=[
+            {"id": "h1", "company_id": "co", "ae_user_id": "gone", "sdr_user_id": "s1", "status": "active"},
+            {"id": "h2", "company_id": "co", "ae_user_id": "a2", "sdr_user_id": "gone", "status": "active"},
+            {"id": "h3", "company_id": "co", "ae_user_id": "a2", "sdr_user_id": "s1", "status": "active"},
+            {"id": "h4", "company_id": "other", "ae_user_id": "gone", "sdr_user_id": "s9", "status": "active"},
+        ],
+        company_members=[
+            {"user_id": "s1", "company_id": "co", "handoff_ae_user_id": "gone"},
+            {"user_id": "s2", "company_id": "co", "handoff_ae_user_id": "a2"},
+        ],
+    )
+    release_member_handoffs(db, company_id="co", user_id="gone")
+    status = {row["id"]: row["status"] for row in db.tables["deal_handoffs"]}
+    assert status == {"h1": "cancelled", "h2": "cancelled", "h3": "active", "h4": "active"}
+    routes = {row["user_id"]: row["handoff_ae_user_id"] for row in db.tables["company_members"]}
+    assert routes == {"s1": None, "s2": "a2"}
+
+
+def test_release_as_ae_only_keeps_the_handoffs_they_made_as_sdr():
+    from app.services.handoffs import release_member_handoffs
+
+    db = _ReleaseDB(
+        deal_handoffs=[
+            {"id": "h1", "company_id": "co", "ae_user_id": "x", "sdr_user_id": "s1", "status": "active"},
+            {"id": "h2", "company_id": "co", "ae_user_id": "a2", "sdr_user_id": "x", "status": "active"},
+        ],
+        company_members=[],
+    )
+    release_member_handoffs(db, company_id="co", user_id="x", as_ae_only=True)
+    status = {row["id"]: row["status"] for row in db.tables["deal_handoffs"]}
+    assert status == {"h1": "cancelled", "h2": "active"}
+
+
+# --- HubSpot custom pipelines (Lista 3 fix) ---
+
+
+def test_a_custom_pipeline_closed_stage_ends_the_deal_via_hs_is_closed():
+    from app.services.hoy.deals import deal_stages_by_provider, stage_known_ended
+
+    def fetch(request):
+        assert "hs_is_closed" in request["json"]["properties"]
+        return {"results": [
+            {"id": "d1", "properties": {"dealstage": "98765", "hs_is_closed": "true"}},
+            {"id": "d2", "properties": {"dealstage": "12345", "hs_is_closed": "false"}},
+        ]}
+
+    stages = deal_stages_by_provider(fetch, "hubspot", ["d1", "d2"])
+    assert stage_known_ended(stages, "d1", provider="hubspot") is True
+    assert stage_known_ended(stages, "d2", provider="hubspot") is False

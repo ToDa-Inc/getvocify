@@ -102,7 +102,9 @@ def deal_stages_by_provider(fetch, provider: str, deal_ids: list[str]) -> dict[s
             try:
                 payload = fetch({
                     "path": "/crm/v3/objects/deals/batch/read",
-                    "json": {"properties": ["dealstage"], "inputs": [{"id": deal_id} for deal_id in batch]},
+                    # hs_is_closed is HubSpot's own "Is deal closed?" - true in the closed
+                    # stages of any pipeline, so custom pipelines are detected too.
+                    "json": {"properties": ["dealstage", "hs_is_closed"], "inputs": [{"id": deal_id} for deal_id in batch]},
                 }) or {}
             except (TimeoutError, OSError, ValueError):
                 continue
@@ -110,7 +112,11 @@ def deal_stages_by_provider(fetch, provider: str, deal_ids: list[str]) -> dict[s
                 continue
             for row in payload.get("results") or []:
                 if row.get("id"):
-                    stages[str(row["id"])] = {"stage_id": (row.get("properties") or {}).get("dealstage")}
+                    props = row.get("properties") or {}
+                    stages[str(row["id"])] = {
+                        "stage_id": props.get("dealstage"),
+                        "is_closed": str(props.get("hs_is_closed") or "").strip().lower() == "true",
+                    }
         return stages
     if name == "pipedrive":
         out: dict[str, dict] = {}
@@ -134,14 +140,14 @@ def stage_known_ended(stages: dict[str, dict], deal_id: Optional[str], *, provid
     the section rather than being guessed closed.
 
     "End stage" here is exactly `handoffs.stage_ends_deal`'s definition: HubSpot's two
-    well-known ids (closedwon/closedlost) or, when the caller already has it, the
-    pipeline's own isClosed metadata; Pipedrive's won/lost status. It does NOT read a
-    per-company configurable end-stage list from crm_configurations - there isn't one
-    today. If this company's pipeline uses custom stage ids for "won"/"lost" instead of
-    HubSpot's defaults, those deals are never detected as ended here."""
+    well-known ids (closedwon/closedlost) or the deal's own hs_is_closed (read alongside
+    dealstage, so custom pipelines count too); Pipedrive's won/lost status. A deal the
+    CRM cannot classify can still be ended by hand (POST /handoffs/{id}/close)."""
     if not deal_id:
         return False
     stage = stages.get(str(deal_id))
     if not stage:
         return False
-    return bool(stage_ends_deal(provider, stage_id=stage.get("stage_id"), status=stage.get("status")))
+    return bool(stage_ends_deal(
+        provider, stage_id=stage.get("stage_id"), status=stage.get("status"), is_closed=stage.get("is_closed"),
+    ))

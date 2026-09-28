@@ -21,6 +21,7 @@ import { afterCallLine, type CallSummary } from "@/lib/after-call";
 import {
   conversationLine,
   firstName,
+  handoffAeCandidates,
   historyRequest,
   initials,
   panelHeaderSubtitle,
@@ -88,6 +89,16 @@ function briefFailed(error: unknown): boolean {
 /** T3/D2/D6: "Reunión agendada" on a call the SDR (or General) is working. A 409 needs_ae
  * opens an inline picker instead of failing - the transfer waits for that answer, it never
  * silently drops the contact from Hoy. */
+type HandoffState =
+  | { kind: "idle" }
+  | { kind: "form"; pickAe: boolean; notice: string | null }
+  | { kind: "sending"; pickAe: boolean }
+  | { kind: "done"; handoffId: string | null }
+  | { kind: "undone" };
+
+/** 409 codes that mean "the server needs an AE picked" rather than a hard failure. */
+const PICK_AE_CODES = new Set(["needs_ae", "self_owned", "invalid_ae"]);
+
 function HandoffAction({
   contactId,
   connectionId,
@@ -101,75 +112,137 @@ function HandoffAction({
 }) {
   const { t } = useLanguage();
   const copy = t.product;
+  const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [state, setState] = useState<"idle" | "sending" | "done" | "needs_ae" | "error">("idle");
+  const [state, setState] = useState<HandoffState>({ kind: "idle" });
   const [aeId, setAeId] = useState<string>("");
+  const [when, setWhen] = useState<string>("");
 
+  const pickAe = (state.kind === "form" || state.kind === "sending") && state.pickAe;
   const aeQuery = useQuery({
     queryKey: ["handoff-ae-candidates"],
     queryFn: () => companyApi.listMembers(),
-    enabled: state === "needs_ae",
+    enabled: pickAe,
     staleTime: 60_000,
   });
+  const candidates = handoffAeCandidates(aeQuery.data?.members ?? [], user?.id);
 
-  const send = async (chosenAe?: string) => {
-    setState("sending");
+  const send = async () => {
+    setState({ kind: "sending", pickAe });
+    const startsAt = when ? new Date(when) : null;
     try {
-      await handoffsApi.create({
+      const result = await handoffsApi.create({
         contact_id: contactId,
         // Never send "": no connection means "let the server resolve the company's
         // connected CRM", same as F14's accept.py - an empty string would 404 instead.
         ...(connectionId ? { connection_id: connectionId } : {}),
         ...(dealId ? { deal_id: dealId } : {}),
         ...(memoId ? { memo_id: memoId } : {}),
-        ae_user_id: chosenAe ?? null,
+        ...(startsAt && !Number.isNaN(startsAt.getTime()) ? { meeting_starts_at: startsAt.toISOString() } : {}),
+        ae_user_id: pickAe && aeId ? aeId : null,
       });
-      setState("done");
+      setState({ kind: "done", handoffId: result.id ?? null });
       void queryClient.invalidateQueries({ queryKey: todayKeys.view() });
     } catch (error) {
       const code = error instanceof ApiError
         ? (error.data as { detail?: { code?: string } } | null | undefined)?.detail?.code
         : null;
-      setState(code === "needs_ae" ? "needs_ae" : "error");
+      if (code && PICK_AE_CODES.has(code)) {
+        setAeId("");
+        setState({ kind: "form", pickAe: true, notice: code === "invalid_ae" ? copy.panel_handoff_invalid_ae : null });
+        return;
+      }
+      setState({ kind: "form", pickAe, notice: copy.panel_handoff_failed });
     }
   };
 
-  if (state === "done") return <p className="text-[13px] text-muted-foreground">{copy.panel_handoff_done}</p>;
+  const undo = async (handoffId: string) => {
+    try {
+      await handoffsApi.close(handoffId, "cancelled");
+      setState({ kind: "undone" });
+      void queryClient.invalidateQueries({ queryKey: todayKeys.view() });
+    } catch {
+      setState({ kind: "done", handoffId });
+    }
+  };
 
-  if (state === "needs_ae") {
-    const candidates = (aeQuery.data?.members ?? []).filter(
-      (member) => member.salesRole == null || member.salesRole === "ae" || member.salesRole === "general",
-    );
+  if (state.kind === "done") {
     return (
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <select
-          className="h-8 rounded-md border border-border bg-background px-2 text-[13px]"
-          value={aeId}
-          onChange={(event) => setAeId(event.target.value)}
-        >
-          <option value="">{copy.panel_handoff_pick_ae}</option>
-          {candidates.map((member) => (
-            <option key={member.userId} value={member.userId}>
-              {member.fullName || member.email}
-            </option>
-          ))}
-        </select>
-        <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-[13px]" disabled={!aeId} onClick={() => void send(aeId)}>
-          {copy.panel_handoff_confirm}
-        </Button>
-      </div>
+      <p className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+        <span>{copy.panel_handoff_done}</span>
+        {state.handoffId ? (
+          <button type="button" className="underline hover:text-foreground" onClick={() => void undo(state.handoffId as string)}>
+            {copy.panel_handoff_undo}
+          </button>
+        ) : null}
+      </p>
     );
   }
 
+  if (state.kind === "idle" || state.kind === "undone") {
+    return (
+      <button
+        type="button"
+        className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+        onClick={() => setState({ kind: "form", pickAe: false, notice: null })}
+      >
+        {copy.panel_handoff_action}
+      </button>
+    );
+  }
+
+  const sending = state.kind === "sending";
+  const notice = state.kind === "form" ? state.notice : null;
+  const noCandidates = pickAe && aeQuery.isSuccess && candidates.length === 0;
   return (
-    <button
-      type="button"
-      className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground disabled:opacity-60"
-      disabled={state === "sending"}
-      onClick={() => void send()}
-    >
-      {copy.panel_handoff_action}
-    </button>
+    <div className="mt-2 space-y-2">
+      <label className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
+        <span>{copy.panel_handoff_when}</span>
+        <input
+          type="datetime-local"
+          className="h-8 rounded-md border border-border bg-background px-2 text-[13px] text-foreground"
+          value={when}
+          onChange={(event) => setWhen(event.target.value)}
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        {pickAe ? (
+          <select
+            aria-label={copy.panel_handoff_pick_ae}
+            className="h-8 rounded-md border border-border bg-background px-2 text-[13px]"
+            value={aeId}
+            onChange={(event) => setAeId(event.target.value)}
+          >
+            <option value="">{copy.panel_handoff_pick_ae}</option>
+            {candidates.map((member) => (
+              <option key={member.userId} value={member.userId}>
+                {member.fullName || member.email}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 px-3 text-[13px]"
+          disabled={sending || (pickAe && !aeId)}
+          onClick={() => void send()}
+        >
+          {copy.panel_handoff_confirm}
+        </Button>
+        <button
+          type="button"
+          className="px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground"
+          disabled={sending}
+          onClick={() => setState({ kind: "idle" })}
+        >
+          {copy.cancelAction}
+        </button>
+      </div>
+      {noCandidates ? <p role="status" className="text-[13px] text-muted-foreground">{copy.panel_handoff_no_ae}</p> : null}
+      {notice ? <p role="alert" className="text-[13px] text-muted-foreground">{notice}</p> : null}
+    </div>
   );
 }
 
@@ -252,7 +325,11 @@ function PanelBody({
     if (crmHref) window.open(crmHref, "_blank", "noopener,noreferrer");
   };
 
-  const showCardActions = row.kind === "call" && row.source === "today" && row.item.id && row.item.status === "pending";
+  // A never-contacted lead has no id until its first action persists it (see
+  // useTodayCardActions), so it gets the same actions as a stored card.
+  const persistable = row.kind === "call" && row.item.type === "never_contacted" && !row.item.id;
+  const showCardActions =
+    row.kind === "call" && row.source === "today" && (persistable || (row.item.id && row.item.status === "pending"));
   const first = firstName(name);
   const canHandOff = handoffEnabled && user?.company?.salesRole !== "ae" && Boolean(contactId);
 

@@ -893,10 +893,14 @@ class CompanyService:
         target = self._get_member_row(company_id, member_id)
         updates: Dict[str, Any] = {}
 
+        release_ae_side = False
         if sales_role != "__unset__":
             if sales_role is not None and sales_role not in SALES_ROLES:
                 raise HTTPException(status_code=400, detail="Invalid sales_role")
             updates["sales_role"] = sales_role
+            # An AE/General turned SDR no longer has a deals section: the contacts handed
+            # to them go back to their SDRs and nobody stays routed to them.
+            release_ae_side = sales_role == "sdr" and target.get("sales_role") != "sdr"
 
         if visibility != "__unset__":
             if visibility is not None and visibility not in VISIBILITIES:
@@ -935,6 +939,8 @@ class CompanyService:
             .eq("company_id", company_id)
             .execute()
         )
+        if release_ae_side:
+            self._release_handoffs(company_id, str(target["user_id"]), as_ae_only=True)
         return (result.data or [target])[0]
 
     def remove_member(
@@ -952,10 +958,21 @@ class CompanyService:
         if actor.role == "admin" and target["role"] in ("owner", "admin"):
             raise HTTPException(status_code=403, detail="Admins cannot remove owners or other admins")
 
+        self._release_handoffs(company_id, str(target["user_id"]))
         self.supabase.table("company_members").delete().eq("id", member_id).execute()
         self.supabase.table("user_profiles").update({"company_id": None}).eq(
             "id", target["user_id"]
         ).execute()
+
+    def _release_handoffs(self, company_id: str, user_id: str, *, as_ae_only: bool = False) -> None:
+        """Lista 3: a leaving member (or one who stops being an AE) never keeps contacts
+        locked in a handoff nobody can see. Never blocks the removal itself."""
+        from app.services.handoffs import release_member_handoffs
+
+        try:
+            release_member_handoffs(self.supabase, company_id=company_id, user_id=user_id, as_ae_only=as_ae_only)
+        except Exception:
+            logger.warning("Releasing handoffs failed for user %s", user_id, exc_info=True)
 
     async def notify_removed(self, email: str, company_name: str) -> None:
         client = get_resend_client()
@@ -1083,6 +1100,7 @@ class CompanyService:
         target = self._get_member_row(company_id, member_id)
         if target["role"] == "owner" and self.count_owners(company_id) <= 1:
             raise HTTPException(status_code=409, detail="Cannot remove the last owner")
+        self._release_handoffs(company_id, str(target["user_id"]))
         self.supabase.table("company_members").delete().eq("id", member_id).execute()
         self.supabase.table("user_profiles").update({"company_id": None}).eq(
             "id", target["user_id"]
@@ -1104,6 +1122,7 @@ class CompanyService:
         if membership.role == "owner" and self.count_owners(membership.company_id) <= 1:
             raise HTTPException(status_code=409, detail="Cannot transfer the last owner")
         self.ensure_seat_available(to_company_id)
+        self._release_handoffs(membership.company_id, user_id)
         self.supabase.table("company_members").delete().eq("user_id", user_id).execute()
         self.supabase.table("company_members").insert(
             {

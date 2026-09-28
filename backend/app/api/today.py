@@ -39,7 +39,7 @@ from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.priority import rank_candidates
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks, contact_record_url
 from app.services.hoy.sections import sections_for_role, split_items_by_type
-from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links
+from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links, never_contacted_signal
 from app.services.hoy.materialize import HOY_MEMO_LIMIT, exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
 from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
 from app.services.hoy.names import NamePair, memo_directory
@@ -48,6 +48,7 @@ from app.services.hoy.visibility import is_today_visible
 from app.services.rep_timezone import rep_timezone
 
 AE_DEALS_FLAG = "HOY_AE_DEALS_ENABLED"
+NEVER_CONTACTED_TYPE = "never_contacted"
 
 logger = logging.getLogger(__name__)
 
@@ -610,13 +611,21 @@ async def get_today(
             for memo in memos
         }
         touched.discard("")
+        # A lead the rep already acted on (persisted row, any status) is never rebuilt
+        # as a fresh ephemeral card - a snoozed or disqualified lead stays that way.
+        persisted = {
+            str(row.get("contact_id") or "")
+            for row in (stored.data or [])
+            if row.get("type") == NEVER_CONTACTED_TYPE
+        }
         never_contacted = _never_contacted_for_rep(
             supabase,
             company_id=membership.company_id,
             user_id=membership.user_id,
             now=now,
-            touched_contact_ids=touched,
+            touched_contact_ids=touched | persisted,
         )
+        visible = _drop_touched_never_contacted(visible, touched)
     today_signals = exclude_handoff_contacts(
         [_signal(row) for row in visible if row.get("type") != CONFIRM_TYPE] + never_contacted,
         handed_off,
@@ -806,6 +815,73 @@ def _public(row: dict) -> dict:
 
 def _conflict(row: dict) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=_public(row))
+
+
+class NeverContactedBody(BaseModel):
+    contact_id: str
+    connection_id: Optional[str] = None
+
+
+@router.post("/today/never-contacted")
+async def persist_never_contacted(
+    body: NeverContactedBody,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """T5 cards for never-contacted leads are computed on the fly and carry no id, so the
+    rep could not snooze, dismiss or disqualify them. The first action persists the card
+    as a normal action_signals row (idempotent per contact) and returns its id/version;
+    the client then resolves it through POST /today/{id}/resolve like any other card,
+    with the same undo window. GET /today hides a persisted row once the lead has a
+    conversation (see _drop_touched_never_contacted)."""
+    contact_id = (body.contact_id or "").strip()
+    if not contact_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="contact_id requerido")
+    connection_id = (body.connection_id or "").strip()
+    signal = never_contacted_signal(contact_id=contact_id, connection_id=connection_id or None)
+
+    def _existing() -> dict | None:
+        rows = (
+            supabase.table("action_signals")
+            .select("*")
+            .eq("company_id", membership.company_id)
+            .eq("user_id", membership.user_id)
+            .eq("dedupe_key", signal.dedupe_key)
+            .execute()
+        ).data or []
+        return rows[0] if rows else None
+
+    row = _existing()
+    if row is None:
+        supabase.table("action_signals").upsert(
+            {
+                "company_id": membership.company_id,
+                "user_id": membership.user_id,
+                "connection_id": connection_id,
+                "contact_id": contact_id,
+                "deal_id": None,
+                "memo_id": None,
+                "type": NEVER_CONTACTED_TYPE,
+                "dedupe_key": signal.dedupe_key,
+                "payload": {},
+                "status": "pending",
+                "coverage": "complete",
+            },
+            on_conflict="company_id,user_id,connection_id,dedupe_key",
+            ignore_duplicates=True,
+        ).execute()
+        row = _existing()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No se pudo guardar la tarjeta")
+    return _public(row)
+
+
+def _drop_touched_never_contacted(rows: list[dict], touched: set[str]) -> list[dict]:
+    """A persisted never_contacted card stops being true once the lead has a conversation."""
+    return [
+        row for row in rows
+        if not (row.get("type") == NEVER_CONTACTED_TYPE and str(row.get("contact_id") or "") in touched)
+    ]
 
 
 @router.post("/today/{signal_id}/resolve")

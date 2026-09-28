@@ -159,7 +159,9 @@ def test_update_member_profile_accepts_valid_handoff_and_role():
     )
 
     assert result["handoff_ae_user_id"] == "ae-1"
-    called_payload = supabase.table.return_value.update.call_args[0][0]
+    # The member-row update is the first one; a General turned SDR then also releases
+    # the AE side of their handoffs (a later update on deal_handoffs/company_members).
+    called_payload = supabase.table.return_value.update.call_args_list[0][0][0]
     assert called_payload["sales_role"] == "sdr"
     assert called_payload["handoff_ae_user_id"] == "ae-1"
     assert called_payload["visibility"] == "team"
@@ -472,3 +474,35 @@ def test_http_write_guard_denies_a_team_visibility_member_on_a_teammates_memo(mo
 
     readable, _authors = memos_api._require_viewable_memo(supabase, "memo-1", "viewer-1")
     assert readable["id"] == "memo-1"
+
+
+def test_removing_a_member_releases_their_handoffs(monkeypatch):
+    """A removed AE must not keep handed-off contacts locked away from everyone."""
+    from app.services import handoffs as handoffs_mod
+
+    calls = []
+    monkeypatch.setattr(
+        handoffs_mod, "release_member_handoffs",
+        lambda _sb, **kwargs: calls.append(kwargs),
+    )
+    svc = CompanyService(MagicMock())
+    monkeypatch.setattr(svc, "_get_member_row", lambda _c, _m: {"user_id": "ae-9", "role": "member"})
+    actor = Membership(id="m-o", company_id="co-1", user_id="owner-1", role="owner", status="active")
+    svc.remove_member(company_id="co-1", member_id="m-ae", actor=actor)
+    assert calls == [{"company_id": "co-1", "user_id": "ae-9", "as_ae_only": False}]
+
+
+def test_turning_an_ae_into_an_sdr_releases_only_the_ae_side(monkeypatch):
+    from app.services import handoffs as handoffs_mod
+
+    calls = []
+    monkeypatch.setattr(
+        handoffs_mod, "release_member_handoffs",
+        lambda _sb, **kwargs: calls.append(kwargs),
+    )
+    supabase = MagicMock()
+    svc = CompanyService(supabase)
+    monkeypatch.setattr(svc, "_get_member_row", lambda _c, _m: {"id": "m-ae", "user_id": "ae-9", "sales_role": "ae"})
+    actor = Membership(id="m-o", company_id="co-1", user_id="owner-1", role="owner", status="active")
+    svc.update_member_profile(company_id="co-1", actor=actor, member_id="m-ae", sales_role="sdr")
+    assert calls == [{"company_id": "co-1", "user_id": "ae-9", "as_ae_only": True}]

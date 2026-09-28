@@ -170,3 +170,18 @@ export function meetingCardLine(
 }
 
 export const HOME_PANEL_PHONE_KEY = "home-panel-phone";
+
+/**
+ * Who an SDR (or a General) can hand a booked meeting to: active members who are AE or
+ * General (D1: a null sales_role is General), never the rep themselves.
+ */
+export function handoffAeCandidates<
+  M extends { userId: string; status?: string | null; salesRole?: string | null },
+>(members: M[], selfUserId: string | null | undefined): M[] {
+  return members.filter(
+    (member) =>
+      member.userId !== selfUserId &&
+      (member.status ?? "active") === "active" &&
+      (member.salesRole == null || member.salesRole === "ae" || member.salesRole === "general"),
+  );
+}

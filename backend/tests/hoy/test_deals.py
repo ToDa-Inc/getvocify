@@ -54,7 +54,8 @@ def test_hubspot_stage_batch_read():
         return {"results": [{"id": "d1", "properties": {"dealstage": "closedwon"}}]}
 
     stages = deal_stages_by_provider(fetch, "hubspot", ["d1"])
-    assert stages == {"d1": {"stage_id": "closedwon"}}
+    # hs_is_closed absent in the response: not closed by that signal (closedwon still ends it).
+    assert stages == {"d1": {"stage_id": "closedwon", "is_closed": False}}
 
 
 def test_pipedrive_stage_reads_one_deal_at_a_time():

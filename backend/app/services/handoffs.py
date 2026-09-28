@@ -278,3 +278,92 @@ def active_handoffs_for_sdr(supabase: Any, *, company_id: str, sdr_user_id: str)
         if _missing_handoffs_table(exc):
             return []
         raise
+
+
+def close_handoff_by_id(
+    supabase: Any,
+    *,
+    company_id: str,
+    handoff_id: str,
+    reason: str,
+    now: Optional[datetime] = None,
+) -> Optional[dict]:
+    """Closes (reason "closed") or cancels (reason "cancelled") one active handoff by id.
+    Returns the updated row, or None when there is no active row with that id in this
+    company (already closed, another company's, or unknown)."""
+    status_value = CANCELLED if reason == "cancelled" else CLOSED
+    closed_at = (now or datetime.now(timezone.utc)).isoformat()
+    try:
+        updated = (
+            supabase.table("deal_handoffs")
+            .update({"status": status_value, "closed_at": closed_at})
+            .eq("id", str(handoff_id))
+            .eq("company_id", company_id)
+            .eq("status", ACTIVE)
+            .execute()
+        ).data or []
+    except Exception as exc:
+        if _missing_handoffs_table(exc):
+            return None
+        raise
+    return updated[0] if updated else None
+
+
+def get_handoff(supabase: Any, *, company_id: str, handoff_id: str) -> Optional[dict]:
+    try:
+        rows = (
+            supabase.table("deal_handoffs")
+            .select("*")
+            .eq("id", str(handoff_id))
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        ).data or []
+    except Exception as exc:
+        if _missing_handoffs_table(exc):
+            return None
+        raise
+    return rows[0] if rows else None
+
+
+def release_member_handoffs(
+    supabase: Any,
+    *,
+    company_id: str,
+    user_id: str,
+    as_ae_only: bool = False,
+    now: Optional[datetime] = None,
+) -> None:
+    """A member who leaves the company (or stops being an AE) must not keep contacts
+    locked: their active handoffs are cancelled, so a handed-off contact goes back to the
+    SDR's Hoy instead of disappearing for everyone, and any SDR routed to them loses the
+    route (the next handoff asks for an AE instead of failing with invalid_ae).
+
+    as_ae_only: only the AE side (a role change to SDR keeps the handoffs they made).
+    Best-effort per step - a database without migration 054/056 simply has nothing to do."""
+    closed_at = (now or datetime.now(timezone.utc)).isoformat()
+    sides = ("ae_user_id",) if as_ae_only else ("ae_user_id", "sdr_user_id")
+    for column in sides:
+        try:
+            (
+                supabase.table("deal_handoffs")
+                .update({"status": CANCELLED, "closed_at": closed_at})
+                .eq("company_id", company_id)
+                .eq(column, str(user_id))
+                .eq("status", ACTIVE)
+                .execute()
+            )
+        except Exception as exc:
+            if not _missing_handoffs_table(exc):
+                raise
+    try:
+        (
+            supabase.table("company_members")
+            .update({"handoff_ae_user_id": None})
+            .eq("company_id", company_id)
+            .eq("handoff_ae_user_id", str(user_id))
+            .execute()
+        )
+    except Exception:
+        # Pre-054 database: no routing column, nothing to clear.
+        pass

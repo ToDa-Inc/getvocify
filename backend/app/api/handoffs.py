@@ -21,7 +21,9 @@ from app.services.handoffs import (
     ae_membership_row,
     active_handoffs_for_ae,
     active_handoffs_for_sdr,
+    close_handoff_by_id,
     create_handoff,
+    get_handoff,
     resolve_ae,
     resolve_owner_for_general,
     valid_ae,
@@ -222,3 +224,42 @@ async def list_handoffs_endpoint(
     else:
         rows = active_handoffs_for_sdr(supabase, company_id=membership.company_id, sdr_user_id=membership.user_id)
     return {"handoffs": rows}
+
+
+class HandoffCloseRequest(BaseModel):
+    # "cancelled": undo a mistaken handoff, or the AE gives it back - the contact returns
+    # to the SDR's Hoy. "closed": the deal is done (won, lost, or dead) - needed where the
+    # CRM stage cannot tell us (custom HubSpot pipelines, a handoff without a deal).
+    reason: str = Field(..., pattern="^(cancelled|closed)$")
+
+
+@router.post("/handoffs/{handoff_id}/close")
+async def close_handoff_endpoint(
+    handoff_id: str,
+    body: HandoffCloseRequest,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """Who may end a handoff: its SDR (only to cancel - they made it), its AE (cancel =
+    give it back, closed = done), or a Head of Sales (either). Anyone else gets a 404, the
+    same as an unknown id. CRM owner/stage changes made at handoff time are not reverted."""
+    if not is_enabled(supabase, membership.company_id, FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    row = get_handoff(supabase, company_id=membership.company_id, handoff_id=handoff_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Traspaso no encontrado")
+    user_id = str(membership.user_id)
+    is_sdr = str(row.get("sdr_user_id") or "") == user_id
+    is_ae = str(row.get("ae_user_id") or "") == user_id
+    if not (is_sdr or is_ae or membership.can_manage_team):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Traspaso no encontrado")
+    if body.reason == "closed" and is_sdr and not (is_ae or membership.can_manage_team):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el AE cierra el deal")
+    if row.get("status") != ACTIVE:
+        # Idempotent: already ended - report it as it is.
+        return {"id": row.get("id"), "status": row.get("status"), "changed": False}
+    updated = close_handoff_by_id(
+        supabase, company_id=membership.company_id, handoff_id=handoff_id, reason=body.reason,
+    )
+    current = updated or get_handoff(supabase, company_id=membership.company_id, handoff_id=handoff_id) or row
+    return {"id": current.get("id"), "status": current.get("status"), "changed": bool(updated)}
