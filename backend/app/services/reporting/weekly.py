@@ -95,6 +95,7 @@ def weekly_self_snapshot(
     outcomes: dict,
     sales_role: str | None = None,
     flow_facts: dict | None = None,
+    coaching: str | None = None,
 ) -> dict:
     """Same aggregator as the daily report, plus the daily series and the most frequent objections."""
     interactions = [row for memo in memos if (row := _interaction_from_memo(memo)) is not None]
@@ -113,6 +114,7 @@ def weekly_self_snapshot(
     activity = [row for memo in memos if (row := activity_row_from_memo(memo)) is not None]
     objections = _objections(pattern_rows, start=period_start, end=period_end)
     snapshot["report_type"] = "weekly"
+    snapshot["coaching"] = coaching
     snapshot["generated_at"] = _aware(generated_at).isoformat()
     snapshot["series"] = day_series(
         activity, start=period_start, end=period_end, tz_name=timezone, generated_at=generated_at,

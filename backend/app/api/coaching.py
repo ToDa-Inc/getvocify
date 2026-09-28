@@ -14,9 +14,9 @@ from app.services.coaching.brief_preferences import highlight_at, read_preferenc
 from app.services.coaching.briefs import absent_brief
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
+from app.services.coaching.rep_focus import resolve_flow
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
-from app.services.playbooks.motion import flow_for_motion
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
 from app.services.team_insights.objections import objection_counts
 
@@ -241,23 +241,11 @@ def _in_window(rows: list[dict], start: datetime, end: datetime) -> list[dict]:
     return [r for r in rows if start <= engine.parse_instant(r["observed_at"]) < end]
 
 
-def _resolve_flow(sales_role: Optional[str], rows: list[dict]) -> str:
-    """sdr -> discovery, ae -> closing; general -> the flow with most of the caller's interactions."""
-    if sales_role in _FLOW_MOTION:
-        return sales_role
-    counts = {"sdr": 0, "ae": 0}
-    for row in rows:
-        flow = flow_for_motion(row["motion"])
-        if flow:
-            counts[flow] += 1
-    return "ae" if counts["ae"] > counts["sdr"] else "sdr"
-
-
 def _rep_context(supabase, membership: Membership, *, weeks: int = _OWN_WEEKS, peers: bool = True) -> dict:
     starts = _week_starts(weeks)
     week_start, week_end = madrid_week_bounds()
     all_own = _rows_of(reads.load_memos(supabase, membership.company_id, [membership.user_id], start=starts[0]))
-    flow = _resolve_flow(membership.sales_role, _in_window(all_own, starts[0], week_end))
+    flow = resolve_flow(membership.sales_role, _in_window(all_own, starts[0], week_end))
     motion = _FLOW_MOTION[flow]
     playbook = reads.load_published_playbook(supabase, membership.company_id, motion)
     own = [r for r in all_own if r["motion"] == motion] if playbook["published"] else []

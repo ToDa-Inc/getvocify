@@ -357,6 +357,12 @@ def load_team_adherence_inputs(
         current, previous = period
         period_start, period_end = current.start, current.end
         comparison = {"previous_period_start": previous.start, "previous_period_end": previous.end}
+        try:
+            from app.services.coaching.rep_focus import coaching_focus_by_user
+
+            comparison["coaching_focus_by_user"] = coaching_focus_by_user(supabase, company_id, reps)
+        except Exception:
+            comparison["coaching_focus_by_user"] = {}
     return {
         **comparison,
         "health_rows": health_rows,
@@ -434,6 +440,7 @@ def team_adherence(
     previous_period_start: datetime | None = None,
     previous_period_end: datetime | None = None,
     health_rows: list[dict] | None = None,
+    coaching_focus_by_user: dict | None = None,
 ) -> dict:
     assert_team_reader(role, visibility)
 
@@ -474,6 +481,11 @@ def team_adherence(
         )
         body["process_health"] = process_health(health_parts)
         if previous_period_start is not None and previous_period_end is not None:
+            # Period-only, like `previous`: pre-phase-2 callers keep their exact rep items.
+            focus = coaching_focus_by_user or {}
+            body["reps"] = [
+                {**rep, "coaching_focus": focus.get(str(rep.get("userId") or ""))} for rep in body["reps"]
+            ]
             before_parts = adherence_parts_in_period(
                 parts, start=previous_period_start, end=previous_period_end
             )

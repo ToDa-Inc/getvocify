@@ -10,6 +10,7 @@ from app.services.company import sales_role_for_user
 from app.services.feature_flags import is_enabled
 from app.services.reporting.aggregate import build_snapshot
 from app.services.reporting.channels import interaction_channels
+from app.services.reporting.coaching_line import self_daily_coaching
 from app.services.reporting.delivery import period_bounds
 from app.services.reporting.due_sends import MADRID
 from app.services.reporting.preferences import is_opted_in, load_preference_rows
@@ -297,6 +298,9 @@ def ensure_self_daily_report(
         channels=interaction_channels(period_memos, start=period_start, end=period_end),
         sales_role=sales_role,
         flow_facts=flow_facts,
+    )
+    snapshot["coaching"] = self_daily_coaching(
+        supabase, company_id=company_id, user_id=user_id, period_start=period_start, period_end=period_end
     )
     report_id = _existing_report_id(
         supabase,

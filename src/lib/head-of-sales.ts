@@ -17,11 +17,16 @@ export const HOS_PERIODS: readonly { value: HosPeriod; labelKey: keyof ProductTr
 
 export type Activity = { attempts: number; connected: number; meetings: number };
 
+/** The one step a rep works on this week (previous full week, same engine the rep sees). */
+export type HosFocus = { step_id: string; label: string; rate: number | null };
+
 export type HosRep = {
   userId: string;
   name: string;
   salesRole?: string | null;
   activity?: Activity;
+  /** Only present when the request carried ?period=; null = no focus (going well or no data). */
+  coaching_focus?: HosFocus | null;
   flows?: { sdr: number | null; ae: number | null };
 };
 
@@ -86,6 +91,8 @@ export type RepActivityRow = {
   connected: number;
   meetings: number;
   connectionRate: number | null;
+  /** undefined = the backend did not send the field; null = no focus. */
+  focus?: HosFocus | null;
   flows?: { sdr: number | null; ae: number | null };
 };
 
@@ -103,6 +110,7 @@ export function repActivityRows(reps: HosRep[]): RepActivityRow[] {
         connected: a.connected,
         meetings: a.meetings,
         connectionRate: shareOf(a.connected, a.attempts),
+        focus: rep.coaching_focus,
         flows: rep.flows,
       };
     });
@@ -145,7 +153,7 @@ function csvCell(value: string | number | null): string {
 }
 
 export function repActivityCsv(rows: RepActivityRow[], copy: ProductTranslations): string {
-  const header = [copy.hosColName, copy.hosColRole, copy.hosColAttempts, copy.hosColConversations, copy.hosColConnection, copy.hosColMeetings];
+  const header = [copy.hosColName, copy.hosColRole, copy.hosColAttempts, copy.hosColConversations, copy.hosColConnection, copy.hosColMeetings, copy.hosColFocus];
   const lines = rows.map((row) =>
     [
       row.name,
@@ -154,6 +162,7 @@ export function repActivityCsv(rows: RepActivityRow[], copy: ProductTranslations
       row.connected,
       row.connectionRate == null ? null : Math.round(row.connectionRate * 1000) / 10,
       row.meetings,
+      row.focus?.label ?? null,
     ]
       .map(csvCell)
       .join(","),

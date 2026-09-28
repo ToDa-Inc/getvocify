@@ -11,6 +11,7 @@ from app.config import settings
 from app.services.company import sales_role_for_user
 from app.services.feature_flags import is_enabled
 from app.services.reporting.channels import interaction_channels, load_team_channel_memos
+from app.services.reporting.coaching_line import self_weekly_coaching
 from app.services.reporting.daily_snapshot import (
     FLOW_FLAG,
     _flow_facts,
@@ -192,6 +193,9 @@ def ensure_self_weekly_report(supabase, *, company_id: str, user_id: str, timezo
         outcomes=_outcomes_for_snapshot(_load_outcome_observations(supabase, company_id), user_id=user_id),
         sales_role=sales_role,
         flow_facts=flow_facts,
+        coaching=self_weekly_coaching(
+            supabase, company_id=company_id, user_id=user_id, period_start=start, period_end=end
+        ),
     )
     report_id = _create_once(
         supabase, company_id=company_id, user_id=user_id, scope="self", period_start=start.isoformat(), snapshot=snapshot,

@@ -195,10 +195,10 @@ def email_html_for_snapshot(snapshot: dict, *, report_id: str, app_origin: str =
             ("Adherencia", "adherence"),
         )
     )
-    links = "".join(f'<li><a href="{origin}{path}">{path}</a></li>' for path in example_memo_paths(snapshot))
+    links = "".join(f'<li><a href="{escape(origin + path)}">{escape(path)}</a></li>' for path in example_memo_paths(snapshot))
     examples_block = f"<ul>{links}</ul>" if links else ""
     coaching = snapshot.get("coaching")
-    coaching_block = f"<p>{coaching}</p>" if isinstance(coaching, str) and coaching.strip() else ""
+    coaching_block = f"<p>{escape(coaching)}</p>" if isinstance(coaching, str) and coaching.strip() else ""
     return (
         f"<p>{summary_line(snapshot)}</p>"
         f"<table>{rows}{_flow_rows(snapshot)}</table>"

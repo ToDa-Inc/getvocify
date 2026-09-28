@@ -264,6 +264,8 @@ class Settings(BaseSettings):
     SCORING_OBJECTION_CREDIT_ENABLED: bool = False
     # T10: debrief v2 (flow, missed steps, phrases, highlights, progress).
     DEBRIEF_V2_ENABLED: bool = False
+    # Coaching v1: one-line coaching message (focus) in the rep's own daily/weekly reports.
+    COACHING_MESSAGES_ENABLED: bool = False
     # T11: Playbook tab with the week's best interactions per flow.
     PLAYBOOK_TAB_ENABLED: bool = False
     # T12: daily/weekly reports split by sales_role section.

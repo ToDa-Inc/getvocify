@@ -82,6 +82,18 @@ describe("repActivityRows", () => {
     assert.equal(rows[1].connectionRate, 0.1);
     assert.equal(rows[2].connectionRate, null);
   });
+
+  it("passes coaching_focus through: undefined when not sent, null when there is none", () => {
+    const rows = repActivityRows([
+      { userId: "b", name: "Beto", coaching_focus: null },
+      { userId: "a", name: "Ana", coaching_focus: { step_id: "open", label: "Apertura", rate: 0.2 } },
+      { userId: "c", name: "Cris" },
+    ]);
+    assert.deepEqual(rows.map((r) => r.name), ["Ana", "Beto", "Cris"]);
+    assert.equal(rows[0].focus?.label, "Apertura");
+    assert.equal(rows[1].focus, null);
+    assert.equal(rows[2].focus, undefined);
+  });
 });
 
 describe("teamActivityFooter", () => {
@@ -102,7 +114,19 @@ describe("repActivityCsv", () => {
       EN,
     );
     const [, line] = csv.split("\n");
-    assert.equal(line, '"Ana ""La"" Ruiz, SL",,0,0,,0');
+    assert.equal(line, '"Ana ""La"" Ruiz, SL",,0,0,,0,');
+  });
+
+  it("carries the focus label as the last column; no focus stays empty", () => {
+    const withFocus = [
+      { userId: "a", name: "Ana", coaching_focus: { step_id: "open", label: "Apertura, clara", rate: 0.2 } },
+      { userId: "b", name: "Beto", coaching_focus: null },
+    ];
+    const csv = repActivityCsv(repActivityRows(withFocus), EN);
+    const [header, ana, beto] = csv.split("\n");
+    assert.ok(header.endsWith(",Focus"));
+    assert.ok(ana.endsWith(',"Apertura, clara"'));
+    assert.ok(beto.endsWith(",0,,0,"));
   });
 });
 

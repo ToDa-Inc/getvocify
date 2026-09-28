@@ -127,6 +127,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
   const rows = repActivityRows(reps);
   const { median, total } = teamActivityFooter(rows);
   const showRole = rows.some((row) => row.salesRole);
+  const showFocus = rows.some((row) => row.focus !== undefined);
   const showFlows = showRepDetail && rows.some((row) => row.flows);
   const roleLabel = (role: string | null) =>
     role === "sdr" ? p.hosRoleSdr : role === "ae" ? p.hosRoleAe : role ? p.hosRoleGeneral : "—";
@@ -167,6 +168,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColConversations}</th>
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColConnection}</th>
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColMeetings}</th>
+              {showFocus ? <th scope="col" className={HEAD}>{p.hosColFocus}</th> : null}
               {showFlows ? <th scope="col" className={`${HEAD} text-right`}>{p.teamRepFlowSdr}</th> : null}
               {showFlows ? <th scope="col" className={`${HEAD} text-right`}>{p.teamRepFlowAe}</th> : null}
             </tr>
@@ -188,6 +190,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
                 <td className={`${CELL} text-right`}>{count(row.connected)}</td>
                 <td className={`${CELL} text-right`}>{percentText(row.connectionRate)}</td>
                 <td className={`${CELL} text-right`}>{count(row.meetings)}</td>
+                {showFocus ? <td className={CELL}>{row.focus?.label ?? "—"}</td> : null}
                 {showFlows ? <td className={`${CELL} text-right`}>{repFlowAdherenceText(row.flows?.sdr ?? null, p.teamRepFlowNoData)}</td> : null}
                 {showFlows ? <td className={`${CELL} text-right`}>{repFlowAdherenceText(row.flows?.ae ?? null, p.teamRepFlowNoData)}</td> : null}
               </tr>
@@ -204,6 +207,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
               <td className={`${CELL} text-right text-muted-foreground`}>{count(median.connected, 1)}</td>
               <td className={`${CELL} text-right text-muted-foreground`}>{percentText(median.connectionRate)}</td>
               <td className={`${CELL} text-right text-muted-foreground`}>{count(median.meetings, 1)}</td>
+              {showFocus ? <td className={CELL} /> : null}
               {showFlows ? <td className={CELL} /> : null}
               {showFlows ? <td className={CELL} /> : null}
             </tr>
@@ -214,6 +218,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
               <td className={`${CELL} text-right`}>{count(total.connected)}</td>
               <td className={`${CELL} text-right`}>{percentText(total.connectionRate)}</td>
               <td className={`${CELL} text-right`}>{count(total.meetings)}</td>
+              {showFocus ? <td className={CELL} /> : null}
               {showFlows ? <td className={CELL} /> : null}
               {showFlows ? <td className={CELL} /> : null}
             </tr>
