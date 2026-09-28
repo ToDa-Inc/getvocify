@@ -306,7 +306,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         throw new Error("Allow Microphone in the panel above, then try again.");
       }
       if (normalizePermissionStatus(perm.systemAudio) !== "authorized") {
-        throw new Error("Tap Allow on system audio above — drag Vocify into Settings.");
+        throw new Error("Allow system audio in the panel above, then try again.");
       }
 
       const micStream = await navigator.mediaDevices

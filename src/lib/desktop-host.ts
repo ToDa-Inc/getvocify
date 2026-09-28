@@ -19,8 +19,6 @@ export type VocifyDesktopBridge = {
     }>;
     request(type: "microphone" | "systemAudio"): Promise<unknown>;
     open(type: "microphone" | "systemAudio"): Promise<void>;
-    /** Native Codex-style overlay beside System Settings with draggable .app icon. */
-    guide(type: "microphone" | "systemAudio"): Promise<{ ok?: boolean } | null>;
     appInfo?(): Promise<{ name?: string; bundleId?: string } | null>;
     onChanged?(cb: () => void): () => void;
   };

@@ -11,7 +11,6 @@ export type DesktopPermissionSnapshot = {
   platform: string;
   microphone: DesktopPermissionStatus;
   systemAudio: DesktopPermissionStatus;
-  /** ad-hoc local builds cannot appear in macOS Privacy settings (TN3127). */
   signing?: "adhoc" | "signed";
   signingAuthority?: string;
   systemAudioError?: string;
@@ -25,14 +24,12 @@ export function normalizePermissionStatus(raw: unknown): DesktopPermissionStatus
 }
 
 export function desktopPermissionsReady(snapshot: DesktopPermissionSnapshot): boolean {
-  if (snapshot.signing === "adhoc") return false;
   return snapshot.microphone === "authorized" && snapshot.systemAudio === "authorized";
 }
 
 export function desktopPermissionsBlocker(
   snapshot: DesktopPermissionSnapshot,
-): "signing" | "permissions" | "none" {
-  if (snapshot.signing === "adhoc") return "signing";
+): "permissions" | "none" {
   if (!desktopPermissionsReady(snapshot)) return "permissions";
   return "none";
 }
@@ -63,8 +60,7 @@ export function permissionCopy(type: DesktopPermissionType): {
   return {
     enableLabel: "System audio",
     enabledLabel: "System audio",
-    enableBody:
-      "Under Screen & System Audio Recording so Vocify hears Zoom, Meet, and Teams as Them. Your screen is not saved.",
+    enableBody: "So Vocify hears Zoom, Meet, and Teams as Them. Your screen is not saved.",
     enabledBody: "Ready.",
   };
 }

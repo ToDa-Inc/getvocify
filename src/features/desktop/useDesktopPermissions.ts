@@ -4,6 +4,7 @@ import {
   desktopPermissionsBlocker,
   desktopPermissionsReady,
   normalizePermissionStatus,
+  permissionAction,
   type DesktopPermissionSnapshot,
   type DesktopPermissionType,
 } from "@/lib/desktop-permissions";
@@ -33,7 +34,6 @@ export function useDesktopPermissions() {
   const [snapshot, setSnapshot] = useState<DesktopPermissionSnapshot>(EMPTY);
   const [appName, setAppName] = useState("Vocify");
   const [loading, setLoading] = useState(available);
-  const [guideActive, setGuideActive] = useState(false);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
 
@@ -47,23 +47,22 @@ export function useDesktopPermissions() {
     const next = parseSnapshot(raw);
     setSnapshot(next);
     setLoading(false);
-    if (desktopPermissionsReady(next)) setGuideActive(false);
     return next;
   }, []);
 
   const request = useCallback(
     async (type: DesktopPermissionType) => {
-      await getDesktopBridge()?.permissions.request(type);
-      return refresh();
-    },
-    [refresh],
-  );
+      const bridge = getDesktopBridge();
+      if (!bridge) return refresh();
 
-  const guide = useCallback(
-    async (type: DesktopPermissionType) => {
-      if (snapshotRef.current.signing === "adhoc") return refresh();
-      setGuideActive(true);
-      await getDesktopBridge()?.permissions.guide(type);
+      const status = type === DESKTOP_PERMISSION.microphone ? snapshotRef.current.microphone : snapshotRef.current.systemAudio;
+      const action = permissionAction(status);
+
+      if (action === "open_settings") {
+        await bridge.permissions.open(type);
+      } else {
+        await bridge.permissions.request(type);
+      }
       return refresh();
     },
     [refresh],
@@ -85,8 +84,7 @@ export function useDesktopPermissions() {
     const offChanged = bridge?.permissions.onChanged?.(() => void refresh());
 
     const id = window.setInterval(() => {
-      const block = desktopPermissionsBlocker(snapshotRef.current);
-      if (block !== "none") void refresh();
+      if (desktopPermissionsBlocker(snapshotRef.current) !== "none") void refresh();
     }, POLL_MS);
 
     return () => {
@@ -102,10 +100,8 @@ export function useDesktopPermissions() {
     blocker: desktopPermissionsBlocker(snapshot),
     ready: desktopPermissionsReady(snapshot),
     appName,
-    guideActive,
     refresh,
     request,
-    guide,
   };
 }
 

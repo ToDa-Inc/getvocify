@@ -31,21 +31,21 @@ describe("desktopPermissionsReady", () => {
       false,
     );
     assert.equal(
-      desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "authorized", signing: "signed" }),
+      desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "authorized" }),
       true,
-    );
-    assert.equal(
-      desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "authorized", signing: "adhoc" }),
-      false,
     );
   });
 });
 
 describe("desktopPermissionsBlocker", () => {
-  it("prioritises signing over permissions", () => {
+  it("blocks until both channels are ready", () => {
     assert.equal(
-      desktopPermissionsBlocker({ platform: "darwin", microphone: "never_requested", systemAudio: "never_requested", signing: "adhoc" }),
-      "signing",
+      desktopPermissionsBlocker({ platform: "darwin", microphone: "never_requested", systemAudio: "never_requested" }),
+      "permissions",
+    );
+    assert.equal(
+      desktopPermissionsBlocker({ platform: "darwin", microphone: "authorized", systemAudio: "authorized" }),
+      "none",
     );
   });
 });
