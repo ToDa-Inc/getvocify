@@ -263,13 +263,7 @@ def objections(args: dict, viewer: Viewer, supabase, *, now: datetime) -> dict:
         "scope": scope,
         "period_days": days,
         "conversations": len(memo_ids),
-        "categories": [
-            {
-                **{k: v for k, v in item.items() if k not in ("how_to", "best_example")},
-                "examples": examples.get(item["name"], []),
-            }
-            for item in categories
-        ],
+        "categories": [{**item, "examples": examples.get(item["name"], [])} for item in categories],
     }
 
 

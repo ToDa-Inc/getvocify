@@ -1,7 +1,9 @@
 """Team objection frequencies. A superseded row is not a current objection.
 
-T11: each category also carries how_to (the published playbook's own guidance for that
-category) and best_example (the most recent resolved objection's response, team-wide)."""
+T11/PLAYBOOK_TAB_ENABLED: with `include_guidance=True`, each category also carries
+how_to (the published playbook's own guidance for that category) and best_example (the
+most recent resolved objection's response, team-wide). Flag off (the default) returns
+the exact pre-T11 shape, since reporting (weekly self/team reports) never asks for it."""
 
 from __future__ import annotations
 
@@ -81,15 +83,18 @@ def objection_counts(
     start: datetime,
     end: datetime,
     playbook_entries: list[dict] | None = None,
+    include_guidance: bool = False,
 ) -> list[dict]:
     """Count active objections by category in [start, end). Obstacles and superseded rows do not count.
 
-    `how_to` comes from `playbook_entries` (the published playbook's guidance for that
-    category); `best_example` is the response of the most recent resolved row in that
-    category, from the same rows. Either can be None when there is nothing to show."""
+    With `include_guidance=True` (PLAYBOOK_TAB_ENABLED), each item also carries `how_to`
+    (from `playbook_entries`, the published playbook's guidance for that category) and
+    `best_example` (the response of the most recent resolved row in that category, from
+    the same rows) — either can be None when there is nothing to show. Flag off is the
+    default and keeps the exact pre-T11 shape: no `how_to`/`best_example` keys at all."""
     if not rows:
         return []
-    guidance = _guidance_by_category(playbook_entries)
+    guidance = _guidance_by_category(playbook_entries) if include_guidance else {}
     tallies: dict[str, dict[str, int]] = {}
     best_example: dict[str, tuple[datetime, str]] = {}
     for row in rows:
@@ -106,7 +111,7 @@ def objection_counts(
         name = _objection_name(str(category))
         bucket = tallies.setdefault(name, {"resolved": 0, "open": 0, "unknown": 0})
         bucket[_resolution_bucket(row)] += 1
-        if row.get("resolution") == "resolved":
+        if include_guidance and row.get("resolution") == "resolved":
             response = " ".join(str(row.get("response") or "").split())
             if response:
                 current = best_example.get(name)
@@ -115,13 +120,11 @@ def objection_counts(
     ordered = []
     for name, parts in tallies.items():
         count = parts["resolved"] + parts["open"] + parts["unknown"]
-        example = best_example.get(name)
-        ordered.append({
-            "name": name,
-            "count": count,
-            **parts,
-            "how_to": guidance.get(name),
-            "best_example": example[1] if example else None,
-        })
+        item = {"name": name, "count": count, **parts}
+        if include_guidance:
+            example = best_example.get(name)
+            item["how_to"] = guidance.get(name)
+            item["best_example"] = example[1] if example else None
+        ordered.append(item)
     ordered.sort(key=lambda item: (-item["count"], item["name"]))
     return ordered

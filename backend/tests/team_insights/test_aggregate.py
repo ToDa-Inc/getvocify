@@ -172,8 +172,23 @@ def test_team_adherence_passes_playbook_entries_into_objection_how_to():
         activity_period_end=_WEEK_END,
         pattern_rows=[{"category": "price", "kind": "objection", "superseded": False, "observed_at": "2026-09-22T10:00:00Z"}],
         playbook_entries=[{"category": "price", "guidance": "Ancla en el ROI."}],
+        include_objection_guidance=True,
     )
     assert body["objection_categories"][0]["how_to"] == "Ancla en el ROI."
+
+
+def test_team_adherence_omits_how_to_without_include_objection_guidance():
+    body = team_adherence(
+        role="admin",
+        parts=[_part(1, 0)],
+        playbook_present=True,
+        sample_size=1,
+        activity_period_start=_WEEK_START,
+        activity_period_end=_WEEK_END,
+        pattern_rows=[{"category": "price", "kind": "objection", "superseded": False, "observed_at": "2026-09-22T10:00:00Z"}],
+        playbook_entries=[{"category": "price", "guidance": "Ancla en el ROI."}],
+    )
+    assert "how_to" not in body["objection_categories"][0]
 
 
 def test_activity_counts_ignore_out_of_week_and_missing_observed_at():

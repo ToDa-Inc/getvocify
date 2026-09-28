@@ -12,6 +12,7 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TREND_FLAG, adherence_trend
+from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG
 from app.services.team_insights.competitors import COMPETITORS_FLAG
 from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, team_adherence
 
@@ -47,7 +48,10 @@ async def get_team_adherence(
                 user_id=user_id,
                 motion=motion,
             )
-        body = team_adherence(role=membership.role, **inputs)
+        # T11: how_to/best_example only when the Playbook tab is on for this company —
+        # off keeps the objection_categories items in the pre-T11 shape.
+        include_guidance = is_enabled(supabase, membership.company_id, PLAYBOOK_TAB_FLAG)
+        body = team_adherence(role=membership.role, include_objection_guidance=include_guidance, **inputs)
     except TeamAccessError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes ver el equipo") from error
     if not is_enabled(supabase, membership.company_id, COMPETITORS_FLAG):

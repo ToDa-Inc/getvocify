@@ -255,7 +255,7 @@ def load_team_adherence_inputs(
             pattern_rows = list(patterns.data or [])
         published = (
             supabase.table("playbooks")
-            .select("id, playbook_versions!inner(status,entries)")
+            .select("id, active_version_id, playbook_versions!inner(id,status,entries)")
             .eq("company_id", company_id)
             .eq("playbook_versions.status", "published")
             .execute()
@@ -265,9 +265,13 @@ def load_team_adherence_inputs(
             versions = row.get("playbook_versions")
             if isinstance(versions, dict):
                 versions = [versions]
-            for version in versions or []:
-                if isinstance(version, dict):
-                    playbook_entries.extend(version.get("entries") or [])
+            versions = [v for v in versions or [] if isinstance(v, dict)]
+            # Prefer the flow's currently active version; a stray published-but-retired
+            # version should not surface its (possibly outdated) guidance.
+            active_id = row.get("active_version_id")
+            chosen = [v for v in versions if active_id and str(v.get("id")) == str(active_id)] or versions
+            for version in chosen:
+                playbook_entries.extend(version.get("entries") or [])
     except Exception:
         pass
     outcome_observations: list[dict] | None = None
@@ -310,6 +314,7 @@ def team_adherence(
     activity_period_end: datetime | None = None,
     pattern_rows: list[dict] | None = None,
     playbook_entries: list[dict] | None = None,
+    include_objection_guidance: bool = False,
     reps: list[dict] | None = None,
     review: list[dict] | None = None,
     memo_rows: list[dict] | None = None,
@@ -369,6 +374,7 @@ def team_adherence(
             start=activity_period_start,
             end=activity_period_end,
             playbook_entries=playbook_entries,
+            include_guidance=include_objection_guidance,
         )
         body["reps"] = reps or []
         body["review"] = review or []
@@ -392,6 +398,7 @@ def team_adherence(
         start=activity_period_start,
         end=activity_period_end,
         playbook_entries=playbook_entries,
+        include_guidance=include_objection_guidance,
     )
     body["reps"] = reps or []
     body["review"] = review or []

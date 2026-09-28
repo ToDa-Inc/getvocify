@@ -210,6 +210,24 @@ def test_load_team_adherence_inputs_collects_published_playbook_entries():
     assert inputs["playbook_entries"] == [{"category": "price", "guidance": "Ancla en el ROI."}]
 
 
+def test_load_team_adherence_inputs_prefers_the_active_version_over_a_stray_published_one():
+    store = _store()
+    store.tables["playbooks"] = [
+        {
+            "id": "pb-1",
+            "company_id": COMPANY,
+            "active_version_id": "v-active",
+            "playbook_versions.status": "published",
+            "playbook_versions": [
+                {"id": "v-stale", "status": "published", "entries": [{"category": "price", "guidance": "Guía vieja."}]},
+                {"id": "v-active", "status": "published", "entries": [{"category": "price", "guidance": "Guía vigente."}]},
+            ],
+        },
+    ]
+    inputs = load_team_adherence_inputs(store, COMPANY)
+    assert inputs["playbook_entries"] == [{"category": "price", "guidance": "Guía vigente."}]
+
+
 def test_http_passes_filters_to_loader():
     captured: dict = {}
 

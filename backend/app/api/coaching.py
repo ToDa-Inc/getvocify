@@ -130,14 +130,23 @@ def _best_week_bounds(week: Optional[str]) -> tuple[datetime, datetime]:
     return madrid_week_bounds(now=parsed)
 
 
-def _load_best_rows(supabase, company_id: str) -> list[dict]:
-    """Every scored memo the company can see, for `best_by_flow` to rank and filter."""
+def _load_best_rows(supabase, company_id: str, *, start: datetime, end: datetime) -> list[dict]:
+    """Scored memos created in [start, end), for `best_by_flow` to rank and filter.
+
+    `created_at` (not `capture_started_at`) bounds the DB query, matching the rest of the
+    codebase's date filters; `best_by_flow` still checks its own instant per row, so a
+    memo whose only date is `capture_started_at` is not silently dropped."""
     reps = load_team_reps(supabase, company_id)
     names = {rep["userId"]: rep["name"] for rep in reps}
     member_ids = list(names.keys())
+    start_iso = start.isoformat()
+    end_iso = end.isoformat()
     try:
-        query = supabase.table("memos").select(
-            "id,user_id,company_id,sales_motion_key,extraction,capture_started_at,created_at"
+        query = (
+            supabase.table("memos")
+            .select("id,user_id,company_id,sales_motion_key,extraction,capture_started_at,created_at")
+            .gte("created_at", start_iso)
+            .lt("created_at", end_iso)
         )
         if member_ids:
             query = query.in_("user_id", member_ids).or_(
@@ -199,6 +208,6 @@ async def get_coaching_best(
     if not is_enabled(supabase, membership.company_id, PLAYBOOK_TAB_FLAG):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     start, end = _best_week_bounds(week)
-    rows = _load_best_rows(supabase, membership.company_id)
+    rows = _load_best_rows(supabase, membership.company_id, start=start, end=end)
     body = best_by_flow(rows, start=start, end=end)
     return JSONResponse(body)
