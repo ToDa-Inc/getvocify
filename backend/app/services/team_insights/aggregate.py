@@ -11,6 +11,8 @@ from app.services.company import CompanyService
 from app.services.team_insights.competitors import competitor_counts
 from app.services.team_insights.objections import objection_counts
 from app.services.team_insights.outcomes import adherence_crm_outcomes
+from app.services.team_insights.period import Window
+from app.services.team_insights.process_health import process_health
 
 _MADRID = ZoneInfo("Europe/Madrid")
 
@@ -110,7 +112,29 @@ def activity_row_from_memo(memo: dict) -> dict | None:
     meeting = intel.get("meeting") if isinstance(intel, dict) else {}
     agreed = meeting.get("agreed") if isinstance(meeting, dict) else None
     observed = memo.get("observed_at") or memo.get("capture_started_at") or memo.get("created_at")
-    return {"screening": screening, "meeting_agreed": agreed is True, "observed_at": observed}
+    return {
+        "screening": screening,
+        "meeting_agreed": agreed is True,
+        "observed_at": observed,
+        "user_id": str(memo.get("user_id") or ""),
+    }
+
+
+def memo_meeting_agreed(memo: dict) -> bool:
+    """The discovery goal (meeting_booked) observed in the interaction itself."""
+    intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
+    meeting = intel.get("meeting") if isinstance(intel, dict) else {}
+    return isinstance(meeting, dict) and meeting.get("agreed") is True
+
+
+def activity_by_rep(rows: list[dict], *, start: datetime, end: datetime) -> dict[str, dict]:
+    """Head of Sales phase 2: the same activity_counts, split per rep."""
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        uid = str(row.get("user_id") or "")
+        if uid:
+            grouped.setdefault(uid, []).append(row)
+    return {uid: activity_counts(group, start=start, end=end) for uid, group in grouped.items()}
 
 
 def adherence_part_from_score(score: dict, *, observed_at=None) -> dict | None:
@@ -159,13 +183,22 @@ def load_team_reps(supabase, company_id: str) -> list[dict]:
         uid = str(member.get("user_id") or "").strip()
         if not uid:
             continue
-        reps.append(
-            {
-                "userId": uid,
-                "name": author_display_name(member.get("full_name"), member.get("email")),
-            }
-        )
+        rep = {
+            "userId": uid,
+            "name": author_display_name(member.get("full_name"), member.get("email")),
+        }
+        # Present only when the company has sales roles on (list_members decides).
+        if "sales_role" in member:
+            rep["salesRole"] = member.get("sales_role") or "general"
+        reps.append(rep)
     return sort_reps_by_name(reps)
+
+
+def reps_for_sales_role(reps: list[dict], sales_role: str | None) -> list[dict]:
+    """sdr / ae keep reps with that sales_role; anything else keeps everyone. NULL = general."""
+    if sales_role not in ("sdr", "ae"):
+        return reps
+    return [rep for rep in reps if rep.get("salesRole") == sales_role]
 
 
 def _first_plain_line(summary: str) -> str:
@@ -199,8 +232,14 @@ def load_team_adherence_inputs(
     *,
     user_id: str | None = None,
     motion: str | None = None,
+    period: tuple[Window, Window] | None = None,
+    sales_role: str | None = None,
 ) -> dict:
-    """Memos and scores for the company. Empty lists when the read fails."""
+    """Memos and scores for the company. Empty lists when the read fails.
+
+    period (Head of Sales phase 2) is (current, previous); None keeps the Madrid week and
+    adds no comparison, which is what every caller before phase 2 gets. sales_role (sdr/ae)
+    narrows the team to reps with that role."""
     activity_rows: list[dict] = []
     review_source: list[dict] = []
     parts: list[dict] = []
@@ -208,7 +247,8 @@ def load_team_adherence_inputs(
     pattern_rows: list[dict] = []
     playbook_entries: list[dict] = []
     playbook_present = False
-    reps = load_team_reps(supabase, company_id)
+    health_rows: list[dict] = []
+    reps = reps_for_sales_role(load_team_reps(supabase, company_id), sales_role)
     filter_user = (user_id or "").strip() or None
     filter_motion = (motion or "").strip() or None
     member_ids = [str(rep.get("userId")) for rep in reps if rep.get("userId")]
@@ -222,6 +262,8 @@ def load_team_adherence_inputs(
             )
         )
         # Older memos have no company_id. Members' memos without one still belong to the team.
+        if sales_role in ("sdr", "ae") and not member_ids:
+            raise LookupError("no reps with this sales role")
         if member_ids:
             query = query.in_("user_id", member_ids).or_(
                 f"company_id.eq.{company_id},company_id.is.null"
@@ -241,6 +283,7 @@ def load_team_adherence_inputs(
             memo_meta[memo_id] = {
                 "user_id": str(memo.get("user_id") or ""),
                 "motion": memo.get("sales_motion_key"),
+                "goal_met": memo_meeting_agreed(memo),
             }
             review_source.append(memo)
             row = activity_row_from_memo(memo)
@@ -263,7 +306,11 @@ def load_team_adherence_inputs(
                     parts.append(part)
                     meta = memo_meta.get(str(item.get("memo_id")))
                     if meta and meta.get("user_id"):
-                        rep_motion_parts.append({**part, **meta})
+                        rep_motion_parts.append(
+                            {**part, "user_id": meta["user_id"], "motion": meta["motion"]}
+                        )
+                    if meta:
+                        health_rows.append({**part, "motion": meta["motion"], "goal_met": meta["goal_met"]})
             patterns = (
                 supabase.table("interaction_patterns")
                 .select("category,kind,resolution,response,superseded,created_at")
@@ -303,8 +350,16 @@ def load_team_adherence_inputs(
         outcome_observations = list(observations.data or [])
     except Exception:
         outcome_observations = None
-    period_start, period_end = madrid_week_bounds()
+    if period is None:
+        period_start, period_end = madrid_week_bounds()
+        comparison: dict = {}
+    else:
+        current, previous = period
+        period_start, period_end = current.start, current.end
+        comparison = {"previous_period_start": previous.start, "previous_period_end": previous.end}
     return {
+        **comparison,
+        "health_rows": health_rows,
         "parts": parts,
         "rep_motion_parts": rep_motion_parts,
         "playbook_present": playbook_present,
@@ -376,6 +431,9 @@ def team_adherence(
     outcome_user_id: str | None = None,
     rep_motion_parts: list[dict] | None = None,
     visibility: str | None = None,
+    previous_period_start: datetime | None = None,
+    previous_period_end: datetime | None = None,
+    health_rows: list[dict] | None = None,
 ) -> dict:
     assert_team_reader(role, visibility)
 
@@ -397,6 +455,38 @@ def team_adherence(
             start=activity_period_start,
             end=activity_period_end,
         )
+        return attach_phase_two(body)
+
+    def attach_phase_two(body: dict) -> dict:
+        """Head of Sales phase 2, additive: per-rep activity, the comparable previous
+        period and process health. Callers that pass no period get none of the extra
+        period keys, so their payload only grows by per-rep activity and health."""
+        per_rep = activity_by_rep(
+            activity_rows or [], start=activity_period_start, end=activity_period_end
+        )
+        empty = {"attempts": 0, "connected": 0, "meetings": 0}
+        body["reps"] = [
+            {**rep, "activity": per_rep.get(str(rep.get("userId") or ""), dict(empty))}
+            for rep in body.get("reps") or []
+        ]
+        health_parts = adherence_parts_in_period(
+            health_rows or [], start=activity_period_start, end=activity_period_end
+        )
+        body["process_health"] = process_health(health_parts)
+        if previous_period_start is not None and previous_period_end is not None:
+            before_parts = adherence_parts_in_period(
+                parts, start=previous_period_start, end=previous_period_end
+            )
+            before = aggregate_adherence(before_parts) if before_parts and playbook_present else None
+            body["period"] = {"start": activity_period_start.isoformat(), "end": activity_period_end.isoformat()}
+            body["previous"] = {
+                "start": previous_period_start.isoformat(),
+                "end": previous_period_end.isoformat(),
+                **activity_counts(
+                    activity_rows or [], start=previous_period_start, end=previous_period_end
+                ),
+                "adherence": before["adherence"] if before else None,
+            }
         return body
 
     week_parts = adherence_parts_in_period(

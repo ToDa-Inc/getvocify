@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -16,6 +16,7 @@ from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TR
 from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG
 from app.services.team_insights.competitors import COMPETITORS_FLAG
 from app.services.team_insights.aggregate import TeamAccessError, assert_team_reader, load_team_adherence_inputs, team_adherence
+from app.services.team_insights.period import period_windows
 from app.services.team_insights.rep_detail import name_handoff_contacts, rep_handoffs, rep_in_company, rep_name, rep_sales_role
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
@@ -41,18 +42,33 @@ def _trend_now() -> datetime:
 async def get_team_adherence(
     user_id: Optional[str] = Query(None),
     motion: Optional[str] = Query(None),
+    # Head of Sales phase 2. Without period the response is exactly the pre-phase-2 week.
+    period: Optional[Literal["week", "month", "last_30", "quarter"]] = Query(None),
+    sales_role: Optional[Literal["sdr", "ae"]] = Query(None),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
+    windows = period_windows(period, now=_trend_now()) if period else None
     try:
         if _LOADER is not None:
             inputs = _LOADER(supabase, membership.company_id, user_id, motion)
+            if windows is not None:
+                current, previous = windows
+                inputs = {
+                    **inputs,
+                    "activity_period_start": current.start,
+                    "activity_period_end": current.end,
+                    "previous_period_start": previous.start,
+                    "previous_period_end": previous.end,
+                }
         else:
             inputs = load_team_adherence_inputs(
                 supabase,
                 membership.company_id,
                 user_id=user_id,
                 motion=motion,
+                period=windows,
+                sales_role=sales_role,
             )
         # T11: how_to/best_example only when the Playbook tab is on for this company —
         # off keeps the objection_categories items in the pre-T11 shape.
