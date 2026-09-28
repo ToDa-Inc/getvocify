@@ -1,10 +1,12 @@
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
 import { AdherenceTrend } from "@/features/team-insights/components/AdherenceTrend";
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
+import { HOS_DEFAULT_PERIOD, HOS_PERIODS, adherenceParams, type HosPeriod } from "@/lib/head-of-sales";
 import { useLanguage } from "@/lib/i18n";
+import { isManagerRole } from "@/lib/nav";
 import {
   teamCrmCoverage,
   type ObjectionCategory,
@@ -80,13 +82,22 @@ export default function TeamRepDetailPage() {
   const { user } = useAuth();
   const { userId = "" } = useParams<{ userId: string }>();
   const role = user?.company?.role ?? "member";
-  const allowed = role === "owner" || role === "admin" || user?.company?.visibility === "team";
+  const isManager = isManagerRole(role);
+  const allowed = isManager || user?.company?.visibility === "team";
+  const [searchParams] = useSearchParams();
+  // The Head of Sales arrives from a table with ?period=; a rep-side reader keeps the week.
+  const requested = HOS_PERIODS.find((entry) => entry.value === searchParams.get("period"));
+  const period: HosPeriod = requested?.value ?? HOS_DEFAULT_PERIOD;
+  const periodLabelKey = HOS_PERIODS.find((entry) => entry.value === period)?.labelKey ?? "hosPeriodMonth";
   const filters: TeamFilters = { period: "week", motion: null, userId };
   const p = t.product;
 
   const adherenceQuery = useQuery({
-    queryKey: ["team-adherence", filters],
-    queryFn: () => api.get<AdherencePayload>(`/team/adherence?user_id=${encodeURIComponent(userId)}`),
+    queryKey: ["team-adherence", filters, isManager ? period : "week"],
+    queryFn: () =>
+      api.get<AdherencePayload>(
+        `/team/adherence?${adherenceParams({ manager: isManager, period, salesRole: "all", userId, motion: null })}`,
+      ),
     enabled: allowed && Boolean(userId),
     retry: false,
   });
@@ -131,14 +142,29 @@ export default function TeamRepDetailPage() {
 
   return (
     <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h1 className={THEME_TOKENS.typography.pageTitle}>{repQuery.data?.name || p.teamRepDetailTitle}</h1>
-          {repQuery.data?.name ? <p className={THEME_TOKENS.typography.capsLabel}>{p.teamRepDetailTitle}</p> : null}
+          {repQuery.data?.name ? (
+            <p className={THEME_TOKENS.typography.capsLabel}>
+              {p.teamRepDetailTitle}
+              {isManager ? ` · ${p[periodLabelKey]}` : ""}
+            </p>
+          ) : null}
         </div>
-        <Link className="text-sm underline text-foreground" to="/dashboard/insights">
-          {p.teamRepDetailBack}
-        </Link>
+        <div className="flex shrink-0 items-center gap-4">
+          {isManager ? (
+            <Link
+              className="rounded-full border border-border px-3.5 py-1.5 text-sm text-foreground hover:bg-secondary/40"
+              to={`/dashboard/memos?author=${encodeURIComponent(userId)}`}
+            >
+              {p.hosSeeCalls}
+            </Link>
+          ) : null}
+          <Link className="text-sm underline text-foreground" to="/dashboard/insights">
+            {p.teamRepDetailBack}
+          </Link>
+        </div>
       </div>
       {adherenceQuery.isLoading ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}
       {adherenceQuery.isError ? <p className={THEME_TOKENS.typography.body}>{p.teamReadFailed}</p> : null}

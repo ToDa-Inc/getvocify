@@ -58,6 +58,7 @@ function mapInvite(raw: Record<string, unknown>): PendingInvite {
     role: String(raw.role),
     expiresAt: String(raw.expires_at),
     createdAt: raw.created_at as string | undefined,
+    salesRole: (raw.sales_role as SalesRole | null | undefined) ?? null,
   };
 }
 

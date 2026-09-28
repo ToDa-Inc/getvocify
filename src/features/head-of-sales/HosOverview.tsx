@@ -4,6 +4,7 @@ import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
   countDelta,
+  hosOutcomes,
   percentText,
   rateDelta,
   repActivityCsv,
@@ -11,6 +12,7 @@ import {
   shareOf,
   teamActivityFooter,
   type Delta,
+  type HosPeriod,
   type HosRep,
 } from "@/lib/head-of-sales";
 import { repFlowAdherenceText } from "@/lib/team-insights";
@@ -84,6 +86,28 @@ export function HosKpiTiles({ current, previous }: { current: ManagerTotals; pre
   );
 }
 
+/** Resumen, under the tiles: win rate + won + lost as one quiet line. Hidden without CRM outcomes. */
+export function HosOutcomesRow({ won, lost, crmCoverage, sampleLimited }: {
+  won: number | null | undefined;
+  lost: number | null | undefined;
+  crmCoverage: unknown;
+  sampleLimited?: boolean;
+}) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const outcomes = hosOutcomes({ won, lost, crmCoverage, sampleLimited });
+  if (!outcomes) return null;
+  const line = (outcomes.winRate == null ? p.hosOutcomesLineNoRate : p.hosOutcomesLine)
+    .replace("{rate}", percentText(outcomes.winRate))
+    .replace("{won}", String(outcomes.won))
+    .replace("{lost}", String(outcomes.lost));
+  return (
+    <p className="px-1 text-sm text-muted-foreground tabular-nums" data-testid="hos-outcomes">
+      {line}
+    </p>
+  );
+}
+
 /** Plan §3.1: attempts → conversations → meetings, each bar a share of the first step. */
 export function HosFunnel({ current }: { current: ManagerTotals }) {
   const { t } = useLanguage();
@@ -121,7 +145,15 @@ export function HosFunnel({ current }: { current: ManagerTotals }) {
   );
 }
 
-export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[]; showRepDetail: boolean; csvName: string }) {
+/** `showRepDetail` only gates the SDR/AE flow-adherence columns (MANAGER_HOME_ENABLED); the name
+ * always links to the rep page, carrying the period. `stale` = old numbers under a new filter. */
+export function HosPeopleTable({ reps, showRepDetail, csvName, period, stale = false }: {
+  reps: HosRep[];
+  showRepDetail: boolean;
+  csvName: string;
+  period: HosPeriod;
+  stale?: boolean;
+}) {
   const { t } = useLanguage();
   const p = t.product;
   const rows = repActivityRows(reps);
@@ -133,6 +165,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
     role === "sdr" ? p.hosRoleSdr : role === "ae" ? p.hosRoleAe : role ? p.hosRoleGeneral : "—";
 
   const download = () => {
+    if (stale) return;
     const url = URL.createObjectURL(new Blob([repActivityCsv(rows, p)], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
@@ -143,7 +176,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
 
   if (!rows.length) return null;
   return (
-    <div className={`${card} overflow-hidden`}>
+    <div className={`${card} overflow-hidden transition-opacity ${stale ? "opacity-50" : ""}`} aria-busy={stale}>
       <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
         <div>
           <h3 className={THEME_TOKENS.typography.sectionTitle}>{p.hosPeopleHeading}</h3>
@@ -152,7 +185,8 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
         <button
           type="button"
           onClick={download}
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+          disabled={stale}
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:pointer-events-none"
         >
           <Download className="h-3.5 w-3.5" aria-hidden />
           {p.hosDownloadCsv}
@@ -168,7 +202,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColConversations}</th>
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColConnection}</th>
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColMeetings}</th>
-              {showFocus ? <th scope="col" className={HEAD}>{p.hosColFocus}</th> : null}
+              {showFocus ? <th scope="col" className={HEAD}>{p.hosColFocusWeek}</th> : null}
               {showFlows ? <th scope="col" className={`${HEAD} text-right`}>{p.teamRepFlowSdr}</th> : null}
               {showFlows ? <th scope="col" className={`${HEAD} text-right`}>{p.teamRepFlowAe}</th> : null}
             </tr>
@@ -177,13 +211,9 @@ export function HosPeopleTable({ reps, showRepDetail, csvName }: { reps: HosRep[
             {rows.map((row) => (
               <tr key={row.userId} data-testid="hos-people-row">
                 <th scope="row" className={`${CELL} font-normal text-left`}>
-                  {showRepDetail ? (
-                    <Link className="underline-offset-2 hover:underline" to={`/dashboard/insights/rep/${row.userId}`}>
-                      {row.name}
-                    </Link>
-                  ) : (
-                    row.name
-                  )}
+                  <Link className="underline-offset-2 hover:underline" to={`/dashboard/insights/rep/${row.userId}?period=${period}`}>
+                    {row.name}
+                  </Link>
                 </th>
                 {showRole ? <td className={`${CELL} text-muted-foreground`}>{roleLabel(row.salesRole)}</td> : null}
                 <td className={`${CELL} text-right`}>{count(row.attempts)}</td>

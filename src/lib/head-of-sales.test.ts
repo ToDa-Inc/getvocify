@@ -5,6 +5,8 @@ import {
   HOS_PERIODS,
   adherenceParams,
   countDelta,
+  csvCell,
+  hosOutcomes,
   processHealthView,
   summaryDiagnosis,
   flowShortName,
@@ -20,6 +22,17 @@ const ES = productCatalog.ES;
 const EN = productCatalog.EN;
 
 describe("adherenceParams", () => {
+  it("asks for the coaching focus only when a manager requests it", () => {
+    assert.equal(
+      adherenceParams({ manager: true, period: "month", salesRole: "all", userId: null, motion: null, withFocus: true }),
+      "period=month&with_focus=true",
+    );
+    assert.equal(
+      adherenceParams({ manager: false, period: "month", salesRole: "all", userId: null, motion: null, withFocus: true }),
+      "",
+    );
+  });
+
   it("a manager always sends the period, and the role only when narrowed", () => {
     assert.equal(
       adherenceParams({ manager: true, period: "month", salesRole: "all", userId: null, motion: null }),
@@ -124,7 +137,7 @@ describe("repActivityCsv", () => {
     ];
     const csv = repActivityCsv(repActivityRows(withFocus), EN);
     const [header, ana, beto] = csv.split("\n");
-    assert.ok(header.endsWith(",Focus"));
+    assert.ok(header.endsWith(",Focus (this week)"));
     assert.ok(ana.endsWith(',"Apertura, clara"'));
     assert.ok(beto.endsWith(",0,,0,"));
   });
@@ -186,29 +199,49 @@ describe("HOS_PERIODS", () => {
 
 describe("summaryDiagnosis", () => {
   const f = (verdict: ProcessHealthFlow["verdict"], motion = "discovery") => flow({ verdict, motion });
+  const keys = (list: { key: string }[]) => list.map((d) => d.key);
 
   it("no activity says so before anything else", () => {
-    assert.equal(summaryDiagnosis({ attempts: 0, adherence: 0.8, processHealth: [f("playbook_underperforms")] }).key, "hosDiagNoActivity");
+    assert.deepEqual(
+      keys(summaryDiagnosis({ attempts: 0, adherence: 0.8, processHealth: [f("playbook_underperforms")] })),
+      ["hosDiagNoActivity"],
+    );
   });
 
-  it("a playbook problem wins over a coaching one and links to the process", () => {
-    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps", "closing"), f("playbook_underperforms")] });
-    assert.deepEqual(d, { tone: "process", key: "hosDiagPlaybook", motion: "discovery", href: "/dashboard/process" });
+  it("gives one line per flow, most severe first, so a second problem is not hidden", () => {
+    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps", "discovery"), f("playbook_underperforms", "closing")] });
+    assert.deepEqual(d, [
+      { tone: "process", key: "hosDiagPlaybook", motion: "closing", href: "/dashboard/process" },
+      { tone: "rep", key: "hosDiagCoach", motion: "discovery", href: "/dashboard/insights" },
+    ]);
   });
 
-  it("coaching links to the team", () => {
-    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps")] });
-    assert.equal(d.key, "hosDiagCoach");
-    assert.equal(d.href, "/dashboard/insights");
+  it("same severity keeps SDR before AE; never more than two lines", () => {
+    const d = summaryDiagnosis({
+      attempts: 10,
+      adherence: 0.5,
+      processHealth: [f("coach_reps", "closing"), f("coach_reps", "discovery"), f("coach_reps", "qualification")],
+    });
+    assert.deepEqual(d.map((x) => x.motion), ["discovery", "closing"]);
+  });
+
+  it("a flow without a verdict adds no line", () => {
+    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps", "discovery"), f("insufficient_data", "closing")] });
+    assert.deepEqual(keys(d), ["hosDiagCoach"]);
+  });
+
+  it("a working flow shows next to a problem in the other", () => {
+    const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("playbook_works", "discovery"), f("no_difference", "closing")] });
+    assert.deepEqual(keys(d), ["hosDiagPlaybookNoEffect", "hosDiagWorks"]);
   });
 
   it("without scored calls it asks for the process", () => {
-    assert.equal(summaryDiagnosis({ attempts: 10, adherence: null, processHealth: [] }).key, "hosDiagNoProcess");
+    assert.deepEqual(keys(summaryDiagnosis({ attempts: 10, adherence: null, processHealth: [] })), ["hosDiagNoProcess"]);
   });
 
   it("not enough data is 'collecting', a working playbook is ok", () => {
-    assert.equal(summaryDiagnosis({ attempts: 10, adherence: 0.7, processHealth: [f("insufficient_data")] }).key, "hosDiagCollecting");
-    assert.equal(summaryDiagnosis({ attempts: 10, adherence: 0.7, processHealth: [f("playbook_works")] }).tone, "ok");
+    assert.deepEqual(keys(summaryDiagnosis({ attempts: 10, adherence: 0.7, processHealth: [f("insufficient_data")] })), ["hosDiagCollecting"]);
+    assert.equal(summaryDiagnosis({ attempts: 10, adherence: 0.7, processHealth: [f("playbook_works")] })[0].tone, "ok");
   });
 
   it("every diagnosis has copy in both languages", () => {
@@ -217,6 +250,49 @@ describe("summaryDiagnosis", () => {
         assert.ok(copy[key], key);
       }
     }
+  });
+});
+
+describe("hosOutcomes", () => {
+  it("is hidden when the CRM has no outcomes", () => {
+    assert.equal(hosOutcomes({ won: null, lost: null, crmCoverage: "complete" }), null);
+    assert.equal(hosOutcomes({ won: 3, lost: null, crmCoverage: "complete" }), null);
+    assert.equal(hosOutcomes({ won: undefined, lost: 2, crmCoverage: "complete" }), null);
+    assert.equal(hosOutcomes({ won: 3, lost: 2, crmCoverage: "unavailable" }), null);
+    assert.equal(hosOutcomes({ won: 3, lost: 2, crmCoverage: undefined }), null);
+  });
+
+  it("quotes the win rate on complete coverage", () => {
+    assert.deepEqual(hosOutcomes({ won: 3, lost: 1, crmCoverage: "complete" }), { won: 3, lost: 1, winRate: 0.75 });
+  });
+
+  it("shows counts without a rate when partial, sample-limited or nothing closed", () => {
+    assert.equal(hosOutcomes({ won: 3, lost: 1, crmCoverage: "partial" })?.winRate, null);
+    assert.equal(hosOutcomes({ won: 3, lost: 1, crmCoverage: "complete", sampleLimited: true })?.winRate, null);
+    assert.deepEqual(hosOutcomes({ won: 0, lost: 0, crmCoverage: "complete" }), { won: 0, lost: 0, winRate: null });
+  });
+});
+
+describe("csvCell", () => {
+  it("neutralises formula starts in text", () => {
+    for (const bad of ["=SUM(A1)", "+1", "-1", "@cmd", "\tx", "\rx"]) {
+      assert.ok(csvCell(bad).replace(/^"/, "").startsWith("'"), bad);
+    }
+    assert.equal(csvCell("=1+1"), "'=1+1");
+  });
+
+  it("keeps numbers as numbers, even negative", () => {
+    assert.equal(csvCell(-5), "-5");
+    assert.equal(csvCell(12.5), "12.5");
+    assert.equal(csvCell(null), "");
+  });
+
+  it("quotes commas, quotes, newlines and carriage returns", () => {
+    assert.equal(csvCell("a,b"), '"a,b"');
+    assert.equal(csvCell('a"b'), '"a""b"');
+    assert.equal(csvCell("a\nb"), '"a\nb"');
+    assert.equal(csvCell("a\rb"), '"a\rb"');
+    assert.equal(csvCell("\rb"), '"\'\rb"');
   });
 });
 

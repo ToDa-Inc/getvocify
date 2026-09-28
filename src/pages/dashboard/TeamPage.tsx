@@ -63,6 +63,11 @@ function MemberSalesControls({
   );
 }
 
+function inviteSalesRoleLabel(role: SalesRole | null | undefined, copy: { [key: string]: string }): string | null {
+  if (!role) return null;
+  return role === "sdr" ? copy.teamMemberTypeSdr : role === "ae" ? copy.teamMemberTypeAe : copy.teamMemberTypeGeneral;
+}
+
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
     const detail = (error as { data?: { detail?: unknown } }).data?.detail;
@@ -114,7 +119,7 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () => companyApi.invite(inviteEmail.trim(), "member", inviteSalesRole),
+    mutationFn: () => companyApi.invite(inviteEmail.trim(), "member", salesRolesEnabled ? inviteSalesRole : undefined),
     onSuccess: (res) => {
       setInviteEmail("");
       setInviteSalesRole("sdr");
@@ -248,7 +253,7 @@ const TeamPage = () => {
                 <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
                   {commercialRoleLabel(m.role, t.product)}
                 </span>
-                {salesRolesEnabled && canManage && (
+                {salesRolesEnabled && canManage && m.role === "member" && (
                   <MemberSalesControls
                     member={m}
                     onChange={(vars) => salesProfileMutation.mutate({ memberId: m.id, ...vars })}
@@ -281,7 +286,10 @@ const TeamPage = () => {
                 <div className="min-w-0">
                   <p className="text-sm text-foreground truncate">{inv.email}</p>
                   <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                    {inv.role} · expires {new Date(inv.expiresAt).toLocaleDateString()}
+                    {[inv.role, salesRolesEnabled ? inviteSalesRoleLabel(inv.salesRole, t.product) : null]
+                      .filter(Boolean)
+                      .join(" · ")}{" "}
+                    · expires {new Date(inv.expiresAt).toLocaleDateString()}
                   </p>
                 </div>
                 {canManage && (
@@ -358,21 +366,25 @@ const TeamPage = () => {
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="invite-sales-role" className={THEME_TOKENS.typography.capsLabel}>
-                {t.product.inviteSalesRoleLabel}
-              </label>
+              {salesRolesEnabled && (
+                <label htmlFor="invite-sales-role" className={THEME_TOKENS.typography.capsLabel}>
+                  {t.product.inviteSalesRoleLabel}
+                </label>
+              )}
               <div className="flex flex-wrap items-center gap-3">
-                <select
-                  id="invite-sales-role"
-                  required
-                  className="bg-secondary/5 border border-border/40 rounded-full px-4 h-9 text-sm"
-                  value={inviteSalesRole}
-                  onChange={(e) => setInviteSalesRole(e.target.value as SalesRole)}
-                >
-                  <option value="sdr">{t.product.teamMemberTypeSdr}</option>
-                  <option value="ae">{t.product.teamMemberTypeAe}</option>
-                  <option value="general">{t.product.teamMemberTypeGeneral}</option>
-                </select>
+                {salesRolesEnabled && (
+                  <select
+                    id="invite-sales-role"
+                    required
+                    className="bg-secondary/5 border border-border/40 rounded-full px-4 h-9 text-sm"
+                    value={inviteSalesRole}
+                    onChange={(e) => setInviteSalesRole(e.target.value as SalesRole)}
+                  >
+                    <option value="sdr">{t.product.teamMemberTypeSdr}</option>
+                    <option value="ae">{t.product.teamMemberTypeAe}</option>
+                    <option value="general">{t.product.teamMemberTypeGeneral}</option>
+                  </select>
+                )}
                 <Button
                   type="submit"
                   disabled={inviteMutation.isPending || seatsFull}

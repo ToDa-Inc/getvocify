@@ -61,7 +61,8 @@ export function navItemsFor({
   // T11: the Playbook tab is for every company member (SDR, AE, General, owner/admin alike).
   const playbook = playbookTabEnabled ? [PLAYBOOK] : [];
   if (manager) {
-    return { items: [SUMMARY, INSIGHTS, PROCESS, SETTINGS], showPlans: true };
+    // Billing is the owner's: the Plans card is not shown to an admin.
+    return { items: [SUMMARY, INSIGHTS, PROCESS, SETTINGS], showPlans: role === "owner" };
   }
   const home: NavItem = repWorkspace ? { ...HOME, labelKey: "navToday" } : HOME;
   const recordings: NavItem = { ...MEMOS, labelKey: "navRecordings" };

@@ -37,6 +37,8 @@ export function adherenceParams(input: {
   salesRole: HosSalesRole;
   userId: string | null;
   motion: string | null;
+  /** Manager only: ask for each rep's coaching focus (the Equipo page, nobody else). */
+  withFocus?: boolean;
 }): string {
   const params = new URLSearchParams();
   if (input.userId) params.set("user_id", input.userId);
@@ -44,6 +46,7 @@ export function adherenceParams(input: {
   if (input.manager) {
     params.set("period", input.period);
     if (input.salesRole !== "all") params.set("sales_role", input.salesRole);
+    if (input.withFocus) params.set("with_focus", "true");
   }
   return params.toString();
 }
@@ -147,13 +150,16 @@ export function teamActivityFooter(rows: RepActivityRow[]) {
   };
 }
 
-function csvCell(value: string | number | null): string {
-  const text = value == null ? "" : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+/** Spreadsheet apps run a cell that starts with = + - @ (or tab/CR) as a formula: text cells
+ * get a leading apostrophe. Numbers are written as numbers, so a negative one stays a number. */
+export function csvCell(value: string | number | null): string {
+  let text = value == null ? "" : String(value);
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function repActivityCsv(rows: RepActivityRow[], copy: ProductTranslations): string {
-  const header = [copy.hosColName, copy.hosColRole, copy.hosColAttempts, copy.hosColConversations, copy.hosColConnection, copy.hosColMeetings, copy.hosColFocus];
+  const header = [copy.hosColName, copy.hosColRole, copy.hosColAttempts, copy.hosColConversations, copy.hosColConnection, copy.hosColMeetings, copy.hosColFocusWeek];
   const lines = rows.map((row) =>
     [
       row.name,
@@ -234,25 +240,63 @@ export type Diagnosis = {
 const PROCESS_HREF = "/dashboard/process";
 const TEAM_HREF = "/dashboard/insights";
 
-/** Resumen's one sentence (plan §3.1): is the problem the people or the process? Rules, not an LLM. */
+/** Lower = more severe. Only verdicts that say something about the flow have an entry. */
+const DIAGNOSIS_BY_VERDICT: Partial<Record<ProcessHealthVerdict, { severity: number; tone: DiagnosisTone; key: Diagnosis["key"]; href: string | null }>> = {
+  playbook_underperforms: { severity: 0, tone: "process", key: "hosDiagPlaybook", href: PROCESS_HREF },
+  no_difference: { severity: 1, tone: "process", key: "hosDiagPlaybookNoEffect", href: PROCESS_HREF },
+  coach_reps: { severity: 2, tone: "rep", key: "hosDiagCoach", href: TEAM_HREF },
+  playbook_works: { severity: 3, tone: "ok", key: "hosDiagWorks", href: null },
+};
+
+const MOTION_ORDER = ["discovery", "closing"];
+
+/** Resumen's diagnosis (plan §3.1): is the problem the people or the process? One line per flow
+ * with a verdict (SDR, AE; max 2), most severe first, so a second problem is never hidden.
+ * Rules, not an LLM. */
 export function summaryDiagnosis(input: {
   attempts: number | null;
   adherence: number | null;
   processHealth: ProcessHealthFlow[];
-}): Diagnosis {
-  const flows = input.processHealth ?? [];
-  const find = (verdict: ProcessHealthVerdict) => flows.find((f) => f.verdict === verdict);
-  if (!input.attempts) return { tone: "neutral", key: "hosDiagNoActivity", motion: null, href: null };
-  const broken = find("playbook_underperforms");
-  if (broken) return { tone: "process", key: "hosDiagPlaybook", motion: broken.motion, href: PROCESS_HREF };
-  const flat = find("no_difference");
-  if (flat) return { tone: "process", key: "hosDiagPlaybookNoEffect", motion: flat.motion, href: PROCESS_HREF };
-  const coach = find("coach_reps");
-  if (coach) return { tone: "rep", key: "hosDiagCoach", motion: coach.motion, href: TEAM_HREF };
-  if (input.adherence == null) return { tone: "neutral", key: "hosDiagNoProcess", motion: null, href: PROCESS_HREF };
-  const works = find("playbook_works");
-  if (works) return { tone: "ok", key: "hosDiagWorks", motion: works.motion, href: null };
-  return { tone: "neutral", key: "hosDiagCollecting", motion: null, href: PROCESS_HREF };
+}): Diagnosis[] {
+  if (!input.attempts) return [{ tone: "neutral", key: "hosDiagNoActivity", motion: null, href: null }];
+  const seen = new Set<string>();
+  const lines: { severity: number; order: number; diagnosis: Diagnosis }[] = [];
+  for (const flow of input.processHealth ?? []) {
+    const entry = DIAGNOSIS_BY_VERDICT[flow.verdict];
+    if (!entry || seen.has(flow.motion)) continue;
+    seen.add(flow.motion);
+    const order = MOTION_ORDER.indexOf(flow.motion);
+    lines.push({
+      severity: entry.severity,
+      order: order === -1 ? MOTION_ORDER.length : order,
+      diagnosis: { tone: entry.tone, key: entry.key, motion: flow.motion, href: entry.href },
+    });
+  }
+  lines.sort((a, b) => a.severity - b.severity || a.order - b.order);
+  const picked = lines.slice(0, 2).map((line) => line.diagnosis);
+  const hasProblem = picked.some((d) => d.tone !== "ok");
+  if (!hasProblem && input.adherence == null) {
+    return [{ tone: "neutral", key: "hosDiagNoProcess", motion: null, href: PROCESS_HREF }];
+  }
+  if (picked.length) return picked;
+  return [{ tone: "neutral", key: "hosDiagCollecting", motion: null, href: PROCESS_HREF }];
+}
+
+export type HosOutcomes = { won: number; lost: number; winRate: number | null };
+
+/** Win rate + won + lost for Resumen. Null (row hidden) unless the CRM reported both counts and
+ * coverage is not "unavailable". A rate is only quoted on complete coverage with something closed. */
+export function hosOutcomes(input: {
+  won: number | null | undefined;
+  lost: number | null | undefined;
+  crmCoverage: unknown;
+  sampleLimited?: boolean;
+}): HosOutcomes | null {
+  if (input.won == null || input.lost == null) return null;
+  if (input.crmCoverage !== "complete" && input.crmCoverage !== "partial") return null;
+  const closed = input.won + input.lost;
+  const winRate = input.crmCoverage === "complete" && !input.sampleLimited && closed > 0 ? input.won / closed : null;
+  return { won: input.won, lost: input.lost, winRate };
 }
 
 /** Short name for a flow inside a sentence: "SDR" / "AE" for the two role flows. */

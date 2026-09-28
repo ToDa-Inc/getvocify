@@ -68,6 +68,8 @@ export interface PendingInvite {
   role: string;
   expiresAt: string;
   createdAt?: string;
+  /** Commercial type chosen at invite time; absent/null when sales roles are off. */
+  salesRole?: SalesRole | null;
 }
 
 /** T9: the onboarding wizard's steps, in the order it walks the Head of Sales through. */

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { HosFilters, HosPageHeader } from "@/features/head-of-sales/HosFilters";
-import { HosFunnel, HosKpiTiles } from "@/features/head-of-sales/HosOverview";
+import { HosFunnel, HosKpiTiles, HosOutcomesRow } from "@/features/head-of-sales/HosOverview";
 import { currentTotals, useTeamAdherence } from "@/features/head-of-sales/useTeamAdherence";
 import {
   HOS_DEFAULT_PERIOD,
@@ -33,14 +33,11 @@ export default function HeadOfSalesSummaryPage() {
   const [salesRole, setSalesRole] = useState<HosSalesRole>("all");
   const query = useTeamAdherence(period, salesRole);
   const current = currentTotals(query.data);
-  const diagnosis = summaryDiagnosis({
+  const diagnoses = summaryDiagnosis({
     attempts: query.data ? current.attempts : null,
     adherence: current.adherence,
     processHealth: query.data?.process_health ?? [],
   });
-  const flow = diagnosis.motion
-    ? flowShortName(diagnosis.motion, teamFlowFilterLabel(diagnosis.motion, p, p.motions))
-    : "";
   const showRoles = Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"));
 
   return (
@@ -60,30 +57,45 @@ export default function HeadOfSalesSummaryPage() {
       ) : query.isLoading ? (
         <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p>
       ) : (
-        <>
-          <p
-            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} flex items-start gap-3 p-5 text-[15px] leading-relaxed text-foreground`}
+        <div className={`space-y-6 transition-opacity ${query.isPlaceholderData ? "opacity-50" : ""}`} aria-busy={query.isPlaceholderData}>
+          <div
+            className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-3 p-5 text-[15px] leading-relaxed text-foreground`}
             data-testid="hos-diagnosis"
           >
-            <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${TONE_DOT[diagnosis.tone]}`} aria-hidden />
-            <span>
-              {p[diagnosis.key].replace("{flow}", flow)}
-              {diagnosis.href ? (
-                <>
-                  {" "}
-                  <Link className="text-muted-foreground underline underline-offset-2 hover:text-foreground" to={diagnosis.href}>
-                    {diagnosis.href === "/dashboard/process" ? p.navProcess : p.hosSeeByPerson}
-                  </Link>
-                </>
-              ) : null}
-            </span>
-          </p>
+            {diagnoses.map((diagnosis) => {
+              const flow = diagnosis.motion
+                ? flowShortName(diagnosis.motion, teamFlowFilterLabel(diagnosis.motion, p, p.motions))
+                : "";
+              return (
+                <p key={`${diagnosis.key}-${diagnosis.motion ?? ""}`} className="flex items-start gap-3">
+                  <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${TONE_DOT[diagnosis.tone]}`} aria-hidden />
+                  <span>
+                    {p[diagnosis.key].replace("{flow}", flow)}
+                    {diagnosis.href ? (
+                      <>
+                        {" "}
+                        <Link className="text-muted-foreground underline underline-offset-2 hover:text-foreground" to={diagnosis.href}>
+                          {diagnosis.href === "/dashboard/process" ? p.navProcess : p.hosSeeByPerson}
+                        </Link>
+                      </>
+                    ) : null}
+                  </span>
+                </p>
+              );
+            })}
+          </div>
           <HosKpiTiles current={current} previous={query.data?.previous ?? null} />
+          <HosOutcomesRow
+            won={query.data?.won}
+            lost={query.data?.lost}
+            crmCoverage={query.data?.crm_coverage}
+            sampleLimited={query.data?.sample_limited === true}
+          />
           <HosFunnel current={current} />
           <Link to="/dashboard/insights" className="inline-block text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground">
             {p.hosSeeByPerson}
           </Link>
-        </>
+        </div>
       )}
     </main>
   );

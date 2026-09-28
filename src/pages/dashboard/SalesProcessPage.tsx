@@ -29,7 +29,7 @@ export default function SalesProcessPage() {
         showRoles={Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"))}
       />
       {query.data ? (
-        <>
+        <div className={`space-y-6 transition-opacity ${query.isPlaceholderData ? "opacity-50" : ""}`} aria-busy={query.isPlaceholderData}>
           <ProcessHealth flows={query.data.process_health ?? []} />
           <ObjectionBreakdown
             categories={query.data.objection_categories ?? []}
@@ -37,7 +37,7 @@ export default function SalesProcessPage() {
             sampleLimited={query.data.sample_limited === true}
             emptyText={period === "week" ? undefined : p.hosObjectionsEmptyPeriod}
           />
-        </>
+        </div>
       ) : null}
       <section aria-labelledby="hos-process-define" className="space-y-4" id="playbooks">
         <h2 id="hos-process-define" className={THEME_TOKENS.typography.sectionTitle}>{p.hosProcessDefineHeading}</h2>

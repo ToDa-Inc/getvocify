@@ -14,7 +14,7 @@ export default function HeadOfSalesTeamPage() {
   const { user } = useAuth();
   const [period, setPeriod] = useState<HosPeriod>(HOS_DEFAULT_PERIOD);
   const [salesRole, setSalesRole] = useState<HosSalesRole>("all");
-  const query = useTeamAdherence(period, salesRole);
+  const query = useTeamAdherence(period, salesRole, { withFocus: true });
   const features = user?.company?.features ?? [];
 
   return (
@@ -36,6 +36,8 @@ export default function HeadOfSalesTeamPage() {
           reps={query.data?.reps ?? []}
           showRepDetail={features.includes("MANAGER_HOME_ENABLED")}
           csvName={`team-${period}.csv`}
+          period={period}
+          stale={query.isPlaceholderData}
         />
       )}
     </main>

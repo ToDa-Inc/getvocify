@@ -8,8 +8,17 @@ import {
 } from "./settings-nav.ts";
 
 describe("visibleSettingsTabs", () => {
-  it("gives the Head of Sales every tab", () => {
-    assert.deepEqual(visibleSettingsTabs(true), [...SETTINGS_TABS]);
+  it("gives the Head of Sales every tab except the rep-personal ones", () => {
+    assert.deepEqual(
+      visibleSettingsTabs(true).map((t) => t.id),
+      ["crm", "offer", "glossary", "brief", "team", "billing"],
+    );
+  });
+
+  it("hides Calling and Usage from the Head of Sales", () => {
+    const ids = visibleSettingsTabs(true).map((t) => t.id);
+    assert.equal(ids.includes("calling"), false);
+    assert.equal(ids.includes("usage"), false);
   });
 
   it("gives a rep only the personal tabs", () => {
@@ -31,10 +40,12 @@ describe("firstAllowedSettingsPath", () => {
 });
 
 describe("isSettingsPathAllowed", () => {
-  it("lets the Head of Sales onto every company-wide tab", () => {
+  it("lets the Head of Sales onto every tab they see, and not onto the rep-personal ones", () => {
     for (const tab of SETTINGS_TABS) {
-      assert.equal(isSettingsPathAllowed(tab.to, true), true);
+      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.repOnly, tab.id);
     }
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), false);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", true), false);
   });
 
   it("blocks a rep from company-wide tabs by direct URL", () => {
@@ -53,8 +64,8 @@ describe("isSettingsPathAllowed", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage/anything", false), true);
   });
 
-  it("does not let the CRM index match a rep's calling path by prefix", () => {
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), true);
+  it("does not let the CRM index match a sibling path by prefix", () => {
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", true), true);
     // The index tab uses exact match, so it never swallows a sibling route.
     assert.equal(isSettingsPathAllowed("/dashboard/settings/whatever", true), false);
   });

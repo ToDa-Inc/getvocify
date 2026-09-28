@@ -62,11 +62,16 @@ describe("navItemsFor for the Head of Sales (HEAD_OF_SALES_DASHBOARD_PLAN §2)",
         for (const playbookTabEnabled of [false, true]) {
           assert.deepEqual(navItemsFor({ role, repWorkspace, playbookTabEnabled }), {
             items: [summary, insights, process, settings],
-            showPlans: true,
+            showPlans: role === "owner",
           });
         }
       }
     }
+  });
+
+  it("shows the Plans card to the owner only (billing is the owner's)", () => {
+    assert.equal(navItemsFor({ role: "owner" }).showPlans, true);
+    assert.equal(navItemsFor({ role: "admin" }).showPlans, false);
   });
 
   it("never links the rep places: Today, recordings, Copilot, Call, Coach", () => {

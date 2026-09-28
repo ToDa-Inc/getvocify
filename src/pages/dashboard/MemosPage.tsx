@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Mic, Search, Calendar, Clock, AlertCircle } from "lucide-react";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
@@ -78,6 +78,10 @@ const MemosPage = () => {
   // author filter), even when the company gives them visibility=team elsewhere.
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [searchTerm, setSearchTerm] = useState("");
+  // Head of Sales only: ?author=<userId> opens the list filtered to one person (rep detail
+  // links here). Ignored for a member, who always lists their own recordings.
+  const [searchParams] = useSearchParams();
+  const authorParam = canViewCompany ? searchParams.get("author") : null;
   const [authorOverride, setAuthorOverride] = useState<string | null | undefined>(undefined);
 
   const { data: membersData } = useQuery({
@@ -95,7 +99,7 @@ const MemosPage = () => {
   const authorUserId =
     authorOverride !== undefined
       ? authorOverride
-      : defaultActivityAuthorId(canViewCompany, user?.id, authors.length);
+      : authorParam ?? defaultActivityAuthorId(canViewCompany, user?.id, authors.length);
   const viewingTeammate = Boolean(authorUserId && authorUserId !== user?.id);
 
   const memoFilters = {

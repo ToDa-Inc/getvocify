@@ -19,18 +19,26 @@ export type HosAdherence = {
   sample_limited?: boolean;
   previous?: HosTotals;
   reps?: HosRep[];
+  /** Present when the CRM reported outcomes; null/absent = no outcomes. */
+  won?: number | null;
+  lost?: number | null;
+  crm_coverage?: "complete" | "partial" | "unavailable";
   process_health?: ProcessHealthFlow[];
   objection_categories?: ObjectionCategory[];
   competitor_mentions?: CompetitorMention[];
 };
 
 /** The Head of Sales pages all read /team/adherence with period + sales_role (one producer). */
-export function useTeamAdherence(period: HosPeriod, salesRole: HosSalesRole) {
+export function useTeamAdherence(period: HosPeriod, salesRole: HosSalesRole, options: { withFocus?: boolean } = {}) {
+  const withFocus = options.withFocus === true;
   return useQuery({
-    queryKey: ["hos-team-adherence", period, salesRole],
+    // The focus variant is a different (heavier) response: its own cache entry.
+    queryKey: withFocus
+      ? ["hos-team-adherence", period, salesRole, "focus"]
+      : ["hos-team-adherence", period, salesRole],
     queryFn: () =>
       api.get<HosAdherence>(
-        `/team/adherence?${adherenceParams({ manager: true, period, salesRole, userId: null, motion: null })}`,
+        `/team/adherence?${adherenceParams({ manager: true, period, salesRole, userId: null, motion: null, withFocus })}`,
       ),
     retry: false,
     placeholderData: (previous) => previous,

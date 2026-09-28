@@ -1,7 +1,7 @@
 /**
  * Which Settings tabs a role can see (Lista 3, item 2; Lista 4 E6). Company-wide sections
  * (CRM, Offer/strategy, Brief/timing, Playbooks editing, Team, Billing) are the Head of
- * Sales's (owner/admin's) call; a rep sees Calling, the shared Glossary and Usage. Interface language is not a route here - it's rendered by
+ * Sales's (owner/admin's) call; a rep sees Calling, the shared Glossary and Usage (the personal ones, `repOnly`, are hidden for the Head of Sales). Interface language is not a route here - it's rendered by
  * SettingsLayout for everyone regardless of this list.
  *
  * Pure and role-only on purpose: SettingsLayout uses it both to filter the nav and to
@@ -27,23 +27,25 @@ export interface SettingsTab {
   end?: boolean;
   /** Company-wide: Head of Sales (owner/admin) only. */
   managerOnly: boolean;
+  /** Personal to a rep (their own caller-id, transcription language, memo usage): hidden for the Head of Sales, who does not call. */
+  repOnly?: boolean;
 }
 
 export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "crm", to: "/dashboard/settings", labelKey: "settingsNavCrm", end: true, managerOnly: true },
-  { id: "calling", to: "/dashboard/settings/calling", labelKey: "settingsNavCalling", managerOnly: false },
+  { id: "calling", to: "/dashboard/settings/calling", labelKey: "settingsNavCalling", managerOnly: false, repOnly: true },
   { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", managerOnly: true },
   { id: "glossary", to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary", managerOnly: false },
   { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: true },
   // "playbooks" moved to the Head of Sales' Proceso de venta page (/dashboard/process);
   // /dashboard/settings/playbooks redirects there.
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
-  { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false },
+  { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false, repOnly: true },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", managerOnly: true },
 ] as const;
 
 export function visibleSettingsTabs(isManager: boolean): SettingsTab[] {
-  return SETTINGS_TABS.filter((tab) => isManager || !tab.managerOnly);
+  return SETTINGS_TABS.filter((tab) => (isManager ? !tab.repOnly : !tab.managerOnly));
 }
 
 export function firstAllowedSettingsPath(isManager: boolean): string {
