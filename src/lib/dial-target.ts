@@ -82,6 +82,20 @@ export function floatingDialerChrome(
   };
 }
 
+/** Panel placement shows the in-call bar at the column foot; floating keeps the FAB. */
+export function dialerChrome(
+  placement: "floating" | "panel",
+  open: boolean,
+  callState: CallState | undefined,
+): { sheet: boolean; fab: boolean; panelBar: boolean } {
+  const inFlight = isInCall(callState);
+  if (placement === "panel") {
+    return { sheet: open && !inFlight, fab: false, panelBar: inFlight || open };
+  }
+  const floating = floatingDialerChrome(open, callState);
+  return { ...floating, panelBar: false };
+}
+
 export function formatCallerIdDisplay(e164: string): string {
   const digits = (e164 || "").replace(/\D/g, "");
   if (e164.startsWith("+34") && digits.length === 11) {

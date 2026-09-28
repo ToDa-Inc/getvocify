@@ -16,24 +16,34 @@ from app.services.activity_scope import (
     UnknownCompanyAuthor,
     can_view_company_activity,
     company_user_ids,
+    effective_visibility,
     load_viewer_scope,
-    memo_readable_by,
     readable_memo_or_none,
     resolve_list_user_ids,
 )
+from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row, interaction_kind_of
+from app.services.handoff_visibility import (
+    handoff_sdr_map_for_viewer,
+    sdr_ids_for_contact,
+)
+from app.services.followup import schedule_followup
+from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
+from app.services.commitment_tasks import preview_kwargs as commitment_preview_kwargs
+from app.services.deal_stage_confirm import preview_stage_kwargs
 from app.services.memo_approval import approve_memo_core, CRMSyncError
 from app.services.preview_targets import resolve_preview_deal_selection
 from app.services.hubspot.preview import replay_written_fields
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
-from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest
+from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest, RecordOutcomeRequest
+from app.api import after_call as after_call_api
 from app.models.crm_update import CRMUpdate
 from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
 from app.logging_config import log_domain, DOMAIN_MEMO
@@ -57,6 +67,13 @@ _DEAL_STAGE_INFERENCE_HINT = (
 
 
 def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict:
+    """Approve/preview: never a handoff read. These write to the memo (matched_deal_*,
+    approval, CRM sync) - T4/D8 only grants the AE a *read* of the SDR's memo, not a hand
+    on its approval/CRM flow. See _require_viewable_memo below for that read.
+
+    visibility=team is read-only too (D3): it is deliberately not passed here, so a
+    teammate with company-wide read never approves, previews or pushes another rep's
+    memo - same rule as memo_approval.approve_memo_core."""
     result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
     rows = result.data or []
     membership, members, _authors = load_viewer_scope(supabase, user_id)
@@ -72,6 +89,79 @@ def _require_readable_memo(supabase: Client, memo_id: str, user_id: str) -> dict
             detail="Memo not found",
         )
     return memo_data
+
+
+def _active_handoff_sdr_ids_for_contact(
+    supabase: Client,
+    *,
+    membership,
+    members: list[dict],
+    contact_id: Optional[str],
+    viewer_id: str,
+) -> set[str]:
+    """T4/D8, gated to callers that actually need it: the still-active SDR(s) a handoff
+    makes contact_id's memos readable from, for this viewer as AE. Never queries
+    deal_handoffs at all without a contact_id to key on."""
+    if not contact_id:
+        return set()
+    handoff_map = handoff_sdr_map_for_viewer(
+        supabase,
+        company_id=membership.company_id if membership else None,
+        viewer_id=viewer_id,
+    )
+    sdr_ids = sdr_ids_for_contact(handoff_map, contact_id)
+    if not sdr_ids:
+        return set()
+    active_ids = {
+        str(member.get("user_id"))
+        for member in members
+        if member.get("user_id") and (member.get("status") or "active") == "active"
+    }
+    return sdr_ids & active_ids
+
+
+def _require_viewable_memo(supabase: Client, memo_id: str, user_id: str) -> tuple[dict, dict[str, dict]]:
+    """GET /memos/{id}: read-only, so (unlike _require_readable_memo above) this also
+    honours a handoff - T4/D8, an AE reads the SDR's memo for a contact handed off to
+    them. The handoff lookup only runs when the memo isn't already readable without it
+    (own memo, or a manager/team-visibility teammate) - never a needless query. Returns
+    the memo row plus the company's authors-by-user_id, since the caller needs both."""
+    result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
+    rows = result.data or []
+    memo_data = rows[0] if rows else None
+    membership, members, authors = load_viewer_scope(supabase, user_id)
+    role = membership.role if membership else None
+    visibility = effective_visibility(supabase, membership)
+    readable = readable_memo_or_none(
+        memo_data,
+        viewer_id=user_id,
+        viewer_role=role,
+        member_ids=company_user_ids(members),
+        viewer_visibility=visibility,
+    )
+    if not readable and memo_data:
+        contact_id = str(memo_data.get("hubspot_contact_id") or "") or None
+        sdr_ids = _active_handoff_sdr_ids_for_contact(
+            supabase,
+            membership=membership,
+            members=members,
+            contact_id=contact_id,
+            viewer_id=user_id,
+        )
+        readable = readable_memo_or_none(
+            memo_data,
+            viewer_id=user_id,
+            viewer_role=role,
+            member_ids=company_user_ids(members),
+            viewer_visibility=visibility,
+            handoff_map={contact_id: sdr_ids} if contact_id else None,
+        )
+    if not readable:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memo not found",
+        )
+    return readable, authors
 
 
 async def _curated_field_specs_for_primary_crm(
@@ -162,6 +252,7 @@ def _memo_from_row(
             hubspotContactId=memo_data.get("hubspot_contact_id"),
             hubspotDealId=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
             screeningOutcome=memo_data.get("screening_outcome"),
+            interactionKind=interaction_kind_of(memo_data),
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -292,6 +383,19 @@ async def extract_memo_async(
                 extraction.model_dump(),
                 datetime.utcnow().isoformat(),
             ),
+        )
+        schedule_followup(supabase, memo_id)
+        from app.services.memo_extraction_hooks import run_post_extraction_hooks
+
+        run_post_extraction_hooks(
+            supabase,
+            memo_id=memo_id,
+            extraction=extraction.model_dump(),
+        )
+        from app.services.intelligence.worker import record_enqueue
+        record_enqueue(
+            supabase,
+            {"id": memo_id, "user_id": user_id, "extraction": extraction.model_dump()},
         )
         persist_pipeline_meta(
             supabase,
@@ -534,16 +638,17 @@ async def upload_memo(
         transcript_raw = transcript.strip()
         transcript = await sanitize_user_transcript(transcript_raw, user_id, supabase)
         estimated_duration = len(transcript) / 15  # rough: ~15 chars/sec speech
-        result = supabase.table("memos").insert({
+        created = insert_memo_row(supabase, pin_playbook=True, payload={
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "extracting",
             "transcript": transcript,
             "processing_started_at": datetime.utcnow().isoformat(),
-        }).execute()
+            "source_type": "voice_memo",
+        })
         
-        memo_id = result.data[0]["id"]
+        memo_id = created["id"]
         await start_extraction_from_transcript(
             str(memo_id),
             user_id,
@@ -587,14 +692,15 @@ async def upload_memo(
             extra=log_domain(DOMAIN_MEMO, "upload", user_id=user_id, has_transcript=False, audio_len=len(audio_bytes)),
         )
         estimated_duration = len(audio_bytes) / (1024 * 1024) * 60
-        result = supabase.table("memos").insert({
+        created = insert_memo_row(supabase, pin_playbook=True, payload={
             "user_id": user_id,
             "audio_url": "",
             "audio_duration": estimated_duration,
             "status": "uploading",
-        }).execute()
+            "source_type": "voice_memo",
+        })
         
-        memo_id = result.data[0]["id"]
+        memo_id = created["id"]
         logger.info(
             "✅ Upload memo created (audio)",
             extra=log_domain(DOMAIN_MEMO, "upload_complete", memo_id=memo_id, user_id=user_id),
@@ -654,7 +760,7 @@ async def upload_transcript_only(
     }
 
     estimated_duration = len(transcript) / 15
-    result = supabase.table("memos").insert({
+    created = insert_memo_row(supabase, pin_playbook=True, payload={
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
@@ -662,9 +768,9 @@ async def upload_transcript_only(
         "transcript": transcript,
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
-    }).execute()
+    })
     
-    memo_id = result.data[0]["id"]
+    memo_id = created["id"]
     await start_extraction_from_transcript(
         str(memo_id),
         user_id,
@@ -711,19 +817,21 @@ async def upload_transcript_and_extract(
     }
 
     estimated_duration = len(transcript) / 15
-    result = supabase.table("memos").insert({
+    source_type = body.source_type or "voice_memo"
+    if source_type not in ("voice_memo", "meeting_transcript"):
+        source_type = "voice_memo"
+
+    created = insert_memo_row(supabase, pin_playbook=True, payload={
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
         "status": "extracting",
         "transcript": transcript,
+        "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
-    }).execute()
+    })
 
-    memo_id = result.data[0]["id"]
-    source_type = body.source_type or "voice_memo"
-    if source_type not in ("voice_memo", "meeting_transcript"):
-        source_type = "voice_memo"
+    memo_id = created["id"]
 
     await start_extraction_from_transcript(
         str(memo_id),
@@ -752,6 +860,8 @@ async def list_memos(
     hubspot_contact_id: Optional[str] = None,
     scope: str = Query("me"),
     author_user_id: Optional[str] = None,
+    memo_status: Optional[str] = Query(None, alias="status"),
+    reached_only: bool = False,
 ):
     """
     List memos.
@@ -762,18 +872,58 @@ async def list_memos(
     Optional HubSpot filters (for the extension on a deal/contact page):
     - hubspot_deal_id: memos from calls on that deal, or approved against it
     - hubspot_contact_id: memos from calls on that contact
+
+    scope=handoffs (T4/D8): the SDR's memos for one handed-off contact, for the AE it
+    was handed to. Requires hubspot_contact_id; with no active-or-closed handoff for
+    that contact and this viewer (or HANDOFF_ENABLED off), it returns an empty list
+    rather than an error - there is simply nothing to show yet.
+
+    Optional status: exact pipeline status (e.g. pending_review). Screened-out
+    calls (voicemail, no answer) are pending_review too; reached_only=true
+    drops them and keeps memos with no screening outcome.
     """
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
+    status_value = (memo_status if isinstance(memo_status, str) else "").strip() or None
+    if status_value and status_value not in MEMO_PIPELINE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown memo status",
+        )
     membership, members, authors = load_viewer_scope(supabase, user_id)
     role = membership.role if membership else None
+    visibility = effective_visibility(supabase, membership)
     scope_value = scope if isinstance(scope, str) else getattr(scope, "default", None)
     scope_norm = str(scope_value or "me").strip().lower()
-    if scope_norm == "company" and not can_view_company_activity(role):
+    if scope_norm == "company" and not can_view_company_activity(role, visibility):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only owners and admins can list company activity",
         )
+    if scope_norm == "handoffs":
+        contact_filter = (hubspot_contact_id or "").strip() or None
+        sdr_ids = sorted(_active_handoff_sdr_ids_for_contact(
+            supabase,
+            membership=membership,
+            members=members,
+            contact_id=contact_filter,
+            viewer_id=user_id,
+        ))
+        if not sdr_ids:
+            return []
+        query = (
+            supabase.table("memos")
+            .select("*")
+            .eq("hubspot_contact_id", contact_filter)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .offset(offset)
+        )
+        query = query.eq("user_id", sdr_ids[0]) if len(sdr_ids) == 1 else query.in_("user_id", sdr_ids)
+        return [
+            _memo_from_row(memo_data, authors.get(str(memo_data.get("user_id"))))
+            for memo_data in (query.execute().data or [])
+        ]
     try:
         user_ids = resolve_list_user_ids(
             viewer_id=user_id,
@@ -781,6 +931,7 @@ async def list_memos(
             member_ids=company_user_ids(members),
             scope=scope_norm,
             author_user_id=(author_user_id or "").strip() or None,
+            viewer_visibility=visibility,
         )
     except UnknownCompanyAuthor:
         raise HTTPException(
@@ -808,6 +959,12 @@ async def list_memos(
         q = q.or_(f"hubspot_deal_id.eq.{deal_id},matched_deal_id.eq.{deal_id}")
     elif contact_id:
         q = q.eq("hubspot_contact_id", contact_id)
+    if status_value:
+        q = q.eq("status", status_value)
+    if reached_only is True:
+        # Repeated `or` params are ANDed by PostgREST, so this composes with the deal filter.
+        unreached = ",".join(sorted(SKIPPED_SCREENING))
+        q = q.or_(f"screening_outcome.is.null,screening_outcome.not.in.({unreached})")
 
     result = q.execute()
     memos = [
@@ -933,27 +1090,8 @@ async def get_memo(
     user_id: str = Depends(get_user_id),
 ):
     """Get a single memo by ID"""
-    result = supabase.table("memos").select("*").eq("id", str(memo_id)).execute()
-
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found"
-        )
-
-    memo_data = result.data[0]
-    membership, members, authors = load_viewer_scope(supabase, user_id)
+    memo_data, authors = _require_viewable_memo(supabase, str(memo_id), user_id)
     owner_id = str(memo_data.get("user_id") or "")
-    if not memo_readable_by(
-        viewer_id=user_id,
-        owner_user_id=owner_id,
-        viewer_role=membership.role if membership else None,
-        same_company=owner_id in set(company_user_ids(members)),
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found"
-        )
     return _memo_from_row(memo_data, authors.get(owner_id), supabase=supabase)
 
 
@@ -1016,6 +1154,16 @@ async def approve_memo(
             detail="No extraction data available. Please wait for processing to complete."
         )
     
+    # Lista 4 T4 (AFTER_CALL_FLOW_ENABLED): the rep's after-call outcome rides on the approval.
+    # Only the rep who made the call records it (a manager approving a teammate's memo syncs
+    # the fields, not an outcome - no handoff in someone else's name).
+    after_call_on = bool(
+        payload is not None
+        and payload.rep_outcome
+        and str(memo_data.get("user_id") or "") == str(user_id)
+        and after_call_api.enabled(supabase, memo_data.get("company_id"))
+    )
+
     # Idempotency check: If already approved and extraction hasn't changed, return existing
     if memo_data.get("status") == "approved" and memo_data.get("approved_at"):
         # Check if extraction was edited (re-approval with changes)
@@ -1023,7 +1171,23 @@ async def approve_memo(
             # Extraction was edited, allow re-approval
             pass
         else:
-            # Same extraction, already approved - return existing memo (idempotent)
+            # Same extraction, already approved - return existing memo (idempotent). Lista 4
+            # T4: an outcome sent here (auto-approve landed while the rep was in the panel)
+            # is still recorded, the same way POST /memos/{id}/outcome records it.
+            outcome_hint = None
+            if after_call_on and payload is not None:
+                outcome_hint = await after_call_api.apply_outcome_to_approved(
+                    supabase,
+                    memo=memo_data,
+                    membership=after_call_api._membership_or_none(supabase, user_id),
+                    user_id=user_id,
+                    body=RecordOutcomeRequest(
+                        rep_outcome=payload.rep_outcome,
+                        followup_at=payload.followup_at,
+                        disqualify_reason=payload.disqualify_reason or payload.lost_reason,
+                        lead_status=payload.lead_status,
+                    ),
+                )
             return Memo(
                 id=memo_data["id"],
                 userId=memo_data["user_id"],
@@ -1037,10 +1201,23 @@ async def approve_memo(
                 createdAt=memo_data["created_at"],
                 processedAt=memo_data.get("processed_at"),
                 approvedAt=memo_data.get("approved_at"),
+                after_call=outcome_hint,
             )
     
     try:
-        return await approve_memo_core(supabase, str(memo_id), user_id, payload)
+        result = await approve_memo_core(supabase, str(memo_id), user_id, payload)
+        if after_call_on and payload is not None:
+            # The CRM took the call (and its outcome): now what the outcome does in Vocify.
+            result.after_call = after_call_api.record_outcome_for_user(
+                supabase,
+                memo=memo_data,
+                user_id=user_id,
+                rep_outcome=payload.rep_outcome,
+                followup_at=payload.followup_at,
+                contact_id=getattr(result, "contact_id", None),
+                deal_id=getattr(result, "deal_id", None),
+            )
+        return result
     except CRMSyncError as e:
         # A predictable business failure from the CRM provider (e.g. "Salesforce
         # needs a deal") is not a server bug: a 500 hides it in the same bucket as
@@ -1358,6 +1535,8 @@ async def get_approval_preview(
             create_new_deal=create_new,
             include_unchanged=replay_written_fields(memo_data.get("status")),
             skip_deal=skip_deal,
+            **preview_stage_kwargs(supabase, memo=memo_data, connection=conn, config=config),
+            **commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1519,6 +1698,8 @@ async def post_approval_preview(
             create_new_deal=create_new,
             include_unchanged=replay_written_fields(memo_data.get("status")),
             skip_deal=skip_deal,
+            **preview_stage_kwargs(supabase, memo=memo_data, connection=conn, config=config),
+            **commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -2009,6 +2190,20 @@ async def re_extract_memo(
         run=run_record(run_id, "re_extract", started_at, t0, "ok"),
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
+    schedule_followup(supabase, str(memo_id), company_id=memo_data.get("company_id"))
+    from app.services.memo_extraction_hooks import run_post_extraction_hooks
+
+    run_post_extraction_hooks(
+        supabase,
+        memo_id=str(memo_id),
+        extraction=extraction.model_dump(),
+        memo=memo_data,
+    )
+    from app.services.intelligence.worker import record_enqueue
+    record_enqueue(
+        supabase,
+        {"id": str(memo_id), "user_id": user_id, "extraction": extraction.model_dump()},
+    )
     release_pipeline_run(supabase, str(memo_id), run_id)
 
     updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()

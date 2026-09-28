@@ -17,12 +17,19 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
+import TeamInsightsPage from "./pages/dashboard/TeamInsightsPage";
+import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
+import PlaybookPage from "./pages/dashboard/PlaybookPage";
+import CoachPage from "./pages/dashboard/CoachPage";
+import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
 import DashboardHome from "./pages/dashboard/DashboardHome";
+import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
+import { RepHome } from "@/features/today/components/RepHome";
 import MemosPage from "./pages/dashboard/MemosPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
 import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
@@ -31,10 +38,11 @@ import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
 import CallingSection from "./pages/dashboard/settings/CallingSection";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
+import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
+import PlaybooksSection from "./features/playbooks/components/PlaybooksSection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
-import SalesTeamPage from "./pages/dashboard/SalesTeamPage";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
 import AdminAccountDetailPage from "./pages/admin/AdminAccountDetailPage";
@@ -159,6 +167,7 @@ const App = () => (
               </ProtectedRoute>
             }>
               <Route index element={<DashboardHome />} />
+              <Route path="onboarding" element={<OnboardingWizard />} />
               <Route path="record" element={<RecordPage />} />
               <Route path="memos" element={<MemosPage />} />
               <Route path="memos/:id" element={<MemoDetail />} />
@@ -169,17 +178,27 @@ const App = () => (
                 <Route path="calling" element={<CallingSection />} />
                 <Route path="offer" element={<OfferSection />} />
                 <Route path="glossary" element={<GlossarySection />} />
+                <Route path="brief" element={<BriefHighlightSection />} />
+                <Route path="playbooks" element={<PlaybooksSection />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
               </Route>
+              <Route path="insights" element={<TeamInsightsPage />} />
+              <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
+              <Route path="coach" element={<CoachPage />} />
+              {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
+                  this is where "go to my Today" points a manager who also sells. */}
+              <Route path="today" element={<RepHome />} />
+              <Route path="playbook" element={<PlaybookPage />} />
+              <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
+              <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
               <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />
               <Route path="usage" element={<Navigate to="/dashboard/settings/usage" replace />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
-              <Route path="sales-team" element={<SalesTeamPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>
             <Route path="*" element={<NotFound />} />

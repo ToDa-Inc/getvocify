@@ -1,14 +1,14 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Gauge, Mail, RefreshCw, Trash2, Users } from "lucide-react";
+import { Copy, Mail, RefreshCw, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
-import type { SalesRole } from "@/features/company/types";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SALES_ROLE_LABEL } from "@/components/dashboard/sales/format";
-import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
+import type { CompanyMember, SalesRole } from "@/features/company/types";
+import { useLanguage } from "@/lib/i18n";
+import { commercialRoleLabel } from "@/lib/role-labels";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
@@ -16,20 +16,52 @@ import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 
-const ROLE_OPTIONS = [
-  {
-    value: "member" as const,
-    label: "Member",
-    hint: "Own login, password, and email. Shared CRM. Only their memos and HubSpot recordings (email must match their HubSpot user).",
-  },
-  {
-    value: "admin" as const,
-    label: "Admin",
-    hint: "Invite the team, edit CRM and offer. Activity defaults to Mine; All shows every teammate’s labeled calls and memos.",
-  },
-];
+const SELECT_FIELD =
+  "rounded-full border border-border/40 bg-secondary/5 px-3 h-7 text-[11px] text-foreground";
 
-const SALES_ROLE_OPTIONS: SalesRole[] = ["sdr", "ae", "manager", "other"];
+interface SalesProfileChange {
+  salesRole?: SalesRole | null;
+}
+
+/**
+ * D1: per-member commercial type only (SDR/AE/General). This is the one lever the
+ * Head of Sales needs here — it decides which dashboard the rep gets. Routing
+ * (handoff AE) and activity visibility are still backend fields/endpoints, but they
+ * are no longer exposed as selects on this page: the founder found them confusing,
+ * and D2's own AE picker (or the single-active-AE auto-pick) already covers routing
+ * without asking anyone to configure it here. Owner/admin only.
+ */
+function MemberSalesControls({
+  member,
+  onChange,
+  t,
+}: {
+  member: CompanyMember;
+  onChange: (vars: SalesProfileChange) => void;
+  t: { [key: string]: string };
+}) {
+  const salesRole = member.salesRole ?? "";
+
+  return (
+    <>
+      <label className="sr-only" htmlFor={`sales-role-${member.id}`}>
+        {t.teamMemberTypeLabel}
+      </label>
+      <select
+        id={`sales-role-${member.id}`}
+        className={SELECT_FIELD}
+        value={salesRole}
+        onChange={(event) =>
+          onChange({ salesRole: (event.target.value || null) as SalesRole | null })
+        }
+      >
+        <option value="">{t.teamMemberTypeGeneral}</option>
+        <option value="sdr">{t.teamMemberTypeSdr}</option>
+        <option value="ae">{t.teamMemberTypeAe}</option>
+      </select>
+    </>
+  );
+}
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
@@ -42,10 +74,15 @@ function apiErrorMessage(error: unknown, fallback: string) {
 
 const TeamPage = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
+  // Item 3: an invite from here is always a rep (role="member"); a second Head of
+  // Sales is still possible, but through the role change on an existing member, not
+  // from this form. SDR is the default commercial type, and it's required.
+  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole>("sdr");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [crmOwnerMatch, setCrmOwnerMatch] = useState<boolean | null>(null);
   const [confirm, setConfirm] = useState<
     | { kind: "remove"; id: string; name: string }
     | { kind: "revoke"; id: string; email: string }
@@ -53,6 +90,7 @@ const TeamPage = () => {
   >(null);
 
   const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
+  const salesRolesEnabled = Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"));
 
   const { data: company, isLoading: companyLoading } = useQuery({
     queryKey: companyKeys.detail(),
@@ -69,7 +107,6 @@ const TeamPage = () => {
   const seatsAvailable =
     company?.seatsAvailable ?? Math.max(0, seatLimit - seatsUsed);
   const seatsFull = seatsAvailable <= 0;
-  const selectedRole = ROLE_OPTIONS.find((option) => option.value === inviteRole);
 
   const refreshWorkspace = () => {
     queryClient.invalidateQueries({ queryKey: companyKeys.all });
@@ -77,10 +114,12 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () => companyApi.invite(inviteEmail.trim(), inviteRole),
+    mutationFn: () => companyApi.invite(inviteEmail.trim(), "member", inviteSalesRole),
     onSuccess: (res) => {
       setInviteEmail("");
+      setInviteSalesRole("sdr");
       setInviteUrl(res.inviteUrl ?? null);
+      setCrmOwnerMatch(res.crmOwnerMatch);
       refreshWorkspace();
       if (res.emailSent) {
         toast.success("Email has been sent");
@@ -118,50 +157,6 @@ const TeamPage = () => {
     },
   });
 
-  const salesProfileMutation = useMutation({
-    mutationFn: ({ id, salesRole }: { id: string; salesRole: SalesRole }) =>
-      companyApi.updateSalesProfile(id, { salesRole }),
-    onSuccess: (member) => {
-      queryClient.invalidateQueries({ queryKey: companyKeys.members() });
-      queryClient.invalidateQueries({ queryKey: ["team"] });
-      toast.success(`${member.fullName || member.email} is now ${SALES_ROLE_LABEL[member.salesRole]}`);
-    },
-    onError: (error) => {
-      toast.error(apiErrorMessage(error, "Could not update position"));
-    },
-  });
-
-  const { data: salesSettings } = useQuery({
-    queryKey: companyKeys.salesSettings(),
-    queryFn: () => companyApi.getSalesSettings(),
-    enabled: canManage,
-  });
-  const [usefulSecondsDraft, setUsefulSecondsDraft] = useState<string | null>(null);
-  const usefulSeconds = usefulSecondsDraft ?? String(salesSettings?.usefulCallSeconds ?? 60);
-
-  const salesSettingsMutation = useMutation({
-    mutationFn: (seconds: number) => companyApi.updateSalesSettings({ usefulCallSeconds: seconds }),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(companyKeys.salesSettings(), saved);
-      queryClient.invalidateQueries({ queryKey: ["team"] });
-      setUsefulSecondsDraft(null);
-      toast.success("Metric settings saved");
-    },
-    onError: (error) => {
-      toast.error(apiErrorMessage(error, "Could not save metric settings"));
-    },
-  });
-
-  const saveUsefulSeconds = (event: React.FormEvent) => {
-    event.preventDefault();
-    const seconds = Number(usefulSeconds);
-    if (!Number.isInteger(seconds) || seconds < 5 || seconds > 1800) {
-      toast.error("Enter a whole number of seconds between 5 and 1800");
-      return;
-    }
-    salesSettingsMutation.mutate(seconds);
-  };
-
   const removeMutation = useMutation({
     mutationFn: (id: string) => companyApi.removeMember(id),
     onSuccess: () => {
@@ -171,6 +166,19 @@ const TeamPage = () => {
     },
     onError: (error) => {
       toast.error(apiErrorMessage(error, "Could not remove member"));
+    },
+  });
+
+  const salesProfileMutation = useMutation({
+    mutationFn: (vars: {
+      memberId: string;
+      salesRole?: SalesRole | null;
+    }) => companyApi.updateMemberSalesProfile(vars.memberId, vars),
+    onSuccess: () => {
+      refreshWorkspace();
+    },
+    onError: (error) => {
+      toast.error(apiErrorMessage(error, "Could not update member"));
     },
   });
 
@@ -229,45 +237,24 @@ const TeamPage = () => {
         )}
         <div className="divide-y divide-border/40">
           {(roster?.members ?? []).map((m) => (
-            <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+            <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4 flex-wrap">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
                   {m.fullName || m.email}
                 </p>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                {canManage ? (
-                  <Select
-                    value={m.salesRole}
-                    onValueChange={(value) =>
-                      salesProfileMutation.mutate({ id: m.id, salesRole: value as SalesRole })
-                    }
-                    disabled={salesProfileMutation.isPending && salesProfileMutation.variables?.id === m.id}
-                  >
-                    <SelectTrigger
-                      className="h-7 w-[7.5rem] rounded-full text-[11px]"
-                      aria-label={`Position of ${m.fullName || m.email}`}
-                      data-testid="member-sales-role"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SALES_ROLE_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option} className="text-xs">
-                          {SALES_ROLE_LABEL[option]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
-                    {SALES_ROLE_LABEL[m.salesRole]}
-                  </span>
-                )}
-                <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
-                  {m.role}
+              <div className="flex items-center gap-3 shrink-0 flex-wrap">
+                <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
+                  {commercialRoleLabel(m.role, t.product)}
                 </span>
+                {salesRolesEnabled && canManage && (
+                  <MemberSalesControls
+                    member={m}
+                    onChange={(vars) => salesProfileMutation.mutate({ memberId: m.id, ...vars })}
+                    t={t.product}
+                  />
+                )}
                 {canManage && m.userId !== user?.id && m.role !== "owner" && (
                   <IconAction
                     label={`Remove ${m.fullName || m.email}`}
@@ -284,13 +271,6 @@ const TeamPage = () => {
           ))}
         </div>
       </div>
-
-      {canManage && (
-        <p className="text-xs text-muted-foreground leading-relaxed -mt-3 px-1">
-          Position is the job someone does (SDR, AE…). The Sales team dashboard only compares people in the same
-          position. Permissions stay with the role (owner, admin, member).
-        </p>
-      )}
 
       {(roster?.pendingInvites?.length ?? 0) > 0 && (
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
@@ -345,8 +325,11 @@ const TeamPage = () => {
             <div className="mb-5 rounded-2xl border border-border/70 bg-secondary/5 px-5 py-3.5">
               <p className="text-sm text-foreground">All seats are in use.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {seatsUsed} of {seatLimit} seats taken. Remove a member to free one,
-                or ask Vocify to raise the cap.
+                {seatsUsed} of {seatLimit} seats taken. Remove a member to free one, or{" "}
+                <Link to="/dashboard/settings/billing" className="text-beige hover:underline">
+                  add more seats in Billing
+                </Link>
+                .
               </p>
             </div>
           ) : (
@@ -370,33 +353,26 @@ const TeamPage = () => {
                 className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
               />
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {HUBSPOT_INVITE_EMAIL_HINT}
+                {t.product.inviteEmailMatchHint}
               </p>
             </div>
 
             <div className="space-y-2">
-              <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
+              <label htmlFor="invite-sales-role" className={THEME_TOKENS.typography.capsLabel}>
+                {t.product.inviteSalesRoleLabel}
+              </label>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                  {ROLE_OPTIONS.map((option) => {
-                    const selected = inviteRole === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setInviteRole(option.value)}
-                        aria-pressed={selected}
-                        className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                          selected
-                            ? "bg-beige text-cream"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <select
+                  id="invite-sales-role"
+                  required
+                  className="bg-secondary/5 border border-border/40 rounded-full px-4 h-9 text-sm"
+                  value={inviteSalesRole}
+                  onChange={(e) => setInviteSalesRole(e.target.value as SalesRole)}
+                >
+                  <option value="sdr">{t.product.teamMemberTypeSdr}</option>
+                  <option value="ae">{t.product.teamMemberTypeAe}</option>
+                  <option value="general">{t.product.teamMemberTypeGeneral}</option>
+                </select>
                 <Button
                   type="submit"
                   disabled={inviteMutation.isPending || seatsFull}
@@ -412,9 +388,16 @@ const TeamPage = () => {
                   )}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">{selectedRole?.hint}</p>
             </div>
           </form>
+
+          {crmOwnerMatch === false && (
+            <div className="mt-5 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-5 py-4">
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                {t.product.inviteCrmMatchWarning}
+              </p>
+            </div>
+          )}
 
           {inviteUrl && (
             <div className="mt-6 rounded-2xl border border-border/70 bg-secondary/5 px-5 py-4 space-y-3">
@@ -434,50 +417,6 @@ const TeamPage = () => {
               </Button>
             </div>
           )}
-        </div>
-      )}
-
-      {canManage && (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-          <div className="mb-5">
-            <div className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-beige" />
-              <h2 className={THEME_TOKENS.typography.sectionTitle}>Team metrics</h2>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1.5">
-              How the Sales team dashboard counts activity for everyone in this workspace.
-            </p>
-          </div>
-          <form onSubmit={saveUsefulSeconds} className="space-y-2">
-            <label htmlFor="useful-call-seconds" className={THEME_TOKENS.typography.capsLabel}>
-              Useful conversation
-            </label>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  id="useful-call-seconds"
-                  type="number"
-                  inputMode="numeric"
-                  min={5}
-                  max={1800}
-                  value={usefulSeconds}
-                  onChange={(e) => setUsefulSecondsDraft(e.target.value)}
-                  className="bg-secondary/5 border-border/40 rounded-full px-5 h-10 w-28 tabular-nums"
-                />
-                <span className="text-sm text-muted-foreground">seconds or longer</span>
-              </div>
-              <Button
-                type="submit"
-                disabled={salesSettingsMutation.isPending || usefulSecondsDraft === null}
-                className="rounded-full bg-beige text-cream px-6 h-10"
-              >
-                {salesSettingsMutation.isPending ? "Saving…" : "Save"}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              A connected call this long counts as a real conversation, not a quick hang-up.
-            </p>
-          </form>
         </div>
       )}
 

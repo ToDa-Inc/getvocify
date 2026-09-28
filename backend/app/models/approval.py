@@ -55,6 +55,10 @@ class ProposedUpdate(BaseModel):
         False,
         description="True when this field was already written and is shown for correction",
     )
+    commitment_id: Optional[str] = Field(
+        None,
+        description="C04 commitment behind a task row (COMMITMENT_TASKS_ENABLED); None for legacy next steps",
+    )
 
 
 class AvailableField(BaseModel):

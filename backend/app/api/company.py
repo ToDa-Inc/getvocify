@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from supabase import Client
 
 from app.deps import get_supabase, get_supabase_auth, get_user_id
@@ -33,16 +32,49 @@ class CompanyResponse(BaseModel):
     billing_interval: Optional[str] = None
     paywalled: bool = False
     can_use_dialer: bool = True
+    rep_workspace_enabled: bool = False
+    brief_v2_enabled: bool = False
+    sales_strategy: Optional[str] = None
+    # T5: days after an unanswered call before Hoy suggests calling back. Only sent while
+    # HOY_LEAD_TIERS_ENABLED is on for the company (None otherwise).
+    callback_after_days: Optional[int] = None
+    # Lista 4 T4 (E8): the Head of Sales' follow-up waits per stopper, and the defaults they
+    # override. Only sent while HOY_SDR_SECTIONS_ENABLED is on (None otherwise).
+    followup_cadence: Optional[Dict[str, int]] = None
+    followup_cadence_defaults: Optional[Dict[str, int]] = None
+    needs_onboarding: bool = False
 
 
 class UpdateCompanyRequest(BaseModel):
     name: Optional[str] = None
+    sales_strategy: Optional[str] = None
+    callback_after_days: Optional[int] = Field(default=None, ge=1, le=30)
+    # {stopper: days}. {} clears every override (E8's defaults apply again).
+    followup_cadence: Optional[Dict[str, Any]] = None
+
+    @field_validator("followup_cadence")
+    @classmethod
+    def _valid_cadence(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, int]]:
+        """Same rules hoy/cadence.parse_overrides reads with - known stoppers, whole days in
+        1..90 - but a bad entry is a 422 here, not silently dropped: the Head of Sales should
+        see the mistake instead of a wait that quietly didn't change."""
+        if value is None:
+            return None
+        from app.services.hoy.cadence import DEFAULT_WAIT_DAYS, MAX_WAIT_DAYS, MIN_WAIT_DAYS, parse_overrides
+
+        for key, days in value.items():
+            if key not in DEFAULT_WAIT_DAYS:
+                raise ValueError(f"unknown stopper: {key}")
+            if isinstance(days, bool) or not isinstance(days, int) or not MIN_WAIT_DAYS <= days <= MAX_WAIT_DAYS:
+                raise ValueError(f"{key}: days must be a whole number from {MIN_WAIT_DAYS} to {MAX_WAIT_DAYS}")
+        return parse_overrides(value)
 
 
 class InviteRequest(BaseModel):
     email: EmailStr
     role: str = Field(default="member")
     send_email: bool = True
+    sales_role: Optional[str] = None
 
 
 class InviteResponse(BaseModel):
@@ -52,6 +84,8 @@ class InviteResponse(BaseModel):
     expires_at: str
     email_sent: bool
     invite_url: Optional[str] = None
+    sales_role: Optional[str] = None
+    crm_owner_match: Optional[bool] = None
 
 
 class MemberResponse(BaseModel):
@@ -62,8 +96,9 @@ class MemberResponse(BaseModel):
     role: str
     status: str
     created_at: Optional[str] = None
-    sales_role: str = "other"
-    started_on: Optional[str] = None
+    sales_role: Optional[str] = None
+    handoff_ae_user_id: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class PendingInviteResponse(BaseModel):
@@ -80,17 +115,10 @@ class MembersListResponse(BaseModel):
 
 
 class UpdateMemberRoleRequest(BaseModel):
-    role: str
-
-
-class UpdateSalesProfileRequest(BaseModel):
-    sales_role: Optional[Literal["sdr", "ae", "manager", "other"]] = None
-    # Explicit null clears the date; omitting the field leaves it as is.
-    started_on: Optional[date] = None
-
-
-class SalesSettingsModel(BaseModel):
-    useful_call_seconds: int = Field(default=60, ge=5, le=1800)
+    role: Optional[str] = None
+    sales_role: Optional[str] = None
+    handoff_ae_user_id: Optional[str] = None
+    visibility: Optional[str] = None
 
 
 class AcceptInviteRequest(BaseModel):
@@ -133,7 +161,26 @@ async def get_company(
         billing_interval=billing.get("billing_interval"),
         paywalled=entitlements["paywalled"],
         can_use_dialer=entitlements["can_use_dialer"],
+        rep_workspace_enabled=svc.rep_workspace_enabled(membership.company_id),
+        brief_v2_enabled=svc.brief_v2_enabled(membership.company_id),
+        sales_strategy=company.get("sales_strategy") if svc.sales_strategy_enabled(membership.company_id) else None,
+        callback_after_days=(
+            svc.callback_after_days(membership.company_id) if svc.lead_tiers_enabled(membership.company_id) else None
+        ),
+        **_followup_cadence_fields(svc, membership.company_id),
+        needs_onboarding=svc.needs_onboarding(membership, company),
     )
+
+
+def _followup_cadence_fields(svc: CompanyService, company_id: str) -> dict:
+    if not svc.sdr_sections_enabled(company_id):
+        return {}
+    from app.services.hoy.cadence import DEFAULT_WAIT_DAYS
+
+    return {
+        "followup_cadence": svc.followup_cadence(company_id),
+        "followup_cadence_defaults": dict(DEFAULT_WAIT_DAYS),
+    }
 
 
 @router.patch("", response_model=CompanyResponse)
@@ -146,6 +193,49 @@ async def update_company(
     membership = svc.require_manage_role(user_id)
     if body.name:
         svc.update_company_name(membership.company_id, body.name)
+    if body.sales_strategy is not None and svc.sales_strategy_enabled(membership.company_id):
+        svc.update_sales_strategy(membership.company_id, body.sales_strategy)
+    if body.callback_after_days is not None and svc.lead_tiers_enabled(membership.company_id):
+        svc.update_callback_after_days(membership.company_id, body.callback_after_days)
+    if body.followup_cadence is not None and svc.sdr_sections_enabled(membership.company_id):
+        svc.update_followup_cadence(membership.company_id, body.followup_cadence)
+    return await get_company(user_id=user_id, supabase=supabase)
+
+
+class OnboardingStateResponse(BaseModel):
+    needed: bool
+    next_step: Optional[str] = None
+    state: Dict[str, bool] = Field(default_factory=dict)
+
+
+@router.get("/onboarding", response_model=OnboardingStateResponse)
+async def get_onboarding_state(
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    """T9: what step the Head of Sales onboarding wizard should show next. Owner/admin only,
+    same as the wizard itself."""
+    from app.services.onboarding import next_onboarding_step
+
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    state = svc.onboarding_state(membership.company_id)
+    return OnboardingStateResponse(
+        needed=svc.needs_onboarding(membership),
+        next_step=next_onboarding_step(state),
+        state=state,
+    )
+
+
+@router.post("/onboarding/complete", response_model=CompanyResponse)
+async def complete_onboarding(
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    """T9: finish (or skip through) the wizard. Owner/admin only."""
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    svc.complete_onboarding(membership.company_id)
     return await get_company(user_id=user_id, supabase=supabase)
 
 
@@ -156,7 +246,8 @@ async def list_members(
 ):
     svc = CompanyService(supabase)
     membership = svc.require_membership(user_id)
-    members = svc.list_members(membership.company_id)
+    sales_roles_on = svc.sales_roles_enabled(membership.company_id)
+    members = svc.list_members(membership.company_id, include_sales_fields=sales_roles_on)
     invites = svc.list_pending_invites(membership.company_id)
     can_see_invites = membership.can_manage_team
     return MembersListResponse(
@@ -175,12 +266,14 @@ async def create_invite(
         raise HTTPException(status_code=400, detail="Invalid role")
     svc = CompanyService(supabase)
     membership = svc.require_manage_role(user_id)
-    invite, invite_url, email_sent = await svc.create_invite(
+    sales_role = body.sales_role if svc.sales_roles_enabled(membership.company_id) else None
+    invite, invite_url, email_sent, crm_owner_match = await svc.create_invite(
         company_id=membership.company_id,
         email=body.email,
         role=body.role,
         invited_by=user_id,
         send_email=body.send_email,
+        sales_role=sales_role,
     )
     return InviteResponse(
         id=str(invite["id"]),
@@ -189,6 +282,8 @@ async def create_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
+        sales_role=invite.get("sales_role"),
+        crm_owner_match=crm_owner_match,
     )
 
 
@@ -232,63 +327,41 @@ async def update_member_role(
 ):
     svc = CompanyService(supabase)
     membership = svc.require_membership(user_id)
-    updated = svc.update_member_role(
-        company_id=membership.company_id,
-        member_id=member_id,
-        role=body.role,
-        actor=membership,
-    )
-    return {"success": True, "role": updated.get("role")}
+    updated: dict = {}
 
+    # Sales fields are validated (and applied) before any role change, so a bad
+    # sales_role/handoff/visibility never leaves the role half-updated.
+    sales_fields_sent = {"sales_role", "handoff_ae_user_id", "visibility"} & body.model_fields_set
+    if sales_fields_sent and svc.sales_roles_enabled(membership.company_id):
+        kwargs: Dict[str, Any] = {}
+        if "sales_role" in sales_fields_sent:
+            kwargs["sales_role"] = body.sales_role
+        if "handoff_ae_user_id" in sales_fields_sent:
+            kwargs["handoff_ae_user_id"] = body.handoff_ae_user_id
+        if "visibility" in sales_fields_sent:
+            kwargs["visibility"] = body.visibility
+        updated = svc.update_member_profile(
+            company_id=membership.company_id,
+            actor=membership,
+            member_id=member_id,
+            **kwargs,
+        )
 
-@router.patch("/members/{member_id}/sales-profile", response_model=MemberResponse)
-async def update_member_sales_profile(
-    member_id: str,
-    body: UpdateSalesProfileRequest,
-    user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase),
-):
-    svc = CompanyService(supabase)
-    membership = svc.require_manage_role(user_id)
-    fields = body.model_fields_set
-    svc.update_member_sales_profile(
-        company_id=membership.company_id,
-        member_id=member_id,
-        sales_role=body.sales_role if "sales_role" in fields else None,
-        started_on=body.started_on.isoformat() if body.started_on else None,
-        clear_started_on="started_on" in fields and body.started_on is None,
-    )
-    member = next(
-        (m for m in svc.list_members(membership.company_id) if m["id"] == member_id),
-        None,
-    )
-    if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
-    return MemberResponse(**member)
+    if body.role is not None:
+        updated = svc.update_member_role(
+            company_id=membership.company_id,
+            member_id=member_id,
+            role=body.role,
+            actor=membership,
+        )
 
-
-@router.get("/sales-settings", response_model=SalesSettingsModel)
-async def get_sales_settings(
-    user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase),
-):
-    svc = CompanyService(supabase)
-    membership = svc.require_membership(user_id)
-    return SalesSettingsModel(**svc.get_sales_settings(membership.company_id))
-
-
-@router.patch("/sales-settings", response_model=SalesSettingsModel)
-async def update_sales_settings(
-    body: SalesSettingsModel,
-    user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase),
-):
-    svc = CompanyService(supabase)
-    membership = svc.require_manage_role(user_id)
-    merged = svc.update_sales_settings(
-        membership.company_id, body.model_dump(exclude_unset=True)
-    )
-    return SalesSettingsModel(**merged)
+    return {
+        "success": True,
+        "role": updated.get("role"),
+        "sales_role": updated.get("sales_role"),
+        "handoff_ae_user_id": (str(updated["handoff_ae_user_id"]) if updated.get("handoff_ae_user_id") else None),
+        "visibility": updated.get("visibility"),
+    }
 
 
 @router.delete("/members/{member_id}")
@@ -324,6 +397,7 @@ async def preview_invite(token: str, supabase: Client = Depends(get_supabase)):
     return {
         "email": email,
         "role": invite["role"],
+        "sales_role": invite.get("sales_role"),
         "company_name": company.get("name") if isinstance(company, dict) else None,
         "expires_at": invite["expires_at"],
         "requires_password": not existing_user_id,

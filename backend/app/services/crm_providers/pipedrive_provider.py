@@ -19,6 +19,16 @@ from app.services.pipedrive.preview import PipedrivePreviewService
 from app.services.pipedrive.schema import PipedriveSchemaService
 from app.services.pipedrive.search import PipedriveSearchService
 from app.services.pipedrive.sync import PipedriveSyncService
+from app.services.crm_providers.coverage import read_contact_emails
+
+
+async def read_emails(fetch_ids, fetch_one, *, connection_id: str, observed_at: str) -> dict:
+    return await read_contact_emails(
+        fetch_ids,
+        fetch_one,
+        connection_id=connection_id,
+        observed_at=observed_at,
+    )
 
 
 def _parse_expires_at(raw: Any) -> Optional[datetime]:
@@ -91,6 +101,8 @@ class PipedriveCRMProvider:
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
         del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
         del lost_reason, lost_reason_deal_property, lost_lead_status_value, on_hold_lead_status_value
@@ -120,6 +132,8 @@ class PipedriveCRMProvider:
             contact_id=contact_id,
             company_id=company_id,
             skip_deal=skip_deal,
+            stage_confirm=stage_confirm,
+            commitment_tasks=commitment_tasks,
         )
 
     async def build_preview(
@@ -141,6 +155,9 @@ class PipedriveCRMProvider:
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         del create_new_deal, include_unchanged
         return await self._preview_service().build_preview(
@@ -159,6 +176,9 @@ class PipedriveCRMProvider:
             selected_contact=selected_contact,
             contact_candidates=contact_candidates,
             skip_deal=skip_deal,
+            stage_confirm=stage_confirm,
+            meeting_booked_stage=meeting_booked_stage,
+            commitment_tasks=commitment_tasks,
         )
 
     async def find_matching_deals(

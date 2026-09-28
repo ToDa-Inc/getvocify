@@ -2,6 +2,7 @@
 WhatsApp message processor: orchestrate pipeline and handle button replies.
 """
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -21,6 +22,8 @@ from app.services.crm_providers import (
     resolve_sync_connection,
     resolve_sync_connection_prefer_hubspot,
 )
+from app.services.captures import interaction_kind_for, playbook_fields_for_capture, with_author_company
+from app.services.company import sales_role_for_user
 from app.services.extraction import ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
@@ -2120,6 +2123,39 @@ async def _transcribe_audio(
         return None, None
 
 
+_POST_EXTRACTION_TASKS: set[asyncio.Task] = set()
+
+
+async def _run_post_extraction(supabase: Client, memo_id: str, user_id: str, extraction: dict) -> None:
+    """Same hooks as the common extraction path, hooks before auto-approve. Neither step blocks the other."""
+    from app.services import memo_extraction_hooks
+    from app.services.hubspot import auto_sync
+
+    try:
+        memo_extraction_hooks.run_post_extraction_hooks(supabase, memo_id=memo_id, extraction=extraction)
+    except Exception:
+        logger.exception(
+            "WhatsApp post-extraction hooks failed",
+            extra=log_domain(DOMAIN_WHATSAPP, "post_extraction_failed", memo_id=memo_id),
+        )
+    try:
+        await auto_sync.maybe_auto_approve_hubspot_call(supabase, memo_id, user_id)
+    except Exception:
+        logger.exception(
+            "WhatsApp auto-approve failed",
+            extra=log_domain(DOMAIN_WHATSAPP, "auto_approve_failed", memo_id=memo_id),
+        )
+
+
+def _schedule_post_extraction(supabase: Client, memo_id: str, user_id: str, extraction: dict) -> None:
+    """Runs on the loop, not a thread: schedule_intelligence needs the running loop to queue C04."""
+    task = asyncio.get_running_loop().create_task(
+        _run_post_extraction(supabase, memo_id, user_id, extraction)
+    )
+    _POST_EXTRACTION_TASKS.add(task)
+    task.add_done_callback(_POST_EXTRACTION_TASKS.discard)
+
+
 async def _extract_and_create_memo(
     supabase: Client,
     user_id: str,
@@ -2158,6 +2194,7 @@ async def _extract_and_create_memo(
             prepare_transcript_for_extraction,
             schedule_transcript_polish,
         )
+        from app.services.followup import schedule_followup
 
         product_context = load_product_context(supabase, user_id)
         profile = load_stt_profile(supabase, user_id)
@@ -2185,10 +2222,21 @@ async def _extract_and_create_memo(
             "extraction": extraction.model_dump(),
             "processed_at": datetime.utcnow().isoformat(),
             "source": "whatsapp",
+            "interaction_kind": interaction_kind_for("whatsapp", None, None),
             "whatsapp_message_id": whatsapp_message_id,
         }
         if conversation_id:
             insert["conversation_id"] = conversation_id
+        insert = with_author_company(supabase, insert)
+        company_id = insert.get("company_id")
+        if company_id:
+            insert.update(playbook_fields_for_capture(
+                supabase,
+                str(company_id),
+                default_when_unspecified=True,
+                sales_role=sales_role_for_user(supabase, user_id),
+                interaction_kind=insert["interaction_kind"],
+            ))
         try:
             r = supabase.table("memos").insert(insert).execute()
         except Exception as insert_exc:
@@ -2214,17 +2262,23 @@ async def _extract_and_create_memo(
         if not r.data:
             return None, None
         memo_id = r.data[0]["id"]
+        extraction_data = extraction.model_dump() if hasattr(extraction, "model_dump") else extraction
+        # Redelivery takes the idempotent exit, so a later failure here must not cost the memo its hooks.
+        _schedule_post_extraction(supabase, str(memo_id), user_id, extraction_data)
         from app.services.pipeline_lease import update_memo_row
 
         update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
         schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
+        schedule_followup(supabase, str(memo_id), company_id=r.data[0].get("company_id"))
+        from app.services.intelligence.worker import record_enqueue
+        record_enqueue(
+            supabase,
+            {"id": str(memo_id), "user_id": user_id, "extraction": extraction_data},
+        )
         logger.info(
             "✅ Memo created",
             extra=log_domain(DOMAIN_WHATSAPP, "memo_created", memo_id=memo_id, whatsapp_message_id=whatsapp_message_id),
         )
-        from app.services.hubspot.auto_sync import maybe_auto_approve_hubspot_call
-
-        await maybe_auto_approve_hubspot_call(supabase, str(memo_id), user_id)
         return memo_id, extraction
     except Exception as e:
         logger.exception(

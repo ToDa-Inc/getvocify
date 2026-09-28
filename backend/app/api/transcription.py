@@ -68,6 +68,12 @@ router = APIRouter(prefix="/api/v1/transcription", tags=["transcription"])
 VALID_MODES = {"default", "memo", "enroll", "copilot", COPILOT_CHANNEL_MODE}
 
 
+def _offset_ms(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(round(float(value) * 1000))
+
+
 def _extract_words(data: dict) -> list[dict[str, Any]]:
     """Pull word-level content + speaker from Speechmatics results[]."""
     words: list[dict[str, Any]] = []
@@ -95,6 +101,8 @@ def _extract_words(data: dict) -> list[dict[str, Any]]:
                 "text": str(content),
                 "speaker": str(speaker) if speaker else None,
                 "is_punct": False,
+                "start_ms": _offset_ms(item.get("start_time")),
+                "end_ms": _offset_ms(item.get("end_time")),
             }
         )
     return words
@@ -284,7 +292,7 @@ class SpeechmaticsProxy:
 
                         elif msg_type in ("AddPartialTranscript", "AddTranscript"):
                             transcript = data.get("metadata", {}).get("transcript", "")
-                            words = _extract_words(data) if self.mode in ("enroll", "copilot") else []
+                            words = _extract_words(data) if self.mode in ("enroll", "copilot", COPILOT_CHANNEL_MODE) else []
                             if not transcript and not words:
                                 continue
                             response: dict[str, Any] = {

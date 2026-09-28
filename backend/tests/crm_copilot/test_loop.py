@@ -228,3 +228,60 @@ async def test_hollow_apply_write_confirms_note_instead():
     assert "Les encaja" in result.text
     assert "Solo contacto" not in result.text
     assert "Actualizar or No actualizar" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_each_visible_tool_is_reported_running_then_done():
+    events = []
+
+    async def execute(name, args, ctx):
+        if name == "get_contact":
+            return {"ok": False, "error": "not_found"}
+        return {"contacts": [{"id": "c1"}]}
+
+    llm = ScriptedLLM([
+        ToolMsg(tool_calls=[
+            {"id": "0", "name": "load_skill", "arguments": {"name": "lookup"}},
+            {"id": "1", "name": "search_contacts", "arguments": {"query": "  Marc   Boixet "}},
+            {"id": "2", "name": "get_contact", "arguments": {"contact_id": "c1"}},
+        ]),
+        ToolMsg(content="No lo encuentro."),
+    ])
+    await run_copilot_turn(
+        "qué pasó con Marc", artifacts={}, llm=llm, execute=execute, tools=OPENAI_TOOLS,
+        system="test", on_step=events.append,
+    )
+    # load_skill is bookkeeping, never a step; a search shows what it looked for, never an id.
+    assert events == [
+        {"tool": "search_contacts", "state": "running", "detail": "Marc Boixet"},
+        {"tool": "search_contacts", "state": "done", "detail": "Marc Boixet"},
+        {"tool": "get_contact", "state": "running", "detail": ""},
+        {"tool": "get_contact", "state": "error", "detail": ""},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_broken_progress_callback_never_breaks_the_turn():
+    def boom(_event):
+        raise RuntimeError("ui gone")
+
+    async def execute(name, args, ctx):
+        return {"contacts": []}
+
+    llm = ScriptedLLM([
+        ToolMsg(tool_calls=[{"id": "1", "name": "search_contacts", "arguments": {"query": "x"}}]),
+        ToolMsg(content="Nada."),
+    ])
+    result = await run_copilot_turn(
+        "x", artifacts={}, llm=llm, execute=execute, tools=OPENAI_TOOLS, system="test", on_step=boom,
+    )
+    assert result.text == "Nada."
+
+
+@pytest.mark.asyncio
+async def test_an_empty_model_answer_is_never_an_english_done():
+    from app.services.crm_copilot.loop import EMPTY_ANSWER
+
+    llm = ScriptedLLM([ToolMsg(content="")])
+    result = await run_copilot_turn("hola", artifacts={}, llm=llm, execute=None, tools=OPENAI_TOOLS, system="test")
+    assert result.text == EMPTY_ANSWER

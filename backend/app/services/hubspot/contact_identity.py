@@ -184,9 +184,9 @@ def extraction_phone(extraction: MemoExtraction) -> Optional[str]:
     return None
 
 
-def _display_name(props: dict) -> Optional[str]:
-    name = f"{props.get('firstname', '')} {props.get('lastname', '')}".strip()
-    return name or None
+def display_name(props: dict) -> Optional[str]:
+    parts = (str(props.get(key) or "").strip() for key in ("firstname", "lastname"))
+    return " ".join(part for part in parts if part) or None
 
 
 def _contact_to_match(
@@ -201,7 +201,7 @@ def _contact_to_match(
     return ContactMatch(
         contact_id=str(contact.id),
         email=(props.get("email") or "") or "",
-        name=_display_name(props),
+        name=display_name(props),
         phone=props.get("phone") or props.get("mobilephone"),
         jobtitle=props.get("jobtitle"),
         company_id=company_id,
@@ -362,7 +362,7 @@ async def _anchor_from_contact(
     pipeline_id: Optional[str],
 ) -> ContactAnchor:
     props = await _enrich_props(contacts, contact)
-    name = _display_name(props)
+    name = display_name(props)
     email = (props.get("email") or "").strip().lower()
     company_id, company_name = await _company_for_contact(associations, search, str(contact.id))
     deal_matches = await _deal_matches_for_contact(

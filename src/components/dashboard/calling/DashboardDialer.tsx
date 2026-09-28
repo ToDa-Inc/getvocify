@@ -27,10 +27,9 @@ import {
   telnyxRtcClientOptions,
   watchRemoteAudio,
   voiceClientFromToken,
-  connectWithVoiceTokenRecovery,
-  applyVoiceTokenRefresh,
   type VoiceClient,
 } from "@/lib/dial-session";
+import { useLanguage } from "@/lib/i18n";
 import { ROUTES } from "@/shared/lib/constants";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import {
@@ -44,6 +43,9 @@ import {
   normalizeDialTarget,
   type CallState,
 } from "@/lib/dial-target";
+import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
+import { useAuth } from "@/features/auth";
 
 type TelnyxCall = {
   id?: string;
@@ -78,12 +80,20 @@ type SelectedTarget = {
 type LiveInfo = {
   state: CallState;
   elapsed: string;
+  contact?: DialerFocus | null;
+  callSid?: string | null;
 };
 
 type Props = {
   callerIds: CallerId[];
   onLiveChange?: (live: LiveInfo) => void;
   onRequestClose?: () => void;
+  focusContact?: DialerFocus | null;
+  onFocusHandled?: () => void;
+  compact?: boolean;
+  /** Off when the rep home's contact panel already shows the brief. */
+  showBrief?: boolean;
+  onCallEnded?: (payload: CallEndedPayload) => void;
 };
 
 async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
@@ -99,9 +109,21 @@ async function fetchCarrierDisposition(callSid: string | null): Promise<string |
   return latest.disposition || null;
 }
 
-export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Props) => {
+export const DashboardDialer = ({
+  callerIds,
+  onLiveChange,
+  onRequestClose,
+  focusContact = null,
+  onFocusHandled,
+  compact = false,
+  showBrief = true,
+  onCallEnded,
+}: Props) => {
+  const { t } = useLanguage();
+  const { user } = useAuth();
+  const callCopy = t.product;
   const verified = callerIds.filter(
-    (c) => c.status === "verified" && c.source !== "twilio",
+    (c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked,
   );
   const defaultFrom =
     verified.find((c) => c.isDefault)?.phoneNumber || verified[0]?.phoneNumber || "";
@@ -130,11 +152,16 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   const callSidRef = useRef<string | null>(null);
   const wasAnsweredRef = useRef(false);
   const pendingMissRef = useRef(false);
-  const placingCallRef = useRef(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef(query);
   const onLiveChangeRef = useRef(onLiveChange);
+  const onCallEndedRef = useRef(onCallEnded);
+  const wasInCallRef = useRef(false);
+  const callFailedRef = useRef(false);
+  const remoteAudioRef = useRef(false);
+  const endedReportedRef = useRef(false);
   onLiveChangeRef.current = onLiveChange;
+  onCallEndedRef.current = onCallEnded;
   queryRef.current = query;
 
   useEffect(() => {
@@ -144,6 +171,31 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   useEffect(() => {
     searchRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!focusContact?.contactId || state !== CALL_STATES.IDLE) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const results = await crmApi.searchContacts(focusContact.contactId);
+        if (cancelled) return;
+        const hit =
+          results.find((row: ContactHit) => row.contact_id === focusContact.contactId) ?? results[0];
+        if (!hit) return;
+        const dest = dialTargetFromContact(hit);
+        if (!dest) return;
+        const name = hit.name || focusContact.name || hit.contact_id;
+        setSelected({ contactId: hit.contact_id, name, phone: dest });
+        setQuery(name);
+        setHits(results);
+      } finally {
+        if (!cancelled) onFocusHandled?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focusContact?.contactId, focusContact?.name, onFocusHandled, state]);
 
   useEffect(() => {
     if (!answeredAt || state !== CALL_STATES.ACTIVE) return;
@@ -158,7 +210,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       return;
     }
     const timer = window.setTimeout(() => {
-      setOutcome("Sin respuesta");
+      setOutcome(callCopy.callNoAnswer);
       pendingMissRef.current = false;
       hangupRef.current();
     }, TELNYX_RING_TIMEOUT_MS);
@@ -178,7 +230,10 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       try {
-        const message = dispositionMessage(await fetchCarrierDisposition(callSidRef.current));
+        const message = dispositionMessage(
+          await fetchCarrierDisposition(callSidRef.current),
+          callCopy,
+        );
         if (message) {
           setOutcome(message);
           setError(null);
@@ -195,11 +250,32 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     return () => {
       stopped = true;
     };
-  }, [state]);
+  }, [state, callCopy]);
 
   useEffect(() => {
-    onLiveChangeRef.current?.({ state, elapsed });
-  }, [state, elapsed]);
+    const contact =
+      selected?.contactId != null
+        ? { contactId: selected.contactId, name: selected.name }
+        : focusContact;
+    onLiveChangeRef.current?.({ state, elapsed, contact, callSid: callSidRef.current });
+    if (state !== CALL_STATES.IDLE) {
+      wasInCallRef.current = true;
+      endedReportedRef.current = false;
+      return;
+    }
+    if (!wasInCallRef.current || endedReportedRef.current) return;
+    wasInCallRef.current = false;
+    endedReportedRef.current = true;
+    // Memo and screening only exist once the recording is processed; the home polls for them.
+    const answered = wasAnsweredRef.current || remoteAudioRef.current;
+    const failed = callFailedRef.current || !answered;
+    callFailedRef.current = false;
+    onCallEndedRef.current?.({
+      callSid: callSidRef.current,
+      answered,
+      callStatus: failed ? "failed" : undefined,
+    });
+  }, [state, elapsed, selected, focusContact]);
 
   useEffect(() => {
     return () => {
@@ -246,13 +322,13 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       } catch {
         if (queryRef.current.trim() !== q) return;
         setHits([]);
-        setSearchError("No se pudo buscar en HubSpot");
+        setSearchError(callCopy.callHubSpotSearchFailed);
       } finally {
         if (queryRef.current.trim() === q) setSearching(false);
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [query, state]);
+  }, [query, state, callCopy]);
 
   const destroyDevice = () => {
     const device = deviceRef.current;
@@ -273,17 +349,6 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     const device = new Device(token, {
       codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
     });
-    device.on("tokenWillExpire", () => {
-      void applyVoiceTokenRefresh({
-        remint: async () => (await callsApi.createToken()).token,
-        apply: (next) => {
-          deviceRef.current?.updateToken(next);
-        },
-        onFailure: () => {
-          if (!callRef.current) destroyDevice();
-        },
-      });
-    });
     device.on("error", (err) => {
       if (
         isCarrierHangupError(err) ||
@@ -293,12 +358,8 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       ) {
         return;
       }
-      if (isVoiceAccessTokenError(err)) {
-        destroyDevice();
-        // connect() / recovery owns the retry while placing; idle expiry is silent.
-        if (placingCallRef.current || !callRef.current) return;
-      }
-      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
+      if (isVoiceAccessTokenError(err)) destroyDevice();
+      setError(userFacingCallError(err, callCopy));
       setState(CALL_STATES.IDLE);
     });
     deviceRef.current = device;
@@ -367,7 +428,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       client.on("telnyx.error", (err: { message?: string }) => {
         if (settled) return;
         settled = true;
-        reject(new Error(err?.message || "Error de Telnyx"));
+        reject(new Error(err?.message || callCopy.dialTelnyxError));
       });
       client.connect();
     });
@@ -383,6 +444,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     });
     telnyxCallRef.current = call;
     stopRemoteWatchRef.current = watchRemoteAudio(remote, () => {
+      remoteAudioRef.current = true;
       stopRingback();
     });
 
@@ -398,7 +460,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       if (next === CALL_STATES.IDLE) {
-        const ended = telnyxHangupMessage(notification.call);
+        const ended = telnyxHangupMessage(notification.call, callCopy);
         if (ended) {
           setOutcome(ended);
           setError(null);
@@ -413,27 +475,24 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
   const startTwilioCall = async (token: string, target: SelectedTarget) => {
     voiceClientRef.current = "twilio";
-    placingCallRef.current = true;
+    const connect = async (forceNew = false) => {
+      const device = await ensureDevice(token, { forceNew });
+      return device.connect({
+        params: {
+          To: target.phone,
+          CallerId: from,
+          ContactId: target.contactId || "",
+        },
+      });
+    };
     let call;
     try {
-      call = await connectWithVoiceTokenRecovery({
-        token,
-        connect: async (jwt, forceNew) => {
-          const device = await ensureDevice(jwt, { forceNew });
-          return device.connect({
-            params: {
-              To: target.phone,
-              CallerId: from,
-              ContactId: target.contactId || "",
-            },
-          });
-        },
-        remint: async () => (await callsApi.createToken()).token,
-      });
-      callRef.current = call;
-    } finally {
-      placingCallRef.current = false;
+      call = await connect();
+    } catch (err) {
+      if (!isVoiceAccessTokenError(err)) throw err;
+      call = await connect(true);
     }
+    callRef.current = call;
     const rememberSid = () => {
       const sid = call.parameters?.CallSid;
       if (sid) callSidRef.current = sid;
@@ -455,7 +514,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     call.on("error", (err) => {
       if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) {
         if (!wasAnsweredRef.current) {
-          setOutcome((prev) => prev || "Sin respuesta");
+          setOutcome((prev) => prev || callCopy.callNoAnswer);
         }
         hangup();
         return;
@@ -465,7 +524,8 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
         return;
       }
       if (isVoiceAccessTokenError(err)) destroyDevice();
-      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
+      callFailedRef.current = true;
+      setError(userFacingCallError(err, callCopy));
       pendingMissRef.current = false;
       hangup();
     });
@@ -475,11 +535,13 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
     setError(null);
     setOutcome(null);
     if (!from) {
-      toast.error("Verifica tu número antes de llamar");
+      toast.error(callCopy.dialVerifyBeforeCall);
       return;
     }
     callSidRef.current = null;
     wasAnsweredRef.current = false;
+    remoteAudioRef.current = false;
+    callFailedRef.current = false;
     pendingMissRef.current = true;
     try {
       setSelected(target);
@@ -500,16 +562,16 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       stopRingback();
       setState(CALL_STATES.IDLE);
       pendingMissRef.current = false;
-      const message = userFacingCallError(err) || "No se pudo iniciar la llamada.";
+      const message = userFacingCallError(err, callCopy);
       setError(message);
-      toast.error(message);
+      if (message) toast.error(message);
     }
   };
 
   const callContact = (hit: ContactHit) => {
     const dest = dialTargetFromContact(hit);
     if (!dest) {
-      toast.error("Este contacto no tiene teléfono");
+      toast.error(callCopy.dialContactNoPhone);
       return;
     }
     void startCall({
@@ -554,8 +616,54 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       state === CALL_STATES.ACTIVE
         ? elapsed
         : state === CALL_STATES.IDLE
-          ? outcome || "Listo para llamar"
+          ? outcome || callCopy.dialReadyToCall
           : callButtonLabel(state);
+
+    if (compact && inCall) {
+      return (
+        <div className="select-none">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 text-[10px] font-medium text-muted-foreground">
+              {contactInitials(selected?.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-foreground">{selected?.name}</p>
+              <p className="mt-0.5 text-[11px] tabular-nums text-beige">{label}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {state === CALL_STATES.ACTIVE ? (
+                <button
+                  type="button"
+                  aria-label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic}
+                  aria-pressed={muted}
+                  onClick={toggleMute}
+                  className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+                    muted
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+                  }`}
+                >
+                  {muted ? (
+                    <MicrophoneSlash size={15} weight="light" />
+                  ) : (
+                    <Microphone size={15} weight="light" />
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => hangup()}
+                aria-label={callCopy.panel_hang_up}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] text-destructive hover:bg-destructive/10"
+              >
+                <PhoneDisconnect size={15} weight="light" />
+                {callCopy.panel_hang_up}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="select-none">
@@ -574,11 +682,17 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
           </div>
         </div>
 
+        {showBrief && !compact && user?.company?.briefV2 && selected?.contactId ? (
+          <div className="mt-3">
+            <ContactBrief contactId={selected.contactId} compact />
+          </div>
+        ) : null}
+
         <div className="mt-4 flex items-center justify-center gap-2">
           {live ? (
             <button
               type="button"
-              aria-label={muted ? "Activar micrófono" : "Silenciar"}
+              aria-label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic}
               aria-pressed={muted}
               onClick={toggleMute}
               className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
@@ -647,9 +761,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
               onClick={() => onRequestClose?.()}
               className="text-beige hover:underline"
             >
-              Verifica tu número
+              {callCopy.dialVerifyNumber}
             </Link>{" "}
-            para llamar
+            {callCopy.dialToCallHint}
           </p>
         )}
 
@@ -672,7 +786,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
           autoComplete="off"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Nombre, email o teléfono"
+          placeholder={callCopy.dialSearchPlaceholder}
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             const first = hits.find((hit) => dialTargetFromContact(hit));
@@ -736,7 +850,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
                     {hit.name || hit.email || "Contacto"}
                   </span>
                   <span className="block truncate text-[11px] text-muted-foreground">
-                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : "Sin teléfono"]
+                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : callCopy.dialNoPhone]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
@@ -747,7 +861,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
         {!searching && query.trim().length >= 2 && hits.length === 0 && !typedNumber ? (
           <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-            {searchError || "Ningún contacto. Prueba otro nombre."}
+            {searchError || callCopy.dialNoContactsTryAnother}
           </p>
         ) : null}
 
@@ -769,9 +883,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             onClick={() => onRequestClose?.()}
             className="text-beige hover:underline"
           >
-            Verifica tu número
+            {callCopy.dialVerifyNumber}
           </Link>{" "}
-          para llamar
+          {callCopy.dialToCallHint}
         </p>
       )}
     </div>

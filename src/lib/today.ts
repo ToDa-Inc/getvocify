@@ -1,0 +1,316 @@
+/** How Hoy reads GET /today. A partial source is not "nothing urgent". */
+
+import type { ProductTranslations } from "./product-catalog";
+
+export type TodayItem = {
+  type: string;
+  dedupe_key: string | null;
+  contact_id?: string | null;
+  connection_id?: string | null;
+  deal_id?: string | null;
+  reason: string;
+  contact_name?: string | null;
+  company_name?: string | null;
+  detail?: string | null;
+  remote_id?: string | null;
+  origins: string[];
+  supporting: string[];
+  open_url?: string | null;
+  id?: string | null;
+  version?: number | null;
+  status?: string | null;
+  undo_deadline?: string | null;
+  last_action_request_id?: string | null;
+  memo_id?: string | null;
+  due_at?: string | null;
+  precision?: string | null;
+  timezone?: string | null;
+  /** T5 (HOY_LEAD_TIERS_ENABLED): 0-100 second-order ranking signal, absent otherwise. */
+  heat?: number | null;
+  /** T5 review: only "Llamar ahora"'s tel: fallback reads this; absent until a source sends it. */
+  phone?: string | null;
+  /** Deal cards (HOY_AE_DEALS_ENABLED): the meeting the SDR booked, when the handoff carries it. */
+  meeting_starts_at?: string | null;
+  /** Deal cards: the handoff behind a handed-off deal (absent for the rep's own deals). */
+  handoff_id?: string | null;
+};
+
+/**
+ * The AE's deal card line for the meeting an SDR booked: "Reunión: mar, 29 sept, 11:00".
+ * Null without a (valid) time - the card then just says it was handed off.
+ */
+export function dealMeetingLine(
+  item: Pick<TodayItem, "meeting_starts_at">,
+  { locale, template, timeZone }: { locale: string; template: string; timeZone?: string },
+): string | null {
+  const raw = item.meeting_starts_at;
+  if (!raw) return null;
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) return null;
+  const when = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+  }).format(at);
+  return template.replace("{when}", when);
+}
+
+export type FollowupRow = {
+  memo_id: string;
+  contact_id: string | null;
+  contact_name: string | null;
+  company_name: string | null;
+  subject: string | null;
+  status: "ready" | "generating" | "unavailable";
+  generated_at: string | null;
+};
+
+export type UpcomingRow = {
+  memo_id: string;
+  contact_id: string | null;
+  contact_name: string | null;
+  company_name: string | null;
+  text: string;
+  due_at: string;
+  precision: "date" | "time" | null;
+  crm_task_id: string | null;
+  /** Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): "followup" for a contact the cadence brings back
+   * on this date; absent for a commitment. */
+  kind?: "followup";
+};
+
+export type DoneRow = {
+  kind: string;
+  contact_name: string | null;
+  contact_id: string | null;
+  at: string;
+  memo_id: string | null;
+};
+
+/** T6 (HOY_AE_DEALS_ENABLED): the same items, split by role - "items" keeps working for
+ * compatibility. A role's own keys are the only ones present (an SDR gets `calls` only,
+ * an AE `meetings`+`deals`, General all three) - see build_today_view's sections_for_role. */
+export type TodaySections = {
+  calls?: TodayItem[];
+  meetings?: TodayItem[];
+  deals?: TodayItem[];
+  /** Lista 4 T2/T8 (HOY_SDR_SECTIONS_ENABLED): each capped on its own. SDR: tasks,
+   * followups, new (next to `calls`); AE: demos, tasks, followups; General: all four. */
+  tasks?: TodayItem[];
+  followups?: TodayItem[];
+  new?: TodayItem[];
+  demos?: TodayItem[];
+};
+
+export type TodayView = {
+  items: TodayItem[];
+  sections?: TodaySections;
+  /** How many cards each block left out past its cap (only the keys sent in `sections`). */
+  sections_folded?: Partial<Record<"tasks" | "followups" | "new" | "demos", number>>;
+  pulse: number | null;
+  folded_count: number;
+  generated_at: string;
+  coverage: Record<string, string>;
+};
+
+/** The AE's "deals en curso" cards, or [] when the flag is off or this rep has none. */
+export function dealItems(view: TodayView | null | undefined): TodayItem[] {
+  return view?.sections?.deals ?? [];
+}
+
+export type TodaySurface =
+  | { kind: "loading" }
+  | { kind: "error"; title: string }
+  | { kind: "connect"; title: string; action: string | null; detail: string | null }
+  | { kind: "no-activity"; title: string; actions: readonly ["today_record", "open_contacts"] }
+  | { kind: "incomplete"; title: string; generatedAt: string }
+  | { kind: "clear"; title: string }
+  | { kind: "list"; items: TodayItem[]; note: string | null; stale: boolean; generatedAt: string; pulse: number | null; foldedCount: number };
+
+export type TodayCopy = Pick<
+  ProductTranslations,
+  | "today_incomplete"
+  | "today_connect_title"
+  | "connect_crm"
+  | "today_connect_admin_detail"
+  | "today_prepare_failed"
+  | "today_clear"
+  | "today_no_activity"
+>;
+
+function sourcesComplete(coverage: Record<string, string>): boolean {
+  const values = Object.values(coverage);
+  return values.length > 0 && values.every((value) => value === "complete");
+}
+
+export function todaySurface(
+  input: {
+    data?: TodayView | null;
+    errorStatus?: number | null;
+    isLoading: boolean;
+    connected: boolean;
+    role: string;
+  },
+  copy: TodayCopy,
+): TodaySurface {
+  if (input.data) {
+    const incomplete = !sourcesComplete(input.data.coverage);
+    const items = todayConversationItems(input.data.items);
+    if (items.length > 0) {
+      return {
+        kind: "list",
+        items,
+        note: incomplete || input.errorStatus ? copy.today_incomplete : null,
+        stale: Boolean(input.errorStatus),
+        generatedAt: input.data.generated_at,
+        pulse: input.data.pulse,
+        foldedCount: 0,
+      };
+    }
+    if (!input.connected) {
+      const canConnect = input.role === "owner" || input.role === "admin";
+      return {
+        kind: "connect",
+        title: copy.today_connect_title,
+        action: canConnect ? copy.connect_crm : null,
+        detail: canConnect ? null : copy.today_connect_admin_detail,
+      };
+    }
+    if (incomplete || input.errorStatus) {
+      return {
+        kind: "incomplete",
+        title: copy.today_incomplete,
+        generatedAt: input.data.generated_at,
+      };
+    }
+    return { kind: "clear", title: copy.today_clear };
+  }
+  if (input.isLoading) return { kind: "loading" };
+  if (input.errorStatus) return { kind: "error", title: copy.today_prepare_failed };
+  if (!input.connected) {
+    const canConnect = input.role === "owner" || input.role === "admin";
+    return {
+      kind: "connect",
+      title: copy.today_connect_title,
+      action: canConnect ? copy.connect_crm : null,
+      detail: canConnect ? null : copy.today_connect_admin_detail,
+    };
+  }
+  return { kind: "no-activity", title: copy.today_no_activity, actions: ["today_record", "open_contacts"] };
+}
+
+const SUPPORTING_KEYS: Record<string, string> = {
+  commitment_due: "today_signal_commitment",
+  meeting_today: "today_signal_meeting",
+  no_reply: "today_signal_no_reply",
+  going_cold: "today_signal_cold",
+  objection_open: "today_signal_objection",
+  manual_task: "today_origin_manual",
+  callback_no_answer: "today_signal_callback_no_answer",
+  never_contacted: "today_signal_never_contacted",
+  followup_due: "today_signal_followup",
+  deal_in_progress: "today_signal_deal",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  pain_confirmed: "today_signal_pain",
+  uncalled: "today_signal_uncalled",
+};
+
+/** Vocify signals and commitments — not raw CRM task rows (hidden in UI until linked to contacts). */
+export function todayConversationItems(items: TodayItem[]): TodayItem[] {
+  return items.filter((item) => item.type !== "manual_task");
+}
+
+export function splitTodayItems(items: TodayItem[]): { calls: TodayItem[]; tasks: TodayItem[] } {
+  const calls: TodayItem[] = [];
+  const tasks: TodayItem[] = [];
+  for (const item of items) {
+    if (item.type === "manual_task") tasks.push(item);
+    else calls.push(item);
+  }
+  return { calls, tasks };
+}
+
+export function signalLabelKey(type: string): string {
+  return SUPPORTING_KEYS[type] || PRIORITY_LABELS[type] || "today_origin_detected";
+}
+
+export function originKey(origins: string[]): "today_origin_manual" | "today_origin_detected" | "today_origin_both" {
+  const manual = origins.includes("manual");
+  const detected = origins.some((origin) => origin !== "manual");
+  if (manual && detected) return "today_origin_both";
+  if (manual) return "today_origin_manual";
+  return "today_origin_detected";
+}
+
+export function supportingKeys(types: string[]): string[] {
+  return types.flatMap((type) => (SUPPORTING_KEYS[type] ? [SUPPORTING_KEYS[type]] : []));
+}
+
+/** Where "Llamar ahora"/the CRM icon opens: the item's own open_url, else a built record link. */
+export function todayItemHref(item: TodayItem, provider: string | null, portalId: string | null): string | null {
+  return item.open_url || contactRecordUrl(provider, portalId, item.contact_id ?? null);
+}
+
+/** T5 review: with a dialer, any contact can be called. Without one, the button only shows
+ * when there is somewhere to send the rep - the CRM record, or (once a source carries it)
+ * a tel: number - never one that would do nothing on click. */
+export function canShowTodayCall(
+  item: TodayItem,
+  opts: { canDial: boolean; leadTiersEnabled?: boolean },
+  provider: string | null,
+  portalId: string | null,
+): boolean {
+  if (!item.contact_id) return false;
+  if (opts.canDial) return true;
+  if (!opts.leadTiersEnabled) return false;
+  return Boolean(todayItemHref(item, provider, portalId) || item.phone);
+}
+
+export function contactRecordUrl(
+  provider: string | null,
+  portalId: string | null,
+  contactId: string | null,
+): string | null {
+  if (!contactId) return null;
+  const name = (provider || "").trim().toLowerCase();
+  if (name === "hubspot" && portalId) {
+    return `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`;
+  }
+  return null;
+}
+
+export function crmContactsUrl(provider: string | null, portalId: string | null): string | null {
+  const name = (provider || "").trim().toLowerCase();
+  if (name === "hubspot" && portalId) return `https://app.hubspot.com/contacts/${portalId}/objects/0-1`;
+  if (name === "pipedrive") return "https://app.pipedrive.com/persons";
+  return null;
+}
+
+export function crmTasksUrl(provider: string | null, portalId: string | null): string | null {
+  const name = (provider || "").trim().toLowerCase();
+  if (name === "hubspot" && portalId) {
+    return `https://app.hubspot.com/contacts/${portalId}/objects/0-27/views/all/list`;
+  }
+  if (name === "pipedrive") return "https://app.pipedrive.com/activities";
+  return null;
+}
+
+export const TODAY_TASKS_VISIBLE = 3;
+
+export function cardsAfterDismiss(server: TodayItem[], acted: TodayItem[], nowMs: number): TodayItem[] {
+  const actedById = new Map(acted.filter((item) => item.id).map((item) => [item.id as string, item]));
+  const undoable = (item: TodayItem) =>
+    item.status === "dismissed" && item.undo_deadline != null && Date.parse(item.undo_deadline) >= nowMs;
+  const merged = server.map((item) => {
+    const next = item.id ? actedById.get(item.id) : undefined;
+    return next && undoable(next) ? next : item;
+  });
+  const serverIds = new Set(server.map((item) => item.id).filter(Boolean));
+  const extra = acted.filter((item) => item.id && !serverIds.has(item.id) && undoable(item));
+  return [...merged, ...extra];
+}

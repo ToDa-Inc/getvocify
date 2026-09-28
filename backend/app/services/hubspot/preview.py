@@ -11,11 +11,13 @@ from app.models.memo import MemoExtraction
 from app.models.approval import ApprovalPreview, ProposedUpdate, DealMatch, AvailableField, ContactMatch
 from .client import HubSpotClient
 from app.services.deal_merge import merge_description
+from app.services.deal_stage_confirm import suggested_stage
 from .deals import HubSpotDealService, _sanitize_enum_properties
 from .tasks import format_next_step_task, _next_step_schedule_hints, detected_task_due_iso
 from .schema import HubSpotSchemaService
 from .associations import HubSpotAssociationService
 from .contacts import HubSpotContactService
+from .contact_identity import display_name
 from .companies import HubSpotCompanyService
 from .object_properties import (
     contact_properties_from_extraction,
@@ -136,10 +138,17 @@ class HubSpotPreviewService:
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         """
         Build a preview from the same allowlist, stage-resolution, and validation
         paths used by sync so every proposed update is actually deliverable.
+
+        stage_confirm (DEAL_STAGE_CONFIRM_ENABLED): any deal gets a dealstage row with
+        its pipeline's stages, preselecting meeting_booked_stage (same pipeline only),
+        else the inferred stage, else the current/default stage.
 
         Modes:
         - skip_deal → contact/company fields only (even with no locked contact)
@@ -191,6 +200,8 @@ class HubSpotPreviewService:
         # as every other field, so a rep's manual pipeline management is never
         # silently overridden by the preview/sync.
         show_stage = (is_new_deal and not skip_deal) or "dealstage" in allowed_fields
+        if stage_confirm:
+            show_stage = not skip_deal
         if "dealstage" in allowed_fields or not show_stage:
             preview_fields = allowed_fields
         else:
@@ -201,29 +212,38 @@ class HubSpotPreviewService:
         # pipeline's stage of the same name, which sync would then reject (or worse,
         # preview one thing and sync would resolve a different one).
         existing_deal_pipeline_id: Optional[str] = None
+        existing_deal_stage_id: Optional[str] = None
         if selected_deal_id and not is_new_deal:
             try:
-                _pipeline_probe = await self.deals.get(selected_deal_id, properties=["pipeline"])
+                _pipeline_probe = await self.deals.get(
+                    selected_deal_id,
+                    properties=["pipeline", "dealstage"] if stage_confirm else ["pipeline"],
+                )
                 existing_deal_pipeline_id = (_pipeline_probe.properties or {}).get("pipeline")
+                existing_deal_stage_id = (_pipeline_probe.properties or {}).get("dealstage")
             except Exception:
                 pass
 
         filtered_properties: dict[str, Any] = {}
+        inferred_stage_id: Optional[str] = None
         if not skip_deal:
             # Get properties using the exact same mapping + validation as sync, so a
             # field only shows up here if it will actually be written on approval.
             properties = await self.deals.map_extraction_to_properties_with_stage(
                 extraction,
-                allowed_fields=allowed_fields,
+                allowed_fields=preview_fields if stage_confirm else allowed_fields,
                 default_pipeline_id=default_pipeline_id if is_new_deal else existing_deal_pipeline_id,
                 default_stage_id=default_stage_id if is_new_deal else None,
                 is_new_deal=is_new_deal,
             )
             properties = await _sanitize_enum_properties(self.schema, properties)
             filtered_properties = {k: v for k, v in properties.items() if k in preview_fields}
+            if stage_confirm:
+                inferred_stage_id = filtered_properties.pop("dealstage", None)
 
         field_labels: dict[str, str] = {}
         field_specs_map: dict[str, dict] = {}
+        stage_pipeline = None
         try:
             multi_specs = await self.schema.get_multi_object_field_specs(
                 allowed_deal_fields=preview_fields,
@@ -261,7 +281,20 @@ class HubSpotPreviewService:
 
         # Next steps → HubSpot tasks on the deal, or the contact when contact-only
         next_steps = extraction.nextSteps or []
-        if not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
+        for i, task in enumerate(commitment_tasks or []):
+            proposed_updates.append(ProposedUpdate(
+                field_name=f"next_step_task_{i}",
+                field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
+                current_value=None,
+                new_value=task.text,
+                extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                object_type="task",
+                due_date=task.due_date,
+                commitment_id=task.commitment_id,
+            ))
+        if commitment_tasks is not None:
+            next_steps = []
+        elif not next_steps and extraction.raw_extraction and extraction.raw_extraction.get("hs_next_step"):
             hs_next = extraction.raw_extraction["hs_next_step"]
             next_steps = [hs_next] if isinstance(hs_next, str) else (hs_next if isinstance(hs_next, list) else [])
         for i, step in enumerate(next_steps):
@@ -315,9 +348,7 @@ class HubSpotPreviewService:
                 )
                 current_contact_props = contact.properties or {}
                 cp = current_contact_props
-                current_contact_name_from_deal = (
-                    f"{cp.get('firstname', '')} {cp.get('lastname', '')}".strip() or None
-                )
+                current_contact_name_from_deal = display_name(cp)
             except Exception:
                 pass
             if selected_contact.company_id and self.company_service:
@@ -497,6 +528,32 @@ class HubSpotPreviewService:
                                 include_unchanged=include_unchanged,
                             ),
                         ))
+
+        if stage_confirm and not skip_deal:
+            stage_spec = field_specs_map.get("dealstage", {})
+            stage_ids = [str(o["value"]) for o in stage_spec.get("options") or []]
+            if is_new_deal:
+                fallback_stage = default_stage_id or (stage_ids[0] if stage_ids else None)
+            else:
+                fallback_stage = existing_deal_stage_id
+            suggested = suggested_stage(
+                pipeline_id=stage_pipeline.id if stage_pipeline else None,
+                stage_ids=stage_ids,
+                meeting_booked=meeting_booked_stage,
+                inferred=inferred_stage_id,
+                fallback=fallback_stage,
+            )
+            if suggested:
+                proposed_updates.append(ProposedUpdate(
+                    field_name="dealstage",
+                    field_label=field_labels.get("dealstage", "Deal Stage"),
+                    current_value=None if is_new_deal else (existing_deal_stage_id or "(empty)"),
+                    new_value=suggested,
+                    extraction_confidence=extraction.confidence.get("fields", {}).get("dealstage", 0.7),
+                    field_type="enumeration",
+                    options=stage_spec.get("options"),
+                    object_type="deals",
+                ))
 
         # Contact identity + allowlisted contact properties
         show_identity_create = is_new_deal and not selected_contact and not skip_deal

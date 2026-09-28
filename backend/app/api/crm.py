@@ -15,6 +15,7 @@ from app.services.activity_scope import (
     annotate_recording_author,
     can_view_company_activity,
     company_user_ids,
+    effective_visibility,
     invert_hubspot_owners,
     load_viewer_scope,
     should_apply_author_recording_filter,
@@ -37,6 +38,7 @@ from app.services.crm_config import CRMConfigurationService
 from app.services.preview_targets import unique_associated_contact_id
 from app.services.hubspot.contact_identity import (
     CONTACT_CONTEXT_PROPERTIES,
+    display_name,
     stored_contact_phone,
 )
 from app.models.hubspot import (
@@ -233,7 +235,7 @@ async def _present_recordings(
 ) -> list[dict]:
     membership, members, authors = load_viewer_scope(supabase, user_id)
     role = membership.role if membership else None
-    can_view_company = can_view_company_activity(role)
+    can_view_company = can_view_company_activity(role, effective_visibility(supabase, membership))
     member_ids = company_user_ids(members) or [user_id]
     owner_to_user: dict[str, str] = {}
     conn = get_crm_connection(supabase, user_id, "hubspot")
@@ -394,7 +396,10 @@ async def list_recent_hubspot_recordings(
     wanted = (author_user_id or "").strip()
     if wanted:
         membership, members, _authors = load_viewer_scope(supabase, user_id)
-        can_view = can_view_company_activity(membership.role if membership else None)
+        can_view = can_view_company_activity(
+            membership.role if membership else None,
+            effective_visibility(supabase, membership),
+        )
         if should_apply_author_recording_filter(
             author_user_id=wanted,
             can_view_company=can_view,
@@ -1136,7 +1141,7 @@ async def search_hubspot_contacts(
     matches: list[ContactMatch] = []
     for contact in hits:
         props = contact.properties or {}
-        name = f"{props.get('firstname', '')} {props.get('lastname', '')}".strip() or None
+        name = display_name(props)
         matches.append(ContactMatch(
             contact_id=str(contact.id),
             email=(props.get("email") or "") or "",

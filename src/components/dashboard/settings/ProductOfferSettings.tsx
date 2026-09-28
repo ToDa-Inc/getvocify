@@ -8,8 +8,10 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useAuth } from "@/features/auth";
 import { authApi, authKeys } from "@/features/auth/api";
 import type { User } from "@/features/auth/types";
+import { useLanguage } from "@/lib/i18n";
 
 export const ProductOfferSettings = ({ readOnly = false }: { readOnly?: boolean }) => {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [value, setValue] = useState(user?.productContext ?? "");
@@ -24,9 +26,9 @@ export const ProductOfferSettings = ({ readOnly = false }: { readOnly?: boolean 
       setIsSaving(true);
       const updated = await authApi.updateProfile({ productContext: value });
       queryClient.setQueryData<User>(authKeys.me(), updated);
-      toast.success("Product context saved");
+      toast.success(t.product.offerSavedToast);
     } catch {
-      toast.error("Could not save product context");
+      toast.error(t.product.offerSaveFailedToast);
     } finally {
       setIsSaving(false);
     }
@@ -35,11 +37,8 @@ export const ProductOfferSettings = ({ readOnly = false }: { readOnly?: boolean 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className={THEME_TOKENS.typography.sectionTitle}>Product & offer</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-            What you sell, who it is for, and proof points. Used as reference when extracting
-            call notes — it is not copied into CRM summaries. Owners and admins set this for the workspace.
-        </p>
+        <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.offerSectionTitle}</h3>
+        <p className="text-xs text-muted-foreground mt-1">{t.product.offerSectionHelper}</p>
       </div>
       <Textarea
         value={value}
@@ -49,7 +48,7 @@ export const ProductOfferSettings = ({ readOnly = false }: { readOnly?: boolean 
         readOnly={readOnly}
         disabled={readOnly}
         className="text-sm rounded-2xl"
-        placeholder="Product, ICP, what you do not sell, proof points…"
+        placeholder={t.product.offerPlaceholder}
       />
       {!readOnly && (
       <div className="flex justify-end">
@@ -61,10 +60,10 @@ export const ProductOfferSettings = ({ readOnly = false }: { readOnly?: boolean 
           {isSaving ? (
             <>
               <VocifySpinner size={12} />
-              Saving…
+              {t.product.offerSaving}
             </>
           ) : (
-            "Save offer"
+            t.product.offerSaveButton
           )}
         </Button>
       </div>

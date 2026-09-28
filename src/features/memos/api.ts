@@ -11,7 +11,11 @@ import type {
   UploadMemoResponse, 
   ApproveMemoPayload,
   UsageResponse,
+  FollowupView,
+  FollowupActionPayload,
+  FollowupSendPayload,
 } from './types';
+import type { AfterCallContext, AfterCallHint, OutcomePayload } from '@/lib/after-call-flow';
 
 /**
  * Query keys for TanStack Query
@@ -174,6 +178,44 @@ export const memosApi = {
    */
   delete: (id: string): Promise<void> => {
     return api.delete<void>(`/memos/${id}`);
+  },
+
+  /**
+   * Follow-up draft for a memo (polled while it is being written)
+   */
+  getFollowup: (id: string): Promise<FollowupView> => {
+    return api.get<FollowupView>(`/memos/${id}/followup`);
+  },
+
+  /**
+   * Record the hand-off (sent or copied) with the rep's final text
+   */
+  followupAction: (id: string, payload: FollowupActionPayload): Promise<FollowupView> => {
+    return api.post<FollowupView>(`/memos/${id}/followup`, payload);
+  },
+
+  /**
+   * D9: send the reviewed follow-up from Vocify (FOLLOWUP_SEND_ENABLED). 404s when the
+   * company does not have the flag on.
+   */
+  sendFollowup: (id: string, payload: FollowupSendPayload): Promise<FollowupView> => {
+    return api.post<FollowupView>(`/memos/${id}/followup/send`, payload);
+  },
+
+  /**
+   * Lista 4 T4 (AFTER_CALL_FLOW_ENABLED): what Hoy's after-call panel prefills. 404 with the
+   * flag off; 403 on someone else's memo.
+   */
+  afterCall: (id: string): Promise<AfterCallContext> => {
+    return api.get<AfterCallContext>(`/memos/${id}/after-call`);
+  },
+
+  /**
+   * Lista 4 T4: the outcome of a call whose memo is already approved (auto-approve). A memo
+   * still in review takes the same fields on approve instead.
+   */
+  recordOutcome: (id: string, payload: OutcomePayload): Promise<{ after_call: AfterCallHint }> => {
+    return api.post<{ after_call: AfterCallHint }>(`/memos/${id}/outcome`, payload);
   },
 };
 

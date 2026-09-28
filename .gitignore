@@ -8,9 +8,9 @@ __pycache__/
 *.py[cod]
 *.pyo
 .Python
-.venv/
-venv/
-.venv-test/
+.venv
+venv
+.venv-test
 
 # Node
 node_modules

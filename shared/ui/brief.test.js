@@ -1,0 +1,240 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  BRIEF_LOADING,
+  BRIEF_MAX_LINES,
+  visibleBrief,
+  briefForContact,
+  briefOnContact,
+  briefRequest,
+  briefRows,
+  contactBriefDisplayLines,
+  panelBrief,
+  playbookGapLine,
+  shouldApplyBriefResponse,
+} from "./brief.js";
+import { HOY_SIGNAL_COPY } from "./hoy-copy.js";
+
+describe("pre-call brief", () => {
+  it("shows the never-spoken sentence without a fake last call", () => {
+    const lines = visibleBrief({ status: "no_conversation", text: "Sin conversación todavía.", lines: [] });
+    assert.deepEqual(lines, ["Sin conversación todavía."]);
+  });
+
+  it("shows a crm task under a contact with no conversation", () => {
+    const lines = visibleBrief({
+      status: "no_conversation",
+      text: "Sin conversación todavía.",
+      lines: [{ type: "crm", text: "Llamar el jueves" }],
+    });
+    assert.deepEqual(lines, ["Sin conversación todavía.", "Llamar el jueves"]);
+  });
+
+  it("does not add blank rows when nothing was left", () => {
+    const lines = visibleBrief({
+      status: "nothing_pending",
+      text: "Última vez: 2026-09-02. No quedó nada pendiente.",
+      lines: [],
+    });
+    assert.equal(lines.length, 1);
+  });
+
+  it("hides the brief during a capture and does not reuse another contact", () => {
+    const cached = { contactId: "42", brief: { text: "Sin conversación todavía.", lines: [] } };
+    assert.equal(briefForContact("9", cached), null);
+    const brief = briefForContact("42", cached);
+    assert.deepEqual(briefOnContact({ objectType: "contact", captureActive: false, brief }), ["Sin conversación todavía."]);
+    assert.deepEqual(briefOnContact({ objectType: "contact", captureActive: true, brief }), []);
+    assert.equal(briefRequest("42", "crm-A"), "/briefs?contact_id=42&connection_id=crm-A");
+  });
+
+  it("shows one loading line instead of the previous contact", () => {
+    const cached = { contactId: "42", brief: { text: "Sin conversación todavía.", lines: [] } };
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "9",
+        captureActive: false,
+        cache: cached,
+        flightContactId: "9",
+      }),
+      [BRIEF_LOADING],
+    );
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "9",
+        captureActive: false,
+        cache: cached,
+        flightContactId: null,
+      }),
+      [],
+    );
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "42",
+        captureActive: false,
+        cache: { contactId: "42", brief: { lines: [] } },
+        flightContactId: null,
+      }),
+      ["Nada pendiente en esta ficha."],
+    );
+  });
+
+  it("drops a stale response after the user changed contact", () => {
+    assert.equal(shouldApplyBriefResponse("9", "42"), false);
+    assert.equal(shouldApplyBriefResponse("9", "9"), true);
+  });
+});
+
+describe("contact panel brief", () => {
+  const NOTICE = "No se pudo cargar todo.";
+  const fromA = { contactId: "A", brief: { status: "ready", text: null, lines: [{ type: "last", text: "De A" }] } };
+  const texts = (view) => view.rows.map((row) => row.text);
+
+  it("never paints the previous contact's brief while switching cards fast", () => {
+    const empty = { notice: null, rows: [], label: null };
+    assert.deepEqual(panelBrief({ contactId: "B", cache: fromA, flightContactId: "B" }), { state: "loading", ...empty });
+    assert.deepEqual(panelBrief({ contactId: "C", cache: fromA, flightContactId: "C" }), { state: "loading", ...empty });
+    assert.deepEqual(
+      panelBrief({ contactId: "C", cache: fromA, flightContactId: null, failedContactId: "C" }),
+      { state: "failed", ...empty },
+    );
+    assert.deepEqual(panelBrief({ contactId: "D", cache: fromA, flightContactId: null }), { state: "none", ...empty });
+    assert.deepEqual(panelBrief({ contactId: null, cache: fromA, flightContactId: null }), { state: "none", ...empty });
+    assert.deepEqual(texts(panelBrief({ contactId: "A", cache: fromA, flightContactId: "A" })), ["De A"]);
+  });
+
+  it("keeps a failed read apart from another contact's failure", () => {
+    assert.equal(panelBrief({ contactId: "B", cache: null, flightContactId: null, failedContactId: "A" }).state, "none");
+  });
+
+  it("keeps three facts at most, with the partial notice apart", () => {
+    const facts = [1, 2, 3, 4].map((n) => ({ type: "last", text: `Hecho ${n}` }));
+    const partial = briefRows({ status: "partial", text: NOTICE, notice: NOTICE, lines: facts });
+    assert.equal(BRIEF_MAX_LINES, 3);
+    assert.equal(partial.notice, NOTICE);
+    assert.deepEqual(texts(partial), ["Hecho 1", "Hecho 2", "Hecho 3"]);
+
+    const unavailable = briefRows({ status: "unavailable", text: NOTICE, notice: NOTICE, lines: [] });
+    assert.deepEqual({ notice: unavailable.notice, rows: unavailable.rows }, { notice: NOTICE, rows: [] });
+
+    const ready = briefRows({ status: "ready", text: null, notice: null, lines: facts });
+    assert.equal(ready.notice, null);
+    assert.equal(ready.rows.length, 3);
+  });
+
+  it("adds the company hook after three facts, once, marked apart", () => {
+    const facts = [1, 2, 3, 4].map((n) => ({ type: "last", text: `Hecho ${n}` }));
+    const hook = { type: "company", text: "En Factorial ya hablaste con Manuel García el 12 sep: Le interesó el fichaje." };
+    const view = briefRows({ status: "ready", text: null, lines: [...facts, hook, { ...hook, text: "Otro gancho" }] });
+    assert.deepEqual(texts(view), ["Hecho 1", "Hecho 2", "Hecho 3", hook.text]);
+    assert.deepEqual(view.rows.map((row) => row.company), [false, false, false, true]);
+    assert.deepEqual(view.rows.map((row) => row.playbook), [false, false, false, false]);
+
+    const cold = briefRows({ status: "no_conversation", text: "Sin conversación todavía.", lines: [hook] });
+    assert.deepEqual(texts(cold), ["Sin conversación todavía.", hook.text]);
+    assert.deepEqual(visibleBrief({ status: "ready", text: null, lines: [facts[0], hook] }), ["Hecho 1", hook.text]);
+    assert.deepEqual(texts(briefRows({ status: "ready", lines: [{ type: "company", text: "  " }] })), []);
+  });
+
+  it("says there is no conversation yet, with a CRM task under it", () => {
+    const view = briefRows({
+      status: "no_conversation",
+      text: "Sin conversación todavía.",
+      notice: null,
+      lines: [{ type: "crm", text: "Llamar el jueves" }],
+    });
+    assert.deepEqual(texts(view), ["Sin conversación todavía.", "Llamar el jueves"]);
+    assert.equal(view.notice, null);
+  });
+
+  it("formats the same payload for every surface", () => {
+    const payload = {
+      status: "ready",
+      text: null,
+      lines: [
+        { type: "hook", text: "11 sep: «se nos quedan leads sin llamar los viernes»" },
+        { type: "why", text: "Pidió que la llamaras hoy." },
+        { type: "say", text: "Precio: compáralo con un comercial más.", source: "playbook" },
+      ],
+      label: "Pitch hecho · falta cualificar",
+    };
+    const view = briefRows(payload);
+    const flat = visibleBrief(payload);
+    assert.deepEqual(
+      view.rows.map((row) => row.text),
+      flat,
+    );
+    assert.equal(view.label, "Pitch hecho · falta cualificar");
+  });
+
+  it("formats cold-call lines the same on every surface", () => {
+    const payload = {
+      status: "ready",
+      text: null,
+      lines: [
+        { type: "who", text: "Directora comercial en Acme · búsqueda orgánica, 3 sep" },
+        { type: "why", text: null, reason: "no_calls_logged", since: "3 sep" },
+      ],
+      label: null,
+    };
+    const view = briefRows(payload);
+    const flat = visibleBrief(payload);
+    assert.deepEqual(flat, ["Directora comercial en Acme · búsqueda orgánica, 3 sep", "Sin llamar desde el 3 sep"]);
+    assert.deepEqual(view.rows.map((row) => row.text), flat);
+    assert.deepEqual(view.rows.map((row) => row.playbook), [false, false]);
+    assert.deepEqual(
+      contactBriefDisplayLines({
+        objectType: "contact",
+        contactId: "42",
+        captureActive: false,
+        cache: { contactId: "42", brief: payload },
+        flightContactId: null,
+      }),
+      flat,
+    );
+  });
+
+  it("words the Hoy reason with the Hoy card's own label", () => {
+    const why = (line) => visibleBrief({ status: "ready", text: null, lines: [{ type: "why", text: null, ...line }] });
+    assert.deepEqual(why({ reason: "no_calls_logged", since: "3 sep" }), [
+      `${HOY_SIGNAL_COPY.es.today_signal_uncalled} desde el 3 sep`,
+    ]);
+    assert.deepEqual(why({ reason: "no_calls_logged", since: null }), [HOY_SIGNAL_COPY.es.today_signal_uncalled]);
+    assert.deepEqual(why({ reason: "pain_agree_next_step", since: null }), [HOY_SIGNAL_COPY.es.today_signal_pain]);
+    assert.deepEqual(why({ reason: "followup_pending", since: null }), []);
+    assert.equal(HOY_SIGNAL_COPY.es.today_signal_uncalled, "Sin llamar");
+    assert.equal(HOY_SIGNAL_COPY.es.today_signal_pain, "Dolor confirmado");
+  });
+
+  it("paints the label as a chip and marks the team's playbook line", () => {
+    const view = briefRows({
+      status: "ready",
+      text: null,
+      lines: [
+        { type: "hook", text: "11 sep: «se nos quedan leads sin llamar los viernes»" },
+        { type: "why", text: "Pidió que la llamaras hoy." },
+        { type: "say", text: "Precio: compáralo con un comercial más.", source: "playbook" },
+        { type: "extra", text: "", source: "playbook" },
+      ],
+      label: "Pitch hecho · falta cualificar",
+    });
+    assert.deepEqual(view.rows.map((row) => row.playbook), [false, false, true]);
+    assert.equal(view.label, "Pitch hecho · falta cualificar");
+    assert.equal(briefRows({ status: "ready", lines: [], label: "   " }).label, null);
+    assert.equal(briefRows({ status: "ready", lines: [] }).label, null);
+  });
+
+  it("builds the playbook gap line from the brief's missing steps", () => {
+    assert.equal(
+      playbookGapLine(["decisor", "presupuesto"]),
+      "Falta del playbook: decisor, presupuesto",
+    );
+    assert.equal(playbookGapLine([" decisor ", ""]), "Falta del playbook: decisor");
+    assert.equal(playbookGapLine([]), null);
+    assert.equal(playbookGapLine(undefined), null);
+    assert.equal(playbookGapLine("Pitch hecho · falta decisor"), null);
+  });
+});

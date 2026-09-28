@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { ActivityAuthor } from "@/lib/activity-authors";
 import {
@@ -22,16 +23,22 @@ export function AuthorFilter({
   canViewCompany?: boolean;
   compact?: boolean;
 }) {
+  const { t } = useLanguage();
   if (!shouldShowActivityAuthorFilter(Boolean(canViewCompany), currentUserId)) {
     return null;
   }
+  const labelOf = (label: string) => {
+    if (label === "Mine") return t.product.activityMine;
+    if (label === "All") return t.product.activityAll;
+    return label;
+  };
 
   return (
     <label className="inline-flex items-center gap-2">
-      <span className={THEME_TOKENS.typography.capsLabel}>Show</span>
+      <span className={THEME_TOKENS.typography.capsLabel}>{t.product.activityShow}</span>
       <span className="relative inline-flex">
         <select
-          aria-label="Show activity"
+          aria-label={t.product.activityShow}
           value={value ?? ""}
           onChange={(event) => onChange(event.target.value || null)}
           className={cn(
@@ -43,7 +50,7 @@ export function AuthorFilter({
         >
           {activityFilterChips(authors, currentUserId).map((chip) => (
             <option key={chip.id ?? "all"} value={chip.id ?? ""}>
-              {chip.label}
+              {labelOf(chip.label)}
             </option>
           ))}
         </select>

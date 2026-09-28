@@ -44,6 +44,11 @@ export function isLeadStatusField(updateOrName) {
   return String(name || '') === 'hs_lead_status';
 }
 
+function isDealStageField(update) {
+  const name = String(update?.field_name || '');
+  return (update?.object_type || 'deals') === 'deals' && (name === 'dealstage' || name === 'stage_id');
+}
+
 export function withLeadStatusOption(updates, availableFields) {
   const list = (Array.isArray(updates) ? updates : []).map((u) => (u ? { ...u } : u));
   const field = (Array.isArray(availableFields) ? availableFields : []).find(
@@ -93,7 +98,7 @@ export function visibleCrmUpdates(updates) {
     if (u.object_type === 'task') return false;
     const leadStatus = isLeadStatusField(u);
     if (!norm(u.new_value) && !u.userAdded && !leadStatus) return false;
-    if (valuesMatch(u) && !u.already_applied && !leadStatus) return false;
+    if (valuesMatch(u) && !u.already_applied && !leadStatus && !isDealStageField(u)) return false;
     return true;
   });
 }
@@ -220,6 +225,17 @@ export function taskRowsFromPreview({
 } = {}) {
   const previewTasks = (Array.isArray(proposedUpdates) ? proposedUpdates : [])
     .filter((u) => u && String(u.field_name || '').startsWith('next_step_task_'));
+  // Commitment rows (COMMITMENT_TASKS_ENABLED) are the tasks: their count and dates, never the legacy nextSteps'.
+  if (previewTasks.some((u) => u.commitment_id)) {
+    return previewTasks
+      .map((u, i) => ({
+        id: i + 1,
+        text: String(u.new_value || '').trim(),
+        checked: true,
+        dueDate: isoDateOrNull(u.due_date),
+      }))
+      .filter((row) => row.text);
+  }
   const dueForIndex = (i) => isoDateOrNull(
     dueDatesByIndex[i]
     || previewTasks[i]?.due_date

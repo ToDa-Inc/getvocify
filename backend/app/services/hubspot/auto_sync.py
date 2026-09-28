@@ -9,6 +9,7 @@ written. New deals are never created. Off by default.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -228,6 +229,21 @@ async def handle_hubspot_recording_events(
     return started, skipped
 
 
+_C04_READERS = ("COMMITMENT_TASKS_ENABLED", "HOY_CONFIRMATIONS_ENABLED")
+
+
+async def _await_running_c04(supabase: Client, memo_id: str, company_id: str) -> None:
+    """Commitment tasks and the Hoy confirmation read C04; approving before it lands writes neither."""
+    from app.services.feature_flags import is_enabled
+    from app.services.followup import C04_WAIT_S, _c04_task
+
+    if not any(is_enabled(supabase, company_id or None, flag) for flag in _C04_READERS):
+        return
+    task = _c04_task(memo_id)
+    if task is not None:
+        await asyncio.wait({task}, timeout=C04_WAIT_S)
+
+
 async def maybe_auto_approve_hubspot_call(
     supabase: Client,
     memo_id: str,
@@ -240,7 +256,7 @@ async def maybe_auto_approve_hubspot_call(
     fetched = (
         supabase.table("memos")
         .select(
-            "id,status,source,hubspot_contact_id,hubspot_deal_id,"
+            "id,status,source,company_id,hubspot_contact_id,hubspot_deal_id,"
             "matched_deal_id,screening_outcome"
         )
         .eq("id", memo_id)
@@ -265,6 +281,7 @@ async def maybe_auto_approve_hubspot_call(
     ):
         return False
 
+    await _await_running_c04(supabase, memo_id, str(data.get("company_id") or ""))
     payload = approval_payload_for_auto_sync(contact_id=contact_id, deal_id=deal_id)
     try:
         await approve_memo_core(supabase, memo_id, user_id, payload)
@@ -278,4 +295,17 @@ async def maybe_auto_approve_hubspot_call(
         "CRM auto-approved",
         extra=log_domain(DOMAIN_MEMO, "crm_auto_approved", memo_id=memo_id),
     )
+    company_id = str(data.get("company_id") or "")
+    if company_id:
+        from app.services.hoy.confirmations import materialize_confirm_after_auto_approve
+
+        try:
+            await materialize_confirm_after_auto_approve(
+                supabase, memo_id=memo_id, user_id=user_id, company_id=company_id
+            )
+        except Exception:
+            logger.exception(
+                "confirm_pending materialize failed",
+                extra=log_domain(DOMAIN_MEMO, "confirm_materialize_failed", memo_id=memo_id),
+            )
     return True

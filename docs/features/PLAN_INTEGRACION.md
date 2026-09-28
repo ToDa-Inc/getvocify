@@ -253,6 +253,8 @@ Los clientes no montan frases ni deciden el orden: reciben *view-models* listos 
 
 ### 3.4 El seguimiento tiene que existir antes de que se abra la revisión
 
+Superseded: non-blocking generation, see `docs/superpowers/specs/2026-09-21-copilot-spine-design.md` §4.2.
+
 La sensación "instantánea" es un problema de secuencia, no de UI:
 
 - **En el pipeline, después de la extracción y antes de pasar el memo a `pending_review`.** Sale después y no en paralelo a propósito: con el resumen, los próximos pasos y el contacto ya extraídos, el email puede citar lo que de verdad se dijo. Con un tope de tiempo (del orden de 8 s): si se pasa, el memo pasa a revisión igual con `followup.status = generating` y el borrador termina en segundo plano; el cliente vuelve a pedir el preview.

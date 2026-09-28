@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Optional, Union
 from uuid import UUID
 
@@ -30,12 +30,97 @@ logger = logging.getLogger(__name__)
 DEFAULT_DEAL_FIELDS = ["title", "value", "currency", "expected_close_date", "stage_id"]
 
 
+def owner_id_from_connection_metadata(meta: dict, user_id: str) -> Optional[str]:
+    """Per-member cache, same shape as HubSpot's (app/services/hubspot/sync.py)."""
+    owners = meta.get("pipedrive_owners")
+    if not isinstance(owners, dict):
+        return None
+    cached = owners.get(user_id) or owners.get(str(user_id))
+    return str(cached) if cached else None
+
+
+def with_cached_owner_id(meta: dict, user_id: str, owner_id: str) -> dict:
+    owners = dict(meta.get("pipedrive_owners") or {})
+    owners[str(user_id)] = str(owner_id)
+    return {**meta, "pipedrive_owners": owners}
+
+
+async def _get_pipedrive_owner_id_for_user(
+    client: PipedriveClient,
+    supabase: Optional[Client],
+    user_id: str,
+    connection_id: Union[UUID, str],
+) -> Optional[str]:
+    """Mirror of HubSpot's _get_hubspot_owner_id_for_user (app/services/hubspot/sync.py):
+    resolve the Pipedrive user id whose email matches the acting Vocify user's login
+    email (not whoever connected Pipedrive), so deal ownership lines up with who is
+    signed in as SDR/AE/General/Head of Sales. Caches per user on
+    crm_connections.metadata.pipedrive_owners."""
+    if not supabase:
+        return None
+    conn_data = None
+    try:
+        conn_result = supabase.table("crm_connections").select("metadata").eq(
+            "id", str(connection_id)
+        ).single().execute()
+        conn_data = conn_result.data if conn_result else None
+        if conn_data:
+            meta = conn_data.get("metadata") or {}
+            cached = owner_id_from_connection_metadata(meta, user_id)
+            if cached:
+                return cached
+
+        auth_user = supabase.auth.admin.get_user_by_id(user_id)
+        if not auth_user or not getattr(auth_user, "user", None):
+            return None
+        user = auth_user.user if hasattr(auth_user, "user") else auth_user
+        email = (getattr(user, "email", None) or (user.get("email") if isinstance(user, dict) else None)) or ""
+        if not email or not str(email).strip():
+            return None
+        email_lower = str(email).strip().lower()
+
+        resp = await client.get(
+            "/users/find", version="v1", params={"term": email_lower, "search_by_email": 1}
+        )
+        rows = unwrap_data(resp)
+        rows = rows if isinstance(rows, list) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_email = (row.get("email") or "").strip().lower()
+            if row_email == email_lower and row.get("id") is not None:
+                owner_id = str(row["id"])
+                meta = (conn_data or {}).get("metadata", {}) or {}
+                supabase.table("crm_connections").update(
+                    {"metadata": with_cached_owner_id(meta, user_id, owner_id)}
+                ).eq("id", str(connection_id)).execute()
+                return owner_id
+    except Exception as e:
+        logger.warning("Could not resolve Pipedrive owner for user %s: %s", user_id, e)
+    return None
+
+
 def new_deal_title(extraction: MemoExtraction) -> str:
     if extraction.companyName:
         return extraction.companyName
     if extraction.contactName:
         return extraction.contactName
     return f"Vocify memo {date.today().isoformat()}"
+
+
+def _utc_due(due_at: Optional[datetime]) -> dict[str, str]:
+    """Pipedrive activity due date and time, both UTC."""
+    if due_at is None:
+        return {}
+    utc = due_at.astimezone(timezone.utc)
+    return {"due_date": utc.date().isoformat(), "due_time": utc.strftime("%H:%M")}
+
+
+def confirmed_stage_choice(extraction: MemoExtraction) -> Optional[str]:
+    """The stage_id row the rep kept on review; absent when the rep removed it."""
+    value = (extraction.raw_extraction or {}).get("stage_id")
+    text = str(value).strip() if value is not None else ""
+    return text or None
 
 
 class PipedriveSyncService:
@@ -74,7 +159,13 @@ class PipedriveSyncService:
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
+        """stage_confirm: the stage is the one the rep confirmed (raw_extraction.stage_id);
+        an existing deal's stage is written only when it differs from the current one.
+        commitment_tasks (COMMITMENT_TASKS_ENABLED): one activity per commitment, with its date,
+        before the nextSteps the rep edited."""
         create_companies = auto_create_companies if auto_create_companies is not None else auto_create_contact_company
         create_contacts = auto_create_contacts if auto_create_contacts is not None else auto_create_contact_company
         if deal_id and not is_new_deal:
@@ -90,11 +181,13 @@ class PipedriveSyncService:
         landed: list[str] = []
         creating = (not skip_deal) and (is_new_deal or not deal_id)
         stage_id: Optional[str] = None
+        confirmed_stage = confirmed_stage_choice(extraction) if stage_confirm else None
+        owner_id = await _get_pipedrive_owner_id_for_user(self.client, self.supabase, user_id, connection_id)
 
         try:
             if not skip_deal:
                 stage_id = await self.schema.resolve_stage_id(
-                    extraction.dealStage, default_stage_id, default_pipeline_id
+                    confirmed_stage or extraction.dealStage, default_stage_id, default_pipeline_id
                 )
                 if not stage_id and default_stage_name:
                     stage_id = await self.schema.resolve_stage_id(
@@ -131,7 +224,7 @@ class PipedriveSyncService:
                     )
                 else:
                     person_id = await self._find_or_create_person(
-                        name=name, email=email, phone=phone, org_id=org_id, person_id=person_id
+                        name=name, email=email, phone=phone, org_id=org_id, person_id=person_id, owner_id=owner_id
                     )
                     if person_id:
                         result.contact_id = person_id
@@ -158,6 +251,8 @@ class PipedriveSyncService:
                 filtered = {k: v for k, v in mapped.items() if k in allowed_fields or k in ("title", "stage_id", "pipeline_id", "org_id", "person_id")}
                 if creating:
                     payload = self.schema.split_write_payload(filtered)
+                    if owner_id:
+                        payload["owner_id"] = int(owner_id)
                     created = unwrap_data(await self.client.post("/deals", json_body=payload))
                     deal_id = str(created["id"]) if isinstance(created, dict) and created.get("id") is not None else None
                     result.deal_name = (created or {}).get("title") if isinstance(created, dict) else title
@@ -166,9 +261,15 @@ class PipedriveSyncService:
                     existing_title = (current.get("title") or "").strip().lower()
                     if existing_title not in ("", "new deal", "nuevo deal", "deal"):
                         filtered.pop("title", None)
-                    payload = self.schema.split_write_payload(
-                        {k: v for k, v in filtered.items() if k in allowed_fields or k in ("org_id", "person_id")}
-                    )
+                    update_fields = {
+                        k: v for k, v in filtered.items() if k in allowed_fields or k in ("org_id", "person_id")
+                    }
+                    if stage_confirm:
+                        update_fields.pop("stage_id", None)
+                        new_stage = await self._stage_change(confirmed_stage, current)
+                        if new_stage:
+                            update_fields["stage_id"] = int(new_stage)
+                    payload = self.schema.split_write_payload(update_fields)
                     if payload:
                         await self.client.patch(f"/deals/{deal_id}", json_body=payload)
                     result.deal_name = current.get("title") or title
@@ -214,22 +315,26 @@ class PipedriveSyncService:
                 )
 
             steps = [s.strip() for s in (extraction.nextSteps or []) if str(s).strip()]
-            result.tasks_requested_count = len(steps)
-            if steps:
+            planned = [(task, task.text, _utc_due(task.due_at)) for task in commitment_tasks or []]
+            planned += [(None, step, {}) for step in steps]
+            result.tasks_requested_count = len(planned)
+            if planned:
                 task_type = await self.activities.resolve_task_type()
                 if not task_type:
                     result.tasks_warning = "No Pipedrive activity type with key_string/icon_key 'task' — next steps were not written."
                 else:
                     created_n = 0
-                    for step in steps:
+                    for task, subject, due in planned:
                         aid = await self.activities.create_next_step(
-                            step, deal_id=deal_id, person_id=person_id, org_id=org_id
+                            subject, deal_id=deal_id, person_id=person_id, org_id=org_id, owner_id=owner_id, **due
                         )
                         if aid:
                             created_n += 1
+                            if task is not None:
+                                result.commitment_task_ids[task.commitment_id] = aid
                     result.tasks_created_count = created_n
-                    if created_n < len(steps):
-                        result.tasks_warning = f"Created {created_n} of {len(steps)} next-step activities."
+                    if created_n < len(planned):
+                        result.tasks_warning = f"Created {created_n} of {len(planned)} next-step activities."
 
             result.success = True
             result.company_id = org_id
@@ -262,6 +367,17 @@ class PipedriveSyncService:
             logger.exception("Pipedrive sync failed: %s", e)
             return result
 
+    async def _stage_change(self, confirmed_stage: Optional[str], current: dict[str, Any]) -> Optional[str]:
+        if not confirmed_stage:
+            return None
+        pipeline_id = current.get("pipeline_id")
+        resolved = await self.schema.resolve_stage_id(
+            confirmed_stage, None, str(pipeline_id) if pipeline_id is not None else None
+        )
+        if not resolved or resolved == str(current.get("stage_id")):
+            return None
+        return resolved
+
     async def _find_or_create_org(self, name: str, existing_id: Optional[str]) -> Optional[str]:
         if existing_id:
             return existing_id
@@ -285,6 +401,7 @@ class PipedriveSyncService:
         phone: Optional[str],
         org_id: Optional[str],
         person_id: Optional[str],
+        owner_id: Optional[str] = None,
     ) -> Optional[str]:
         if person_id:
             return person_id
@@ -300,6 +417,10 @@ class PipedriveSyncService:
             body["phones"] = [{"value": phone, "primary": True, "label": "work"}]
         if org_id:
             body["org_id"] = int(org_id)
+        # Lista 3: owner is set only when creating a brand-new person - never on a
+        # match against an existing one, same rule as the deal below.
+        if owner_id:
+            body["owner_id"] = int(owner_id)
         created = unwrap_data(await self.client.post("/persons", json_body=body))
         if isinstance(created, dict) and created.get("id") is not None:
             return str(created["id"])

@@ -516,11 +516,18 @@ async def add_member_to_company_admin(
     existing = svc.get_membership(uid)
     if existing:
         raise HTTPException(status_code=409, detail="User already belongs to a workspace")
+    # Founder request: the first account of a company is always the Head of Sales
+    # (owner), created from scratch or from this console alike - never a plain member.
+    is_first = svc.is_first_invite(cid)
+    if is_first:
+        role = "owner"
+    else:
+        role = body.role if body.role != "owner" else "member"
     svc.supabase.table("company_members").insert(
         {
             "company_id": cid,
             "user_id": uid,
-            "role": body.role if body.role != "owner" else "member",
+            "role": role,
             "status": "active",
         }
     ).execute()
@@ -529,7 +536,7 @@ async def add_member_to_company_admin(
         supabase,
         "add_company_member",
         target_user_id=uid,
-        metadata={"company_id": cid, "role": body.role},
+        metadata={"company_id": cid, "role": role},
     )
     return {"success": True}
 
@@ -543,16 +550,19 @@ async def invite_to_company_admin(
 ):
     cid = str(company_id)
     svc = CompanyService(supabase)
-    invite, invite_url, email_sent = await svc.create_invite(
+    # Founder request: the first account of a company is always the Head of Sales
+    # (owner), whether it signs up itself or we invite it from this console.
+    role = "owner" if svc.is_first_invite(cid) else body.role
+    invite, invite_url, email_sent, crm_owner_match = await svc.create_invite(
         company_id=cid,
         email=body.email,
-        role=body.role,
+        role=role,
         send_email=True,
     )
     _write_audit(
         supabase,
         "admin_invite",
-        metadata={"company_id": cid, "email": str(body.email), "role": body.role},
+        metadata={"company_id": cid, "email": str(body.email), "role": role},
     )
     return {
         "success": True,

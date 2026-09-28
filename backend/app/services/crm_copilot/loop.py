@@ -7,13 +7,39 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from app.config import settings
-from app.services.crm_copilot.prompts import build_system_prompt
+from app.services.crm_copilot.prompts import build_system_prompt, with_data_prompt
 from app.services.crm_copilot.route import is_focus_switch, is_reset_command
-from app.services.crm_copilot.tools import clear_focus, confirmation_required, execute_tool, expire_stale_focus
+from app.services.crm_copilot.tools import (
+    clear_focus,
+    confirmation_required,
+    data_tools_enabled,
+    execute_tool,
+    expire_stale_focus,
+    tools_for,
+    write_blocked,
+)
 
 MAX_HISTORY = 24
 COMPACT_KEEP = 6
 COMPACT_TOOL_CHARS = 500
+
+# Tools the user never needs to see as a step: bookkeeping, or the pause itself.
+_SILENT_TOOLS = frozenset({"load_skill", "remember", "reset_session", "offer_user_choices"})
+_DETAIL_KEYS = ("query", "name", "q", "email", "dealname", "subject")
+EMPTY_ANSWER = "No he encontrado nada que responder. Prueba a preguntarlo de otra forma."
+ROUND_LIMIT = "He llegado al límite de pasos para esta pregunta. Pídeme que continúe o acótala."
+
+
+def step_event(name: str, args: dict, state: str) -> dict:
+    """One visible step of a turn: which tool, what it was looking for (a search term, never
+    an id), and whether it is running, done or failed. The UI turns `tool` into words."""
+    detail = ""
+    for key in _DETAIL_KEYS:
+        value = (args or {}).get(key)
+        if isinstance(value, str) and value.strip():
+            detail = " ".join(value.split())[:60]
+            break
+    return {"tool": name, "state": state, "detail": detail}
 
 
 @dataclass
@@ -95,18 +121,18 @@ def _confirm_text(name: str, args: dict, copilot: dict) -> str:
     args = args or {}
     if name == "create_note":
         body = str(args.get("body") or "").strip()
-        return f"Nota: {body}" if body else "Crear una nota en HubSpot."
+        return f"Nota: {body}" if body else "Crear una nota en el CRM."
     if name == "create_task":
         subject = str(args.get("subject") or "").strip()
-        return f"Tarea: {subject}" if subject else "Crear una tarea en HubSpot."
+        return f"Tarea: {subject}" if subject else "Crear una tarea en el CRM."
     if name == "create_contact":
         label = " ".join(
             str(args.get(k) or "") for k in ("firstname", "lastname", "email")
         ).strip()
-        return f"Crear contacto: {label}" if label else "Crear un contacto en HubSpot."
+        return f"Crear contacto: {label}" if label else "Crear un contacto en el CRM."
     if name == "create_deal":
         dealname = str(args.get("dealname") or "").strip()
-        return f"Crear deal: {dealname}" if dealname else "Crear un deal en HubSpot."
+        return f"Crear deal: {dealname}" if dealname else "Crear un deal en el CRM."
     preview = str(copilot.get("last_preview_text") or "").strip()
     if preview:
         return preview
@@ -115,7 +141,7 @@ def _confirm_text(name: str, args: dict, copilot: dict) -> str:
         bits = ", ".join(f"{k}={v}" for k, v in list(props.items())[:5])
         target = args.get("object_type") or "registro"
         return f"Actualizar {target}: {bits}"
-    return "Confirmar escritura en HubSpot."
+    return "Confirmar el cambio en el CRM."
 
 
 def _choice_sections(choices: list[dict]) -> list[dict]:
@@ -161,9 +187,18 @@ async def run_copilot_turn(
     selected_choice: Optional[str] = None,
     ctx: Any = None,
     max_rounds: Optional[int] = None,
+    on_step: Optional[Callable[[dict], None]] = None,
 ) -> CopilotTurnResult:
     execute = execute or execute_tool
-    artifacts = artifacts or {}
+
+    def report(name: str, args: dict, state: str) -> None:
+        if on_step is None or name in _SILENT_TOOLS:
+            return
+        try:
+            on_step(step_event(name, args, state))
+        except Exception:
+            pass  # progress is best-effort; it never breaks the turn
+    artifacts = artifacts if artifacts is not None else {}
     if is_reset_command(user_text) and confirm is None:
         artifacts["copilot"] = {"messages": []}
         return CopilotTurnResult(
@@ -177,7 +212,11 @@ async def run_copilot_turn(
     if is_focus_switch(user_text) and confirm is None and not selected_choice:
         clear_focus(copilot)
     messages = _history(copilot)
+    data_tools = data_tools_enabled(ctx)
+    tools = tools_for(tools, data_tools=data_tools)
     system_text = system or build_system_prompt(artifacts)
+    if data_tools:
+        system_text = with_data_prompt(system_text)
     rounds = max_rounds if max_rounds is not None else settings.CRM_COPILOT_MAX_ROUNDS
 
     if confirm is True and copilot.get("pending_tool"):
@@ -227,7 +266,7 @@ async def run_copilot_turn(
         )
         tool_calls = list(getattr(result, "tool_calls", None) or [])
         if not tool_calls:
-            text = (getattr(result, "content", None) or "").strip() or "Done."
+            text = (getattr(result, "content", None) or "").strip() or EMPTY_ANSWER
             messages.append({"role": "assistant", "content": text})
             copilot["messages"] = messages[-MAX_HISTORY:]
             artifacts["copilot"] = copilot
@@ -250,12 +289,21 @@ async def run_copilot_turn(
                 pause = ("choices", name, args, tc)
                 break
             if confirmation_required(name):
+                blocked = await write_blocked(name, ctx)
+                if blocked is not None:
+                    messages.append(
+                        {"role": "tool", "tool_call_id": tc.get("id") or "", "content": _dump(blocked)}
+                    )
+                    continue
                 if _should_save_as_note(name, args, copilot):
                     name = "create_note"
                     args = _note_args_from_session(args, copilot)
                 pause = ("confirm", name, args, tc)
                 break
+            report(name, args, "running")
             payload = await execute(name, args, ctx)
+            failed = isinstance(payload, dict) and bool(payload.get("error")) and payload.get("ok") is not True
+            report(name, args, "error" if failed else "done")
             _touch_session(copilot, payload)
             if name == "preview_write" and isinstance(payload, dict):
                 if payload.get("error") == "no_field_updates" or payload.get("has_field_updates") is False:
@@ -298,7 +346,7 @@ async def run_copilot_turn(
     artifacts["copilot"] = copilot
     return CopilotTurnResult(
         kind="text",
-        text="I hit the tool-call limit. Ask me to continue.",
+        text=ROUND_LIMIT,
         state="idle",
         artifacts=artifacts,
     )

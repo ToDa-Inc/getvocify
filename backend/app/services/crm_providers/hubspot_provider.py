@@ -27,6 +27,16 @@ from app.services.hubspot import (
     SyncResult,
 )
 from app.services.hubspot.call_outcome import compute_call_outcome_availability
+from app.services.crm_providers.coverage import read_contact_emails
+
+
+async def read_emails(fetch_ids, fetch_one, *, connection_id: str, observed_at: str) -> dict:
+    return await read_contact_emails(
+        fetch_ids,
+        fetch_one,
+        connection_id=connection_id,
+        observed_at=observed_at,
+    )
 
 
 class HubSpotCRMProvider:
@@ -75,6 +85,59 @@ class HubSpotCRMProvider:
             company_service=HubSpotCompanyService(self._client, search),
         )
 
+    async def record_call_outcome(
+        self,
+        *,
+        memo_id: str,
+        user_id: str,
+        call_outcome: str,
+        lost_reason: Optional[str],
+        lost_reason_deal_property: Optional[str],
+        lost_lead_status_value: Optional[str],
+        on_hold_lead_status_value: Optional[str],
+        contact_id: Optional[str],
+        deal_id: Optional[str],
+        company_id: Optional[str],
+        contact_name: Optional[str],
+        extraction: Optional[MemoExtraction] = None,
+    ):
+        """Lista 4 T4: sync's Step 8 on its own, for a memo that is already approved (auto-approve
+        wrote it before the rep recorded the outcome). Same writer, same crm_updates dedupe, so
+        a retry never writes the status, note or task twice."""
+        from app.services.hubspot.call_outcome import CallOutcomeContext, apply_call_outcome
+        from app.services.hubspot.sync import _get_hubspot_owner_id_for_user
+
+        sync = self._sync_service()
+        previous_updates = await sync.crm_updates.get_memo_updates(str(memo_id))
+        owner_id = await _get_hubspot_owner_id_for_user(self._client, self._supabase, user_id, self._connection_id)
+        ctx = CallOutcomeContext(
+            memo_id=str(memo_id),
+            user_id=user_id,
+            connection_id=self._connection_id,
+            call_outcome=call_outcome,  # type: ignore[arg-type]
+            lost_reason=lost_reason,
+            lost_reason_deal_property_configured=lost_reason_deal_property,
+            lost_lead_status_value=lost_lead_status_value,
+            on_hold_lead_status_value=on_hold_lead_status_value,
+            contact_id=contact_id,
+            deal_id=deal_id,
+            company_id=company_id,
+            contact_name=contact_name,
+            hubspot_owner_id=owner_id,
+            previous_updates=previous_updates,
+            extraction=extraction,
+        )
+        return await apply_call_outcome(
+            ctx,
+            crm_updates=sync.crm_updates,
+            contacts=sync.contacts,
+            deals=sync.deals,
+            tasks=sync.tasks,
+            client=self._client,
+            associations=sync.associations,
+            schema_service=sync.deals.schema,
+        )
+
     async def sync_memo(
         self,
         memo_id: Union[UUID, str],
@@ -103,6 +166,8 @@ class HubSpotCRMProvider:
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -134,6 +199,8 @@ class HubSpotCRMProvider:
             lost_reason_deal_property=lost_reason_deal_property,
             lost_lead_status_value=lost_lead_status_value,
             on_hold_lead_status_value=on_hold_lead_status_value,
+            stage_confirm=stage_confirm,
+            commitment_tasks=commitment_tasks,
         )
 
     async def build_preview(
@@ -155,6 +222,9 @@ class HubSpotCRMProvider:
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         del default_stage_name  # HubSpot Configuration stores canonical IDs, not names
         return await self._preview_service().build_preview(
@@ -174,6 +244,9 @@ class HubSpotCRMProvider:
             create_new_deal=create_new_deal,
             include_unchanged=include_unchanged,
             skip_deal=skip_deal,
+            stage_confirm=stage_confirm,
+            meeting_booked_stage=meeting_booked_stage,
+            commitment_tasks=commitment_tasks,
         )
 
     async def find_matching_deals(

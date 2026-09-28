@@ -43,6 +43,10 @@ const AdminCompanyDetailPage = () => {
   const company = (data?.company as Record<string, unknown>) ?? {};
   const members = (data?.members as Record<string, unknown>[]) ?? [];
   const invites = (data?.pending_invites as Record<string, unknown>[]) ?? [];
+  // Founder request: the first account of a company is always the Head of Sales
+  // (owner) - from scratch, or created here. Once it has one, further invites/adds
+  // are ordinary reps (the role picker below still applies).
+  const isFirstAccount = members.length === 0 && invites.length === 0;
   const currentLimit = Number(company.seat_limit ?? 1);
   const seatsUsed = Number(company.seats_used ?? 0);
   const seatsPending = Number(company.seats_pending ?? 0);
@@ -265,9 +269,13 @@ const AdminCompanyDetailPage = () => {
 
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
         <div className="mb-5">
-          <h2 className={THEME_TOKENS.typography.sectionTitle}>Invite teammate</h2>
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>
+            {isFirstAccount ? "Invite the Head of Sales" : "Invite teammate"}
+          </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Sends an email if Resend is configured. Otherwise you get a shareable link.
+            {isFirstAccount
+              ? "This workspace has no members yet. The first account is always the Head of Sales - they'll set up the company and invite the rest of the team."
+              : "Sends an email if Resend is configured. Otherwise you get a shareable link."}
           </p>
         </div>
         <form
@@ -295,32 +303,52 @@ const AdminCompanyDetailPage = () => {
             />
           </div>
           <div className="space-y-2">
-            <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                {INVITE_ROLES.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setInviteRole(option.value)}
-                    className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                      inviteRole === option.value
-                        ? "bg-beige text-cream"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+            {isFirstAccount ? (
+              <>
+                <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-full bg-beige text-cream px-4 h-8 inline-flex items-center text-xs font-medium">
+                    Head of Sales
+                  </span>
+                  <Button
+                    type="submit"
+                    disabled={inviteMutation.isPending}
+                    className="rounded-full bg-beige text-cream px-6 h-10"
                   >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <Button
-                type="submit"
-                disabled={inviteMutation.isPending}
-                className="rounded-full bg-beige text-cream px-6 h-10"
-              >
-                {inviteMutation.isPending ? "Sending…" : "Send invite"}
-              </Button>
-            </div>
+                    {inviteMutation.isPending ? "Sending…" : "Send invite"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
+                    {INVITE_ROLES.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setInviteRole(option.value)}
+                        className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
+                          inviteRole === option.value
+                            ? "bg-beige text-cream"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={inviteMutation.isPending}
+                    className="rounded-full bg-beige text-cream px-6 h-10"
+                  >
+                    {inviteMutation.isPending ? "Sending…" : "Send invite"}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </form>
         {inviteUrl && (

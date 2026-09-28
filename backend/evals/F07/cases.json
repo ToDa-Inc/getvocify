@@ -1,0 +1,71 @@
+[
+  {"id": "f07_top_objection_mine", "kind": "route", "question": "¿Qué objeción sale más en mis llamadas?", "expect_first_any": ["get_objections"], "forbid": ["extract_sales_update", "create_note"]},
+  {"id": "f07_top_objection_team", "kind": "route", "question": "¿Qué objeciones está teniendo el equipo este mes?", "expect_first_any": ["get_objections", "get_team_metrics"], "forbid": ["extract_sales_update"]},
+  {"id": "f07_who_to_call", "kind": "route", "question": "¿A quién llamo hoy?", "expect_first_any": ["get_call_priorities"], "forbid": ["search_contacts", "extract_sales_update"]},
+  {"id": "f07_what_today", "kind": "route", "question": "Buenos días, ¿qué hago hoy?", "expect_first_any": ["get_call_priorities"], "forbid": ["extract_sales_update"]},
+  {"id": "f07_last_time_contact", "kind": "route", "question": "¿Qué me dijo Marina Ruiz la última vez?", "expect_first_any": ["search_contacts", "list_conversations"], "forbid": ["extract_sales_update", "create_note", "get_objections"]},
+  {"id": "f07_promises", "kind": "route", "question": "¿Qué quedé en enviar en mis últimas llamadas?", "expect_first_any": ["list_conversations"], "forbid": ["extract_sales_update", "create_task"]},
+  {"id": "f07_team_week", "kind": "route", "question": "¿Cómo va el equipo esta semana? Adherencia y reuniones.", "expect_first_any": ["get_team_metrics"], "forbid": ["extract_sales_update"]},
+  {"id": "f07_regression_search", "kind": "route", "question": "Busca a Marc Boixet", "expect_first_any": ["search_contacts"], "forbid": ["list_conversations", "get_call_priorities"]},
+  {"id": "f07_update_is_not_a_read", "kind": "route", "question": "Marina me ha dicho que le mande la propuesta el jueves", "expect_first_any": ["search_contacts", "inspect_record", "create_note", "extract_sales_update", "list_conversations"], "forbid": ["get_objections", "get_call_priorities", "get_team_metrics"]},
+  {
+    "id": "f07_pipedrive_notes_unavailable",
+    "kind": "answer",
+    "question": "¿Tiene notas Marina?",
+    "tool_name": "list_notes",
+    "tool_args": {"contact_id": "11"},
+    "tool_result": {"ok": false, "items": [], "coverage": "unavailable", "observed_at": "2026-09-26T10:00:00Z", "next_cursor": null, "reason": "not_available_for_pipedrive", "provider": "pipedrive", "tool": "list_notes"},
+    "must_not_contain": ["no hay notas", "no tiene notas", "no tiene ninguna nota", "no hay ninguna nota", "sin notas"],
+    "must_contain_any": ["pipedrive", "disponible", "no puedo"]
+  },
+  {
+    "id": "f07_member_team_forbidden",
+    "kind": "answer",
+    "question": "Dame los números de todo el equipo",
+    "tool_name": "get_team_metrics",
+    "tool_args": {},
+    "tool_result": {"ok": false, "error": "forbidden", "coverage": "forbidden"},
+    "must_not_contain": ["0%", "0 reuniones", "0 llamadas"],
+    "must_contain_any": ["admin", "manager", "responsable", "permiso", "acceso", "propietario"]
+  },
+  {
+    "id": "f07_priorities_without_crm",
+    "kind": "answer",
+    "question": "¿A quién llamo hoy?",
+    "tool_name": "get_call_priorities",
+    "tool_args": {},
+    "tool_result": {"ok": true, "coverage": "unavailable", "observed_at": null, "provider": null, "items": [], "has_more": false, "empty_reason": "title_connect_crm", "stale": false},
+    "must_not_contain": ["no tienes contactos", "no hay nadie", "nadie a quien", "title_connect_crm"],
+    "must_contain_any": ["crm", "conect"]
+  },
+  {
+    "id": "f07_priorities_reason_in_words",
+    "kind": "answer",
+    "question": "¿A quién llamo hoy?",
+    "tool_name": "get_call_priorities",
+    "tool_args": {},
+    "tool_result": {"ok": true, "coverage": "complete", "observed_at": "2026-09-26T08:00:00Z", "provider": "hubspot", "items": [{"contact_id": "p-2", "contact_name": "Lucía Pérez", "reason": "pain_agree_next_step", "next_action": "agree_next_step", "coverage": "complete"}, {"contact_id": "p-1", "contact_name": "Jorge Martín", "reason": "no_calls_logged", "next_action": "log_first_call", "coverage": "complete"}], "has_more": false, "empty_reason": null, "stale": false},
+    "must_not_contain": ["pain_agree_next_step", "no_calls_logged", "log_first_call"],
+    "must_contain_all": ["Lucía", "Jorge"]
+  },
+  {
+    "id": "f07_pipedrive_write_refused",
+    "kind": "answer",
+    "question": "Crea una nota en Marina: quiere la propuesta el jueves",
+    "tool_name": "create_note",
+    "tool_args": {"contact_id": "11", "body": "Quiere la propuesta el jueves"},
+    "tool_result": {"ok": false, "items": [], "coverage": "unavailable", "observed_at": "2026-09-26T10:00:00Z", "next_cursor": null, "reason": "not_available_for_pipedrive", "provider": "pipedrive", "tool": "create_note"},
+    "must_not_contain": ["he creado", "nota creada", "creé", "guardada"],
+    "must_contain_any": ["pipedrive", "todavía", "aún", "no puedo"]
+  },
+  {
+    "id": "f07_objections_answer_uses_counts",
+    "kind": "answer",
+    "question": "¿Qué objeción sale más en mis llamadas?",
+    "tool_name": "get_objections",
+    "tool_args": {},
+    "tool_result": {"ok": true, "coverage": "complete", "scope": "me", "period_days": 30, "conversations": 12, "categories": [{"name": "price", "count": 5, "resolved": 2, "open": 3, "unknown": 0, "examples": ["es caro para lo que usamos"]}, {"name": "timing", "count": 2, "resolved": 0, "open": 2, "unknown": 0, "examples": ["ahora no es buen momento"]}]},
+    "must_not_contain": ["no hay objeciones"],
+    "must_contain_all": ["5"]
+  }
+]

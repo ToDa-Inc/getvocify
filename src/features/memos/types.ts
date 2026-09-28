@@ -193,6 +193,8 @@ export interface Memo {
   hubspotDealId?: Nullable<string>;
   /** Dialer screening result for vocify_call memos */
   screeningOutcome?: Nullable<ScreeningOutcome>;
+  /** Capture channel: call, meeting or visit */
+  interactionKind?: Nullable<string>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
@@ -307,6 +309,33 @@ export interface FieldEditState {
   isDirty: boolean;
   /** Confidence score for this field */
   confidence: number;
+}
+
+export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable";
+
+export interface FollowupView {
+  status: FollowupStatus;
+  recipientName?: string | null;
+  to?: string;
+  phone?: string;
+  subject?: string;
+  body?: string;
+  /** "vocify_email" is D9: sent from Vocify via Resend (FOLLOWUP_SEND_ENABLED). */
+  channel?: "email" | "whatsapp" | "vocify_email";
+}
+
+export interface FollowupActionPayload {
+  action: "sent" | "copied";
+  channel: "email" | "whatsapp";
+  subject: string;
+  body: string;
+}
+
+/** D9: send the reviewed draft from Vocify (FOLLOWUP_SEND_ENABLED). */
+export interface FollowupSendPayload {
+  to: string;
+  subject: string;
+  body: string;
 }
 
 

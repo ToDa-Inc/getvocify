@@ -8,13 +8,15 @@
  * - File upload support
  */
 
+import { resolveApiBase } from '@/lib/app-url';
 import {
   createRefreshGate,
   isAccessTokenFresh,
   shouldClearAuthOnRefreshStatus,
 } from '@/lib/auth-session';
+import { acceptLanguageRequestHeader } from './api-request-language';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
+const API_BASE = resolveApiBase();
 const REFRESH_KEY = 'vocify_refresh';
 const REFRESH_LOCK = 'vocify-auth-refresh';
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -270,6 +272,7 @@ class ApiClient {
     const { signal: userSignal, ...rest } = options;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      ...acceptLanguageRequestHeader(),
       ...(token && { Authorization: `Bearer ${token}` }),
       ...rest.headers,
     };
@@ -302,6 +305,7 @@ class ApiClient {
             headers: {
               ...options.headers,
               'Content-Type': 'application/json',
+              ...acceptLanguageRequestHeader(),
               Authorization: `Bearer ${newToken}`,
             },
           }, true);
@@ -398,6 +402,7 @@ class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
+        ...acceptLanguageRequestHeader(),
         ...(token && { Authorization: `Bearer ${token}` }),
         // Note: Don't set Content-Type for FormData, browser sets it with boundary
       },
@@ -483,6 +488,10 @@ class ApiClient {
 
         xhr.open('POST', url);
         const token = this.getAuthToken();
+        const acceptLanguage = acceptLanguageRequestHeader()['Accept-Language'];
+        if (acceptLanguage) {
+          xhr.setRequestHeader('Accept-Language', acceptLanguage);
+        }
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }

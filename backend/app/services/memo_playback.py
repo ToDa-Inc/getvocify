@@ -32,6 +32,8 @@ def can_retranscribe(memo_data: dict[str, Any]) -> bool:
     path = str(memo_data.get("recording_path") or "").strip()
     if source == "vocify_call":
         return bool(path)
+    if source == "desktop":
+        return bool(path)
     if source == "hubspot_call":
         return bool(path or str(memo_data.get("hubspot_engagement_id") or "").strip())
     return False

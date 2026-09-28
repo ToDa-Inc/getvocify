@@ -178,12 +178,33 @@ const SettingsPage = () => {
       else if (id === "salesforce") await crmApi.disconnectSalesforce();
       else await crmApi.disconnectPipedrive();
     },
-    onSuccess: (_, id) => {
-      toast.success(`Disconnected from ${CRM_LABEL[id]}`);
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: crmKeys.connections() });
+      const previous = queryClient.getQueryData(crmKeys.connections());
+      queryClient.setQueryData(
+        crmKeys.connections(),
+        (rows: { provider: string }[] | undefined) => (rows || []).filter((row) => row.provider !== id),
+      );
+      const setupKey =
+        id === "hubspot"
+          ? crmKeys.hubspotSetup()
+          : id === "salesforce"
+            ? crmKeys.salesforceSetup()
+            : crmKeys.pipedriveSetup();
+      await queryClient.cancelQueries({ queryKey: setupKey });
+      queryClient.removeQueries({ queryKey: setupKey });
       setDisconnectId(null);
-      refreshCrm();
+      return { previous };
     },
-    onError: () => toast.error("Failed to disconnect"),
+    onSuccess: () => {
+      toast.success("Disconnected");
+      queryClient.invalidateQueries({ queryKey: crmKeys.connections() });
+      queryClient.invalidateQueries({ queryKey: crmKeys.preferences() });
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(crmKeys.connections(), context.previous);
+      toast.error("Failed to disconnect");
+    },
   });
 
   const refreshPermissions = useMutation({

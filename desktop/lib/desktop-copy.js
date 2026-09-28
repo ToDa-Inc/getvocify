@@ -1,0 +1,40 @@
+import {resolveUiLang} from '../renderer/shared/ui/i18n.js';
+const copy = {
+ es: {
+  homeTitle:'Tu próxima conversación, sin trabajo pendiente.', homeHint:'Escucha la reunión. Después revisa el resumen y prepara el seguimiento.',
+  listen:'Escuchar reunión', stop:'Parar y revisar', ready:'Micrófono y audio de la reunión', live:'Escuchando la reunión', assist:'Sugerencias en directo',
+  today:'Hoy', history:'Reuniones', loading:'Cargando tus pendientes…', empty:'No tienes pendientes para hoy.', emptyHint:'Puedes empezar una reunión cuando quieras.',
+  todayError:'No se pudieron cargar tus pendientes.', incomplete:'No se han podido consultar todas las fuentes. Esta lista puede estar incompleta.', retry:'Reintentar',
+  open:'Abrir contacto', noTarget:'Sin contacto enlazado', unnamed:'Contacto sin nombre', briefError:'No se pudo cargar el contexto del contacto.', notesError:'No se pudo cargar el historial.', noNotes:'Tus reuniones aparecerán aquí.',
+  review:'Revisión de la reunión', confirm:'Confirmar en CRM', saved:'Guardado en CRM', needsReview:'Revisa el destino antes de confirmar en CRM.',
+  preparing:'Preparando la revisión…', transcript:'Transcripción', fields:'Campos del CRM', selectDeal:'Selecciona el negocio de esta reunión.', newDeal:'Crear un negocio',
+  noDeal:'Sin negocio confirmado. Puedes guardar los datos del contacto.', matched:'Negocio', omit:'Omitir', noFields:'No hay cambios de campos propuestos.',
+  followupError:'No se pudo cargar el seguimiento.', confirmFirst:'Selecciona un negocio o indica que quieres crear uno.', confirmError:'No se pudo guardar en CRM.',
+  syncPending:'La reunión está guardada en este dispositivo. Reintentaremos la sincronización al parar.', checklistPending:'La checklist se evaluará al procesar la reunión.',
+  permCaps:'Permisos de macOS', permTitle:'Escucha la reunión, no la pantalla', permLead:'Activa el micrófono y el audio del sistema. macOS lo llama «Grabación de pantalla y audio del sistema» para oír Zoom, Meet y Teams. Vocify no captura tu pantalla.',
+  permHint:'Si no aparece el aviso, abre Ajustes del Sistema → Privacidad y seguridad, activa Vocify y vuelve aquí.',
+  permContinue:'Continuar', permEnable:'Activar', permOpenSettings:'Abrir Ajustes',
+  permMicEnable:'Activar micrófono', permMicOn:'Micrófono listo', permMicBody:'Vocify graba tu voz como «Tú» en la llamada.', permMicOnBody:'Tu micrófono está listo.',
+  permAudioEnable:'Activar audio del sistema', permAudioOn:'Audio del sistema listo', permAudioBody:'macOS lo pide como grabación de pantalla y audio para oír la reunión como «Ellos». No capturamos la pantalla.', permAudioOnBody:'El audio de la reunión está listo.',
+  permSetupTitle:'Antes de escuchar', permSetupLead:'Necesitamos estos dos permisos para separar tu voz del audio de la reunión.',
+ },
+ en: {
+  homeTitle:'Your next conversation, without the admin.', homeHint:'Listen to the meeting. Then review the summary and prepare your follow-up.',
+  listen:'Listen to meeting', stop:'Stop and review', ready:'Microphone and meeting audio', live:'Listening to the meeting', assist:'Live suggestions',
+  today:'Today', history:'Meetings', loading:'Loading your next actions…', empty:'Nothing pending for today.', emptyHint:'You can start a meeting whenever you are ready.',
+  todayError:'Could not load your next actions.', incomplete:'Some sources could not be checked. This list may be incomplete.', retry:'Retry',
+  open:'Open contact', noTarget:'No linked contact', unnamed:'Unnamed contact', briefError:'Could not load contact context.', notesError:'Could not load meeting history.', noNotes:'Your meetings will appear here.',
+  review:'Meeting review', confirm:'Confirm in CRM', saved:'Saved to CRM', needsReview:'Check the destination before confirming in CRM.',
+  preparing:'Preparing your review…', transcript:'Transcript', fields:'CRM fields', selectDeal:'Select the deal for this meeting.', newDeal:'Create a deal',
+  noDeal:'No confirmed deal. You can still save the contact details.', matched:'Deal', omit:'Omit', noFields:'No field changes proposed.',
+  followupError:'Could not load the follow-up.', confirmFirst:'Select a deal or choose to create one.', confirmError:'Could not save to CRM.',
+  syncPending:'The meeting is saved on this device. We will retry syncing when you stop.', checklistPending:'The checklist will be evaluated when the meeting is processed.',
+  permCaps:'macOS permissions', permTitle:'Hear the call, not the screen', permLead:'Turn on microphone and system audio. macOS lists this under Screen & System Audio Recording so Vocify can hear Zoom, Meet, and Teams. Your screen is not captured.',
+  permHint:'If the prompt does not appear, open System Settings → Privacy & Security, enable Vocify, then return here.',
+  permContinue:'Continue', permEnable:'Enable', permOpenSettings:'Open Settings',
+  permMicEnable:'Enable microphone', permMicOn:'Microphone is on', permMicBody:'Vocify records your voice as You on the call.', permMicOnBody:'Your microphone is ready.',
+  permAudioEnable:'Enable system audio', permAudioOn:'System audio is on', permAudioBody:'macOS requires Screen & System Audio Recording so Vocify can hear meeting playback as Them. We do not capture your screen.', permAudioOnBody:'Meeting playback is ready.',
+  permSetupTitle:'Before you listen', permSetupLead:'We need both permissions to separate your voice from the meeting audio.',
+ }
+};
+export function desktopCopy(lang) {return copy[resolveUiLang(lang)];}

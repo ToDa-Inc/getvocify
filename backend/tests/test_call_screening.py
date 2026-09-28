@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.telephony.call_screening import classify_call_outcome
+from app.services.telephony.call_screening import classify_call_outcome, resolve_screening_outcome
 
 
 class TestClassifyCallOutcome:
@@ -111,3 +111,19 @@ class TestClassifyCallOutcome:
             "De acuerdo, en dos semanas hablamos. Chao."
         )
         assert classify_call_outcome(transcript, duration=63.0) == "connected"
+
+
+def test_whatsapp_visit_with_transcript_is_connected():
+    outcome = resolve_screening_outcome(
+        {"source": "whatsapp", "interaction_kind": "visit"},
+        "Rep: Hola\nThem: Hola",
+    )
+    assert outcome == "connected"
+
+
+def test_existing_screening_outcome_is_not_replaced():
+    outcome = resolve_screening_outcome(
+        {"source": "whatsapp", "screening_outcome": "voicemail"},
+        "Rep: Hola",
+    )
+    assert outcome == "voicemail"

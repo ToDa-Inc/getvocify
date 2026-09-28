@@ -4,6 +4,7 @@ from app.services.activity_scope import (
     author_display_name,
     authors_by_user_id,
     can_view_company_activity,
+    effective_visibility,
     invert_hubspot_owners,
     memo_readable_by,
     readable_memo_or_none,
@@ -19,6 +20,12 @@ def test_can_view_company_activity_is_owner_or_admin():
     assert can_view_company_activity("admin") is True
     assert can_view_company_activity("member") is False
     assert can_view_company_activity(None) is False
+
+
+def test_can_view_company_activity_visibility_team_reads_without_management():
+    assert can_view_company_activity("member", "team") is True
+    assert can_view_company_activity("member", "own") is False
+    assert can_view_company_activity(None, "team") is True
 
 
 def test_author_display_name_prefers_full_name():
@@ -55,6 +62,27 @@ def test_owner_company_scope_returns_team():
         scope="company",
     )
     assert set(ids) == {"u1", "u2"}
+
+
+def test_member_with_team_visibility_reads_company_scope():
+    ids = resolve_list_user_ids(
+        viewer_id="u1",
+        viewer_role="member",
+        member_ids=["u1", "u2"],
+        scope="company",
+        viewer_visibility="team",
+    )
+    assert set(ids) == {"u1", "u2"}
+
+
+def test_member_with_own_visibility_stays_solo_on_company_scope():
+    assert resolve_list_user_ids(
+        viewer_id="u1",
+        viewer_role="member",
+        member_ids=["u1", "u2"],
+        scope="company",
+        viewer_visibility="own",
+    ) == ["u1"]
 
 
 def test_owner_can_filter_to_one_teammate():
@@ -119,6 +147,131 @@ def test_readable_memo_or_none_lets_admin_read_teammate_row():
         viewer_role="member",
         member_ids=["rep", "rep-b"],
     ) is None
+
+
+def test_memo_readable_by_handoff_sdr_reads_owner():
+    assert memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="sdr",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_ids={"sdr"},
+    )
+
+
+def test_memo_readable_by_handoff_sdr_id_mismatch_denied():
+    assert not memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="other-sdr",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_ids={"sdr"},
+    )
+
+
+def test_memo_readable_by_no_handoff_denied():
+    assert not memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="sdr",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_ids=None,
+    )
+
+
+def test_memo_readable_by_handoff_supports_multiple_sdrs():
+    assert memo_readable_by(
+        viewer_id="ae",
+        owner_user_id="sdr-2",
+        viewer_role="member",
+        same_company=True,
+        handoff_sdr_ids={"sdr-1", "sdr-2"},
+    )
+
+
+def test_readable_memo_or_none_handoff_matches_contact_and_sdr():
+    row = {"id": "m1", "user_id": "sdr", "hubspot_contact_id": "c1"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="ae",
+        viewer_role="member",
+        member_ids=["ae", "sdr"],
+        handoff_map={"c1": {"sdr"}},
+    ) is row
+
+
+def test_readable_memo_or_none_handoff_wrong_contact_denied():
+    row = {"id": "m1", "user_id": "sdr", "hubspot_contact_id": "c2"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="ae",
+        viewer_role="member",
+        member_ids=["ae", "sdr"],
+        handoff_map={"c1": {"sdr"}},
+    ) is None
+
+
+def test_readable_memo_or_none_handoff_wrong_sdr_denied():
+    row = {"id": "m1", "user_id": "other-sdr", "hubspot_contact_id": "c1"}
+    assert readable_memo_or_none(
+        row,
+        viewer_id="ae",
+        viewer_role="member",
+        member_ids=["ae", "other-sdr"],
+        handoff_map={"c1": {"sdr"}},
+    ) is None
+
+
+def test_memo_readable_by_team_visibility_reads_teammate_not_outsider():
+    assert memo_readable_by(
+        viewer_id="rep-a",
+        owner_user_id="rep-b",
+        viewer_role="member",
+        same_company=True,
+        viewer_visibility="team",
+    )
+    assert not memo_readable_by(
+        viewer_id="rep-a",
+        owner_user_id="rep-b",
+        viewer_role="member",
+        same_company=False,
+        viewer_visibility="team",
+    )
+    assert not memo_readable_by(
+        viewer_id="rep-a",
+        owner_user_id="rep-b",
+        viewer_role="member",
+        same_company=True,
+        viewer_visibility="own",
+    )
+
+
+def test_effective_visibility_none_without_membership():
+    assert effective_visibility(object(), None) is None
+
+
+def test_effective_visibility_hidden_when_flag_off(monkeypatch):
+    from app.services import feature_flags
+
+    monkeypatch.setattr(feature_flags, "is_enabled", lambda supabase, company_id, flag: False)
+
+    class _M:
+        company_id = "c1"
+        visibility = "team"
+
+    assert effective_visibility(object(), _M()) is None
+
+
+def test_effective_visibility_exposed_when_flag_on(monkeypatch):
+    from app.services import feature_flags
+
+    monkeypatch.setattr(feature_flags, "is_enabled", lambda supabase, company_id, flag: True)
+
+    class _M:
+        company_id = "c1"
+        visibility = "team"
+
+    assert effective_visibility(object(), _M()) == "team"
 
 
 def test_invert_hubspot_owners_ignores_legacy_key():

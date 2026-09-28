@@ -10,7 +10,7 @@ from app.services.hubspot.tasks import (
 
 def test_detected_task_due_iso_parses_tomorrow():
     iso = detected_task_due_iso("Send one-pager", "mañana")
-    expected = (datetime.utcnow() + timedelta(days=1)).date().isoformat()
+    expected = (datetime.now(TASK_DUE_TZ) + timedelta(days=1)).date().isoformat()
     assert iso == expected
 
 

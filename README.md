@@ -9,7 +9,7 @@ AI-powered sales conversation capture — record calls, transcribe, extract CRM 
 | `src/` | React web app (Vite + TypeScript) |
 | `backend/` | FastAPI API (deployed on Railway) |
 | `chrome-extension/` | Browser extension for in-CRM recording |
-| `desktop/` | Pointer — companion source is [getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop) |
+| `desktop/` | Electron companion (meetings, system audio) |
 | `hubspot-app/` | HubSpot OAuth app definition |
 | `remotion/` | Product demo video (local render) |
 | `docs/` | Product documentation |
@@ -27,13 +27,8 @@ GTM data, cold-email pipeline, lead CSVs, pitch decks, and internal notes live i
 
 ### Desktop companion
 
-The Vocify Companion lives in **[ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop)** (sibling clone: `../getvocify-desktop`).
-
 ```bash
-git clone https://github.com/ToDa-Inc/getvocify-desktop.git
-cd getvocify-desktop
-npm install
-npm start
+cd desktop && npm install && npm start
 ```
 
 ### Quick start
@@ -67,7 +62,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | Web app | Vercel | `vercel.json` — builds `src/` via `npm run build` |
 | API | Railway | `backend/railway.json` |
 | Chrome extension | Manual | Load `chrome-extension/` unpacked, or zip for store |
-| Desktop companion | GitHub Actions `.dmg` + local Electron | [ToDa-Inc/getvocify-desktop](https://github.com/ToDa-Inc/getvocify-desktop) |
+| Desktop companion | GitHub Actions `.dmg` from `desktop/` + local Electron | `.github/workflows/desktop-dmg.yml` |
 | HubSpot app | HubSpot CLI | `hubspot-app/` — `hs project upload` |
 
 ## Documentation

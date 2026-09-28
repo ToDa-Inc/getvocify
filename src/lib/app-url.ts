@@ -14,6 +14,17 @@ function resolveAppUrl(): string {
 }
 export const APP_URL = resolveAppUrl();
 
+const STAGING_API = "https://getvocify-staging.up.railway.app/api/v1";
+
+/** Staging hostname always uses the staging Railway API, even if Vercel baked prod `VITE_API_URL`. */
+export function resolveApiBase(): string {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname.toLowerCase();
+    if (host === "staging.getvocify.com") return STAGING_API;
+  }
+  return import.meta.env.VITE_API_URL ?? "http://localhost:8888/api/v1";
+}
+
 /** Booking link for the demo call (founder-led sales, no self-serve signup yet) */
 export const DEMO_BOOKING_URL =
   "https://meetings-eu1.hubspot.com/dani-zal?uuid=e04c2511-8c6b-424b-8dd9-b5eddfe1e87c";

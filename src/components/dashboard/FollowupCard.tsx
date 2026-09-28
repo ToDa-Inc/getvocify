@@ -1,0 +1,115 @@
+import "@shared/ui/components/v-followup.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { composeTarget } from "@shared/ui/compose.js";
+import { memosApi } from "@/features/memos/api";
+import type { FollowupView } from "@/features/memos/types";
+import { useVElement, type VAction } from "@/hooks/use-v-element";
+import { useAuth } from "@/features/auth";
+import { useLanguage } from "@/lib/i18n";
+import { htmlLang } from "@/lib/app-language";
+
+const POLL_MS = 1500;
+
+type FollowupElement = HTMLElement & { value: { subject: string; body: string } };
+
+function openTarget(url: string) {
+  if (url.startsWith("mailto:")) window.location.href = url;
+  else window.open(url, "_blank", "noopener");
+}
+
+/**
+ * The follow-up draft on the memo review, for the memo's author. `onSendReady` receives a send
+ * that presses the card's own primary pill (its channel), or null when there is nothing to send.
+ */
+export function FollowupCard({
+  memoId,
+  onSendReady,
+}: {
+  memoId: string;
+  onSendReady?: (send: (() => void) | null) => void;
+}) {
+  const { language, t } = useLanguage();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const uiLang = htmlLang(language);
+  const sendFromVocify = Boolean(user?.company?.features?.includes("FOLLOWUP_SEND_ENABLED"));
+  const [isSending, setIsSending] = useState(false);
+  const { data } = useQuery({
+    queryKey: ["memo-followup", memoId],
+    queryFn: () => memosApi.getFollowup(memoId),
+    refetchInterval: (query) => (query.state.data?.status === "generating" ? POLL_MS : false),
+  });
+
+  const onAction = useCallback(
+    async ({ action, value, element }: VAction) => {
+      if (isSending) return; // a send is already in flight: never fire a second one
+      const view = queryClient.getQueryData<FollowupView>(["memo-followup", memoId]);
+      if (!view) return;
+      const { subject, body } = (element as FollowupElement).value;
+      try {
+        if (action === "copy") {
+          await navigator.clipboard.writeText(body);
+          toast.success(t.product.followupCopied);
+          await memosApi.followupAction(memoId, { action: "copied", channel: "email", subject, body });
+          return;
+        }
+        const channel = value === "whatsapp" ? "whatsapp" : "email";
+        if (channel === "email" && sendFromVocify && view.to) {
+          setIsSending(true);
+          try {
+            const next = await memosApi.sendFollowup(memoId, { to: view.to, subject, body });
+            queryClient.setQueryData(["memo-followup", memoId], next);
+            toast.success(t.product.followupSentToast);
+          } finally {
+            setIsSending(false);
+          }
+          return;
+        }
+        const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
+        const url = target.ok ? target.url : target.fallback;
+        if (!url) return;
+        if (!target.ok) {
+          await navigator.clipboard.writeText(body);
+          toast(t.product.followupEmailBodyCopied);
+        }
+        openTarget(url);
+        const next = await memosApi.followupAction(memoId, { action: "sent", channel, subject, body });
+        queryClient.setQueryData(["memo-followup", memoId], next);
+      } catch {
+        toast.error(t.product.followupCompleteFailed);
+      }
+    },
+    [memoId, queryClient, t.product, sendFromVocify, isSending],
+  );
+
+  const setElement = useVElement(data, onAction);
+  const elementRef = useRef<FollowupElement | null>(null);
+  const bindRef = useCallback(
+    (node: FollowupElement | null) => {
+      elementRef.current = node;
+      setElement(node);
+    },
+    [setElement],
+  );
+
+  const canSend = data?.status === "ready" && Boolean(data.to || data.phone) && !isSending;
+
+  useEffect(() => {
+    if (!onSendReady) return;
+    onSendReady(
+      canSend
+        ? () => elementRef.current?.querySelector<HTMLButtonElement>('[data-action="send"].v-pill--primary')?.click()
+        : null,
+    );
+    return () => onSendReady(null);
+  }, [onSendReady, canSend]);
+
+  if (!data || data.status === "unavailable") return null;
+  return (
+    <div className={`mb-4${isSending ? " opacity-60 pointer-events-none" : ""}`} aria-busy={isSending}>
+      <v-followup ref={bindRef} lang={uiLang} />
+    </div>
+  );
+}

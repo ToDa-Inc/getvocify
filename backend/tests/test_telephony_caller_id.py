@@ -224,15 +224,15 @@ class TestStartCallerIdVerification:
         supabase, store = fake_supabase([])
 
         result = start_caller_id_verification(
-            supabase, "user-1", "600 111 222", label="Oficina"
+            supabase, "user-1", "910 111 222", label="Oficina"
         )
 
-        assert result["phoneNumber"] == "+34600111222"
+        assert result["phoneNumber"] == "+34910111222"
         assert result["verificationCode"] == "482913"
         assert result["status"] == "pending"
         assert result["validationSid"] == "CAabc123"
         assert result["alreadyVerified"] is False
-        assert store[0]["phone_number"] == "+34600111222"
+        assert store[0]["phone_number"] == "+34910111222"
         assert store[0]["status"] == "pending"
         assert store[0]["verification_sid"] == "CAabc123"
 
@@ -246,11 +246,11 @@ class TestStartCallerIdVerification:
         )
         supabase, _ = fake_supabase([])
 
-        start_caller_id_verification(supabase, "user-1", "+34600111222", label=None)
+        start_caller_id_verification(supabase, "user-1", "+34910111222", label=None)
 
         kwargs = rest.return_value.validation_requests.create.call_args.kwargs
         assert "webhooks/twilio/caller-id-status" in kwargs["status_callback"]
-        assert kwargs["phone_number"] == "+34600111222"
+        assert kwargs["phone_number"] == "+34910111222"
 
     @patch("app.services.telephony.caller_id.twilio_rest")
     def test_skips_twilio_when_already_verified(self, rest):
@@ -258,7 +258,7 @@ class TestStartCallerIdVerification:
             [
                 {
                     "user_id": "user-1",
-                    "phone_number": "+34600111222",
+                    "phone_number": "+34910111222",
                     "status": "verified",
                     "label": "Oficina",
                     "verification_sid": "CA-old",
@@ -268,12 +268,12 @@ class TestStartCallerIdVerification:
         )
 
         result = start_caller_id_verification(
-            supabase, "user-1", "+34600111222", label=None
+            supabase, "user-1", "+34910111222", label=None
         )
 
         rest.assert_not_called()
         assert result == {
-            "phoneNumber": "+34600111222",
+            "phoneNumber": "+34910111222",
             "status": "verified",
             "validationSid": "CA-old",
             "alreadyVerified": True,
@@ -292,14 +292,14 @@ class TestStartCallerIdVerification:
             [
                 {
                     "user_id": "user-1",
-                    "phone_number": "+34600111222",
+                    "phone_number": "+34910111222",
                     "status": "failed",
                     "label": "Oficina",
                 }
             ]
         )
 
-        start_caller_id_verification(supabase, "user-1", "+34600111222", label=None)
+        start_caller_id_verification(supabase, "user-1", "+34910111222", label=None)
 
         assert store[0]["label"] == "Oficina"
 
@@ -339,12 +339,12 @@ class TestStartCallerIdVerification:
         supabase, store = fake_supabase([])
 
         result = start_caller_id_verification(
-            supabase, "user-1", "+34600111222", label=None
+            supabase, "user-1", "+34910111222", label=None
         )
 
         assert result["alreadyVerified"] is True
         assert result["status"] == "verified"
-        assert result["phoneNumber"] == "+34600111222"
+        assert result["phoneNumber"] == "+34910111222"
         assert store[0]["status"] == "verified"
         assert store[0]["verification_sid"] == "PN-existing"
         caller_delete = getattr(caller, "delete", None)
@@ -365,7 +365,7 @@ class TestStartCallerIdVerification:
 
         with pytest.raises(CallerIdVerificationUnsupported) as exc:
             start_caller_id_verification(
-                supabase, "user-1", "+34669701069", label=None
+                supabase, "user-1", "+34910701069", label=None
             )
         assert "IE1" in str(exc.value) or "Irlanda" in str(exc.value)
 
@@ -379,7 +379,7 @@ class TestStartCallerIdVerification:
         supabase, store = fake_supabase([])
 
         result = start_caller_id_verification(
-            supabase, "user-1", "+34600111222", label=None
+            supabase, "user-1", "+34910111222", label=None
         )
 
         assert result["needsCodeSubmit"] is True
@@ -387,10 +387,10 @@ class TestStartCallerIdVerification:
         assert result["status"] == "pending"
         assert result["alreadyVerified"] is False
         assert store[0]["status"] == "pending"
-        assert store[0]["verification_sid"] == "+34600111222"
+        assert store[0]["verification_sid"] == "+34910111222"
         twilio.assert_not_called()
         telnyx.return_value.create_verified_number.assert_called_once_with(
-            "+34600111222"
+            "+34910111222"
         )
 
     @patch("app.services.telephony.caller_id.calling_provider", return_value="telnyx")
@@ -401,7 +401,7 @@ class TestStartCallerIdVerification:
         }
         supabase, store = fake_supabase([])
 
-        start_caller_id_verification(supabase, "user-1", "+34600111222", label=None)
+        start_caller_id_verification(supabase, "user-1", "+34910111222", label=None)
 
         assert store[0]["verification_sid"] == "vn_abc"
 
@@ -414,24 +414,24 @@ class TestConfirmCallerIdVerification:
             [
                 {
                     "user_id": "user-1",
-                    "phone_number": "+34600111222",
+                    "phone_number": "+34910111222",
                     "status": "pending",
-                    "verification_sid": "+34600111222",
+                    "verification_sid": "+34910111222",
                     "verified_at": None,
                 }
             ]
         )
 
         result = confirm_caller_id_verification(
-            supabase, "user-1", "+34600111222", "482913"
+            supabase, "user-1", "+34910111222", "482913"
         )
 
         assert result["status"] == "verified"
-        assert result["phoneNumber"] == "+34600111222"
+        assert result["phoneNumber"] == "+34910111222"
         assert store[0]["status"] == "verified"
         assert store[0]["verified_at"] is not None
         telnyx.return_value.verify_number_code.assert_called_once_with(
-            "+34600111222", "482913"
+            "+34910111222", "482913"
         )
 
 

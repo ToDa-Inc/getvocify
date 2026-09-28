@@ -5,6 +5,7 @@ Application configuration from environment variables
 import json
 import os
 import tempfile
+from datetime import date
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -63,6 +64,14 @@ class Settings(BaseSettings):
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8
+    # Ask (web + WhatsApp): team metrics, conversations, objections, priorities and Pipedrive reads.
+    ASK_VOCIFY_DATA_TOOLS_ENABLED: bool = False
+    # Team view: weekly playbook adherence per rep (GET /team/adherence/trend). Owner/admin only.
+    TEAM_ADHERENCE_TREND_ENABLED: bool = False
+    # Team view: named competitor mentions in objections card and team weekly report. Owner/admin only.
+    TEAM_COMPETITORS_ENABLED: bool = False
+    # Web Ask: «¿a quién llamo hoy?» returns the priority contacts with a Call action. Needs the data tools.
+    ASK_CALL_ACTIONS_ENABLED: bool = False
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
     TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
@@ -194,8 +203,96 @@ class Settings(BaseSettings):
     # Play the AEPD recording disclosure to the called party before bridging.
     # Off by default; flip on per environment. The whisper route stays mounted.
     CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
+    # Spain: Orden TDF/149/2025 art. 9 bars +34 6/7 mobiles for commercial
+    # calls; +34 400 cannot receive the verification call. Global because it is
+    # law for every tenant, not a plan feature. See docs/telephony/DECISION.md.
+    CALLING_ES_CLI_GATE_ENABLED: bool = True
+    # Already-verified Spanish mobiles stop dialing from this Europe/Madrid date
+    # (Resolución SETID 14-04-2026, apartado sexto).
+    CALLING_ES_MOBILE_CALL_BLOCK_FROM: date = date(2026, 10, 17)
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
+    # Follow-up drafts; overridable per company (company_feature_flags). Off does not block
+    # extraction; sent means mail-client handoff.
+    FOLLOWUP_ENABLED: bool = True
+    # Daily report email, per company. The report is still generated and listed in the bell when off.
+    REPORTING_DAILY_EMAIL_ENABLED: bool = False
+    # Deal stage chosen by the rep on memo review; accepting a meeting no longer moves it. Per company.
+    DEAL_STAGE_CONFIRM_ENABLED: bool = False
+    # CRM tasks from C04 commitments, with Hoy's text and due date. Per company.
+    COMMITMENT_TASKS_ENABLED: bool = False
+    # Reports (F13.04 / F15.05), per company. Weekly personal report, Friday 18:00 local.
+    REPORTING_WEEKLY_ENABLED: bool = False
+    # Weekly team report by email for owner/admin, from the same aggregate as the team panel.
+    REPORTING_TEAM_ENABLED: bool = False
+    # Bell also lists what Vocify did on its own (CRM writes, meeting stage moves) and why.
+    NOTIFICATIONS_ACTIVITY_ENABLED: bool = False
+    INTELLIGENCE_WORKER_PUBLISH: bool = False
+    # Interest, objections and commitments from the transcript, once per extraction.
+    INTELLIGENCE_EXTRACT_ENABLED: bool = False
+    # C04 v4: named competitors + one observation per playbook step (coaching, adherence,
+    # missed steps, checklist). Per company via company_feature_flags; off until its evals pass.
+    PLAYBOOK_OBSERVATIONS_ENABLED: bool = False
+    # Hoy card «no te ha respondido»: reads the rep's CRM emails. HubSpot needs sales-email-read.
+    HOY_NO_REPLY_ENABLED: bool = False
+    # One-click confirm in Hoy after CRM auto-approve (stage and/or meeting). Per company.
+    HOY_CONFIRMATIONS_ENABLED: bool = False
+    # Accepted F14 meetings with starts_at today in Hoy. Per company.
+    HOY_MEETINGS_ENABLED: bool = False
+    # Rep workspace (F16): /dashboard becomes the rep's home. Per company.
+    REP_WORKSPACE_ENABLED: bool = False
+    # Pre-call brief v2: hook, why, say and playbook progress label from C04. Per company.
+    BRIEF_V2_ENABLED: bool = False
+    # Lista 3 (roles, flujos SDR/AE y Head of Sales). All per company, off by default.
+    # T1: company_members.sales_role/handoff_ae_user_id/visibility, exposed via /company and /auth/me.
+    SALES_ROLES_ENABLED: bool = False
+    # T3: SDR->AE handoff on meeting booked (deal_handoffs).
+    HANDOFF_ENABLED: bool = False
+    # T3: writes the CRM owner (deal/contact) to the AE on handoff.
+    HANDOFF_CRM_OWNER_ENABLED: bool = False
+    # T5: Hoy lead tiers (callback_no_answer, stale_hot, never_contacted) and heat score.
+    HOY_LEAD_TIERS_ENABLED: bool = False
+    # T6: Hoy AE section (deals in progress) with pre-meeting brief.
+    HOY_AE_DEALS_ENABLED: bool = False
+    # T8: follow-up sent from Vocify via Resend instead of mailto.
+    FOLLOWUP_SEND_ENABLED: bool = False
+    # T8: follow-up instructions tailored per flow (discovery/closing) plus sales_strategy.
+    FOLLOWUP_BY_FLOW_ENABLED: bool = False
+    # T9: Head of Sales onboarding wizard on first login.
+    ONBOARDING_WIZARD_ENABLED: bool = False
+    # T10: scoring credit for objections handled (objection_handling criterion).
+    SCORING_OBJECTION_CREDIT_ENABLED: bool = False
+    # T10: debrief v2 (flow, missed steps, phrases, highlights, progress).
+    DEBRIEF_V2_ENABLED: bool = False
+    # T11: Playbook tab with the week's best interactions per flow.
+    PLAYBOOK_TAB_ENABLED: bool = False
+    # T12: daily/weekly reports split by sales_role section.
+    REPORTING_BY_FLOW_ENABLED: bool = False
+    # T12: bell adds tasks (Hoy) and feedback (ready briefs) sections.
+    BELL_TASKS_ENABLED: bool = False
+    # T13: /dashboard becomes the Head of Sales' team home.
+    MANAGER_HOME_ENABLED: bool = False
+    # T14: Recall.ai meeting bot (needs RECALL_API_KEY).
+    RECALL_BOT_ENABLED: bool = False
+    # Lista 4 T2: SDR's Hoy in Tareas/Seguimiento/Nuevos, follow-ups on a cadence per stopper.
+    HOY_SDR_SECTIONS_ENABLED: bool = False
+    # Lista 4 T3: the brief adds a «gancho de empresa» line from another contact of the same company.
+    BRIEF_COMPANY_HOOK_ENABLED: bool = False
+    # Lista 4 T4: after the call, Hoy's panel walks proposal -> outcome -> follow-up -> next,
+    # and the company's deal_creation_rule decides when a contact without a deal gets one.
+    AFTER_CALL_FLOW_ENABLED: bool = False
+    # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
+    RECALL_API_KEY: Optional[str] = None
+    # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's
+    # default region for accounts that haven't picked one.
+    RECALL_REGION: str = "us-west-2"
+    # Recall webhook signing secret (Svix-style, prefixed "whsec_"), from the Recall
+    # dashboard's webhook settings. Unset -> POST /webhooks/recall accepts unsigned
+    # requests with a warning (dev only), same as UNIPILE_WEBHOOK_SECRET.
+    RECALL_WEBHOOK_SECRET: Optional[str] = None
+    INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
+    # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
+    FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
 
     CALLING_PROVIDER: str = "twilio"
     TELNYX_API_KEY: Optional[str] = None

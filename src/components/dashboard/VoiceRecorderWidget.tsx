@@ -28,14 +28,18 @@ import { AUDIO } from "@/shared/lib/constants";
 import { isSupportedAudioType, formatFileSize } from "@/features/recording/types";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
+import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
+import { DESKTOP_SHELL_EVENTS, isDesktopHost } from "@/lib/desktop-host";
 
 export interface VoiceRecorderWidgetProps {
   /** Callback fired with the created memo ID when recording/import succeeds */
   onComplete: (memoId: string) => void;
   /** Optional container CSS class */
   className?: string;
+  /** Idle capture sits in the page flow instead of a hero card. */
+  quiet?: boolean;
 }
 
 const formatTime = (seconds: number): string => {
@@ -47,7 +51,9 @@ const formatTime = (seconds: number): string => {
 export const VoiceRecorderWidget = ({
   onComplete,
   className = "",
+  quiet = false,
 }: VoiceRecorderWidgetProps) => {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -136,6 +142,28 @@ export const VoiceRecorderWidget = ({
       stopTranscription();
     }
   };
+
+  const recordToggleRef = useRef(handleRecordToggle);
+  recordToggleRef.current = handleRecordToggle;
+
+  useEffect(() => {
+    if (!isDesktopHost()) return;
+    const onListen = () => {
+      void recordToggleRef.current();
+    };
+    const onStop = () => {
+      if (state === "recording") {
+        stopRecording();
+        stopTranscription();
+      }
+    };
+    window.addEventListener(DESKTOP_SHELL_EVENTS.listen, onListen);
+    window.addEventListener(DESKTOP_SHELL_EVENTS.stop, onStop);
+    return () => {
+      window.removeEventListener(DESKTOP_SHELL_EVENTS.listen, onListen);
+      window.removeEventListener(DESKTOP_SHELL_EVENTS.stop, onStop);
+    };
+  }, [state, stopRecording, stopTranscription]);
 
   // Re-record / reset state
   const handleReRecord = () => {
@@ -380,6 +408,51 @@ export const VoiceRecorderWidget = ({
     );
   }
 
+  if (quiet) {
+    return (
+      <div className={cn("space-y-3", className)}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleRecordToggle}
+            disabled={state === "requesting"}
+            aria-label="Start recording voice memo"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-beige text-cream"
+          >
+            <Mic className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsPasteOpen((prev) => !prev)}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            {t.product.capturePaste}
+          </button>
+        </div>
+        {isPasteOpen ? (
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4`}>
+            <textarea
+              value={pastedTranscript}
+              onChange={(event) => setPastedTranscript(event.target.value)}
+              placeholder={t.product.capturePastePlaceholder}
+              className="mb-3 w-full min-h-[96px] rounded-lg border border-border bg-background p-3 text-sm text-foreground"
+            />
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isUploading || !pastedTranscript.trim()}
+                onClick={handleImportPastedTranscript}
+              >
+                {t.product.captureImport}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   // 6. Idle / Default State
   return (
     <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-center`, className)}>
@@ -453,7 +526,7 @@ export const VoiceRecorderWidget = ({
           <textarea
             value={pastedTranscript}
             onChange={(e) => setPastedTranscript(e.target.value)}
-            placeholder="Paste your transcript text here..."
+            placeholder={t.product.capturePastePlaceholder}
             className="w-full min-h-[140px] rounded-lg bg-secondary/30 p-3.5 border border-border/60 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 resize-y focus:outline-none focus:ring-2 focus:ring-beige/30 focus:border-beige/40 mb-3"
           />
           <div className="flex items-center justify-end gap-2">
@@ -477,7 +550,7 @@ export const VoiceRecorderWidget = ({
               onClick={handleImportPastedTranscript}
               className="text-xs rounded-full h-8 px-4 bg-beige text-cream hover:bg-beige/90"
             >
-              {isUploading ? "Importing..." : "Import & Extract"}
+              {isUploading ? t.product.captureImporting : t.product.captureImport}
             </Button>
           </div>
         </div>
