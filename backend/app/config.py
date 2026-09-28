@@ -271,6 +271,15 @@ class Settings(BaseSettings):
     MANAGER_HOME_ENABLED: bool = False
     # T14: Recall.ai meeting bot (needs RECALL_API_KEY).
     RECALL_BOT_ENABLED: bool = False
+    # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
+    RECALL_API_KEY: Optional[str] = None
+    # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's
+    # default region for accounts that haven't picked one.
+    RECALL_REGION: str = "us-west-2"
+    # Recall webhook signing secret (Svix-style, prefixed "whsec_"), from the Recall
+    # dashboard's webhook settings. Unset -> POST /webhooks/recall accepts unsigned
+    # requests with a warning (dev only), same as UNIPILE_WEBHOOK_SECRET.
+    RECALL_WEBHOOK_SECRET: Optional[str] = None
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"

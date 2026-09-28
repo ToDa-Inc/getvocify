@@ -1454,3 +1454,104 @@ async def _telnyx_recording_saved(supabase, payload: dict) -> Response:
         )
     return Response(status_code=204)
 
+
+
+@router.post("/recall")
+async def recall_webhook(request: Request):
+    """Recall.ai meeting bot events (T14). `bot.done` fetches the finished transcript
+    and completes the capture reserved by POST /meetings/bot; `bot.status_change` and
+    any other event are acknowledged as a no-op - there is nothing to do until the
+    transcript is ready."""
+    cid = f"rc_{uuid4().hex[:8]}"
+    set_correlation_id(cid)
+    raw_body = await request.body()
+
+    from app.services.recall_webhook_signature import verify_recall_webhook_signature
+
+    secret = settings.RECALL_WEBHOOK_SECRET or ""
+    if secret:
+        ok = verify_recall_webhook_signature(
+            webhook_id=request.headers.get("webhook-id") or "",
+            webhook_timestamp=request.headers.get("webhook-timestamp") or "",
+            signature_header=request.headers.get("webhook-signature") or "",
+            body=raw_body,
+            secret=secret,
+        )
+        if not ok:
+            inc_webhook_message("recall", "error")
+            return PlainTextResponse("Forbidden", status_code=403)
+    else:
+        logger.warning(
+            "Recall webhook accepted without RECALL_WEBHOOK_SECRET (dev only)",
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_no_secret"),
+        )
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8") or "null") or {}
+    except Exception:
+        inc_webhook_message("recall", "error")
+        return JSONResponse(content={"status": "error", "message": "Invalid JSON"}, status_code=400)
+
+    event = str(payload.get("event") or "")
+    bot = ((payload.get("data") or {}).get("bot")) or {}
+    bot_id = str(bot.get("id") or "")
+
+    if event != "bot.done" or not bot_id:
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    from app.integrations.recall_client import (
+        RecallClient,
+        RecallClientError,
+        transcript_download_url_from_bot,
+        turns_from_recall_transcript,
+    )
+    from app.services.meetings.recall_bot import (
+        complete_recall_capture,
+        find_capture_by_bot_id,
+        rep_full_name,
+    )
+
+    supabase = get_supabase()
+    memo_row = find_capture_by_bot_id(supabase, bot_id)
+    if not memo_row:
+        logger.warning(
+            "Recall webhook: no capture reserved for bot %s", bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_capture_missing", bot_id=bot_id),
+        )
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    try:
+        client = RecallClient()
+        bot_detail = await client.get_bot(bot_id)
+        download_url = transcript_download_url_from_bot(bot_detail)
+        if not download_url:
+            raise RecallClientError(f"bot {bot_id} has no transcript download_url yet")
+        segments = await client.download_transcript(download_url)
+        rep_name = rep_full_name(supabase, memo_row["user_id"])
+        transcript, turns = turns_from_recall_transcript(segments, rep_name=rep_name)
+    except Exception as exc:
+        logger.exception(
+            "Recall webhook: transcript fetch failed for bot %s", bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_transcript_failed", bot_id=bot_id, error=str(exc)),
+        )
+        supabase.table("memos").update(
+            {"capture_status": "failed", "status": "failed", "error_message": "Recall transcript fetch failed"}
+        ).eq("id", memo_row["id"]).execute()
+        inc_webhook_message("recall", "error")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    identity = complete_recall_capture(supabase, memo_row, transcript=transcript, turns=turns)
+    if identity.should_start_pipeline and transcript.strip():
+        from app.api.memos import start_extraction_from_transcript
+
+        await start_extraction_from_transcript(
+            identity.memo_id,
+            memo_row["user_id"],
+            transcript,
+            supabase,
+            source_type="meeting_transcript",
+        )
+    inc_webhook_message("recall", "processed")
+    return JSONResponse(content={"status": "ok"}, status_code=200)

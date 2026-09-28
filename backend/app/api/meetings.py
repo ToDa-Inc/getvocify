@@ -1,12 +1,17 @@
-"""GET the stored meeting proposal. POST accept / omit / correct / reconcile."""
+"""GET the stored meeting proposal. POST accept / omit / correct / reconcile.
+POST /meetings/bot (T14) sends a Recall.ai bot into a video meeting."""
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from app.api.handoffs import CRM_OWNER_FLAG, _apply_crm_owner_effect
+from app.config import settings
 from app.deps import get_membership, get_supabase
 from app.models.meetings import MeetingProposalAcceptRequest, MeetingProposalReconcileRequest
 from app.services.company import Membership
@@ -16,12 +21,72 @@ from app.services.feature_flags import is_enabled
 from app.services.handoffs import HandoffError, ae_membership_row, create_handoff, resolve_ae, valid_ae
 from app.services.meetings.accept import WriterFactory, accept_meeting_proposal, reconcile_meeting_proposal
 from app.services.meetings.proposals import latest_proposal
+from app.services.meetings.recall_bot import reserve_recall_capture
 
 HANDOFF_FLAG = "HANDOFF_ENABLED"
+RECALL_BOT_FLAG = "RECALL_BOT_ENABLED"
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["meetings"])
+
+
+class CreateMeetingBotRequest(BaseModel):
+    meeting_url: str = Field(min_length=1)
+    contact_id: Optional[str] = None
+    connection_id: Optional[str] = None
+
+
+class MeetingBotResponse(BaseModel):
+    capture_id: str
+    memo_id: str
+    bot_id: str
+    status: str
+
+
+@router.post("/meetings/bot", response_model=MeetingBotResponse)
+async def create_meeting_bot(
+    body: CreateMeetingBotRequest,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    if not is_enabled(supabase, membership.company_id, RECALL_BOT_FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    if not settings.RECALL_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Recall.ai no está configurado",
+        )
+
+    from app.integrations.recall_client import RecallClient, RecallClientError
+
+    try:
+        bot = await RecallClient().create_bot(body.meeting_url)
+    except RecallClientError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    bot_id = str((bot or {}).get("id") or "")
+    if not bot_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Recall no devolvió un bot_id",
+        )
+
+    identity = reserve_recall_capture(
+        supabase,
+        user_id=membership.user_id,
+        company_id=membership.company_id,
+        started_at=datetime.now(timezone.utc),
+        bot_id=bot_id,
+        sales_role=membership.sales_role,
+        contact_id=body.contact_id,
+    )
+    return MeetingBotResponse(
+        capture_id=identity.capture_id,
+        memo_id=identity.memo_id,
+        bot_id=bot_id,
+        status=identity.status,
+    )
 
 _WRITER_FACTORY: WriterFactory | None = None
 

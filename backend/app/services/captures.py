@@ -298,7 +298,14 @@ def reserve_capture(
     playbook_version_id: Optional[str] = None,
     active_version_id: Optional[str] = None,
     sales_role: Optional[str] = None,
+    source: str = "desktop",
+    source_type: Optional[str] = None,
+    hubspot_contact_id: Optional[str] = None,
 ) -> CaptureIdentity:
+    """`source`/`source_type` default to the desktop capture values (unchanged for every
+    existing caller); T14's Recall bot is the first caller to override them
+    (source="recall", source_type="recall_bot") so a bot-completed meeting is
+    distinguishable from a desktop recording of one."""
     client_id = (client_capture_id or "").strip()
     if not client_id:
         raise HTTPException(
@@ -335,11 +342,13 @@ def reserve_capture(
         "capture_status": "recording",
         "capture_input_revision": 0,
         "status": CAPTURE_STATUS_TO_MEMO_STATUS["recording"],
-        "source": "desktop",
-        "source_type": source_type_for_kind(kind),
+        "source": source,
+        "source_type": source_type or source_type_for_kind(kind),
         "audio_url": "",
         "audio_duration": 0,
     }
+    if hubspot_contact_id:
+        payload["hubspot_contact_id"] = hubspot_contact_id
     try:
         created = insert_memo_row(supabase, payload)
     except Exception as exc:
