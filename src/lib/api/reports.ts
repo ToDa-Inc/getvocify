@@ -24,8 +24,8 @@ export const reportsApi = {
   notifications: (): Promise<NotificationsResponse> => api.get<NotificationsResponse>("/notifications"),
   markRead: (notificationId: string): Promise<{ id: string; read_at: string | null }> =>
     api.patch<{ id: string; read_at: string | null }>(`/notifications/${encodeURIComponent(notificationId)}`, {}),
-  markFeedbackSeen: (memoId: string): Promise<{ memo_id: string }> =>
-    api.patch<{ memo_id: string }>(`/notifications/feedback/${encodeURIComponent(memoId)}`, {}),
+  markFeedbackSeen: (memoId: string): Promise<{ memo_id: string; seen: boolean }> =>
+    api.patch<{ memo_id: string; seen: boolean }>(`/notifications/feedback/${encodeURIComponent(memoId)}`, {}),
   preferences: (): Promise<ReportPreferences> => api.get<ReportPreferences>("/me/report-preferences"),
   savePreferences: (changes: ReportPreferences): Promise<ReportPreferences> =>
     api.put<ReportPreferences>("/me/report-preferences", changes),

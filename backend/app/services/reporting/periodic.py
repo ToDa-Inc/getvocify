@@ -173,7 +173,7 @@ def ensure_self_weekly_report(supabase, *, company_id: str, user_id: str, timezo
     sales_role = None
     flow_facts = None
     if is_enabled(supabase, company_id, FLOW_FLAG):
-        sales_role = sales_role_for_user(supabase, user_id) or "general"
+        sales_role = sales_role_for_user(supabase, user_id, company_id=company_id) or "general"
         flow_facts = _flow_facts(
             supabase,
             company_id=company_id,

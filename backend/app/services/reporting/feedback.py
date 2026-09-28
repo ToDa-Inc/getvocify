@@ -89,8 +89,12 @@ def load_unseen_feedback(supabase, *, user_id: str, company_id: str, now: dateti
                 .in_("memo_id", memo_ids)
                 .execute()
             ).data or []
-        seen: set[str] = set()
-        if memo_ids:
+    except Exception:
+        logger.exception("bell feedback: read failed")
+        return None
+    seen: set[str] = set()
+    if memo_ids:
+        try:
             seen_rows = (
                 supabase.table("brief_seen")
                 .select("memo_id")
@@ -99,15 +103,24 @@ def load_unseen_feedback(supabase, *, user_id: str, company_id: str, now: dateti
                 .execute()
             ).data or []
             seen = {str(row["memo_id"]) for row in seen_rows if row.get("memo_id")}
-    except Exception:
-        logger.exception("bell feedback: read failed")
-        return None
+        except Exception:
+            # Migration 060 not applied yet (or any other brief_seen read failure): no
+            # rep has "seen" anything yet - still show the feedback, never hide it.
+            logger.warning("bell feedback: brief_seen unavailable, treating as empty", exc_info=True)
     preference = read_preference(user_id)
     return unseen_feedback(briefs, seen_memo_ids=seen, now=now, preference=preference)
 
 
-def mark_feedback_seen(supabase, *, user_id: str, memo_id: str, now: datetime) -> None:
-    supabase.table("brief_seen").upsert(
-        {"user_id": user_id, "memo_id": memo_id, "seen_at": now.isoformat()},
-        on_conflict="user_id,memo_id",
-    ).execute()
+def mark_feedback_seen(supabase, *, user_id: str, memo_id: str, now: datetime) -> bool:
+    """True once the row is recorded. Migration 060 not applied yet (or any other write
+    failure) is not a 500: the bell keeps showing the item and the rep can dismiss it
+    again once the table exists."""
+    try:
+        supabase.table("brief_seen").upsert(
+            {"user_id": user_id, "memo_id": memo_id, "seen_at": now.isoformat()},
+            on_conflict="user_id,memo_id",
+        ).execute()
+    except Exception:
+        logger.exception("bell feedback: mark seen failed")
+        return False
+    return True

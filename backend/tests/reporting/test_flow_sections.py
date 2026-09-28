@@ -172,6 +172,36 @@ def test_daily_report_handoffs_unavailable_when_table_missing_not_zero():
     assert snap["metrics"]["handoffs"] is None
 
 
+def test_daily_report_deals_in_progress_unavailable_when_table_missing_not_zero():
+    """Review fix: consistent with `handoffs` - a missing deal_handoffs table is unavailable,
+    never a fabricated zero, even though active_handoffs_for_ae (used by Hoy) treats it as []."""
+    db = FakeDB(
+        {
+            "memos": [_memo("m-1", interaction_kind="meeting")],
+            "reports": [],
+            "report_notifications": [],
+            "team_outcome_observations": [],
+            "company_members": [{"id": "mem-ae2", "company_id": COMPANY, "user_id": AE, "role": "member", "status": "active",
+                                  "sales_role": "ae", "handoff_ae_user_id": None, "visibility": "own"}],
+            "company_feature_flags": [{"company_id": COMPANY, "flag": "REPORTING_BY_FLOW_ENABLED", "enabled": True}],
+        },
+        fail_tables=("deal_handoffs",),
+    )
+    ensure_self_daily_report(db, company_id=COMPANY, user_id=AE, timezone=MADRID, now=NOW)
+    snap = db.tables["reports"][0]["snapshot"]
+    assert snap["metrics"]["deals_in_progress"] is None
+
+
+def test_sales_role_for_user_ignores_a_membership_row_from_another_company():
+    """Review fix: scope sales_role_for_user by company_id when the caller knows it."""
+    from app.services.company import sales_role_for_user
+
+    db = _db(company_members=[{"id": "mem-x", "company_id": COMPANY, "user_id": AE, "role": "member",
+                                "status": "active", "sales_role": "ae", "handoff_ae_user_id": None, "visibility": "own"}])
+    assert sales_role_for_user(db, AE, company_id=COMPANY) == "ae"
+    assert sales_role_for_user(db, AE, company_id="99999999-0000-0000-0000-000000000000") is None
+
+
 def test_weekly_report_by_flow_uses_the_same_facts():
     db = _db(
         memos=[_memo("m-1", motion="closing", followup_status="sent", interaction_kind="meeting")],

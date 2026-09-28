@@ -84,8 +84,27 @@ def test_load_unseen_feedback_is_none_when_a_source_fails():
     assert load_unseen_feedback(db, user_id=USER, company_id=COMPANY, now=NOW) is None
 
 
+def test_load_unseen_feedback_treats_a_missing_brief_seen_table_as_nobody_has_seen_anything(monkeypatch):
+    """Migration 060 not applied yet: still show the feedback, never hide it."""
+    monkeypatch.setattr(brief_preferences, "read_preference", lambda user_id: IMMEDIATE)
+    db = FakeDB(
+        {
+            "memos": [{"id": "m-1", "company_id": COMPANY, "user_id": USER, "created_at": "2026-09-25T09:00:00+00:00"}],
+            "post_interaction_briefs": [_brief("m-1")],
+        },
+        fail_tables=("brief_seen",),
+    )
+    items = load_unseen_feedback(db, user_id=USER, company_id=COMPANY, now=NOW)
+    assert [item["memo_id"] for item in items] == ["m-1"]
+
+
 def test_mark_feedback_seen_upserts_and_is_idempotent():
     db = FakeDB({"brief_seen": []})
-    mark_feedback_seen(db, user_id=USER, memo_id="m-1", now=NOW)
-    mark_feedback_seen(db, user_id=USER, memo_id="m-1", now=NOW)
+    assert mark_feedback_seen(db, user_id=USER, memo_id="m-1", now=NOW) is True
+    assert mark_feedback_seen(db, user_id=USER, memo_id="m-1", now=NOW) is True
     assert len(db.tables["brief_seen"]) == 1
+
+
+def test_mark_feedback_seen_returns_false_when_the_table_is_missing():
+    db = FakeDB({"brief_seen": []}, fail_tables=("brief_seen",))
+    assert mark_feedback_seen(db, user_id=USER, memo_id="m-1", now=NOW) is False

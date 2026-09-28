@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 
 from app.services.company import sales_role_for_user
 from app.services.feature_flags import is_enabled
-from app.services.handoffs import active_handoffs_for_ae
 from app.services.reporting.aggregate import build_snapshot
 from app.services.reporting.channels import interaction_channels
 from app.services.reporting.delivery import period_bounds
@@ -159,12 +158,23 @@ def _handoffs_created(supabase, *, company_id: str, user_id: str, start_iso: str
 
 
 def _deals_in_progress(supabase, *, company_id: str, user_id: str) -> int | None:
-    """Active handoffs into this AE right now - a gauge, not a period count."""
+    """Active handoffs into this AE right now - a gauge, not a period count. A read
+    failure (including migration 056 not applied yet) is unavailable, same as `handoffs`
+    below - never a fabricated zero, unlike active_handoffs_for_ae's own "no table yet"
+    fallback (that one feeds Hoy, where an empty list and "unavailable" look the same)."""
     try:
-        return len(active_handoffs_for_ae(supabase, company_id=company_id, ae_user_id=user_id))
+        rows = (
+            supabase.table("deal_handoffs")
+            .select("id")
+            .eq("company_id", company_id)
+            .eq("ae_user_id", user_id)
+            .eq("status", "active")
+            .execute()
+        ).data or []
     except Exception:
         logger.exception("daily report: load deals in progress failed")
         return None
+    return len(rows)
 
 
 def _flow_facts(
@@ -267,7 +277,7 @@ def ensure_self_daily_report(
     sales_role = None
     flow_facts = None
     if is_enabled(supabase, company_id, FLOW_FLAG):
-        sales_role = sales_role_for_user(supabase, user_id) or "general"
+        sales_role = sales_role_for_user(supabase, user_id, company_id=company_id) or "general"
         flow_facts = _flow_facts(
             supabase,
             company_id=company_id,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
@@ -198,9 +199,20 @@ async def mark_feedback_notification_seen(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    """Marks one of the bell's Feedback items seen (brief_seen), so it does not come back."""
-    mark_feedback_seen(supabase, user_id=membership.user_id, memo_id=memo_id, now=_now())
-    return {"memo_id": memo_id}
+    """Marks one of the bell's Feedback items seen (brief_seen), so it does not come back.
+    Only the memo's own author may mark it - never another rep's or another company's
+    (404 either way, same as a memo that does not exist). A malformed id is also a 404,
+    never a 422: the bell only ever sends ids it read back from GET /notifications."""
+    try:
+        UUID(memo_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    stored = supabase.table("memos").select("id,user_id,company_id").eq("id", memo_id).execute()
+    rows = stored.data or []
+    if not rows or str(rows[0].get("user_id")) != membership.user_id or str(rows[0].get("company_id")) != membership.company_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    seen = mark_feedback_seen(supabase, user_id=membership.user_id, memo_id=memo_id, now=_now())
+    return {"memo_id": memo_id, "seen": seen}
 
 
 @notifications.patch("/notifications/{notification_id}")

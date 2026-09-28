@@ -160,15 +160,21 @@ def _missing_sales_columns(exc: BaseException) -> bool:
     return "42703" in msg and any(n in msg for n in _SALES_COLUMN_NAMES)
 
 
-def sales_role_for_user(supabase: Client, user_id: str) -> Optional[str]:
+def sales_role_for_user(supabase: Client, user_id: str, *, company_id: Optional[str] = None) -> Optional[str]:
     """Best-effort sales_role lookup for capture routing (D5). Tolerant of the sales_role
-    column not existing yet (delegates to get_membership) and never raises."""
+    column not existing yet (delegates to get_membership) and never raises. When the caller
+    already knows the company (T12 reports), `company_id` scopes the result to it: a
+    membership row for a different company is treated as "no role", not that company's."""
     try:
         membership = CompanyService(supabase).get_membership(str(user_id))
     except Exception as exc:
         logger.warning("sales_role lookup failed for %s: %s", user_id, exc)
         return None
-    return membership.sales_role if membership else None
+    if not membership:
+        return None
+    if company_id is not None and str(membership.company_id) != str(company_id):
+        return None
+    return membership.sales_role
 
 
 class CompanyService:
