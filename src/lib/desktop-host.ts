@@ -19,6 +19,7 @@ export type VocifyDesktopBridge = {
     }>;
     request(type: "microphone" | "systemAudio"): Promise<unknown>;
     open(type: "microphone" | "systemAudio"): Promise<void>;
+    guide?(type: "microphone" | "systemAudio"): Promise<unknown>;
     appInfo?(): Promise<{ name?: string; bundleId?: string } | null>;
     onChanged?(cb: () => void): () => void;
   };

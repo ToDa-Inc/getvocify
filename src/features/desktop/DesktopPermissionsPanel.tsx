@@ -74,8 +74,8 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
         Allow mic and meeting audio
       </h2>
       <p className="text-sm text-muted-foreground mb-5 max-w-lg">
-        Tap <strong>Allow</strong> — macOS shows its own prompt. If you previously denied access, use{" "}
-        <strong>Open Settings</strong>.
+        Microphone uses the macOS prompt. For meeting audio, drag <strong>Vocify</strong> from the card
+        into Screen &amp; System Audio Recording. If it is already listed but off, turn it on, then quit and reopen.
       </p>
 
       <div className="space-y-3 max-w-xl">
