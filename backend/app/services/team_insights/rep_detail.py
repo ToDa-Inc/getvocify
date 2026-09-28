@@ -25,6 +25,23 @@ def _missing_handoffs_table(exc: BaseException) -> bool:
     return "deal_handoffs" in msg and ("42p01" in msg or "does not exist" in msg)
 
 
+def rep_in_company(supabase: Any, *, company_id: str, user_id: str) -> bool:
+    """False when user_id has no company_members row in this company - a manager cannot
+    fish for another company's rep by guessing their id."""
+    try:
+        rows = (
+            supabase.table("company_members")
+            .select("user_id")
+            .eq("company_id", company_id)
+            .eq("user_id", str(user_id))
+            .limit(1)
+            .execute()
+        ).data or []
+    except Exception:
+        return True  # a failed read never turns a real rep into a 404
+    return bool(rows)
+
+
 def rep_sales_role(supabase: Any, *, company_id: str, user_id: str) -> Optional[str]:
     """Best-effort: None on any read failure or missing row, never an error."""
     try:

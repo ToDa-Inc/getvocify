@@ -230,8 +230,8 @@ def ensure_team_weekly_report(
     role = active_role(supabase, company_id, user_id)
     if role not in TEAM_ROLES:
         return None
-    if not is_opted_in(load_preference_rows(supabase, [user_id]), user_id, "team"):
-        return None
+    # T13: the team report is the company's one fixed report for owner/admin - not a
+    # personal opt-out, so stored team_enabled is never consulted for them.
     start, end = week_bounds(now, timezone)
     existing = _find_report(supabase, company_id=company_id, user_id=user_id, scope="team", period_start=start.isoformat())
     if existing:
@@ -347,10 +347,13 @@ def _may_receive(supabase, report: dict, prefs: dict[str, dict]) -> bool:
     team = report.get("scope") == "team"
     if not is_enabled(supabase, company_id, TEAM_FLAG if team else WEEKLY_FLAG):
         return False
-    if not is_opted_in(prefs, user_id, "team" if team else "weekly"):
-        return False
     role = active_role(supabase, company_id, user_id)
-    return role in TEAM_ROLES if team else role is not None
+    if team:
+        # T13: fixed for owner/admin - stored team_enabled is never consulted for them.
+        return role in TEAM_ROLES
+    if not is_opted_in(prefs, user_id, "weekly"):
+        return False
+    return role is not None
 
 
 def _send_due(prior: dict | None, now: datetime, tz_name: str) -> bool:

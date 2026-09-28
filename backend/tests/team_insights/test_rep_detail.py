@@ -99,9 +99,17 @@ def test_rep_detail_is_denied_to_a_plain_member():
 
 
 def test_rep_detail_allows_a_member_with_visibility_team():
-    db = _db(MANAGER_HOME_ENABLED=True, HANDOFF_ENABLED=True)
+    db = _db(MANAGER_HOME_ENABLED=True, HANDOFF_ENABLED=True, SALES_ROLES_ENABLED=True)
     response = _app(db, role="member", visibility="team").get(f"/api/v1/team/rep/{SDR}")
     assert response.status_code == 200
+
+
+def test_rep_detail_denies_visibility_team_when_sales_roles_flag_is_off():
+    # effective_visibility (T1) only honours the stored visibility once SALES_ROLES_ENABLED
+    # is on - off means today's owner/admin-only behaviour, whatever the column holds.
+    db = _db(MANAGER_HOME_ENABLED=True)
+    response = _app(db, role="member", visibility="team").get(f"/api/v1/team/rep/{SDR}")
+    assert response.status_code == 403
 
 
 def test_rep_detail_returns_sales_role_and_split_handoffs():
@@ -121,6 +129,12 @@ def test_rep_detail_handoffs_are_none_when_handoff_flag_is_off():
     db = _db(MANAGER_HOME_ENABLED=True)
     body = _app(db, role="owner").get(f"/api/v1/team/rep/{SDR}").json()
     assert body["handoffs"] is None
+
+
+def test_rep_detail_404s_for_a_user_with_no_company_members_row():
+    db = _db(MANAGER_HOME_ENABLED=True, HANDOFF_ENABLED=True)
+    response = _app(db, role="owner").get("/api/v1/team/rep/not-a-member")
+    assert response.status_code == 404
 
 
 def _flow_part(user_id: str, motion: str, met: int, missed: int) -> dict:
@@ -196,6 +210,45 @@ async def test_ask_get_team_metrics_matches_the_endpoint_for_the_same_viewer(mon
         "get_team_metrics",
         {"instruction": "", "user_id": None},
         CopilotContext(supabase=db, user_id=OWNER, artifacts={}),
+    )
+    assert tool_result["ok"] is True
+    assert tool_result["metrics"] == endpoint_body
+
+
+async def test_ask_get_team_metrics_matches_the_endpoint_for_a_visibility_team_member(monkeypatch):
+    # T1/D3 + T13: a plain member with visibility=team is also a manager for both paths.
+    from app.services.crm_copilot import viewer as viewer_mod
+    from app.services.crm_copilot.tools import CopilotContext, execute_tool
+    from app.services.team_insights.aggregate import load_team_adherence_inputs
+
+    members = [
+        {"user_id": OWNER, "role": "owner", "status": "active", "full_name": "Owner"},
+        {"user_id": SDR, "role": "member", "status": "active", "full_name": "Sdr"},
+    ]
+
+    def scope(_supabase, user_id):
+        return (
+            Membership(
+                id="m", company_id=COMPANY, user_id=user_id, role="member", status="active",
+                visibility="team",
+            ),
+            members,
+            {},
+        )
+
+    monkeypatch.setattr(viewer_mod, "load_viewer_scope", scope)
+    db = _db(SALES_ROLES_ENABLED=True)
+
+    endpoint_body = team_adherence(
+        role="member",
+        visibility="team",
+        **load_team_adherence_inputs(db, COMPANY, user_id=None, motion=None),
+    )
+    endpoint_body.pop("competitor_mentions", None)
+    tool_result = await execute_tool(
+        "get_team_metrics",
+        {"instruction": "", "user_id": None},
+        CopilotContext(supabase=db, user_id=SDR, artifacts={}),
     )
     assert tool_result["ok"] is True
     assert tool_result["metrics"] == endpoint_body

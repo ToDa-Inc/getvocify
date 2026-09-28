@@ -9,13 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from app.deps import get_membership, get_supabase
+from app.services.activity_scope import effective_visibility
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.team_insights.adherence_trend import DEFAULT_WEEKS, FLAG as TREND_FLAG, adherence_trend
 from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG
 from app.services.team_insights.competitors import COMPETITORS_FLAG
 from app.services.team_insights.aggregate import TeamAccessError, assert_team_reader, load_team_adherence_inputs, team_adherence
-from app.services.team_insights.rep_detail import rep_handoffs, rep_sales_role
+from app.services.team_insights.rep_detail import rep_handoffs, rep_in_company, rep_sales_role
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
 
@@ -58,7 +59,7 @@ async def get_team_adherence(
         include_guidance = is_enabled(supabase, membership.company_id, PLAYBOOK_TAB_FLAG)
         body = team_adherence(
             role=membership.role,
-            visibility=membership.visibility,
+            visibility=effective_visibility(supabase, membership),
             include_objection_guidance=include_guidance,
             **inputs,
         )
@@ -89,7 +90,7 @@ async def get_team_adherence_trend(
             now=_trend_now(),
             user_id=user_id,
             motion=motion,
-            visibility=membership.visibility,
+            visibility=effective_visibility(supabase, membership),
         )
     except TeamAccessError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes ver el equipo") from error
@@ -108,9 +109,11 @@ async def get_team_rep_detail(
     if not is_enabled(supabase, membership.company_id, MANAGER_HOME_FLAG):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     try:
-        assert_team_reader(membership.role, membership.visibility)
+        assert_team_reader(membership.role, effective_visibility(supabase, membership))
     except TeamAccessError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes ver el equipo") from error
+    if not rep_in_company(supabase, company_id=membership.company_id, user_id=user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     sales_role = rep_sales_role(supabase, company_id=membership.company_id, user_id=user_id)
     handoffs = None
     if is_enabled(supabase, membership.company_id, HANDOFF_FLAG):

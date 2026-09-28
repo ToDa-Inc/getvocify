@@ -368,14 +368,16 @@ def test_team_flag_off_generates_no_team_report():
     assert loader.calls == []
 
 
-def test_team_preference_off_skips_that_admin():
+def test_team_preference_is_fixed_and_cannot_skip_an_admin():
+    # T13: the team weekly report is the company's one fixed report for owner/admin - a
+    # stored team_enabled=False (from before that rule) no longer skips them.
     db = _db(
         members=TEAM_MEMBERS,
         flags=_flags(REPORTING_TEAM_ENABLED=True),
         prefs=[{"user_id": ADMIN, "daily_enabled": True, "weekly_enabled": True, "team_enabled": False}],
     )
     ensure_weekly_reports_for_tick(db, FRIDAY_1805, load_team_inputs=_load(TEAM_INPUTS))
-    assert [row["user_id"] for row in _reports(db, scope="team")] == [OWNER]
+    assert sorted(row["user_id"] for row in _reports(db, scope="team")) == sorted([OWNER, ADMIN])
 
 
 def test_a_team_week_without_activity_has_no_report():

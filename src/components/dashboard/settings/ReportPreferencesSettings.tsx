@@ -29,16 +29,20 @@ export const ReportPreferencesSettings = () => {
   return (
     <div id="report-preferences" className="space-y-3 border-t border-border/60 pt-5">
       <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.reportsLabel}</h3>
-      {keys.map((key) => (
-        <label key={key} className="flex items-center justify-between gap-4 text-sm">
-          <span>{labels[key]}</span>
-          <Switch
-            checked={Boolean(data?.[key])}
-            disabled={save.isPending}
-            onCheckedChange={(checked) => save.mutate({ [key]: checked })}
-          />
-        </label>
-      ))}
+      {keys.map((key) => {
+        // T13: the team weekly report is fixed for owner/admin - shown, never toggled.
+        const fixed = key === "team";
+        return (
+          <label key={key} className="flex items-center justify-between gap-4 text-sm">
+            <span>{labels[key]}</span>
+            <Switch
+              checked={Boolean(data?.[key])}
+              disabled={fixed || save.isPending}
+              onCheckedChange={fixed ? undefined : (checked) => save.mutate({ [key]: checked })}
+            />
+          </label>
+        );
+      })}
     </div>
   );
 };
