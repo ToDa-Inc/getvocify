@@ -326,18 +326,11 @@ def test_bot_done_content_conflict_is_acked_not_500():
     assert response.status_code == 200
 
 
-@respx.mock
-def test_bot_done_transcript_fetch_failure_marks_the_capture_failed_not_500():
-    supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
-    body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
+def _post_event(supabase, event: str):
+    body = json.dumps({"event": event, "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
     ts = str(int(time.time()))
-
-    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
-        return_value=httpx.Response(200, json={"id": BOT_ID, "recordings": []})
-    )
-
     with patch("app.api.webhooks.get_supabase", return_value=supabase):
-        response = _test_client().post(
+        return _test_client().post(
             "/webhooks/recall",
             content=body,
             headers={
@@ -348,7 +341,83 @@ def test_bot_done_transcript_fetch_failure_marks_the_capture_failed_not_500():
             },
         )
 
+
+@respx.mock
+def test_bot_done_before_the_transcript_is_ready_waits_instead_of_failing():
+    """Transcription can finish after the bot leaves; transcript.done completes it later."""
+    supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
+    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(200, json={"id": BOT_ID, "recordings": []})
+    )
+    response = _post_event(supabase, "bot.done")
+    assert response.status_code == 200
+    memo = supabase.tables["memos"][0]
+    assert memo.get("capture_status") != "failed"
+    assert memo.get("status") != "failed"
+
+
+@respx.mock
+def test_a_transcript_download_failure_marks_the_capture_failed_not_500():
+    supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
+    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": BOT_ID,
+                "recordings": [
+                    {"media_shortcuts": {"transcript": {"data": {"download_url": "https://cdn.example/t.json"}}}}
+                ],
+            },
+        )
+    )
+    respx.get("https://cdn.example/t.json").mock(return_value=httpx.Response(500))
+    response = _post_event(supabase, "bot.done")
     assert response.status_code == 200
     memo = supabase.tables["memos"][0]
     assert memo["capture_status"] == "failed"
     assert memo["status"] == "failed"
+
+
+@respx.mock
+def test_transcript_done_completes_the_capture_like_bot_done():
+    supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
+    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": BOT_ID,
+                "recordings": [
+                    {"media_shortcuts": {"transcript": {"data": {"download_url": "https://cdn.example/t.json"}}}}
+                ],
+            },
+        )
+    )
+    respx.get("https://cdn.example/t.json").mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"participant": {"name": "Marta"}, "words": [{"text": "Hola", "start_timestamp": {"relative": 0.0}, "end_timestamp": {"relative": 0.5}}]}],
+        )
+    )
+    fake_extract = AsyncMock()
+    with patch("app.api.memos.start_extraction_from_transcript", fake_extract):
+        response = _post_event(supabase, "transcript.done")
+    assert response.status_code == 200
+    assert supabase.tables["memos"][0]["transcript_complete"] is True
+    fake_extract.assert_awaited_once()
+
+
+def test_a_fatal_bot_marks_the_reserved_capture_failed():
+    supabase = _Supabase({"memos": [_memo_row()]})
+    response = _post_event(supabase, "bot.fatal")
+    assert response.status_code == 200
+    memo = supabase.tables["memos"][0]
+    assert memo["capture_status"] == "failed"
+    assert memo["status"] == "failed"
+    assert memo["error_message"]
+
+
+def test_a_failure_event_never_overwrites_a_completed_capture():
+    row = {**_memo_row(), "transcript_complete": True, "status": "pending_review"}
+    supabase = _Supabase({"memos": [row]})
+    assert _post_event(supabase, "transcript.failed").status_code == 200
+    assert supabase.tables["memos"][0]["status"] == "pending_review"

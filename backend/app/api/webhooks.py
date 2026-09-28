@@ -1456,6 +1456,16 @@ async def _telnyx_recording_saved(supabase, payload: dict) -> Response:
 
 
 
+# Recall.ai webhook events this endpoint acts on (T14). Names follow Recall's webhook
+# catalogue; keep this block in sync with the events enabled on the Recall endpoint.
+RECALL_COMPLETE_EVENTS = frozenset({"bot.done", "transcript.done"})
+RECALL_FAILED_MESSAGES = {
+    "bot.fatal": "El bot de Recall no pudo grabar la reunión",
+    "transcript.failed": "Recall no pudo transcribir la reunión",
+}
+RECALL_FAILED_EVENTS = frozenset(RECALL_FAILED_MESSAGES)
+
+
 @router.post("/recall")
 async def recall_webhook(request: Request):
     """Recall.ai meeting bot events (T14). `bot.done` fetches the finished transcript
@@ -1503,13 +1513,19 @@ async def recall_webhook(request: Request):
     bot = ((payload.get("data") or {}).get("bot")) or {}
     bot_id = str(bot.get("id") or "")
 
-    if event != "bot.done" or not bot_id:
+    # bot.done and transcript.done both mean "the transcript may be ready": whichever
+    # arrives with a download_url completes the capture, the other is a no-op replay.
+    # bot.fatal / transcript.failed are terminal: the reserved capture is marked failed
+    # instead of staying "recording" forever (the bot was refused, the meeting ended
+    # before it joined, or transcription failed). Anything else is acknowledged.
+    completing = event in RECALL_COMPLETE_EVENTS
+    failing = event in RECALL_FAILED_EVENTS
+    if not bot_id or not (completing or failing):
         inc_webhook_message("recall", "skipped")
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
     from app.integrations.recall_client import (
         RecallClient,
-        RecallClientError,
         transcript_download_url_from_bot,
         turns_from_recall_transcript,
     )
@@ -1529,6 +1545,20 @@ async def recall_webhook(request: Request):
         inc_webhook_message("recall", "skipped")
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
+    if failing:
+        if memo_row.get("transcript_complete") or memo_row.get("capture_content_fingerprint"):
+            inc_webhook_message("recall", "skipped")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
+        logger.warning(
+            "Recall webhook: %s for bot %s", event, bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_bot_failed", bot_id=bot_id, event=event),
+        )
+        supabase.table("memos").update(
+            {"capture_status": "failed", "status": "failed", "error_message": RECALL_FAILED_MESSAGES[event]}
+        ).eq("id", memo_row["id"]).execute()
+        inc_webhook_message("recall", "processed")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
     if memo_row.get("transcript_complete") or memo_row.get("capture_content_fingerprint"):
         # A replayed bot.done (Recall retries on a non-2xx, or a duplicate delivery):
         # this capture already has its transcript, so re-downloading and re-completing
@@ -1546,7 +1576,14 @@ async def recall_webhook(request: Request):
         bot_detail = await client.get_bot(bot_id)
         download_url = transcript_download_url_from_bot(bot_detail)
         if not download_url:
-            raise RecallClientError(f"bot {bot_id} has no transcript download_url yet")
+            # Transcription can finish after the bot leaves: not a failure. The
+            # transcript.done event (or a later retry) completes the capture.
+            logger.info(
+                "Recall webhook: %s for bot %s before the transcript is ready; waiting", event, bot_id,
+                extra=log_domain(DOMAIN_WEBHOOK, "recall_transcript_pending", bot_id=bot_id, event=event),
+            )
+            inc_webhook_message("recall", "skipped")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
         segments = await client.download_transcript(download_url)
         rep_name = rep_full_name(supabase, memo_row["user_id"])
         transcript, turns = turns_from_recall_transcript(segments, rep_name=rep_name)
