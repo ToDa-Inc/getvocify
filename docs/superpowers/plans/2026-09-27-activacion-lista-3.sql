@@ -40,6 +40,11 @@ ON CONFLICT (company_id, flag) DO UPDATE
 --   cuando los AEs tengan su owner mapeado en HubSpot/Pipedrive y se haya probado con un deal.
 -- FOLLOWUP_SEND_ENABLED: envía el follow-up por Resend («{Nombre} vía Vocify», reply-to el
 --   comercial). Requiere RESEND_API_KEY y dominio remitente verificado.
+-- PLAYBOOK_OBSERVATIONS_ENABLED: C04 v4 (un paso del playbook = cumplido/fallado con cita, y
+--   competidores con nombre). Sin él no hay adherencia, pasos fallados, checklist ni competidores.
+--   Encender SOLO después de: (1) publicar el playbook con pasos reales en Ajustes -> Proceso y
+--   (2) correr los evals 3 veces en verde:  python -u scripts/eval_intelligence.py --v4 --out ...
+--   Para releer conversaciones pasadas con v4: scripts/backfill_intelligence.py (tiene coste LLM).
 -- RECALL_BOT_ENABLED: bot para Zoom/Meet/Teams. Requiere RECALL_API_KEY, RECALL_REGION,
 --   RECALL_WEBHOOK_SECRET y registrar el webhook https://<api>/webhooks/recall en Recall.
 

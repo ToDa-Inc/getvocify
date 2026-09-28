@@ -20,10 +20,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import settings  # noqa: E402
-from app.services.intelligence.extract import PROMPT_VERSION, extract_intelligence  # noqa: E402
+from app.services.intelligence.extract import (  # noqa: E402
+    OBSERVATIONS_PROMPT_VERSION,
+    PROMPT_VERSION,
+    extract_intelligence,
+)
 from app.services.llm import LLMClient  # noqa: E402
 
 CASES = Path(__file__).resolve().parents[1] / "evals" / "C04" / "cases.json"
+# v4 (PLAYBOOK_OBSERVATIONS_ENABLED): step observations and named competitors. With --v4 the
+# v3 cases also run on the v4 prompt, so the added sections cannot regress the old facts.
+CASES_V4 = Path(__file__).resolve().parents[1] / "evals" / "C04" / "cases_v4.json"
 CAPTURED_AT = "2026-09-22T10:00:00+02:00"
 ATTEMPTS = 2
 RETRY_DELAY_S = 10.0
@@ -62,15 +69,38 @@ def check(expect: dict, shaped: dict) -> list[str]:
     return failures
 
 
+def check_v4(expect: dict, shaped: dict) -> list[str]:
+    failures: list[str] = []
+    statuses = {obs["step_id"]: obs["status"] for obs in shaped.get("playbook_observations") or []}
+    for step_id, wanted in (expect.get("steps") or {}).items():
+        allowed = wanted if isinstance(wanted, list) else [wanted]
+        if statuses.get(step_id) not in allowed:
+            failures.append(f"step {step_id}: expected {allowed!r}, got {statuses.get(step_id)!r}")
+    names = [item["name"].lower() for item in shaped.get("competitor_mentions") or []]
+    for name in expect.get("competitors") or []:
+        if name.lower() not in names:
+            failures.append(f"competitor {name!r} missing, got {names!r}")
+    if expect.get("no_competitors") and names:
+        failures.append(f"competitors: expected none, got {names!r}")
+    return failures
+
+
 async def run_case(
-    llm: LLMClient, memo: dict, *, delay: float = RETRY_DELAY_S
+    llm: LLMClient,
+    memo: dict,
+    *,
+    delay: float = RETRY_DELAY_S,
+    prompt_version: str = PROMPT_VERSION,
+    playbook_steps: list[dict] | None = None,
 ) -> tuple[dict | None, list[str], dict]:
     errors = []
     for attempt in range(ATTEMPTS):
         if attempt:
             await asyncio.sleep(delay)
         try:
-            shaped, meta = await extract_intelligence(memo, llm)
+            shaped, meta = await extract_intelligence(
+                memo, llm, prompt_version=prompt_version, playbook_steps=playbook_steps,
+            )
             return shaped, errors, meta
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}"[:200])
@@ -84,8 +114,12 @@ def _now() -> str:
 async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--v4", action="store_true", help="run the v4 prompt: v3 cases + cases_v4.json")
     args = parser.parse_args(argv)
+    version = OBSERVATIONS_PROMPT_VERSION if args.v4 else PROMPT_VERSION
     cases = json.loads(CASES.read_text(encoding="utf-8"))
+    if args.v4:
+        cases += json.loads(CASES_V4.read_text(encoding="utf-8"))
     llm = LLMClient()
     out = args.out.open("w", encoding="utf-8") if args.out else sys.stdout
 
@@ -96,7 +130,8 @@ async def main(argv: list[str] | None = None) -> int:
     run_id = uuid.uuid4().hex
     emit({
         "type": "run", "run_id": run_id, "started_at": _now(),
-        "prompt": PROMPT_VERSION, "model": settings.INTELLIGENCE_MODEL, "cases_file": CASES.name,
+        "prompt": version, "model": settings.INTELLIGENCE_MODEL,
+        "cases_file": CASES.name + (f"+{CASES_V4.name}" if args.v4 else ""),
     })
     failed = errored = retried = 0
     tokens = dict.fromkeys(TOKEN_KEYS, 0)
@@ -108,8 +143,13 @@ async def main(argv: list[str] | None = None) -> int:
             "timezone": "Europe/Madrid",
             "extraction": {},
         }
-        shaped, errors, meta = await run_case(llm, memo)
-        failures = check(case["expect"], shaped) if shaped is not None else ["model error on every attempt"]
+        shaped, errors, meta = await run_case(
+            llm, memo, prompt_version=version, playbook_steps=case.get("playbook_steps"),
+        )
+        if shaped is None:
+            failures = ["model error on every attempt"]
+        else:
+            failures = check(case["expect"], shaped) + check_v4(case["expect"], shaped)
         failed += bool(failures)
         errored += shaped is None
         retried += bool(errors) and shaped is not None
@@ -120,7 +160,7 @@ async def main(argv: list[str] | None = None) -> int:
             "model": meta.get("model"), **{key: meta.get(key) for key in TOKEN_KEYS},
         })
     summary = {
-        "type": "summary", "run_id": run_id, "finished_at": _now(), "prompt": PROMPT_VERSION,
+        "type": "summary", "run_id": run_id, "finished_at": _now(), "prompt": version,
         "model": settings.INTELLIGENCE_MODEL, "cases": len(cases), "failed": failed,
         "model_errors": errored, "passed_after_retry": retried, **tokens,
     }

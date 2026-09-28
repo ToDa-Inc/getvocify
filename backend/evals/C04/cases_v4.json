@@ -1,0 +1,254 @@
+[
+  {
+    "id": "v4_sdr_full_call_all_steps_met",
+    "playbook_steps": [
+      {
+        "step_id": "opening",
+        "label": "Apertura",
+        "criterion": "Se presenta, dice por qué llama y pide un momento para hablar."
+      },
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      },
+      {
+        "step_id": "qualify",
+        "label": "Cualificar",
+        "criterion": "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."
+      },
+      {
+        "step_id": "meeting",
+        "label": "Agendar la reunión",
+        "criterion": "Propone una reunión con día y hora y el prospecto la acepta."
+      }
+    ],
+    "transcript": "You: Hola Marta, soy Lucía de Vocify. Te llamo porque vi que estáis contratando comerciales, ¿tienes dos minutos? Them: Sí, dime. You: ¿Cómo hacéis hoy el seguimiento de las llamadas? Them: Mal, cada comercial apunta lo que quiere y se nos pierden leads. You: ¿Quién decidiría si cambiáis de herramienta, y es algo que queréis resolver este trimestre? Them: Lo decido yo con el director general, y sí, este trimestre es prioridad. You: ¿Te va bien el jueves a las diez para enseñártelo? Them: Sí, el jueves a las diez perfecto.",
+    "expect": {
+      "steps": {
+        "opening": "met",
+        "pain": "met",
+        "qualify": "met",
+        "meeting": "met"
+      },
+      "no_competitors": true,
+      "meeting_agreed": true
+    }
+  },
+  {
+    "id": "v4_sdr_no_meeting_proposed_is_missed",
+    "playbook_steps": [
+      {
+        "step_id": "opening",
+        "label": "Apertura",
+        "criterion": "Se presenta, dice por qué llama y pide un momento para hablar."
+      },
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      },
+      {
+        "step_id": "qualify",
+        "label": "Cualificar",
+        "criterion": "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."
+      },
+      {
+        "step_id": "meeting",
+        "label": "Agendar la reunión",
+        "criterion": "Propone una reunión con día y hora y el prospecto la acepta."
+      }
+    ],
+    "transcript": "You: Hola Pedro, soy Lucía de Vocify, ¿te pillo bien? Them: Sí, dime rápido. You: ¿Cómo gestionáis los leads que no contestan? Them: Los volvemos a llamar cuando nos acordamos, y a veces se quedan sin llamar. You: Vale, te mando información por email. Them: De acuerdo, gracias.",
+    "expect": {
+      "steps": {
+        "opening": "met",
+        "pain": "met",
+        "meeting": "missed"
+      }
+    }
+  },
+  {
+    "id": "v4_sdr_vague_later_is_not_a_meeting",
+    "playbook_steps": [
+      {
+        "step_id": "opening",
+        "label": "Apertura",
+        "criterion": "Se presenta, dice por qué llama y pide un momento para hablar."
+      },
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      },
+      {
+        "step_id": "qualify",
+        "label": "Cualificar",
+        "criterion": "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."
+      },
+      {
+        "step_id": "meeting",
+        "label": "Agendar la reunión",
+        "criterion": "Propone una reunión con día y hora y el prospecto la acepta."
+      }
+    ],
+    "transcript": "You: Hola Ana, soy Lucía de Vocify, ¿tienes un minuto? Them: Sí. You: ¿Qué os cuesta más hoy en el equipo comercial? Them: Que no sabemos qué pasa en cada llamada. You: Lo hablamos otro día con más calma, ¿vale? Them: Vale, llámame cuando quieras.",
+    "expect": {
+      "steps": {
+        "meeting": "missed"
+      }
+    }
+  },
+  {
+    "id": "v4_sdr_call_cut_short_steps_not_applicable",
+    "playbook_steps": [
+      {
+        "step_id": "opening",
+        "label": "Apertura",
+        "criterion": "Se presenta, dice por qué llama y pide un momento para hablar."
+      },
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      },
+      {
+        "step_id": "qualify",
+        "label": "Cualificar",
+        "criterion": "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."
+      },
+      {
+        "step_id": "meeting",
+        "label": "Agendar la reunión",
+        "criterion": "Propone una reunión con día y hora y el prospecto la acepta."
+      }
+    ],
+    "transcript": "You: Hola Jorge, soy Lucía de Vocify, ¿tienes dos minutos? Them: Ahora no puedo, estoy entrando en una reunión, llámame mañana. You: Sin problema, te llamo mañana.",
+    "expect": {
+      "steps": {
+        "opening": "met",
+        "pain": [
+          "not_applicable",
+          "unknown"
+        ],
+        "qualify": [
+          "not_applicable",
+          "unknown"
+        ],
+        "meeting": [
+          "not_applicable",
+          "unknown"
+        ]
+      },
+      "commitment_due_date": "2026-09-23"
+    }
+  },
+  {
+    "id": "v4_prospect_volunteers_pain_without_being_asked",
+    "playbook_steps": [
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      }
+    ],
+    "transcript": "You: Hola, soy Lucía de Vocify, te llamo por lo de vuestro equipo. Them: Justo, tenemos un caos con las notas del CRM, nadie las rellena. You: Te entiendo. Te mando un vídeo corto.",
+    "expect": {
+      "steps": {
+        "pain": [
+          "met",
+          "unknown",
+          "missed"
+        ]
+      }
+    }
+  },
+  {
+    "id": "v4_named_competitor_is_extracted",
+    "playbook_steps": [
+      {
+        "step_id": "opening",
+        "label": "Apertura",
+        "criterion": "Se presenta, dice por qué llama y pide un momento para hablar."
+      },
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      },
+      {
+        "step_id": "qualify",
+        "label": "Cualificar",
+        "criterion": "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."
+      },
+      {
+        "step_id": "meeting",
+        "label": "Agendar la reunión",
+        "criterion": "Propone una reunión con día y hora y el prospecto la acepta."
+      }
+    ],
+    "transcript": "You: Hola Carla, soy Lucía de Vocify, ¿tienes un momento? Them: Sí. You: ¿Cómo registráis las llamadas? Them: Ya usamos Ringover para llamar y lo tenemos conectado a HubSpot. You: ¿Y qué os falta? Them: Que los resúmenes los escribe cada uno a su manera.",
+    "expect": {
+      "competitors": [
+        "Ringover"
+      ]
+    }
+  },
+  {
+    "id": "v4_generic_tool_is_not_a_competitor",
+    "playbook_steps": [
+      {
+        "step_id": "opening",
+        "label": "Apertura",
+        "criterion": "Se presenta, dice por qué llama y pide un momento para hablar."
+      },
+      {
+        "step_id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."
+      },
+      {
+        "step_id": "qualify",
+        "label": "Cualificar",
+        "criterion": "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."
+      },
+      {
+        "step_id": "meeting",
+        "label": "Agendar la reunión",
+        "criterion": "Propone una reunión con día y hora y el prospecto la acepta."
+      }
+    ],
+    "transcript": "You: ¿Cómo lo hacéis hoy? Them: Tenemos un CRM y una hoja de cálculo para el seguimiento. You: ¿Y funciona? Them: Más o menos.",
+    "expect": {
+      "no_competitors": true
+    }
+  },
+  {
+    "id": "v4_ae_meeting_steps",
+    "playbook_steps": [
+      {
+        "step_id": "agenda",
+        "label": "Agenda y objetivo",
+        "criterion": "Abre con la agenda y con lo que se quiere decidir al final de la reunión."
+      },
+      {
+        "step_id": "demo",
+        "label": "Demo enfocada",
+        "criterion": "Enseña solo lo que resuelve el problema confirmado."
+      },
+      {
+        "step_id": "next_step",
+        "label": "Siguiente paso",
+        "criterion": "Acuerda el siguiente paso con fecha: propuesta, prueba o firma."
+      }
+    ],
+    "transcript": "You: Gracias por venir. La idea hoy es ver cómo resolvemos lo de las notas del CRM y decidir si hacemos una prueba. Them: Perfecto. You: Te enseño cómo se rellena la nota sola al colgar. Them: Eso es justo lo que nos falta. You: ¿Empezamos la prueba el lunes 5 con dos comerciales? Them: Sí, el lunes 5 empezamos.",
+    "expect": {
+      "steps": {
+        "agenda": "met",
+        "demo": "met",
+        "next_step": "met"
+      }
+    }
+  }
+]

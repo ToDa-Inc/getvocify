@@ -153,6 +153,33 @@ def _proposed_value(criteria_statuses: list[str], *, screening: str | None) -> i
     return int(round(float(adherence) * 10))
 
 
+def coaching_lines(intelligence: dict, *, evidence_ids: list[str]) -> tuple[list[str], list[str]]:
+    """What went well and what to improve, straight from cited step observations (C04 v4):
+    the step's own label with the rep's words for a met step, the step's own criterion for
+    a missed one. Deterministic - no model writes these lines, so nothing generic slips in.
+    No observations (flag off, no playbook) -> ([], []), exactly as before."""
+    known = set(evidence_ids)
+    strengths: list[str] = []
+    improvements: list[str] = []
+    for obs in intelligence.get("playbook_observations") or []:
+        if not isinstance(obs, dict):
+            continue
+        refs = [ref for ref in (obs.get("evidence_refs") or []) if ref in known]
+        if not refs:
+            continue
+        label = " ".join(str(obs.get("label") or "").split())
+        if not label:
+            continue
+        status = obs.get("status")
+        if status == "met":
+            quote = " ".join(str(obs.get("quote") or "").split())
+            strengths.append(f"{label}: «{quote}»" if quote else label)
+        elif status == "missed":
+            criterion = " ".join(str(obs.get("criterion") or "").split())
+            improvements.append(f"{label}: {criterion}" if criterion and criterion != label else label)
+    return strengths, improvements
+
+
 def build_score_from_extraction(
     *,
     extraction: dict,
@@ -196,8 +223,9 @@ def build_score_from_extraction(
         input_revision=revision,
         playbook_version_id=playbook_version_id,
     )
-    score["strengths"] = []
-    score["improvements"] = []
+    strengths, improvements = coaching_lines(intelligence, evidence_ids=evidence_refs)
+    score["strengths"] = strengths
+    score["improvements"] = improvements
     # Flag-off must stay byte-identical to pre-T10 output: missed_items is new surface, so it
     # only appears when a T10 flag actually needs it (objection credit or the v2 debrief).
     if objection_credit_enabled or debrief_v2_enabled:

@@ -230,6 +230,9 @@ class Settings(BaseSettings):
     INTELLIGENCE_WORKER_PUBLISH: bool = False
     # Interest, objections and commitments from the transcript, once per extraction.
     INTELLIGENCE_EXTRACT_ENABLED: bool = False
+    # C04 v4: named competitors + one observation per playbook step (coaching, adherence,
+    # missed steps, checklist). Per company via company_feature_flags; off until its evals pass.
+    PLAYBOOK_OBSERVATIONS_ENABLED: bool = False
     # Hoy card «no te ha respondido»: reads the rep's CRM emails. HubSpot needs sales-email-read.
     HOY_NO_REPLY_ENABLED: bool = False
     # One-click confirm in Hoy after CRM auto-approve (stage and/or meeting). Per company.
