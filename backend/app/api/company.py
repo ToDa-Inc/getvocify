@@ -58,6 +58,7 @@ class InviteResponse(BaseModel):
     email_sent: bool
     invite_url: Optional[str] = None
     sales_role: Optional[str] = None
+    crm_owner_match: Optional[bool] = None
 
 
 class MemberResponse(BaseModel):
@@ -220,7 +221,7 @@ async def create_invite(
     svc = CompanyService(supabase)
     membership = svc.require_manage_role(user_id)
     sales_role = body.sales_role if svc.sales_roles_enabled(membership.company_id) else None
-    invite, invite_url, email_sent = await svc.create_invite(
+    invite, invite_url, email_sent, crm_owner_match = await svc.create_invite(
         company_id=membership.company_id,
         email=body.email,
         role=body.role,
@@ -236,6 +237,7 @@ async def create_invite(
         email_sent=email_sent,
         invite_url=invite_url,
         sales_role=invite.get("sales_role"),
+        crm_owner_match=crm_owner_match,
     )
 
 
@@ -349,6 +351,7 @@ async def preview_invite(token: str, supabase: Client = Depends(get_supabase)):
     return {
         "email": email,
         "role": invite["role"],
+        "sales_role": invite.get("sales_role"),
         "company_name": company.get("name") if isinstance(company, dict) else None,
         "expires_at": invite["expires_at"],
         "requires_password": not existing_user_id,

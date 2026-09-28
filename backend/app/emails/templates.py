@@ -24,11 +24,24 @@ def _layout(title: str, body_html: str, footer: str = "") -> str:
 </html>"""
 
 
-def build_invite_email_html(*, company_name: str, invite_url: str, expires_days: int = 7) -> str:
+_SALES_ROLE_LABELS = {"sdr": "SDR", "ae": "AE", "general": "General"}
+
+
+def build_invite_email_html(
+    *,
+    company_name: str,
+    invite_url: str,
+    expires_days: int = 7,
+    sales_role: str | None = None,
+    inviter_name: str | None = None,
+) -> str:
+    role_label = _SALES_ROLE_LABELS.get((sales_role or "").strip().lower())
+    invited_as = f" as a <strong>{role_label}</strong>" if role_label else ""
+    invited_by = f" by <strong>{inviter_name}</strong>, your Head of Sales," if inviter_name else ""
     body = f"""
 <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#444;">
-  You've been invited to join <strong>{company_name}</strong> on Vocify.
-  You'll create your own password. Use this same email as your HubSpot user so your calls and CRM updates assign to you.
+  You've been invited{invited_by} to join <strong>{company_name}</strong> on Vocify{invited_as}.
+  You'll create your own password. Use this same email as your HubSpot or Pipedrive user so your calls and CRM updates assign to you.
 </p>
 <p style="margin:0 0 28px;">
   <a href="{invite_url}" style="display:inline-block;background:#B8956A;color:#FFFFFF;text-decoration:none;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:600;">

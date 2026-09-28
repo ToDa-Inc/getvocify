@@ -69,6 +69,7 @@ export type OnboardingStep = 'crm' | 'team' | 'handoff' | 'playbooks' | 'strateg
 export interface InvitePreview {
   email: string;
   role: string;
+  salesRole?: SalesRole | null;
   companyName: string | null;
   expiresAt: string;
   requiresPassword: boolean;

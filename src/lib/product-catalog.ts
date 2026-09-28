@@ -110,6 +110,10 @@ export const productCatalog = {
     teamRoleHeadOfSales: "Head of Sales",
     teamRoleRep: "Rep",
     inviteSalesRoleLabel: "Commercial type",
+    inviteEmailMatchHint:
+      "Use the same email this person logs into HubSpot or Pipedrive with — that's how Vocify assigns them their contacts and deals.",
+    inviteCrmMatchWarning:
+      "This email isn't a user in your CRM yet. Vocify won't be able to assign deals to them until it matches.",
     teamUnresolvedAttribution: "Unresolved attribution",
     teamAdherenceMet: "Met",
     teamAdherenceApplicable: "Scorable",
@@ -625,6 +629,10 @@ export const productCatalog = {
     teamRoleHeadOfSales: "Head of Sales",
     teamRoleRep: "Comercial",
     inviteSalesRoleLabel: "Tipo de comercial",
+    inviteEmailMatchHint:
+      "Usa el mismo email con el que esta persona entra en HubSpot/Pipedrive: así Vocify le asigna sus contactos y deals.",
+    inviteCrmMatchWarning:
+      "Este email no es usuario de tu CRM; Vocify no podrá asignarle deals hasta que coincida.",
     teamUnresolvedAttribution: "Sin atribución resuelta",
     teamAdherenceMet: "Cumplidos",
     teamAdherenceApplicable: "Evaluables",

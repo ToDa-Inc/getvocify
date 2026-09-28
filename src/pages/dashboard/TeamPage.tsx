@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Mail, RefreshCw, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -6,8 +7,8 @@ import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
 import type { CompanyMember, SalesRole } from "@/features/company/types";
-import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
 import { useLanguage } from "@/lib/i18n";
+import { commercialRoleLabel } from "@/lib/role-labels";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
@@ -62,28 +63,6 @@ function MemberSalesControls({
   );
 }
 
-function rolePillLabel(role: string, t: { [key: string]: string }): string {
-  // Lista 3: "Owner"/"Admin" are Vocify/HubSpot jargon the Head of Sales never
-  // asked for. That figure is the one who picks each rep's SDR/AE/General type;
-  // everyone else managed here is a "Comercial"/"Rep".
-  return role === "owner" || role === "admin" ? t.teamRoleHeadOfSales : t.teamRoleRep;
-}
-
-function roleOptions(t: { [key: string]: string }) {
-  return [
-    {
-      value: "member" as const,
-      label: t.teamRoleRep,
-      hint: "Own login, password, and email. Shared CRM. Only their memos and HubSpot recordings (email must match their HubSpot user).",
-    },
-    {
-      value: "admin" as const,
-      label: t.teamRoleHeadOfSales,
-      hint: "Invite the team, edit CRM and offer. Activity defaults to Mine; All shows every teammate’s labeled calls and memos.",
-    },
-  ];
-}
-
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
     const detail = (error as { data?: { detail?: unknown } }).data?.detail;
@@ -98,9 +77,12 @@ const TeamPage = () => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
-  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole | "">("");
+  // Item 3: an invite from here is always a rep (role="member"); a second Head of
+  // Sales is still possible, but through the role change on an existing member, not
+  // from this form. SDR is the default commercial type, and it's required.
+  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole>("sdr");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [crmOwnerMatch, setCrmOwnerMatch] = useState<boolean | null>(null);
   const [confirm, setConfirm] = useState<
     | { kind: "remove"; id: string; name: string }
     | { kind: "revoke"; id: string; email: string }
@@ -125,8 +107,6 @@ const TeamPage = () => {
   const seatsAvailable =
     company?.seatsAvailable ?? Math.max(0, seatLimit - seatsUsed);
   const seatsFull = seatsAvailable <= 0;
-  const inviteRoleOptions = roleOptions(t.product);
-  const selectedRole = inviteRoleOptions.find((option) => option.value === inviteRole);
 
   const refreshWorkspace = () => {
     queryClient.invalidateQueries({ queryKey: companyKeys.all });
@@ -134,12 +114,12 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () =>
-      companyApi.invite(inviteEmail.trim(), inviteRole, inviteSalesRole || undefined),
+    mutationFn: () => companyApi.invite(inviteEmail.trim(), "member", inviteSalesRole),
     onSuccess: (res) => {
       setInviteEmail("");
-      setInviteSalesRole("");
+      setInviteSalesRole("sdr");
       setInviteUrl(res.inviteUrl ?? null);
+      setCrmOwnerMatch(res.crmOwnerMatch);
       refreshWorkspace();
       if (res.emailSent) {
         toast.success("Email has been sent");
@@ -266,7 +246,7 @@ const TeamPage = () => {
               </div>
               <div className="flex items-center gap-3 shrink-0 flex-wrap">
                 <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
-                  {rolePillLabel(m.role, t.product)}
+                  {commercialRoleLabel(m.role, t.product)}
                 </span>
                 {salesRolesEnabled && canManage && (
                   <MemberSalesControls
@@ -345,8 +325,11 @@ const TeamPage = () => {
             <div className="mb-5 rounded-2xl border border-border/70 bg-secondary/5 px-5 py-3.5">
               <p className="text-sm text-foreground">All seats are in use.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {seatsUsed} of {seatLimit} seats taken. Remove a member to free one,
-                or ask Vocify to raise the cap.
+                {seatsUsed} of {seatLimit} seats taken. Remove a member to free one, or{" "}
+                <Link to="/dashboard/settings/billing" className="text-beige hover:underline">
+                  add more seats in Billing
+                </Link>
+                .
               </p>
             </div>
           ) : (
@@ -370,33 +353,26 @@ const TeamPage = () => {
                 className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
               />
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {HUBSPOT_INVITE_EMAIL_HINT}
+                {t.product.inviteEmailMatchHint}
               </p>
             </div>
 
             <div className="space-y-2">
-              <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
+              <label htmlFor="invite-sales-role" className={THEME_TOKENS.typography.capsLabel}>
+                {t.product.inviteSalesRoleLabel}
+              </label>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                  {inviteRoleOptions.map((option) => {
-                    const selected = inviteRole === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setInviteRole(option.value)}
-                        aria-pressed={selected}
-                        className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                          selected
-                            ? "bg-beige text-cream"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <select
+                  id="invite-sales-role"
+                  required
+                  className="bg-secondary/5 border border-border/40 rounded-full px-4 h-9 text-sm"
+                  value={inviteSalesRole}
+                  onChange={(e) => setInviteSalesRole(e.target.value as SalesRole)}
+                >
+                  <option value="sdr">{t.product.teamMemberTypeSdr}</option>
+                  <option value="ae">{t.product.teamMemberTypeAe}</option>
+                  <option value="general">{t.product.teamMemberTypeGeneral}</option>
+                </select>
                 <Button
                   type="submit"
                   disabled={inviteMutation.isPending || seatsFull}
@@ -412,27 +388,16 @@ const TeamPage = () => {
                   )}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">{selectedRole?.hint}</p>
             </div>
-
-            {salesRolesEnabled && (
-              <div className="space-y-2">
-                <label htmlFor="invite-sales-role" className={THEME_TOKENS.typography.capsLabel}>
-                  {t.product.inviteSalesRoleLabel}
-                </label>
-                <select
-                  id="invite-sales-role"
-                  className="bg-secondary/5 border border-border/40 rounded-full px-4 h-9 text-sm"
-                  value={inviteSalesRole}
-                  onChange={(e) => setInviteSalesRole(e.target.value as SalesRole | "")}
-                >
-                  <option value="">{t.product.teamMemberTypeGeneral}</option>
-                  <option value="sdr">{t.product.teamMemberTypeSdr}</option>
-                  <option value="ae">{t.product.teamMemberTypeAe}</option>
-                </select>
-              </div>
-            )}
           </form>
+
+          {crmOwnerMatch === false && (
+            <div className="mt-5 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-5 py-4">
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                {t.product.inviteCrmMatchWarning}
+              </p>
+            </div>
+          )}
 
           {inviteUrl && (
             <div className="mt-6 rounded-2xl border border-border/70 bg-secondary/5 px-5 py-4 space-y-3">

@@ -89,7 +89,7 @@ export const companyApi = {
     email: string,
     role: 'admin' | 'member' = 'member',
     salesRole?: SalesRole,
-  ): Promise<{ emailSent: boolean; inviteUrl?: string }> => {
+  ): Promise<{ emailSent: boolean; inviteUrl?: string; crmOwnerMatch: boolean | null }> => {
     const raw = await api.post<Record<string, unknown>>('/company/invites', {
       email,
       role,
@@ -99,6 +99,7 @@ export const companyApi = {
     return {
       emailSent: Boolean(raw.email_sent),
       inviteUrl: raw.invite_url as string | undefined,
+      crmOwnerMatch: (raw.crm_owner_match as boolean | null | undefined) ?? null,
     };
   },
 
@@ -134,6 +135,7 @@ export const companyApi = {
     return {
       email: String(raw.email),
       role: String(raw.role),
+      salesRole: (raw.sales_role as SalesRole | null | undefined) ?? null,
       companyName: (raw.company_name as string) ?? null,
       expiresAt: String(raw.expires_at),
       requiresPassword: Boolean(raw.requires_password),

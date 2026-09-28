@@ -572,6 +572,12 @@ class CompanyService:
             logger.warning("Auth list_users failed during invite check: %s", exc)
         return None
 
+    def is_first_invite(self, company_id: str) -> bool:
+        """True while a company has no active member and no pending invite yet - the
+        only moment an invite may be for the Head of Sales (owner) rather than a rep
+        (founder request: the first account of a company is always the Head of Sales)."""
+        return self.count_active_members(company_id) == 0 and not self.list_pending_invites(company_id)
+
     async def create_invite(
         self,
         *,
@@ -581,8 +587,14 @@ class CompanyService:
         invited_by: Optional[str] = None,
         send_email: bool = True,
         sales_role: Optional[str] = None,
-    ) -> Tuple[dict, Optional[str], bool]:
-        if role not in INVITE_ROLES:
+    ) -> Tuple[dict, Optional[str], bool, Optional[bool]]:
+        if role == "owner":
+            if not self.is_first_invite(company_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This company already has a Head of Sales",
+                )
+        elif role not in INVITE_ROLES:
             raise HTTPException(status_code=400, detail="Invalid invite role")
         if sales_role is not None and sales_role not in SALES_ROLES:
             raise HTTPException(status_code=400, detail="Invalid sales_role")
@@ -628,14 +640,27 @@ class CompanyService:
         invite = result.data[0]
         company = self.get_company(company_id)
         invite_url = f"{settings.FRONTEND_URL.rstrip('/')}/invite/{raw_token}"
+
+        # Item 3: never blocks the invite - None means no connected CRM or a failed lookup.
+        try:
+            from app.services.invite_crm_match import crm_owner_match_for_invite
+
+            crm_owner_match = crm_owner_match_for_invite(self.supabase, company_id, email_norm)
+        except Exception as exc:
+            logger.warning("crm_owner_match lookup failed for invite to %s: %s", email_norm, exc)
+            crm_owner_match = None
+
         email_sent = False
         if send_email:
+            inviter_name = self._display_name_for(invited_by) if invited_by else None
             email_sent = await self._send_invite_email(
                 to=email_norm,
                 company_name=company.get("name") or "Vocify",
                 invite_url=invite_url,
+                sales_role=sales_role,
+                inviter_name=inviter_name,
             )
-        return invite, invite_url if not email_sent else None, email_sent
+        return invite, invite_url if not email_sent else None, email_sent, crm_owner_match
 
     async def resend_invite(self, invite_id: str, company_id: str) -> Tuple[dict, Optional[str], bool]:
         now = _iso(_now())
@@ -670,7 +695,33 @@ class CompanyService:
         )
         return invite, invite_url if not email_sent else None, email_sent
 
-    async def _send_invite_email(self, *, to: str, company_name: str, invite_url: str) -> bool:
+    def _display_name_for(self, user_id: str) -> Optional[str]:
+        """Best-effort inviter name for the invite email (item 4). Never raises."""
+        try:
+            result = (
+                self.supabase.table("user_profiles")
+                .select("full_name")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            if rows and rows[0].get("full_name"):
+                return str(rows[0]["full_name"])
+        except Exception as exc:
+            logger.warning("Could not resolve inviter name for %s: %s", user_id, exc)
+        emails = self._auth_emails_by_ids([user_id])
+        return emails.get(user_id) or None
+
+    async def _send_invite_email(
+        self,
+        *,
+        to: str,
+        company_name: str,
+        invite_url: str,
+        sales_role: Optional[str] = None,
+        inviter_name: Optional[str] = None,
+    ) -> bool:
         client = get_resend_client()
         if not client:
             logger.warning("Resend not configured; invite email skipped for %s", to)
@@ -679,6 +730,8 @@ class CompanyService:
             company_name=company_name,
             invite_url=invite_url,
             expires_days=INVITE_TOKEN_EXPIRY_DAYS,
+            sales_role=sales_role,
+            inviter_name=inviter_name,
         )
         try:
             await client.send_email(

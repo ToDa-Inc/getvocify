@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { InterfaceLanguageSettings } from "@/components/dashboard/settings/InterfaceLanguageSettings";
+import { isManagerRole } from "@/lib/nav";
+import { firstAllowedSettingsPath, isSettingsPathAllowed, visibleSettingsTabs } from "@/lib/settings-nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { companyIsPaywalled } from "@/lib/billing-access";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
@@ -20,23 +22,19 @@ const SettingsLayout = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useLanguage();
+  const location = useLocation();
   const paywalled = companyIsPaywalled(user?.company);
+  // Item 2: a rep (member) only sees their personal settings (Calling, Brief/timing);
+  // the Head of Sales (owner/admin) sees everything, including the company-wide
+  // sections (CRM, Offer, Glossary, Playbooks, Team, Usage, Billing).
+  const isManager = isManagerRole(user?.company?.role);
 
-  const sections = useMemo(
-    () =>
-      [
-        { to: "/dashboard/settings", labelKey: "settingsNavCrm" as const, end: true },
-        { to: "/dashboard/settings/calling", labelKey: "settingsNavCalling" as const },
-        { to: "/dashboard/settings/offer", labelKey: "settingsNavOffer" as const },
-        { to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary" as const },
-        { to: "/dashboard/settings/brief", labelKey: "settingsNavBrief" as const },
-        { to: "/dashboard/settings/playbooks", labelKey: "settingsNavPlaybooks" as const },
-        { to: "/dashboard/settings/team", labelKey: "settingsNavTeam" as const },
-        { to: "/dashboard/settings/usage", labelKey: "settingsNavUsage" as const },
-        { to: "/dashboard/settings/billing", labelKey: "settingsNavBilling" as const },
-      ] as const,
-    [],
-  );
+  const sections = useMemo(() => visibleSettingsTabs(isManager), [isManager]);
+  // A member who navigates straight to a manager-only settings URL (bookmark, typed
+  // link) lands on their first allowed tab instead. Skip while `user` hasn't loaded
+  // yet, so a manager never flashes to Calling before their role is known.
+  const needsRedirect =
+    Boolean(user) && !paywalled && !isSettingsPathAllowed(location.pathname, isManager);
 
   useEffect(() => {
     if (paywalled) return;
@@ -104,7 +102,7 @@ const SettingsLayout = () => {
         )}
 
         <div className="min-w-0">
-          <Outlet />
+          {needsRedirect ? <Navigate to={firstAllowedSettingsPath(isManager)} replace /> : <Outlet />}
         </div>
       </div>
     </div>
