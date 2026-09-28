@@ -89,7 +89,8 @@
 - Frontend: componente `AfterCallReview` en `ContactPanel` (modo review) con los pasos E10. Reutiliza la propuesta de MemoDetail extrayendo el bloque a un componente compartido en vez de duplicarlo. La fecha sugerida de seguimiento sale de un endpoint o de la cadencia devuelta con el memo.
 - Tests backend: mapeos, regla de deal por resultado, traspaso al agendar, validaciones (seguimiento sin fecha → se usa la sugerida; descalificado sin motivo → 422). Tests JS de la lógica pura del paso a paso.
 
-### T5 · Grabaciones: follow-up en el detalle (E12)
+### T5 · Grabaciones: follow-up en el detalle (E12) — **ya existía, no se hace**
+- El detalle de una llamada propia ya muestra el follow-up y deja enviarlo después (`FollowupCard` en `MemoDetail`); reenviar tras editar ya está permitido (idempotencia por revisión). Solo cambió el nombre (T1).
 - `MemoDetail`: el follow-up se ve siempre en llamadas propias, con «Enviar» si no se envió y «Reenviar» si ya se envió (el envío idempotente por revisión del cuerpo admite un reenvío explícito).
 - Resultado de la llamada y fecha de seguimiento visibles en la cabecera.
 - Tests del endpoint de reenvío.
@@ -119,10 +120,12 @@ Los puntos 2–7 del AE (Grabaciones solo suyas, sin Copiloto, Preguntar y Llama
 - `GET /today` con `HOY_SDR_SECTIONS_ENABLED` (se reutiliza el flag: es el Hoy por bloques): AE → `tasks`, `followups`, `demos`; General → `tasks`, `followups`, `demos`, `new`. La cadencia E8 se aplica también al AE, sobre sus memos y los deals traspasados (fecha desde la última interacción del AE o, si no hay, desde el traspaso). `demos` = `meeting_today` (propias y de traspasos).
 - Frontend: `RepHome` pinta los bloques según las secciones presentes, en este orden: Demos de hoy · Tareas · Seguimiento · Nuevos.
 
-### T9 · Brief de demo completo (E14)
+### T9 · Brief de demo completo (E14) — **no se hace ahora**
+- El brief de reunión ya existe (Lista 3 T6: empresa, últimas interacciones con las del SDR, pendientes, pasos de cierre). Faltan etapa/importe del deal y el gancho de empresa; queda como mejora opcional.
 - Amplía `services/briefs/meeting.py` y `GET /briefs/meeting` con deal (etapa, importe, cierre), bloque «Lo que habló {SDR}» (resumen, dolor, interés, cita), objeciones abiertas, compromisos, gancho de empresa (reutiliza `company_hook`) y pasos de cierre pendientes. Se ve en la tarjeta de la demo y en el panel. Tests por cada hecho ausente.
 
-### T10 · Al colgar del AE y del General (E15, E16)
+### T10 · Al colgar del AE y del General (E15, E16) — **fuera: lo hace Dani en el desktop app**
+- El «after demo» del AE va en el desktop app (las demos se graban ahí). En la web, el AE revisa sus demos en Grabaciones (la lista no filtra por origen, así que las grabaciones del desktop salen, solo las suyas).
 - Migración `064`: amplía el CHECK de `memos.rep_outcome` con `next_step`, `proposal_sent`, `won`, `lost`.
 - `after_call.py`: resultados por rol/interacción; `won`/`lost` → `call_outcome` y etapa de fin; `next_step`/`proposal_sent` → fecha de seguimiento (E8). La etapa elegida se escribe en el deal (respeta los campos permitidos).
 - `GET /memos/{id}/after-call` devuelve `mode` (`sdr`|`ae`) y las etapas del pipeline del deal.
