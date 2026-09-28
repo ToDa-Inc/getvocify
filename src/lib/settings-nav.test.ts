@@ -13,9 +13,10 @@ describe("visibleSettingsTabs", () => {
   });
 
   it("gives a rep only the personal tabs", () => {
+    // Brief holds per-user settings (brief timing, writing samples, report delivery).
     assert.deepEqual(
       visibleSettingsTabs(false).map((t) => t.id),
-      ["calling", "glossary", "usage"],
+      ["calling", "glossary", "brief", "usage"],
     );
   });
 });
@@ -43,12 +44,12 @@ describe("isSettingsPathAllowed", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/billing", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/offer", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/playbooks", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/brief", false), false);
   });
 
   it("lets a rep onto their personal tabs, including nested paths", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", false), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/brief", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage/anything", false), true);
   });
