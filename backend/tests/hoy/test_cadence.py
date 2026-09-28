@@ -115,7 +115,7 @@ def test_cadence_replaces_going_cold_and_objection_open_with_one_followup_due():
     new = signals_for_contact([touch], now=now, day_end=_day_end(now), cadence={})
     assert [signal.type for signal in new] == ["followup_due"]
     signal = new[0]
-    assert signal.dedupe_key == "followup:memo-1"
+    assert signal.dedupe_key == f"followup:memo-1:{(CALL_AT + timedelta(days=7)).date().isoformat()}"
     assert signal.due_at == CALL_AT + timedelta(days=7)
     assert signal.payload["stopper"] == "price"
     assert signal.payload["interest"] == "high"
@@ -188,7 +188,7 @@ def test_only_the_latest_touch_counts():
     latest = _touch(memo_id="m-new", interest="medium")
     now = CALL_AT + timedelta(days=5)
     out = signals_for_contact([older, latest], now=now, day_end=_day_end(now), cadence={})
-    assert [(s.type, s.dedupe_key) for s in out] == [("followup_due", "followup:m-new")]
+    assert [(s.type, s.dedupe_key) for s in out] == [("followup_due", f"followup:m-new:{(CALL_AT + timedelta(days=5)).date().isoformat()}")]
 
 
 def test_followup_ranks_after_tasks_and_before_never_contacted():

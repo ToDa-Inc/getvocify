@@ -94,7 +94,7 @@ def test_refresh_with_cadence_persists_the_followup_and_leaves_old_objections_al
     assert written == 1
     rows = supabase.rows("action_signals")
     followup = next(row for row in rows if row["type"] == "followup_due")
-    assert followup["dedupe_key"] == "followup:memo-1"
+    assert followup["dedupe_key"] == "followup:memo-1:2026-09-23"
     assert followup["payload"]["stopper"] == "price"
     # Hidden on read while the flag is on, still pending so turning the flag off restores it.
     assert next(row for row in rows if row["id"] == "row-obj")["status"] == "pending"
@@ -105,7 +105,7 @@ def test_refresh_with_cadence_retracts_a_followup_once_a_newer_call_supersedes_i
         "memos": [_memo(intelligence=PRICE), _memo("memo-2", days_ago=0, intelligence={"interest": "high"})],
         "action_signals": [{
             "id": "row-f", "company_id": "co-1", "user_id": "user-a", "type": "followup_due",
-            "status": "pending", "memo_id": "memo-1", "dedupe_key": "followup:memo-1",
+            "status": "pending", "memo_id": "memo-1", "dedupe_key": "followup:memo-1:2026-09-23",
         }],
     })
     refresh_hoy_signals(supabase, company_id="co-1", user_id="user-a", now=NOW, tz_name="Europe/Madrid", cadence={})
@@ -117,7 +117,7 @@ def test_a_dismissed_followup_is_never_resurrected():
         "memos": [_memo(intelligence=PRICE)],
         "action_signals": [{
             "id": "row-f", "company_id": "co-1", "user_id": "user-a", "type": "followup_due",
-            "status": "dismissed", "memo_id": "memo-1", "dedupe_key": "followup:memo-1",
+            "status": "dismissed", "memo_id": "memo-1", "dedupe_key": "followup:memo-1:2026-09-23",
         }],
     })
     assert refresh_hoy_signals(supabase, company_id="co-1", user_id="user-a", now=NOW, tz_name="Europe/Madrid", cadence={}) == 0
@@ -160,3 +160,16 @@ def test_upcoming_uses_company_overrides_and_the_rep_date():
     rows = upcoming_followups([_memo(intelligence={"interest": "none"}, days_ago=1, followup_at=picked)], now=NOW, tz_name="Europe/Madrid")
     assert rows[0]["due_at"] == picked
     assert rows[0]["text"] == "Seguimiento"
+
+
+def test_a_new_date_picked_after_a_dismissal_brings_the_contact_back():
+    """The key carries the due day: dismissing one date does not bury a later one the rep picks."""
+    picked = (NOW - timedelta(hours=1)).isoformat()
+    supabase = _FakeSupabase({
+        "memos": [_memo(intelligence=PRICE, followup_at=picked)],
+        "action_signals": [{
+            "id": "row-f", "company_id": "co-1", "user_id": "user-a", "type": "followup_due",
+            "status": "dismissed", "memo_id": "memo-1", "dedupe_key": "followup:memo-1:2026-09-23",
+        }],
+    })
+    assert refresh_hoy_signals(supabase, company_id="co-1", user_id="user-a", now=NOW, tz_name="Europe/Madrid", cadence={}) == 1

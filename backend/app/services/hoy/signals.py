@@ -198,8 +198,9 @@ def _followup_due(last: Touch, *, now: datetime, day_end: datetime, overrides: d
         "followup_due",
         due_at=due,
         payload=payload,
-        # Stable per memo: a dismissed or snoozed follow-up is never resurrected by reconcile.
-        dedupe_key=f"followup:{last.memo_id}",
+        # Stable per memo and due day: a dismissed or snoozed follow-up is never resurrected
+        # by reconcile, but a new date the rep picks later (memos.followup_at) is a new key.
+        dedupe_key=f"followup:{last.memo_id}:{due.date().isoformat()}",
         **base,
     )
 
