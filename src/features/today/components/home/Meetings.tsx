@@ -12,7 +12,8 @@ export function Meetings({
   selectedKey,
   onSelect,
 }: {
-  section: SectionOf<"meetings">;
+  /** Today's meetings (SDR) or Demos de hoy (AE/General, Lista 4 T8): the same rows. */
+  section: SectionOf<"meetings" | "demos">;
   copy: ProductTranslations;
   selectedKey: string | null;
   onSelect: (key: string) => void;

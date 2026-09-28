@@ -7,7 +7,14 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.hoy.cadence import followup_due_at, stopper_for
-from app.services.hoy.materialize import _commitments, _intelligence, as_dt, contact_touches, fresh_signals
+from app.services.hoy.materialize import (
+    _commitments,
+    _intelligence,
+    as_dt,
+    contact_touches,
+    fresh_signals,
+    handoff_touches,
+)
 from app.services.hoy.names import clean_name, lookup, memo_directory
 from app.services.hoy.reasons import followup_upcoming_text
 from app.services.hoy.signals import UNANSWERED_OUTCOMES
@@ -100,17 +107,48 @@ def upcoming_followups(
         due = followup_due_at(last, overrides)
         if due is None or not start <= due < end:
             continue
-        name, company = lookup(directory, last.memo_id, last.contact_id)
-        rows.append({
-            "memo_id": last.memo_id,
-            "contact_id": last.contact_id,
-            "contact_name": name,
-            "company_name": company,
-            "text": followup_upcoming_text(stopper_for(last), lang),
-            "due_at": due.isoformat(),
-            "precision": "date",
-            "crm_task_id": None,
-            "kind": "followup",
-        })
+        rows.append(_followup_row(last, due, directory, lang))
     rows.sort(key=lambda row: (as_dt(row["due_at"]), row["memo_id"]))
     return rows
+
+
+def upcoming_handoff_followups(
+    handoffs: list[dict],
+    sdr_memos: list[dict],
+    *,
+    own_contact_ids: set[str],
+    now: datetime,
+    tz_name: str | None,
+    days: int = DEFAULT_DAYS,
+    overrides: dict[str, int] | None = None,
+    lang: str = "es",
+) -> list[dict]:
+    """Lista 4 T8 (E13): the AE's handed-off contacts with no AE memo yet, on the date the
+    SDR's last conversation's cadence brings them back, counted from the handoff meeting -
+    the same rule materialize.handoff_followup_signals uses for Hoy."""
+    start = local_midnight(now, tz_name, days=1)
+    end = local_midnight(now, tz_name, days=1 + days)
+    directory = memo_directory(sdr_memos)
+    rows: list[dict] = []
+    for _handoff, touch in handoff_touches(handoffs, sdr_memos, own_contact_ids=own_contact_ids):
+        due = followup_due_at(touch, overrides)
+        if due is None or not start <= due < end:
+            continue
+        rows.append(_followup_row(touch, due, directory, lang))
+    rows.sort(key=lambda row: (as_dt(row["due_at"]), row["memo_id"]))
+    return rows
+
+
+def _followup_row(last, due: datetime, directory, lang: str) -> dict:
+    name, company = lookup(directory, last.memo_id, last.contact_id)
+    return {
+        "memo_id": last.memo_id,
+        "contact_id": last.contact_id,
+        "contact_name": name,
+        "company_name": company,
+        "text": followup_upcoming_text(stopper_for(last), lang),
+        "due_at": due.isoformat(),
+        "precision": "date",
+        "crm_task_id": None,
+        "kind": "followup",
+    }

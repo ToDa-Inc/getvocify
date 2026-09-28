@@ -936,3 +936,73 @@ describe("composeHome SDR sections", () => {
     assert.deepEqual(ids(sdrHome({ today: view([card(1)]) })), ["calls"]);
   });
 });
+
+// Lista 4 T8 (E13, E16): the AE's Hoy (Demos de hoy, Tareas, Seguimiento) and the General's
+// (the same plus Nuevos), built from the keys /today sent, in paint order.
+describe("composeHome AE and General sections", () => {
+  const followupCard = (n, extra = {}) => card(n, { type: "followup_due", dedupe_key: `followup:m${n}`, ...extra });
+  const newCard = (n) => card(n, { type: "never_contacted", id: null, dedupe_key: `never_contacted::c${n}`, reason: "Nunca has hablado con este contacto." });
+  const blocksView = (sections, folded) => view([], { sections, ...(folded ? { sections_folded: folded } : {}) });
+  const home = (overrides) => composeHome(input({ sdrSections: true, ...overrides }));
+  const contacts = (built, id) => section(built, id).items.map((entry) => entry.item.contact_id);
+  const upcomingRow = { memo_id: "m9", contact_id: "c9", contact_name: "N", company_name: null, text: "Seguimiento · frenó por precio", due_at: "2026-10-02T10:00:00+00:00", precision: "date", crm_task_id: null, kind: "followup" };
+
+  it("paints the AE's Demos de hoy, Tareas, Falta tu OK, Seguimiento, Próximos - and no Nuevos", () => {
+    const built = home({
+      today: blocksView({
+        tasks: [card(1), confirmation(2)],
+        followups: [followupCard(3)],
+        demos: [meeting(4, { due_at: "2026-09-29T10:00:00+02:00" }), meeting(5, { due_at: "2026-09-29T16:00:00+02:00" })],
+      }),
+      followups: [followup(6)],
+      priorities: priorities([priority(7)]),
+      upcoming: [upcomingRow],
+    });
+    assert.deepEqual(ids(built), ["demos", "tasks", "needs_ok", "followups", "upcoming"]);
+    assert.deepEqual(contacts(built, "demos"), ["c4", "c5"]);
+    assert.equal(section(built, "demos").items[0].time, "10:00");
+    assert.deepEqual(contacts(built, "tasks"), ["c1"]);
+    assert.deepEqual(section(built, "needs_ok").rows.map((row) => row.kind), ["confirm", "followup"]);
+  });
+
+  it("paints the General's four blocks and fills Nuevos from never-called priorities", () => {
+    const built = home({
+      today: blocksView({ tasks: [card(1)], followups: [followupCard(2)], demos: [meeting(3)], new: [newCard(4)] }),
+      priorities: priorities([priority(3), priority(5)]),
+    });
+    assert.deepEqual(ids(built), ["demos", "tasks", "followups", "new"]);
+    // A contact with a demo today is not a new lead.
+    assert.deepEqual(contacts(built, "new"), ["c4", "c5"]);
+  });
+
+  it("ignores the old calls, meetings and deals keys next to the blocks", () => {
+    const built = home({
+      today: blocksView({ tasks: [card(1)], followups: [], demos: [], calls: [card(8)], meetings: [meeting(9)], deals: [{ type: "deal_in_progress", contact_id: "c10" }] }),
+    });
+    assert.deepEqual(ids(built), ["tasks"]);
+  });
+
+  it("walks the rows in paint order: demos first, then tasks, Falta tu OK, follow-ups, new", () => {
+    const built = home({
+      today: blocksView({ tasks: [card(2)], followups: [followupCard(3)], demos: [meeting(1)], new: [newCard(4)] }),
+      followups: [followup(5)],
+    });
+    const rows = homeRows(built);
+    assert.deepEqual(rows.map((row) => row.key), ["hoy:sig-1", "hoy:sig-2", "followup:f5", "hoy:sig-3", "never_contacted::c4"]);
+    assert.deepEqual(rows.map((row) => row.kind), ["meeting", "call", "followup", "call", "call"]);
+  });
+
+  it("folds under the last block painted and holds the demos' order across reads", () => {
+    const built = home({ today: blocksView({ tasks: [], followups: [], demos: [meeting(1)] }, { tasks: 0, followups: 0, demos: 2 }) });
+    assert.deepEqual(built.folded, { count: 2, after: "demos" });
+    const { order } = holdOrder(null, home({ today: blocksView({ tasks: [], demos: [meeting(1), meeting(2)] }) }));
+    const held = holdOrder(order, home({ today: blocksView({ tasks: [], demos: [meeting(3), meeting(2), meeting(1)] }) })).view;
+    assert.deepEqual(contacts(held, "demos"), ["c1", "c2", "c3"]);
+  });
+
+  it("is clear when every block is empty and busy with only a demo", () => {
+    assert.equal(home({ today: blocksView({ tasks: [], followups: [], demos: [] }) }).state, "clear");
+    assert.equal(home({ today: blocksView({ tasks: [], followups: [], demos: [meeting(1)] }) }).state, "day");
+  });
+});
+

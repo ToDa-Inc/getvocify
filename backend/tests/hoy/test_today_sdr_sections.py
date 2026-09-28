@@ -125,18 +125,19 @@ def test_flag_off_is_the_old_response(monkeypatch):
     assert asked == {}
 
 
-def test_an_ae_never_gets_sdr_sections(monkeypatch):
+def test_an_ae_never_gets_the_sdr_blocks_or_lead_tiers(monkeypatch):
+    """Lista 4 T8: the AE gets its own blocks (Demos de hoy, Tareas, Seguimiento), never Nuevos."""
     _isolate()
     store = _Supabase()
     store.tables["company_feature_flags"] = _flags(HOY_SDR_SECTIONS_ENABLED=True, HOY_AE_DEALS_ENABLED=True)
-    store.tables["action_signals"] = [dict(_cold(0), user_id="ae-1")]
+    store.tables["action_signals"] = [dict(_followup(0), user_id="ae-1")]
     body, asked = _get(store, monkeypatch, sales_role="ae", user_id="ae-1")
-    assert set(body["sections"]) == {"calls", "meetings", "deals"}
-    assert [item["type"] for item in body["items"]] == ["going_cold"]
+    assert set(body["sections"]) == {"tasks", "followups", "demos"}
+    assert [item["type"] for item in body["items"]] == ["followup_due"]
     assert asked == {}
 
 
-def test_general_and_sdr_with_the_ae_deals_flag_keep_their_role_sections_too(monkeypatch):
+def test_sdr_with_the_ae_deals_flag_keeps_calls_and_the_general_gets_only_its_blocks(monkeypatch):
     _isolate()
     store = _Supabase()
     store.tables["company_feature_flags"] = _flags(HOY_SDR_SECTIONS_ENABLED=True, HOY_AE_DEALS_ENABLED=True)
@@ -146,7 +147,8 @@ def test_general_and_sdr_with_the_ae_deals_flag_keep_their_role_sections_too(mon
     _isolate()
     store.tables["action_signals"] = [dict(_followup(0), user_id="gen-1")]
     body, _ = _get(store, monkeypatch, sales_role=None, user_id="gen-1")
-    assert set(body["sections"]) == {"calls", "meetings", "deals", "tasks", "followups", "new"}
+    # Lista 4 T8 (E13): no «Deals en curso» in the blocks - a deal comes back when it is due.
+    assert set(body["sections"]) == {"tasks", "followups", "demos", "new"}
 
 
 # --- GET /today/upcoming -----------------------------------------------------------
@@ -179,6 +181,9 @@ def test_upcoming_lists_future_followups_with_the_flag(monkeypatch):
     assert rows[0]["text"] == "Follow-up · stalled on price"
 
 
-def test_upcoming_without_the_flag_or_for_an_ae_has_no_followups(monkeypatch):
+def test_upcoming_without_the_flag_has_no_followups_and_the_ae_has_them_with_it(monkeypatch):
     assert _upcoming(_upcoming_store(HOY_SDR_SECTIONS_ENABLED=False), monkeypatch) == []
-    assert _upcoming(_upcoming_store(HOY_SDR_SECTIONS_ENABLED=True), monkeypatch, sales_role="ae") == []
+    assert _upcoming(_upcoming_store(HOY_SDR_SECTIONS_ENABLED=False), monkeypatch, sales_role="ae") == []
+    # Lista 4 T8: the AE's follow-ups wait in Próximos like the SDR's.
+    rows = _upcoming(_upcoming_store(HOY_SDR_SECTIONS_ENABLED=True), monkeypatch, sales_role="ae")
+    assert [row["kind"] for row in rows] == ["followup"]

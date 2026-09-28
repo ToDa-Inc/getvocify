@@ -90,6 +90,8 @@ declare module "@shared/ui/home.js" {
 
   export type HomeSection =
     | { id: "meetings"; items: { item: TodayItem; time: string | null; past: boolean }[] }
+    // Lista 4 T8 (E13, E16): the AE's/General's Demos de hoy - the same meeting rows.
+    | { id: "demos"; items: { item: TodayItem; time: string | null; past: boolean }[] }
     | { id: "needs_ok"; rows: HomeNeedsOkRow[]; shown: HomeNeedsOkRow[]; more: number }
     | { id: "calls"; items: { source: "today" | "priority"; item: TodayItem }[] }
     // Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): the SDR's Tareas / Seguimiento / Nuevos.
@@ -106,7 +108,7 @@ declare module "@shared/ui/home.js" {
     canManage: boolean;
     incompleteAt: string | null;
     pulse: { calls: number; savedTo: string | null } | null;
-    folded: { count: number; after: "meetings" | "needs_ok" | "calls" | "tasks" | "followups" | "new" | null } | null;
+    folded: { count: number; after: "meetings" | "demos" | "needs_ok" | "calls" | "tasks" | "followups" | "new" | null } | null;
     sections: HomeSection[];
   };
 
@@ -126,7 +128,7 @@ declare module "@shared/ui/home.js" {
     now: number;
     locale: string;
     timeZone?: string;
-    /** HOY_SDR_SECTIONS_ENABLED: paint /today's `sections.tasks/followups/new` when sent. */
+    /** HOY_SDR_SECTIONS_ENABLED: paint /today's `sections.demos/tasks/followups/new` when sent. */
     sdrSections?: boolean;
   }): HomeView;
 

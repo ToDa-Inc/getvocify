@@ -11,6 +11,7 @@ from app.services.hoy.memo_facts import _pain
 from app.services.hoy.signals import (
     DEFAULT_LIMIT,
     Signal,
+    Touch,
     never_contacted_signal,
     signals_for_contact,
     touch_from_intelligence,
@@ -125,6 +126,71 @@ def contact_touches(memos: list[dict]) -> tuple[dict[str, list], dict[str, bool]
             continue
         groups.setdefault(touch.contact_id or touch.memo_id, []).append(touch)
     return groups, pain_by_memo
+
+
+HANDOFF_FOLLOWUP_KEY_PREFIX = "followup:handoff:"
+
+
+def handoff_touches(handoffs: list[dict], sdr_memos: list[dict], *, own_contact_ids: set[str]) -> list[tuple[dict, Touch]]:
+    """Lista 4 T8 (E13): a contact handed to this AE that the AE has no memo about yet comes
+    back on the cadence of the SDR's last conversation, counted from the handoff meeting (or,
+    without one, from the handoff itself). Each pair is (handoff, touch): the SDR's latest
+    touch on that contact with `at` moved to that moment. The SDR's own date, outcome
+    (meeting_booked) and commitments are the SDR's, not the AE's, so they are dropped."""
+    sdr_groups, _pain = contact_touches(sdr_memos)
+    memo_ids_by_user: dict[str, set[str]] = {}
+    for memo in sdr_memos:
+        memo_ids_by_user.setdefault(str(memo.get("user_id") or ""), set()).add(str(memo.get("id") or ""))
+    out: list[tuple[dict, Touch]] = []
+    for handoff in handoffs:
+        contact_id = str(handoff.get("contact_id") or "")
+        if not contact_id or not handoff.get("id") or contact_id in own_contact_ids:
+            continue
+        # Only the handing-off SDR's memos: another rep's note about the same contact is not
+        # the conversation that led to this handoff.
+        sdr_memo_ids = memo_ids_by_user.get(str(handoff.get("sdr_user_id") or ""), set())
+        touches = [touch for touch in sdr_groups.get(contact_id, []) if touch.memo_id in sdr_memo_ids]
+        anchor = as_dt(handoff.get("meeting_starts_at")) or as_dt(handoff.get("created_at"))
+        if not touches or anchor is None:
+            continue
+        last = max(touches, key=lambda t: t.at)
+        if last.deal_closed:
+            continue
+        out.append((handoff, replace(
+            last,
+            at=anchor,
+            deal_id=str(handoff.get("deal_id")) if handoff.get("deal_id") else last.deal_id,
+            connection_id=str(handoff.get("connection_id") or "") or last.connection_id,
+            commitments=(),
+            followup_at=None,
+            rep_outcome=None,
+            screening_outcome=None,
+        )))
+    return out
+
+
+def handoff_followup_signals(
+    handoffs: list[dict],
+    sdr_memos: list[dict],
+    *,
+    own_contact_ids: set[str],
+    now: datetime,
+    day_end: datetime,
+    cadence: dict[str, int],
+) -> list[Signal]:
+    """followup_due for handed-off contacts the AE has not talked to yet (handoff_touches),
+    keyed per handoff and due day so a dismissal holds and the AE's first memo retracts it."""
+    out: list[Signal] = []
+    for handoff, touch in handoff_touches(handoffs, sdr_memos, own_contact_ids=own_contact_ids):
+        for signal in signals_for_contact([touch], now=now, day_end=day_end, cadence=cadence):
+            if signal.type != "followup_due" or signal.due_at is None:
+                continue
+            out.append(replace(
+                signal,
+                payload={**signal.payload, "handoff_id": str(handoff["id"])},
+                dedupe_key=f"{HANDOFF_FOLLOWUP_KEY_PREFIX}{handoff['id']}:{signal.due_at.date().isoformat()}",
+            ))
+    return out
 
 
 def fresh_signals(
@@ -332,6 +398,20 @@ def retracted_followup_ids(existing: list[dict], *, memo_ids: set[str], fresh_ke
     return _retracted_memo_ids(existing, types={"followup_due"}, memo_ids=memo_ids, fresh_keys=fresh_keys)
 
 
+def retracted_handoff_followup_ids(existing: list[dict], *, fresh_keys: set[str]) -> list[str]:
+    """Lista 4 T8: a pending handed-off follow-up that no longer applies - the AE's own memo
+    took over, the handoff closed, or the date moved. Only called when both reads it
+    depends on (handoffs, the SDR's memos) succeeded."""
+    return [
+        str(row["id"])
+        for row in existing
+        if row.get("type") == "followup_due"
+        and row.get("status") == "pending"
+        and str(row.get("dedupe_key") or "").startswith(HANDOFF_FOLLOWUP_KEY_PREFIX)
+        and str(row.get("dedupe_key") or "") not in fresh_keys
+    ]
+
+
 def retracted_callback_ids(existing: list[dict], *, memo_ids: set[str], fresh_keys: set[str]) -> list[str]:
     """T5 review (BLOCKING): a pending callback_no_answer whose memo was re-read and no
     longer yields it - a later connected call/memo means it is resolved, the same way a
@@ -413,7 +493,12 @@ def refresh_hoy_signals(
     lead_tiers_enabled: bool = False,
     callback_after_days: int = DEFAULT_CALLBACK_AFTER_DAYS,
     cadence: dict[str, int] | None = None,
+    handoffs: list[dict] | None = None,
+    handoff_memos: list[dict] | None = None,
 ) -> int:
+    """`handoffs`/`handoff_memos` (Lista 4 T8, cadence on, AE/General): the active handoffs
+    this rep received and the handing-off SDRs' memos about them. None = not read (or the
+    read failed): no handed-off follow-up is produced and none stored is retracted."""
     try:
         memos = read_hoy_memos(supabase, company_id=company_id, user_id=user_id, with_followup=cadence is not None)
         existing = (
@@ -433,6 +518,19 @@ def refresh_hoy_signals(
         callback_after_days=callback_after_days,
         cadence=cadence,
     )
+    handoffs_known = cadence is not None and handoffs is not None and handoff_memos is not None
+    if handoffs_known:
+        own_contact_ids = {
+            str(memo.get("hubspot_contact_id") or memo.get("contact_id") or "") for memo in memos
+        } - {""}
+        signals = signals + handoff_followup_signals(
+            handoffs,
+            handoff_memos,
+            own_contact_ids=own_contact_ids,
+            now=now,
+            day_end=day_end(now, tz_name),
+            cadence=cadence,
+        )
     calls: list[dict] = []
     if lead_tiers_enabled:
         calls = read_hoy_calls(supabase, user_id=user_id)
@@ -457,6 +555,8 @@ def refresh_hoy_signals(
         memo_ids={str(memo.get("id") or "") for memo in memos},
         fresh_keys=fresh_keys,
     )
+    if handoffs_known:
+        retracted += retracted_handoff_followup_ids(list(existing.data or []), fresh_keys=fresh_keys)
     retracted += retracted_call_callback_ids(
         list(existing.data or []),
         call_ids={str(call.get("id") or "") for call in calls},

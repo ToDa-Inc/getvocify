@@ -4,6 +4,7 @@ HOY_AE_DEALS_ENABLED."""
 
 from __future__ import annotations
 
+from app.services.hoy.materialize import as_dt
 from app.services.meetings.today import MEETING_TYPE
 
 
@@ -42,16 +43,53 @@ NEW_TYPE = "never_contacted"
 SDR_SOURCE_LIMIT = 1000
 
 
-def sdr_sections(items: list[dict]) -> tuple[dict, dict]:
-    """(sections, folded per section) from the ranked items, order kept. Tasks are everything
-    that is neither a follow-up nor a new lead: commitments due, callbacks, no-reply emails,
-    today's meetings, confirmations and the rep's manual CRM tasks."""
-    buckets: dict[str, list[dict]] = {"tasks": [], "followups": [], "new": []}
+# Lista 4 T8 (E13, E16): the AE's and the General's Hoy add «Demos de hoy» - today's
+# meetings, their own and the ones an SDR booked for them - in start order.
+DEMOS_CAP = 20
+SECTION_KEYS: dict[str, tuple[str, ...]] = {
+    "sdr": ("tasks", "followups", "new"),
+    "ae": ("tasks", "followups", "demos"),
+    "general": ("tasks", "followups", "demos", "new"),
+}
+SECTION_CAPS: dict[str, int] = {
+    "tasks": SDR_TASKS_CAP, "followups": SDR_FOLLOWUPS_CAP, "demos": DEMOS_CAP, "new": SDR_NEW_CAP,
+}
+
+
+def _section_for(kind: str | None, keys: tuple[str, ...]) -> str | None:
+    if kind == FOLLOWUP_TYPE:
+        return "followups"
+    if kind == NEW_TYPE:
+        # An AE never prospects (lead tiers are SDR/General only): such a card has no block.
+        return "new" if "new" in keys else None
+    if kind == MEETING_TYPE and "demos" in keys:
+        return "demos"
+    return "tasks"
+
+
+def _starts_at(item: dict) -> tuple[int, float]:
+    """meeting_today items carry the meeting's start as due_at (ISO, any offset); an
+    unknown or unreadable start sorts last."""
+    try:
+        start = as_dt(item.get("due_at"))
+    except (TypeError, ValueError):
+        start = None
+    return (0, start.timestamp()) if start else (1, 0.0)
+
+
+def hoy_sections(items: list[dict], sales_role: str | None) -> tuple[dict, dict]:
+    """(sections, folded per section) from the ranked items, order kept (demos by start
+    time). Tasks are everything else: commitments due, callbacks, no-reply emails,
+    confirmations, the rep's manual CRM tasks - and, for an SDR, a meeting today.
+    D1: null behaves as general; an unknown role too."""
+    keys = SECTION_KEYS.get(sales_role or "general", SECTION_KEYS["general"])
+    buckets: dict[str, list[dict]] = {key: [] for key in keys}
     for item in items:
-        kind = item.get("type")
-        key = "followups" if kind == FOLLOWUP_TYPE else "new" if kind == NEW_TYPE else "tasks"
-        buckets[key].append(item)
-    caps = {"tasks": SDR_TASKS_CAP, "followups": SDR_FOLLOWUPS_CAP, "new": SDR_NEW_CAP}
-    sections = {key: rows[:caps[key]] for key, rows in buckets.items()}
-    folded = {key: max(0, len(rows) - caps[key]) for key, rows in buckets.items()}
+        key = _section_for(item.get("type"), keys)
+        if key is not None:
+            buckets[key].append(item)
+    if "demos" in buckets:
+        buckets["demos"].sort(key=_starts_at)
+    sections = {key: rows[:SECTION_CAPS[key]] for key, rows in buckets.items()}
+    folded = {key: max(0, len(rows) - SECTION_CAPS[key]) for key, rows in buckets.items()}
     return sections, folded

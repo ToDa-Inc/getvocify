@@ -97,17 +97,19 @@ export type TodaySections = {
   calls?: TodayItem[];
   meetings?: TodayItem[];
   deals?: TodayItem[];
-  /** Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED, SDR/General): each capped on its own. */
+  /** Lista 4 T2/T8 (HOY_SDR_SECTIONS_ENABLED): each capped on its own. SDR: tasks,
+   * followups, new (next to `calls`); AE: demos, tasks, followups; General: all four. */
   tasks?: TodayItem[];
   followups?: TodayItem[];
   new?: TodayItem[];
+  demos?: TodayItem[];
 };
 
 export type TodayView = {
   items: TodayItem[];
   sections?: TodaySections;
-  /** How many cards each SDR section left out past its cap. */
-  sections_folded?: { tasks: number; followups: number; new: number };
+  /** How many cards each block left out past its cap (only the keys sent in `sections`). */
+  sections_folded?: Partial<Record<"tasks" | "followups" | "new" | "demos", number>>;
   pulse: number | null;
   folded_count: number;
   generated_at: string;

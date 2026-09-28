@@ -102,8 +102,9 @@ export function RepHome() {
     wasTicking.current = ticking;
   }, [ticking, refetch]);
 
-  // Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): Tareas / Seguimiento / Nuevos instead of one
-  // "A quién llamar" list, when GET /today sends them (SDR/General only).
+  // Lista 4 T2/T8 (HOY_SDR_SECTIONS_ENABLED): Hoy por bloques instead of one "A quién llamar"
+  // list, when GET /today sends them - SDR: Tareas / Seguimiento / Nuevos; AE: Demos de hoy /
+  // Tareas / Seguimiento; General: all four.
   const sdrSections = Boolean(user?.company?.features?.includes("HOY_SDR_SECTIONS_ENABLED"));
   const homeRaw = composeHome({
     today: settled(query),
@@ -224,6 +225,7 @@ export function RepHome() {
   const section = <Id extends HomeView["sections"][number]["id"]>(id: Id) =>
     home.sections.find((entry) => entry.id === id) as SectionOf<Id> | undefined;
   const meetings = section("meetings");
+  const demos = section("demos");
   const needsOk = section("needs_ok");
   const calls = section("calls");
   const tasks = section("tasks");
@@ -277,9 +279,12 @@ export function RepHome() {
   // The AE keeps "A quién llamar": those are the AE's own follow-ups (callbacks they
   // promised, open objections). Prospecting tiers never reach an AE - the backend only
   // computes them for SDR/General.
-  const deals = dealsEnabled ? dealItems(settled(query)) : [];
+  // Lista 4 T8 (E13): with Hoy por bloques the deals are not listed whole - a deal comes back
+  // in Seguimiento when it is due, so «Deals en curso» is not painted.
+  const sectioned = sdrSections && Array.isArray(settled(query)?.sections?.tasks);
+  const deals = dealsEnabled && !sectioned ? dealItems(settled(query)) : [];
 
-  // Falta tu OK: on the SDR's home it sits right under Tareas (its follow-up emails to
+  // Falta tu OK: on Hoy por bloques it sits right under Tareas (its follow-up emails to
   // send are tasks too); otherwise where it always was, above "A quién llamar".
   const needsOkSection = (
     <HomeSection title={copy.home_needs_ok}>
@@ -384,6 +389,14 @@ export function RepHome() {
           ) : null}
           {home.state === "clear" ? <p className={THEME_TOKENS.typography.body}>{copy.today_clear}</p> : null}
 
+          <HomeSection title={copy.home_demos}>
+            {demos ? (
+              <>
+                <Meetings section={demos} copy={copy} {...selectionProps} />
+                {foldedUnder("demos")}
+              </>
+            ) : null}
+          </HomeSection>
           <HomeSection title={copy.home_meetings}>
             {meetings ? (
               <>
@@ -392,7 +405,7 @@ export function RepHome() {
               </>
             ) : null}
           </HomeSection>
-          {tasks || followups || fresh ? (
+          {sectioned ? (
             <>
               <HomeSection title={copy.home_tasks}>{cardSection(tasks?.items, "tasks")}</HomeSection>
               {needsOkSection}

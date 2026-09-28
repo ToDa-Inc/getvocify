@@ -38,12 +38,20 @@ from app.services.hoy.done import done_today
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.priority import rank_candidates
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks, contact_record_url
-from app.services.hoy.sections import SDR_NEW_CAP, SDR_SOURCE_LIMIT, sdr_sections, sections_for_role, split_items_by_type
+from app.services.hoy.sections import SDR_NEW_CAP, SDR_SOURCE_LIMIT, hoy_sections, sections_for_role, split_items_by_type
 from app.services.hoy.signals import DEFAULT_LIMIT, Signal, commitment_task_links, never_contacted_signal
 from app.services.hoy.materialize import HOY_MEMO_LIMIT, as_dt, exclude_handoff_contacts, never_contacted_signals, read_hoy_memos, refresh_hoy_signals
 from app.services.meetings.today import MEETING_TYPE, MEETINGS_FLAG, refresh_meeting_today
 from app.services.hoy.names import NamePair, memo_directory
-from app.services.hoy.upcoming import DEFAULT_DAYS, MAX_DAYS, MIN_DAYS, local_midnight, upcoming_commitments, upcoming_followups
+from app.services.hoy.upcoming import (
+    DEFAULT_DAYS,
+    MAX_DAYS,
+    MIN_DAYS,
+    local_midnight,
+    upcoming_commitments,
+    upcoming_followups,
+    upcoming_handoff_followups,
+)
 from app.services.hoy.visibility import is_today_visible
 from app.services.rep_timezone import rep_timezone
 
@@ -317,12 +325,16 @@ def _intelligence(rows: list[dict]) -> str:
     return "partial"
 
 
-def _sdr_sections_enabled(supabase, membership: Membership) -> bool:
-    """Lista 4 T2 (E7/E8): Tareas/Seguimiento/Nuevos and the follow-up cadence are for a
-    SDR or General rep only, like lead tiers."""
-    return membership.sales_role in (None, "sdr", "general") and is_enabled(
-        supabase, membership.company_id, SDR_SECTIONS_FLAG,
-    )
+def _sections_enabled(supabase, membership: Membership) -> bool:
+    """Lista 4 T2/T8 (E7/E8, E13, E16): Hoy por bloques and the follow-up cadence, for every
+    sales role - SDR (Tareas/Seguimiento/Nuevos), AE (Demos de hoy/Tareas/Seguimiento) and
+    General (all four). Lead tiers (Nuevos, callbacks) stay SDR/General only."""
+    return is_enabled(supabase, membership.company_id, SDR_SECTIONS_FLAG)
+
+
+def _prospects(membership: Membership) -> bool:
+    """SDR or General (D1: null is general): the roles lead tiers are for."""
+    return membership.sales_role in (None, "sdr", "general")
 
 
 def _never_contacted_for_rep(
@@ -378,9 +390,11 @@ def _received_handoffs(supabase, membership: Membership) -> list[dict] | None:
         return None
 
 
-def _handoff_contact_memos(supabase, company_id: str, handoffs: list[dict] | None) -> list[dict]:
-    """The handing-off SDRs' memos about the handed-off contacts - only to name those
-    contacts on the AE's cards (T4/D8 already lets the AE read exactly these memos)."""
+def _handoff_contact_memos(supabase, company_id: str, handoffs: list[dict] | None) -> list[dict] | None:
+    """The handing-off SDRs' memos about the handed-off contacts - to name those contacts
+    on the AE's cards and (Lista 4 T8) to time the follow-up of a handed-off contact the AE
+    has not talked to yet (T4/D8 already lets the AE read exactly these memos). None when
+    the read failed - callers treat it as "unknown", never as "no memos"."""
     rows = handoffs or []
     sdr_ids = sorted({str(row.get("sdr_user_id")) for row in rows if row.get("sdr_user_id")})
     contact_ids = sorted({str(row.get("contact_id")) for row in rows if row.get("contact_id")})
@@ -389,7 +403,7 @@ def _handoff_contact_memos(supabase, company_id: str, handoffs: list[dict] | Non
     try:
         stored = (
             supabase.table("memos")
-            .select("id,user_id,hubspot_contact_id,extraction")
+            .select("id,user_id,hubspot_contact_id,hubspot_deal_id,extraction,capture_started_at,created_at,screening_outcome")
             .eq("company_id", company_id)
             .in_("user_id", sdr_ids)
             .in_("hubspot_contact_id", contact_ids)
@@ -398,7 +412,7 @@ def _handoff_contact_memos(supabase, company_id: str, handoffs: list[dict] | Non
             .execute()
         )
     except Exception:
-        return []
+        return None
     return list(stored.data or [])
 
 
@@ -536,15 +550,19 @@ async def get_today(
     # rep only - the AE's Hoy is deals-focused (T6), not this list.
     # Lista 4 T2: the SDR sections are built on lead tiers (Tareas holds the callbacks, Nuevos
     # the never-contacted leads), so turning them on turns lead tiers on for that rep too.
-    sdr_sections_enabled = _sdr_sections_enabled(supabase, membership)
-    lead_tiers_enabled = sdr_sections_enabled or (
-        membership.sales_role in (None, "sdr", "general")
-        and is_enabled(supabase, membership.company_id, "HOY_LEAD_TIERS_ENABLED")
+    # Lista 4 T8: the AE gets the sections and the cadence too, never the lead tiers.
+    sections_enabled = _sections_enabled(supabase, membership)
+    lead_tiers_enabled = _prospects(membership) and (
+        sections_enabled or is_enabled(supabase, membership.company_id, "HOY_LEAD_TIERS_ENABLED")
     )
-    cadence = CompanyService(supabase).followup_cadence(membership.company_id) if sdr_sections_enabled else None
+    cadence = CompanyService(supabase).followup_cadence(membership.company_id) if sections_enabled else None
     callback_after_days = (
         CompanyService(supabase).callback_after_days(membership.company_id) if lead_tiers_enabled else None
     )
+    # Handoffs this rep received (AE, or General with a route): read once, reused for their
+    # follow-ups, their "Reunión hoy" cards, the contact names on those cards and the deals.
+    received_handoffs = _received_handoffs(supabase, membership)
+    handoff_memos = _handoff_contact_memos(supabase, membership.company_id, received_handoffs)
     if _TASKS is None:
         try:
             refresh_hoy_signals(
@@ -556,12 +574,11 @@ async def get_today(
                 lead_tiers_enabled=lead_tiers_enabled,
                 callback_after_days=callback_after_days or 2,
                 cadence=cadence,
+                handoffs=received_handoffs,
+                handoff_memos=handoff_memos,
             )
         except Exception:
             pass
-    # Handoffs this rep received (AE, or General with a route): read once, reused for
-    # their "Reunión hoy" cards, the contact names on those cards and the deal section.
-    received_handoffs = _received_handoffs(supabase, membership)
     try:
         refresh_meeting_today(
             supabase,
@@ -593,12 +610,12 @@ async def get_today(
     ]
     if not is_enabled(supabase, membership.company_id, MEETINGS_FLAG):
         visible = [row for row in visible if row.get("type") != MEETING_TYPE]
-    hidden_types = CADENCE_REPLACED_TYPES if sdr_sections_enabled else {FOLLOWUP_TYPE}
+    hidden_types = CADENCE_REPLACED_TYPES if sections_enabled else {FOLLOWUP_TYPE}
     visible = [row for row in visible if row.get("type") not in hidden_types]
     # T5/D6: a contact under an active SDR->AE handoff leaves the SDR's/General's Hoy - it
     # is the AE's now. The AE side is unaffected (it gains, it does not lose, contacts).
     handed_off: set[str] = set()
-    if membership.sales_role in (None, "sdr", "general") and is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
+    if _prospects(membership) and is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
         try:
             handed_off = {
                 str(row.get("contact_id"))
@@ -645,7 +662,7 @@ async def get_today(
             user_id=membership.user_id,
             now=now,
             touched_contact_ids=touched | persisted,
-            limit=SDR_NEW_CAP if sdr_sections_enabled else DEFAULT_LIMIT,
+            limit=SDR_NEW_CAP if sections_enabled else DEFAULT_LIMIT,
         )
         visible = _drop_touched_never_contacted(visible, touched)
     today_signals = exclude_handoff_contacts(
@@ -666,17 +683,17 @@ async def get_today(
         confirm_rows=confirm_rows,
         tz_name=rep_timezone(membership.user_id),
         lead_tiers=lead_tiers_enabled,
-        limit=SDR_SOURCE_LIMIT if sdr_sections_enabled else DEFAULT_LIMIT,
+        limit=SDR_SOURCE_LIMIT if sections_enabled else DEFAULT_LIMIT,
     )
-    directory = memo_directory(memos + _handoff_contact_memos(supabase, membership.company_id, received_handoffs))
+    directory = memo_directory(memos + (handoff_memos or []))
     _stamp_contact_names(view, visible, directory)
-    sdr_view: dict | None = None
-    if sdr_sections_enabled:
+    sections_view: dict | None = None
+    if sections_enabled:
         # Every card was ranked (SDR_SOURCE_LIMIT); each section takes its own cap, and
         # `items` goes back to the old global cap for anything still reading it.
         all_items = view["items"]
-        sections, sections_folded = sdr_sections(all_items)
-        sdr_view = {"sections": sections, "folded": sections_folded}
+        sections, sections_folded = hoy_sections(all_items, membership.sales_role)
+        sections_view = {"sections": sections, "folded": sections_folded}
         view["items"] = all_items[:DEFAULT_LIMIT]
         view["folded_count"] += len(all_items) - len(view["items"])
     if is_enabled(supabase, membership.company_id, AE_DEALS_FLAG):
@@ -701,11 +718,18 @@ async def get_today(
         view["sections"] = sections_for_role(
             membership.sales_role, calls=calls_items, meetings=meeting_items, deals=deals_items,
         )
-    if sdr_view is not None:
-        # Added next to the role's own sections (T6) when both flags are on; the client
-        # reads tasks/followups/new instead of calls.
-        view["sections"] = {**(view.get("sections") or {}), **sdr_view["sections"]}
-        view["sections_folded"] = sdr_view["folded"]
+    if sections_view is not None:
+        if membership.sales_role == "sdr":
+            # T2: added next to the SDR's own T6 section (calls) when both flags are on; the
+            # client reads tasks/followups/new instead of calls.
+            view["sections"] = {**(view.get("sections") or {}), **sections_view["sections"]}
+        else:
+            # T8 (E13): the AE's/General's blocks are the whole sectioned view - «Deals en
+            # curso» no longer lists every deal (a deal comes back when it is due), and
+            # calls/meetings live in tasks/followups/demos. The deal read above still runs
+            # when HOY_AE_DEALS_ENABLED is on: it is what closes a handoff whose deal ended.
+            view["sections"] = sections_view["sections"]
+        view["sections_folded"] = sections_view["folded"]
     return view
 
 
@@ -769,23 +793,31 @@ async def get_today_upcoming(
         )
     now = _now()
     tz_name = rep_timezone(membership.user_id)
-    sdr_sections_enabled = _sdr_sections_enabled(supabase, membership)
+    sections_enabled = _sections_enabled(supabase, membership)
     memos = read_hoy_memos(
-        supabase, company_id=membership.company_id, user_id=membership.user_id, with_followup=sdr_sections_enabled,
+        supabase, company_id=membership.company_id, user_id=membership.user_id, with_followup=sections_enabled,
     )
     rows = upcoming_commitments(memos, now=now, tz_name=tz_name, days=days)
-    if not sdr_sections_enabled:
+    if not sections_enabled:
         return rows
-    # Lista 4 T2 (E8): the follow-ups the cadence is holding back, on the date they return.
+    # Lista 4 T2/T8 (E8, E13): the follow-ups the cadence is holding back, on the date they
+    # return - the rep's own, and (AE/General) handed-off contacts not talked to yet.
     lang = "en" if (accept_language or "").lower().startswith("en") else "es"
-    rows += upcoming_followups(
-        memos,
-        now=now,
-        tz_name=tz_name,
-        days=days,
-        overrides=CompanyService(supabase).followup_cadence(membership.company_id),
-        lang=lang,
-    )
+    overrides = CompanyService(supabase).followup_cadence(membership.company_id)
+    rows += upcoming_followups(memos, now=now, tz_name=tz_name, days=days, overrides=overrides, lang=lang)
+    handoffs = _received_handoffs(supabase, membership)
+    handoff_memos = _handoff_contact_memos(supabase, membership.company_id, handoffs)
+    if handoffs and handoff_memos:
+        rows += upcoming_handoff_followups(
+            handoffs,
+            handoff_memos,
+            own_contact_ids={str(memo.get("hubspot_contact_id") or "") for memo in memos} - {""},
+            now=now,
+            tz_name=tz_name,
+            days=days,
+            overrides=overrides,
+            lang=lang,
+        )
     rows.sort(key=lambda row: (as_dt(row["due_at"]), row["memo_id"]))
     return rows
 
