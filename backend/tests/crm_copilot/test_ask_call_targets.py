@@ -203,7 +203,10 @@ async def test_flag_off_leaves_the_web_turn_as_before(monkeypatch):
     _patch_viewer(monkeypatch)
     _script(monkeypatch, *_priorities_then("Llama a Contacto p-2."))
     body = await _web_turn(monkeypatch, _store())
-    assert body == {"text": "Llama a Contacto p-2."}
+    assert body["text"] == "Llama a Contacto p-2."
+    assert "call_targets" not in body
+    # The tool steps the turn ran are reported whatever the call-actions flag says.
+    assert body["steps"] == [{"tool": "get_call_priorities", "state": "done", "detail": ""}]
 
 
 async def test_a_company_override_turns_call_actions_on_for_that_company(monkeypatch):

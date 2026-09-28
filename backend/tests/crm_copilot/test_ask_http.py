@@ -787,7 +787,10 @@ def test_a_failed_loop_ends_the_in_memory_turn():
         )
         assert response.status_code == 200
         assert response.json()["status"] == "failed"
-        assert response.json()["text"] == "¿Qué sigue?"
+        # A failed turn has no answer text; the question stays in `question` so the app
+        # never shows the user's own words back as if Vocify had answered them.
+        assert response.json()["text"] == ""
+        assert response.json()["question"] == "¿Qué sigue?"
         fetched = client.get(
             f"/api/v1/ask/conversations/conv-1/turns/{response.json()['turn_id']}"
         )

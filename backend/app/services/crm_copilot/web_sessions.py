@@ -13,7 +13,7 @@ class UncertainOperation(Exception):
     pass
 
 
-_STORED_KEYS = ("coverage", "item_count", "choices", "confirmation", "call_targets")
+_STORED_KEYS = ("coverage", "item_count", "choices", "confirmation", "call_targets", "question", "steps")
 
 
 def _encode_completed_body(turn: dict) -> str:
@@ -257,9 +257,66 @@ def payload_from_turn(text: str, artifacts: dict | None = None, *, kind: str = "
     return body
 
 
-def bind_ask_actor(user_id: str, company_id: str) -> None:
+def bind_ask_actor(
+    user_id: str,
+    company_id: str,
+    *,
+    conversation_id: str = "",
+    progress_key: tuple | None = None,
+) -> None:
+    """Read synchronously by live_ask_loop before its first await, so concurrent requests
+    never see each other's actor. conversation_id scopes the session memory; progress_key
+    is where the loop reports its steps while the POST is still running."""
     _actor["user_id"] = user_id
     _actor["company_id"] = company_id
+    _actor["conversation_id"] = conversation_id
+    _actor["progress_key"] = progress_key
+
+
+# Live progress of turns still running in this process: (user, conversation, client_turn_id)
+# -> {"steps": [...], "at": monotonic}. Bounded so a crashed turn never leaks.
+_PROGRESS: dict[tuple, dict] = {}
+_PROGRESS_MAX = 500
+_PROGRESS_TTL_S = 600.0
+
+
+def progress_start(key: tuple) -> None:
+    import time
+
+    now = time.monotonic()
+    for stale in [k for k, v in _PROGRESS.items() if now - v["at"] > _PROGRESS_TTL_S]:
+        _PROGRESS.pop(stale, None)
+    while len(_PROGRESS) >= _PROGRESS_MAX:
+        _PROGRESS.pop(next(iter(_PROGRESS)))
+    _PROGRESS[key] = {"steps": [], "at": now}
+
+
+def progress_step(key: tuple | None, step: dict) -> None:
+    """A running step appends; its done/error event updates that same step in place."""
+    entry = _PROGRESS.get(key) if key else None
+    if entry is None:
+        return
+    steps = entry["steps"]
+    if step.get("state") != "running":
+        for existing in reversed(steps):
+            if existing["tool"] == step["tool"] and existing["state"] == "running":
+                existing["state"] = step["state"]
+                return
+    steps.append(dict(step))
+
+
+def progress_get(key: tuple) -> dict | None:
+    entry = _PROGRESS.get(key)
+    return {"steps": [dict(step) for step in entry["steps"]]} if entry else None
+
+
+def progress_end(key: tuple) -> None:
+    _PROGRESS.pop(key, None)
+
+
+def session_key(user_id: str, conversation_id: str) -> str:
+    """Memory per conversation: a new conversation in the app starts clean."""
+    return f"{user_id}:{conversation_id}" if conversation_id else user_id
 
 
 async def live_ask_loop(text: str, confirm: bool | None = None):
@@ -274,8 +331,21 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
     from app.services.llm.client import LLMClient
 
     user_id = _actor.get("user_id") or ""
-    artifacts = _sessions.setdefault(user_id, {})
+    progress_key = _actor.get("progress_key")
+    artifacts = _sessions.setdefault(session_key(user_id, _actor.get("conversation_id") or ""), {})
     ctx = CopilotContext(supabase=get_supabase(), user_id=user_id, artifacts=artifacts)
+    steps: list[dict] = []
+
+    def on_step(step: dict) -> None:
+        progress_step(progress_key, step)
+        if step.get("state") == "running":
+            steps.append(dict(step))
+        else:
+            for existing in reversed(steps):
+                if existing["tool"] == step["tool"] and existing["state"] == "running":
+                    existing["state"] = step["state"]
+                    break
+
     try:
         result = await run_copilot_turn(
             text,
@@ -286,11 +356,14 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
             system=build_system_prompt(artifacts),
             confirm=confirm,
             ctx=ctx,
+            on_step=on_step,
         )
     except Exception:
         logging.getLogger(__name__).exception("ask loop failed")
         return None
     body = payload_from_turn(result.text or "", artifacts, kind=result.kind)
+    if steps:
+        body["steps"] = steps
     targets = public_call_targets(ctx, kind=result.kind)
     if targets:
         body["call_targets"] = targets

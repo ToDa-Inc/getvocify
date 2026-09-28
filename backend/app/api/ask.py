@@ -17,6 +17,9 @@ from app.services.crm_copilot.web_sessions import (
     attach_read,
     bind_ask_actor,
     cancel_operation,
+    progress_end,
+    progress_get,
+    progress_start,
     confirm_operation,
     proposed_operation_from_turn,
     public_answer,
@@ -105,6 +108,9 @@ def _public(turn: dict) -> dict:
     call_targets = turn.get("call_targets")
     if call_targets:
         body["call_targets"] = call_targets
+    steps = turn.get("steps")
+    if steps:
+        body["steps"] = steps
     return body
 
 
@@ -114,7 +120,19 @@ async def post_turn(
     body: TurnRequest,
     membership: Membership = Depends(get_membership),
 ):
-    bind_ask_actor(membership.user_id, membership.company_id)
+    progress_key = (membership.user_id, conversation_id, body.client_turn_id)
+    bind_ask_actor(
+        membership.user_id, membership.company_id,
+        conversation_id=conversation_id, progress_key=progress_key,
+    )
+    progress_start(progress_key)
+    try:
+        return await _post_turn(conversation_id, body, membership)
+    finally:
+        progress_end(progress_key)
+
+
+async def _post_turn(conversation_id: str, body: TurnRequest, membership: Membership):
     if _store is not None:
         turn = _store.save_turn(
             user_id=membership.user_id,
@@ -164,10 +182,13 @@ async def _finish(turn: dict, text: str) -> dict:
         if asyncio.iscoroutine(result):
             result = await result
         if result is None:
-            return {**turn, "status": "failed", "text": turn["text"], "question": turn.get("question") or text}
+            # Failed: no answer text. The question stays in `question`, never in `text` -
+            # the UI would otherwise show the user's own words back as if Vocify said them.
+            return {**turn, "status": "failed", "text": "", "question": turn.get("question") or text}
         confirmation = None
         choices = None
         call_targets = None
+        steps = None
         if hasattr(result, "text"):
             answer = public_answer(result.text)
             envelope = getattr(result, "envelope", None)
@@ -177,6 +198,7 @@ async def _finish(turn: dict, text: str) -> dict:
             confirmation = result.get("confirmation")
             choices = result.get("choices")
             call_targets = result.get("call_targets")
+            steps = result.get("steps")
         updated = {**turn, "status": "completed", "text": answer, "question": turn.get("question") or text}
         if confirmation:
             updated["confirmation"] = confirmation
@@ -184,6 +206,8 @@ async def _finish(turn: dict, text: str) -> dict:
             updated["choices"] = choices
         if call_targets:
             updated["call_targets"] = call_targets
+        if steps:
+            updated["steps"] = steps
         if envelope:
             updated = attach_read(updated, envelope)
         return updated
@@ -195,6 +219,18 @@ async def _finish(turn: dict, text: str) -> dict:
     if not envelope:
         return turn
     return attach_read(turn, envelope)
+
+
+@router.get("/conversations/{conversation_id}/progress")
+async def get_turn_progress(
+    conversation_id: str,
+    client_turn_id: str,
+    membership: Membership = Depends(get_membership),
+):
+    """What the turn still being answered has done so far (its tool steps), polled by the
+    app while its POST is in flight. `running: false` once it finished or was never here."""
+    found = progress_get((membership.user_id, conversation_id, client_turn_id))
+    return {"running": found is not None, "steps": (found or {}).get("steps", [])}
 
 
 @router.get("/conversations/{conversation_id}/turns/{turn_id}")
@@ -292,7 +328,7 @@ async def confirm_ask_operation(
     except UncertainOperation as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not result.get("replayed") and _loop is not None:
-        bind_ask_actor(membership.user_id, membership.company_id)
+        bind_ask_actor(membership.user_id, membership.company_id, conversation_id=conversation_id)
         follow = _loop("", confirm=True)
         if asyncio.iscoroutine(follow):
             follow = await follow
