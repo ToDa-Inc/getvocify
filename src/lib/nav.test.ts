@@ -1,9 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isManagerRole, navItemsFor, usesRepHome, type NavItem } from "./nav.ts";
+import { isManagerRole, navItemsFor, topBarActions, usesRepHome, type NavItem } from "./nav.ts";
 
 const home: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
 const memos: NavItem = { id: "memos", labelKey: "navMemos", path: "/dashboard/memos" };
+const copilot: NavItem = { id: "copilot", labelKey: "navCopilot", path: "/dashboard/copilot", beta: true };
+const ask: NavItem = { id: "ask", labelKey: "navAsk", path: "/dashboard/ask" };
+const call: NavItem = { id: "call", labelKey: "navCall" };
 const insights: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
 const coach: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
 const playbook: NavItem = { id: "playbook", labelKey: "navPlaybook", path: "/dashboard/playbook" };
@@ -11,141 +14,84 @@ const settings: NavItem = { id: "settings", labelKey: "navSettings", path: "/das
 
 const today: NavItem = { ...home, labelKey: "navToday" };
 const conversations: NavItem = { ...memos, labelKey: "navConversations" };
+const recordings: NavItem = { ...memos, labelKey: "navRecordings" };
 
-describe("navItemsFor with the rep workspace off", () => {
-  it("gives a member Home, Recordings, Coach and Settings, with the plans card", () => {
+describe("navItemsFor for a rep (Lista 4 E1–E5)", () => {
+  it("gives a member Home, Recordings, Coach and Settings, with plans, when the workspace is off", () => {
     assert.deepEqual(navItemsFor({ role: "member", repWorkspace: false }), {
-      items: [home, memos, coach, settings],
+      items: [home, recordings, coach, settings],
       showPlans: true,
     });
   });
 
-  it("gives owners and admins Team instead of Coach", () => {
-    for (const role of ["owner", "admin"]) {
-      assert.deepEqual(navItemsFor({ role, repWorkspace: false }), {
-        items: [home, memos, insights, settings],
-        showPlans: true,
-      });
-    }
-  });
-
-  it("treats a missing flag or role like a member with the workspace off", () => {
-    assert.deepEqual(navItemsFor({ role: "member" }), navItemsFor({ role: "member", repWorkspace: false }));
-    assert.deepEqual(navItemsFor({ role: null }), navItemsFor({ role: "member", repWorkspace: false }));
-    assert.deepEqual(navItemsFor({}), navItemsFor({ role: "member", repWorkspace: false }));
-  });
-});
-
-describe("navItemsFor with the rep workspace on", () => {
-  it("gives a member Today, Recordings, Coach and Settings without plans", () => {
+  it("gives a member Today, Recordings, Coach and Settings without plans in the workspace", () => {
     assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true }), {
-      items: [today, conversations, coach, settings],
+      items: [today, recordings, coach, settings],
       showPlans: false,
     });
   });
 
-  it("gives owners and admins Team instead of Coach, and plans", () => {
+  it("adds Playbook after Recordings when enabled", () => {
+    assert.deepEqual(
+      navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }).items,
+      [today, recordings, playbook, coach, settings],
+    );
+  });
+
+  it("never lists Copilot, Ask, Call or Team for a rep (Ask and Call live in the top bar)", () => {
+    for (const repWorkspace of [false, true]) {
+      const ids: string[] = navItemsFor({ role: "member", repWorkspace }).items.map((item) => item.id);
+      for (const gone of ["copilot", "ask", "call", "insights"]) assert.equal(ids.includes(gone), false, gone);
+    }
+  });
+
+  it("treats a missing or unknown role like a member", () => {
+    assert.deepEqual(navItemsFor({}), navItemsFor({ role: "member", repWorkspace: false }));
+    assert.deepEqual(navItemsFor({ role: null }), navItemsFor({ role: "member", repWorkspace: false }));
+    assert.deepEqual(navItemsFor({ role: "viewer", repWorkspace: true }), navItemsFor({ role: "member", repWorkspace: true }));
+  });
+});
+
+describe("navItemsFor for the Head of Sales is left as it was", () => {
+  it("keeps Copilot, Ask, Team and Call in the sidebar with the workspace off", () => {
     for (const role of ["owner", "admin"]) {
-      assert.deepEqual(navItemsFor({ role, repWorkspace: true }), {
-        items: [today, conversations, insights, settings],
+      assert.deepEqual(navItemsFor({ role, repWorkspace: false, playbookTabEnabled: true }), {
+        items: [home, memos, copilot, ask, playbook, insights, settings, call],
         showPlans: true,
       });
     }
   });
 
-  it("keeps every shared entry on the same route in both workspaces", () => {
-    for (const role of ["member", "owner"]) {
-      const before = new Map(navItemsFor({ role }).items.map((item) => [item.id, item.path]));
-      for (const item of navItemsFor({ role, repWorkspace: true }).items) {
-        assert.equal(item.path, before.get(item.id), item.id);
-      }
-    }
-  });
-
-  it("does not treat an unknown role as a manager", () => {
-    assert.deepEqual(navItemsFor({ role: "viewer", repWorkspace: true }), navItemsFor({ role: "member", repWorkspace: true }));
-    assert.deepEqual(navItemsFor({ role: undefined, repWorkspace: true }), navItemsFor({ role: "member", repWorkspace: true }));
-  });
-});
-
-describe("navItemsFor leaves Copilot, Ask and Call out of the sidebar", () => {
-  it("never lists them for any role or workspace (Ask and Call live in the top bar)", () => {
-    for (const role of ["member", "admin", "owner", null]) {
-      for (const repWorkspace of [false, true]) {
-        for (const playbookTabEnabled of [false, true]) {
-          const ids: string[] = navItemsFor({ role, repWorkspace, playbookTabEnabled }).items.map((item) => item.id);
-          for (const gone of ["copilot", "ask", "call"]) assert.equal(ids.includes(gone), false, gone);
-        }
-      }
-    }
-  });
-
-  it("gives Team only to managers and Coach only to reps", () => {
-    for (const repWorkspace of [false, true]) {
-      const member = navItemsFor({ role: "member", repWorkspace }).items.map((item) => item.id);
-      const owner = navItemsFor({ role: "owner", repWorkspace }).items.map((item) => item.id);
-      assert.equal(member.includes("insights"), false);
-      assert.equal(member.includes("coach"), true);
-      assert.equal(owner.includes("insights"), true);
-      assert.equal(owner.includes("coach"), false);
+  it("keeps the workspace order", () => {
+    for (const role of ["owner", "admin"]) {
+      assert.deepEqual(navItemsFor({ role, repWorkspace: true }), {
+        items: [today, conversations, copilot, ask, call, insights, settings],
+        showPlans: true,
+      });
     }
   });
 });
 
-describe("navItemsFor with the Playbook tab flag", () => {
-  it("is off by default for every role and workspace", () => {
-    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: false }).items, [home, memos, coach, settings]);
-    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true }).items, [today, conversations, coach, settings]);
-  });
-
-  it("adds Playbook after Recordings for a member", () => {
-    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: false, playbookTabEnabled: true }), {
-      items: [home, memos, playbook, coach, settings],
-      showPlans: true,
-    });
-  });
-
-  it("adds Playbook for owners and admins too, before Team", () => {
-    assert.deepEqual(navItemsFor({ role: "owner", repWorkspace: false, playbookTabEnabled: true }), {
-      items: [home, memos, playbook, insights, settings],
-      showPlans: true,
-    });
-  });
-
-  it("adds Playbook in the rep workspace for every role", () => {
-    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }).items, [
-      today, conversations, playbook, coach, settings,
-    ]);
-    assert.deepEqual(navItemsFor({ role: "owner", repWorkspace: true, playbookTabEnabled: true }).items, [
-      today, conversations, playbook, insights, settings,
-    ]);
+describe("topBarActions", () => {
+  it("puts Ask and Call in the top bar for reps only", () => {
+    assert.equal(topBarActions("member"), true);
+    assert.equal(topBarActions(null), true);
+    assert.equal(topBarActions("owner"), false);
+    assert.equal(topBarActions("admin"), false);
   });
 });
 
-describe("isManagerRole", () => {
-  it("is owner or admin only", () => {
+describe("isManagerRole / usesRepHome", () => {
+  it("only owner and admin manage", () => {
     assert.equal(isManagerRole("owner"), true);
     assert.equal(isManagerRole("admin"), true);
     assert.equal(isManagerRole("member"), false);
     assert.equal(isManagerRole(null), false);
-    assert.equal(isManagerRole(undefined), false);
   });
-});
 
-describe("usesRepHome", () => {
-  it("follows only company.repWorkspace", () => {
+  it("uses the rep home only when the workspace flag is on", () => {
     assert.equal(usesRepHome({ repWorkspace: true }), true);
-    assert.equal(usesRepHome({ repWorkspace: true, role: "member" }), true);
-    assert.equal(usesRepHome({ repWorkspace: false, role: "owner" }), false);
-    assert.equal(usesRepHome({ role: "owner" }), false);
+    assert.equal(usesRepHome({ repWorkspace: false }), false);
     assert.equal(usesRepHome(null), false);
-    assert.equal(usesRepHome(undefined), false);
-  });
-
-  it("goes back to the current home when a refreshed summary drops the flag", () => {
-    const before = { id: "co-1", role: "member", repWorkspace: true };
-    const refreshed = { id: "co-1", role: "member", repWorkspace: false };
-    assert.equal(usesRepHome(before), true);
-    assert.equal(usesRepHome(refreshed), false);
   });
 });

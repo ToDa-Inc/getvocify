@@ -135,7 +135,7 @@ const MemosPage = () => {
     <div className={`max-w-4xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div className={V_PATTERNS.dashboardHeader}>
-          <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.navMemos}</h1>
+          <h1 className={THEME_TOKENS.typography.pageTitle}>{canViewCompany ? t.product.navMemos : t.product.navRecordings}</h1>
           <p className={THEME_TOKENS.typography.body}>{t.product.recordingsSubtitle}</p>
         </div>
         
