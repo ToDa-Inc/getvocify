@@ -313,6 +313,9 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
       ? copy.askPhasePartial
       : copy.askConsulting;
   const stepLabels = copy.askStepLabels as Record<string, string>;
+  // A notice (confirm/cancel error) belongs to a finished turn. A pending turn's "still
+  // waiting" notice must not linger next to the failure message once it has failed.
+  const showNotice = Boolean(view.notice) && !busy && view.status === "completed";
 
   useEffect(() => {
     const el = scroller.current;
@@ -437,7 +440,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
             ))}
           </ul>
         ) : null}
-        {busy || choicesOpen || pendingConfirm || (!busy && read.coverage === "partial") || view.notice ? (
+        {busy || choicesOpen || pendingConfirm || (!busy && read.coverage === "partial") || showNotice ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} max-w-[85%] space-y-3 px-4 py-3`}>
             {busy ? (
               <div role="status" className="space-y-1.5">
@@ -462,7 +465,7 @@ export default function AskPanel({ embedded = false }: { embedded?: boolean }) {
             {!busy && read.coverage === "partial" ? (
               <p className={THEME_TOKENS.typography.capsLabel}>{copy.askPhasePartial}</p>
             ) : null}
-            {view.notice && !busy ? <p className="text-sm text-muted-foreground" role="alert">{view.notice}</p> : null}
+            {showNotice ? <p className="text-sm text-muted-foreground" role="alert">{view.notice}</p> : null}
             {view.unread && !busy ? (
               <p className="text-sm text-beige" role="status">{copy.askUnread}</p>
             ) : null}

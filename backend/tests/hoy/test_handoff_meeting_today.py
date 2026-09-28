@@ -131,3 +131,15 @@ def test_an_unread_handoff_list_never_resolves_a_stored_handoff_card():
     }]
     _refresh(db, None)
     assert db.tables["action_signals"][0]["status"] == "pending"
+
+
+def test_no_handoffs_left_resolves_a_stored_handoff_card():
+    """Self-review fix: flag off (or the AE became an SDR) passes [] - the card resolves
+    instead of staying "Reunión hoy" forever. Only None (a failed read) keeps it."""
+    db = _DB()
+    db.tables["action_signals"] = [{
+        "id": "sig-h", "company_id": "co-1", "user_id": "ae-1", "type": MEETING_TYPE,
+        "dedupe_key": f"{HANDOFF_KEY_PREFIX}h-1", "status": "pending", "version": 1, "payload": {},
+    }]
+    _refresh(db, [])
+    assert db.tables["action_signals"][0]["status"] == "resolved"

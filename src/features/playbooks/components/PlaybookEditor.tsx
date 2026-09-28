@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
@@ -83,6 +84,9 @@ export function PlaybookEditor({
   const [pasteOpen, setPasteOpen] = useState(false);
   const [paste, setPaste] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
+  const [pendingReplace, setPendingReplace] = useState<EditorStep[] | null>(null);
+  // Opened on load when answers exist; afterwards only the Head of Sales folds it.
+  const [objectionsOpen, setObjectionsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setBusy("loading");
@@ -91,7 +95,9 @@ export function PlaybookEditor({
       const data = await api.get<EditorSnapshot>(`/playbooks/${encodeURIComponent(motionKey)}/editor`);
       setSnapshot(data);
       setSteps(stepsFromSnapshot(data));
-      setObjections(objectionsFromSnapshot(data));
+      const answers = objectionsFromSnapshot(data);
+      setObjections(answers);
+      setObjectionsOpen(answers.some((item) => item.guidance.trim()));
       setDirty(false);
     } catch {
       setLoadFailed(true);
@@ -110,13 +116,22 @@ export function PlaybookEditor({
   const errorText = (code: string | null | undefined) =>
     code ? (copy.playbookEditorErrors as Record<string, string>)[code] ?? copy.playbookEditorSaveFailed : null;
 
-  const replaceSteps = (next: EditorStep[]) => {
-    if (next.length === 0) return false;
-    if (steps.length > 0 && dirty && !window.confirm(copy.playbookEditorReplaceConfirm)) return false;
+  const applySteps = (next: EditorStep[]) => {
     setSteps(next);
     setDirty(true);
     setNotice(null);
-    return true;
+  };
+
+  /** Template, paste, import or split: applied straight onto an empty editor; over existing
+   * steps it asks first (ConfirmAction), since what is on screen would be replaced. */
+  const replaceSteps = (next: EditorStep[]): "empty" | "applied" | "asked" => {
+    if (next.length === 0) return "empty";
+    if (steps.length > 0) {
+      setPendingReplace(next);
+      return "asked";
+    }
+    applySteps(next);
+    return "applied";
   };
 
   const edit = (index: number, patch: Partial<EditorStep>) => {
@@ -191,9 +206,8 @@ export function PlaybookEditor({
         setNotice({ tone: "error", text: productText(result.error, copy) || copy.playbookImportFailed });
         return;
       }
-      const parsed = parsePlaybookText(result.text ?? "");
-      if (!replaceSteps(parsed)) {
-        if (parsed.length === 0) setNotice({ tone: "error", text: copy.playbookEditorImportEmpty });
+      if (replaceSteps(parsePlaybookText(result.text ?? "")) === "empty") {
+        setNotice({ tone: "error", text: copy.playbookEditorImportEmpty });
       }
     } catch {
       setNotice({ tone: "error", text: copy.playbookImportFailed });
@@ -328,7 +342,8 @@ export function PlaybookEditor({
             size="sm"
             disabled={!paste.trim()}
             onClick={() => {
-              if (replaceSteps(parsePlaybookText(paste))) {
+              // "asked": the paste stays until the replace is confirmed (see ConfirmAction).
+              if (replaceSteps(parsePlaybookText(paste)) === "applied") {
                 setPaste("");
                 setPasteOpen(false);
               }
@@ -420,12 +435,20 @@ export function PlaybookEditor({
         ) : null}
       </section>
 
-      <section className="space-y-3" aria-labelledby={`objections-${motionKey}`}>
-        <div>
-          <h3 id={`objections-${motionKey}`} className={THEME_TOKENS.typography.capsLabel}>{copy.playbookEditorObjections}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{copy.playbookEditorObjectionsHelp}</p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
+      {/* Secondary to the steps: folded unless an answer already exists. */}
+      <details
+        className="space-y-3"
+        open={objectionsOpen}
+        onToggle={(event) => setObjectionsOpen(event.currentTarget.open)}
+      >
+        <summary className={`${THEME_TOKENS.typography.capsLabel} cursor-pointer`}>
+          {copy.playbookEditorObjections}
+          {objections.filter((item) => item.guidance.trim()).length > 0
+            ? ` · ${objections.filter((item) => item.guidance.trim()).length}`
+            : ""}
+        </summary>
+        <p className="mt-2 text-xs text-muted-foreground">{copy.playbookEditorObjectionsHelp}</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
           {OBJECTION_CATEGORIES.map((category) => {
             const value = objections.find((item) => item.category === category)?.guidance ?? "";
             return (
@@ -443,7 +466,25 @@ export function PlaybookEditor({
             );
           })}
         </div>
-      </section>
+      </details>
+
+      <ConfirmAction
+        open={pendingReplace !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingReplace(null);
+        }}
+        title={copy.playbookEditorReplaceTitle}
+        description={copy.playbookEditorReplaceConfirm}
+        confirmLabel={copy.playbookEditorReplaceAction}
+        cancelLabel={copy.cancelAction}
+        tone="default"
+        onConfirm={() => {
+          if (pendingReplace) applySteps(pendingReplace);
+          setPendingReplace(null);
+          setPaste("");
+          setPasteOpen(false);
+        }}
+      />
 
       <div className="flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
         <Button type="button" variant="outline" size="sm" disabled={working || !dirty} onClick={() => void save()}>
