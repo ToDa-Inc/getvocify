@@ -224,6 +224,46 @@ El frontend recibe los flags que necesita en `GET /auth/me` → `company.feature
 
 ---
 
+## Estado final (28 sep 2026)
+
+Todo va detrás de flags por empresa, apagados por defecto. Para activarlo en staging: `2026-09-27-activacion-lista-3.sql`, que incluye el orden de las migraciones 054–061. Cada tarea pasó por revisión, y sus bloqueantes se arreglaron en un commit `fix(lista-3): Tn review fixes`.
+
+| Punto pedido | Estado | Dónde |
+|---|---|---|
+| Head of Sales crea el equipo y asigna SDR/AE/General en el onboarding | Hecho | T1 (Equipo), T9 (asistente `/dashboard/onboarding`) |
+| SDR: leads nuevos, fríos y calientes; «Hoy» solo llamadas por hacer | Hecho | T5 |
+| Orden: callbacks → rellamadas sin respuesta → calientes estancados → no contactados, con score de calor | Hecho | T5 (`hoy/heat.py`, `callback_no_answer`, `never_contacted` desde la caché de prioridades) |
+| Cada item con su porqué y «Llamar ahora» (dialer → CRM → `tel:`) | Hecho | T5 |
+| Marcar meeting booked lo quita del SDR y lo pasa al AE, con cambio de owner y etapa en el CRM | Hecho | T3 (el owner va aparte, con `HANDOFF_CRM_OWNER_ENABLED`) |
+| Descalificar lo quita de la lista | Hecho | T3 |
+| AE: recibe los meetings del SDR y ve lo que habló el SDR | Hecho | T3, T4 (memos, briefs y Ask limitados al traspaso) |
+| AE: deals en curso hasta el cierre, cada uno con su pre-meeting brief | Hecho | T6; el traspaso se cierra solo al observar una etapa de fin |
+| General: llamadas, reuniones y deals separados | Hecho | T6 |
+| Visibilidad: cada uno ve lo suyo; «qué puede ver cada uno» se configura por persona | Hecho | T1 (`visibility` own/team, solo lectura), T13 |
+| Qué SDR pasa a qué AE | Hecho | T1 |
+| Un playbook por flujo, y cada rol ve solo el suyo | Hecho | T2 |
+| Estrategia de ventas como ajuste propio | Hecho | T8 |
+| Pre-call brief del SDR en 2 líneas (qué se habló, pendiente, porqué y gancho) | Hecho | T7 (el «pendiente» solo muestra compromisos ya vencidos) |
+| Follow-up por flujo (SDR: invitación; AE: propuesta), en el estilo del rep, enviado desde Vocify | Hecho | T8 (el envío va aparte, con `FOLLOWUP_SEND_ENABLED` + Resend) |
+| Tareas que nadie crea (rellamar si no contesta en X días) | Hecho | T5 (`companies.callback_after_days`) |
+| Campanita: tareas, resumen y feedback | Hecho | T12 |
+| Scoring: mérito por objeción real bien rebatida | Hecho | T10 (C04 guarda ahora la cita de respuesta del rep) |
+| Debrief por flujo: qué faltó, frases, highlights por minuto y progreso | Hecho | T10 |
+| Objeciones: cómo resolverlas y mejor ejemplo | Hecho | T11 |
+| Tab Playbook: las mejores llamadas y meetings de la semana por flujo | Hecho | T11 |
+| Informes diario y semanal por flujo; informe de equipo fijo para el Head of Sales | Hecho | T12, T13 |
+| Dashboard del Head of Sales como home, detalle por comercial y adherencia por flujo | Hecho | T13 |
+| Menciones de competidores con citas | Hecho | T11 |
+| Manager Chat con las mismas cifras que el panel | Hecho | T13 (test de paridad) |
+| Bot para Zoom/Meet/Teams | Hecho, falta configurarlo | T14; necesita `RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET` y registrar el webhook |
+| Desktop Windows, instalador firmado, resumen y tareas al acabar en el desktop | Fuera | D12 (Dani) / `INTELLIGENCE_WORKER_PUBLISH` sigue apagado |
+| Coaching en vivo en el desktop | Fuera | D12 (Dani) |
+| Ask por MCP de HubSpot | Fuera | D12; Ask sigue con las herramientas propias, ya con recorte por rol y traspaso |
+| Win/loss insights | Fuera | necesita scopes nuevos de HubSpot |
+| Emails de Pipedrive y lectura del hilo | Fuera | la API de Pipedrive pide scopes de mail |
+
+**Verificación:** suite backend, tests JS, `tsc` (39 errores, ninguno nuevo) y `npm run build`. Reticle no está disponible en esta sesión y el backend necesita Supabase real, así que las pantallas quedan por ver en staging con sesión real.
+
 ## Gates por tarea
 1. Test que falla primero y luego pasa.
 2. Suite backend completa en verde y tests JS en verde.
