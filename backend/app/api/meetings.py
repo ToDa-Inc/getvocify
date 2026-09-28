@@ -186,7 +186,7 @@ def _maybe_create_handoff(supabase, *, membership: Membership, memo_id: str) -> 
             return
         if not connection:
             return
-        ae_user_id = resolve_ae(membership)
+        ae_user_id = resolve_ae(membership, supabase=supabase, company_id=membership.company_id)
         ae_row = ae_membership_row(supabase, company_id=membership.company_id, ae_user_id=ae_user_id)
         if not valid_ae(ae_row):
             return

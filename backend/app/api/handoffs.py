@@ -90,15 +90,23 @@ def _meeting_booked_stage(supabase: Client, connection_id: str) -> Optional[dict
     return {"pipeline_id": str(pipeline_id), "stage_id": str(stage_id)}
 
 
-def _resolve_ae_for(membership: Membership, requested_ae_user_id: Optional[str]) -> str:
-    """D2/T3: SDR asks (or falls back to its routed AE); a General with no route - or who
-    names themselves - keeps the deal (self_owned), it does not get asked to pick one."""
+def _resolve_ae_for(
+    supabase: Client, membership: Membership, requested_ae_user_id: Optional[str]
+) -> str:
+    """D2/T3: SDR asks (or falls back to its routed AE, or the company's sole active AE);
+    a General with no route - or who names themselves - keeps the deal (self_owned), it
+    does not get asked to pick one."""
     sales_role = membership.sales_role
     if sales_role == "ae":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Un AE no puede traspasar un deal")
     if sales_role == "sdr":
         try:
-            return resolve_ae(membership, requested_ae_user_id)
+            return resolve_ae(
+                membership,
+                requested_ae_user_id,
+                supabase=supabase,
+                company_id=membership.company_id,
+            )
         except HandoffError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
     ae_user_id = resolve_owner_for_general(membership, requested_ae_user_id)
@@ -119,7 +127,7 @@ async def create_handoff_endpoint(
     connection = _resolve_connection_for_handoff(supabase, company_id=membership.company_id, connection_id=body.connection_id)
     connection_id = str(connection["id"])
 
-    ae_user_id = _resolve_ae_for(membership, body.ae_user_id)
+    ae_user_id = _resolve_ae_for(supabase, membership, body.ae_user_id)
 
     ae_row = ae_membership_row(supabase, company_id=membership.company_id, ae_user_id=ae_user_id)
     if not valid_ae(ae_row):

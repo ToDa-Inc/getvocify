@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
-import type { CompanyMember, MemberVisibility, SalesRole } from "@/features/company/types";
+import type { CompanyMember, SalesRole } from "@/features/company/types";
 import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -20,32 +20,26 @@ const SELECT_FIELD =
 
 interface SalesProfileChange {
   salesRole?: SalesRole | null;
-  handoffAeUserId?: string | null;
-  visibility?: MemberVisibility;
 }
 
-/** D1/D2/D3: per-member commercial type, SDR->AE routing and activity visibility. Owner/admin only. */
+/**
+ * D1: per-member commercial type only (SDR/AE/General). This is the one lever the
+ * Head of Sales needs here — it decides which dashboard the rep gets. Routing
+ * (handoff AE) and activity visibility are still backend fields/endpoints, but they
+ * are no longer exposed as selects on this page: the founder found them confusing,
+ * and D2's own AE picker (or the single-active-AE auto-pick) already covers routing
+ * without asking anyone to configure it here. Owner/admin only.
+ */
 function MemberSalesControls({
   member,
-  members,
   onChange,
   t,
 }: {
   member: CompanyMember;
-  members: CompanyMember[];
   onChange: (vars: SalesProfileChange) => void;
   t: { [key: string]: string };
 }) {
   const salesRole = member.salesRole ?? "";
-  const isSdr = salesRole === "sdr";
-  // D1: a null sales_role behaves as "general" — both are valid handoff targets,
-  // same as an explicit AE. Only active members can receive a handoff.
-  const aeCandidates = members.filter(
-    (candidate) =>
-      candidate.userId !== member.userId &&
-      candidate.status === "active" &&
-      (candidate.salesRole == null || candidate.salesRole === "ae" || candidate.salesRole === "general"),
-  );
 
   return (
     <>
@@ -64,58 +58,31 @@ function MemberSalesControls({
         <option value="sdr">{t.teamMemberTypeSdr}</option>
         <option value="ae">{t.teamMemberTypeAe}</option>
       </select>
-
-      {isSdr && (
-        <>
-          <label className="sr-only" htmlFor={`handoff-ae-${member.id}`}>
-            {t.teamHandoffLabel}
-          </label>
-          <select
-            id={`handoff-ae-${member.id}`}
-            className={SELECT_FIELD}
-            value={member.handoffAeUserId ?? ""}
-            onChange={(event) =>
-              onChange({ handoffAeUserId: event.target.value || null })
-            }
-          >
-            <option value="">{t.teamHandoffNone}</option>
-            {aeCandidates.map((candidate) => (
-              <option key={candidate.userId} value={candidate.userId}>
-                {candidate.fullName || candidate.email}
-              </option>
-            ))}
-          </select>
-        </>
-      )}
-
-      <label className="sr-only" htmlFor={`visibility-${member.id}`}>
-        {t.teamVisibilityLabel}
-      </label>
-      <select
-        id={`visibility-${member.id}`}
-        className={SELECT_FIELD}
-        value={member.visibility ?? "own"}
-        onChange={(event) => onChange({ visibility: event.target.value as MemberVisibility })}
-      >
-        <option value="own">{t.teamVisibilityOwn}</option>
-        <option value="team">{t.teamVisibilityTeam}</option>
-      </select>
     </>
   );
 }
 
-const ROLE_OPTIONS = [
-  {
-    value: "member" as const,
-    label: "Member",
-    hint: "Own login, password, and email. Shared CRM. Only their memos and HubSpot recordings (email must match their HubSpot user).",
-  },
-  {
-    value: "admin" as const,
-    label: "Admin",
-    hint: "Invite the team, edit CRM and offer. Activity defaults to Mine; All shows every teammate’s labeled calls and memos.",
-  },
-];
+function rolePillLabel(role: string, t: { [key: string]: string }): string {
+  // Lista 3: "Owner"/"Admin" are Vocify/HubSpot jargon the Head of Sales never
+  // asked for. That figure is the one who picks each rep's SDR/AE/General type;
+  // everyone else managed here is a "Comercial"/"Rep".
+  return role === "owner" || role === "admin" ? t.teamRoleHeadOfSales : t.teamRoleRep;
+}
+
+function roleOptions(t: { [key: string]: string }) {
+  return [
+    {
+      value: "member" as const,
+      label: t.teamRoleRep,
+      hint: "Own login, password, and email. Shared CRM. Only their memos and HubSpot recordings (email must match their HubSpot user).",
+    },
+    {
+      value: "admin" as const,
+      label: t.teamRoleHeadOfSales,
+      hint: "Invite the team, edit CRM and offer. Activity defaults to Mine; All shows every teammate’s labeled calls and memos.",
+    },
+  ];
+}
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
@@ -158,7 +125,8 @@ const TeamPage = () => {
   const seatsAvailable =
     company?.seatsAvailable ?? Math.max(0, seatLimit - seatsUsed);
   const seatsFull = seatsAvailable <= 0;
-  const selectedRole = ROLE_OPTIONS.find((option) => option.value === inviteRole);
+  const inviteRoleOptions = roleOptions(t.product);
+  const selectedRole = inviteRoleOptions.find((option) => option.value === inviteRole);
 
   const refreshWorkspace = () => {
     queryClient.invalidateQueries({ queryKey: companyKeys.all });
@@ -225,8 +193,6 @@ const TeamPage = () => {
     mutationFn: (vars: {
       memberId: string;
       salesRole?: SalesRole | null;
-      handoffAeUserId?: string | null;
-      visibility?: MemberVisibility;
     }) => companyApi.updateMemberSalesProfile(vars.memberId, vars),
     onSuccess: () => {
       refreshWorkspace();
@@ -299,13 +265,12 @@ const TeamPage = () => {
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
               </div>
               <div className="flex items-center gap-3 shrink-0 flex-wrap">
-                <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
-                  {m.role}
+                <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
+                  {rolePillLabel(m.role, t.product)}
                 </span>
-                {salesRolesEnabled && canManage && (
+                {salesRolesEnabled && canManage && m.role === "member" && (
                   <MemberSalesControls
                     member={m}
-                    members={roster?.members ?? []}
                     onChange={(vars) => salesProfileMutation.mutate({ memberId: m.id, ...vars })}
                     t={t.product}
                   />
@@ -413,7 +378,7 @@ const TeamPage = () => {
               <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                  {ROLE_OPTIONS.map((option) => {
+                  {inviteRoleOptions.map((option) => {
                     const selected = inviteRole === option.value;
                     return (
                       <button

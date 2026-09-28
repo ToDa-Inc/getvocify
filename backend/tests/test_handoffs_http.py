@@ -146,9 +146,23 @@ def test_an_ae_cannot_hand_off():
     assert response.status_code == 403
 
 
-def test_sdr_without_an_ae_gets_needs_ae():
+def test_sdr_without_an_ae_auto_picks_the_sole_active_ae():
+    """Lista 3: setup_function's fixture company has exactly one active AE ('ae-1'), so
+    an unrouted SDR with no explicit choice still gets a handoff."""
     global MEMBERSHIP
     MEMBERSHIP = _membership(sales_role="sdr", handoff_ae_user_id=None)
+    client = _client()
+    response = client.post("/api/v1/handoffs", json={"contact_id": "c1", "connection_id": "conn-1"})
+    assert response.status_code == 200
+    assert response.json()["ae_user_id"] == "ae-1"
+
+
+def test_sdr_without_an_ae_still_gets_needs_ae_with_two_active_aes():
+    global MEMBERSHIP
+    MEMBERSHIP = _membership(sales_role="sdr", handoff_ae_user_id=None)
+    STORE.tables["company_members"].append(
+        {"user_id": "ae-3", "company_id": COMPANY, "sales_role": "ae", "status": "active"}
+    )
     client = _client()
     response = client.post("/api/v1/handoffs", json={"contact_id": "c1", "connection_id": "conn-1"})
     assert response.status_code == 409

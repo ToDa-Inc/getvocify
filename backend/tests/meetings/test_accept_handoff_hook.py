@@ -222,11 +222,34 @@ def test_no_handoff_for_a_non_sdr():
     assert STORE.tables.get("deal_handoffs", []) == []
 
 
-def test_no_handoff_when_the_sdr_has_no_ae_routed():
+def test_accepting_auto_picks_the_sole_active_ae_when_unrouted():
+    """Lista 3: the default fixture company has exactly one active AE ('ae-1'), so an
+    unrouted SDR's accept still creates a handoff — no routing select needed for the
+    one-AE case."""
     global MEMBERSHIP
     MEMBERSHIP = Membership(
         id="m", company_id=COMPANY, user_id="sdr-1", role="member", status="active",
         sales_role="sdr", handoff_ae_user_id=None,
+    )
+    client = _client()
+    response = client.post(
+        f"/api/v1/memos/{MEMO}/meeting-proposal/accept",
+        json={"decision": "accept", "proposal_id": "meet-1"},
+    )
+    assert response.status_code == 200
+    handoffs = STORE.tables.get("deal_handoffs") or []
+    assert len(handoffs) == 1
+    assert handoffs[0]["ae_user_id"] == "ae-1"
+
+
+def test_no_handoff_when_the_sdr_has_no_ae_routed_and_two_aes_exist():
+    global MEMBERSHIP
+    MEMBERSHIP = Membership(
+        id="m", company_id=COMPANY, user_id="sdr-1", role="member", status="active",
+        sales_role="sdr", handoff_ae_user_id=None,
+    )
+    STORE.tables["company_members"].append(
+        {"user_id": "ae-3", "company_id": COMPANY, "sales_role": "ae", "status": "active"}
     )
     client = _client()
     response = client.post(

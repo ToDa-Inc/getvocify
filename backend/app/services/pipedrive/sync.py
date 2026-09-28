@@ -30,6 +30,76 @@ logger = logging.getLogger(__name__)
 DEFAULT_DEAL_FIELDS = ["title", "value", "currency", "expected_close_date", "stage_id"]
 
 
+def owner_id_from_connection_metadata(meta: dict, user_id: str) -> Optional[str]:
+    """Per-member cache, same shape as HubSpot's (app/services/hubspot/sync.py)."""
+    owners = meta.get("pipedrive_owners")
+    if not isinstance(owners, dict):
+        return None
+    cached = owners.get(user_id) or owners.get(str(user_id))
+    return str(cached) if cached else None
+
+
+def with_cached_owner_id(meta: dict, user_id: str, owner_id: str) -> dict:
+    owners = dict(meta.get("pipedrive_owners") or {})
+    owners[str(user_id)] = str(owner_id)
+    return {**meta, "pipedrive_owners": owners}
+
+
+async def _get_pipedrive_owner_id_for_user(
+    client: PipedriveClient,
+    supabase: Optional[Client],
+    user_id: str,
+    connection_id: Union[UUID, str],
+) -> Optional[str]:
+    """Mirror of HubSpot's _get_hubspot_owner_id_for_user (app/services/hubspot/sync.py):
+    resolve the Pipedrive user id whose email matches the acting Vocify user's login
+    email (not whoever connected Pipedrive), so deal ownership lines up with who is
+    signed in as SDR/AE/General/Head of Sales. Caches per user on
+    crm_connections.metadata.pipedrive_owners."""
+    if not supabase:
+        return None
+    conn_data = None
+    try:
+        conn_result = supabase.table("crm_connections").select("metadata").eq(
+            "id", str(connection_id)
+        ).single().execute()
+        conn_data = conn_result.data if conn_result else None
+        if conn_data:
+            meta = conn_data.get("metadata") or {}
+            cached = owner_id_from_connection_metadata(meta, user_id)
+            if cached:
+                return cached
+
+        auth_user = supabase.auth.admin.get_user_by_id(user_id)
+        if not auth_user or not getattr(auth_user, "user", None):
+            return None
+        user = auth_user.user if hasattr(auth_user, "user") else auth_user
+        email = (getattr(user, "email", None) or (user.get("email") if isinstance(user, dict) else None)) or ""
+        if not email or not str(email).strip():
+            return None
+        email_lower = str(email).strip().lower()
+
+        resp = await client.get(
+            "/users/find", version="v1", params={"term": email_lower, "search_by_email": 1}
+        )
+        rows = unwrap_data(resp)
+        rows = rows if isinstance(rows, list) else []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_email = (row.get("email") or "").strip().lower()
+            if row_email == email_lower and row.get("id") is not None:
+                owner_id = str(row["id"])
+                meta = (conn_data or {}).get("metadata", {}) or {}
+                supabase.table("crm_connections").update(
+                    {"metadata": with_cached_owner_id(meta, user_id, owner_id)}
+                ).eq("id", str(connection_id)).execute()
+                return owner_id
+    except Exception as e:
+        logger.warning("Could not resolve Pipedrive owner for user %s: %s", user_id, e)
+    return None
+
+
 def new_deal_title(extraction: MemoExtraction) -> str:
     if extraction.companyName:
         return extraction.companyName
@@ -112,6 +182,7 @@ class PipedriveSyncService:
         creating = (not skip_deal) and (is_new_deal or not deal_id)
         stage_id: Optional[str] = None
         confirmed_stage = confirmed_stage_choice(extraction) if stage_confirm else None
+        owner_id = await _get_pipedrive_owner_id_for_user(self.client, self.supabase, user_id, connection_id)
 
         try:
             if not skip_deal:
@@ -153,7 +224,7 @@ class PipedriveSyncService:
                     )
                 else:
                     person_id = await self._find_or_create_person(
-                        name=name, email=email, phone=phone, org_id=org_id, person_id=person_id
+                        name=name, email=email, phone=phone, org_id=org_id, person_id=person_id, owner_id=owner_id
                     )
                     if person_id:
                         result.contact_id = person_id
@@ -180,6 +251,8 @@ class PipedriveSyncService:
                 filtered = {k: v for k, v in mapped.items() if k in allowed_fields or k in ("title", "stage_id", "pipeline_id", "org_id", "person_id")}
                 if creating:
                     payload = self.schema.split_write_payload(filtered)
+                    if owner_id:
+                        payload["owner_id"] = int(owner_id)
                     created = unwrap_data(await self.client.post("/deals", json_body=payload))
                     deal_id = str(created["id"]) if isinstance(created, dict) and created.get("id") is not None else None
                     result.deal_name = (created or {}).get("title") if isinstance(created, dict) else title
@@ -253,7 +326,7 @@ class PipedriveSyncService:
                     created_n = 0
                     for task, subject, due in planned:
                         aid = await self.activities.create_next_step(
-                            subject, deal_id=deal_id, person_id=person_id, org_id=org_id, **due
+                            subject, deal_id=deal_id, person_id=person_id, org_id=org_id, owner_id=owner_id, **due
                         )
                         if aid:
                             created_n += 1
@@ -328,6 +401,7 @@ class PipedriveSyncService:
         phone: Optional[str],
         org_id: Optional[str],
         person_id: Optional[str],
+        owner_id: Optional[str] = None,
     ) -> Optional[str]:
         if person_id:
             return person_id
@@ -343,6 +417,10 @@ class PipedriveSyncService:
             body["phones"] = [{"value": phone, "primary": True, "label": "work"}]
         if org_id:
             body["org_id"] = int(org_id)
+        # Lista 3: owner is set only when creating a brand-new person - never on a
+        # match against an existing one, same rule as the deal below.
+        if owner_id:
+            body["owner_id"] = int(owner_id)
         created = unwrap_data(await self.client.post("/persons", json_body=body))
         if isinstance(created, dict) and created.get("id") is not None:
             return str(created["id"])

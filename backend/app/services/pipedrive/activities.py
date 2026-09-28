@@ -41,10 +41,14 @@ class PipedriveActivityService:
         deal_id: Optional[str] = None,
         person_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        owner_id: Optional[str] = None,
         due_date: Optional[str] = None,
         due_time: Optional[str] = None,
     ) -> Optional[str]:
-        """due_date and due_time are UTC, as Pipedrive expects."""
+        """due_date and due_time are UTC, as Pipedrive expects. owner_id (Lista 3): the
+        Vocify user's own Pipedrive user id, resolved from their login email
+        (sync._get_pipedrive_owner_id_for_user) - activities are always newly created
+        here, so it is always safe to stamp."""
         activity_type = await self.resolve_task_type()
         if not activity_type:
             return None
@@ -60,6 +64,8 @@ class PipedriveActivityService:
             body["person_id"] = int(person_id)
         if org_id:
             body["org_id"] = int(org_id)
+        if owner_id:
+            body["owner_id"] = int(owner_id)
         if due_date:
             body["due_date"] = due_date
         if due_time:

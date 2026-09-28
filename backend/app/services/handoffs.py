@@ -58,11 +58,39 @@ def _missing_handoffs_table(exc: BaseException) -> bool:
     return "deal_handoffs" in msg and ("42p01" in msg or "does not exist" in msg)
 
 
-def resolve_ae(sdr_membership: Any, requested_ae_user_id: Optional[str] = None) -> str:
+def _sole_active_ae(supabase: Any, company_id: str) -> Optional[str]:
+    """Lista 3: when an SDR has no handoff_ae_user_id configured and none was requested,
+    a company with exactly one active AE (sales_role 'ae') needs no routing decision -
+    auto-pick that AE. Two or more (or zero) active AEs still needs_ae, so the UI picker
+    the founder kept is the one that shows up."""
+    rows = (
+        supabase.table("company_members")
+        .select("user_id,sales_role,status")
+        .eq("company_id", company_id)
+        .eq("sales_role", "ae")
+        .eq("status", "active")
+        .execute()
+    ).data or []
+    if len(rows) == 1:
+        return str(rows[0]["user_id"])
+    return None
+
+
+def resolve_ae(
+    sdr_membership: Any,
+    requested_ae_user_id: Optional[str] = None,
+    *,
+    supabase: Any = None,
+    company_id: Optional[str] = None,
+) -> str:
     """D2: the AE for an SDR handoff. An explicit choice (used to fill in a missing route)
-    wins; otherwise the SDR's own handoff_ae_user_id. Neither -> needs_ae, so the caller
-    can ask the SDR to pick one."""
+    wins; otherwise the SDR's own handoff_ae_user_id. Neither, but supabase/company_id are
+    given and the company has exactly one active AE -> auto-pick that AE (Lista 3: no
+    routing select needed when there is only one possible answer). Still nothing -> needs_ae,
+    so the caller can ask the SDR to pick one."""
     ae = requested_ae_user_id or getattr(sdr_membership, "handoff_ae_user_id", None)
+    if not ae and supabase is not None and company_id is not None:
+        ae = _sole_active_ae(supabase, company_id)
     if not ae:
         raise HandoffError("needs_ae")
     return str(ae)

@@ -139,6 +139,49 @@ def test_resolve_ae_needs_ae_when_neither_is_set():
     assert exc.value.code == "needs_ae"
 
 
+def test_resolve_ae_auto_picks_the_sole_active_ae_when_unrouted():
+    supabase = _Supabase()
+    supabase.tables["company_members"] = [
+        {"user_id": "ae-1", "company_id": "co-1", "sales_role": "ae", "status": "active"},
+        {"user_id": "sdr-1", "company_id": "co-1", "sales_role": "sdr", "status": "active"},
+    ]
+    sdr = _SdrMembership(handoff_ae_user_id=None)
+    assert resolve_ae(sdr, None, supabase=supabase, company_id="co-1") == "ae-1"
+
+
+def test_resolve_ae_still_needs_ae_with_two_active_aes():
+    supabase = _Supabase()
+    supabase.tables["company_members"] = [
+        {"user_id": "ae-1", "company_id": "co-1", "sales_role": "ae", "status": "active"},
+        {"user_id": "ae-2", "company_id": "co-1", "sales_role": "ae", "status": "active"},
+    ]
+    sdr = _SdrMembership(handoff_ae_user_id=None)
+    with pytest.raises(HandoffError) as exc:
+        resolve_ae(sdr, None, supabase=supabase, company_id="co-1")
+    assert exc.value.code == "needs_ae"
+
+
+def test_resolve_ae_still_needs_ae_with_zero_active_aes():
+    supabase = _Supabase()
+    supabase.tables["company_members"] = [
+        {"user_id": "ae-1", "company_id": "co-1", "sales_role": "ae", "status": "removed"},
+    ]
+    sdr = _SdrMembership(handoff_ae_user_id=None)
+    with pytest.raises(HandoffError) as exc:
+        resolve_ae(sdr, None, supabase=supabase, company_id="co-1")
+    assert exc.value.code == "needs_ae"
+
+
+def test_resolve_ae_prefers_explicit_and_routed_over_auto_pick():
+    supabase = _Supabase()
+    supabase.tables["company_members"] = [
+        {"user_id": "ae-1", "company_id": "co-1", "sales_role": "ae", "status": "active"},
+    ]
+    sdr = _SdrMembership(handoff_ae_user_id="ae-routed")
+    assert resolve_ae(sdr, None, supabase=supabase, company_id="co-1") == "ae-routed"
+    assert resolve_ae(sdr, "ae-explicit", supabase=supabase, company_id="co-1") == "ae-explicit"
+
+
 def test_resolve_owner_for_general_is_none_without_a_route():
     general = _SdrMembership(handoff_ae_user_id=None)
     assert resolve_owner_for_general(general, None) is None
