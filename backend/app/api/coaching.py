@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
@@ -12,9 +12,13 @@ from app.deps import get_membership, get_supabase
 from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG, best_by_flow
 from app.services.coaching.brief_preferences import highlight_at, read_preference
 from app.services.coaching.briefs import absent_brief
+from app.services.coaching import rep_coaching as engine
+from app.services.coaching import rep_coaching_reads as reads
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
+from app.services.playbooks.motion import flow_for_motion
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
+from app.services.team_insights.objections import objection_counts
 
 router = APIRouter(prefix="/api/v1", tags=["coaching"])
 
@@ -211,3 +215,250 @@ async def get_coaching_best(
     rows = _load_best_rows(supabase, membership.company_id, start=start, end=end)
     body = best_by_flow(rows, start=start, end=end)
     return JSONResponse(body)
+
+
+# --- Rep coaching tab: always the caller's own data --------------------------------------
+
+_FLOW_MOTION = {"sdr": "discovery", "ae": "closing"}
+_OWN_WEEKS = 8
+_PEER_WEEKS = 4
+_MAX_MOMENTS = 3
+
+
+def _week_starts(count: int) -> list[datetime]:
+    """Monday 00:00 Madrid (UTC) of the last `count` weeks, oldest first, current week last."""
+    starts = [madrid_week_bounds()[0]]
+    while len(starts) < count:
+        starts.insert(0, madrid_week_bounds(now=starts[0] - timedelta(hours=12))[0])
+    return starts
+
+
+def _rows_of(memos: list[dict]) -> list[dict]:
+    return [row for row in (engine.interaction_row(memo) for memo in memos) if row is not None]
+
+
+def _in_window(rows: list[dict], start: datetime, end: datetime) -> list[dict]:
+    return [r for r in rows if start <= engine.parse_instant(r["observed_at"]) < end]
+
+
+def _resolve_flow(sales_role: Optional[str], rows: list[dict]) -> str:
+    """sdr -> discovery, ae -> closing; general -> the flow with most of the caller's interactions."""
+    if sales_role in _FLOW_MOTION:
+        return sales_role
+    counts = {"sdr": 0, "ae": 0}
+    for row in rows:
+        flow = flow_for_motion(row["motion"])
+        if flow:
+            counts[flow] += 1
+    return "ae" if counts["ae"] > counts["sdr"] else "sdr"
+
+
+def _rep_context(supabase, membership: Membership, *, weeks: int = _OWN_WEEKS, peers: bool = True) -> dict:
+    starts = _week_starts(weeks)
+    week_start, week_end = madrid_week_bounds()
+    all_own = _rows_of(reads.load_memos(supabase, membership.company_id, [membership.user_id], start=starts[0]))
+    flow = _resolve_flow(membership.sales_role, _in_window(all_own, starts[0], week_end))
+    motion = _FLOW_MOTION[flow]
+    playbook = reads.load_published_playbook(supabase, membership.company_id, motion)
+    own = [r for r in all_own if r["motion"] == motion] if playbook["published"] else []
+    peer_rows_by_user: dict[str, list[dict]] = {}
+    if peers and playbook["published"]:
+        peer_start = starts[-1] - timedelta(weeks=_PEER_WEEKS - 1)
+        peer_ids = reads.load_peer_ids(supabase, membership.company_id, membership.user_id)
+        for row in _rows_of(reads.load_memos(supabase, membership.company_id, peer_ids, start=peer_start, motion=motion)):
+            peer_rows_by_user.setdefault(row["user_id"], []).append(row)
+    return {
+        "flow": flow,
+        "motion": motion,
+        "week_start": week_start,
+        "week_end": week_end,
+        "prev_start": madrid_week_bounds(now=week_start - timedelta(hours=12))[0],
+        "week_starts": starts,
+        "playbook": playbook,
+        "own": own,
+        "peers": peer_rows_by_user,
+        "peer_medians": engine.peer_step_medians(peer_rows_by_user, playbook["steps"]) or {},
+    }
+
+
+def _numbers(rows: list[dict]) -> dict:
+    return {
+        "conversations": sum(1 for r in rows if r["is_conversation"]),
+        "meetings_agreed": sum(1 for r in rows if r["meeting_agreed"]),
+        "process_complete": sum(1 for r in rows if engine.process_complete(r)),
+        "interactions": len(rows),
+    }
+
+
+def _example_for(step: dict, peer_rows: list[dict]) -> Optional[str]:
+    if step.get("example"):
+        return str(step["example"])
+    moments = _moments(peer_rows, str(step["step_id"]))
+    return moments[0]["quote"] if moments else None
+
+
+def _moments(peer_rows: list[dict], step_id: str) -> list[dict]:
+    """Anonymous quotes of a step done in a conversation that ended with a meeting."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for row in sorted(peer_rows, key=lambda r: r["observed_at"], reverse=True):
+        if not (row["is_conversation"] and row["meeting_agreed"]):
+            continue
+        for step in row["steps"]:
+            quote = step["quote"]
+            if step["step_id"] == step_id and step["state"] == "done" and quote and quote not in seen:
+                seen.add(quote)
+                out.append({"quote": quote})
+        if len(out) >= _MAX_MOMENTS:
+            break
+    return out[:_MAX_MOMENTS]
+
+
+@router.get("/coaching/me/summary")
+async def get_my_coaching_summary(
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    ctx = _rep_context(supabase, membership)
+    steps = ctx["playbook"]["steps"]
+    this_week = _in_window(ctx["own"], ctx["week_start"], ctx["week_end"])
+    prev_week = _in_window(ctx["own"], ctx["prev_start"], ctx["week_start"])
+    body = {
+        "flow": ctx["flow"],
+        "motion": ctx["motion"],
+        "week_start": engine.madrid_day(ctx["week_start"]).isoformat(),
+        "steps": [],
+        "numbers": _numbers(this_week),
+        "prev_numbers": _numbers(prev_week),
+        "focus": None,
+        "conversion": None,
+        "playbook_published": ctx["playbook"]["published"],
+    }
+    if not ctx["playbook"]["published"]:
+        return body
+    medians = ctx["peer_medians"]
+    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(prev_week, steps)}
+    body["steps"] = [
+        {
+            "step_id": r["step_id"],
+            "label": r["label"],
+            "rate": r["rate"],
+            "prev_rate": prev_rates[r["step_id"]],
+            "peer_median": medians.get(r["step_id"]),
+        }
+        for r in engine.step_rates(this_week, steps)
+    ]
+    chosen = engine.choose_focus(prev_week, steps, medians)
+    if chosen:
+        definition = next(s for s in steps if str(s["step_id"]) == chosen["step_id"])
+        peer_rows = [r for rows in ctx["peers"].values() for r in rows]
+        body["focus"] = {
+            "step_id": chosen["step_id"],
+            "label": chosen["label"],
+            "criterion": str(definition.get("criterion") or ""),
+            "example": _example_for(definition, peer_rows),
+            "why": {k: chosen[k] for k in ("rate", "applicable", "missing", "peer_median")},
+            **engine.focus_progress(this_week, chosen["step_id"], ctx["week_start"]),
+        }
+    body["conversion"] = engine.conversion_split(ctx["own"], ctx["flow"])
+    return body
+
+
+@router.get("/coaching/me/interactions")
+async def get_my_coaching_interactions(
+    step_id: Optional[str] = Query(None),
+    state: Optional[Literal["done", "missing", "no_evidence", "not_reached"]] = Query(None),
+    meeting: Optional[bool] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    ctx = _rep_context(supabase, membership, peers=False)
+
+    def keep(row: dict) -> bool:
+        if meeting is not None and row["meeting_agreed"] != meeting:
+            return False
+        if step_id is None and state is None:
+            return True
+        return any(
+            (step_id is None or s["step_id"] == step_id) and (state is None or s["state"] == state)
+            for s in row["steps"]
+        )
+
+    rows = sorted((r for r in ctx["own"] if keep(r)), key=lambda r: r["observed_at"], reverse=True)
+    return {"items": rows[:limit]}
+
+
+@router.get("/coaching/me/process")
+async def get_my_coaching_process(
+    weeks: int = Query(_OWN_WEEKS, ge=1, le=12),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    ctx = _rep_context(supabase, membership, weeks=weeks)
+    starts = ctx["week_starts"]
+    ends = starts[1:] + [ctx["week_end"]]
+    steps = ctx["playbook"]["steps"]
+    body = {"weeks": [engine.madrid_day(s).isoformat() for s in starts], "steps": [], "objections": []}
+    if not ctx["playbook"]["published"]:
+        return body
+    per_week = [engine.step_rates(_in_window(ctx["own"], s, e), steps) for s, e in zip(starts, ends)]
+    for index, total in enumerate(engine.step_rates(ctx["own"], steps)):
+        body["steps"].append({
+            "step_id": total["step_id"],
+            "label": total["label"],
+            "by_week": [
+                {"done": w[index]["done"], "applicable": w[index]["applicable"], "rate": w[index]["rate"]}
+                for w in per_week
+            ],
+            "rate": total["rate"],
+            "peer_median": ctx["peer_medians"].get(total["step_id"]),
+        })
+    patterns = reads.load_patterns(supabase, [r["memo_id"] for r in ctx["own"]])
+    body["objections"] = [
+        {"category": o["name"], "total": o["count"], "resolved": o["resolved"], "open": o["open"]}
+        for o in objection_counts(patterns, start=starts[0], end=ctx["week_end"])
+    ]
+    return body
+
+
+@router.get("/coaching/examples")
+async def get_coaching_examples(
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    ctx = _rep_context(supabase, membership)
+    body: dict = {"steps": [], "objections": []}
+    if not ctx["playbook"]["published"]:
+        return body
+    peer_rows = [r for rows in ctx["peers"].values() for r in rows]
+    for step in ctx["playbook"]["steps"]:
+        body["steps"].append({
+            "step_id": str(step["step_id"]),
+            "label": str(step.get("label") or step["step_id"]),
+            "criterion": str(step.get("criterion") or ""),
+            "example": step.get("example") or None,
+            "moments": _moments(peer_rows, str(step["step_id"])),
+        })
+    patterns = reads.load_patterns(supabase, [r["memo_id"] for r in [*ctx["own"], *peer_rows]])
+    counted = objection_counts(
+        patterns,
+        start=ctx["week_starts"][-1] - timedelta(weeks=_PEER_WEEKS - 1),
+        end=ctx["week_end"],
+        playbook_entries=ctx["playbook"]["entries"],
+        include_guidance=True,
+    )
+    seen = set()
+    for item in counted:
+        seen.add(item["name"])
+        body["objections"].append(
+            {"category": item["name"], "guidance": item["how_to"], "best_response": item["best_example"]}
+        )
+    for entry in ctx["playbook"]["entries"]:
+        category = str(entry.get("category") or "").strip().lower()
+        if category and category not in seen and entry.get("guidance"):
+            seen.add(category)
+            body["objections"].append(
+                {"category": category, "guidance": " ".join(str(entry["guidance"]).split()), "best_response": None}
+            )
+    return body

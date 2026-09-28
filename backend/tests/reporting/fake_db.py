@@ -25,6 +25,7 @@ class _Query:
         self.on_conflict: str | None = None
         self.ignore_duplicates = False
         self._limit: int | None = None
+        self._range: tuple[int, int] | None = None
         self._order: tuple[str, bool] | None = None
 
     def select(self, *_args, **_kwargs):
@@ -61,6 +62,11 @@ class _Query:
 
     def limit(self, n):
         self._limit = n
+        return self
+
+    def range(self, start, end):
+        """PostgREST-style inclusive [start, end] page."""
+        self._range = (start, end)
         return self
 
     def insert(self, payload):
@@ -105,6 +111,8 @@ class _Query:
         if self._order:
             column, desc = self._order
             kept = sorted(kept, key=lambda row: str(row.get(column) or ""), reverse=desc)
+        if self._range is not None:
+            kept = kept[self._range[0] : self._range[1] + 1]
         if self._limit is not None:
             kept = kept[: self._limit]
         return SimpleNamespace(data=[dict(row) for row in kept])
