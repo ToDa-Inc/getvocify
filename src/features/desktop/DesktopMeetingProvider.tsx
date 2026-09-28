@@ -302,9 +302,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setPhase("starting");
     try {
       let perm = await bridge.permissions.status();
-      const mic = normalizePermissionStatus(perm.microphone);
-      if (mic !== "authorized") {
-        if (permissionAction(mic) === "open_settings") await bridge.permissions.open("microphone");
+      const micStatus = normalizePermissionStatus(perm.microphone);
+      if (micStatus !== "authorized") {
+        if (permissionAction(micStatus) === "open_settings") await bridge.permissions.open("microphone");
         else await bridge.permissions.request("microphone");
         perm = await bridge.permissions.status();
         if (normalizePermissionStatus(perm.microphone) !== "authorized") {
@@ -324,14 +324,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const mic = await navigator.mediaDevices
+      const micStream = await navigator.mediaDevices
         .getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         })
         .catch(() => {
           throw new Error("Could not open the microphone.");
         });
-      micRef.current = mic;
+      micRef.current = micStream;
 
       const native = await bridge.systemAudio.start();
       if (!native.ok) {
@@ -356,7 +356,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, pcm));
       };
       releaseAudioRef.current = [
-        hookMicPcm(ctx, mic, send("rep")),
+        hookMicPcm(ctx, micStream, send("rep")),
         bridge.systemAudio.onPcm(send("prospect")),
         bridge.systemAudio.onLost?.(() =>
           setWarning("Meeting audio stopped. Your mic is still recording."),
