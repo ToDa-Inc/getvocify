@@ -180,19 +180,17 @@ const MemosPage = () => {
           </div>
           <h3 className="text-xl font-normal text-foreground mb-2">
             {searchTerm
-              ? "No matches found"
+              ? t.product.recordingsNoMatches
               : viewingTeammate
                 ? t.product.recordingsEmptyTeammate
                 : t.product.recordingsEmpty}
           </h3>
           <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
             {searchTerm
-              ? `No results for "${searchTerm}"`
-              : viewingTeammate
-                ? "Try All to see every labeled conversation."
-                : canViewCompany && authorUserId
-                  ? "Try All to see every labeled conversation."
-                  : "Your recorded conversations will appear here once processed."}
+              ? t.product.recordingsNoResults.replace("{query}", searchTerm)
+              : viewingTeammate || (canViewCompany && authorUserId)
+                ? t.product.recordingsTryAll
+                : t.product.recordingsEmptyHint}
           </p>
           {!searchTerm && !authorUserId && (
             <Link 
