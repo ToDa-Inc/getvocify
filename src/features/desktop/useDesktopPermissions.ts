@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DESKTOP_PERMISSION,
   desktopPermissionsReady,
@@ -8,7 +8,7 @@ import {
 } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost } from "@/lib/desktop-host";
 
-const POLL_MS = 1000;
+const POLL_MS = 2000;
 
 const EMPTY: DesktopPermissionSnapshot = {
   platform: "darwin",
@@ -21,7 +21,9 @@ export function useDesktopPermissions() {
   const [snapshot, setSnapshot] = useState<DesktopPermissionSnapshot>(EMPTY);
   const [appName, setAppName] = useState("Vocify");
   const [loading, setLoading] = useState(available);
-  const [openedSettingsRecently, setOpenedSettingsRecently] = useState(false);
+  const [guideActive, setGuideActive] = useState(false);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
 
   const refresh = useCallback(async () => {
     const bridge = getDesktopBridge();
@@ -37,21 +39,33 @@ export function useDesktopPermissions() {
     };
     setSnapshot(next);
     setLoading(false);
+    if (desktopPermissionsReady(next)) setGuideActive(false);
     return next;
   }, []);
 
-  const request = useCallback(async (type: DesktopPermissionType) => {
-    await getDesktopBridge()?.permissions.request(type);
-    return refresh();
-  }, [refresh]);
-
-  const openSettings = useCallback(
+  const request = useCallback(
     async (type: DesktopPermissionType) => {
-      setOpenedSettingsRecently(true);
-      await getDesktopBridge()?.permissions.open(type);
+      await getDesktopBridge()?.permissions.request(type);
       return refresh();
     },
     [refresh],
+  );
+
+  /** Opens the native floating drag card beside System Settings (Codex flow). */
+  const guide = useCallback(
+    async (type: DesktopPermissionType) => {
+      setGuideActive(true);
+      await getDesktopBridge()?.permissions.guide(type);
+      return refresh();
+    },
+    [refresh],
+  );
+
+  const openSettings = useCallback(
+    async (type: DesktopPermissionType) => {
+      await guide(type);
+    },
+    [guide],
   );
 
   useEffect(() => {
@@ -65,8 +79,18 @@ export function useDesktopPermissions() {
         }
       })
       .catch(() => {});
-    const id = window.setInterval(() => void refresh(), POLL_MS);
-    return () => window.clearInterval(id);
+
+    const bridge = getDesktopBridge();
+    const offChanged = bridge?.permissions.onChanged?.(() => void refresh());
+
+    const id = window.setInterval(() => {
+      if (!desktopPermissionsReady(snapshotRef.current)) void refresh();
+    }, POLL_MS);
+
+    return () => {
+      window.clearInterval(id);
+      offChanged?.();
+    };
   }, [available, refresh]);
 
   return {
@@ -75,9 +99,10 @@ export function useDesktopPermissions() {
     snapshot,
     ready: desktopPermissionsReady(snapshot),
     appName,
-    openedSettingsRecently,
+    guideActive,
     refresh,
     request,
+    guide,
     openSettings,
   };
 }

@@ -34,7 +34,7 @@ import {
   type MeetingTranscript,
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type MeetingDraft } from "@/lib/meeting-draft";
-import { normalizePermissionStatus, permissionAction } from "@/lib/desktop-permissions";
+import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost } from "@/lib/desktop-host";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
@@ -301,27 +301,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setWarning(null);
     setPhase("starting");
     try {
-      let perm = await bridge.permissions.status();
-      const micStatus = normalizePermissionStatus(perm.microphone);
-      if (micStatus !== "authorized") {
-        if (permissionAction(micStatus) === "open_settings") await bridge.permissions.open("microphone");
-        else await bridge.permissions.request("microphone");
-        perm = await bridge.permissions.status();
-        if (normalizePermissionStatus(perm.microphone) !== "authorized") {
-          throw new Error("Turn on Microphone in the panel above, then try again.");
-        }
+      const perm = await bridge.permissions.status();
+      if (normalizePermissionStatus(perm.microphone) !== "authorized") {
+        throw new Error("Allow Microphone in the panel above, then try again.");
       }
-      let system = normalizePermissionStatus(perm.systemAudio);
-      if (system !== "authorized") {
-        if (permissionAction(system) === "open_settings") await bridge.permissions.open("systemAudio");
-        else await bridge.permissions.request("systemAudio");
-        perm = await bridge.permissions.status();
-        system = normalizePermissionStatus(perm.systemAudio);
-        if (system !== "authorized") {
-          throw new Error(
-            "Enable system audio in the panel above. If you already did, quit Vocify (⌘Q) and reopen it.",
-          );
-        }
+      if (normalizePermissionStatus(perm.systemAudio) !== "authorized") {
+        throw new Error("Tap Allow on system audio above — drag Vocify into Settings.");
       }
 
       const micStream = await navigator.mediaDevices
@@ -336,7 +321,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const native = await bridge.systemAudio.start();
       if (!native.ok) {
         throw new Error(
-          "Could not hear the meeting. Quit and reopen Vocify after allowing Screen & System Audio Recording.",
+          native.reason === "needs_restart"
+            ? "System audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again."
+            : "Tap Allow on system audio above — drag Vocify into Settings.",
         );
       }
 
