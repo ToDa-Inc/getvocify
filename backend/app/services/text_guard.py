@@ -44,19 +44,24 @@ _EMAIL_FILLER = (
     r"just (checking|wanted to check) in",
 )
 
-# Chat openers/closers that add nothing to an answer.
-_CHAT_FILLER = (
-    r"^(¡|!)?\s*(claro( que s[ií])?|por supuesto|desde luego|buena pregunta|excelente pregunta)\s*[!.,]",
-    r"^(sure|of course|great question|good question|certainly)\s*[!.,]",
-    r"si (necesitas|quieres) (algo m[aá]s|cualquier otra cosa|m[aá]s (ayuda|informaci[oó]n))",
-    r"(estoy|quedo) (aqu[ií] )?para (lo que necesites|ayudarte)",
-    r"let me know if (you need|there'?s) (anything|something) else",
-    r"(happy|glad) to help",
-    r"as an ai",
+# Chat opener: only a standalone interjection is removed ("¡Claro! Marina…" keeps
+# "Marina…"). Never before a comma: "Claro, S.L. tiene 2 deals" names a company.
+_CHAT_OPENER = re.compile(
+    r"^\s*(¡|!)?\s*(claro( que s[ií])?|por supuesto|desde luego|buena pregunta|excelente pregunta"
+    r"|sure|of course|great question|good question|certainly)\s*[!.]+\s*",
+    re.IGNORECASE,
+)
+# Chat closers: offers of more help. Only dropped as the answer's closing sentence, where
+# they carry nothing; the same words earlier in an answer may be content.
+_CHAT_CLOSER = (
+    r"^si (necesitas|quieres) (algo m[aá]s|cualquier otra cosa|m[aá]s (ayuda|informaci[oó]n))",
+    r"^(estoy|quedo) (aqu[ií] )?para (lo que necesites|ayudarte)",
+    r"^let me know if (you need|there'?s) (anything|something) else",
+    r"^(happy|glad) to help",
 )
 
 _EMAIL_RE = [re.compile(p, re.IGNORECASE) for p in _EMAIL_FILLER]
-_CHAT_RE = [re.compile(p, re.IGNORECASE) for p in _CHAT_FILLER]
+_CHAT_RE = [re.compile(p, re.IGNORECASE) for p in _CHAT_CLOSER]
 _SENTENCE = re.compile(r"[^.!?\n]*[.!?]+|[^.!?\n]+", re.UNICODE)
 
 
@@ -106,10 +111,23 @@ def strip_email_filler(text: str) -> str:
 
 
 def strip_chat_filler(text: str) -> str:
-    """For Ask answers: only a filler opener/closer sentence goes; content is never touched.
-    An answer that would end up empty is returned as it was."""
-    cleaned = drop_sentences(text, _CHAT_RE)
-    return cleaned or (text or "").strip()
+    """For Ask answers: the opener interjection and a closing offer of help go; every
+    content sentence stays as written. An answer that would end up empty is returned as
+    it was."""
+    original = (text or "").strip()
+    cleaned = _CHAT_OPENER.sub("", original, count=1).strip()
+    lines = cleaned.split("\n")
+    while lines:
+        pieces = _sentences(lines[-1])
+        if not pieces or not any(p.search(pieces[-1].strip()) for p in _CHAT_RE):
+            break
+        rest = "".join(pieces[:-1]).strip()
+        if rest:
+            lines[-1] = rest
+            break
+        lines.pop()
+    cleaned = "\n".join(lines).strip()
+    return cleaned or original
 
 
 def word_count(text: str) -> int:

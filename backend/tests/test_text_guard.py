@@ -51,6 +51,17 @@ def test_chat_filler_openers_and_closers_go_content_stays():
     assert strip_chat_filler("Llama a Marina: te pidió hablar hoy.") == "Llama a Marina: te pidió hablar hoy."
 
 
+def test_chat_guard_never_deletes_a_content_sentence():
+    # Self-review fix: an opener followed by a comma used to drop the whole sentence.
+    assert strip_chat_filler("Claro, S.L. tiene 2 deals abiertos.") == "Claro, S.L. tiene 2 deals abiertos."
+    assert strip_chat_filler("Por supuesto, Marina tiene 3 deals.") == "Por supuesto, Marina tiene 3 deals."
+    # A closer's words in the middle of an answer are content, not a closing offer.
+    mid = "Si quieres más información del deal, está en la nota del 12 sep. Marina decide el viernes."
+    assert strip_chat_filler(mid) == mid
+    # Closing offer in the same line as content: only that sentence goes.
+    assert strip_chat_filler("Marina decide el viernes. Si necesitas algo más, dímelo.") == "Marina decide el viernes."
+
+
 class _LLM:
     def __init__(self, *payloads):
         self.payloads = list(payloads)

@@ -352,12 +352,13 @@ def _own_deal_memos(supabase, company_id: str, user_id: str) -> list[dict]:
 
 
 def _received_handoffs(supabase, membership: Membership) -> list[dict] | None:
-    """Active handoffs where this rep is the AE. None when not applicable or unreadable
-    (flag off, an SDR, or a failed read) - callers treat None as "unknown", never as "none"."""
+    """Active handoffs where this rep is the AE. [] when handoffs do not apply (flag off,
+    or an SDR): a stored handoff "Reunión hoy" card then resolves instead of lingering.
+    None only when the read failed - callers treat None as "unknown", never as "none"."""
     if membership.sales_role not in (None, "ae", "general"):
-        return None
+        return []
     if not is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
-        return None
+        return []
     try:
         return active_handoffs_for_ae(supabase, company_id=membership.company_id, ae_user_id=membership.user_id)
     except Exception:
