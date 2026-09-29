@@ -508,3 +508,11 @@ Límites: textos largos ≤ 1500, campos cortos ≤ 300, listas ≤ 12. `GET /pl
 **Nota por bloques (con el mismo flag).** El score añade `blocks: {steps: {met, applicable}, qualification: {met, applicable}, objections: {met, applicable}}`; `value` = media (0–10, redondeada) de los bloques con `applicable > 0`. Coaching: un criterio `missing` produce «No salió: {label}». Sin flag, todo como hoy.
 
 **Consumidores.** Brief y copiloto: la respuesta de una objeción custom se engancha por `objection_id`; el copiloto recibe de «Vuestra empresa» relato corto, diferenciadores, casos y competidores (sin inventar pruebas).
+
+### Estado del molde de tres capas (29 sep 2026)
+
+Hecho: migración 068, cualificación por versión con plantillas BANT/MEDDIC/MEDDPICC, objeciones propias y detalle (significado, pregunta, prueba), «Vuestra empresa» (`GET/PUT /playbooks/company`), reparto del documento en los tres bloques (`playbook_split_v2`/`playbook_structure_v2`), C04 `intelligence_v7` con cualificación y `objection_id`, nota por bloques, brief con respuesta de objeción propia y copiloto con «Vuestra empresa». UI: bloque «Qué tiene que salir de la llamada», objeciones propias, fila «Vuestra empresa» (también en la pestaña del comercial), nota «7/10 · Pasos 4/5 · Cualificación 2/4 · Objeciones 1/1».
+
+Pruebas: backend 3289 passed / 32 skipped; frontend 462; build OK; recorrido en navegador con la API simulada.
+
+Pendiente antes de encender `PLAYBOOK_QUALIFICATION_ENABLED`: correr con clave `scripts/eval_intelligence.py --v7` y `scripts/eval_playbook_structure.py --suite P01|P02|P03 --runs 3`. Migraciones 066, 067 y 068 obligatorias antes de desplegar (`2026-09-29-activacion-playbooks-v2.sql`).
