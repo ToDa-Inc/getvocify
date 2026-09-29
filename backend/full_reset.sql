@@ -393,6 +393,7 @@ CREATE TABLE IF NOT EXISTS playbook_versions (
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
   steps JSONB NOT NULL DEFAULT '[]'::jsonb,
   entries JSONB NOT NULL DEFAULT '[]'::jsonb,
+  qualification JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -1126,6 +1127,29 @@ $touch$;
 CREATE TRIGGER playbook_versions_updated_at
   BEFORE UPDATE ON playbook_versions
   FOR EACH ROW EXECUTE FUNCTION playbook_versions_touch_updated_at();
+
+-- Migration 068: what Vocify knows about the company (one row, no draft) and the qualification
+-- criteria of a playbook version (playbook_versions.qualification, above).
+CREATE TABLE IF NOT EXISTS company_sales_knowledge (
+  company_id UUID PRIMARY KEY,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source_id TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION company_sales_knowledge_touch_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $touch$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$touch$;
+
+CREATE TRIGGER company_sales_knowledge_updated_at
+  BEFORE UPDATE ON company_sales_knowledge
+  FOR EACH ROW EXECUTE FUNCTION company_sales_knowledge_touch_updated_at();
 
 -- ============================================
 -- DONE!

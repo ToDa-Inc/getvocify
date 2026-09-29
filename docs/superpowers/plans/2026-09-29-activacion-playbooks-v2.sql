@@ -3,8 +3,8 @@
 -- No ejecutar desde CI ni desde el agente: lo ejecuta el founder en Supabase (SQL editor).
 --
 -- ORDEN:
---   1. PARTE A (migraciones 066 y 067). OBLIGATORIA en cuanto se despliegue este código:
---      el editor lee playbook_versions.updated_at y sin la 066 no carga (ni el nuevo ni el viejo).
+--   1. PARTE A (migraciones 066, 067 y 068). OBLIGATORIA en cuanto se despliegue este código:
+--      el editor lee playbook_versions.updated_at y .qualification: sin la 066 o la 068 no carga (ni el nuevo ni el viejo).
 --      Cada migración tiene su .down.sql en backend/migrations/.
 --   2. Desplegar staging.
 --   3. La pantalla nueva no lleva flag: sale para todos en cuanto se despliega
@@ -46,6 +46,33 @@ ALTER TABLE playbooks
   ADD COLUMN IF NOT EXISTS label TEXT,
   ADD COLUMN IF NOT EXISTS applies_to JSONB;
 
+-- 068_playbook_three_layers: cualificación por versión y «Vuestra empresa» (una fila por empresa).
+-- Sin la 068 el editor no carga (lee playbook_versions.qualification).
+ALTER TABLE playbook_versions
+  ADD COLUMN IF NOT EXISTS qualification JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS company_sales_knowledge (
+  company_id UUID PRIMARY KEY,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source_id TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION company_sales_knowledge_touch_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $touch$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$touch$;
+
+DROP TRIGGER IF EXISTS company_sales_knowledge_updated_at ON company_sales_knowledge;
+CREATE TRIGGER company_sales_knowledge_updated_at
+  BEFORE UPDATE ON company_sales_knowledge
+  FOR EACH ROW EXECUTE FUNCTION company_sales_knowledge_touch_updated_at();
+
 COMMIT;
 
 -- ─── PARTE B · flags (opcional) ───────────────────────────────────────────────────────────
@@ -60,4 +87,4 @@ COMMIT;
 
 -- Marcha atrás: PLAYBOOK_ROUTING_ENABLED = false vuelve al enrutado por rol. Las migraciones se
 -- deshacen con backend/migrations/067_playbook_rules.down.sql y 066_playbook_draft_autosave.down.sql
--- (en ese orden), pero el código desplegado necesita la 066.
+-- (en ese orden; la 068 antes, con 068_playbook_three_layers.down.sql), pero el código desplegado necesita la 066 y la 068.
