@@ -351,3 +351,56 @@ Flag: `PLAYBOOK_ROUTING_ENABLED`.
 | Q6 | ¿La respuesta del equipo (fase 3) se copia sin nombre del comercial? | Sí, por «sin ranking» |
 
 **Orden de entrega:** Fase 1 (T1–T6) → encender en Vocify y en 1 cliente → Fase 2 (T7–T10) → Fase 3 (T11–T12) cuando `PLAYBOOK_OBSERVATIONS_ENABLED` lleve 2 semanas encendido con evals v4 corridas.
+
+---
+
+## 12. Contratos de API (fijados antes de implementar; front y back trabajan contra esto)
+
+Decisiones Q1–Q6: se aplican las propuestas de la sección 11 (el founder pidió construirlo tal cual).
+
+Todas las rutas bajo `/api/v1`. Errores de validación: `422 {detail: {code, index?}}`. Permisos: escribir = owner/admin (`_guard`); leer = cualquiera de la empresa, con el filtro por rol de hoy.
+
+### Flags (config.py + `CLIENT_FLAGS` en `feature_flags.py`, apagados por defecto)
+- `PLAYBOOK_V2_ENABLED` — UI nueva (lista en filas, documento, caja única, vista del comercial).
+- `PLAYBOOK_ROUTING_ENABLED` — catálogo, reglas «cuándo se aplica», enrutado y «cambiar tipo» en una grabación.
+
+### Fase 1
+**`POST /playbooks/{key}/structure`** — body `{kind: "text"|"pdf"|"audio", payload: string, name?: string}` (pdf/audio en base64).
+→ `200 {sales_motion_key, steps: [{step_id?, label, criterion, example?}], objections: [{category, guidance}], reason: null|"no_process"|"too_short"|"grouped", fallback: bool, source: {id, kind, name}|null}`
+- `fallback: true` = el LLM falló o no pasó las guardas; los pasos vienen del parser determinista (port en Python de `parsePlaybookText`).
+- Fallos de lectura: `422 {detail:{code: "pdf_encrypted"|"pdf_has_no_text"|"audio_has_no_speech"|"stt_unavailable"|"unsupported_source"|"empty_source"}}`.
+- No crea versión. Guarda la fuente en `playbook_imports` (`kind`, `draft.text`, `draft.name`).
+
+**`GET /playbooks/{key}/editor`** — añade: `updated_at: string|null` (del borrador/versión devuelta), `has_live: bool`, `source: {id, kind, name}|null`.
+
+**`PUT /playbooks/{key}/draft`** — body añade `base_updated_at?: string|null` y `source_id?: string|null`.
+- Si existe un borrador más nuevo que la versión activa → se **actualiza esa fila** (mismo `version_id`); si no, se inserta uno.
+- Si `base_updated_at` llega y no coincide con el `updated_at` del borrador pendiente → `409 {detail:{code:"stale_draft"}}`.
+- Respuesta = misma forma que `GET /editor`.
+
+**`DELETE /playbooks/{key}/draft`** — borra el borrador pendiente (nunca una versión publicada) → forma de `GET /editor` (`source` "published" o "empty").
+
+Migración `066_playbook_draft_autosave.sql`: `playbook_versions.updated_at TIMESTAMPTZ NOT NULL DEFAULT now()` + trigger que lo actualiza.
+
+### Fase 2
+`applies_to` = `{role: "sdr"|"ae"|"any", channels: ("call"|"meeting"|"visit")[], contact: "new"|"contacted"|"inbound"|"any", deal_stages: string[]}`.
+
+**`GET /playbooks`** — añade `details: {[key]: {label: string|null, role: "sdr"|"ae"|"any"|null, applies_to: AppliesTo|null, goal: string|null, catalog: bool}}` (siempre; aditivo).
+
+**`GET /playbooks/catalog`** → `{types: [{key, role, goal, applies_to, label: {es, en}, template: {es: Step[], en: Step[]}}]}` con `discovery`, `inbound`, `ae_discovery`, `closing`, `negotiation`.
+
+**`POST /playbooks/types`** — body `{type_key, name, applies_to?}`. Con `PLAYBOOK_ROUTING_ENABLED` y un tipo que no es del catálogo, sin `applies_to` → `422 {code:"rule_required"}`. Para un tipo del catálogo, `applies_to` por defecto del catálogo. → `{motions, details}`.
+
+**`PUT /playbooks/{key}/rule`** — body `{applies_to}` → `{sales_motion_key, applies_to}`.
+
+**`GET /playbooks/deal-stages`** → `{stages: [{id, label}]}` de la CRM conectada; `[]` si no hay.
+
+**`POST /memos/{memo_id}/playbook`** — body `{sales_motion_key}` (autor o manager). Vuelve a fijar la versión activa de ese tipo, vuelve a correr C04 y scoring → `{sales_motion_key, playbook_version_id, status: "requeued"}`. `409 {code:"not_published"}` si el tipo no tiene versión activa.
+
+Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.applies_to JSONB NULL`.
+
+### Fase 3
+**`GET /playbooks/{key}/insights?period=week|month`** (managers) →
+`{period, calls: int, steps: [{step_id, met, missed, rate: number|null}], objections: [{category, count, share: number, answered: bool, best_example: string|null}]}`
+- `rate` = met/(met+missed) con ≥ 10 aplicables; si no, `null`. Solo `step_id` de la versión activa.
+- `objections` ordenadas por `count` desc; `best_example` sin nombre de comercial.
