@@ -460,3 +460,51 @@ Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.app
 **Activación:** `docs/superpowers/plans/2026-09-29-activacion-playbooks-v2.sql` (migraciones 066 y 067 obligatorias antes de desplegar; `PLAYBOOK_ROUTING_ENABLED` opcional). `PLAYBOOK_V2_ENABLED` queda sin uso en el frontend.
 
 **Pruebas:** backend 3151 passed, 32 skipped. Frontend 453 pass. Build OK. Recorrido en navegador (app real, API simulada según §12): vacío → pegar documento mixto → 2 procesos → revisar → activar; editar uno activo con autoguardado; menú «···»; comercial; 390 px. Evals P01/P02 pendientes de clave.
+
+---
+
+## 15. El molde de tres capas (29 sep 2026)
+
+El Head of Sales da su playbook tal como lo tenga; Vocify lo encaja en este molde. **Lo que el documento no trae se queda vacío: la IA nunca lo inventa.** Lo que no encaja en ningún bloque va a `notes` de «Vuestra empresa». Las plantillas (tipo de llamada, BANT/MEDDIC/MEDDPICC) solo entran si se piden.
+
+| Capa | Qué | Dónde vive | Para qué |
+|---|---|---|---|
+| 1 · Se evalúa en cada llamada (por tipo) | Pasos · **Qué tiene que salir de la llamada** (cualificación) · Objeciones (fijas y **propias**, con significado, pregunta de diagnóstico, respuesta y prueba) | `playbook_versions` (steps, entries, **qualification**) con borrador y «Activar para el equipo» | Nota por bloques, coaching, brief, directo |
+| 2 · Lo que Vocify sabe de la empresa (una vez) | ICP y personas, no encaja, señales de compra, relato de valor (30 s / 3 min), diferenciadores, casos de cliente, **competidores**, precio y negociación, notas | `company_sales_knowledge` (efecto inmediato, sin activar) | Contexto del copiloto, brief, follow-up y Ask. No puntúa |
+| 3 · Sale de las llamadas | Ejemplos buenos/malos, mejor respuesta real por objeción, sugerencias | Ya existe (T11/T12, mejores llamadas) | Mantener el playbook vivo |
+
+### Contratos
+
+**Objeciones (entries de la versión).** `{entry_id, category, guidance, label?, trigger?, meaning?, question?, proof?, source_ref}`. `category` ∈ price, timing, authority, competitor, status_quo, trust, other, **custom**. Custom: `entry_id = "objection:custom:<slug>"`, `label` obligatorio (≤ 60), `trigger` = cómo lo dice el cliente (≤ 200). Máx. 12 custom. `meaning`, `question`, `proof` ≤ 200/200/300; `guidance` ≤ 600. Una custom sin `guidance` se guarda igual (se sabe detectar aunque aún no haya respuesta).
+
+**Cualificación (nueva columna `playbook_versions.qualification JSONB NOT NULL DEFAULT '[]'`).** `[{criterion_id, label, why?, good?, bad?}]`, máx. 8, `label` ≤ 60, resto ≤ 200. `criterion_id` = slug estable como `step_id`.
+
+**Editor (`GET /playbooks/{key}/editor`, `PUT /playbooks/{key}/draft`).** Añade:
+- `objections: [{category, guidance, id?, label?, trigger?, meaning?, question?, proof?}]` (`id` solo en custom = slug);
+- `qualification: [{criterion_id?, label, why?, good?, bad?}]`.
+Códigos 422 nuevos: `too_many_criteria`, `criterion_label_empty`, `criterion_label_too_long`, `custom_objection_label_empty`, `too_many_custom_objections`, `field_too_long`.
+
+**`GET /playbooks`** `details[key]` añade `criteria_count`.
+
+**`GET /playbooks/qualification-templates`** → `{templates: [{key: "bant"|"meddic"|"meddpicc", label, criteria: {es: Criterion[], en: Criterion[]}}]}`.
+
+**Vuestra empresa.** Tabla `company_sales_knowledge (company_id PK, data JSONB NOT NULL DEFAULT '{}', source_id TEXT NULL, updated_at TIMESTAMPTZ)`. `data`:
+```
+{icp, bad_fit, value_short, value_long, pricing, notes: string,
+ personas: [{name, cares_about, language, measured_on}],
+ triggers: [{signal, how_to_use}],
+ differentiators: [string],
+ proofs: [{customer, situation, change, number, tags: [string]}],
+ competitors: [{name, win_when, lose_when, they_like, landmines, how_to_talk}]}
+```
+Límites: textos largos ≤ 1500, campos cortos ≤ 300, listas ≤ 12. `GET /playbooks/company` (cualquier miembro) → `{knowledge, updated_at, sections: [claves no vacías]}`. `PUT /playbooks/company` (owner/admin) `{knowledge, base_updated_at?}` → mismo shape; 409 `stale_knowledge`.
+
+**Entrada única (`POST /playbooks/structure`)** además reparte en cualificación, objeciones ampliadas/propias y «Vuestra empresa». Respuesta añade `company: {knowledge, updated_at, sections, filled: [claves rellenadas ahora]} | null`. **Fusión con lo existente:** listas se añaden sin duplicar (por `name`/`customer`/`signal`), un texto solo se rellena si estaba vacío (nunca pisa lo que editó el Head of Sales). Si el documento dice «usamos MEDDIC» (o BANT…), la cualificación usa esos criterios.
+
+**Lectura de cada llamada (C04 `intelligence_v7`, flag `PLAYBOOK_QUALIFICATION_ENABLED`, apagado).** v6 más:
+- entrada `playbook_qualification: [{criterion_id, label, good?}]` y `playbook_objections: [{id, label, trigger}]` (solo custom);
+- salida `qualification_observations: [{criterion_id, status: found|missing|not_applicable|unknown, value, quote}]` y en cada objeción `objection_id` (id custom o null).
+
+**Nota por bloques (con el mismo flag).** El score añade `blocks: {steps: {met, applicable}, qualification: {met, applicable}, objections: {met, applicable}}`; `value` = media (0–10, redondeada) de los bloques con `applicable > 0`. Coaching: un criterio `missing` produce «No salió: {label}». Sin flag, todo como hoy.
+
+**Consumidores.** Brief y copiloto: la respuesta de una objeción custom se engancha por `objection_id`; el copiloto recibe de «Vuestra empresa» relato corto, diferenciadores, casos y competidores (sin inventar pruebas).
