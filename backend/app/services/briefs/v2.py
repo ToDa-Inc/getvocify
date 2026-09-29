@@ -257,6 +257,18 @@ def _playbook_guidance(category: str, entries: list[dict]) -> str | None:
     return None
 
 
+def _custom_entry(objection_id: str | None, entries: list[dict]) -> dict | None:
+    """C04 v7: the company's own objection entry a read objection was matched to, or None."""
+    slug = str(objection_id or "").strip()
+    if not slug:
+        return None
+    wanted = f"objection:custom:{slug}"
+    for entry in entries or []:
+        if isinstance(entry, dict) and str(entry.get("entry_id") or "") == wanted:
+            return entry
+    return None
+
+
 def _category_heading(category: str) -> str:
     label = CATEGORY["es"].get(category, category)
     return label[:1].upper() + label[1:]
@@ -265,6 +277,12 @@ def _category_heading(category: str) -> str:
 def say_line(*, intelligence: dict, playbook_entries: list[dict] | None) -> dict | None:
     for objection in _open_objections(intelligence):
         category = str(objection.get("category") or "other")
+        custom = _custom_entry(objection.get("objection_id"), playbook_entries or [])
+        custom_guidance = " ".join(str((custom or {}).get("guidance") or "").split())
+        if custom_guidance:
+            # The company's own answer to this exact objection wins over the generic category one.
+            label = " ".join(str(custom.get("label") or "").split()) or _category_heading(category)
+            return _line("say", f"{label}: {custom_guidance}", source="playbook", source_ref=objection.get("id"))
         guidance = _playbook_guidance(category, playbook_entries or [])
         if guidance:
             text = f"{_category_heading(category)}: {guidance}"

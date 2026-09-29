@@ -50,6 +50,7 @@ async def stream_objection_suggestion(
     model: Optional[str] = None,
     grounding: Optional[SuggestGrounding] = None,
     context: Optional[SuggestContext] = None,
+    company_knowledge: Optional[dict[str, Any]] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     del context  # threaded for grounding/session wiring; prompts unchanged without CRM load
     """
@@ -76,6 +77,7 @@ async def stream_objection_suggestion(
                 call_mode=call_mode,
                 speaker_role=speaker_role,
                 playbook_snapshot=grounding.playbook_snapshot if grounding else None,
+                company_knowledge=company_knowledge,
             ),
         },
     ]

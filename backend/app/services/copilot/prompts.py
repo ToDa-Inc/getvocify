@@ -36,7 +36,7 @@ RULES
 - Match the prospect's language (Spanish or English). If mixed, prefer the latest turn's language.
 - "say_this" must be speakable in under ~12 seconds. Max 3 short sentences. No bullet lists inside say_this.
 - No corporate fluff, no "I understand your concern as an AI", no over-apologizing.
-- Never invent customer logos or fake metrics. Use only product_context when citing proof.
+- Never invent customer logos or fake metrics. Use only product_context or the COMPANY KNOWLEDGE block when citing proof.
 - Prefer questions that advance the call over monologues.
 - If the latest turn is the rep talking / filler / noise, set is_objection=false and keep coaching light.
 - Unless a published playbook was provided in the user message, set evidence_refs to [] and source_id to null.
@@ -69,6 +69,78 @@ def _published_entry_ids(snapshot: dict[str, Any]) -> list[str]:
     return ids
 
 
+COMPANY_KNOWLEDGE_MAX_CHARS = 2400
+_KNOWLEDGE_HEADER = (
+    "COMPANY KNOWLEDGE (from the company's own playbook. This is the ONLY proof you may cite: "
+    "customers, numbers and differentiators. If it is not written here, do not claim it.)"
+)
+
+
+def _clip(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    return text if len(text) <= limit else text[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def _named_competitors(competitors: Any, text: str) -> list[dict[str, Any]]:
+    lowered = text.lower()
+    named: list[dict[str, Any]] = []
+    for item in competitors if isinstance(competitors, list) else []:
+        name = _clip(item.get("name"), 60) if isinstance(item, dict) else ""
+        if name and name.lower() in lowered:
+            named.append(item)
+    return named[:2]
+
+
+def format_company_knowledge(
+    knowledge: Optional[dict[str, Any]],
+    *,
+    call_text: str = "",
+    max_chars: int = COMPANY_KNOWLEDGE_MAX_CHARS,
+) -> str:
+    """The company's knowledge as a bounded prompt block: short value line, differentiators, up to
+    three customer proofs and, only for a competitor named in `call_text`, how to talk about it
+    and what not to say. Empty string when there is nothing to say. Never longer than max_chars."""
+    if not isinstance(knowledge, dict) or not knowledge:
+        return ""
+    lines: list[str] = []
+    value = _clip(knowledge.get("value_short"), 300)
+    if value:
+        lines.append(f"Value in one line: {value}")
+    differentiators = [_clip(item, 160) for item in (knowledge.get("differentiators") or [])]
+    differentiators = [item for item in differentiators if item][:5]
+    if differentiators:
+        lines.append("Differentiators:")
+        lines.extend(f"- {item}" for item in differentiators)
+    proof_lines = []
+    for proof in [item for item in (knowledge.get("proofs") or []) if isinstance(item, dict)][:3]:
+        customer = _clip(proof.get("customer"), 60)
+        change = _clip(
+            " ".join(part for part in (_clip(proof.get("situation"), 140), _clip(proof.get("change"), 140)) if part),
+            280,
+        )
+        number = _clip(proof.get("number"), 60)
+        if customer or change or number:
+            proof_lines.append("- " + " · ".join(part for part in (customer, change, number) if part))
+    if proof_lines:
+        lines.append("Customer proofs (the only ones that exist):")
+        lines.extend(proof_lines)
+    for competitor in _named_competitors(knowledge.get("competitors"), call_text):
+        lines.append(f"Competitor named in the call: {_clip(competitor.get('name'), 60)}")
+        how = _clip(competitor.get("how_to_talk"), 300)
+        if how:
+            lines.append(f"- How to talk about it: {how}")
+        landmines = _clip(competitor.get("landmines"), 300)
+        if landmines:
+            lines.append(f"- Do not say: {landmines}")
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    room = max_chars - len(_KNOWLEDGE_HEADER) - 1
+    if len(body) > room:
+        body = body[: max(room - 1, 0)].rstrip() + "…"
+    return f"{_KNOWLEDGE_HEADER}\n{body}"
+
+
 def build_user_prompt(
     *,
     transcript_window: str,
@@ -78,6 +150,7 @@ def build_user_prompt(
     call_mode: str,
     speaker_role: str = "unknown",
     playbook_snapshot: Optional[dict[str, Any]] = None,
+    company_knowledge: Optional[dict[str, Any]] = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -88,6 +161,8 @@ def build_user_prompt(
         "rep": "This turn is attributed to the REP. Keep coaching light; do not invent a prospect objection.",
         "unknown": "Speaker unknown — treat as prospect unless the wording is clearly the rep.",
     }[role]
+    knowledge = format_company_knowledge(company_knowledge, call_text=f"{transcript_window}\n{latest_turn}")
+    knowledge_block = f"\n{knowledge}\n" if knowledge else ""
     base = f"""CALL MODE: {call_mode}
 PREFERRED LANGUAGE HINT: {language}
 SPEAKER ROLE: {role}
@@ -95,7 +170,7 @@ SPEAKER HINT: {role_hint}
 
 PRODUCT / OFFER CONTEXT:
 {context}
-
+{knowledge_block}
 ROLLING TRANSCRIPT (recent):
 {transcript_window.strip() or "(empty)"}
 
