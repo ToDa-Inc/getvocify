@@ -393,7 +393,8 @@ CREATE TABLE IF NOT EXISTS playbook_versions (
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
   steps JSONB NOT NULL DEFAULT '[]'::jsonb,
   entries JSONB NOT NULL DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS playbook_imports (
@@ -1110,6 +1111,21 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER user_voice_enrollments_updated_at
   BEFORE UPDATE ON user_voice_enrollments
   FOR EACH ROW EXECUTE FUNCTION set_user_voice_enrollments_updated_at();
+
+-- Migration 066: playbook drafts are saved in place; updated_at tells editors apart.
+CREATE OR REPLACE FUNCTION playbook_versions_touch_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $touch$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$touch$;
+
+CREATE TRIGGER playbook_versions_updated_at
+  BEFORE UPDATE ON playbook_versions
+  FOR EACH ROW EXECUTE FUNCTION playbook_versions_touch_updated_at();
 
 -- ============================================
 -- DONE!

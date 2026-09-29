@@ -25,7 +25,7 @@ from app.services.playbooks.structured import (
     normalize_steps,
 )
 from app.services.playbooks.store import MemoryPlaybookStore
-from app.services.playbooks.versions import PublishError, can_publish
+from app.services.playbooks.versions import PublishError, StaleDraftError, can_publish
 
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
 MANAGE_ROLES = frozenset({"owner", "admin"})
@@ -193,6 +193,25 @@ class StructuredObjection(BaseModel):
 class StructuredDraftRequest(BaseModel):
     steps: list[StructuredStep] = Field(default_factory=list)
     objections: list[StructuredObjection] = Field(default_factory=list)
+    base_updated_at: Optional[str] = None
+    source_id: Optional[str] = None
+
+
+def _editor_response(sales_motion_key: str, snapshot: dict) -> dict:
+    """The one shape of GET /editor, PUT /draft and DELETE /draft. `source` stays the
+    state of what is shown ("draft" | "published" | "empty", which the current editor
+    reads); the material it was structured from is `source_doc` ({id, kind, name} | null)."""
+    version = snapshot.get("version")
+    return {
+        "sales_motion_key": sales_motion_key,
+        "source": snapshot["state"],
+        "source_doc": snapshot.get("source"),
+        "version_id": (version or {}).get("id"),
+        "updated_at": (version or {}).get("updated_at"),
+        "has_live": bool(snapshot.get("has_live")),
+        "categories": list(OBJECTION_CATEGORIES),
+        **editor_view(version),
+    }
 
 
 @router.get("/{sales_motion_key}/editor")
@@ -211,16 +230,8 @@ async def get_playbook_editor(
         and not visible_to_role(sales_motion_key, membership.sales_role)
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
-    store = get_playbook_store()
-    source, version = store.editor_version(membership.company_id, sales_motion_key, include_draft=manager)
-    view = editor_view(version)
-    return {
-        "sales_motion_key": sales_motion_key,
-        "source": source,
-        "version_id": (version or {}).get("id"),
-        "categories": list(OBJECTION_CATEGORIES),
-        **view,
-    }
+    snapshot = get_playbook_store().editor_snapshot(membership.company_id, sales_motion_key, include_draft=manager)
+    return _editor_response(sales_motion_key, snapshot)
 
 
 @router.put("/{sales_motion_key}/draft")
@@ -229,8 +240,11 @@ async def save_structured_playbook_draft(
     body: StructuredDraftRequest,
     membership: Membership = Depends(get_membership),
 ):
-    """Saves the edited steps and objection answers as a new draft. Publishing it is the
-    existing POST /{key}/publish. Validation errors are 422 with a code the UI translates."""
+    """Saves the edited steps and objection answers as the draft: a pending draft is updated
+    in place (autosave keeps one row), otherwise a new one is created. `base_updated_at` is
+    the updated_at the editor last saw; if the draft has moved since, 409 `stale_draft`.
+    Publishing it is the existing POST /{key}/publish. Validation errors are 422 with a
+    code the UI translates."""
     _guard(membership)
     try:
         steps = normalize_steps([step.model_dump() for step in body.steps])
@@ -240,14 +254,34 @@ async def save_structured_playbook_draft(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": exc.code, "index": exc.index},
         ) from exc
-    version = get_playbook_store().save_structured_draft(membership.company_id, sales_motion_key, steps, entries)
-    return {
-        "sales_motion_key": sales_motion_key,
-        "source": "draft",
-        "version_id": version.get("id"),
-        "categories": list(OBJECTION_CATEGORIES),
-        **editor_view({"steps": steps, "entries": entries}),
-    }
+    store = get_playbook_store()
+    try:
+        store.save_structured_draft(
+            membership.company_id,
+            sales_motion_key,
+            steps,
+            entries,
+            base_updated_at=body.base_updated_at,
+            source_id=body.source_id,
+        )
+    except StaleDraftError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
+    return _editor_response(sales_motion_key, snapshot)
+
+
+@router.delete("/{sales_motion_key}/draft")
+async def discard_structured_playbook_draft(
+    sales_motion_key: str,
+    membership: Membership = Depends(get_membership),
+):
+    """"Descartar cambios": deletes the pending draft (never a published version) and
+    returns the editor as it is now: the live version, or empty."""
+    _guard(membership)
+    store = get_playbook_store()
+    store.discard_draft(membership.company_id, sales_motion_key)
+    snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
+    return _editor_response(sales_motion_key, snapshot)
 
 
 class StructureRequest(BaseModel):
