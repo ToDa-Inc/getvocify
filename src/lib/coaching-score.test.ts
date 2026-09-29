@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
-import { coachingSurface } from "./coaching-score.ts";
+import { coachingSurface, scoreBlocksLine } from "./coaching-score.ts";
 
 describe("coaching surface", () => {
   it("shows the stored mark and does not rebuild it from the steps", () => {
@@ -103,5 +103,23 @@ describe("coaching surface", () => {
         assert.equal(setupAdmin.action, copy.coachingSetupAction);
       }
     }
+  });
+});
+
+describe("score by block", () => {
+  const copy = { scoreOf: "{value}/10", blocks: { steps: "Pasos", qualification: "Cualificación", objections: "Objeciones" } };
+  it("lists only the blocks that applied, in a fixed order", () => {
+    assert.equal(
+      scoreBlocksLine(
+        {
+          value: 7,
+          blocks: { objections: { met: 1, applicable: 1 }, steps: { met: 4, applicable: 5 }, qualification: { met: 0, applicable: 0 } },
+        },
+        copy,
+      ),
+      "7/10 · Pasos 4/5 · Objeciones 1/1",
+    );
+    assert.equal(scoreBlocksLine({ value: 6, blocks: null }, copy), "6/10");
+    assert.equal(scoreBlocksLine({ value: null }, copy), null);
   });
 });

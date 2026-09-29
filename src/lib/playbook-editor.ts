@@ -31,14 +31,67 @@ export type EditorStep = {
   example?: string;
 };
 
-export type EditorObjection = { category: ObjectionCategory; guidance: string };
+// Plan §15: the company's own objections, and what each answer is made of.
+export const MAX_CUSTOM_OBJECTIONS = 12;
+export const MAX_OBJECTION_LABEL = 60;
+export const MAX_TRIGGER = 200;
+export const MAX_MEANING = 200;
+export const MAX_QUESTION = 200;
+export const MAX_PROOF = 300;
+export const MAX_CRITERIA = 8;
+export const MAX_CRITERION_LABEL = 60;
+export const MAX_CRITERION_FIELD = 200;
+
+export type ObjectionKind = ObjectionCategory | "custom";
+
+export type EditorObjection = {
+  category: ObjectionKind;
+  guidance: string;
+  /** Custom objections only: the stable slug. */
+  id?: string;
+  /** Custom objections only: its name, and how the prospect usually says it. */
+  label?: string;
+  trigger?: string;
+  /** What it usually really means, one diagnostic question, and the proof to use. */
+  meaning?: string;
+  question?: string;
+  proof?: string;
+};
+
+/** "Qué tiene que salir de la llamada": one thing the rep has to find out. */
+export type EditorCriterion = {
+  /** Client-side key for React lists; never sent. */
+  key: string;
+  criterion_id?: string | null;
+  label: string;
+  why?: string;
+  good?: string;
+  bad?: string;
+};
+
+type ObjectionSnapshot = {
+  category: string;
+  guidance: string;
+  id?: string;
+  label?: string;
+  trigger?: string;
+  meaning?: string;
+  question?: string;
+  proof?: string;
+};
 
 export type EditorSnapshot = {
   source: "draft" | "published" | "empty";
   version_id: string | null;
   steps: { step_id: string; label: string; criterion: string; example?: string }[];
-  objections: { category: string; guidance: string }[];
+  objections: ObjectionSnapshot[];
+  qualification?: { criterion_id: string; label: string; why?: string; good?: string; bad?: string }[];
 };
+
+/** One key per objection row: the category, or the custom objection's own id. */
+export function objectionKey(item: Pick<EditorObjection, "category" | "id">): string {
+  return item.category === "custom" ? `custom:${item.id ?? ""}` : item.category;
+}
 
 export type StepError =
   | "empty_label"
@@ -146,16 +199,57 @@ export function stepError(step: EditorStep): StepError | null {
   return null;
 }
 
-export function draftError(steps: EditorStep[], objections: EditorObjection[]): string | null {
+export function draftError(
+  steps: EditorStep[],
+  objections: EditorObjection[],
+  qualification: EditorCriterion[] = [],
+): string | null {
   if (steps.length === 0) return "no_steps";
   if (steps.length > MAX_STEPS) return "too_many_steps";
   const stepProblem = steps.map(stepError).find(Boolean);
   if (stepProblem) return stepProblem;
   if (objections.some((item) => tidy(item.guidance).length > MAX_GUIDANCE)) return "guidance_too_long";
+  const custom = objections.filter((item) => item.category === "custom");
+  if (custom.length > MAX_CUSTOM_OBJECTIONS) return "too_many_custom_objections";
+  if (custom.some((item) => !tidy(item.label ?? ""))) return "custom_objection_label_empty";
+  if (custom.some((item) => tidy(item.label ?? "").length > MAX_OBJECTION_LABEL)) return "field_too_long";
+  const tooLong = (value: string | undefined, max: number) => tidy(value ?? "").length > max;
+  if (
+    objections.some(
+      (item) =>
+        tooLong(item.trigger, MAX_TRIGGER) ||
+        tooLong(item.meaning, MAX_MEANING) ||
+        tooLong(item.question, MAX_QUESTION) ||
+        tooLong(item.proof, MAX_PROOF),
+    )
+  ) {
+    return "field_too_long";
+  }
+  if (qualification.length > MAX_CRITERIA) return "too_many_criteria";
+  if (qualification.some((item) => !tidy(item.label))) return "criterion_label_empty";
+  if (qualification.some((item) => tidy(item.label).length > MAX_CRITERION_LABEL)) return "criterion_label_too_long";
+  if (
+    qualification.some((item) =>
+      [item.why, item.good, item.bad].some((value) => tooLong(value, MAX_CRITERION_FIELD)),
+    )
+  ) {
+    return "field_too_long";
+  }
   return null;
 }
 
-export function draftPayload(steps: EditorStep[], objections: EditorObjection[]) {
+function optional(fields: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(fields)) {
+    const clean = tidy(value ?? "");
+    if (clean) out[name] = clean;
+  }
+  return out;
+}
+
+/** PUT /draft body. A fixed objection without an answer isn't sent; a custom one is (it can be
+ * detected before it has an answer). Qualification is sent only when the caller has it. */
+export function draftPayload(steps: EditorStep[], objections: EditorObjection[], qualification?: EditorCriterion[]) {
   return {
     steps: steps.map((step) => ({
       ...(step.step_id ? { step_id: step.step_id } : {}),
@@ -164,8 +258,24 @@ export function draftPayload(steps: EditorStep[], objections: EditorObjection[])
       ...(tidy(step.example ?? "") ? { example: tidy(step.example ?? "") } : {}),
     })),
     objections: objections
-      .filter((item) => tidy(item.guidance))
-      .map((item) => ({ category: item.category, guidance: tidy(item.guidance) })),
+      .filter((item) => (item.category === "custom" ? tidy(item.label ?? "") : tidy(item.guidance)))
+      .map((item) => ({
+        category: item.category,
+        guidance: tidy(item.guidance),
+        ...(item.category === "custom" ? { ...(item.id ? { id: item.id } : {}), label: tidy(item.label ?? "") } : {}),
+        ...optional({ trigger: item.trigger, meaning: item.meaning, question: item.question, proof: item.proof }),
+      })),
+    ...(qualification
+      ? {
+          qualification: qualification
+            .filter((item) => tidy(item.label))
+            .map((item) => ({
+              ...(item.criterion_id ? { criterion_id: item.criterion_id } : {}),
+              label: tidy(item.label),
+              ...optional({ why: item.why, good: item.good, bad: item.bad }),
+            })),
+        }
+      : {}),
   };
 }
 
@@ -180,9 +290,20 @@ export function stepsFromSnapshot(snapshot: EditorSnapshot | null | undefined): 
 }
 
 export function objectionsFromSnapshot(snapshot: EditorSnapshot | null | undefined): EditorObjection[] {
-  return (snapshot?.objections ?? []).filter((item): item is EditorObjection =>
-    (OBJECTION_CATEGORIES as readonly string[]).includes(item.category),
-  );
+  return (snapshot?.objections ?? [])
+    .filter((item) => item.category === "custom" || (OBJECTION_CATEGORIES as readonly string[]).includes(item.category))
+    .map((item) => ({ ...item, category: item.category as ObjectionKind, guidance: item.guidance ?? "" }));
+}
+
+export function criteriaFromSnapshot(snapshot: EditorSnapshot | null | undefined): EditorCriterion[] {
+  return (snapshot?.qualification ?? []).map((item) => ({
+    key: newStepKey(),
+    criterion_id: item.criterion_id,
+    label: item.label,
+    why: item.why ?? "",
+    good: item.good ?? "",
+    bad: item.bad ?? "",
+  }));
 }
 
 export function moveStep(steps: EditorStep[], index: number, delta: -1 | 1): EditorStep[] {

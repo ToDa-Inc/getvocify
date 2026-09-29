@@ -4,6 +4,7 @@ import { CaretRight, Plus } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { errorCode, playbooksApi, type PlaybookList as PlaybookListData } from "@/features/playbooks/api";
+import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
 import { PlaybookDocument, type Flush } from "@/features/playbooks/components/PlaybookDocument";
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { RuleEditor } from "@/features/playbooks/components/RuleEditor";
@@ -27,11 +28,15 @@ import {
   type CatalogType,
 } from "@/lib/playbook-doc";
 import { draftPayload, newStepKey, templateSteps, type EditorStep } from "@/lib/playbook-editor";
+import { isEmptyKnowledge, knowledgeSummary } from "@/lib/playbook-knowledge";
 import type { MotionStatus } from "@/lib/playbook-setup";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
 const LIST_KEY = ["playbooks"] as const;
+const COMPANY_KEY = ["playbook-company"] as const;
+/** The "Vuestra empresa" row's key, next to the call types' motion keys. */
+const COMPANY_ROW = "__company";
 const DEFAULT_GOALS: Record<string, string> = { discovery: "meeting_booked", closing: "proposal_and_close" };
 const linkButton =
   "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground";
@@ -58,6 +63,7 @@ export function PlaybookList() {
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [browse, setBrowse] = useState(false);
   const [found, setFound] = useState<number | null>(null);
+  const [foundCompany, setFoundCompany] = useState<string | null>(null);
   const [fallback, setFallback] = useState<Fallback | null>(null);
   const [intakeNotice, setIntakeNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
@@ -88,7 +94,10 @@ export function PlaybookList() {
   const types = catalog.data?.types ?? [];
   const typeOf = (key: string) => types.find((type) => type.key === key);
   const rows = playbookRows(motions, details, routing);
-  const empty = canEdit && list.isSuccess && nothingYet(motions, details);
+  const company = useQuery({ queryKey: COMPANY_KEY, queryFn: playbooksApi.company, retry: false });
+  const companySummary = knowledgeSummary(company.data?.knowledge, copy.summary);
+  const empty =
+    canEdit && list.isSuccess && nothingYet(motions, details) && !company.isLoading && isEmptyKnowledge(company.data?.knowledge);
   const showIntake = canEdit && ((empty && !browse) || intakeOpen);
   const pending = pendingKeys(motions, details);
 
@@ -130,12 +139,15 @@ export function PlaybookList() {
       setFallback({ candidates: result.candidates, input });
       return;
     }
-    if (result.types.length === 0) {
+    const companyFilled = (result.company?.filled.length ?? 0) > 0;
+    if (result.types.length === 0 && !companyFilled) {
       setIntakeNotice(copy.reasonNoProcess);
       return;
     }
+    if (result.company) queryClient.setQueryData(COMPANY_KEY, result.company);
     await refresh();
     setFound(result.types.length);
+    setFoundCompany(companyFilled ? knowledgeSummary(result.company?.knowledge, copy.summary) : null);
     setOpenKey(result.types.length === 1 ? result.types[0].sales_motion_key : null);
     closeIntake();
     setBrowse(true);
@@ -153,9 +165,13 @@ export function PlaybookList() {
         setIntakeNotice(copy.reasonNoProcess);
         return;
       }
-      await playbooksApi.saveDraft(key, { ...draftPayload(next.steps, next.objections), source_id: result.source?.id ?? null });
+      await playbooksApi.saveDraft(key, {
+        ...draftPayload(next.steps, next.objections, next.qualification),
+        source_id: result.source?.id ?? null,
+      });
       await refresh();
       setFound(1);
+      setFoundCompany(null);
       setOpenKey(key);
       closeIntake();
       setBrowse(true);
@@ -185,6 +201,7 @@ export function PlaybookList() {
       }
       await refresh();
       setFound(null);
+      setFoundCompany(null);
       setDocVersion((version) => version + 1);
       toast.success(copy.activated);
     } catch (error) {
@@ -262,12 +279,43 @@ export function PlaybookList() {
 
       {empty && !browse ? null : (
         <>
-          {found ? (
-            <p className={cn("pt-5 text-sm text-foreground", THEME_TOKENS.motion.fadeIn)} role="status">
-              {found === 1 ? copy.foundOne : copy.foundMany.replace("{count}", String(found))}
-            </p>
+          {found || foundCompany ? (
+            <div className={cn("space-y-0.5 pt-5 text-sm text-foreground", THEME_TOKENS.motion.fadeIn)} role="status">
+              {found ? <p>{found === 1 ? copy.foundOne : copy.foundMany.replace("{count}", String(found))}</p> : null}
+              {foundCompany ? <p className="text-muted-foreground">{copy.foundCompany.replace("{summary}", foundCompany)}</p> : null}
+            </div>
           ) : null}
           <ul className="py-1">
+            {/* Shared by every call type: who you sell to, the value story, stories, competitors. */}
+            <li className="border-t border-border/40 first:border-t-0">
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 py-4 text-left"
+                aria-expanded={openKey === COMPANY_ROW}
+                onClick={() => setOpenKey(openKey === COMPANY_ROW ? null : COMPANY_ROW)}
+              >
+                <span className="text-[15px] text-foreground">{copy.companyTitle}</span>
+                <span className="ml-auto flex shrink-0 items-center gap-3">
+                  <span className={cn(THEME_TOKENS.typography.capsLabel, "hidden truncate sm:inline")}>
+                    {companySummary ?? copy.statusMissing}
+                  </span>
+                  <CaretRight
+                    size={14}
+                    weight="light"
+                    className={cn("text-muted-foreground transition-transform duration-150", openKey === COMPANY_ROW && "rotate-90")}
+                  />
+                </span>
+              </button>
+              {openKey === COMPANY_ROW ? (
+                <div className={cn("pb-7 pt-1", THEME_TOKENS.motion.fadeIn)}>
+                  <CompanyKnowledge
+                    key={docVersion}
+                    canEdit={canEdit}
+                    onSaved={() => void queryClient.invalidateQueries({ queryKey: COMPANY_KEY })}
+                  />
+                </div>
+              ) : null}
+            </li>
             {rows.map((row) => {
               const open = openKey === row.key;
               const detail = details[row.key];

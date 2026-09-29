@@ -4,6 +4,8 @@ import {
   addableTypes,
   appendDictation,
   countLine,
+  customObjectionId,
+  hasObjectionDetail,
   nothingYet,
   pendingKeys,
   ruleNeeded,
@@ -67,14 +69,28 @@ describe("playbook document", () => {
       ],
       ["authority"],
     );
-    assert.deepEqual(rows.map((row) => row.category), ["timing", "price", "authority"]);
+    assert.deepEqual(rows.map((row) => row.key), ["timing", "price", "authority"]);
     assert.equal(rows[0].bestExample, "Lo vemos en enero");
     assert.deepEqual(hiddenObjectionCategories(rows), ["competitor", "status_quo", "trust", "other"]);
   });
 
   it("keeps a category on screen while its answer is being cleared", () => {
     const rows = visibleObjections([{ category: "trust", guidance: "" }], null);
-    assert.deepEqual(rows.map((row) => row.category), ["trust"]);
+    assert.deepEqual(rows.map((row) => row.key), ["trust"]);
+  });
+
+  it("puts the company's own objections first and gives them a unique id", () => {
+    const rows = visibleObjections(
+      [
+        { category: "price", guidance: "¿Comparado con qué?" },
+        { category: "custom", id: "excel", label: "Ya lo hacemos con Excel", guidance: "" },
+      ],
+      [{ category: "price", count: 4, share: 0.08, answered: true, best_example: null }],
+    );
+    assert.deepEqual(rows.map((row) => row.key), ["custom:excel", "price"]);
+    assert.equal(customObjectionId("Ya lo hacemos con Excel", ["ya_lo_hacemos_con_excel"]), "ya_lo_hacemos_con_excel_2");
+    assert.equal(hasObjectionDetail({ category: "price", guidance: "x", question: " ¿Comparado con qué? " }), true);
+    assert.equal(hasObjectionDetail({ category: "price", guidance: "x" }), false);
   });
 
   it("gives a step rate only when there is one, and names the weakest step", () => {
@@ -167,13 +183,21 @@ describe("playbook document", () => {
   });
 
   it("counts checks and answers in one short line", () => {
-    const copy = { checks: "{count} comprobaciones", checkOne: "1 comprobación", answers: "{count} respuestas", answerOne: "1 respuesta" };
+    const copy = {
+      checks: "{count} comprobaciones",
+      checkOne: "1 comprobación",
+      answers: "{count} respuestas",
+      answerOne: "1 respuesta",
+      criteria: "{count} datos",
+      criterionOne: "1 dato",
+    };
     const detail = (step_count: number, answer_count: number) =>
       ({ label: null, role: null, applies_to: null, goal: null, catalog: true, step_count, answer_count });
     assert.equal(countLine(detail(5, 3), copy), "5 comprobaciones · 3 respuestas");
     assert.equal(countLine(detail(1, 1), copy), "1 comprobación · 1 respuesta");
     assert.equal(countLine(detail(4, 0), copy), "4 comprobaciones");
     assert.equal(countLine(detail(0, 2), copy), null);
+    assert.equal(countLine({ ...detail(5, 3), criteria_count: 4 }, copy), "5 comprobaciones · 4 datos · 3 respuestas");
   });
 
   it("shows the rule line only when a rule decides something", () => {

@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { playbooksApi } from "@/features/playbooks/api";
 import { PlaybookDocument } from "@/features/playbooks/components/PlaybookDocument";
+import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
+import { isEmptyKnowledge } from "@/lib/playbook-knowledge";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { templateSteps } from "@/lib/playbook-editor";
@@ -78,6 +80,19 @@ function YourProcess() {
   );
 }
 
+/** "Vuestra empresa", read-only: the value story, customer stories and competitors a rep uses. */
+function YourCompany() {
+  const { t } = useLanguage();
+  const company = useQuery({ queryKey: ["playbook-company"], queryFn: playbooksApi.company, retry: false });
+  if (!company.data || isEmptyKnowledge(company.data.knowledge)) return null;
+  return (
+    <section aria-labelledby="your-company" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-4 p-5 md:p-6`}>
+      <h2 id="your-company" className={THEME_TOKENS.typography.sectionTitle}>{t.product.pb2.companyReadHeading}</h2>
+      <CompanyKnowledge canEdit={false} />
+    </section>
+  );
+}
+
 export default function PlaybookPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -101,6 +116,7 @@ export default function PlaybookPage() {
     <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
       <h1 className={THEME_TOKENS.typography.pageTitle}>{p.playbookPageTitle}</h1>
       <YourProcess />
+      <YourCompany />
       {bestEnabled ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.pb2.bestHeading}</h2> : null}
       {query.isLoading && bestEnabled ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}
       {query.isError ? <p className={THEME_TOKENS.typography.body}>{p.teamReadFailed}</p> : null}

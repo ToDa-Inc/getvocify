@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
-import { coachingSurface } from "@/lib/coaching-score";
+import { coachingSurface, scoreBlocksLine } from "@/lib/coaching-score";
 import { useMemoScore } from "@/features/coaching/hooks/useMemoScore";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -24,7 +24,7 @@ export function CoachingScore({ memoId }: { memoId: string }) {
         <div className="space-y-3">
           <p className={THEME_TOKENS.typography.body}>{surface.title}</p>
           {surface.action ? (
-            <Button type="button" variant="outline" onClick={() => navigate("/dashboard/settings/playbooks")}>
+            <Button type="button" variant="outline" onClick={() => navigate("/dashboard/process")}>
               {surface.action}
             </Button>
           ) : (
@@ -42,16 +42,13 @@ export function CoachingScore({ memoId }: { memoId: string }) {
       ) : null}
       {surface.kind === "scored" ? (
         <div className="space-y-2">
+          {/* The mark and what it is made of, in one line: 7/10 · Pasos 4/5 · Cualificación 2/4. */}
+          <p className="text-[15px] tabular-nums text-foreground">{scoreBlocksLine(query.data, p.pb2)}</p>
           {surface.strengths.map((item) => <p key={item} className="text-[15px] text-foreground">{p.coachingStrength}: {item}</p>)}
           {surface.improvements.map((item) => <p key={item} className="text-[15px] text-foreground">{p.coachingImprovement}: {item}</p>)}
           {surface.crmOutcome ? (
             <p className={THEME_TOKENS.typography.body}>{p.coachingCrmOutcome.replace("{outcome}", surface.crmOutcome)}</p>
           ) : null}
-          <details>
-            <summary>{p.coachingViewCriteria}</summary>
-            <p>{surface.value}</p>
-            {surface.adherence !== null ? <p>{surface.adherence}</p> : null}
-          </details>
         </div>
       ) : null}
     </section>

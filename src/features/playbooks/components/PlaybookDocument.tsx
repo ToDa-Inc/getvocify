@@ -11,12 +11,14 @@ import {
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { errorCode, playbooksApi, type EditorDoc } from "@/features/playbooks/api";
 import { PlaybookObjections } from "@/features/playbooks/components/PlaybookObjections";
+import { PlaybookQualification } from "@/features/playbooks/components/PlaybookQualification";
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { PlaybookStepRow } from "@/features/playbooks/components/PlaybookStepRow";
 import { useLanguage } from "@/lib/i18n";
 import {
   AUTOSAVE_MS,
   FOCUS_STEPS,
+  customObjectionId,
   editorFromStructure,
   stepRate,
   visibleObjections,
@@ -30,13 +32,16 @@ import {
   MAX_STEPS,
   OBJECTION_CATEGORIES,
   draftError,
+  criteriaFromSnapshot,
   draftPayload,
   isLegacyBlob,
   moveStep,
   newStepKey,
+  objectionKey,
   objectionsFromSnapshot,
   parsePlaybookText,
   stepsFromSnapshot,
+  type EditorCriterion,
   type EditorObjection,
   type EditorStep,
   type ObjectionCategory,
@@ -45,7 +50,12 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
 type Notice = { tone: "info" | "error"; text: string } | null;
-type Replacement = { steps: EditorStep[]; objections: EditorObjection[]; source: PlaybookSource | null };
+type Replacement = {
+  steps: EditorStep[];
+  objections: EditorObjection[];
+  qualification: EditorCriterion[];
+  source: PlaybookSource | null;
+};
 
 /** Saves whatever is pending; resolves false when something could not be saved. */
 export type Flush = () => Promise<boolean>;
@@ -82,6 +92,7 @@ export function PlaybookDocument({
   const [doc, setDoc] = useState<EditorDoc | null>(null);
   const [steps, setSteps] = useState<EditorStep[]>([]);
   const [objections, setObjections] = useState<EditorObjection[]>([]);
+  const [qualification, setQualification] = useState<EditorCriterion[]>([]);
   const [added, setAdded] = useState<ObjectionCategory[]>([]);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState(false);
@@ -97,19 +108,21 @@ export function PlaybookDocument({
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
   // What an in-flight save reads without re-rendering: the latest edit and its revision.
-  const latest = useRef({ steps, objections, source, updatedAt: null as string | null });
+  const latest = useRef({ steps, objections, qualification, source, updatedAt: null as string | null });
   const revision = useRef(0);
   const inflight = useRef<Promise<boolean> | null>(null);
   const savedRef = useRef(onSaved);
   savedRef.current = onSaved;
   latest.current.steps = steps;
   latest.current.objections = objections;
+  latest.current.qualification = qualification;
   latest.current.source = source;
 
   const adopt = useCallback((data: EditorDoc) => {
     setDoc(data);
     setSteps(stepsFromSnapshot(data));
     setObjections(objectionsFromSnapshot(data));
+    setQualification(criteriaFromSnapshot(data));
     setSource(data.source_doc ?? null);
     latest.current.updatedAt = data.updated_at ?? null;
     setEditing(data.source === "draft");
@@ -145,15 +158,18 @@ export function PlaybookDocument({
   /** Saves what can be saved: a step without a name yet stays on screen and waits. */
   const save = useCallback(async (): Promise<boolean> => {
     if (inflight.current) await inflight.current;
-    const { steps: all, objections: answers, source: from, updatedAt } = latest.current;
+    const { steps: all, objections: raw, qualification: rawCriteria, source: from, updatedAt } = latest.current;
     const savable = all.filter((step) => step.label.trim());
-    if (savable.length === 0 || draftError(savable, answers)) return false;
+    // Rows still being named wait on screen, like a step without a name.
+    const answers = raw.filter((item) => item.category !== "custom" || item.label?.trim());
+    const criteria = rawCriteria.filter((item) => item.label.trim());
+    if (savable.length === 0 || draftError(savable, answers, criteria)) return false;
     const at = revision.current;
     setSaveState("saving");
     const run = (async () => {
       try {
         const data = await playbooksApi.saveDraft(motionKey, {
-          ...draftPayload(savable, answers),
+          ...draftPayload(savable, answers, criteria),
           base_updated_at: updatedAt,
           source_id: from?.id ?? null,
         });
@@ -189,7 +205,7 @@ export function PlaybookDocument({
     if (!dirty || !editing || !canEdit || saveState === "stale") return;
     const timer = window.setTimeout(() => void save(), saveState === "error" ? 5000 : AUTOSAVE_MS);
     return () => window.clearTimeout(timer);
-  }, [steps, objections, dirty, editing, canEdit, saveState, save]);
+  }, [steps, objections, qualification, dirty, editing, canEdit, saveState, save]);
 
   // Leaving the page, closing the row or turning things on never loses the last edit.
   const flushRef = useRef<Flush>(async () => true);
@@ -215,19 +231,35 @@ export function PlaybookDocument({
   const isDraft = doc?.source === "draft";
   const editable = canEdit && editing;
 
-  const setAnswer = (category: ObjectionCategory, guidance: string) =>
+  const patchObjection = (key: string, patch: Partial<EditorObjection>) =>
     change(() =>
-      setObjections((current) =>
-        [...current.filter((item) => item.category !== category), { category, guidance }].sort(
-          (a, b) => OBJECTION_CATEGORIES.indexOf(a.category) - OBJECTION_CATEGORIES.indexOf(b.category),
-        ),
-      ),
+      setObjections((current) => {
+        const exists = current.some((item) => objectionKey(item) === key);
+        if (exists) return current.map((item) => (objectionKey(item) === key ? { ...item, ...patch } : item));
+        // A fixed category shown by the data or added by hand gets its entry on first edit.
+        const category = key as ObjectionCategory;
+        return [...current, { category, guidance: "", ...patch }].sort(
+          (a, b) => OBJECTION_CATEGORIES.indexOf(a.category as ObjectionCategory) - OBJECTION_CATEGORIES.indexOf(b.category as ObjectionCategory),
+        );
+      }),
     );
+
+  const addCustomObjection = () =>
+    change(() =>
+      setObjections((current) => {
+        const taken = current.filter((item) => item.category === "custom").map((item) => item.id ?? "");
+        return [{ category: "custom", id: customObjectionId("objecion", taken), label: "", trigger: "", guidance: "" }, ...current];
+      }),
+    );
+
+  const removeObjection = (key: string) =>
+    change(() => setObjections((current) => current.filter((item) => objectionKey(item) !== key)));
 
   const apply = (next: Replacement) => {
     change(() => {
       setSteps(next.steps);
       setObjections(next.objections);
+      setQualification(next.qualification);
       setSource(next.source);
       setAdded([]);
       setTouched(new Set());
@@ -317,7 +349,7 @@ export function PlaybookDocument({
           submit={structure}
           onTemplate={() => {
             setNotice(null);
-            apply({ steps: template(), objections: [], source: null });
+            apply({ steps: template(), objections: [], qualification: [], source: null });
           }}
         />
       </div>
@@ -399,7 +431,7 @@ export function PlaybookDocument({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => apply({ steps: parsePlaybookText(steps[0]?.criterion ?? ""), objections, source })}
+            onClick={() => apply({ steps: parsePlaybookText(steps[0]?.criterion ?? ""), objections, qualification, source })}
           >
             {t.product.playbookEditorSplit}
           </Button>
@@ -448,11 +480,19 @@ export function PlaybookDocument({
         ) : null}
       </section>
 
+      <PlaybookQualification
+        criteria={qualification}
+        editable={editable}
+        onChange={(next) => change(() => setQualification(next))}
+      />
+
       <PlaybookObjections
         rows={rows}
         editable={editable}
-        onAnswer={setAnswer}
+        onChange={patchObjection}
         onAdd={(category) => setAdded((current) => (current.includes(category) ? current : [...current, category]))}
+        onAddCustom={addCustomObjection}
+        onRemove={removeObjection}
       />
 
       <ConfirmAction
