@@ -123,4 +123,5 @@ def _view(playbook: dict, version: dict) -> dict:
         "sales_motion_key": playbook["sales_motion_key"],
         "steps": version.get("steps") or [],
         "entries": version.get("entries") or [],
+        "qualification": version.get("qualification") or [],
     }

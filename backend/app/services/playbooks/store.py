@@ -6,6 +6,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app.services.playbooks.knowledge import StaleKnowledgeError, normalize_knowledge
 from app.services.playbooks.structured import editor_view
 from app.services.playbooks.versions import (
     PublishError,
@@ -19,7 +20,8 @@ from app.services.playbooks.versions import (
 logger = logging.getLogger(__name__)
 
 SOURCE_PREFIX = "source:"
-_VERSION_COLS = "id,status,steps,entries,created_at,updated_at"
+_VERSION_COLS = "id,status,steps,entries,qualification,created_at,updated_at"
+_KNOWLEDGE_COLS = "data,source_id,updated_at"
 
 
 def _stamp(previous: str | None = None) -> str:
@@ -40,15 +42,20 @@ def _source_view(record: dict | None, source_id: str) -> dict | None:
 
 _UNSET = object()
 
-NO_VERSION_SUMMARY = {"step_count": 0, "answer_count": 0, "has_draft": False}
+NO_VERSION_SUMMARY = {"step_count": 0, "answer_count": 0, "criteria_count": 0, "has_draft": False}
 
 
 def _summary(version: dict | None, *, has_draft: bool) -> dict:
-    """What the list shows of a playbook: how many steps and objection answers the version
-    the editor opens has (counted the way the editor shows them), and whether a pending
-    draft exists."""
+    """What the list shows of a playbook: how many steps, objection answers and qualification
+    criteria the version the editor opens has (counted the way the editor shows them), and
+    whether a pending draft exists."""
     view = editor_view(version)
-    return {"step_count": len(view["steps"]), "answer_count": len(view["objections"]), "has_draft": has_draft}
+    return {
+        "step_count": len(view["steps"]),
+        "answer_count": len(view["objections"]),
+        "criteria_count": len(view["qualification"]),
+        "has_draft": has_draft,
+    }
 
 
 
@@ -62,6 +69,7 @@ class MemoryPlaybookStore:
         structured: dict | None = None,
         published_versions: dict | None = None,
         details: dict | None = None,
+        knowledge: dict | None = None,
     ):
         self._motions = motions
         self._imports = imports
@@ -72,6 +80,8 @@ class MemoryPlaybookStore:
         self._published_versions = published_versions if published_versions is not None else {}
         # (company_id, key) -> {"label", "applies_to"}: the type's name and routing rule (T7).
         self._details = details if details is not None else {}
+        # company_id -> {"data", "source_id", "updated_at"}: what Vocify knows about the company.
+        self._knowledge = knowledge if knowledge is not None else {}
 
     def get_import(self, company_id: str, import_id: str):
         record = self._imports.get(import_id)
@@ -125,9 +135,11 @@ class MemoryPlaybookStore:
         *,
         base_updated_at: str | None = None,
         source_id: str | None = None,
+        qualification: list | None = None,
     ) -> dict:
         """Test double of SupabasePlaybookStore.save_structured_draft: a pending draft is
-        updated in place (same id), otherwise a new one is created."""
+        updated in place (same id), otherwise a new one is created. `qualification` None
+        leaves the draft's criteria as they are (a new draft starts from the live version's)."""
         slot = (company_id, key)
         pending = self._structured.get(slot)
         live = self._published_versions.get(slot)
@@ -138,6 +150,8 @@ class MemoryPlaybookStore:
                 raise StaleDraftError()
             pending["steps"] = steps
             pending["entries"] = entries
+            if qualification is not None:
+                pending["qualification"] = qualification
             pending["updated_at"] = _stamp(pending.get("updated_at"))
             if source_id is not None:
                 pending["source_id"] = source_id
@@ -151,6 +165,7 @@ class MemoryPlaybookStore:
                 "status": "draft",
                 "steps": steps,
                 "entries": entries,
+                "qualification": qualification if qualification is not None else list((live or {}).get("qualification") or []),
                 "created_at": stamp,
                 "updated_at": stamp,
                 "source_id": source_id if source_id is not None else (live or {}).get("source_id"),
@@ -254,6 +269,28 @@ class MemoryPlaybookStore:
             shown = draft if (include_draft and draft is not None) else live
             out[key] = _summary(shown, has_draft=include_draft and draft is not None)
         return out
+
+    def get_knowledge(self, company_id: str) -> dict | None:
+        """{data, source_id, updated_at} of what Vocify knows about the company, None when
+        nothing was ever saved."""
+        row = self._knowledge.get(company_id)
+        return {**row, "data": normalize_knowledge(row["data"])} if row else None
+
+    def save_knowledge(
+        self, company_id: str, data: dict, *, base_updated_at: str | None = None, source_id=_UNSET,
+    ) -> dict:
+        """Replaces the company's knowledge (no draft: it takes effect at once). With
+        `base_updated_at`, StaleKnowledgeError when it is not the saved row's updated_at."""
+        row = self._knowledge.get(company_id)
+        if base_updated_at and not (row and same_instant(base_updated_at, row.get("updated_at"))):
+            raise StaleKnowledgeError()
+        saved = {
+            "data": normalize_knowledge(data),
+            "source_id": (row or {}).get("source_id") if source_id is _UNSET else source_id,
+            "updated_at": _stamp((row or {}).get("updated_at")),
+        }
+        self._knowledge[company_id] = saved
+        return dict(saved)
 
     def save_type_meta(self, company_id: str, key: str, *, label=_UNSET, applies_to=_UNSET) -> None:
         """Saves a type's label and/or routing rule. The type shows up in motions()."""
@@ -407,8 +444,9 @@ class SupabasePlaybookStore:
         *,
         base_updated_at: str | None = None,
         source_id: str | None = None,
+        qualification: list | None = None,
     ) -> dict:
-        """The draft holding real steps and objection answers. A pending draft (newer than
+        """The draft holding real steps, objection answers and qualification criteria. A pending draft (newer than
         the live version) is UPDATED in place, so autosave keeps one row; otherwise a new
         draft is inserted. `base_updated_at` is the updated_at the caller last saw: if the
         draft (or, for a first save over a live version, the live one) has moved since,
@@ -417,7 +455,11 @@ class SupabasePlaybookStore:
         publish_playbook_motion publishes the latest draft and checks the latest import for
         contradictions, so the draft has ONE import row (kind "editor", id
         `editor:{version_id}`, no contradictions), created with it and rewritten by later
-        saves. It also carries `draft.source_id`, the material the steps came from."""
+        saves. It also carries `draft.source_id`, the material the steps came from.
+
+        `qualification` None leaves the draft's criteria as they are; a new draft starts from
+        the live version's (the editor sends what it shows, and a client that does not know
+        about criteria must not wipe them)."""
         playbook = self._playbook(company_id, key, create=True)
         if not playbook:
             raise RuntimeError("playbook row missing after upsert")
@@ -428,9 +470,12 @@ class SupabasePlaybookStore:
         if pending is not None:
             if base_updated_at and not same_instant(base_updated_at, pending.get("updated_at")):
                 raise StaleDraftError()
+            patch: dict = {"steps": steps, "entries": entries}
+            if qualification is not None:
+                patch["qualification"] = qualification
             updated = (
                 self.supabase.table("playbook_versions")
-                .update({"steps": steps, "entries": entries})
+                .update(patch)
                 .eq("id", pending["id"])
                 .eq("status", "draft")  # published in the meantime: not ours to overwrite
                 .execute()
@@ -441,18 +486,27 @@ class SupabasePlaybookStore:
         else:
             if base_updated_at and not (live and same_instant(base_updated_at, live.get("updated_at"))):
                 raise StaleDraftError()
+            criteria = qualification if qualification is not None else list((live or {}).get("qualification") or [])
             inserted = (
                 self.supabase.table("playbook_versions")
-                .insert({"playbook_id": playbook["id"], "status": "draft", "steps": steps, "entries": entries})
+                .insert({
+                    "playbook_id": playbook["id"], "status": "draft",
+                    "steps": steps, "entries": entries, "qualification": criteria,
+                })
                 .execute()
             ).data or []
-            version = inserted[0] if inserted else {"steps": steps, "entries": entries, "status": "draft"}
-        self._save_editor_import(company_id, playbook, live, version, steps, entries, source_id)
+            version = inserted[0] if inserted else {
+                "steps": steps, "entries": entries, "qualification": criteria, "status": "draft",
+            }
+        self._save_editor_import(
+            company_id, playbook, live, version, steps, entries, source_id,
+            version.get("qualification") or [],
+        )
         return version
 
     def _save_editor_import(
         self, company_id: str, playbook: dict, live: dict | None, version: dict,
-        steps: list, entries: list, source_id: str | None,
+        steps: list, entries: list, source_id: str | None, qualification: list | None = None,
     ) -> None:
         from app.services.playbooks.structured import render_text
 
@@ -466,7 +520,7 @@ class SupabasePlaybookStore:
             # The first edit over a published version keeps pointing at its source.
             effective = ((self._editor_import_draft(live["id"]) or {}).get("draft") or {}).get("source_id")
         draft = {
-            "text": render_text(steps, entries),
+            "text": render_text(steps, entries, qualification),
             "source_ref": "editor",
             "contradictions": [],
             "version_id": version["id"],
@@ -653,6 +707,67 @@ class SupabasePlaybookStore:
             pending = include_draft and draft is not None
             out[key] = _summary(draft if pending else live, has_draft=pending)
         return out
+
+    def get_knowledge(self, company_id: str) -> dict | None:
+        """{data, source_id, updated_at} of what Vocify knows about the company, None when
+        nothing was ever saved."""
+        rows = (
+            self.supabase.table("company_sales_knowledge")
+            .select(_KNOWLEDGE_COLS)
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        ).data or []
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "data": normalize_knowledge(row.get("data")),
+            "source_id": row.get("source_id"),
+            "updated_at": row.get("updated_at"),
+        }
+
+    def save_knowledge(
+        self, company_id: str, data: dict, *, base_updated_at: str | None = None, source_id=_UNSET,
+    ) -> dict:
+        """Replaces the company's knowledge (no draft: it takes effect at once). With
+        `base_updated_at`, StaleKnowledgeError when the saved row moved since the caller
+        loaded it: the update is filtered on the exact updated_at that was compared, so two
+        saves racing on the same base cannot both win."""
+        clean = normalize_knowledge(data)
+        rows = (
+            self.supabase.table("company_sales_knowledge")
+            .select(_KNOWLEDGE_COLS)
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        ).data or []
+        row = rows[0] if rows else None
+        if base_updated_at and not (row and same_instant(base_updated_at, row.get("updated_at"))):
+            raise StaleKnowledgeError()
+        keep = (row or {}).get("source_id") if source_id is _UNSET else source_id
+        if row is None:
+            saved = (
+                self.supabase.table("company_sales_knowledge")
+                .upsert(
+                    {"company_id": company_id, "data": clean, "source_id": keep},
+                    on_conflict="company_id",
+                )
+                .execute()
+            ).data or []
+        else:
+            query = (
+                self.supabase.table("company_sales_knowledge")
+                .update({"data": clean, "source_id": keep})
+                .eq("company_id", company_id)
+            )
+            if base_updated_at:
+                query = query.eq("updated_at", row.get("updated_at"))
+            saved = query.execute().data or []
+            if not saved and base_updated_at:
+                raise StaleKnowledgeError()
+        result = saved[0] if saved else {}
+        return {"data": clean, "source_id": keep, "updated_at": result.get("updated_at")}
 
     def save_type_meta(self, company_id: str, key: str, *, label=_UNSET, applies_to=_UNSET) -> None:
         """Saves a type's label and/or routing rule on its playbooks row, creating the row

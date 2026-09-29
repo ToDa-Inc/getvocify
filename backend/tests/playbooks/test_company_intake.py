@@ -27,6 +27,7 @@ from app.services import feature_flags
 from app.services.company import Membership
 from app.services.playbooks import intake
 from app.services.playbooks.catalog import default_applies_to
+from app.services.playbooks.knowledge import normalize_knowledge
 from app.services.playbooks.store import MemoryPlaybookStore, SupabasePlaybookStore
 from app.services.playbooks.structure import split_source
 from tests.playbooks.test_draft_autosave import FakeDb, _Result
@@ -130,7 +131,7 @@ def test_a_mixed_document_saves_one_draft_per_call_type():
     response = _post(client, name="playbook.txt")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"source", "fallback", "reason", "candidates", "types"}
+    assert set(body) == {"source", "fallback", "reason", "candidates", "types", "company"}
     assert body["fallback"] is False and body["reason"] is None
     assert [t["sales_motion_key"] for t in body["types"]] == ["discovery", "closing"]
     assert all(set(t) == {"sales_motion_key", "reason", "editor"} for t in body["types"])
@@ -145,7 +146,7 @@ def test_a_mixed_document_saves_one_draft_per_call_type():
         assert editor == client.get(f"/api/v1/playbooks/{key}/editor").json()
         assert set(editor) == {
             "sales_motion_key", "source", "source_doc", "version_id", "updated_at", "has_live", "categories",
-            "steps", "objections",
+            "steps", "objections", "qualification",
         }
         assert editor["source"] == "draft" and editor["has_live"] is False
         assert editor["source_doc"] == body["source"]
@@ -394,9 +395,9 @@ def test_split_source_never_raises_and_orders_nothing_by_itself():
     candidates = [{"key": "discovery", "label": "Frío", "description": "x"}, {"key": "closing", "label": "Cierre"}]
     result = asyncio.run(split_source(MIXED, candidates, "es", llm=FakeLLM(MIXED_ANSWER)))
     assert [t["key"] for t in result["types"]] == ["discovery", "closing"]
-    assert set(result["types"][0]) == {"key", "reason", "steps", "objections"}
+    assert set(result["types"][0]) == {"key", "reason", "steps", "objections", "qualification"}
     assert asyncio.run(split_source("", candidates, "es", llm=FakeLLM(RuntimeError()))) == {
-        "types": [], "reason": "no_process", "fallback": False,
+        "types": [], "company": normalize_knowledge({}), "reason": "no_process", "fallback": False,
     }
     assert asyncio.run(split_source(MIXED, candidates, "es", llm=FakeLLM(RuntimeError())))["fallback"] is True
 
@@ -649,8 +650,8 @@ def test_the_supabase_store_reads_all_the_counts_in_a_constant_number_of_queries
     summaries = store.version_summaries("co-1")
     assert set(summaries) == set(keys)
     assert len(db.queries) <= 3  # playbooks, live versions, drafts: not one per type
-    assert summaries["closing"] == {"step_count": 2, "answer_count": 1, "has_draft": False}
-    assert summaries["discovery"] == {"step_count": 2, "answer_count": 1, "has_draft": True}
+    assert summaries["closing"] == {"step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": False}
+    assert summaries["discovery"] == {"step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": True}
     assert store.version_summaries("other-company") == {}
 
 

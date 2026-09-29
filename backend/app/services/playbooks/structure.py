@@ -13,6 +13,12 @@ One model call, with deterministic rules after it (the model is never trusted wi
   an EMPTY criterion, which the editor shows as "write when this counts as done". (The
   alternative, criterion == label as normalize_steps does, would be indistinguishable from
   a criterion the manager wrote.)
+- three layers (playbook_structure_v2 / playbook_split_v2): besides steps and objection answers the
+  model returns the objections the company names that fit no fixed category (`custom`), the
+  qualification criteria ("what has to come out of the call") and, for a whole-company document,
+  what it says about the company. All of it is clipped like the steps, and what the source does
+  not say stays empty: a competitor whose name is not in the source, or a number that is not in
+  it, is dropped;
 - if the model fails, times out or returns nothing usable, the deterministic line parser
   (a port of the frontend's parsePlaybookText) builds the steps and `fallback` is true.
   Structuring never blocks the manager.
@@ -30,23 +36,35 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.services.playbooks.catalog import QUALIFICATION_TEMPLATE_KEYS, qualification_criteria
+from app.services.playbooks.knowledge import normalize_knowledge
 from app.services.playbooks.motion import goal_for
 from app.services.playbooks.structured import (
+    CUSTOM_CATEGORY,
+    MAX_CRITERIA,
     MAX_CRITERION,
+    MAX_CRITERION_LABEL,
+    MAX_CRITERION_TEXT,
+    MAX_CUSTOM_OBJECTIONS,
     MAX_EXAMPLE,
     MAX_GUIDANCE,
     MAX_LABEL,
+    MAX_OBJECTION_LABEL,
+    MAX_TRIGGER,
     OBJECTION_CATEGORIES,
+    OBJECTION_EXTRAS,
     clip_text,
     normalize_objections,
+    normalize_qualification,
     normalize_steps,
+    objection_view,
     parse_playbook_text,
 )
 from app.services.text_guard import generic_criterion, generic_phrases
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "playbook_structure_v1"
+PROMPT_VERSION = "playbook_structure_v2"
 _PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.md"
 
 MAX_AI_STEPS = 7
@@ -147,12 +165,24 @@ def _literal_in(example: str, folded_source: str) -> bool:
     return bool(folded) and folded in folded_source
 
 
+def _templates_block(lang: str) -> str:
+    """The qualification frameworks the source may name, as criteria in the source's language.
+    Kept out of the prompt file so they have one home (catalog.py); the model uses one only when
+    the source names it."""
+    lines = [
+        f"{key.upper()}: {json.dumps(qualification_criteria(key, lang), ensure_ascii=False)}"
+        for key in QUALIFICATION_TEMPLATE_KEYS
+    ]
+    return "Qualification templates (use one ONLY when the source names that framework):\n" + "\n".join(lines)
+
+
 def _messages(source: str, motion_key: str, lang: str) -> list[dict]:
     body = source[:MAX_SOURCE_CHARS]
     user = (
         f"Call type: {call_type_label(motion_key, lang)} (key: {motion_key})\n"
         f"Goal: {goal_label(motion_key, lang)}\n"
         f"Company language: {'English' if lang == 'en' else 'Spanish'}\n\n"
+        f"{_templates_block(lang)}\n\n"
         f'Source:\n"""\n{body}\n"""'
     )
     return [{"role": "system", "content": _system_prompt()}, {"role": "user", "content": user}]
@@ -167,11 +197,75 @@ async def _ask(llm: Any, messages: list[dict]) -> Any:
     return result
 
 
-def _shape_content(raw_steps: list, raw_objections: Any, reason: Any, folded_source: str) -> dict:
+def _shape_objections(raw_objections: Any) -> list[dict]:
+    """The model's objections as clipped entries: one per fixed category (an answer is
+    required), `custom` ones need a label (their answer may be empty), at most
+    MAX_CUSTOM_OBJECTIONS, none twice by label; meaning / question / proof only when written."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    custom_labels: set[str] = set()
+    customs = 0
+    for raw in raw_objections if isinstance(raw_objections, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        category = str(raw.get("category") or "").strip().lower()
+        guidance = clip_text(raw.get("guidance"), MAX_GUIDANCE)
+        if category == CUSTOM_CATEGORY:
+            label = clip_text(raw.get("label"), MAX_OBJECTION_LABEL)
+            if not label or label.casefold() in custom_labels or customs >= MAX_CUSTOM_OBJECTIONS:
+                continue
+            custom_labels.add(label.casefold())
+            customs += 1
+            entry = {
+                "category": category, "label": label,
+                "trigger": clip_text(raw.get("trigger"), MAX_TRIGGER), "guidance": guidance,
+            }
+        elif category in OBJECTION_CATEGORIES and guidance and category not in seen:
+            seen.add(category)
+            entry = {"category": category, "guidance": guidance}
+        else:
+            continue
+        for name, limit in OBJECTION_EXTRAS:
+            value = clip_text(raw.get(name), limit)
+            if value:
+                entry[name] = value
+        out.append(entry)
+    return out
+
+
+def _shape_qualification(raw_criteria: Any) -> list[dict]:
+    """The model's criteria as clipped ones: a label each, at most MAX_CRITERIA, none twice by
+    label. `criterion_id` is kept when the model reused a template's."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for raw in raw_criteria if isinstance(raw_criteria, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        label = clip_text(raw.get("label"), MAX_CRITERION_LABEL)
+        if not label or label.casefold() in seen:
+            continue
+        seen.add(label.casefold())
+        item = {"label": label}
+        if raw.get("criterion_id"):
+            item["criterion_id"] = str(raw["criterion_id"]).strip()
+        for name in ("why", "good", "bad"):
+            value = clip_text(raw.get(name), MAX_CRITERION_TEXT)
+            if value:
+                item[name] = value
+        out.append(item)
+        if len(out) >= MAX_CRITERIA:
+            break
+    return out
+
+
+def _shape_content(
+    raw_steps: list, raw_objections: Any, reason: Any, folded_source: str, raw_qualification: Any = None,
+) -> dict:
     """The rules every path applies to what the model wrote for ONE playbook: clip (never
     reject), drop an example the source does not contain, at most MAX_AI_STEPS steps
-    (more -> "grouped"), seven objection categories once each. -> {steps, objections,
-    reason: None | "grouped"}. Shared by the per-type and the whole-company flows."""
+    (more -> "grouped"), objections once per fixed category plus the company's own, criteria
+    clipped. -> {steps, objections, qualification, reason: None | "grouped"}. Shared by the
+    per-type and the whole-company flows."""
     reason = "grouped" if reason == "grouped" else None
     steps: list[dict] = []
     for raw in raw_steps:
@@ -188,25 +282,44 @@ def _shape_content(raw_steps: list, raw_objections: Any, reason: Any, folded_sou
     if len(steps) > MAX_AI_STEPS:
         steps = steps[:MAX_AI_STEPS]
         reason = "grouped"
+    return {
+        "steps": steps,
+        "objections": _shape_objections(raw_objections),
+        "qualification": _shape_qualification(raw_qualification),
+        "reason": reason,
+    }
 
-    objections: list[dict] = []
-    seen: set[str] = set()
-    for raw in raw_objections if isinstance(raw_objections, list) else []:
-        if not isinstance(raw, dict):
-            continue
-        category = str(raw.get("category") or "").strip().lower()
-        guidance = clip_text(raw.get("guidance"), MAX_GUIDANCE)
-        if category not in OBJECTION_CATEGORIES or not guidance or category in seen:
-            continue
-        seen.add(category)
-        objections.append({"category": category, "guidance": guidance})
-    return {"steps": steps, "objections": objections, "reason": reason}
+
+def _deaccent(folded: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKD", folded) if not unicodedata.combining(ch))
+
+
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def _digits(text: str) -> set[str]:
+    return {re.sub(r"[.,]", "", run) for run in _NUMBER.findall(text or "")}
+
+
+def _shape_company(raw: Any, folded_source: str, raw_source: str | None = None) -> dict:
+    """What the model says about the company, in the stored shape (normalize_knowledge clips and
+    caps it). Two guards against invention: a competitor whose name the source never mentions is
+    dropped, and a customer case's `number` with digits the source does not contain is emptied."""
+    data = normalize_knowledge(raw)
+    plain = _deaccent(folded_source)
+    source_digits = _digits(raw_source if raw_source is not None else folded_source)
+    data["competitors"] = [item for item in data["competitors"] if _deaccent(_fold(item["name"])) in plain]
+    for proof in data["proofs"]:
+        if proof["number"] and not _digits(proof["number"]) <= source_digits:
+            proof["number"] = ""
+    return data
 
 
 def _shape(data: Any, folded_source: str) -> dict:
-    """The model's JSON as clipped, de-duplicated raw steps and objections. Raises
+    """The model's JSON as clipped, de-duplicated raw steps, objections and criteria. Raises
     ValueError when there is nothing usable (not an object, no steps and no
-    "no_process")."""
+    "no_process"). A source with criteria or the company's own objections but no steps is
+    "no_process" that still carries them."""
     if not isinstance(data, dict):
         raise ValueError("model output is not an object")
     raw_steps = data.get("steps")
@@ -215,11 +328,11 @@ def _shape(data: Any, folded_source: str) -> dict:
     if not isinstance(raw_steps, list):
         raise ValueError("steps is not a list")
     said = data.get("reason") if data.get("reason") in ("no_process", "grouped") else None
-    content = _shape_content(raw_steps, data.get("objections"), said, folded_source)
+    content = _shape_content(raw_steps, data.get("objections"), said, folded_source, data.get("qualification"))
     if not content["steps"]:
-        if said != "no_process":
+        if said != "no_process" and not content["qualification"] and not content["objections"]:
             raise ValueError("model returned no steps")
-        return {"steps": [], "objections": [], "reason": "no_process"}
+        return {**content, "reason": "no_process"}
     return content  # steps found: trusted over a "no_process" label
 
 
@@ -258,7 +371,8 @@ def _finish(shaped: dict, *, fallback: bool, short: bool) -> dict:
         reason = "too_short"
     return {
         "steps": steps,
-        "objections": [{"category": e["category"], "guidance": e["guidance"]} for e in entries],
+        "objections": [objection_view(e) for e in entries],
+        "qualification": normalize_qualification(shaped.get("qualification")),
         "reason": reason,
         "fallback": fallback,
     }
@@ -272,8 +386,8 @@ def _line_fallback(source: str, *, short: bool, fallback: bool) -> dict:
     ]
     raw = [s for s in raw if s["label"]]
     if not raw:
-        return {"steps": [], "objections": [], "reason": "no_process", "fallback": fallback}
-    return _finish({"steps": raw, "objections": [], "reason": None}, fallback=fallback, short=short)
+        return {"steps": [], "objections": [], "qualification": [], "reason": "no_process", "fallback": fallback}
+    return _finish({"steps": raw, "objections": [], "qualification": [], "reason": None}, fallback=fallback, short=short)
 
 
 def _client(llm: Any) -> Any:
@@ -307,7 +421,7 @@ async def _ask_with_retry(client: Any, messages: list[dict], shape, generic_of, 
 
 
 async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = None) -> dict:
-    """{steps, objections, reason, fallback} for one source. `reason`: None, "no_process"
+    """{steps, objections, qualification, reason, fallback} for one source. `reason`: None, "no_process"
     (the source has no process), "too_short" (too little to be one; the steps are what it
     supports) or "grouped" (more than MAX_AI_STEPS stages were kept as MAX_AI_STEPS).
     `fallback` is true when the steps come from the line parser instead of the model.
@@ -315,7 +429,7 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
     source = (text or "").strip()
     lang = "en" if (lang or "").lower().startswith("en") else "es"
     if not _letters(source):
-        return {"steps": [], "objections": [], "reason": "too_short", "fallback": False}
+        return {"steps": [], "objections": [], "qualification": [], "reason": "too_short", "fallback": False}
     short = _letters(source) < MIN_SOURCE_CHARS
     folded_source = _fold(source[:MAX_SOURCE_CHARS])
 
@@ -330,10 +444,11 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
         )
         generic = _generic_indexes(shaped["steps"])
 
-        if not shaped["steps"]:  # no_process
+        if not shaped["steps"]:  # no_process (it may still carry criteria and the company's own objections)
             if short:
                 return _line_fallback(source, short=True, fallback=False)
-            return {"steps": [], "objections": [], "reason": "no_process", "fallback": False}
+            result = _finish(shaped, fallback=False, short=False)
+            return {**result, "reason": "no_process"}
 
         result = _finish(shaped, fallback=False, short=short)
         for index in generic:
@@ -348,7 +463,7 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
 
 # --- the whole company's document: which call types does it cover? ---------------------------
 
-SPLIT_PROMPT_VERSION = "playbook_split_v1"
+SPLIT_PROMPT_VERSION = "playbook_split_v2"
 _SPLIT_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{SPLIT_PROMPT_VERSION}.md"
 
 
@@ -364,20 +479,22 @@ def _split_messages(source: str, candidates: list[dict], lang: str) -> list[dict
     user = (
         f"Company language: {'English' if lang == 'en' else 'Spanish'}\n\n"
         f"Candidate call types (use only these keys):\n{listing}\n\n"
+        f"{_templates_block(lang)}\n\n"
         f'Source:\n"""\n{source[:MAX_SOURCE_CHARS]}\n"""'
     )
     return [{"role": "system", "content": _split_prompt()}, {"role": "user", "content": user}]
 
 
-def _shape_split(data: Any, allowed: set[str], folded_source: str) -> dict:
-    """The model's `{"types": [...]}` as clipped raw content per candidate type (first entry
-    wins per key; a key that is not a candidate, or a type with no steps, is dropped).
-    `{"types": []}` is valid: the source has no process. Raises ValueError when the answer
-    is not usable at all (not an object, no list, only unknown keys)."""
+def _shape_split(data: Any, allowed: set[str], folded_source: str, raw_source: str | None = None) -> dict:
+    """The model's `{"types": [...], "company": {...}}` as clipped raw content per candidate type
+    (first entry wins per key; a key that is not a candidate, or a type with no steps, is
+    dropped) and the company block in its stored shape. `{"types": []}` is valid: the source
+    has no process (it may still say things about the company). Raises ValueError when the
+    answer is not usable at all (not an object, no list, only unknown keys)."""
     if not isinstance(data, dict):
         raise ValueError("model output is not an object")
     raw_types = data.get("types")
-    if raw_types is None and data.get("reason") == "no_process":
+    if raw_types is None and (data.get("reason") == "no_process" or isinstance(data.get("company"), dict)):
         raw_types = []
     if not isinstance(raw_types, list):
         raise ValueError("types is not a list")
@@ -392,14 +509,16 @@ def _shape_split(data: Any, allowed: set[str], folded_source: str) -> dict:
         raw_steps = raw.get("steps")
         if key in seen or not isinstance(raw_steps, list):
             continue
-        content = _shape_content(raw_steps, raw.get("objections"), raw.get("reason"), folded_source)
+        content = _shape_content(
+            raw_steps, raw.get("objections"), raw.get("reason"), folded_source, raw.get("qualification"),
+        )
         if not content["steps"]:
             continue
         seen.add(key)
         out.append({"key": key, **content})
     if raw_types and not out and unknown:
         raise ValueError("model named no candidate type")
-    return {"types": out}
+    return {"types": out, "company": _shape_company(data.get("company"), folded_source, raw_source)}
 
 
 def _split_generic(shaped: dict) -> dict[str, list[int]]:
@@ -417,16 +536,18 @@ def _split_note(shaped: dict) -> str:
 
 async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None) -> dict:
     """One model call for a whole company's document. `candidates` is [{key, label,
-    description?}]. -> {types: [{key, reason, steps, objections}], reason: None | "no_process",
-    fallback: bool}; each type went through the same rules as structure_source (clip, at most
+    description?}]. -> {types: [{key, reason, steps, objections, qualification}], company:
+    knowledge shape (empty when the source says nothing about the company), reason: None |
+    "no_process", fallback: bool}; each type went through the same rules as structure_source (clip, at most
     MAX_AI_STEPS steps and "grouped", literal examples, one retry when a criterion is an
     attitude then blank it, normalize), so it always saves. `fallback` is true when the model
     failed or returned nothing usable: no type is guessed, the caller asks the manager which
     call type the source is. Never raises."""
     source = (text or "").strip()
     lang = "en" if (lang or "").lower().startswith("en") else "es"
+    empty_company = normalize_knowledge({})
     if not _letters(source) or not candidates:
-        return {"types": [], "reason": "no_process", "fallback": False}
+        return {"types": [], "company": empty_company, "reason": "no_process", "fallback": False}
     short = _letters(source) < MIN_SOURCE_CHARS
     folded_source = _fold(source[:MAX_SOURCE_CHARS])
     allowed = {c["key"] for c in candidates}
@@ -434,15 +555,15 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
         shaped = await _ask_with_retry(
             _client(llm),
             _split_messages(source, candidates, lang),
-            lambda raw: _shape_split(raw, allowed, folded_source),
+            lambda raw: _shape_split(raw, allowed, folded_source, source[:MAX_SOURCE_CHARS]),
             _split_generic,
             _split_note,
             lambda s: bool(s["types"]),
         )
         if not shaped["types"]:
             if short:  # too little to tell what it is: let the manager pick the call type
-                return {"types": [], "reason": None, "fallback": True}
-            return {"types": [], "reason": "no_process", "fallback": False}
+                return {"types": [], "company": empty_company, "reason": None, "fallback": True}
+            return {"types": [], "company": shaped["company"], "reason": "no_process", "fallback": False}
         types = []
         for item in shaped["types"]:
             generic = _generic_indexes(item["steps"])
@@ -454,8 +575,9 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
                 "reason": result["reason"],
                 "steps": result["steps"],
                 "objections": result["objections"],
+                "qualification": result["qualification"],
             })
-        return {"types": types, "reason": None, "fallback": False}
+        return {"types": types, "company": shaped["company"], "reason": None, "fallback": False}
     except Exception as exc:  # model error, timeout, bad JSON: never a 500, never a guessed type
         logger.warning("playbook split failed, asking for the call type: %s", type(exc).__name__)
-        return {"types": [], "reason": None, "fallback": True}
+        return {"types": [], "company": empty_company, "reason": None, "fallback": True}

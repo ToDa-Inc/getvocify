@@ -25,6 +25,7 @@ from app.services.playbooks.imports import start_import
 from app.services.playbooks.intake import candidate_types, ensure_type, public_candidates
 from app.services.playbooks.motion import goal_for, visible_to_role
 from app.services.playbooks.routing import build_details, routing_enabled
+from app.services.playbooks.knowledge import merge_knowledge, normalize_knowledge, sections
 from app.services.playbooks.store import NO_VERSION_SUMMARY
 from app.services.playbooks.structure import (
     detect_language,
@@ -37,6 +38,7 @@ from app.services.playbooks.structured import (
     PlaybookDraftError,
     editor_view,
     normalize_objections,
+    normalize_qualification,
     normalize_steps,
 )
 from app.services.playbooks.store import MemoryPlaybookStore
@@ -58,6 +60,7 @@ _ACTIVATED: dict[tuple[str, str], str] = {}
 _STRUCTURED: dict[tuple[str, str], dict] = {}
 _PUBLISHED_VERSIONS: dict[tuple[str, str], dict] = {}
 _DETAILS: dict[tuple[str, str], dict] = {}
+_KNOWLEDGE: dict[str, dict] = {}
 _store = None
 _transcriber = None
 
@@ -85,7 +88,9 @@ async def _audio_text(payload: str) -> str:
 def get_playbook_store():
     if _store is not None:
         return _store
-    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS)
+    return MemoryPlaybookStore(
+        _MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS, _KNOWLEDGE,
+    )
 
 
 def set_playbook_store(store) -> None:
@@ -190,7 +195,7 @@ async def create_import(body: ImportRequest, membership: Membership = Depends(ge
 
 
 def _with_version_counts(details: dict, store, company_id: str, *, manager: bool) -> dict:
-    """Each `details[key]` gains step_count, answer_count and has_draft of the version the
+    """Each `details[key]` gains step_count, answer_count, criteria_count and has_draft of the version the
     editor would open: the pending draft for a manager, else the live one. A rep only ever
     sees the live version, so for them has_draft is false and the counts are the live ones."""
     summaries = store.version_summaries(company_id, include_draft=manager)
@@ -255,11 +260,27 @@ class StructuredStep(BaseModel):
 class StructuredObjection(BaseModel):
     category: str
     guidance: str = ""
+    id: Optional[str] = None  # custom only: the slug the editor got back
+    label: Optional[str] = None  # custom only
+    trigger: Optional[str] = None  # custom only: how the prospect says it
+    meaning: Optional[str] = None
+    question: Optional[str] = None
+    proof: Optional[str] = None
+
+
+class StructuredCriterion(BaseModel):
+    criterion_id: Optional[str] = None
+    label: Optional[str] = None
+    why: Optional[str] = None
+    good: Optional[str] = None
+    bad: Optional[str] = None
 
 
 class StructuredDraftRequest(BaseModel):
     steps: list[StructuredStep] = Field(default_factory=list)
     objections: list[StructuredObjection] = Field(default_factory=list)
+    # None = "not sent": the draft keeps the criteria it has. [] = the manager cleared them.
+    qualification: Optional[list[StructuredCriterion]] = None
     base_updated_at: Optional[str] = None
     source_id: Optional[str] = None
 
@@ -316,11 +337,15 @@ async def save_structured_playbook_draft(
     try:
         steps = normalize_steps([step.model_dump() for step in body.steps])
         entries = normalize_objections([item.model_dump() for item in body.objections])
+        criteria = (
+            normalize_qualification([item.model_dump() for item in body.qualification])
+            if body.qualification is not None else None
+        )
     except PlaybookDraftError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": exc.code, "index": exc.index},
-        ) from exc
+        detail = {"code": exc.code, "index": exc.index}
+        if exc.field:
+            detail["field"] = exc.field
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
     store = get_playbook_store()
     try:
         store.save_structured_draft(
@@ -330,6 +355,7 @@ async def save_structured_playbook_draft(
             entries,
             base_updated_at=body.base_updated_at,
             source_id=body.source_id,
+            qualification=criteria,
         )
     except StaleDraftError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
@@ -427,12 +453,15 @@ async def structure_company_source(
             continue
         key = item["key"]
         ensure_type(store, membership.company_id, key, membership.role, routing=routing, lang=lang)
+        criteria = normalize_qualification(item.get("qualification"))
         store.save_structured_draft(
             membership.company_id,
             key,
             item["steps"],
             normalize_objections(item["objections"]),
             source_id=(source or {}).get("id"),
+            # A document without criteria must not wipe the ones already in the draft.
+            qualification=criteria or None,
         )
         snapshot = store.editor_snapshot(membership.company_id, key, include_draft=True)
         types.append({"sales_motion_key": key, "reason": item["reason"], "editor": _editor_response(key, snapshot)})
@@ -442,7 +471,32 @@ async def structure_company_source(
         "reason": result["reason"],
         "candidates": public_candidates(candidates),
         "types": types,
+        "company": _merge_company(store, membership.company_id, result.get("company"), (source or {}).get("id")),
     }
+
+
+def _merge_company(store, company_id: str, found: Optional[dict], source_id: Optional[str]) -> Optional[dict]:
+    """Adds what the document said about the company to what is already stored (never
+    overwriting it) and answers {knowledge, updated_at, sections, filled}. None when the
+    document had nothing company-level and nothing is stored. A failure here (the table is
+    not there yet) never costs the manager the call types that were just saved."""
+    try:
+        saved = store.get_knowledge(company_id)
+        existing = (saved or {}).get("data") or {}
+        merged, filled = merge_knowledge(existing, found)
+        if filled:
+            saved = store.save_knowledge(company_id, merged, source_id=source_id)
+        if not sections(merged):
+            return None
+        return {
+            "knowledge": merged,
+            "updated_at": (saved or {}).get("updated_at"),
+            "sections": sections(merged),
+            "filled": filled,
+        }
+    except Exception:
+        logger.exception("company knowledge not saved")
+        return None
 
 
 @router.post("/{sales_motion_key}/structure")

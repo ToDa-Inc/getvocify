@@ -272,7 +272,7 @@ class FakeDb:
     two RPCs the store relies on."""
 
     def __init__(self):
-        self.tables = {"playbooks": [], "playbook_versions": [], "playbook_imports": []}
+        self.tables = {"playbooks": [], "playbook_versions": [], "playbook_imports": [], "company_sales_knowledge": []}
         self._clock = datetime(2026, 9, 29, 10, 0, 0, tzinfo=timezone.utc)
 
     def tick(self) -> str:
@@ -383,6 +383,15 @@ class _Query:
             return _Result([copy.deepcopy(row)])
         if self.op == "upsert":
             keys = self._upsert["on"].split(",")
+            if self.name == "company_sales_knowledge":  # a real upsert: the trigger stamps updated_at
+                match = next((r for r in table if all(r.get(k) == self.payload[k] for k in keys)), None)
+                if match is not None:
+                    match.update(self.payload)
+                    match["updated_at"] = db.tick()
+                    return _Result([copy.deepcopy(match)])
+                row = {**self.payload, "updated_at": db.tick()}
+                table.append(row)
+                return _Result([copy.deepcopy(row)])
             if any(all(r.get(k) == self.payload[k] for k in keys) for r in table):
                 return _Result([])
             row = {**self.payload, "id": str(uuid.uuid4()), "active_version_id": None}
@@ -392,7 +401,7 @@ class _Query:
             rows = self._matching()
             for row in rows:
                 row.update(self.payload)
-                if self.name == "playbook_versions":
+                if self.name in ("playbook_versions", "company_sales_knowledge"):
                     row["updated_at"] = db.tick()
             return _Result(copy.deepcopy(rows))
         if self.op == "delete":
