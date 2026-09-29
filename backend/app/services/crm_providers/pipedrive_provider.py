@@ -92,7 +92,7 @@ class PipedriveCRMProvider:
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
     ) -> SyncResult:
-        del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
+        del allowed_line_item_fields
         del lost_reason, lost_reason_deal_property, lost_lead_status_value, on_hold_lead_status_value
         if call_outcome:
             return SyncResult(
@@ -119,6 +119,8 @@ class PipedriveCRMProvider:
             create_note=create_note,
             contact_id=contact_id,
             company_id=company_id,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
             skip_deal=skip_deal,
         )
 
@@ -142,7 +144,7 @@ class PipedriveCRMProvider:
         include_unchanged: bool = False,
         skip_deal: bool = False,
     ) -> ApprovalPreview:
-        del create_new_deal, include_unchanged
+        del create_new_deal
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,
@@ -158,6 +160,7 @@ class PipedriveCRMProvider:
             default_stage_id=default_stage_id,
             selected_contact=selected_contact,
             contact_candidates=contact_candidates,
+            include_unchanged=include_unchanged,
             skip_deal=skip_deal,
         )
 

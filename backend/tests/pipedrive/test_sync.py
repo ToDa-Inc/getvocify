@@ -29,6 +29,10 @@ class _FakeClient:
             return {"data": {"items": []}}
         if path.startswith("/deals/"):
             return {"data": {"id": 1, "title": "Acme"}}
+        if path.startswith("/persons/"):
+            return {"data": {"id": 20, "name": "Ada"}}
+        if path.startswith("/organizations/"):
+            return {"data": {"id": 10, "name": "Acme"}}
         return {"data": []}
 
     async def post(self, path, json_body=None, *, version="v2"):
@@ -77,6 +81,41 @@ async def test_skip_deal_writes_person_and_note_not_deal():
     assert "/deals" not in paths
     assert "/persons" in paths
     assert "/notes" in paths
+
+
+@pytest.mark.asyncio
+async def test_existing_person_and_org_patch_allowlisted_custom_fields():
+    person_field = "5f65fa0c38e46e47a59a4721d5b51f21d89fb679"
+    org_field = "ad74fad4499ad8e6347dc8cb6b86cd0b6998cab6"
+    svc, client = _svc()
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(
+            contactName="Ada",
+            companyName="Acme",
+            summary="Hi",
+            raw_extraction={
+                "contact_properties": {person_field: "director"},
+                "company_properties": {org_field: "1339"},
+            },
+        ),
+        skip_deal=True,
+        contact_id="20",
+        company_id="10",
+        allowed_contact_fields=["name", "emails", "phones", person_field],
+        allowed_company_fields=["name", org_field],
+        create_note=False,
+    )
+    assert result.success is True
+    assert "/deals" not in [p[0] for p in client.posts]
+    person_patch = next(p for p in client.patches if p[0] == "/persons/20")
+    org_patch = next(p for p in client.patches if p[0] == "/organizations/10")
+    assert person_patch[1]["custom_fields"][person_field] == "director"
+    assert "name" not in person_patch[1]
+    assert org_patch[1]["custom_fields"][org_field] == "1339"
+    assert "name" not in org_patch[1]
 
 
 @pytest.mark.asyncio
