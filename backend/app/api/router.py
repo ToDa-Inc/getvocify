@@ -23,6 +23,7 @@ from app.api import (
     crm,
     crm_salesforce,
     crm_pipedrive,
+    crm_field_permissions,
     transcription,
     auth,
     glossary,
@@ -65,6 +66,7 @@ api_router.include_router(reports.router)
 api_router.include_router(reports.notifications)
 api_router.include_router(captures.router)
 api_router.include_router(crm.router)
+api_router.include_router(crm_field_permissions.router)
 api_router.include_router(calls.router)
 api_router.include_router(hubspot_recordings.router)
 api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")

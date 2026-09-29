@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
+import { HubSpotFieldPermissions } from "@/components/dashboard/hubspot/HubSpotFieldPermissions";
 import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
 import { SalesforceConfiguration } from "@/components/dashboard/salesforce/SalesforceConfiguration";
 import { SalesforceConnection } from "@/components/dashboard/salesforce/SalesforceConnection";
@@ -345,6 +346,11 @@ const SettingsPage = () => {
             </p>
           </div>
           <HubSpotConfiguration readOnly={!canManage} />
+          {canManage && (
+            <div className="mt-10 pt-8 border-t border-border/20">
+              <HubSpotFieldPermissions />
+            </div>
+          )}
         </div>
       )}
 
