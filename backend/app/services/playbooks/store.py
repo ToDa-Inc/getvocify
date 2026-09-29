@@ -7,6 +7,16 @@ import uuid
 from app.services.playbooks.versions import PublishError, accept_publish
 
 
+SOURCE_PREFIX = "source:"
+
+
+def _source_view(record: dict | None, source_id: str) -> dict | None:
+    if not record:
+        return None
+    draft = record.get("draft") or {}
+    return {"id": source_id, "kind": record.get("kind"), "name": str(draft.get("name") or "")}
+
+
 class MemoryPlaybookStore:
     def __init__(
         self,
@@ -39,6 +49,30 @@ class MemoryPlaybookStore:
                 company[sales_motion_key] = "draft"
         if sales_motion_key and record.get("status") == "ready":
             self._latest[(company_id, sales_motion_key)] = record
+
+    def save_source(self, company_id: str, key: str, kind: str, name: str | None, text: str) -> dict:
+        """Keeps the original material a playbook was structured from. Creates no version."""
+        del key  # the memory double has no playbook row to attach it to
+        source_id = f"{SOURCE_PREFIX}{uuid.uuid4()}"
+        self._imports[source_id] = {
+            "id": source_id,
+            "import_id": source_id,
+            "company_id": company_id,
+            "kind": kind,
+            "status": "ready",
+            "draft": {"text": text, "name": name or "", "source_ref": f"{kind}:{source_id}"},
+            "active_version_id": None,
+            "published": False,
+        }
+        return {"id": source_id, "kind": kind, "name": name or ""}
+
+    def get_source(self, company_id: str, source_id: str | None) -> dict | None:
+        if not source_id or not str(source_id).startswith(SOURCE_PREFIX):
+            return None
+        record = self._imports.get(source_id)
+        if not record or record.get("company_id") != company_id:
+            return None
+        return _source_view(record, source_id)
 
     def motions(self, company_id: str) -> dict:
         return dict(self._motions.get(company_id) or {})
@@ -152,6 +186,37 @@ class SupabasePlaybookStore:
             .execute()
         ).data or []
         return rows[0] if rows else None
+
+    def save_source(self, company_id: str, key: str, kind: str, name: str | None, text: str) -> dict:
+        """Keeps the original material a playbook was structured from (playbook_imports,
+        id `source:{uuid}`). Creates no version."""
+        playbook = self._playbook(company_id, key, create=True)
+        if not playbook:
+            raise RuntimeError("playbook row missing after upsert")
+        source_id = f"{SOURCE_PREFIX}{uuid.uuid4()}"
+        self.supabase.table("playbook_imports").insert({
+            "id": source_id,
+            "company_id": company_id,
+            "playbook_id": playbook["id"],
+            "kind": kind,
+            "status": "ready",
+            "draft": {"text": text, "name": name or "", "source_ref": f"{kind}:{source_id}"},
+            "active_version_id": playbook.get("active_version_id"),
+        }).execute()
+        return {"id": source_id, "kind": kind, "name": name or ""}
+
+    def get_source(self, company_id: str, source_id: str | None) -> dict | None:
+        if not source_id or not str(source_id).startswith(SOURCE_PREFIX):
+            return None
+        rows = (
+            self.supabase.table("playbook_imports")
+            .select("id,kind,draft")
+            .eq("id", source_id)
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        ).data or []
+        return _source_view(rows[0], source_id) if rows else None
 
     def save_structured_draft(self, company_id: str, key: str, steps: list, entries: list) -> dict:
         """A new draft version holding real steps and objection answers. publish_playbook_motion

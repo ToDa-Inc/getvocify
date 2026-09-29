@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,6 +16,7 @@ from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.imports import start_import
 from app.services.playbooks.motion import goal_for, visible_to_role
+from app.services.playbooks.structure import detect_language, set_playbook_structure_llm, structure_source
 from app.services.playbooks.structured import (
     OBJECTION_CATEGORIES,
     PlaybookDraftError,
@@ -26,6 +29,10 @@ from app.services.playbooks.versions import PublishError, can_publish
 
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
 MANAGE_ROLES = frozenset({"owner", "admin"})
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["router", "set_playbook_store", "set_playbook_transcriber", "set_playbook_structure_llm"]
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
@@ -241,3 +248,59 @@ async def save_structured_playbook_draft(
         "categories": list(OBJECTION_CATEGORIES),
         **editor_view({"steps": steps, "entries": entries}),
     }
+
+
+class StructureRequest(BaseModel):
+    kind: str
+    payload: str = ""
+    name: Optional[str] = None
+
+
+_DEFAULT_SOURCE_NAMES = {
+    "es": {"text": "Texto pegado", "pdf": "PDF", "audio": "Audio"},
+    "en": {"text": "Pasted text", "pdf": "PDF", "audio": "Audio"},
+}
+
+
+def _unreadable(code: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": code})
+
+
+@router.post("/{sales_motion_key}/structure")
+async def structure_playbook_source(
+    sales_motion_key: str,
+    body: StructureRequest,
+    membership: Membership = Depends(get_membership),
+):
+    """Turns pasted text, a PDF or an audio recording into steps and objection answers for
+    this call type. Creates no version: the caller reviews the result and saves it as the
+    draft. The material is kept as `source` so the playbook can link back to it. If the
+    model fails the steps come from the line parser and `fallback` is true."""
+    _guard(membership)
+    store = get_playbook_store()
+    import_id = f"source:{uuid.uuid4()}"
+    stt = None
+    if body.kind == "audio":
+        try:
+            spoken = await _audio_text(body.payload)
+            stt = lambda _raw, spoken=spoken: spoken
+        except Exception:
+            stt = None
+    record = start_import(
+        import_id=import_id, kind=body.kind, payload=body.payload, active_version_id=None, stt=stt,
+    )
+    if record.get("status") != "ready":
+        raise _unreadable(str(record.get("reason") or "unsupported_source"))
+    text = str((record.get("draft") or {}).get("text") or "").strip()
+    if not text:
+        raise _unreadable("empty_source")
+
+    lang = detect_language(text)
+    name = (body.name or "").strip()[:200] or _DEFAULT_SOURCE_NAMES[lang].get(body.kind, body.kind)
+    try:
+        source = store.save_source(membership.company_id, sales_motion_key, body.kind, name, text)
+    except Exception:  # keeping the original is a courtesy; it never blocks structuring
+        logger.exception("playbook source not saved")
+        source = None
+    result = await structure_source(text, sales_motion_key, lang)
+    return {"sales_motion_key": sales_motion_key, **result, "source": source}

@@ -117,6 +117,65 @@ def normalize_objections(objections: Iterable[dict]) -> list[dict]:
     return out
 
 
+def clip_text(value: Any, limit: int) -> str:
+    """Whitespace-tidied text cut to `limit` characters at a word boundary. The AI flow
+    clips what the model wrote instead of rejecting it: a 90-character label is still a
+    usable label, an error is not."""
+    text = _clean(value)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space >= limit * 0.6:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:-—–")
+
+
+# Port of parsePlaybookText (src/lib/playbook-editor.ts): the deterministic parser the
+# structuring flow falls back to when the model is down. Keep both in step.
+_MARKER = re.compile(r"^\s*(?:(?:paso|step)\s*)?(?:\d{1,2}[.)\-:]|[-•*·]|#{1,4})\s+", re.IGNORECASE)
+_SPLIT = re.compile(r"\s*(?::|—|–|\s-\s)\s*")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _step_from_line(line: str) -> dict:
+    body = _MARKER.sub("", line, count=1).strip()
+    match = _SPLIT.search(body)
+    if match and 0 < match.start() <= MAX_LABEL:
+        label = _clean(body[: match.start()])
+        criterion = _clean(body[match.end():])
+        return {"label": label, "criterion": criterion or label}
+    sentence = _SENTENCE_END.split(body)[0] if body else body
+    label = re.sub(r"[.!?]+$", "", _clean(sentence))[:MAX_LABEL].strip()
+    return {"label": label, "criterion": _clean(body)}
+
+
+def parse_playbook_text(text: str) -> list[dict]:
+    """Pasted process text -> [{label, criterion}]. Numbered, bulleted or heading lines
+    start a step ("1. Apertura: se presenta…", "- Cualificar — quién decide"); lines under
+    one are added to its description. Without any marker, each paragraph is a step. Never
+    more than MAX_STEPS. Same behaviour as parsePlaybookText in the frontend."""
+    source = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = source.split("\n")
+    steps: list[dict] = []
+    if any(_MARKER.match(line) for line in lines):
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            if _MARKER.match(raw):
+                steps.append(_step_from_line(line))
+            elif steps:
+                last = steps[-1]
+                previous = "" if last["criterion"] == last["label"] else last["criterion"]
+                last["criterion"] = _clean(f"{previous} {line}")
+    else:
+        for paragraph in re.split(r"\n\s*\n", source):
+            if paragraph.strip():
+                steps.append(_step_from_line(paragraph.strip()))
+    return [step for step in steps if step["label"]][:MAX_STEPS]
+
+
 def render_text(steps: list[dict], entries: list[dict]) -> str:
     """Plain-text copy kept with the draft's import row (audit, and the old draft.text)."""
     lines = [f"{i}. {step['label']}: {step['criterion']}" for i, step in enumerate(steps, start=1)]

@@ -130,5 +130,55 @@ def strip_chat_filler(text: str) -> str:
     return cleaned or original
 
 
+# Playbook criteria (es/en). A criterion is what C04 checks in a transcript, so it has to name
+# something a person says or gets. These name an attitude or a virtue instead: nobody can
+# point at the line of a call where "builds rapport" happened. Patterns are written without
+# accents; the text is folded to ASCII before matching.
+_GENERIC_CRITERION = (
+    r"\bgener(a|an|ar|ando)\s+(confianza|empatia|valor|cercania|conexion)\b",
+    r"\bconstruy(e|en|ir|endo)\s+(rapport|confianza|relacion|conexion|vinculo)",
+    r"\b(crea|crean|crear|creando)\s+(rapport|conexion|vinculo|confianza|relacion)",
+    r"\baporta(n|r|ndo)?\s+valor\b",
+    r"\bescucha\s+activa",
+    r"\bescucha\s+atentamente\b",
+    r"\bempatiz(a|an|ar|ando)\b",
+    r"\b(muestra|mostrar|demuestra|demostrar)\s+empatia\b",
+    r"\b(es|ser|sea|mostrarse|se muestra)\s+(empatic[oa]|amable|cercan[oa]|profesional|positiv[oa])\b",
+    r"\b(muestra|mostrar|transmite|transmitir|proyecta|proyectar)\s+(confianza|seguridad|profesionalidad|profesionalismo|entusiasmo|energia)\b",
+    r"\b(se\s+)?muestra\s+(seguro|segura|confiad[oa]|entusiasta)\b",
+    r"\b(tiene|mantiene|mantener|tener)\s+(una\s+)?actitud\s+(positiva|proactiva|profesional)",
+    r"\b(sea|ser|estar|esta|estar)\s+(seguro|segura|confiad[oa])\s+(de si|en si)",
+    r"\bbuil(d|ds|ding)\s+(rapport|trust)\b",
+    r"\b(add|adds|adding|provide|provides|providing)\s+(real\s+)?value\b",
+    r"\bactive(ly)?\s+listen",
+    r"\bbe(ing)?\s+confident\b",
+    r"\b(is|are|sounds?|shows?|come[s]? across)\s+confident\b",
+    r"\bshows?\s+(confidence|empathy|enthusiasm)\b",
+    r"\bempathi[sz]e[sd]?\b",
+    r"\b(is|being|be)\s+empathetic\b",
+    r"\b(creates?|establish(es)?|foster(s)?)\s+(a\s+)?(connection|rapport|trust)\b",
+    r"\b(positive|professional)\s+attitude\b",
+)
+_GENERIC_CRITERION_RE = [re.compile(p, re.IGNORECASE) for p in _GENERIC_CRITERION]
+
+
+def _ascii_fold(text: str) -> str:
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii")
+
+
+def generic_phrases(text: str) -> list[str]:
+    """The attitude phrases found in a playbook criterion, as written."""
+    folded = _ascii_fold(text)
+    return [m.group(0).strip() for p in _GENERIC_CRITERION_RE if (m := p.search(folded))]
+
+
+def generic_criterion(text: str) -> bool:
+    """True when a playbook step's criterion names an attitude ("genera confianza", "build
+    rapport") instead of something observable in a transcript. C04 cannot judge those, so
+    the structuring flow asks the model again and, failing that, leaves the criterion for a
+    person to write."""
+    return bool(generic_phrases(text))
+
+
 def word_count(text: str) -> int:
     return len((text or "").split())
