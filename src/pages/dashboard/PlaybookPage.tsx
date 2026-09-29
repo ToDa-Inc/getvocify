@@ -1,7 +1,12 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
+import { playbooksApi } from "@/features/playbooks/api";
+import { PlaybookDocument } from "@/features/playbooks/components/PlaybookDocument";
 import { useLanguage } from "@/lib/i18n";
+import { motionLabel } from "@/lib/motion-label";
+import { templateSteps } from "@/lib/playbook-editor";
 import { isManagerRole } from "@/lib/nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
@@ -22,14 +27,68 @@ const FLOWS: { flow: keyof BestByFlow; motion: "discovery" | "closing" }[] = [
   { flow: "ae", motion: "closing" },
 ];
 
+/** Playbooks v2 (plan §4.4): the rep reads the process they are scored against, read-only. */
+function YourProcess() {
+  const { t, language } = useLanguage();
+  const copy = t.product.pb2;
+  const lang = language === "EN" ? "en" : "es";
+  const list = useQuery({ queryKey: ["playbooks"], queryFn: playbooksApi.list, retry: false });
+  const live = Object.entries(list.data?.motions ?? {})
+    .filter(([, status]) => status === "published")
+    .map(([key]) => key);
+  const [picked, setPicked] = useState<string | null>(null);
+  const active = picked && live.includes(picked) ? picked : live[0] ?? null;
+  const name = (key: string) =>
+    list.data?.details?.[key]?.label || copy.typeLabels[key] || motionLabel(key, t.product.motions);
+
+  return (
+    <section aria-labelledby="your-process" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-4 p-5 md:p-6`}>
+      <h2 id="your-process" className={THEME_TOKENS.typography.sectionTitle}>{copy.repHeading}</h2>
+      {list.isLoading ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorLoading}</p> : null}
+      {list.isError ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorLoadFailed}</p> : null}
+      {list.isSuccess && !active ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorReadOnlyEmpty}</p> : null}
+      {live.length > 1 ? (
+        <div className="flex flex-wrap gap-1" role="tablist">
+          {live.map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={key === active}
+              className={`rounded-full px-3 py-1 text-[13px] transition-colors ${
+                key === active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+              }`}
+              onClick={() => setPicked(key)}
+            >
+              {name(key)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {active ? (
+        <PlaybookDocument
+          key={active}
+          motionKey={active}
+          canEdit={false}
+          template={() => templateSteps(active, lang)}
+          meta={live.length === 1 ? <p className={THEME_TOKENS.typography.capsLabel}>{name(active)}</p> : null}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 export default function PlaybookPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const p = t.product;
+  // The best calls are their own flag (GET /coaching/best is gated by it); the process is not.
+  const bestEnabled = Boolean(user?.company?.features?.includes("PLAYBOOK_TAB_ENABLED"));
   const query = useQuery({
     queryKey: ["coaching-best"],
     queryFn: () => api.get<BestByFlow>("/coaching/best"),
     retry: false,
+    enabled: bestEnabled,
   });
   const manager = isManagerRole(user?.company?.role);
   // T11: opening the memo stays governed by the memo's own visibility, which this page
@@ -40,11 +99,10 @@ export default function PlaybookPage() {
 
   return (
     <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
-      <div>
-        <h1 className={THEME_TOKENS.typography.pageTitle}>{p.playbookPageTitle}</h1>
-        <p className={THEME_TOKENS.typography.body}>{p.playbookPageSubtitle}</p>
-      </div>
-      {query.isLoading ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}
+      <h1 className={THEME_TOKENS.typography.pageTitle}>{p.playbookPageTitle}</h1>
+      <YourProcess />
+      {bestEnabled ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.pb2.bestHeading}</h2> : null}
+      {query.isLoading && bestEnabled ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}
       {query.isError ? <p className={THEME_TOKENS.typography.body}>{p.teamReadFailed}</p> : null}
       {empty ? <p className={THEME_TOKENS.typography.body}>{p.playbookPageEmpty}</p> : null}
       {FLOWS.map(({ flow, motion }) => {

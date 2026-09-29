@@ -1,0 +1,1301 @@
+[
+ {
+  "id": "ae01",
+  "text": "El último contacto con Marina López (Acme) fue el 26 de septiembre: interés alto, quiere automatizar el seguimiento comercial y su dolor es el seguimiento manual (unas 3 h a la semana).\n\n- Objeción abierta: precio — \"Nos parece caro para el equipo\" [1].\n- Objeción abierta previa (18 de septiembre): competidor — \"Ahora usamos Gong\" [2].\n- Obstáculo resuelto: mal momento (\"Ahora estoy conduciendo\"), acordaste llamarla al día siguiente a las diez [3].\n- Promesa pendiente: enviar el caso de logística, vence el 30 de septiembre [4].",
+  "tools": [
+   "search_contacts",
+   "deal_story"
+  ],
+  "confirm": false,
+  "evidence": 4,
+  "coverage_note": null,
+  "seconds": 4.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae02",
+  "text": "Pablo Ortega (Logística Sur): un solo contacto registrado, la llamada del 24 de septiembre. Pidió precio y lo comparó con un competidor; su interés quedó alto.\n\nObjeción de precio, ya resuelta: \"El precio se nos va de presupuesto\", contestada con mostrarle el retorno en tres meses y comparar [1]. No tiene promesas ni asuntos abiertos pendientes.",
+  "tools": [
+   "search_contacts",
+   "get_contact",
+   "deal_story"
+  ],
+  "confirm": false,
+  "evidence": 1,
+  "coverage_note": null,
+  "seconds": 6.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae03",
+  "text": "Inés Vidal (Textil Norte) mostró interés alto en la última llamada, el 14 de septiembre, y no hay novedades desde entonces: lleva 15 días sin contacto.\n\n- Último contacto: llamada del 14 de septiembre, interés alto.\n- Sin objeciones abiertas. En la llamada inicial del 7 de septiembre hubo un obstáculo de portera, ya resuelto (\"Le paso con ella, un momento\") [1].\n- No hay promesas pendientes ni tareas registradas.\n\nSiguiente paso: llámala hoy para retomar, antes de que se enfríe más.",
+  "tools": [
+   "search_contacts",
+   "deal_story",
+   "inspect_record"
+  ],
+  "confirm": false,
+  "evidence": 1,
+  "coverage_note": null,
+  "seconds": 4.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae04",
+  "text": "Tienes 3 cosas que atender:\n- **Marina López** (Acme): objeción de precio sin cerrar.\n- **Elena Cruz** (Fresh Food): objeción sobre el statu quo sin cerrar.\n- **Inés Vidal** (Textil Norte): 15 días sin contacto.\n\nAdemás, dos bloqueos prácticos: Hugo Sanz (Tecno 3) no es la persona que decide y Nuria Pons (Clínica Sol) tiene que consultarlo con su socio.",
+  "tools": [
+   "open_loops"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 9,
+   "n_analysed": 8
+  },
+  "seconds": 5.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae05",
+  "text": "Se te está enfriando **Inés Vidal (Textil Norte)**: 15 días sin contacto.\n\nAdemás tienes dos objeciones sin cerrar en contactos aún activos: **Marina López (Acme)**, de precio, y **Elena Cruz (Fresh Food)**, de status quo.",
+  "tools": [
+   "open_loops"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 9,
+   "n_analysed": 8
+  },
+  "seconds": 2.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae06",
+  "text": "Este mes te han puesto 4 objeciones, 3 siguen abiertas:\n- **Precio**: 2 (1 abierta, 1 resuelta)\n- **Competencia**: 1, abierta\n- **Statu quo**: 1, abierta\n\nAparte, se registraron 4 obstáculos (2 abiertos: consultar con alguien y persona equivocada).",
+  "tools": [
+   "objection_breakdown"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 9,
+   "n_analysed": 8
+  },
+  "seconds": 5.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae07",
+  "text": "En los últimos 30 días registraste 4 obstáculos, uno por categoría:\n\n- **Mal momento**: 1 (resuelto)\n- **Interlocutor equivocado** (gatekeeper): 1 (resuelto)\n- **Necesita consultarlo con alguien**: 1 (abierto)\n- **Persona equivocada**: 1 (abierto)\n\nDos siguen abiertos. No hay una categoría que predomine: cada una aparece una sola vez.",
+  "tools": [
+   "objection_breakdown"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 9,
+   "n_analysed": 8,
+   "period_days": 30
+  },
+  "seconds": 2.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae08",
+  "text": "Cuando te digan que es caro, la respuesta aprobada es: antes de dar precio, pregunta cuánto les cuesta hoy el problema y compara con el retorno a tres meses [1].\n\nEl proceso del playbook es: confirmar el problema, identificar al decisor y acordar el siguiente paso.",
+  "tools": [
+   "playbook_lookup"
+  ],
+  "confirm": false,
+  "evidence": 1,
+  "coverage_note": null,
+  "seconds": 2.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae09",
+  "text": "The price objection is still open — no response from you is recorded. Marina said \"Nos parece caro para el equipo\" [1] on 26 September, and it remains unresolved.\n\nThe only thing you committed to was sending the logistics case, due 30 September [2]. The one response captured was to a bad moment, not the price: \"Te llamo mañana a las diez\" [3].",
+  "tools": [
+   "search_contacts",
+   "deal_story",
+   "find_interactions"
+  ],
+  "confirm": false,
+  "evidence": 3,
+  "coverage_note": {
+   "level": "period",
+   "period_days": 30
+  },
+  "seconds": 9.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae10",
+  "text": "**25 %** en agosto: 15 de 60 llamadas salientes conectadas.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 2.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae11",
+  "text": "En agosto hiciste **60 llamadas salientes** y **15 contestaron** (25 % de tasa de conexión). El resto: 30 sin respuesta, 8 buzón de voz, 2 ocupado y 5 sin resultado registrado.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae12",
+  "text": "**2 reuniones** agendadas en los últimos 30 días, de 4 conversaciones en las que se pudo juzgar (tasa del 50 %). En otras 4 no se pudo determinar.",
+  "tools": [
+   "meetings_agreed"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 8,
+   "n_analysed": 4
+  },
+  "seconds": 7.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae13",
+  "text": "En los últimos 30 días tus prospectos mencionaron competidores en las llamadas capturadas:\n\n- **Gong**: 1 mención — Marina López (Acme).\n- **Salesloft**: 1 mención — Pablo Ortega (Logística Sur).\n\nSe registraron 9 menciones en total, de las que 8 pudieron analizarse.",
+  "tools": [
+   "competitor_mentions"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 9,
+   "n_analysed": 8,
+   "period_days": 30
+  },
+  "seconds": 1.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae14",
+  "text": "Solo una llamada tiene el precio sin resolver:\n\n- **Marina López (Acme)**, 26 de septiembre: «Nos parece caro para el equipo», objeción de precio que sigue abierta [1].\n\nEn la de **Pablo Ortega (Logística Sur)**, 24 de septiembre, el precio se cerró con la respuesta «Te muestro el retorno en tres meses y lo comparamos» [2].",
+  "tools": [
+   "find_interactions",
+   "deal_story",
+   "deal_story"
+  ],
+  "confirm": false,
+  "evidence": 2,
+  "coverage_note": {
+   "level": "period",
+   "period_days": 30
+  },
+  "seconds": 11.1,
+  "error": null,
+  "resets": 0,
+  "fails": [
+   "used 3 tools (max 2): ['find_interactions', 'deal_story', 'deal_story']"
+  ],
+  "warns": []
+ },
+ {
+  "id": "ae15",
+  "text": "8 deals perdidos en agosto. Los motivos más frecuentes:\n1. Precio: 4 (50 %)\n2. Sin presupuesto: 2 (25 %)\n3. Competidor: 1 (12,5 %)\n\n1 deal no tiene motivo registrado.",
+  "tools": [
+   "crm_lost_reasons"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 8,
+   "n_analysed": 7,
+   "unit": "deals"
+  },
+  "seconds": 3.5,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae16",
+  "text": "Solo puedo ver tu propio trabajo, no el del equipo, así que no puedo darte una visión de cómo va el equipo esta semana.",
+  "tools": [],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 1.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae17",
+  "text": "Solo puedo ver tu propio trabajo, no el del resto del equipo, así que no puedo decir quién es el mejor vendedor.",
+  "tools": [],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 2.4,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae18",
+  "text": "Nota para Marina López: Enviar la propuesta el jueves.",
+  "tools": [
+   "search_contacts"
+  ],
+  "confirm": true,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 10.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae19",
+  "text": "Hola. ¿Qué necesitas?",
+  "tools": [],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae20",
+  "text": "No te he entendido. ¿Qué quieres saber? Por ejemplo: qué tienes pendiente hoy, cómo va un contacto o deal concreto, o tus llamadas de un periodo.",
+  "tools": [],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 2.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "ae21",
+  "text": "En los últimos 30 días te lo dijeron **1 vez**: un obstáculo de mal momento (\"ahora no puedo\" / \"llámame luego\"), ya resuelto.\n\nEn total se registraron 4 obstáculos en ese periodo (mal momento, gatekeeper, necesita consultar y persona equivocada), de los cuales 2 siguen abiertos.",
+  "tools": [
+   "objection_breakdown"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 9,
+   "n_analysed": 8,
+   "period_days": 30
+  },
+  "seconds": 5.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg01",
+  "text": "El equipo cumple el playbook en un **84,4 %** esta semana: 27 de 32 pasos aplicables cumplidos, con 5 pasos omitidos en 8 conversaciones evaluadas.\n\nLa muestra es pequeña (8 conversaciones), así que tómalo como una señal, no como una conclusión firme.",
+  "tools": [
+   "team_adherence"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 15.3,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg02",
+  "text": "Dos lecturas distintas: lo que queda abierto en llamadas y por qué se pierden los deals.\n\n**Objeciones sin cerrar (últimos 30 días):** precio, 4 de 6 abiertas; competidor, 3 de 3 abiertas. Después, una abierta de cada una: autoridad, statu quo, momento y confianza.\n\n**Deals perdidos (últimos 90 días, 28):** precio 10 (35,7 %), sin presupuesto 6 (21,4 %), competidor 4 (14,3 %), momento 3 (10,7 %), sin decisión 2 (7,1 %). 3 sin motivo registrado.\n\nUna objeción abierta no es un deal perdido: son fuentes distintas.",
+  "tools": [
+   "objection_breakdown",
+   "crm_lost_reasons"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 23,
+   "n_analysed": 21,
+   "unit": "deals",
+   "period_days": 30
+  },
+  "seconds": 3.4,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg03",
+  "text": "La tasa de conexión del equipo en agosto fue del **24 %**: 36 de 150 llamadas salientes conectadas. El resto: 74 sin respuesta, 21 a buzón de voz, 7 ocupadas y 12 con resultado desconocido.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 8.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg04",
+  "text": "Tasa de conexión de agosto (llamadas salientes), por comercial:\n\n| Comercial | Llamadas | Conectadas | Tasa |\n|---|---|---|---|\n| Ana Ruiz | 60 | 15 | 25 % |\n| Luis Prieto | 50 | 9 | 18 % |\n| Marta Gil | 40 | 12 | 30 % |\n\nTotal del equipo: 24 % (36 de 150). Dani no registra llamadas en el periodo.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 6.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg05",
+  "text": "En los últimos 90 días se marcaron 28 deals como perdidos. Los 5 motivos principales:\n\n1. Precio: 10 (35,7 %)\n2. Sin presupuesto: 6 (21,4 %)\n3. Competidor: 4 (14,3 %)\n4. Momento: 3 (10,7 %)\n5. Sin decisión: 2 (7,1 %)\n\n3 deals no tienen motivo registrado.",
+  "tools": [
+   "crm_lost_reasons"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 28,
+   "n_analysed": 25,
+   "unit": "deals",
+   "period_days": 90
+  },
+  "seconds": 3.9,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg06",
+  "text": "En agosto se perdieron 26 deals y se ganaron 8: win rate del 23,5 %.\n\nMotivos más frecuentes:\n1. Precio: 9 (34,6 %)\n2. Sin presupuesto: 5 (19,2 %)\n3. Competidor: 4 (15,4 %)\n4. Momento: 3 (11,5 %)\n5. Sin decisión: 2 (7,7 %)\n\n3 deals no tienen motivo registrado.",
+  "tools": [
+   "crm_lost_reasons"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 26,
+   "n_analysed": 23,
+   "unit": "deals"
+  },
+  "seconds": 4.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg07",
+  "text": "No puedo darte un número de llamadas: la adherencia se mide por pasos, no por llamadas. Esta semana se cumplieron 27 de 32 pasos aplicables (84,4 %) y quedaron 5 sin cumplir, sobre 8 conversaciones evaluadas. No hay un desglose por el paso concreto de cualificación.",
+  "tools": [
+   "team_adherence",
+   "team_adherence"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 13.3,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg08",
+  "text": "Riesgo ahora mismo: 9 objeciones abiertas, 1 compromiso vencido y 4 contactos enfriándose (21 de 24 analizados).\n\n**Ana Ruiz:** Inés Vidal (Textil Norte), 15 días sin contacto; Marina López (Acme), objeción de precio; Elena Cruz (Fresh Food), objeción de status quo.\n\n**Luis Prieto:** Lucía Marín (Retail 24), prometiste mandar la invitación de la demo, vencía el 27 de septiembre; Iván Roca (Cimientos SL), 13 días sin contacto y con objeción abierta; Jorge Alba (BioFarm), objeción de competidor; Sara Bel (Aula Viva), precio; Vera Sol (Estudio V), confianza.\n\n**Marta Gil:** Rosa Diaz (Diaz Ropa), 17 días sin contacto; Carla Ríos (Ríos Consulting), 12 días; Raúl Nieto (Cimientos Nieto), objeción de autoridad; Lola Nieto (Nieto Bebidas), precio; Darío Vega (Vega Gráficas), competidor.",
+  "tools": [
+   "open_loops"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 24,
+   "n_analysed": 21
+  },
+  "seconds": 6.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg09",
+  "text": "En los últimos 30 días, el precio apareció en 6 objeciones (4 siguen abiertas), repartidas entre tres personas:\n\n- **Ana Ruiz**: 2 de precio, 1 abierta (9 conversaciones).\n- **Luis Prieto**: 2 de precio, ambas abiertas (6 conversaciones).\n- **Marta Gil**: 2 de precio, 1 abierta (8 conversaciones).\n\nDani no registra ninguna. Son muestras pequeñas: conviene revisar cómo se está respondiendo al precio antes de sacar conclusiones.",
+  "tools": [
+   "objection_breakdown"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 23,
+   "n_analysed": 21,
+   "period_days": 30
+  },
+  "seconds": 3.9,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg10",
+  "text": "Reuniones acordadas en llamadas capturadas esta semana (últimos 7 días):\n\n- **Ana Ruiz**: 1 (de 2 conversaciones evaluables; 4 en total)\n- **Marta Gil**: 1 (de 1 evaluable; 4 en total)\n- **Luis Prieto**: 0 (2 conversaciones, ninguna evaluable)\n- **Dani**: 0 (sin conversaciones)\n\nEn el CRM no consta ninguna reunión agendada esta semana.",
+  "tools": [
+   "hubspot_query",
+   "meetings_agreed",
+   "meetings_agreed",
+   "meetings_agreed",
+   "meetings_agreed"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 4,
+   "n_analysed": 2
+  },
+  "seconds": 24.0,
+  "error": null,
+  "resets": 0,
+  "fails": [
+   "used 5 tools (max 1): ['hubspot_query', 'meetings_agreed', 'meetings_agreed', 'meetings_agreed', 'meetings_agreed']"
+  ],
+  "warns": []
+ },
+ {
+  "id": "mg11",
+  "text": "En los últimos 30 días, el competidor que más aparece es **Gong**, con 2 menciones:\n\n- **Gong**: Darío Vega (Vega Gráficas) y Marina López (Acme).\n- **HubSpot Sales Hub**: Jorge Alba (BioFarm).\n- **Salesloft**: Pablo Ortega (Logística Sur).\n\nCada uno de estos dos últimos aparece en una sola conversación.",
+  "tools": [
+   "competitor_mentions"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 23,
+   "n_analysed": 21,
+   "period_days": 30
+  },
+  "seconds": 5.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg12",
+  "text": "Seis conversaciones de los últimos 30 días donde el precio salió a relucir:\n\n- **Jorge Alba (BioFarm)**, 27 de septiembre: «El precio es alto para lo que hacemos» [1]\n- **Marina López (Acme)**, 26 de septiembre: «Nos parece caro para el equipo» [2]\n- **Pablo Ortega (Logística Sur)**, 24 de septiembre: «El precio se nos va de presupuesto» [3]\n- **Eva Luna (Luna Studio)**, 23 de septiembre: «Es más caro que lo que pagamos hoy» [4]\n- **Sara Bel (Aula Viva)**, 22 de septiembre: «No tenemos presupuesto este trimestre» [5]\n- **Lola Nieto (Nieto Bebidas)**, 21 de septiembre: «Necesito ver el precio antes de nada» [6]",
+  "tools": [
+   "find_interactions"
+  ],
+  "confirm": false,
+  "evidence": 6,
+  "coverage_note": {
+   "level": "period",
+   "period_days": 30
+  },
+  "seconds": 2.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg13",
+  "text": "Luis made **50 outbound calls** in August: 9 connected, 28 no answer, 7 voicemail, 3 busy, 3 with unknown outcome. Connection rate was 18%.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 2.9,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg14",
+  "text": "Datos generales del equipo (últimos 30 días y todo el pipeline):\n\n- **Llamadas salientes:** 20, de las que 6 conectaron (30 % de conexión).\n- **Pipeline:** 49 deals. 28 perdidos (57,1 %), 9 ganados (53.000). Abiertos: 3 en cita programada (10.000), 3 cualificados (22.000), 2 con contrato enviado (50.000), 2 con decisor implicado (48.000) y 2 en presentación programada (27.000).\n- **Pendientes ahora:** 9 objeciones abiertas, 1 compromiso vencido y 4 contactos enfriándose.",
+  "tools": [
+   "crm_call_stats",
+   "hubspot_query",
+   "open_loops"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 24,
+   "n_analysed": 21
+  },
+  "seconds": 29.4,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "mg15",
+  "text": "En los últimos 30 días se registraron 6 obstáculos, 4 de ellos sin resolver:\n\n- **Mal momento**: 2 (1 abierto)\n- **Interlocutor de filtro (gatekeeper)**: 2 (1 abierto)\n- **Necesita consultar a alguien**: 1 (abierto)\n- **Persona equivocada**: 1 (abierto)\n\nLos más frecuentes son el mal momento y el filtro de acceso, ambos con la mitad ya resueltos.",
+  "tools": [
+   "objection_breakdown"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 23,
+   "n_analysed": 21,
+   "period_days": 30
+  },
+  "seconds": 2.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g01",
+  "text": "Tenemos 12 deals abiertos, repartidos así:\n\n- **Appointment Scheduled**: 3 (25 %)\n- **Qualified To Buy**: 3 (25 %)\n- **Contract Sent**: 2 (16,7 %)\n- **Decision Maker Bought-In**: 2 (16,7 %)\n- **Presentation Scheduled**: 2 (16,7 %)\n\nSon cifras de todo el histórico, sin filtro de periodo.",
+  "tools": [
+   "hubspot_query",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 6.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g02",
+  "text": "El pipeline abierto suma **157.000** en 12 deals (todos con importe registrado). Es el total de todo el pipeline abierto, sin periodo concreto.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 2.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g03",
+  "text": "The average deal size of deals won in August was **6,000**, across 8 won deals.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 6.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g04",
+  "text": "En agosto hicisteis **22 llamadas de más de 2 minutos**, de un total de 150 (14,7 %).",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.5,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g05",
+  "text": "Las llamadas conectadas de agosto duraron de media **2m 41s**, sobre 36 llamadas conectadas registradas.",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 7.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g06",
+  "text": "In August, 12 meetings were held and 3 were no-shows (out of 15 total).",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g07",
+  "text": "Tenéis **5 tareas vencidas** ahora mismo (con fecha de vencimiento anterior a hoy y sin completar).",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 3.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g08",
+  "text": "Tienes **2 tareas vencidas** (con fecha anterior a hoy y sin completar).",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 8.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g09",
+  "text": "4 deals llevan más de 30 días sin actividad (última actividad anterior al 30 de agosto).",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.9,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g10",
+  "text": "Los 3 deals abiertos más grandes por importe:\n\n| Deal | Importe | Etapa |\n|---|---|---|\n| Oportunidad 4 | 32.000 | Contrato enviado |\n| Oportunidad 11 | 27.000 | Decisor convencido |\n| Oportunidad 7 | 21.000 | Decisor convencido |\n\nSon los tres mayores de los 12 deals abiertos en HubSpot.",
+  "tools": [
+   "hubspot_query",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 3.5,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g11",
+  "text": "Pipeline abierto por segmento:\n\n- **Pyme**: 50.000 € (7 deals, 58,3 %)\n- **Enterprise**: 107.000 € (5 deals, 41,7 %)\n\nDatos de todo el histórico, sin periodo. El total no lo devolvió la herramienta, así que no lo doy.",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.9,
+  "error": null,
+  "resets": 1,
+  "fails": [],
+  "warns": [
+   "first draft stated a number no tool returned; rewritten (1x)"
+  ]
+ },
+ {
+  "id": "g12",
+  "text": "En agosto se registraron 150 llamadas, repartidas por semana así:\n\n- 1–2 de agosto: 14\n- 3–9 de agosto: 46\n- 10–16 de agosto: 39\n- 17–23 de agosto: 35\n- 24–30 de agosto: 16\n- 31 de agosto: 0\n\nSon llamadas de todo el equipo, según la fecha de actividad en HubSpot.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 6.2,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g13",
+  "text": "En agosto se crearon 20 contactos. Por origen:\n- Búsqueda orgánica: 8 (40 %)\n- Tráfico directo: 5 (25 %)\n- Referidos: 4 (20 %)\n- Búsqueda de pago: 3 (15 %)",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 3.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g14",
+  "text": "No puedo cruzar llamadas con deals perdidos: HubSpot no une tipos de registro, así que no hay forma de saber cuántas llamadas se hicieron a deals que luego se perdieron.\n\nLo más cercano que sí soporta la fuente: las llamadas de un periodo (por ejemplo, actividad total y conectadas) y, por separado, los deals perdidos con sus motivos. Si quieres, te doy una de esas dos cifras.",
+  "tools": [],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 1.5,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g15",
+  "text": "No existe un campo de \"fecha de renovación\" en los deals de HubSpot: lo he buscado por \"renovación\" y \"renewal\" y no aparece. El único campo personalizado de deals es \"Segmento\". Así que no puedo darte ese recuento.",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_describe",
+   "hubspot_describe",
+   "hubspot_describe"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.7,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g16",
+  "text": "Luis conectó el **18 %** de sus llamadas salientes en agosto: 9 de 50 (28 sin respuesta, 7 buzón de voz, 3 ocupado).\n\nObjeciones en sus llamadas capturadas de los últimos 30 días (5 en total, todas abiertas):\n- Precio: 2\n- Competencia: 1\n- Momento/prioridad: 1\n- Confianza: 1\n\nTambién hay un obstáculo: mal momento (1, abierto).",
+  "tools": [
+   "crm_call_stats",
+   "objection_breakdown"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g17",
+  "text": "Tienes **60.000** en pipeline abierto, repartido en **4 deals** (todos con importe registrado). Es el total de tus deals en etapas abiertas, sin periodo concreto.",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 3.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g18",
+  "text": "You had **6 meetings** in August.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.7,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "g19",
+  "text": "Pipeline completo (todo el histórico, 49 deals):\n\n- **Contract Sent**: 2 deals, 50.000 €\n- **Decision Maker Bought-In**: 2 deals, 48.000 €\n- **Presentation Scheduled**: 2 deals, 27.000 €\n- **Qualified To Buy**: 3 deals, 22.000 €\n- **Appointment Scheduled**: 3 deals, 10.000 €\n- **Closed Won**: 9 deals, 53.000 €\n- **Closed Lost**: 28 deals (57,1 % del total)\n\nLo abierto se concentra en las etapas finales: Contract Sent y Decision Maker Bought-In, con 2 deals cada una.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.6,
+  "error": null,
+  "resets": 1,
+  "fails": [],
+  "warns": [
+   "first draft stated a number no tool returned; rewritten (1x)"
+  ]
+ },
+ {
+  "id": "g20",
+  "text": "Solo puedo ver tu propio trabajo, no el de otros comerciales, así que no puedo darte el pipeline de Luis.",
+  "tools": [],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 1.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t01",
+  "text": "En agosto, el **14,7 %** de las llamadas duró más de 2 minutos: 22 de 150.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t02",
+  "text": "En agosto se hicieron **150 llamadas salientes**, frente a 35 en julio: un **+328,6 %**.\n\nLa tasa de conexión bajó ligeramente, de 28,6 % a **24,0 %** (−4,6 puntos). De las 150, 36 conectaron, 74 sin respuesta, 21 buzón y 7 ocupado.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 3.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t03",
+  "text": "En agosto, la mejor hora para conectar fue la franja de **10:00 a 10:59**, con un **55,9 %** (19 de 34 llamadas salientes conectadas).\n\nLe siguen:\n- 11:00-11:59: 39,1 % (9 de 23)\n- 16:00-16:59: 36,4 % (8 de 22)\n\nEn el resto de franjas (9:00, 12:00, 14:00, 15:00 y 17:00) no se registró ninguna conexión. La tasa global del mes fue del 24,0 % (36 de 150).",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 10.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t04",
+  "text": "El **16,7 %** de los deals abiertos están en envío de contrato: 2 de 12 deals abiertos.",
+  "tools": [
+   "hubspot_query",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 13.4,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t05",
+  "text": "En septiembre la tasa de conexión es del **30 %** (6 de 20 llamadas salientes), frente al **24 %** de agosto (36 de 150): +6 puntos.\n\nEl volumen, en cambio, cayó un 86,7 % (de 150 a 20 llamadas). Septiembre va con 20 llamadas registradas, así que la comparación se apoya en una muestra pequeña.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t06",
+  "text": "En septiembre se crearon **2 deals**, frente a **11 en agosto**: un descenso del **81,8 %**.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 1.7,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "t07",
+  "text": "Your best window in August was **10:00–10:59**, where 8 of 14 outbound calls connected (57.1%). The next best was 11:00–11:59 at 40.0% (4 of 10).\n\nEvery other hour you called had a small sample (5–8 calls) and connected at 0–37.5%, so treat those as hints, not findings. Overall August connection rate: 25.0% (15 of 60).",
+  "tools": [
+   "hubspot_query",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 4.4,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h01",
+  "text": "4 de 25 contactos no tienen propietario asignado (16 %).",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 3.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h02",
+  "text": "Llamadas salientes en agosto (150 en total):\n\n- **Ana Ruiz**: 60 llamadas, 15 conectadas (25 %).\n- **Luis Prieto**: 50 llamadas, 9 conectadas (18 %).\n- **Marta Gil**: 40 llamadas, 12 conectadas (30 %).\n\nDani no registra llamadas en ese periodo.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 10.5,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h03",
+  "text": "In August you closed **$48,000** across **8 won deals**.",
+  "tools": [
+   "hubspot_query",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 7.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h04",
+  "text": "La llamada más larga de agosto duró **4m 45s**. No hay una sola: cinco llamadas salientes comparten esa duración máxima (el 6 y el 12 de agosto).",
+  "tools": [
+   "hubspot_query",
+   "hubspot_describe",
+   "hubspot_query",
+   "hubspot_query",
+   "hubspot_query",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 24.4,
+  "error": null,
+  "resets": 0,
+  "fails": [
+   "used 6 tools (max 4): ['hubspot_query', 'hubspot_describe', 'hubspot_query', 'hubspot_query', 'hubspot_query', 'hubspot_query']"
+  ],
+  "warns": []
+ },
+ {
+  "id": "h05",
+  "text": "Pipeline abierto por etapa, según HubSpot (todos los deals abiertos, sin periodo):\n\n| Etapa | Deals | Importe |\n|---|---|---|\n| Cita programada | 3 | 10.000 |\n| Cualificado para comprar | 3 | 22.000 |\n| Presentación programada | 2 | 27.000 |\n| Decisor implicado | 2 | 48.000 |\n| Contrato enviado | 2 | 50.000 |\n\nLa consulta cubrió 12 deals, todos analizados; cada etapa representa entre el 16,7 % y el 25 % del total.",
+  "tools": [
+   "hubspot_query",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 15.0,
+  "error": null,
+  "resets": 1,
+  "fails": [],
+  "warns": [
+   "first draft stated a number no tool returned; rewritten (1x)"
+  ]
+ },
+ {
+  "id": "h06",
+  "text": "Deals abiertos por comercial (12 en total):\n\n- **Ana Ruiz**: 4\n- **Luis Prieto**: 4\n- **Marta Gil**: 4\n- **Dani**: 0\n\nSon todos los deals abiertos de la cuenta, sin filtro de periodo.",
+  "tools": [
+   "hubspot_query",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 13.7,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h07",
+  "text": "De tus contactos creados en agosto, **6 vinieron de búsqueda orgánica** (66,7 % de los 9 contactos de ese mes). Los otros 3 llegaron por búsqueda de pago.",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 12.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h08",
+  "text": "El **20 %** de los contactos de agosto vino de referidos: 4 de 20.\n\nEl resto se reparte entre búsqueda orgánica (8, 40 %), tráfico directo (5, 25 %) y búsqueda de pago (3, 15 %).",
+  "tools": [
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 6.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h09",
+  "text": "El valor medio de los deals abiertos del segmento enterprise es **21.400**, sobre 5 deals abiertos (todos con importe registrado).",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_query",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 23.0,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "h10",
+  "text": "Tareas sin completar (todas, no solo las de hoy):\n- **Luis Prieto**: 4\n- **Ana Ruiz**: 3\n- **Marta Gil**: 1\n- **Dani**: 0\n\nSon 8 en total y los datos cubren todo el histórico.",
+  "tools": [
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 5.8,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "f01",
+  "text": "La de Luis en agosto fue del **18 %**: 9 de 50 llamadas salientes conectaron.",
+  "tools": [
+   "crm_call_stats"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 11.1,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "f02",
+  "text": "Los 12 deals abiertos suman **157.000** en total (importe tal como está en HubSpot, sin conversión de divisa).",
+  "tools": [
+   "hubspot_query",
+   "hubspot_describe",
+   "hubspot_query"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": null,
+  "seconds": 30.7,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "f03",
+  "text": "Le prometiste **enviar el caso de logística**, con vencimiento el 30 de septiembre [1]. Es el único compromiso registrado con Marina.",
+  "tools": [
+   "deal_story"
+  ],
+  "confirm": false,
+  "evidence": 1,
+  "coverage_note": null,
+  "seconds": 21.7,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ },
+ {
+  "id": "f04",
+  "text": "En agosto se perdieron 26 deals. Los 5 motivos más frecuentes:\n\n1. Precio: 9 (34,6 %)\n2. Sin presupuesto: 5 (19,2 %)\n3. Competidor: 4 (15,4 %)\n4. Momento: 3 (11,5 %)\n5. Sin decisión: 2 (7,7 %)\n\n3 deals no tienen motivo registrado.",
+  "tools": [
+   "crm_lost_reasons"
+  ],
+  "confirm": false,
+  "evidence": 0,
+  "coverage_note": {
+   "level": "partial",
+   "n": 26,
+   "n_analysed": 23,
+   "unit": "deals"
+  },
+  "seconds": 15.6,
+  "error": null,
+  "resets": 0,
+  "fails": [],
+  "warns": []
+ }
+]

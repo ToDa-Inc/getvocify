@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from app.models.approval import ContactMatch
 from app.models.memo import ApproveMemoRequest, MemoExtraction
 from app.services.crm_copilot.pipedrive_reads import PipedriveReader
+from app.services.crm_copilot.intel_tools import INTEL_TOOL_NAMES, execute_intel_tool
 from app.services.crm_copilot.prompts import SKILL_BODIES
 from app.services.crm_copilot.viewer import resolve_viewer
 from app.services.crm_copilot.vocify_reads import VOCIFY_READS, run_vocify_read
@@ -241,6 +242,9 @@ class CopilotContext:
     crm: Any = None
     viewer: Any = None
     call_targets: Optional[list] = None
+    actor: Any = None  # AskActor on the web path; None on WhatsApp
+    company: Any = None
+    describe_calls: int = 0  # hubspot_describe calls this turn, capped in intel_tools
 
 
 @dataclass
@@ -301,6 +305,7 @@ class HubSpotBundle:
 
 FOCUS_KEYS = (
     "last_contact_id",
+    "last_contact_name",
     "last_contact_url",
     "last_company_id",
     "last_deal_id",
@@ -622,6 +627,8 @@ async def _execute(name: str, args: dict, ctx: Any) -> dict:
         if name != "get_team_metrics" and not data_tools_enabled(ctx):
             return {"ok": False, "error": f"unknown tool {name}"}
         return await run_vocify_read(name, args, ctx)
+    if name in INTEL_TOOL_NAMES:
+        return await execute_intel_tool(name, args, ctx)
     if name == "load_skill":
         skill = str(args.get("name") or "")
         body = SKILL_BODIES.get(skill)

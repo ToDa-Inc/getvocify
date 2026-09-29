@@ -10,6 +10,7 @@ import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPr
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { MemoMeetingChecklist } from "@/components/dashboard/memos/MemoMeetingChecklist";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
+import { MemoPlaybookLine } from "@/features/playbooks/components/MemoPlaybookLine";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
@@ -580,6 +581,7 @@ const MemoDetail = () => {
                 markSeen={Boolean(user?.id && memo.userId === user.id)}
               />
             ) : null}
+            {id && user?.company?.features?.includes("PLAYBOOK_ROUTING_ENABLED") ? <MemoPlaybookLine memoId={id} /> : null}
             {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
             {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>

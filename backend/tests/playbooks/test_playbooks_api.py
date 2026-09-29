@@ -65,7 +65,10 @@ def test_flag_off_returns_the_old_shape(monkeypatch):
     client = _client(_store(), role="member", sales_role="sdr")
     try:
         body = client.get("/api/v1/playbooks").json()
-        assert body == {"motions": {"discovery": "published", "closing": "published", "qualification": "missing"}}
+        assert body["motions"] == {"discovery": "published", "closing": "published", "qualification": "missing"}
+        assert "goals" not in body
+        # v2 contract: `details` is always there, additive.
+        assert set(body["details"]) == {"discovery", "closing", "qualification"}
     finally:
         set_playbook_store(None)
 

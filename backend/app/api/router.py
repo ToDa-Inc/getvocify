@@ -8,8 +8,11 @@ from app.api import (
     memos,
     captures,
     followup,
+    playbook_rules,
     playbooks,
+    playbook_insights,
     ask,
+    intelligence,
     contact_priorities,
     today,
     annotations,
@@ -50,8 +53,13 @@ api_router.include_router(memos.router)
 api_router.include_router(after_call.router)
 api_router.include_router(followup.router)
 api_router.include_router(followup.listing)
+# Before playbooks.router: /catalog and /deal-stages must not be read as /{sales_motion_key}.
+api_router.include_router(playbook_rules.router)
+api_router.include_router(playbook_rules.memo_router)
 api_router.include_router(playbooks.router)
+api_router.include_router(playbook_insights.router)
 api_router.include_router(ask.router)
+api_router.include_router(intelligence.router)
 api_router.include_router(contact_priorities.router)
 api_router.include_router(today.router)
 api_router.include_router(annotations.router)

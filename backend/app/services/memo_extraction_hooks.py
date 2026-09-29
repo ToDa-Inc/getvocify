@@ -333,6 +333,11 @@ def run_post_extraction_hooks(
     if not memo:
         memo = {"id": memo_id}
     memo = {**memo, "id": str(memo.get("id") or memo_id)}
+    # PLAYBOOK_ROUTING_ENABLED: a role-default pin is routed again with the deal and contact
+    # known by now, before C04 reads the pinned steps. No-op (and never raises) otherwise.
+    from app.services.playbooks.routing import repin_before_c04
+
+    memo = repin_before_c04(supabase, memo)
     memo = _ensure_screening_outcome(supabase, memo)
     input_revision = resolve_input_revision(memo, extraction)
     scheduled = False

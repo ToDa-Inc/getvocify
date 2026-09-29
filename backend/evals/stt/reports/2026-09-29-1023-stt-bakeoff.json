@@ -1,0 +1,100 @@
+{
+  "generated_at": "2026-09-29T10:23:44.986799+00:00",
+  "memo_count": 1,
+  "summary": {
+    "deepgram_nova3": {
+      "attempts": 1,
+      "success": 1,
+      "errors": 0,
+      "avg_latency_sec": 2.51,
+      "avg_similarity_to_raw": 0.0438,
+      "avg_similarity_to_sanitized": 0.0867,
+      "avg_word_count": 127.0
+    },
+    "speechmatics_batch": {
+      "attempts": 1,
+      "success": 1,
+      "errors": 0,
+      "avg_latency_sec": 9.84,
+      "avg_similarity_to_raw": 0.0182,
+      "avg_similarity_to_sanitized": 0.0372,
+      "avg_word_count": 128.0
+    },
+    "speechmatics_rt": {
+      "attempts": 1,
+      "success": 1,
+      "errors": 0,
+      "avg_latency_sec": 15.91,
+      "avg_similarity_to_raw": 0.0352,
+      "avg_similarity_to_sanitized": 0.0264,
+      "avg_word_count": 141.0
+    },
+    "gemini_3_5_transcribe": {
+      "attempts": 1,
+      "success": 0,
+      "errors": 1,
+      "avg_latency_sec": 0.0,
+      "avg_similarity_to_raw": 0.0,
+      "avg_similarity_to_sanitized": 0.0,
+      "avg_word_count": 0.0
+    }
+  },
+  "memos": [
+    {
+      "memo_id": "5f929843-e44f-435f-8134-5f6536a03ce7",
+      "source": "vocify_call",
+      "duration_sec": 59.0,
+      "language": "es",
+      "channels": 2,
+      "reference_raw_len": 899,
+      "reference_sanitized_len": 1040,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí, hola.\nS1: Bon bon dia.\nS2: Buen día.\nS1: ¿Os coldás ver?\nS2: Sí, te escucho perfecta.\nS1: Ok.,\nS1: de las.\nS2: Sí.\nS1: Y para alumna, ¿cuánt euros ha estado?\nS2: 30 5.\nS1: 35 euros para alumna.\nS1: De acuerdo. ¿Y algo más que que tintareisi?\nS1: Ok,\nS2: Bueno, me una miqueta de informació para la vuestra parte, la que de que se ha cofariu.\nS1: ok, ok, Dacor.\nS2: Y també, bueno, com com que se cuestan 2, me una\nS2: 1 follow up dentro de 2 semanas.\nS1: Ok, sí,,\nS1: y vosotros te otro ya en primaria, ¿no? Ahora matéis.\nS2: Sí, primaria, básicamente.\nS1: Vale, ok, ok, de acuerdo. Pues muchísimas gracias.\nS1: Adiós. Muy buen día.",
+          "latency_sec": 2.5085709580016555,
+          "error": null,
+          "confidence": 0.7899248140909091,
+          "char_count": 640,
+          "word_count": 127,
+          "similarity_to_raw": 0.043785310734463276,
+          "similarity_to_sanitized": 0.08673139158576051
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nTony vendió. Las cuerdas. Ok, Tony de las funcionalidades interesadas. Comentó que era el manejador de la celebridad. De acuerdo. De acuerdo. Y aprobó para la alumna. 40 € Estaba. 35 € para alumna. Y algo más que te interese? Ok. Ok. Ok. De acuerdo. Ok. Si pueden ilustrar esto otro día, La primaria no hará mates. Vale, Ok. Ok, De acuerdo. Muchísimas gracias. Adiós. Muy buen día. Ciao.\nSPEAKER: channel_2\nSí. Hola. Buen día. Sí, te escucho. Perfecta. Sí. 35. Um. Bueno, me agradaría rever una maqueta de información por vuestra parte. De qué? De que tú. También. Bueno. Con qué se cuentan las pistas? Me agradaría que entregues en persona un follow up dentro de dos semanas. Sí. Primaria, básicamente. La realeza de Rusia.",
+          "latency_sec": 9.840092625003308,
+          "error": null,
+          "confidence": null,
+          "char_count": 743,
+          "word_count": 128,
+          "similarity_to_raw": 0.018205461638491547,
+          "similarity_to_sanitized": 0.03719256148770246
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Sí. Hola , Tony. Buen día . Buen día. Recuerdas ? Ver si te has quedado perfecta? Ok, Tony, de las funcionalidades interesadas. Vas comentar que era el manejador de trazabilidad ? Si . De acuerdo. De acuerdo. De acuerdo. Y apoyo para cuantos euros estaba ? 35. 35 € para alumna . De acuerdo. Y algo más que te interese ? Mmm . Bueno, me agradaría ver una maqueta información por vuestra parte . De qué? De qué es lo que ofreció? Okay, okay, Okay. De acuerdo. Y también, bueno, como que soy bastante despistado. Me gustaría que tuvieses una. Un follow up dentro de dos semanas. Ok. Sí , pueden. Fer y vosotros en primaria? No ara mateix . Si, primaria. Básicamente. Vale, Ok. Ok, de acuerdo. Pues muchísimas gracias . Las redes . Ciao. Muy buen día. Lucía.",
+          "latency_sec": 15.907079291995615,
+          "error": null,
+          "confidence": null,
+          "char_count": 755,
+          "word_count": 141,
+          "similarity_to_raw": 0.03515625,
+          "similarity_to_sanitized": 0.026426426426426425
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.43212695900001563,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    }
+  ]
+}

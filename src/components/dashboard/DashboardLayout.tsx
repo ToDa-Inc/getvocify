@@ -73,7 +73,8 @@ const DashboardLayout = () => {
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
-    playbookTabEnabled: Boolean(user?.company?.features?.includes("PLAYBOOK_TAB_ENABLED")),
+    // The Playbook tab is where a rep reads the process they are scored against: always there.
+    playbookTabEnabled: true,
   });
 
   useEffect(() => {
@@ -356,7 +357,7 @@ const DashboardLayout = () => {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <div className="min-h-0 flex-1 px-4 pb-4">
             <AskPanel embedded />
           </div>
         </aside>

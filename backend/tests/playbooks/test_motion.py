@@ -39,7 +39,10 @@ def test_general_or_missing_role_with_no_fixed_channel_has_no_motion():
 def test_goal_for_matches_d4_defaults():
     assert goal_for("discovery") == "meeting_booked"
     assert goal_for("closing") == "proposal_and_close"
-    assert set(GOAL_FOR_MOTION) == {"discovery", "closing"}
+    assert set(GOAL_FOR_MOTION) == {"discovery", "inbound", "ae_discovery", "closing", "negotiation"}
+    assert goal_for("inbound") == "meeting_booked"
+    assert goal_for("ae_discovery") == "demo_booked"
+    assert goal_for("negotiation") == "close_date"
 
 
 def test_goal_for_unknown_motion_is_none():

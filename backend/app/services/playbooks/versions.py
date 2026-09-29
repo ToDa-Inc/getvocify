@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
+import re
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 
 def can_publish(role: str) -> bool:
@@ -13,6 +15,66 @@ class PublishError(Exception):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+class StaleDraftError(Exception):
+    """The draft was changed (saved, published or discarded) by someone else since the
+    caller loaded it: its `base_updated_at` no longer matches. The API answers 409
+    `stale_draft`; the editor offers a reload instead of overwriting."""
+
+    code = "stale_draft"
+
+    def __init__(self) -> None:
+        super().__init__("stale_draft")
+
+
+_FRACTION = re.compile(r"\.(\d+)")
+
+
+def parse_ts(value: Any) -> Optional[datetime]:
+    """An ISO timestamp (Postgres `+00:00`, JS `Z`, any number of fraction digits, or a
+    datetime) as an aware UTC datetime; None when it is empty or unreadable. Timestamps
+    are compared as instants, never as strings: Supabase and a browser spell the same
+    moment differently."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        text = text.replace(" ", "T", 1) if "T" not in text else text
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        text = _FRACTION.sub(lambda m: "." + (m.group(1) + "000000")[:6], text, count=1)
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def same_instant(a: Any, b: Any) -> bool:
+    """Whether two timestamps name the same moment, to the millisecond (a client that
+    round-trips the value through a JS Date loses the microseconds). Unparsable values
+    fall back to string equality."""
+    left, right = parse_ts(a), parse_ts(b)
+    if left is None or right is None:
+        return str(a or "") == str(b or "")
+    return left.replace(microsecond=left.microsecond // 1000 * 1000) == right.replace(
+        microsecond=right.microsecond // 1000 * 1000
+    )
+
+
+def is_newer(a: Any, b: Any) -> bool:
+    """a > b as instants. A missing `b` is older than anything; a missing `a` is not newer."""
+    left, right = parse_ts(a), parse_ts(b)
+    if left is None:
+        return False
+    if right is None:
+        return True
+    return left > right
 
 
 def accept_publish(motions: dict, key: str, role: str) -> dict:

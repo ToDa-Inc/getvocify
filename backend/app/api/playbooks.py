@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,8 +14,24 @@ from supabase import Client
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
+from app.services.playbooks.catalog import (
+    RuleError,
+    catalog_label,
+    default_applies_to,
+    is_catalog,
+    validate_applies_to,
+)
 from app.services.playbooks.imports import start_import
+from app.services.playbooks.intake import candidate_types, ensure_type, public_candidates
 from app.services.playbooks.motion import goal_for, visible_to_role
+from app.services.playbooks.routing import build_details, routing_enabled
+from app.services.playbooks.store import NO_VERSION_SUMMARY
+from app.services.playbooks.structure import (
+    detect_language,
+    set_playbook_structure_llm,
+    split_source,
+    structure_source,
+)
 from app.services.playbooks.structured import (
     OBJECTION_CATEGORIES,
     PlaybookDraftError,
@@ -22,10 +40,14 @@ from app.services.playbooks.structured import (
     normalize_steps,
 )
 from app.services.playbooks.store import MemoryPlaybookStore
-from app.services.playbooks.versions import PublishError, can_publish
+from app.services.playbooks.versions import PublishError, StaleDraftError, can_publish
 
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
 MANAGE_ROLES = frozenset({"owner", "admin"})
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["router", "set_playbook_store", "set_playbook_transcriber", "set_playbook_structure_llm"]
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
@@ -35,6 +57,7 @@ _LATEST: dict[tuple[str, str], dict] = {}
 _ACTIVATED: dict[tuple[str, str], str] = {}
 _STRUCTURED: dict[tuple[str, str], dict] = {}
 _PUBLISHED_VERSIONS: dict[tuple[str, str], dict] = {}
+_DETAILS: dict[tuple[str, str], dict] = {}
 _store = None
 _transcriber = None
 
@@ -62,7 +85,7 @@ async def _audio_text(payload: str) -> str:
 def get_playbook_store():
     if _store is not None:
         return _store
-    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS)
+    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS)
 
 
 def set_playbook_store(store) -> None:
@@ -73,12 +96,27 @@ def set_playbook_store(store) -> None:
 class TypeRequest(BaseModel):
     type_key: str
     name: str = ""
+    applies_to: Optional[dict] = None
 
 
 @router.post("/types")
-async def create_type(body: TypeRequest, membership: Membership = Depends(get_membership)):
+async def create_type(
+    body: TypeRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    store = get_playbook_store()
+    key = body.type_key.strip()
+    rule = None
+    if can_publish(membership.role) and key:
+        try:
+            rule = _rule_for_new_type(supabase, membership.company_id, key, body.applies_to)
+        except RuleError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}
+            ) from exc
     try:
-        motions = get_playbook_store().add_type(
+        motions = store.add_type(
             membership.company_id,
             body.type_key,
             body.name or body.type_key,
@@ -88,7 +126,29 @@ async def create_type(body: TypeRequest, membership: Membership = Depends(get_me
         if exc.code == "forbidden":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden añadir una tipología")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave")
-    return {"motions": motions}
+    if rule is not None:
+        store.save_type_meta(
+            membership.company_id,
+            key,
+            label=body.name.strip() or catalog_label(key) or None,
+            applies_to=rule,
+        )
+        motions = store.motions(membership.company_id)
+    return {"motions": motions, "details": build_details(motions, store.details(membership.company_id))}
+
+
+def _rule_for_new_type(supabase: Client, company_id: str, key: str, applies_to: Optional[dict]) -> Optional[dict]:
+    """The rule a new type is saved with. With PLAYBOOK_ROUTING_ENABLED a type outside the
+    catalog needs one (rule_required): a type that applies to no call is the P1 problem.
+    A catalog type takes the catalog default. Flag off: only a rule the caller sent."""
+    routing = is_enabled(supabase, company_id, "PLAYBOOK_ROUTING_ENABLED")
+    if applies_to is not None:
+        return validate_applies_to(applies_to)
+    if not routing:
+        return None
+    if is_catalog(key):
+        return default_applies_to(key)
+    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "rule_required"})
 
 
 class ImportRequest(BaseModel):
@@ -129,22 +189,36 @@ async def create_import(body: ImportRequest, membership: Membership = Depends(ge
     return record
 
 
+def _with_version_counts(details: dict, store, company_id: str, *, manager: bool) -> dict:
+    """Each `details[key]` gains step_count, answer_count and has_draft of the version the
+    editor would open: the pending draft for a manager, else the live one. A rep only ever
+    sees the live version, so for them has_draft is false and the counts are the live ones."""
+    summaries = store.version_summaries(company_id, include_draft=manager)
+    return {key: {**detail, **summaries.get(key, NO_VERSION_SUMMARY)} for key, detail in details.items()}
+
+
 @router.get("")
 async def list_playbooks(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    motions = get_playbook_store().motions(membership.company_id)
+    store = get_playbook_store()
+    motions = store.motions(membership.company_id)
+    stored = store.details(membership.company_id)
+    details = _with_version_counts(
+        build_details(motions, stored), store, membership.company_id, manager=membership.role in MANAGE_ROLES,
+    )
     if not is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG):
-        return {"motions": motions}
+        return {"motions": motions, "details": details}
     if membership.role not in MANAGE_ROLES:
         motions = {
             key: status_
             for key, status_ in motions.items()
-            if visible_to_role(key, membership.sales_role)
+            if visible_to_role(key, membership.sales_role, details[key]["applies_to"])
         }
+        details = {key: details[key] for key in motions}
     goals = {key: goal_for(key) for key in motions if goal_for(key)}
-    return {"motions": motions, "goals": goals}
+    return {"motions": motions, "goals": goals, "details": details}
 
 
 @router.post("/{sales_motion_key}/publish")
@@ -186,6 +260,25 @@ class StructuredObjection(BaseModel):
 class StructuredDraftRequest(BaseModel):
     steps: list[StructuredStep] = Field(default_factory=list)
     objections: list[StructuredObjection] = Field(default_factory=list)
+    base_updated_at: Optional[str] = None
+    source_id: Optional[str] = None
+
+
+def _editor_response(sales_motion_key: str, snapshot: dict) -> dict:
+    """The one shape of GET /editor, PUT /draft and DELETE /draft. `source` stays the
+    state of what is shown ("draft" | "published" | "empty", which the current editor
+    reads); the material it was structured from is `source_doc` ({id, kind, name} | null)."""
+    version = snapshot.get("version")
+    return {
+        "sales_motion_key": sales_motion_key,
+        "source": snapshot["state"],
+        "source_doc": snapshot.get("source"),
+        "version_id": (version or {}).get("id"),
+        "updated_at": (version or {}).get("updated_at"),
+        "has_live": bool(snapshot.get("has_live")),
+        "categories": list(OBJECTION_CATEGORIES),
+        **editor_view(version),
+    }
 
 
 @router.get("/{sales_motion_key}/editor")
@@ -204,16 +297,8 @@ async def get_playbook_editor(
         and not visible_to_role(sales_motion_key, membership.sales_role)
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
-    store = get_playbook_store()
-    source, version = store.editor_version(membership.company_id, sales_motion_key, include_draft=manager)
-    view = editor_view(version)
-    return {
-        "sales_motion_key": sales_motion_key,
-        "source": source,
-        "version_id": (version or {}).get("id"),
-        "categories": list(OBJECTION_CATEGORIES),
-        **view,
-    }
+    snapshot = get_playbook_store().editor_snapshot(membership.company_id, sales_motion_key, include_draft=manager)
+    return _editor_response(sales_motion_key, snapshot)
 
 
 @router.put("/{sales_motion_key}/draft")
@@ -222,8 +307,11 @@ async def save_structured_playbook_draft(
     body: StructuredDraftRequest,
     membership: Membership = Depends(get_membership),
 ):
-    """Saves the edited steps and objection answers as a new draft. Publishing it is the
-    existing POST /{key}/publish. Validation errors are 422 with a code the UI translates."""
+    """Saves the edited steps and objection answers as the draft: a pending draft is updated
+    in place (autosave keeps one row), otherwise a new one is created. `base_updated_at` is
+    the updated_at the editor last saw; if the draft has moved since, 409 `stale_draft`.
+    Publishing it is the existing POST /{key}/publish. Validation errors are 422 with a
+    code the UI translates."""
     _guard(membership)
     try:
         steps = normalize_steps([step.model_dump() for step in body.steps])
@@ -233,11 +321,144 @@ async def save_structured_playbook_draft(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": exc.code, "index": exc.index},
         ) from exc
-    version = get_playbook_store().save_structured_draft(membership.company_id, sales_motion_key, steps, entries)
+    store = get_playbook_store()
+    try:
+        store.save_structured_draft(
+            membership.company_id,
+            sales_motion_key,
+            steps,
+            entries,
+            base_updated_at=body.base_updated_at,
+            source_id=body.source_id,
+        )
+    except StaleDraftError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
+    return _editor_response(sales_motion_key, snapshot)
+
+
+@router.delete("/{sales_motion_key}/draft")
+async def discard_structured_playbook_draft(
+    sales_motion_key: str,
+    membership: Membership = Depends(get_membership),
+):
+    """"Descartar cambios": deletes the pending draft (never a published version) and
+    returns the editor as it is now: the live version, or empty."""
+    _guard(membership)
+    store = get_playbook_store()
+    store.discard_draft(membership.company_id, sales_motion_key)
+    snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
+    return _editor_response(sales_motion_key, snapshot)
+
+
+class StructureRequest(BaseModel):
+    kind: str
+    payload: str = ""
+    name: Optional[str] = None
+
+
+_DEFAULT_SOURCE_NAMES = {
+    "es": {"text": "Texto pegado", "pdf": "PDF", "audio": "Audio"},
+    "en": {"text": "Pasted text", "pdf": "PDF", "audio": "Audio"},
+}
+
+
+def _unreadable(code: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": code})
+
+
+async def _read_source(body: StructureRequest) -> str:
+    """The text of what the manager gave us (pasted text, a PDF or an audio recording, read
+    the way imports read them). 422 `detail.code`: pdf_encrypted, pdf_has_no_text,
+    audio_has_no_speech, stt_unavailable, unsupported_source, empty_source."""
+    stt = None
+    if body.kind == "audio":
+        try:
+            spoken = await _audio_text(body.payload)
+            stt = lambda _raw, spoken=spoken: spoken
+        except Exception:
+            stt = None
+    record = start_import(
+        import_id=f"source:{uuid.uuid4()}", kind=body.kind, payload=body.payload, active_version_id=None, stt=stt,
+    )
+    if record.get("status") != "ready":
+        raise _unreadable(str(record.get("reason") or "unsupported_source"))
+    text = str((record.get("draft") or {}).get("text") or "").strip()
+    if not text:
+        raise _unreadable("empty_source")
+    return text
+
+
+def _keep_source(store, membership: Membership, key: Optional[str], body: StructureRequest, text: str, lang: str):
+    name = (body.name or "").strip()[:200] or _DEFAULT_SOURCE_NAMES[lang].get(body.kind, body.kind)
+    try:
+        return store.save_source(membership.company_id, key, body.kind, name, text)
+    except Exception:  # keeping the original is a courtesy; it never blocks structuring
+        logger.exception("playbook source not saved")
+        return None
+
+
+@router.post("/structure")
+async def structure_company_source(
+    body: StructureRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """One input for the whole company. Vocify detects which call types the document covers
+    (with routing on: the five catalog types and the company's own types that have a rule;
+    off: discovery and closing), structures each with ONE model call and saves each as that
+    type's draft (a live version stays live until published). If the model fails nothing is
+    saved and `fallback` is true: the caller asks which call type it is and uses
+    POST /{key}/structure."""
+    _guard(membership)
+    store = get_playbook_store()
+    text = await _read_source(body)
+    lang = detect_language(text)
+    routing = routing_enabled(supabase, membership.company_id)
+    candidates = candidate_types(routing, store.motions(membership.company_id), store.details(membership.company_id), lang)
+    source = _keep_source(store, membership, None, body, text, lang)
+    result = await split_source(text, candidates, lang)
+
+    found = {item["key"]: item for item in result["types"]}
+    types = []
+    for candidate in candidates:  # candidate order (catalog order), not the model's
+        item = found.get(candidate["key"])
+        if item is None:
+            continue
+        key = item["key"]
+        ensure_type(store, membership.company_id, key, membership.role, routing=routing, lang=lang)
+        store.save_structured_draft(
+            membership.company_id,
+            key,
+            item["steps"],
+            normalize_objections(item["objections"]),
+            source_id=(source or {}).get("id"),
+        )
+        snapshot = store.editor_snapshot(membership.company_id, key, include_draft=True)
+        types.append({"sales_motion_key": key, "reason": item["reason"], "editor": _editor_response(key, snapshot)})
     return {
-        "sales_motion_key": sales_motion_key,
-        "source": "draft",
-        "version_id": version.get("id"),
-        "categories": list(OBJECTION_CATEGORIES),
-        **editor_view({"steps": steps, "entries": entries}),
+        "source": source,
+        "fallback": bool(result["fallback"]),
+        "reason": result["reason"],
+        "candidates": public_candidates(candidates),
+        "types": types,
     }
+
+
+@router.post("/{sales_motion_key}/structure")
+async def structure_playbook_source(
+    sales_motion_key: str,
+    body: StructureRequest,
+    membership: Membership = Depends(get_membership),
+):
+    """Turns pasted text, a PDF or an audio recording into steps and objection answers for
+    this call type. Creates no version: the caller reviews the result and saves it as the
+    draft. The material is kept as `source` so the playbook can link back to it. If the
+    model fails the steps come from the line parser and `fallback` is true."""
+    _guard(membership)
+    store = get_playbook_store()
+    text = await _read_source(body)
+    lang = detect_language(text)
+    source = _keep_source(store, membership, sales_motion_key, body, text, lang)
+    result = await structure_source(text, sales_motion_key, lang)
+    return {"sales_motion_key": sales_motion_key, **result, "source": source}

@@ -231,3 +231,11 @@ def test_heat_breaks_ties_within_a_tier_without_moving_any_tier():
     hotter = replace(hotter, payload={**hotter.payload, "heat": 90})
     cards, _ = rank_cards([cooler, hotter], now=NOW)
     assert [card.primary.contact_id for card in cards] == ["2", "1"]
+def test_a_stored_signal_of_a_type_this_build_does_not_rank_is_skipped_not_fatal():
+    from app.services.hoy.signals import Signal
+
+    stale = Signal("legacy_nudge", due_at=None, payload={}, dedupe_key="old:1", contact_id="9", source_memo_id="m9", deal_id=None)
+    live = signals_for_contact([_touch(interest="high")], now=NOW, day_end=DAY_END)
+    cards, folded = rank_cards([stale, *live], now=NOW)
+    assert all(card.primary.type != "legacy_nudge" for card in cards) and cards
+    assert rank_cards([stale], now=NOW) == ([], 0)

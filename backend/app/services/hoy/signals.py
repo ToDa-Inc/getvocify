@@ -275,9 +275,14 @@ def _rank_key(signal: Signal, now: datetime) -> tuple:
 
 
 def rank_cards(signals: list[Signal], *, now: datetime, limit: int = DEFAULT_LIMIT) -> tuple[list[Card], int]:
-    """One card per contact. Returns (visible cards, how many more are folded)."""
+    """One card per contact. Returns (visible cards, how many more are folded).
+
+    A stored signal of a type this build does not rank (an older release wrote it) is left out: one stale row must
+    not take the whole page down."""
     groups: dict[str, list[Signal]] = {}
     for signal in signals:
+        if signal.type not in TIER:
+            continue
         groups.setdefault(signal.contact_id or signal.deal_id or signal.source_memo_id, []).append(signal)
     cards: list[Card] = []
     for group in groups.values():

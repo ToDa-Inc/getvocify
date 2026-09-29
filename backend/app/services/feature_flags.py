@@ -74,7 +74,12 @@ LISTA_4_FLAGS: tuple[str, ...] = (
     "AFTER_CALL_FLOW_ENABLED",
     "COACHING_MESSAGES_ENABLED",
 )
-CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS
+# Playbooks v2 flags, exposed the same way.
+PLAYBOOK_V2_FLAGS: tuple[str, ...] = (
+    "PLAYBOOK_V2_ENABLED",
+    "PLAYBOOK_ROUTING_ENABLED",
+)
+CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS + PLAYBOOK_V2_FLAGS
 
 
 def enabled_features(supabase: Any, company_id: Optional[str], names: "list[str] | tuple[str, ...]") -> list[str]:

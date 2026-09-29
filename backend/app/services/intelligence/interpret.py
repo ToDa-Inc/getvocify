@@ -11,12 +11,50 @@ from app.services.llm.jev_schemas import INTELLIGENCE_QUESTIONS, evidence_state
 Classify = Callable[[dict], dict]
 
 
+_LISTS = ("objections", "commitments", "competitor_mentions", "playbook_observations")
+_SCALARS = ("interest", "pain_confirmed", "sales_motion_key")
+_STATUS_RANK = {"ready": 2, "partial": 1, "unavailable": 0}
+
+
+def merge_intelligence(existing: Optional[dict], incoming: dict) -> dict:
+    """One block, two producers. The extractor owns interest, objections, commitments and competitors;
+    the classifier owns pain and the meeting. Whichever runs last keeps what the other found.
+    A block for another input revision is stale and is not merged in."""
+    if not isinstance(existing, dict) or not existing or existing.get("input_revision") != incoming.get("input_revision"):
+        return incoming
+    if existing.get("prompt_version") and incoming.get("prompt_version") and existing["prompt_version"] != incoming["prompt_version"]:
+        return incoming  # a re-analysis with a newer prompt replaces the old reading
+    merged = dict(existing)
+    for key in _SCALARS:
+        if incoming.get(key) is not None:
+            merged[key] = incoming[key]
+    for key in _LISTS:
+        if incoming.get(key):
+            merged[key] = incoming[key]
+    meeting = dict(existing.get("meeting") or {})
+    new_meeting = incoming.get("meeting") or {}
+    if new_meeting.get("agreed") is not None or not meeting:
+        meeting = {**meeting, **new_meeting}
+    refs = list(dict.fromkeys([*(existing.get("meeting") or {}).get("evidence_refs", []), *new_meeting.get("evidence_refs", [])]))
+    merged["meeting"] = {**meeting, "evidence_refs": refs}
+    by_id = {e["id"]: e for e in [*(existing.get("evidence") or []), *(incoming.get("evidence") or [])] if isinstance(e, dict) and e.get("id")}
+    merged["evidence"] = list(by_id.values())
+    ranked = max((existing.get("status"), incoming.get("status")), key=lambda st: _STATUS_RANK.get(st, -1))
+    merged["status"] = ranked
+    merged["version"] = incoming.get("version", existing.get("version"))
+    merged["input_revision"] = incoming["input_revision"]
+    if existing.get("prompt_version") or incoming.get("prompt_version"):
+        merged["prompt_version"] = existing.get("prompt_version") or incoming.get("prompt_version")
+    return merged
+
+
 def extraction_with_intelligence(extraction, intelligence: dict) -> dict:
-    """Keep the extraction and attach C04. The attached block is not part of the input revision."""
+    """Keep the extraction and attach C04, merged with any block already stored. The attached block is
+    not part of the input revision."""
     if hasattr(extraction, "model_dump"):
         extraction = extraction.model_dump()
     merged = dict(extraction or {})
-    merged["intelligence"] = intelligence
+    merged["intelligence"] = merge_intelligence(merged.get("intelligence"), intelligence)
     return merged
 
 

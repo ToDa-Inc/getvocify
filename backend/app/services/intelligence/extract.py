@@ -13,11 +13,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.config import settings
 from app.services.intelligence.worker import revision_for_memo
 
-PROMPT_VERSION = "intelligence_v3"
-# v4 = v3 + named competitors + one observation per playbook step (PLAYBOOK_OBSERVATIONS_ENABLED,
+PROMPT_VERSION = "intelligence_v5"
+# v6 = v5 + named competitors + one observation per playbook step (PLAYBOOK_OBSERVATIONS_ENABLED,
 # per company). Both versions produce the same shape, so both count as current: a company
-# turning the flag on gets v4 on new conversations; older ones keep their v3 facts.
-OBSERVATIONS_PROMPT_VERSION = "intelligence_v4"
+# turning the flag on gets v6 on new conversations; older ones keep their v5 facts.
+# v5/v6 are v3/v4 plus the objection/obstacle split: `kind` "objection" (a concern about the offer)
+# or "obstacle" (a practical block: bad moment, gatekeeper, wrong person, needs to consult).
+OBSERVATIONS_PROMPT_VERSION = "intelligence_v6"
 OBSERVATIONS_FLAG = "PLAYBOOK_OBSERVATIONS_ENABLED"
 CURRENT_PROMPT_VERSIONS = frozenset({PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION})
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
@@ -29,6 +31,8 @@ def prompt_path(version: str) -> Path:
 
 _INTEREST = frozenset({"high", "medium", "low", "none"})
 _CATEGORY = frozenset({"price", "timing", "authority", "competitor", "status_quo", "trust", "other"})
+_OBSTACLE_CATEGORY = frozenset({"bad_moment", "gatekeeper", "wrong_person", "needs_to_consult", "other"})
+_EPISODE_KIND = frozenset({"objection", "obstacle"})
 _RESOLUTION = frozenset({"resolved", "open", "unknown"})
 _KIND = frozenset({"call", "email", "send", "meeting", "other"})
 _ORIGIN = frozenset({"rep_promise", "prospect_request"})
@@ -38,12 +42,29 @@ _TEXT_MAX = 80
 _DEFAULT_TZ = "Europe/Madrid"
 
 
+def _speaker(transcript: str, quote: str) -> str | None:
+    """Who said it, read from the nearest speaker marker before the quote. Never from the model."""
+    text = " ".join(transcript.split())
+    at = text.find(quote)
+    if at < 0:
+        return None
+    before = text[:at]
+    rep, prospect = before.rfind("You:"), before.rfind("Them:")
+    if rep == prospect:
+        return None
+    return "rep" if rep > prospect else "prospect"
+
+
 def _evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
     text = " ".join(str(quote or "").split())
     if not text or text not in " ".join(transcript.split()):
         return None
     digest = hashlib.sha256(f"{memo_id}:{text}".encode()).hexdigest()[:16]
-    return {"id": f"ev-{digest}", "source_type": "transcript", "source_id": memo_id, "quote": text}
+    ref = {"id": f"ev-{digest}", "source_type": "transcript", "source_id": memo_id, "quote": text}
+    speaker = _speaker(transcript, text)
+    if speaker:
+        ref["speaker_role"] = speaker
+    return ref
 
 
 _TURN = re.compile(r"(You|Them):\s*")
@@ -235,7 +256,9 @@ def shape_intelligence(
         if ref is None:
             continue
         evidence[ref["id"]] = ref
-        category = item.get("category") if item.get("category") in _CATEGORY else "other"
+        kind = item.get("kind") if item.get("kind") in _EPISODE_KIND else "objection"
+        allowed = _CATEGORY if kind == "objection" else _OBSTACLE_CATEGORY
+        category = item.get("category") if item.get("category") in allowed else "other"
         resolution = item.get("resolution") if item.get("resolution") in _RESOLUTION else "unknown"
         response = None
         response_evidence_refs: list[str] = []
@@ -249,7 +272,7 @@ def shape_intelligence(
         objections.append({
             "id": f"obj-{ref['id'][3:]}",
             "category": category,
-            "kind": "objection",
+            "kind": kind,
             "resolution": resolution,
             "quote": ref["quote"],
             "evidence_refs": [ref["id"]],

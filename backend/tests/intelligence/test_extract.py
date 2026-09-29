@@ -223,10 +223,10 @@ def test_no_transcript_means_no_call():
 def test_the_prompt_version_names_its_own_prompt_file():
     from app.services.intelligence.extract import PROMPT_PATH, PROMPT_VERSION
 
-    assert PROMPT_VERSION == "intelligence_v3"
+    assert PROMPT_VERSION == "intelligence_v5"
     assert PROMPT_PATH.name == f"{PROMPT_VERSION}.md"
     stored = shape_intelligence({**MEMO, "timezone": "Europe/Madrid"}, {"commitments": []})
-    assert stored["prompt_version"] == "intelligence_v3"
+    assert stored["prompt_version"] == "intelligence_v5"
 
 
 def test_a_released_prompt_file_is_never_edited_in_place():
@@ -235,3 +235,70 @@ def test_a_released_prompt_file_is_never_edited_in_place():
     v2 = (PROMPT_PATH.parent / "intelligence_v2.md").read_text(encoding="utf-8")
     assert "SPEAKER: S1" not in v2
     assert "en dos semanas" not in v2
+
+
+V2_TRANSCRIPT = (
+    "Them: Ahora mismo estoy conduciendo, llámame luego. "
+    "You: Claro, te llamo mañana a las diez. "
+    "Them: El precio se nos va de presupuesto. "
+    "You: Te muestro el retorno en tres meses y lo comparamos. "
+    "Them: Vale, me interesa, quedamos el jueves. "
+    "Them: Ahora usamos Gong."
+)
+V2_MEMO = {**MEMO, "transcript": V2_TRANSCRIPT}
+
+
+def test_an_obstacle_is_kept_apart_from_an_objection_with_its_own_categories():
+    raw = {
+        "objections": [
+            {"kind": "obstacle", "category": "bad_moment", "resolution": "resolved", "quote": "estoy conduciendo"},
+            {"kind": "objection", "category": "price", "resolution": "open", "quote": "El precio se nos va de presupuesto"},
+            {"kind": "objection", "category": "bad_moment", "resolution": "open", "quote": "El precio se nos va de presupuesto"},
+            {"kind": "obstacle", "category": "price", "resolution": "open", "quote": "estoy conduciendo"},
+        ]
+    }
+    shaped = shape_intelligence(V2_MEMO, raw)
+    by = {(o["kind"], o["category"]) for o in shaped["objections"]}
+    assert ("obstacle", "bad_moment") in by and ("objection", "price") in by
+    assert ("objection", "other") in by and ("obstacle", "other") in by  # a category from the other kind becomes other
+
+
+def test_a_missing_kind_is_an_objection_as_in_v1():
+    shaped = shape_intelligence(V2_MEMO, {"objections": [{"category": "price", "resolution": "open", "quote": "El precio se nos va de presupuesto"}]})
+    assert shaped["objections"][0]["kind"] == "objection"
+
+
+def test_the_v5_and_v6_prompts_teach_the_obstacle_split():
+    from app.services.intelligence.extract import OBSERVATIONS_PROMPT_VERSION, PROMPT_VERSION, prompt_path
+
+    for version in (PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION):
+        text = prompt_path(version).read_text(encoding="utf-8")
+        assert 'kind "obstacle"' in text and "bad_moment" in text and "never price or timing objections" in text
+    assert 'kind "obstacle"' not in prompt_path("intelligence_v3").read_text(encoding="utf-8")  # released prompts are untouched
+
+
+def test_the_reps_reply_is_kept_only_when_it_is_a_real_rep_quote():
+    good = {"objections": [{"kind": "objection", "category": "price", "resolution": "open", "quote": "El precio se nos va de presupuesto", "response": "Te muestro el retorno en tres meses"}]}
+    shaped = shape_intelligence(V2_MEMO, good)
+    item = shaped["objections"][0]
+    assert item["response"] == {"text": "Te muestro el retorno en tres meses"}
+    assert item["response_evidence_refs"][0] in {e["id"] for e in shaped["evidence"]}
+    invented = {"objections": [{"kind": "objection", "category": "price", "resolution": "open", "quote": "El precio se nos va de presupuesto", "response": "Le ofrecí un 30% de descuento"}]}
+    assert shape_intelligence(V2_MEMO, invented)["objections"][0]["response"] is None
+
+
+def test_who_said_it_comes_from_the_transcript_not_from_the_model():
+    shaped = shape_intelligence(V2_MEMO, {"objections": [{"kind": "objection", "category": "price", "resolution": "open", "quote": "El precio se nos va de presupuesto", "response": "Te muestro el retorno en tres meses"}]})
+    speakers = {e["quote"]: e["speaker_role"] for e in shaped["evidence"]}
+    assert speakers["El precio se nos va de presupuesto"] == "prospect"
+    assert speakers["Te muestro el retorno en tres meses"] == "rep"
+
+
+def test_the_prompt_version_moved_so_old_blocks_are_stale():
+    from app.services.intelligence.extract import is_current
+
+    memo = {**V2_MEMO, "extraction": {"summary": "x"}}
+    current = shape_intelligence(memo, {})
+    old = {**current, "prompt_version": "intelligence_v3"}
+    assert is_current({**memo, "extraction": {**memo["extraction"], "intelligence": current}}) is True
+    assert is_current({**memo, "extraction": {**memo["extraction"], "intelligence": old}}) is False
