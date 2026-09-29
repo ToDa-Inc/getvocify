@@ -82,10 +82,13 @@ export default function PlaybookPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const p = t.product;
+  // The best calls are their own flag (GET /coaching/best is gated by it); the process is not.
+  const bestEnabled = Boolean(user?.company?.features?.includes("PLAYBOOK_TAB_ENABLED"));
   const query = useQuery({
     queryKey: ["coaching-best"],
     queryFn: () => api.get<BestByFlow>("/coaching/best"),
     retry: false,
+    enabled: bestEnabled,
   });
   const manager = isManagerRole(user?.company?.role);
   // T11: opening the memo stays governed by the memo's own visibility, which this page
@@ -93,17 +96,13 @@ export default function PlaybookPage() {
   // manager, who already has broader read access elsewhere in the product.
   const canOpen = (item: BestItem) => manager || item.user_id === user?.id;
   const empty = query.isSuccess && FLOWS.every(({ flow }) => (query.data?.[flow]?.length ?? 0) === 0);
-  const v2 = Boolean(user?.company?.features?.includes("PLAYBOOK_V2_ENABLED"));
 
   return (
     <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
-      <div>
-        <h1 className={THEME_TOKENS.typography.pageTitle}>{p.playbookPageTitle}</h1>
-        {v2 ? null : <p className={THEME_TOKENS.typography.body}>{p.playbookPageSubtitle}</p>}
-      </div>
-      {v2 ? <YourProcess /> : null}
-      {v2 ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.pb2.bestHeading}</h2> : null}
-      {query.isLoading ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}
+      <h1 className={THEME_TOKENS.typography.pageTitle}>{p.playbookPageTitle}</h1>
+      <YourProcess />
+      {bestEnabled ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.pb2.bestHeading}</h2> : null}
+      {query.isLoading && bestEnabled ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}
       {query.isError ? <p className={THEME_TOKENS.typography.body}>{p.teamReadFailed}</p> : null}
       {empty ? <p className={THEME_TOKENS.typography.body}>{p.playbookPageEmpty}</p> : null}
       {FLOWS.map(({ flow, motion }) => {

@@ -440,3 +440,23 @@ Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.app
 3. Encender `PLAYBOOK_V2_ENABLED` en Vocify y un cliente; `PLAYBOOK_ROUTING_ENABLED` después, cuando haya dos playbooks publicados de un mismo rol.
 4. Confirmar la señal inbound: hoy es `hs_analytics_source` de HubSpot distinto de OFFLINE; Pipedrive no da señal y la regla `inbound` no encaja allí.
 5. Reticle: no se pudo verificar con Reticle en esta sesión (sin daemon ni backend con credenciales). Guardar los tres flujos de §10 con su `intent` en staging.
+
+---
+
+## 14. Rediseño tras la revisión del founder (29 sep 2026)
+
+**Qué no funcionaba (visto en staging):** la empresa seguía en el editor viejo (flag apagado), y aun con la v2 el recorrido obligaba a elegir el tipo de llamada antes de dar el documento, no explicaba para qué servía cada parte y ponía el análisis vacío por encima del proceso.
+
+**Qué cambia (sin flag; sale al desplegar):**
+- **Una entrada para toda la empresa.** Página vacía = una caja: «Dale a Vocify vuestro playbook» (pegar, PDF, audio o dictado). `POST /playbooks/structure` detecta los tipos de llamada del documento, estructura cada uno y lo guarda como borrador. Si no puede separarlo, pregunta «¿Para qué llamada es?» y usa el flujo por tipo.
+- **Resultado legible:** «Hemos encontrado 2 procesos en vuestro documento» y una fila por tipo con «5 comprobaciones · 2 respuestas · Sin activar».
+- **Una sola acción para toda la página: «Activar para el equipo».** Guarda lo que se esté escribiendo y activa todos los cambios pendientes. El documento ya no tiene «Publicar»; «Rehacer desde un documento» y «Descartar cambios» van en el menú «···».
+- **Títulos que dicen para qué sirve:** «Vocify comprueba en cada llamada» y «Cuando el cliente dice… / El comercial ve».
+- **Página:** primero el proceso; «Cómo está funcionando» (salud del proceso, objeciones y sus filtros) solo aparece cuando hay llamadas evaluadas.
+- **Fuera del vocabulario:** tipología, borrador, publicar. «Se aplica a» solo cuando decide algo (tipo propio o dos playbooks del mismo rol).
+- **Comercial:** la pestaña Playbook sale siempre con su proceso; «Mejores llamadas» solo con `PLAYBOOK_TAB_ENABLED`.
+- Se borran `PlaybookEditor.tsx` y `PlaybookSetupNotice.tsx` (editor y aviso de 4 pasos antiguos).
+
+**Activación:** `docs/superpowers/plans/2026-09-29-activacion-playbooks-v2.sql` (migraciones 066 y 067 obligatorias antes de desplegar; `PLAYBOOK_ROUTING_ENABLED` opcional). `PLAYBOOK_V2_ENABLED` queda sin uso en el frontend.
+
+**Pruebas:** backend 3151 passed, 32 skipped. Frontend 453 pass. Build OK. Recorrido en navegador (app real, API simulada según §12): vacío → pegar documento mixto → 2 procesos → revisar → activar; editar uno activo con autoguardado; menú «···»; comercial; 390 px. Evals P01/P02 pendientes de clave.

@@ -40,6 +40,11 @@ export type PlaybookDetail = {
   applies_to: AppliesTo | null;
   goal: string | null;
   catalog: boolean;
+  /** Of what a manager's editor shows: the pending draft, else the live version. */
+  step_count?: number;
+  answer_count?: number;
+  /** Saved changes the team doesn't have yet. */
+  has_draft?: boolean;
 };
 
 export type CatalogType = {
@@ -241,6 +246,66 @@ function defaultRole(key: string): SalesRoleKey | null {
   if (key === "discovery" || key === "inbound") return "sdr";
   if (key === "closing" || key === "ae_discovery" || key === "negotiation") return "ae";
   return null;
+}
+
+export type RowState = "empty" | "pending" | "live";
+
+/** What a row says at a glance: nothing yet, saved changes the team doesn't have, or active. */
+export function rowState(status: MotionStatus, detail: PlaybookDetail | null | undefined): RowState {
+  if (detail?.has_draft || status === "draft" || status === "importing") return "pending";
+  if (status === "published") return "live";
+  return (detail?.step_count ?? 0) > 0 ? "pending" : "empty";
+}
+
+/** The call types "Activar para el equipo" publishes. */
+export function pendingKeys(
+  motions: Record<string, MotionStatus>,
+  details: Record<string, PlaybookDetail> | null | undefined,
+): string[] {
+  return Object.keys(motions).filter((key) => rowState(motions[key], details?.[key]) === "pending");
+}
+
+/** Nothing created anywhere yet: the whole section is the intake box. */
+export function nothingYet(
+  motions: Record<string, MotionStatus>,
+  details: Record<string, PlaybookDetail> | null | undefined,
+): boolean {
+  return Object.keys(motions).every((key) => rowState(motions[key], details?.[key]) === "empty");
+}
+
+/** "5 comprobaciones · 3 respuestas", singular-aware; null when there is nothing to count. */
+export function countLine(
+  detail: PlaybookDetail | null | undefined,
+  copy: { checks: string; checkOne: string; answers: string; answerOne: string },
+): string | null {
+  const steps = detail?.step_count ?? 0;
+  const answers = detail?.answer_count ?? 0;
+  if (!steps) return null;
+  const parts = [steps === 1 ? copy.checkOne : copy.checks.replace("{count}", String(steps))];
+  if (answers) parts.push(answers === 1 ? copy.answerOne : copy.answers.replace("{count}", String(answers)));
+  return parts.join(" · ");
+}
+
+/** The "applies to" line only earns its space when a rule decides something: a company's own
+ * type, or two playbooks for the same role that calls must be told apart by. */
+export function ruleNeeded(rows: PlaybookRow[], key: string, routingEnabled: boolean): boolean {
+  if (!routingEnabled) return false;
+  const row = rows.find((item) => item.key === key);
+  if (!row) return false;
+  const custom = !["discovery", "closing", "qualification", "inbound", "ae_discovery", "negotiation"].includes(key);
+  if (custom) return true;
+  return rows.filter((item) => item.role && item.role === row.role && item.status !== "missing").length > 1;
+}
+
+/** The analytics under the playbook show once there is something to read, and stay while the
+ * person is filtering (an empty filter result must not hide the filters themselves). */
+export function showProcessAnalytics(
+  data: { process_health?: { scored: number }[]; objection_categories?: unknown[] } | null | undefined,
+  filtered: boolean,
+): boolean {
+  if (filtered) return true;
+  if (!data) return false;
+  return (data.process_health ?? []).some((flow) => flow.scored > 0) || (data.objection_categories ?? []).length > 0;
 }
 
 export type RuleCopy = {

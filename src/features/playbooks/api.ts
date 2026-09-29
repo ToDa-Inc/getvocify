@@ -20,6 +20,15 @@ export type EditorDoc = EditorSnapshot & {
   source_doc?: PlaybookSource | null;
 };
 
+/** POST /playbooks/structure: one source for the whole company, split by call type and saved as drafts. */
+export type IntakeResult = {
+  source: PlaybookSource | null;
+  fallback: boolean;
+  reason: null | "no_process";
+  candidates: { key: string; label: string }[];
+  types: { sales_motion_key: string; reason: null | "grouped" | "too_short"; editor: EditorDoc }[];
+};
+
 export type PlaybookList = {
   motions: Record<string, MotionStatus>;
   goals?: Record<string, string>;
@@ -68,6 +77,8 @@ export const playbooksApi = {
       { kind, payload, ...(name ? { name } : {}) },
       { timeoutMs: 120_000 },
     ),
+  intake: (kind: SourceKind, payload: string, name?: string) =>
+    api.post<IntakeResult>("/playbooks/structure", { kind, payload, ...(name ? { name } : {}) }, { timeoutMs: 120_000 }),
   catalog: () => api.get<{ types: CatalogType[] }>("/playbooks/catalog"),
   addType: (body: { type_key: string; name: string; applies_to?: AppliesTo }) =>
     api.post<{ motions: Record<string, MotionStatus>; details?: Record<string, PlaybookDetail> }>("/playbooks/types", body),

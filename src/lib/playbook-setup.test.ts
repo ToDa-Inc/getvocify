@@ -16,6 +16,14 @@ const playbooksSectionSource = readFileSync(
   fileURLToPath(new URL("../features/playbooks/components/PlaybooksSection.tsx", import.meta.url)),
   "utf8",
 );
+const playbookListSource = readFileSync(
+  fileURLToPath(new URL("../features/playbooks/components/PlaybookList.tsx", import.meta.url)),
+  "utf8",
+);
+const playbooksApiSource = readFileSync(
+  fileURLToPath(new URL("../features/playbooks/api.ts", import.meta.url)),
+  "utf8",
+);
 
 describe("playbook setup", () => {
   it("tells a member they cannot edit and an admin they can start", () => {
@@ -64,10 +72,15 @@ describe("playbook setup", () => {
     );
   });
 
-  it("completes setup with imports only, not an AI interview", () => {
-    assert.doesNotMatch(playbooksSectionSource, /\/ask|copilot|interview|entrevista/i);
-    assert.match(playbooksSectionSource, /\/playbooks\/imports/);
-    assert.match(playbooksSectionSource, /\/playbooks\/types/);
+  it("completes setup from the company's own material, not an AI interview", () => {
+    // v2: the section is the list; setup goes through the structure endpoints and types.
+    for (const source of [playbooksSectionSource, playbookListSource]) {
+      assert.doesNotMatch(source, /copilot|interview|entrevista/i);
+    }
+    assert.doesNotMatch(playbookListSource, /\/ask\//);
+    assert.match(playbooksApiSource, /"\/playbooks\/structure"/);
+    assert.match(playbooksApiSource, /\/structure`/);
+    assert.match(playbooksApiSource, /"\/playbooks\/types"/);
     const review = importReview({
       status: "ready",
       published: false,

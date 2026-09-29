@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash } from "@phosphor-icons/react";
 import { IconAction } from "@/components/ui/icon-action";
-import { InlineTextarea, inlineField } from "@/features/playbooks/components/InlineField";
+import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { useLanguage } from "@/lib/i18n";
 import { needsCriterion, validationToShow } from "@/lib/playbook-doc";
 import { MAX_LABEL, type EditorStep } from "@/lib/playbook-editor";
@@ -60,7 +60,10 @@ export function PlaybookStepRow({
   const [exampleOpen, setExampleOpen] = useState(false);
   const error = validationToShow(step, touched, forced);
   const showExample = Boolean(step.example) || exampleOpen;
-  const hint = editable && touched && !error && step.label.trim() && needsCriterion(step);
+  // Vocify leaves "counts as done" empty when it only found an attitude: say so on review,
+  // without waiting for a touch. A criterion that just repeats the name waits for one.
+  const hint =
+    editable && !error && step.label.trim() && needsCriterion(step) && (touched || !step.criterion.trim());
 
   if (!editable) {
     return (
@@ -90,15 +93,19 @@ export function PlaybookStepRow({
   return (
     <li className={cn(row, "py-2")}>
       <span className={cn(cell.number, "pt-1.5")}>{index + 1}</span>
-      <input
-        className={cn(inlineField, cell.name, "text-[15px]")}
+      {/* Wraps instead of cutting a long name; Enter doesn't break the line. */}
+      <InlineTextarea
+        className={cn(cell.name, "text-[15px]")}
         value={step.label}
         maxLength={MAX_LABEL + 20}
         placeholder={copy.stepName}
         aria-label={copy.stepName}
         aria-invalid={error === "empty_label" || error === "label_too_long"}
         autoFocus={autoFocus}
-        onChange={(event) => onChange({ label: event.target.value })}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.preventDefault();
+        }}
+        onChange={(event) => onChange({ label: event.target.value.replace(/\n/g, " ") })}
         onBlur={onBlur}
       />
       <div className={cn(cell.detail, "space-y-0.5")}>
@@ -112,8 +119,8 @@ export function PlaybookStepRow({
           onBlur={onBlur}
         />
         {showExample ? (
-          <input
-            className={cn(inlineField, "text-sm italic text-muted-foreground focus:text-foreground")}
+          <InlineTextarea
+            className="text-sm italic text-muted-foreground focus:text-foreground"
             value={step.example ?? ""}
             placeholder={copy.example}
             aria-label={copy.example}
@@ -129,7 +136,8 @@ export function PlaybookStepRow({
       <div
         className={cn(
           cell.aside,
-          "-mr-2 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+          // Phone: only on the step being edited, so the text keeps the width. Desktop: on hover.
+          "-mr-2 hidden transition-opacity group-focus-within:flex md:flex md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
         )}
       >
         {!showExample ? (

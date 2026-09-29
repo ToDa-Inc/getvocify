@@ -6,25 +6,32 @@ import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
-import { appendDictation, sourceKindForFile, type StructureResult } from "@/lib/playbook-doc";
+import { appendDictation, sourceKindForFile, type SourceKind } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
+export type SourceInput = { kind: SourceKind; payload: string; name?: string };
+
 /**
- * The one box a playbook starts from (plan §4.2): write, paste, dictate or drop a file, and
- * Vocify turns it into steps and answers. Whatever the source, it lands in the same document.
+ * The one box a playbook starts from: write, paste, dictate or drop a file. The owner decides
+ * where it goes (the whole company, or one call type); this box only gathers the source and
+ * shows one steady state while Vocify reads it.
  */
 export function PlaybookStart({
-  motionKey,
-  onResult,
+  submit,
+  placeholder,
+  readingLabel,
   onTemplate,
   onCancel,
+  minHeight = "min-h-[152px]",
 }: {
-  motionKey: string;
-  onResult: (result: StructureResult) => void;
-  /** Omitted when rebuilding an existing playbook: the template is for a blank start. */
+  /** Throws on failure; an ApiError's detail.code becomes the message. */
+  submit: (source: SourceInput) => Promise<void>;
+  placeholder?: string;
+  readingLabel?: string;
   onTemplate?: () => void;
   onCancel?: () => void;
+  minHeight?: string;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
@@ -44,7 +51,7 @@ export function PlaybookStart({
       return;
     }
     if (kind === "text") {
-      // A text file is just text: show it, so it can be read and trimmed before creating.
+      // A text file is just text: show it, so it can be read and trimmed first.
       const body = await picked.text();
       setText((current) => appendDictation(current, body));
       return;
@@ -59,8 +66,7 @@ export function PlaybookStart({
     setError(null);
     try {
       const payload = file ? await blobBase64(file) : text.trim();
-      const result = await playbooksApi.structure(motionKey, kind, payload, file?.name);
-      onResult(result);
+      await submit({ kind, payload, ...(file ? { name: file.name } : {}) });
     } catch (caught) {
       const code = errorCode(caught);
       setError((code && copy.readErrors[code]) || copy.structureFailed);
@@ -88,7 +94,7 @@ export function PlaybookStart({
         }}
       >
         {file ? (
-          <div className="flex min-h-[152px] items-center justify-center rounded-lg border border-border bg-background px-4">
+          <div className={cn("flex items-center justify-center rounded-lg border border-border bg-background px-4", minHeight)}>
             <span className="inline-flex items-center gap-2 rounded-full bg-secondary/60 py-1.5 pl-3 pr-1 text-sm text-foreground">
               <FileText size={14} weight="light" />
               <span className="max-w-[16rem] truncate">{file.name}</span>
@@ -100,14 +106,15 @@ export function PlaybookStart({
         ) : (
           <textarea
             className={cn(
-              "block min-h-[152px] w-full resize-y rounded-lg border border-border bg-background px-4 py-3 text-[15px] leading-relaxed text-foreground",
-              "placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-beige/40 transition-opacity",
-              busy && "opacity-60",
+              "block w-full resize-y rounded-lg border border-border bg-background px-4 py-3 text-[15px] leading-relaxed text-foreground",
+              "placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-beige/40 transition-opacity duration-200",
+              minHeight,
+              busy && "opacity-50",
             )}
             value={text}
             readOnly={busy}
-            placeholder={copy.startPlaceholder}
-            aria-label={copy.startPlaceholder}
+            placeholder={placeholder ?? copy.startPlaceholder}
+            aria-label={placeholder ?? copy.startPlaceholder}
             onChange={(event) => setText(event.target.value)}
           />
         )}
@@ -119,15 +126,17 @@ export function PlaybookStart({
       </div>
 
       <div className="flex items-center gap-1">
-        {!file ? (
+        {!file && !busy ? (
           <VoiceComposer
             onText={(spoken) => setText((current) => appendDictation(current, spoken))}
             transcribe={playbooksApi.transcribe}
           />
         ) : null}
-        <IconAction label={copy.startAttach} disabled={busy} onClick={() => input.current?.click()}>
-          <Paperclip size={16} weight="light" />
-        </IconAction>
+        {!busy ? (
+          <IconAction label={copy.startAttach} onClick={() => input.current?.click()}>
+            <Paperclip size={16} weight="light" />
+          </IconAction>
+        ) : null}
         <input
           ref={input}
           type="file"
@@ -140,9 +149,15 @@ export function PlaybookStart({
             void take(picked);
           }}
         />
+        {busy ? (
+          <p className="inline-flex items-center gap-2 pl-1 text-sm text-muted-foreground" role="status">
+            <VocifySpinner size={12} />
+            {readingLabel ?? copy.structuring}
+          </p>
+        ) : null}
         <span className="flex-1" />
-        {onCancel ? (
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+        {onCancel && !busy ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
             {t.product.cancelAction}
           </Button>
         ) : null}
@@ -151,12 +166,6 @@ export function PlaybookStart({
         </Button>
       </div>
 
-      {busy ? (
-        <p className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status">
-          <VocifySpinner size={12} />
-          {copy.structuring}
-        </p>
-      ) : null}
       {error ? (
         <p className="text-sm text-destructive" role="alert">
           {error}

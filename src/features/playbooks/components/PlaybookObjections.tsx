@@ -37,7 +37,13 @@ export function PlaybookObjections({
 
   return (
     <section className="space-y-1" aria-label={copy.objections}>
-      <h3 className={THEME_TOKENS.typography.capsLabel}>{copy.objections}</h3>
+      {/* The two columns say what the answers are for: what the prospect says, what the rep gets. */}
+      <div className="grid gap-x-5 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
+        <h3 className={THEME_TOKENS.typography.capsLabel}>{copy.whenClientSays}</h3>
+        <p className={cn(THEME_TOKENS.typography.capsLabel, "hidden md:block")} aria-hidden>
+          {copy.repSees}
+        </p>
+      </div>
       {shown.length > 0 ? (
         <ul>
           {shown.map((row) => {

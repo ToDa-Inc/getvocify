@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import {
   addableTypes,
   appendDictation,
+  countLine,
+  nothingYet,
+  pendingKeys,
+  ruleNeeded,
+  rowState,
+  showProcessAnalytics,
   editorFromStructure,
   hiddenObjectionCategories,
   needsCriterion,
@@ -145,6 +151,47 @@ describe("playbook document", () => {
       "Reuniones y Visitas · 2 etapas del CRM",
     );
     assert.equal(ruleSummary(null, copy), null);
+  });
+
+  it("tells empty, pending and live rows apart and lists what Activate publishes", () => {
+    const detail = (extra: object) => ({ label: null, role: null, applies_to: null, goal: null, catalog: true, ...extra });
+    assert.equal(rowState("missing", null), "empty");
+    assert.equal(rowState("missing", detail({ step_count: 4 })), "pending");
+    assert.equal(rowState("draft", null), "pending");
+    assert.equal(rowState("published", detail({ has_draft: true })), "pending");
+    assert.equal(rowState("published", detail({ has_draft: false })), "live");
+    const motions = { discovery: "published", closing: "draft", inbound: "missing" } as const;
+    assert.deepEqual(pendingKeys({ ...motions }, {}), ["closing"]);
+    assert.equal(nothingYet({ discovery: "missing", closing: "missing" }, {}), true);
+    assert.equal(nothingYet({ ...motions }, {}), false);
+  });
+
+  it("counts checks and answers in one short line", () => {
+    const copy = { checks: "{count} comprobaciones", checkOne: "1 comprobación", answers: "{count} respuestas", answerOne: "1 respuesta" };
+    const detail = (step_count: number, answer_count: number) =>
+      ({ label: null, role: null, applies_to: null, goal: null, catalog: true, step_count, answer_count });
+    assert.equal(countLine(detail(5, 3), copy), "5 comprobaciones · 3 respuestas");
+    assert.equal(countLine(detail(1, 1), copy), "1 comprobación · 1 respuesta");
+    assert.equal(countLine(detail(4, 0), copy), "4 comprobaciones");
+    assert.equal(countLine(detail(0, 2), copy), null);
+  });
+
+  it("shows the rule line only when a rule decides something", () => {
+    const row = (key: string, role: "sdr" | "ae", status: "published" | "missing" = "published") =>
+      ({ key, role, status, unrouted: false });
+    const rows = [row("discovery", "sdr"), row("closing", "ae"), row("inbound", "sdr", "missing")];
+    assert.equal(ruleNeeded(rows, "discovery", true), false);
+    assert.equal(ruleNeeded([...rows.slice(0, 2), row("inbound", "sdr")], "discovery", true), true);
+    assert.equal(ruleNeeded([...rows, row("rellamada", "sdr")], "rellamada", true), true);
+    assert.equal(ruleNeeded(rows, "discovery", false), false);
+  });
+
+  it("shows process analytics once there is data, and keeps them while filtering", () => {
+    assert.equal(showProcessAnalytics(undefined, false), false);
+    assert.equal(showProcessAnalytics({ process_health: [{ scored: 0 }], objection_categories: [] }, false), false);
+    assert.equal(showProcessAnalytics({ process_health: [{ scored: 3 }] }, false), true);
+    assert.equal(showProcessAnalytics({ objection_categories: [{}] }, false), true);
+    assert.equal(showProcessAnalytics({ process_health: [] }, true), true);
   });
 
   it("offers only catalog types the company doesn't have, and slugs custom names", () => {
