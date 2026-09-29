@@ -296,6 +296,10 @@ class Settings(BaseSettings):
     # catalog, the "when it applies" rules, rule-based pinning and "change type" on a recording.
     PLAYBOOK_V2_ENABLED: bool = False
     PLAYBOOK_ROUTING_ENABLED: bool = False
+    # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
+    # criteria and the company's own objections, and the score is built from three blocks
+    # (steps, qualification, objections) instead of steps alone.
+    PLAYBOOK_QUALIFICATION_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's
