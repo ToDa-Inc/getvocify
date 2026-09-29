@@ -292,6 +292,10 @@ class Settings(BaseSettings):
     # Lista 4 T4: after the call, Hoy's panel walks proposal -> outcome -> follow-up -> next,
     # and the company's deal_creation_rule decides when a contact without a deal gets one.
     AFTER_CALL_FLOW_ENABLED: bool = False
+    # Playbooks v2, per company. V2: the new list/document/single-box UI. ROUTING: the call-type
+    # catalog, the "when it applies" rules, rule-based pinning and "change type" on a recording.
+    PLAYBOOK_V2_ENABLED: bool = False
+    PLAYBOOK_ROUTING_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's

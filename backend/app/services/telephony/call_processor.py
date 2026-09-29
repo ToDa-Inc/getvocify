@@ -120,6 +120,8 @@ async def initiate_vocify_call_memo(
             default_when_unspecified=True,
             sales_role=sales_role_for_user(supabase, call_row["user_id"]),
             interaction_kind=row["interaction_kind"],
+            hubspot_contact_id=row.get("hubspot_contact_id"),
+            hubspot_deal_id=row.get("hubspot_deal_id"),
         ))
     ins = supabase.table("memos").insert(row).execute()
     if not ins.data:

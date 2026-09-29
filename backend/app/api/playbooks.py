@@ -14,8 +14,16 @@ from supabase import Client
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
+from app.services.playbooks.catalog import (
+    RuleError,
+    catalog_label,
+    default_applies_to,
+    is_catalog,
+    validate_applies_to,
+)
 from app.services.playbooks.imports import start_import
 from app.services.playbooks.motion import goal_for, visible_to_role
+from app.services.playbooks.routing import build_details
 from app.services.playbooks.structure import detect_language, set_playbook_structure_llm, structure_source
 from app.services.playbooks.structured import (
     OBJECTION_CATEGORIES,
@@ -42,6 +50,7 @@ _LATEST: dict[tuple[str, str], dict] = {}
 _ACTIVATED: dict[tuple[str, str], str] = {}
 _STRUCTURED: dict[tuple[str, str], dict] = {}
 _PUBLISHED_VERSIONS: dict[tuple[str, str], dict] = {}
+_DETAILS: dict[tuple[str, str], dict] = {}
 _store = None
 _transcriber = None
 
@@ -69,7 +78,7 @@ async def _audio_text(payload: str) -> str:
 def get_playbook_store():
     if _store is not None:
         return _store
-    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS)
+    return MemoryPlaybookStore(_MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS)
 
 
 def set_playbook_store(store) -> None:
@@ -80,12 +89,27 @@ def set_playbook_store(store) -> None:
 class TypeRequest(BaseModel):
     type_key: str
     name: str = ""
+    applies_to: Optional[dict] = None
 
 
 @router.post("/types")
-async def create_type(body: TypeRequest, membership: Membership = Depends(get_membership)):
+async def create_type(
+    body: TypeRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    store = get_playbook_store()
+    key = body.type_key.strip()
+    rule = None
+    if can_publish(membership.role) and key:
+        try:
+            rule = _rule_for_new_type(supabase, membership.company_id, key, body.applies_to)
+        except RuleError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}
+            ) from exc
     try:
-        motions = get_playbook_store().add_type(
+        motions = store.add_type(
             membership.company_id,
             body.type_key,
             body.name or body.type_key,
@@ -95,7 +119,29 @@ async def create_type(body: TypeRequest, membership: Membership = Depends(get_me
         if exc.code == "forbidden":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden añadir una tipología")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave")
-    return {"motions": motions}
+    if rule is not None:
+        store.save_type_meta(
+            membership.company_id,
+            key,
+            label=body.name.strip() or catalog_label(key) or None,
+            applies_to=rule,
+        )
+        motions = store.motions(membership.company_id)
+    return {"motions": motions, "details": build_details(motions, store.details(membership.company_id))}
+
+
+def _rule_for_new_type(supabase: Client, company_id: str, key: str, applies_to: Optional[dict]) -> Optional[dict]:
+    """The rule a new type is saved with. With PLAYBOOK_ROUTING_ENABLED a type outside the
+    catalog needs one (rule_required): a type that applies to no call is the P1 problem.
+    A catalog type takes the catalog default. Flag off: only a rule the caller sent."""
+    routing = is_enabled(supabase, company_id, "PLAYBOOK_ROUTING_ENABLED")
+    if applies_to is not None:
+        return validate_applies_to(applies_to)
+    if not routing:
+        return None
+    if is_catalog(key):
+        return default_applies_to(key)
+    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "rule_required"})
 
 
 class ImportRequest(BaseModel):
@@ -141,17 +187,21 @@ async def list_playbooks(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    motions = get_playbook_store().motions(membership.company_id)
+    store = get_playbook_store()
+    motions = store.motions(membership.company_id)
+    stored = store.details(membership.company_id)
     if not is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG):
-        return {"motions": motions}
+        return {"motions": motions, "details": build_details(motions, stored)}
+    details = build_details(motions, stored)
     if membership.role not in MANAGE_ROLES:
         motions = {
             key: status_
             for key, status_ in motions.items()
-            if visible_to_role(key, membership.sales_role)
+            if visible_to_role(key, membership.sales_role, details[key]["applies_to"])
         }
+        details = {key: details[key] for key in motions}
     goals = {key: goal_for(key) for key in motions if goal_for(key)}
-    return {"motions": motions, "goals": goals}
+    return {"motions": motions, "goals": goals, "details": details}
 
 
 @router.post("/{sales_motion_key}/publish")

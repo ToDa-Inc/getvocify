@@ -189,12 +189,22 @@ def playbook_fields_for_capture(
     default_when_unspecified: bool = False,
     sales_role: Optional[str] = None,
     interaction_kind: Optional[str] = None,
-) -> dict[str, str]:
-    """Pin the published playbook snapshot on a new memo row, same as desktop capture reserve."""
+    hubspot_contact_id: Optional[str] = None,
+    hubspot_deal_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Pin the published playbook snapshot on a new memo row, same as desktop capture reserve.
+
+    With PLAYBOOK_ROUTING_ENABLED the company's "when it applies" rules go before the role
+    default, matched against what is cheaply known of the contact and deal (`hubspot_*_id`).
+    The pin then also carries `pipeline_meta.playbook_pin` ({source, provisional?}) so a pin
+    decided without a signal a rule needs (the deal, the contact) can be routed again once
+    it is known (see playbooks.routing.repin_before_c04)."""
     from app.services.playbooks.versions import snapshot_for_capture
 
     motion = (sales_motion_key or "").strip() or None
     pinned_id = (playbook_version_id or "").strip() or None
+    pin_source: Optional[str] = None
+    pin_provisional = False
     if not motion and not pinned_id and interaction_kind:
         # D5: the rep's role picks the flow, but only behind the flag, and only when that
         # flow actually has something published. Otherwise the rule below (single published
@@ -205,10 +215,37 @@ def playbook_fields_for_capture(
             from app.services.playbooks.motion import motion_for
 
             candidate = motion_for(sales_role, interaction_kind)
+            candidate_source = "role_default"
+            provisional = False
+            routing_on = is_enabled(supabase, company_id, "PLAYBOOK_ROUTING_ENABLED")
+            if routing_on:
+                # Never blocks the capture: a failed read is today's behaviour.
+                try:
+                    from app.services.playbooks.routing import resolve_motion
+
+                    routed, why, provisional = resolve_motion(
+                        supabase,
+                        company_id,
+                        sales_role=sales_role,
+                        interaction_kind=interaction_kind,
+                        contact_id=hubspot_contact_id,
+                        deal_id=hubspot_deal_id,
+                    )
+                    if routed:
+                        candidate, candidate_source = routed, why or "role_default"
+                except Exception:
+                    logger.warning("playbook routing failed, using the role default", exc_info=True)
             candidate_version = active_playbook_version(supabase, company_id, candidate)
+            if not candidate_version and candidate_source == "rule":
+                candidate = motion_for(sales_role, interaction_kind)
+                candidate_source = "role_default"
+                candidate_version = active_playbook_version(supabase, company_id, candidate)
             if candidate_version:
                 motion = candidate
                 active_version_id = candidate_version
+                if routing_on:
+                    pin_source = candidate_source
+                    pin_provisional = provisional
     if not motion and not pinned_id:
         if not default_when_unspecified:
             return {}
@@ -224,11 +261,15 @@ def playbook_fields_for_capture(
         }
     active = None if pinned_id else (active_version_id or active_playbook_version(supabase, company_id, motion))
     version = snapshot_for_capture(pinned_id, active)
-    fields: dict[str, str] = {}
+    fields: dict[str, Any] = {}
     if motion:
         fields["sales_motion_key"] = motion
     if version:
         fields["playbook_version_id"] = str(version)
+    if pin_source and motion:
+        from app.services.playbooks.routing import merge_pin_meta
+
+        fields["pipeline_meta"] = merge_pin_meta(None, pin_source, provisional=pin_provisional)
     return fields
 
 
@@ -266,10 +307,14 @@ def pin_playbook_on_row(supabase: Client, row: dict[str, Any]) -> dict[str, Any]
             default_when_unspecified=True,
             sales_role=sales_role_for_user(supabase, str(user_id)),
             interaction_kind=interaction_kind_of(row),
+            hubspot_contact_id=row.get("hubspot_contact_id"),
+            hubspot_deal_id=row.get("hubspot_deal_id") or row.get("matched_deal_id"),
         )
     except Exception:
         logger.warning("playbook pin failed for a new memo", exc_info=True)
         return row
+    if "pipeline_meta" in fields and isinstance(row.get("pipeline_meta"), dict):
+        fields = {**fields, "pipeline_meta": {**row["pipeline_meta"], **fields["pipeline_meta"]}}
     return {**row, **fields}
 
 
@@ -383,6 +428,7 @@ def reserve_capture(
         active_version_id=active_version_id,
         sales_role=sales_role,
         interaction_kind=kind,
+        hubspot_contact_id=hubspot_contact_id,
     )
     payload = {
         "user_id": user_id,
