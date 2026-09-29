@@ -89,3 +89,25 @@ class LLMClient:
             max_retries=max_retries,
             extra=extra,
         )
+
+    async def chat_tools_stream(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        provider: Optional[str] = None,
+        timeout: Optional[float] = None,
+        extra: Optional[dict] = None,
+    ):
+        async for item in self.router.chat_tools_stream(
+            messages,
+            tools=tools,
+            model=model or self._override_model,
+            temperature=temperature,
+            provider=provider,
+            timeout=timeout,
+            extra=extra,
+        ):
+            yield item

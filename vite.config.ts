@@ -17,6 +17,8 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    // backend/.venv is a committed symlink that points at itself; watching it throws ELOOP and kills the dev server.
+    watch: { ignored: ["**/backend/.venv", "**/backend/.venv/**"] },
   },
   plugins: [reticle(),react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

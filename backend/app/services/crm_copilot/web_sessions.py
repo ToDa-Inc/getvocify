@@ -13,7 +13,14 @@ class UncertainOperation(Exception):
     pass
 
 
-_STORED_KEYS = ("coverage", "item_count", "choices", "confirmation", "call_targets", "question", "steps")
+# WhatsApp session plumbing: the web has a New chat button, and its prompt carries what the skills said.
+WEB_HIDDEN_TOOLS = frozenset({"load_skill", "remember", "reset_session"})
+# The Vocify-data tools (flag ASK_VOCIFY_DATA_TOOLS_ENABLED) serve WhatsApp; the web assistant has richer ones.
+from app.services.crm_copilot.tools import ASK_DATA_TOOLS as _WHATSAPP_DATA_TOOLS  # noqa: E402
+_STORED_KEYS = (
+    "question", "coverage", "item_count", "choices", "confirmation", "call_targets", "steps",
+    "evidence", "coverage_note", "memory",
+)
 
 
 def _encode_completed_body(turn: dict) -> str:
@@ -35,7 +42,10 @@ def _turn_from_row(row: dict) -> dict:
         "client_turn_id": row.get("client_turn_id"),
         "text": body,
     }
+    if row.get("created_at"):
+        turn["created_at"] = row["created_at"]
     if status not in ("completed", "failed"):
+        turn["question"] = body
         return turn
     if body.startswith("{"):
         try:
@@ -114,6 +124,36 @@ class SupabaseAskStore:
             return None
         return _turn_from_row(rows[0])
 
+    def list_turns(self, *, user_id, conversation_id=None):
+        query = (
+            self.supabase.table("copilot_web_turns")
+            .select("id,conversation_id,client_turn_id,status,body,created_at")
+            .eq("user_id", user_id)
+        )
+        if conversation_id:
+            query = query.eq("conversation_id", conversation_id)
+        rows = list(getattr(query.limit(500).execute(), "data", None) or [])
+        rows.sort(key=lambda row: str(row.get("created_at") or ""))
+        return [_turn_from_row(row) for row in rows]
+
+    def delete_conversation(self, *, user_id, conversation_id):
+        (
+            self.supabase.table("copilot_web_turns")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("conversation_id", conversation_id)
+            .execute()
+        )
+
+    def delete_all(self, *, user_id):
+        self.supabase.table("copilot_web_turns").delete().eq("user_id", user_id).execute()
+
+    def latest_memory(self, *, user_id, conversation_id):
+        for turn in reversed(self.list_turns(user_id=user_id, conversation_id=conversation_id)):
+            if turn.get("status") == "completed" and turn.get("memory"):
+                return turn["memory"]
+        return None
+
     def get_turn_by_operation(self, *, user_id, conversation_id, operation_id):
         result = (
             self.supabase.table("copilot_web_turns")
@@ -137,21 +177,21 @@ def proposed_operation_from_turn(turn: dict, operation_id: str) -> dict | None:
     if confirmation.get("operation_id") != operation_id:
         return None
     applied = bool(confirmation.get("applied"))
-    if confirmation.get("cancelled"):
-        return {
-            "operation_id": confirmation["operation_id"],
-            "revision": confirmation["revision"],
-            "contact_id": confirmation["contact_id"],
-            "applied": applied,
-            "status": "cancelled",
-        }
-    return {
+    operation = {
         "operation_id": confirmation["operation_id"],
         "revision": confirmation["revision"],
         "contact_id": confirmation["contact_id"],
         "applied": applied,
-        "status": "succeeded" if applied else "proposed",
     }
+    for key in ("tool", "args"):
+        if key in confirmation:
+            operation[key] = confirmation[key]
+    if confirmation.get("cancelled"):
+        return {**operation, "status": "cancelled"}
+    if applied:
+        return {**operation, "status": "succeeded"}
+    state = confirmation.get("state")
+    return {**operation, "status": state if state in ("failed", "uncertain") else "proposed"}
 
 
 def accept_turn(store: dict, *, conversation_id: str, client_turn_id: str, text: str) -> dict:
@@ -204,8 +244,34 @@ def confirm_operation(
     return {**operation, "applied": True, "status": "succeeded", "replayed": False}
 
 
-_actor: dict[str, str] = {}
-_sessions: dict[str, dict] = {}
+_sessions: dict[tuple[str, str], dict] = {}
+_MEMORY_KEYS = (
+    "last_contact_id", "last_contact_name", "last_company_id", "last_deal_id", "last_contact_url", "last_deal_url",
+    "memo_id", "memory", "focus_at", "pending_tool", "pending_args", "pending_id", "choices",
+)
+
+
+def session_for(user_id: str, conversation_id: str) -> dict:
+    """Working memory is per conversation. It lives here while the process is up."""
+    return _sessions.setdefault((user_id, conversation_id or ""), {})
+
+
+def seed_session(user_id: str, conversation_id: str, memory: dict | None) -> None:
+    """Restore memory from the last stored turn. A live session is never overwritten."""
+    key = (user_id, conversation_id or "")
+    if key in _sessions or not isinstance(memory, dict) or not memory:
+        return
+    _sessions[key] = {"copilot": dict(memory)}
+
+
+def memory_snapshot(artifacts: dict) -> dict:
+    """What survives a restart: recent messages, the focused record, and any pending operation."""
+    copilot = (artifacts or {}).get("copilot") or {}
+    snap = {k: copilot[k] for k in _MEMORY_KEYS if copilot.get(k) is not None}
+    from app.services.crm_copilot.loop import _trim
+
+    snap["messages"] = _trim(list(copilot.get("messages") or []))  # the same window the model sees live, cut at a question
+    return snap
 
 
 def public_answer(text: str) -> str:
@@ -249,7 +315,7 @@ def payload_from_turn(text: str, artifacts: dict | None = None, *, kind: str = "
     if kind == "confirm":
         copilot = (artifacts or {}).get("copilot") or {}
         args = copilot.get("pending_args") or {}
-        contact_id = args.get("contact_id") or args.get("contactId")
+        contact_id = args.get("contact_id") or args.get("contactId") or copilot.get("last_contact_id")
         operation_id = copilot.get("pending_id")
         if contact_id and operation_id:
             body["confirmation"] = {
@@ -257,24 +323,39 @@ def payload_from_turn(text: str, artifacts: dict | None = None, *, kind: str = "
                 "revision": int(copilot.get("revision") or 1),
                 "contact_id": contact_id,
             }
+            if copilot.get("pending_tool"):
+                # Server side only: what the confirm will run. The public turn never shows these.
+                body["confirmation"]["tool"] = copilot["pending_tool"]
+                body["confirmation"]["args"] = args
     return body
 
 
 def bind_ask_actor(
     user_id: str,
     company_id: str,
+    role: str = "member",
+    conversation_id: str | None = None,
     *,
-    conversation_id: str = "",
     progress_key: tuple | None = None,
+    visibility: str | None = None,
+    sales_role: str | None = None,
 ) -> None:
-    """Read synchronously by live_ask_loop before its first await, so concurrent requests
-    never see each other's actor. conversation_id scopes the session memory; progress_key
-    is where the loop reports its steps while the POST is still running."""
-    _actor["user_id"] = user_id
-    _actor["company_id"] = company_id
-    _actor["conversation_id"] = conversation_id
-    _actor["progress_key"] = progress_key
+    """Read synchronously by live_ask_loop before its first await, so concurrent requests never see
+    each other's actor. progress_key is where the loop reports its steps while a POST is still running."""
+    from app.services.crm_copilot.actor import AskActor, bind_actor
 
+    _actor.update(user_id=user_id, company_id=company_id, conversation_id=conversation_id or "", progress_key=progress_key)
+    bind_actor(
+        AskActor(
+            user_id=user_id, company_id=company_id, role=role, conversation_id=conversation_id,
+            progress_key=progress_key, visibility=visibility, sales_role=sales_role,
+        )
+    )
+
+
+# The last bound actor as a plain dict. The request-scoped truth is actor.current_actor(); this mirror
+# exists for callers that only need to see who was bound last.
+_actor: dict = {}
 
 # Live progress of turns still running in this process: (user, conversation, client_turn_id)
 # -> {"steps": [...], "at": monotonic}. Bounded so a crashed turn never leaks.
@@ -322,21 +403,39 @@ def session_key(user_id: str, conversation_id: str) -> str:
     return f"{user_id}:{conversation_id}" if conversation_id else user_id
 
 
-async def live_ask_loop(text: str, confirm: bool | None = None):
+def _as_list(value) -> list:
+    return list(value) if isinstance(value, (list, tuple)) else []
+
+
+async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
     """Same copilot loop as WhatsApp. A failure returns None so the turn can fail."""
     import logging
 
+    from app.config import settings
     from app.deps import get_supabase
     from app.services.crm_copilot.call_actions import public_call_targets
+    from app.services.crm_copilot import model_profile
+    from app.services.crm_copilot.actor import current_actor
+    from app.services.crm_copilot.effort import LOW, choose_effort
+    from app.services.crm_copilot.grounding import coverage_note, resolve_evidence, strip_trailing_offer
+    from app.services.crm_copilot.intel_tools import intel_tools_for, team_roster
+    from app.services.crm_copilot.language import answer_hint, reply_language
     from app.services.crm_copilot.loop import run_copilot_turn
     from app.services.crm_copilot.prompts import build_system_prompt
     from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, execute_tool
     from app.services.llm.client import LLMClient
 
-    user_id = _actor.get("user_id") or ""
-    progress_key = _actor.get("progress_key")
-    artifacts = _sessions.setdefault(session_key(user_id, _actor.get("conversation_id") or ""), {})
-    ctx = CopilotContext(supabase=get_supabase(), user_id=user_id, artifacts=artifacts)
+    actor = current_actor()
+    artifacts = session_for(actor.user_id, actor.conversation_id or "")
+    kwargs = {"on_event": on_event} if on_event is not None else {}
+    ctx = CopilotContext(
+        supabase=get_supabase(),
+        user_id=actor.user_id,
+        artifacts=artifacts,
+        conversation_id=actor.conversation_id,
+        actor=actor,
+    )
+    progress_key = actor.progress_key
     steps: list[dict] = []
 
     def on_step(step: dict) -> None:
@@ -349,28 +448,90 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
                     existing["state"] = step["state"]
                     break
 
+    team = team_roster(ctx, actor) if actor.is_team_reader else None
+    effort = await choose_effort(text) if settings.ASK_EFFORT_ROUTING and confirm is None else LOW
     try:
         result = await run_copilot_turn(
             text,
             artifacts=artifacts,
             llm=LLMClient(),
             execute=execute_tool,
-            tools=OPENAI_TOOLS,
-            system=build_system_prompt(artifacts),
+            tools=[*(t for t in OPENAI_TOOLS if t["function"]["name"] not in WEB_HIDDEN_TOOLS | _WHATSAPP_DATA_TOOLS), *intel_tools_for(actor)],
+            system=build_system_prompt(artifacts, web=True, manager=actor.is_team_reader, tz=actor.timezone, team=team),
             confirm=confirm,
             ctx=ctx,
+            model=model_profile.ask_model(),
+            fallback_model=model_profile.ask_fallback_model(),
+            verify_numbers=True,
+            max_rounds=settings.ASK_MAX_ROUNDS,
+            effort=effort,
+            retry_empty=True,
+            with_data=False,
+            answer_hint=answer_hint(reply_language(text)),
             on_step=on_step,
+            **kwargs,
         )
     except Exception:
         logging.getLogger(__name__).exception("ask loop failed")
         return None
     body = payload_from_turn(result.text or "", artifacts, kind=result.kind)
+    answer, used = resolve_evidence(strip_trailing_offer(body["text"]), _as_list(getattr(result, "evidence", None)))
+    body["text"] = answer
+    if used:
+        body["evidence"] = used
+    note = coverage_note(_as_list(getattr(result, "envelopes", None)))
+    if note:
+        body["coverage_note"] = note
+    body["memory"] = memory_snapshot(artifacts)
     if steps:
         body["steps"] = steps
     targets = public_call_targets(ctx, kind=result.kind)
     if targets:
         body["call_targets"] = targets
     return body
+
+
+async def execute_stored_operation(operation: dict) -> dict:
+    """Run exactly what the user was shown, then report what happened. Never assume success."""
+    from app.deps import get_supabase
+    from app.services.crm_copilot import tools as copilot_tools
+    from app.services.crm_copilot.actor import current_actor
+
+    actor = current_actor()
+    tool, args = operation.get("tool"), operation.get("args") or {}
+    artifacts = session_for(actor.user_id, actor.conversation_id or "")
+    ctx = copilot_tools.CopilotContext(
+        supabase=get_supabase(),
+        user_id=actor.user_id,
+        artifacts=artifacts,
+        conversation_id=actor.conversation_id,
+        actor=actor,
+    )
+    result = await copilot_tools.execute_tool(tool, args, ctx)
+    body = result if isinstance(result, dict) else {}
+    error = body.get("error")
+    failed = bool(error) or body.get("ok") is False
+    _close_pending(artifacts, operation.get("operation_id"), result)
+    if not failed:
+        url = body.get("url") or body.get("contact_url") or body.get("deal_url")
+        return {"status": "succeeded", "applied": True, **({"url": url} if url else {})}
+    lowered = str(error or "").lower()
+    if "timeout" in lowered or "timed out" in lowered:
+        return {"status": "uncertain", "applied": False}
+    return {"status": "failed", "applied": False}
+
+
+def _close_pending(artifacts: dict, operation_id: str | None, result) -> None:
+    """The write is settled. The model's next turn must see its result, and cannot re-run it."""
+    copilot = artifacts.setdefault("copilot", {})
+    call_id = copilot.get("pending_id") or operation_id
+    messages = copilot.setdefault("messages", [])
+    if call_id and any(
+        tc.get("id") == call_id for m in messages if m.get("role") == "assistant" for tc in (m.get("tool_calls") or [])
+    ):
+        messages.append({"role": "tool", "tool_call_id": call_id, "content": json.dumps(result, default=str)[:2000]})
+    for key in ("pending_tool", "pending_args", "pending_id", "last_preview_text"):
+        copilot.pop(key, None)
 
 
 def attach_read(turn: dict, envelope: dict) -> dict:

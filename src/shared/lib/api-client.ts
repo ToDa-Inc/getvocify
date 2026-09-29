@@ -380,6 +380,44 @@ class ApiClient {
   }
 
   /**
+   * POST that returns the raw Response so the caller can read a server-sent event stream.
+   * Same auth and one refresh retry as `request`, but no fixed timeout: a turn can run for a while.
+   */
+  async openStream(
+    endpoint: string,
+    body: unknown,
+    signal?: AbortSignal,
+    isRetry = false,
+  ): Promise<Response> {
+    const token = this.getAuthToken();
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...acceptLanguageRequestHeader(),
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (response.status === 401 && !isRetry && shouldAttemptRefreshForEndpoint(endpoint)) {
+      const newToken = await this.tryRefreshToken();
+      if (newToken) return this.openStream(endpoint, body, signal, true);
+    }
+    if (!response.ok) {
+      let data: unknown = {};
+      try {
+        data = await response.json();
+      } catch {
+        // Body was not JSON
+      }
+      throw new ApiError(response.status, data);
+    }
+    return response;
+  }
+
+  /**
    * Upload file (multipart/form-data)
    * 
    * Usage:

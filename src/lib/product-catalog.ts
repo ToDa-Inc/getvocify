@@ -840,6 +840,82 @@ export const productCatalog = {
     hosVerdictInsufficientDetail: "{needed} more scored interactions that follow the playbook are needed before drawing a conclusion.",
     hosVerdictNotMeasurableTitle: "Goal not visible in one interaction",
     hosVerdictNotMeasurableDetail: "This flow's goal shows in the CRM deal, not in a single conversation.",
+    askThinking: "Understanding…",
+    askHistory: "History",
+    askNewChat: "New conversation",
+    askClose: "Close",
+    askHistoryEmpty: "No conversations yet.",
+    askDeleteConversation: "Delete conversation",
+    askActivityOne: "Looked at 1 source",
+    askActivityMany: "Looked at {count} sources",
+    askToolFallback: "Working",
+    askTool_deal_story: "Reading conversations with this contact",
+    askTool_find_interactions: "Searching conversations",
+    askTool_objection_breakdown: "Counting objections",
+    askTool_team_metrics: "Reading team metrics",
+    askTool_search_contacts: "Finding the contact",
+    askTool_get_contact: "Reading the CRM record",
+    askTool_inspect_record: "Reading the CRM record",
+    askTool_list_notes: "Reading notes",
+    askTool_list_tasks: "Reading tasks",
+    askTool_extract_sales_update: "Preparing the update",
+    askTool_preview_write: "Preparing the update",
+    askTool_open_loops: "Checking what needs action",
+    askTool_competitor_mentions: "Counting competitor mentions",
+    askTool_meetings_agreed: "Counting agreed meetings",
+    askTool_playbook_lookup: "Reading the playbook",
+    askTool_team_adherence: "Checking playbook adherence",
+    askTool_crm_call_stats: "Reading call activity in HubSpot",
+    askTool_crm_lost_reasons: "Reading lost deals in HubSpot",
+    askTool_hubspot_describe: "Checking HubSpot fields",
+    askTool_hubspot_query: "Querying HubSpot",
+    askEvidenceFrom: "From the conversation",
+    askEvidenceOpen: "Open conversation",
+    askSpeakerProspect: "Prospect",
+    askSpeakerRep: "Rep",
+    askCoveragePartialOf: "Based on {analysed} of {total} conversations. The rest aren't analysed yet.",
+    askCoveragePartialShort: "Based on partial data.",
+    askCoverageForbidden: "You don't have access to part of this data.",
+    askCoverageUnavailable: "Part of the data couldn't be read.",
+    askConfirmRunning: "Saving…",
+    askConfirmSucceeded: "Saved",
+    askConfirmOpenCrm: "Open in CRM",
+    askConfirmFailedRetry: "Couldn't save. Try again.",
+    askConfirmUncertain: "Not sure it saved. Check the CRM before trying again.",
+    askConfirmCancelled: "Cancelled",
+    askReconnecting: "Reconnecting. Your question is still running.",
+    askCopy: "Copy",
+    askCopied: "Copied",
+    askNewReply: "New reply",
+    askPlaceholderWorking: "Answering…",
+    askStopped: "Stopped",
+    askSuggest_open_loops: "What should I do today?",
+    askSuggest_team_adherence: "How is the team following the playbook?",
+    askSuggest_objections: "Which objections came up this month?",
+    askSuggest_connection_rate: "What was our connection rate last month?",
+    askSuggest_lost_reasons: "Why are we losing deals?",
+    askSuggest_playbook: "How do I answer the most common objection?",
+    askCoveragePartialCalls: "Only {analysed} of {total} calls have an outcome logged in HubSpot.",
+    askCoveragePartialDeals: "{analysed} of {total} lost deals have a reason in HubSpot.",
+    askCoveragePartialRecords: "Worked out from {analysed} of {total} records in HubSpot.",
+    askPeriodDefault: "Last {days} days.",
+    askAnalyzeRest: "Analyze the rest",
+    askAnalyzing: "Analyzing… {done} of {total}",
+    askAnalyzeDone: "Done. Ask again to use it.",
+    askAnalyzeFailed: "Couldn't start the analysis.",
+    askAnalyzeConfirmTitle: "Analyze past conversations?",
+    askAnalyzeConfirmBody: "Vocify will read {count} conversations it hasn't analyzed yet. It uses AI and can take a few minutes.",
+    askHistoryTitle: "Conversations",
+    askGroupToday: "Today",
+    askGroupYesterday: "Yesterday",
+    askGroupWeek: "This week",
+    askGroupOlder: "Earlier",
+    askDeleteThis: "Delete this conversation",
+    askDeleteThisTitle: "Delete this conversation?",
+    askDeleteThisBody: "It disappears from all your devices. It can't be undone.",
+    askClearAll: "Delete all",
+    askClearAllTitle: "Delete all conversations?",
+    askClearAllBody: "This removes every Ask conversation on all your devices. It can't be undone.",
   },
   ES: {
     hourLocale: "es-ES",
@@ -1680,6 +1756,82 @@ export const productCatalog = {
     hosVerdictInsufficientDetail: "Faltan {needed} interacciones puntuadas que sigan el playbook para poder sacar una conclusión.",
     hosVerdictNotMeasurableTitle: "Objetivo no visible en una sola interacción",
     hosVerdictNotMeasurableDetail: "El objetivo de este flujo se ve en el deal del CRM, no en una conversación.",
+    askThinking: "Entendiendo…",
+    askHistory: "Historial",
+    askNewChat: "Nueva conversación",
+    askClose: "Cerrar",
+    askHistoryEmpty: "Todavía no hay conversaciones.",
+    askDeleteConversation: "Borrar conversación",
+    askActivityOne: "Consultó 1 fuente",
+    askActivityMany: "Consultó {count} fuentes",
+    askToolFallback: "Trabajando",
+    askTool_deal_story: "Leyendo las conversaciones con este contacto",
+    askTool_find_interactions: "Buscando conversaciones",
+    askTool_objection_breakdown: "Contando objeciones",
+    askTool_team_metrics: "Leyendo las métricas del equipo",
+    askTool_search_contacts: "Buscando el contacto",
+    askTool_get_contact: "Leyendo la ficha del CRM",
+    askTool_inspect_record: "Leyendo la ficha del CRM",
+    askTool_list_notes: "Leyendo notas",
+    askTool_list_tasks: "Leyendo tareas",
+    askTool_extract_sales_update: "Preparando la actualización",
+    askTool_preview_write: "Preparando la actualización",
+    askTool_open_loops: "Revisando lo que requiere acción",
+    askTool_competitor_mentions: "Contando menciones de competidores",
+    askTool_meetings_agreed: "Contando reuniones acordadas",
+    askTool_playbook_lookup: "Leyendo el playbook",
+    askTool_team_adherence: "Revisando el cumplimiento del playbook",
+    askTool_crm_call_stats: "Leyendo la actividad de llamadas en HubSpot",
+    askTool_crm_lost_reasons: "Leyendo los deals perdidos en HubSpot",
+    askTool_hubspot_describe: "Revisando los campos de HubSpot",
+    askTool_hubspot_query: "Consultando HubSpot",
+    askEvidenceFrom: "De la conversación",
+    askEvidenceOpen: "Abrir conversación",
+    askSpeakerProspect: "Prospecto",
+    askSpeakerRep: "Comercial",
+    askCoveragePartialOf: "Basado en {analysed} de {total} conversaciones. El resto aún no está analizado.",
+    askCoveragePartialShort: "Basado en datos parciales.",
+    askCoverageForbidden: "No tienes acceso a una parte de estos datos.",
+    askCoverageUnavailable: "Una parte de los datos no se pudo leer.",
+    askConfirmRunning: "Guardando…",
+    askConfirmSucceeded: "Guardado",
+    askConfirmOpenCrm: "Abrir en el CRM",
+    askConfirmFailedRetry: "No se pudo guardar. Inténtalo de nuevo.",
+    askConfirmUncertain: "No estamos seguros de que se guardara. Revisa el CRM antes de reintentar.",
+    askConfirmCancelled: "Cancelado",
+    askReconnecting: "Reconectando. Tu pregunta sigue en curso.",
+    askCopy: "Copiar",
+    askCopied: "Copiado",
+    askNewReply: "Respuesta nueva",
+    askPlaceholderWorking: "Respondiendo…",
+    askStopped: "Detenido",
+    askSuggest_open_loops: "¿Qué tengo pendiente hoy?",
+    askSuggest_team_adherence: "¿Cómo sigue el equipo el playbook?",
+    askSuggest_objections: "¿Qué objeciones han salido este mes?",
+    askSuggest_connection_rate: "¿Cuál fue la tasa de conexión el mes pasado?",
+    askSuggest_lost_reasons: "¿Por qué perdemos deals?",
+    askSuggest_playbook: "¿Cómo respondo a la objeción más común?",
+    askCoveragePartialCalls: "Solo {analysed} de {total} llamadas tienen resultado registrado en HubSpot.",
+    askCoveragePartialDeals: "{analysed} de {total} deals perdidos tienen motivo en HubSpot.",
+    askCoveragePartialRecords: "Calculado con {analysed} de {total} registros de HubSpot.",
+    askPeriodDefault: "Últimos {days} días.",
+    askAnalyzeRest: "Analizar el resto",
+    askAnalyzing: "Analizando… {done} de {total}",
+    askAnalyzeDone: "Listo. Vuelve a preguntar para usarlo.",
+    askAnalyzeFailed: "No se pudo iniciar el análisis.",
+    askAnalyzeConfirmTitle: "¿Analizar las conversaciones anteriores?",
+    askAnalyzeConfirmBody: "Vocify leerá {count} conversaciones que aún no ha analizado. Usa IA y puede tardar unos minutos.",
+    askHistoryTitle: "Conversaciones",
+    askGroupToday: "Hoy",
+    askGroupYesterday: "Ayer",
+    askGroupWeek: "Esta semana",
+    askGroupOlder: "Anteriores",
+    askDeleteThis: "Borrar esta conversación",
+    askDeleteThisTitle: "¿Borrar esta conversación?",
+    askDeleteThisBody: "Desaparece de todos tus dispositivos. No se puede deshacer.",
+    askClearAll: "Borrar todo",
+    askClearAllTitle: "¿Borrar todas las conversaciones?",
+    askClearAllBody: "Esto elimina todas tus conversaciones de Preguntar en todos tus dispositivos. No se puede deshacer.",
   },
 } as const;
 
@@ -1693,6 +1845,44 @@ export function productText(
     return catalog[key as keyof ProductTranslations] as string;
   }
   return key;
+}
+
+export function askToolLabel(tool: string, catalog: ProductTranslations): string {
+  const key = `askTool_${tool}`;
+  return key in catalog ? (catalog[key as keyof ProductTranslations] as string) : catalog.askToolFallback;
+}
+
+export function askActivitySummary(count: number, catalog: ProductTranslations): string {
+  return count === 1 ? catalog.askActivityOne : catalog.askActivityMany.replace("{count}", String(count));
+}
+
+export function askCoverageText(
+  note: { level: "partial" | "forbidden" | "unavailable" | "period"; n?: number; n_analysed?: number; unit?: string; period_days?: number },
+  catalog: ProductTranslations,
+): string {
+  if (note.level === "forbidden") return catalog.askCoverageForbidden;
+  if (note.level === "unavailable") return catalog.askCoverageUnavailable;
+  const period = note.period_days ? catalog.askPeriodDefault.replace("{days}", String(note.period_days)) : "";
+  if (note.level === "period") return period;
+  return [partialText(note, catalog), period].filter(Boolean).join(" ");
+}
+
+function partialText(
+  note: { n?: number; n_analysed?: number; unit?: string },
+  catalog: ProductTranslations,
+): string {
+  if (note.n != null && note.n_analysed != null && note.n_analysed < note.n) {
+    const template =
+      note.unit === "calls"
+        ? catalog.askCoveragePartialCalls
+        : note.unit === "deals"
+          ? catalog.askCoveragePartialDeals
+          : note.unit === "records"
+            ? catalog.askCoveragePartialRecords
+            : catalog.askCoveragePartialOf;
+    return template.replace("{analysed}", String(note.n_analysed)).replace("{total}", String(note.n));
+  }
+  return catalog.askCoveragePartialShort;
 }
 
 export function askConfirmPrompt(

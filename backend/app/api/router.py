@@ -10,6 +10,7 @@ from app.api import (
     followup,
     playbooks,
     ask,
+    intelligence,
     contact_priorities,
     today,
     annotations,
@@ -51,6 +52,7 @@ api_router.include_router(followup.router)
 api_router.include_router(followup.listing)
 api_router.include_router(playbooks.router)
 api_router.include_router(ask.router)
+api_router.include_router(intelligence.router)
 api_router.include_router(contact_priorities.router)
 api_router.include_router(today.router)
 api_router.include_router(annotations.router)

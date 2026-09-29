@@ -141,7 +141,7 @@ export default function VoiceComposer({
         </>
       ) : null}
       {view.composer_state === "transcribing" ? (
-        <IconAction label={t.product.askTranscribing} disabled pending>
+        <IconAction label={t.product.askTranscribing} disabled pending onClick={() => undefined}>
           <Microphone size={16} weight="light" />
         </IconAction>
       ) : null}

@@ -64,8 +64,8 @@ def _objections(extraction: dict, intelligence: dict, *, current: bool) -> list[
             continue
         if not isinstance(item, dict):
             continue
-        if item.get("commercial_objection") is False:
-            continue
+        if item.get("commercial_objection") is False or item.get("kind") == "obstacle":
+            continue  # a practical block is a follow-up, not an objection (see open_loops in Ask)
         state = item.get("state") or item.get("resolution") or "open"
         if state not in {"open", "unknown"}:
             continue

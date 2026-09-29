@@ -1,5 +1,6 @@
 """OpenRouter LLM provider."""
 
+import asyncio
 import json
 import logging
 import time
@@ -13,6 +14,7 @@ from app.logging_config import DOMAIN_LLM, log_domain
 from app.metrics import inc_llm_request, inc_pipeline_error
 from app.services.llm.base import BaseLLMProvider
 from app.services.llm.compliance import get_compliance_info
+from app.services.llm.stream import ToolStreamAccumulator
 from app.services.llm.shared import (
     extract_json,
     log_json_failed,
@@ -25,6 +27,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_TIMEOUT = 45.0
 MAX_RETRIES = 2
 PROVIDER_NAME = "openrouter"
+# Streaming turns retry only before the first byte: rate limits and upstream hiccups, never a 4xx of ours.
+STREAM_RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+STREAM_RETRY_DELAYS = (0.6, 1.8)
 
 
 @dataclass
@@ -297,6 +302,102 @@ class OpenRouterProvider(BaseLLMProvider):
             allow_empty_content=True,
         )
         return ChatToolsResult(
+            content=message.get("content"),
+            tool_calls=parse_tool_calls(message),
+            raw_message=message,
+        )
+
+    async def chat_tools_stream(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        timeout: Optional[float] = None,
+        extra: Optional[dict] = None,
+    ):
+        """Yield ("delta", text) as text arrives, then ("final", ChatToolsResult).
+
+        No retry once bytes flow: a half-streamed answer cannot be replayed. A failure before
+        the first byte raises like `chat_tools`.
+        """
+        if not self.api_key or not str(self.api_key).strip():
+            raise Exception("LLM request failed: OPENROUTER_API_KEY is not set.")
+        model_used = model or self.model
+        payload = {"model": model_used, "messages": messages, "temperature": temperature, "stream": True}
+        if tools:
+            payload["tools"] = tools
+        if extra:
+            payload.update(extra)
+        acc = ToolStreamAccumulator()
+        t0 = time.perf_counter()
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": settings.FRONTEND_URL,
+            "X-Title": "Vocify",
+        }
+        attempts = len(STREAM_RETRY_DELAYS) + 1
+        for attempt in range(attempts):
+            streaming = False
+            try:
+                async with httpx.AsyncClient(timeout=timeout if timeout is not None else DEFAULT_TIMEOUT) as client:
+                    async with client.stream("POST", OPENROUTER_URL, headers=headers, json=payload) as resp:
+                        if resp.status_code >= 400:
+                            body = (await resp.aread()).decode("utf-8", "replace")
+                            detail = body[:200]
+                            try:
+                                detail = json.loads(body).get("error", {}).get("message") or detail
+                            except (ValueError, AttributeError):
+                                pass
+                            if resp.status_code in STREAM_RETRY_STATUS and attempt < attempts - 1:
+                                logger.warning("LLM stream %s, retrying (%d/%d): %s", resp.status_code, attempt + 1, attempts - 1, detail)
+                                await asyncio.sleep(STREAM_RETRY_DELAYS[attempt])
+                                continue
+                            inc_llm_request("failure", PROVIDER_NAME, model_used)
+                            raise Exception(f"LLM request failed: {resp.status_code} {detail}")
+                        streaming = True
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if not data or data == "[DONE]":
+                                continue
+                            try:
+                                chunk = json.loads(data)
+                            except ValueError:
+                                continue
+                            delta = acc.feed(chunk)
+                            if delta:
+                                yield "delta", delta
+                break
+            except httpx.RequestError as e:
+                # A connection that fails before any bytes is safe to retry; a half-read answer is not.
+                if not streaming and attempt < attempts - 1:
+                    await asyncio.sleep(STREAM_RETRY_DELAYS[attempt])
+                    continue
+                inc_llm_request("failure", PROVIDER_NAME, model_used)
+                raise Exception(f"LLM request failed: {type(e).__name__} {e}") from e
+        message = acc.message()
+        self.last_call_meta = {
+            "model": acc.model or model_used,
+            "prompt_tokens": (acc.usage or {}).get("prompt_tokens"),
+            "completion_tokens": (acc.usage or {}).get("completion_tokens"),
+            "total_tokens": (acc.usage or {}).get("total_tokens"),
+        }
+        inc_llm_request("success", PROVIDER_NAME, self.last_call_meta["model"])
+        logger.info(
+            "LLM stream success",
+            extra=log_domain(
+                DOMAIN_LLM,
+                "chat_stream_success",
+                provider=PROVIDER_NAME,
+                model=self.last_call_meta["model"],
+                duration_ms=round((time.perf_counter() - t0) * 1000, 2),
+            ),
+        )
+        yield "final", ChatToolsResult(
             content=message.get("content"),
             tool_calls=parse_tool_calls(message),
             raw_message=message,

@@ -60,7 +60,8 @@ class Settings(BaseSettings):
     # Live call objection copilot (OpenRouter chat; abortable stream)
     # Note: gemini-3.6-flash has mandatory reasoning (~4s TTFT) — too slow for live coaching.
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
-    COPILOT_MODEL: str = "google/gemini-3.5-flash-lite"
+    # DeepSeek V4.1 Flash thinks by default (~540 hidden tokens); suggest.py turns that off.
+    COPILOT_MODEL: str = "deepseek/deepseek-v4.1-flash"
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8
@@ -72,6 +73,14 @@ class Settings(BaseSettings):
     TEAM_COMPETITORS_ENABLED: bool = False
     # Web Ask: «¿a quién llamo hoy?» returns the priority contacts with a Call action. Needs the data tools.
     ASK_CALL_ACTIONS_ENABLED: bool = False
+    # Web Ask keeps going until the question is answered; the last round is always a plain answer.
+    ASK_MAX_ROUNDS: int = 32
+    # Effort per question (crm_copilot/effort.py): lookups run at low, analysis at high. Off means always low.
+    ASK_EFFORT_ROUTING: bool = True
+    # Web Ask only (see crm_copilot/model_profile.py). Empty ASK_MODEL means CRM_COPILOT_MODEL; the fallback runs
+    # once if the first call fails. DeepSeek V4.1 Flash runs with low-effort reasoning (model_profile).
+    ASK_MODEL: Optional[str] = "deepseek/deepseek-v4.1-flash"
+    ASK_FALLBACK_MODEL: Optional[str] = "google/gemini-3.8-flash"
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
     TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
