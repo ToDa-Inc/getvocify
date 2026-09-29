@@ -61,8 +61,13 @@ export const playbooksApi = {
   ) => api.put<EditorDoc>(`${path(key)}/draft`, body),
   discardDraft: (key: string) => api.delete<EditorDoc>(`${path(key)}/draft`),
   publish: (key: string) => api.post<{ motions: Record<string, MotionStatus> }>(`${path(key)}/publish`),
+  // Waits on transcription (audio) and up to two model calls, well past the default 20 s.
   structure: (key: string, kind: SourceKind, payload: string, name?: string) =>
-    api.post<StructureResult>(`${path(key)}/structure`, { kind, payload, ...(name ? { name } : {}) }),
+    api.post<StructureResult>(
+      `${path(key)}/structure`,
+      { kind, payload, ...(name ? { name } : {}) },
+      { timeoutMs: 120_000 },
+    ),
   catalog: () => api.get<{ types: CatalogType[] }>("/playbooks/catalog"),
   addType: (body: { type_key: string; name: string; applies_to?: AppliesTo }) =>
     api.post<{ motions: Record<string, MotionStatus>; details?: Record<string, PlaybookDetail> }>("/playbooks/types", body),
@@ -78,7 +83,12 @@ export const playbooksApi = {
     ),
   /** Dictation: the same transcription Ask uses. */
   transcribe: async (blob: Blob) => {
-    const result = await api.post<{ text: string }>("/ask/transcribe", { audio_base64: await blobBase64(blob) });
+    // A few minutes of explaining the process takes longer to transcribe than an Ask question.
+    const result = await api.post<{ text: string }>(
+      "/ask/transcribe",
+      { audio_base64: await blobBase64(blob) },
+      { timeoutMs: 120_000 },
+    );
     return result.text;
   },
 };

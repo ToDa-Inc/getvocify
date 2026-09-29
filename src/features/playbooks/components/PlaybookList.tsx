@@ -73,8 +73,10 @@ export function PlaybookList() {
 
   const name = (key: string) => {
     if (key === "closing" && "negotiation" in motions) return copy.closingDemoOnly;
-    const catalogLabel = typeOf(key)?.label?.[lang];
-    return details[key]?.label || catalogLabel || copy.typeLabels[key] || motionLabel(key, t.product.motions);
+    // A catalog type reads in the app's language; a company's own type keeps the name it was given.
+    const localized = copy.typeLabels[key] || typeOf(key)?.label?.[lang];
+    if (localized && (details[key]?.catalog ?? true)) return localized;
+    return details[key]?.label || localized || motionLabel(key, t.product.motions);
   };
 
   const template = (key: string) => (): EditorStep[] => {

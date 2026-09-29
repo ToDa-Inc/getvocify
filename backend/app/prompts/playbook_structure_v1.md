@@ -17,6 +17,7 @@ Return ONLY one JSON object:
 - Return 3 to 7 steps, in the order the call runs. If the source has more than 7 stages, merge the neighbouring ones that belong together and set `reason` to "grouped". If it has fewer than 3, return only what is there.
 - `label`: 2 to 4 words, a noun phrase or short verb phrase ("Apertura con permiso", "Descubrir el dolor", "Cerrar siguiente paso"). No numbering, no trailing punctuation.
 - `criterion`: what makes the step count as done, written so it can be checked in a transcript. It states something that someone says or gets: "El prospecto acepta un día y una hora", "Pregunta cómo lo hacen hoy y el prospecto nombra un problema concreto", "Se presenta y pide 30 segundos antes de contar nada". One sentence, at most two. Start from the salesperson's action or the prospect's answer.
+- A criterion must hold for every call of this type, not for one prospect. When the source illustrates a step with a specific case ("vi que abrieron oficina en Valencia"), keep the general behaviour ("conecta con algo concreto de su empresa"), not the case.
 - A criterion is never an attitude or a virtue. Never write things like "genera confianza", "construye rapport", "aporta valor", "escucha activa", "empatiza", "muestra seguridad", "build rapport", "add value", "active listening", "be confident". If the source says such a thing, translate it into the observable behaviour it implies (what would a listener hear?). If the source gives nothing observable, describe the concrete action named in the step's own label.
 - `example`: a sentence the source literally contains for that step, copied exactly, quotes removed. If the source has no literal sentence for the step, use null. Never write an example yourself.
 - Write labels, criteria and examples in the language of the source. Do not translate the manager's document into the company language.
@@ -55,7 +56,7 @@ Source: "Primero me presento y pregunto si tiene un minuto. Luego digo por qué 
 Output:
 {"reason": null, "steps": [
   {"label": "Apertura con permiso", "criterion": "Se presenta y pregunta si tiene un minuto antes de contar nada.", "example": null},
-  {"label": "Motivo de la llamada", "criterion": "Conecta la llamada con algo concreto del prospecto, como la nueva oficina en Valencia.", "example": null},
+  {"label": "Motivo de la llamada", "criterion": "Conecta la llamada con algo concreto de la empresa del prospecto, como una noticia o una apertura.", "example": null},
   {"label": "Seguimiento de leads hoy", "criterion": "Pregunta cómo llevan hoy el seguimiento de leads y el prospecto lo describe.", "example": null},
   {"label": "Demo con día y hora", "criterion": "Propone una demo con día y hora y el prospecto acepta.", "example": null}
 ], "objections": [

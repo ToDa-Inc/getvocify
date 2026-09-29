@@ -406,3 +406,29 @@ Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.app
 `{period, calls: int, steps: [{step_id, met, missed, rate: number|null}], objections: [{category, count, share: number, answered: bool, best_example: string|null}]}`
 - `rate` = met/(met+missed) con ≥ 10 aplicables; si no, `null`. Solo `step_id` de la versión activa.
 - `objections` ordenadas por `count` desc; `best_example` sin nombre de comercial.
+
+---
+
+## 13. Estado (29 sep 2026)
+
+| Pieza | Estado | Dónde |
+|---|---|---|
+| T1 Estructurar con IA (`POST /structure`, prompt v1, guardas, fallback) | Hecho | `services/playbooks/structure.py`, `prompts/playbook_structure_v1.md` |
+| T2 Autosave en la misma fila, 409 `stale_draft`, `DELETE /draft` | Hecho | `store.py`, migración 066 |
+| T3–T6 Documento, lista, caja única, vista del comercial, textos | Hecho | `src/features/playbooks/components/*`, `src/lib/playbook-doc.ts` |
+| T7 Catálogo, reglas, `details`, `/catalog`, `/rule`, `/deal-stages` | Hecho | `catalog.py`, `routing.py`, `api/playbook_rules.py`, migración 067 |
+| T8 Enrutado por regla al fijar y re-fijado antes de C04 | Hecho | `captures.py`, `memo_extraction_hooks.py` (`pipeline_meta.playbook_pin`) |
+| T9 «Se aplica a» y «+ Tipo de llamada» | Hecho | `PlaybookList.tsx`, `RuleEditor.tsx` |
+| T10 «Evaluada como · cambiar» en la grabación | Hecho | `GET/POST /memos/{id}/playbook`, `MemoPlaybookLine.tsx` |
+| T11–T12 % por paso y objeciones con frecuencia y respuesta del equipo | Hecho | `GET /playbooks/{key}/insights`, `services/playbooks/insights.py` |
+
+**Contrato:** `GET /editor` devuelve la fuente en `source_doc` (`source` sigue siendo el estado). `POST /structure` usa el cliente con `timeoutMs: 120_000`.
+
+**Pruebas:** backend 3107 passed, 32 skipped (sin PostgreSQL aislado). Frontend 449 pass. Sin errores de tipos nuevos. `npm run build` OK. La UI se recorrió en navegador (Playwright contra la app real con la API simulada según este contrato): crear desde texto → documento → autoguardado → publicar; editar la versión activa con una respuesta del equipo; regla; tipo nuevo; vista del comercial; 390 px.
+
+**Pendiente antes de encender:**
+1. Aplicar a mano en Supabase `066_playbook_draft_autosave.sql` y `067_playbook_rules.sql` (la API lee `updated_at`; sin la 066 falla el editor).
+2. Correr `python -u backend/scripts/eval_playbook_structure.py --runs 3` con clave de OpenRouter (P01 no se ha corrido: no había clave).
+3. Encender `PLAYBOOK_V2_ENABLED` en Vocify y un cliente; `PLAYBOOK_ROUTING_ENABLED` después, cuando haya dos playbooks publicados de un mismo rol.
+4. Confirmar la señal inbound: hoy es `hs_analytics_source` de HubSpot distinto de OFFLINE; Pipedrive no da señal y la regla `inbound` no encaja allí.
+5. Reticle: no se pudo verificar con Reticle en esta sesión (sin daemon ni backend con credenciales). Guardar los tres flujos de §10 con su `intent` en staging.
