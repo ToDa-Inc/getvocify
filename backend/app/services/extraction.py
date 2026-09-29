@@ -17,6 +17,13 @@ from app.services.extraction_policy import (
     fill_policy_instruction,
     format_existing_values_block,
 )
+from app.services.extraction_confidence import (
+    FIELD_CONFIDENCE_HIGH,
+    FIELD_CONFIDENCE_UNCERTAIN,
+    FIELD_JEV_HIGH_THRESHOLD,
+    jev_score_to_field_confidence,
+    merge_field_confidences,
+)
 from app.services.transcript_turns import (
     prospect_name_from_existing,
     speaker_prompt_legend,
@@ -149,29 +156,13 @@ def _normalize_raw_extraction(
     return out
 
 
-_SPOKEN_NUMBER_WORDS = {
-    1: ("uno", "una", "un", "one"),
-    2: ("dos", "two"),
-    3: ("tres", "three"),
-    4: ("cuatro", "four"),
-    5: ("cinco", "five"),
-    6: ("seis", "six"),
-    7: ("siete", "seven"),
-    8: ("ocho", "eight"),
-    9: ("nueve", "nine"),
-    10: ("diez", "ten"),
-    11: ("once", "eleven"),
-    12: ("doce", "twelve"),
-    15: ("quince", "fifteen"),
-    20: ("veinte", "twenty"),
-    30: ("treinta", "thirty"),
-    40: ("cuarenta", "forty"),
-    50: ("cincuenta", "fifty"),
-}
+NUMBER_CONFIDENCE_HIGH = FIELD_CONFIDENCE_HIGH
+NUMBER_CONFIDENCE_UNCERTAIN = FIELD_CONFIDENCE_UNCERTAIN
+NUMBER_JEV_HIGH_THRESHOLD = FIELD_JEV_HIGH_THRESHOLD
 
 
-def number_was_spoken(value: Any, transcript: str) -> bool:
-    """True when the extracted number (digits or small word) appears in the transcript."""
+def number_digit_in_transcript(value: Any, transcript: str) -> bool:
+    """True when the extracted number appears as digits in the transcript."""
     if value is None or not transcript:
         return False
     try:
@@ -182,32 +173,78 @@ def number_was_spoken(value: Any, transcript: str) -> bool:
         return False
     as_int = int(n) if n == int(n) else None
     if as_int is not None:
-        if re.search(rf"(?<!\d){as_int}(?!\d)", transcript):
-            return True
-        blob = transcript.lower()
-        for word in _SPOKEN_NUMBER_WORDS.get(as_int, ()):
-            if re.search(rf"\b{re.escape(word)}\b", blob):
-                return True
-        return False
+        return bool(re.search(rf"(?<!\d){as_int}(?!\d)", transcript))
     rendered = str(value).rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
     return bool(re.search(rf"(?<!\d){re.escape(rendered)}(?!\d)", transcript))
 
 
-def drop_unspoken_numbers(
+def number_was_spoken(value: Any, transcript: str) -> bool:
+    """Backward-compatible alias for digit-in-transcript checks."""
+    return number_digit_in_transcript(value, transcript)
+
+
+def _numeric_field_entries(
     extracted: dict,
-    transcript: str,
     field_specs: Optional[list[dict]] = None,
-) -> dict:
-    """Clear numeric CRM fields whose value was not actually said."""
-    if not extracted or not transcript:
-        return extracted
-    number_keys: set[tuple[str, str]] = set()
+) -> list[tuple[str, str, str, Any, dict]]:
+    entries: list[tuple[str, str, str, Any, dict]] = []
     for spec in field_specs or []:
         name = spec.get("name")
         if not name or spec.get("type") != "number":
             continue
         obj = spec.get("object_type") or "deals"
-        number_keys.add((obj, name))
+        if obj == "contacts":
+            bag = extracted.get("contact_properties")
+        elif obj == "companies":
+            bag = extracted.get("company_properties")
+        else:
+            bag = extracted
+        if not isinstance(bag, dict):
+            continue
+        value = bag.get(name)
+        if value is None:
+            continue
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            continue
+        q_id = f"{obj}__{name}"
+        entries.append((obj, name, q_id, value, spec))
+    return entries
+
+
+def _set_field_confidence(extracted: dict, field_name: str, confidence: float) -> None:
+    merge_field_confidences(extracted, {field_name: confidence})
+
+
+def _clear_numeric_field(out: dict, obj: str, name: str) -> None:
+    if obj == "contacts":
+        bag = out.get("contact_properties")
+        if isinstance(bag, dict):
+            bag[name] = None
+    elif obj == "companies":
+        bag = out.get("company_properties")
+        if isinstance(bag, dict):
+            bag[name] = None
+    else:
+        out[name] = None
+
+
+async def apply_number_verification(
+    extracted: dict,
+    transcript: str,
+    field_specs: Optional[list[dict]],
+    jev: Optional[JevClient],
+    *,
+    jev_available: bool,
+) -> dict:
+    """Keep numeric CRM fields only when digits or Jev confirm they were spoken."""
+    if not extracted or not transcript:
+        return extracted
+
+    entries = _numeric_field_entries(extracted, field_specs)
+    if not entries:
+        return extracted
 
     out = dict(extracted)
     if isinstance(out.get("contact_properties"), dict):
@@ -215,23 +252,55 @@ def drop_unspoken_numbers(
     if isinstance(out.get("company_properties"), dict):
         out["company_properties"] = dict(out["company_properties"])
 
-    def _maybe_clear(bag: dict, key: str) -> None:
-        if key not in bag or bag[key] is None:
-            return
-        if not number_was_spoken(bag[key], transcript):
-            bag[key] = None
+    pending: list[dict[str, Any]] = []
+    for obj, name, q_id, value, spec in entries:
+        if number_digit_in_transcript(value, transcript):
+            _set_field_confidence(out, name, NUMBER_CONFIDENCE_HIGH)
+            continue
+        pending.append({"q_id": q_id, "spec": spec, "value": value, "obj": obj, "name": name})
 
-    for obj, key in number_keys:
-        if obj == "contacts":
-            bag = out.get("contact_properties")
-            if isinstance(bag, dict):
-                _maybe_clear(bag, key)
-        elif obj == "companies":
-            bag = out.get("company_properties")
-            if isinstance(bag, dict):
-                _maybe_clear(bag, key)
-        else:
-            _maybe_clear(out, key)
+    if pending and jev_available and jev is not None:
+        verified = await jev.verify_numbers(transcript, pending)
+        for item in pending:
+            q_id = item["q_id"]
+            result = verified.get(q_id) or {}
+            if result.get("verdict") == "stated":
+                try:
+                    conf = float(result.get("confidence") or 0.0)
+                except (TypeError, ValueError):
+                    conf = 0.0
+                score = (
+                    NUMBER_CONFIDENCE_HIGH
+                    if conf >= NUMBER_JEV_HIGH_THRESHOLD
+                    else NUMBER_CONFIDENCE_UNCERTAIN
+                )
+                _set_field_confidence(out, item["name"], score)
+                continue
+            _clear_numeric_field(out, item["obj"], item["name"])
+    elif pending:
+        for item in pending:
+            _clear_numeric_field(out, item["obj"], item["name"])
+
+    return out
+
+
+def drop_unspoken_numbers(
+    extracted: dict,
+    transcript: str,
+    field_specs: Optional[list[dict]] = None,
+) -> dict:
+    """Sync digit-only guard kept for tests and non-Jev callers."""
+    if not extracted or not transcript:
+        return extracted
+    out = dict(extracted)
+    if isinstance(out.get("contact_properties"), dict):
+        out["contact_properties"] = dict(out["contact_properties"])
+    if isinstance(out.get("company_properties"), dict):
+        out["company_properties"] = dict(out["company_properties"])
+    for obj, name, _q_id, value, _spec in _numeric_field_entries(extracted, field_specs):
+        if number_digit_in_transcript(value, transcript):
+            continue
+        _clear_numeric_field(out, obj, name)
     return out
 
 
@@ -864,6 +933,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                     extracted = apply_enumeration_patch(
                         extracted, res_jev, candidate_enums
                     )
+                    merge_field_confidences(extracted, res_jev.get("_confidences"))
                     jev_applied = True
                     logger.info(
                         "Jev enumeration classification applied",
@@ -883,7 +953,13 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             extracted = _normalize_raw_extraction(extracted, field_specs)
             extracted = apply_fill_policies(extracted, field_specs, existing_values)
             extracted = drop_abstained_fields(extracted, abstained, field_specs)
-            extracted = drop_unspoken_numbers(extracted, transcript, field_specs)
+            extracted = await apply_number_verification(
+                extracted,
+                transcript,
+                field_specs,
+                self.jev,
+                jev_available=use_jev,
+            )
             abstained_names = set(abstained)
             pending_enums = [
                 spec
@@ -912,6 +988,15 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                     )
                     extracted = apply_enumeration_patch(
                         extracted, enum_payload or {}, pending_enums
+                    )
+                    merge_field_confidences(
+                        extracted,
+                        {
+                            spec["name"]: FIELD_CONFIDENCE_UNCERTAIN
+                            for spec in pending_enums
+                            if spec.get("name")
+                            and _value_present(_bag_for_object(extracted, spec.get("object_type") or "deals").get(spec["name"]))
+                        },
                     )
                     logger.info(
                         "Enumeration follow-up applied",

@@ -19,6 +19,16 @@ from app.services.pipedrive.preview import PipedrivePreviewService
 from app.services.pipedrive.schema import PipedriveSchemaService
 from app.services.pipedrive.search import PipedriveSearchService
 from app.services.pipedrive.sync import PipedriveSyncService
+from app.services.crm_providers.coverage import read_contact_emails
+
+
+async def read_emails(fetch_ids, fetch_one, *, connection_id: str, observed_at: str) -> dict:
+    return await read_contact_emails(
+        fetch_ids,
+        fetch_one,
+        connection_id=connection_id,
+        observed_at=observed_at,
+    )
 
 
 def _parse_expires_at(raw: Any) -> Optional[datetime]:
@@ -92,7 +102,6 @@ class PipedriveCRMProvider:
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
     ) -> SyncResult:
-        del allowed_line_item_fields
         del lost_reason, lost_reason_deal_property, lost_lead_status_value, on_hold_lead_status_value
         if call_outcome:
             return SyncResult(
@@ -109,6 +118,8 @@ class PipedriveCRMProvider:
             deal_id=deal_id,
             is_new_deal=is_new_deal,
             allowed_fields=allowed_fields,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
             transcript=transcript,
             auto_create_contact_company=auto_create_contact_company,
             auto_create_companies=auto_create_companies,
@@ -119,8 +130,6 @@ class PipedriveCRMProvider:
             create_note=create_note,
             contact_id=contact_id,
             company_id=company_id,
-            allowed_contact_fields=allowed_contact_fields,
-            allowed_company_fields=allowed_company_fields,
             skip_deal=skip_deal,
         )
 
@@ -160,8 +169,8 @@ class PipedriveCRMProvider:
             default_stage_id=default_stage_id,
             selected_contact=selected_contact,
             contact_candidates=contact_candidates,
-            include_unchanged=include_unchanged,
             skip_deal=skip_deal,
+            include_unchanged=include_unchanged,
         )
 
     async def find_matching_deals(

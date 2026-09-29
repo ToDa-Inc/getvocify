@@ -3,9 +3,9 @@ from app.services.pipedrive.schema import (
     PipedriveSchemaService,
     curated_spec_from_field,
     expand_schema_fields,
-    extraction_field_type,
     field_key,
     field_label,
+    flatten_record,
     is_custom_field_code,
 )
 
@@ -66,26 +66,26 @@ def test_live_enum_options_id_label():
     assert [(o.value, o.label) for o in prop.options] == [("39", "Hubspot"), ("41", "Pipedrive")]
 
 
-def test_curated_spec_uses_pipedrive_type_label_and_object():
-    spec = curated_spec_from_field(
-        {
-            "field_code": "abc",
-            "field_name": "Stage",
-            "field_type": "set",
-            "description": "Which stage they teach",
-            "options": [{"id": 1, "label": "PE"}],
-        },
-        name="abc",
-        object_type="companies",
-    )
-    assert spec["object_type"] == "companies"
+def test_curated_spec_normalizes_enum_and_number():
+    enum_field = {
+        "field_code": "abc1234567890123456789012345678901234567890",
+        "field_name": "Funcionalitats",
+        "field_type": "set",
+        "options": [{"id": 1338, "label": "Menjador"}],
+    }
+    spec = curated_spec_from_field(enum_field, "deals")
     assert spec["type"] == "enumeration"
-    assert spec["label"] == "Stage"
-    assert spec["description"] == "Which stage they teach"
-    assert spec["options"] == [{"value": "1", "label": "PE"}]
-    assert extraction_field_type("double") == "number"
-    assert extraction_field_type("enum") == "enumeration"
-    assert curated_spec_from_field(None, name="missing", object_type="contacts")["description"] == ""
+    assert spec["object_type"] == "deals"
+    assert spec["options"][0]["value"] == "1338"
+
+    number_field = {"field_code": "preu", "field_name": "Preu per alumne", "field_type": "double"}
+    assert curated_spec_from_field(number_field, "deals")["type"] == "number"
+
+
+def test_flatten_record_unwraps_custom_fields():
+    flat = flatten_record({"title": "Acme", "custom_fields": {"hash1234567890123456789012345678901234567890": 35}})
+    assert flat["title"] == "Acme"
+    assert flat["hash1234567890123456789012345678901234567890"] == 35
 
 
 def test_split_write_uses_official_hash_rule():

@@ -23,6 +23,7 @@ from .object_properties import (
     line_items_from_extraction,
 )
 from app.services.extraction_policy import drop_call_unsafe_props, is_identity_name_field
+from app.services.extraction_confidence import field_extraction_confidence
 
 
 def _format_value_for_display(value: Any) -> str:
@@ -279,7 +280,7 @@ class HubSpotPreviewService:
                     field_label="Next Step (Task)" if i == 0 else f"Next Step {i + 1} (Task)",
                     current_value=None,
                     new_value=formatted.subject,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
+                    extraction_confidence=field_extraction_confidence(extraction, "next_step"),
                     object_type="task",
                     due_date=due_iso,
                 ))
@@ -339,7 +340,7 @@ class HubSpotPreviewService:
                     continue
                 spec = field_specs_map.get(field_name, {})
                 label = field_labels.get(field_name, field_name.replace("_", " ").title())
-                confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
+                confidence = field_extraction_confidence(extraction, field_name)
                 proposed_updates.append(ProposedUpdate(
                     field_name=field_name,
                     field_label=label,
@@ -481,7 +482,7 @@ class HubSpotPreviewService:
                     ):
                         spec = field_specs_map.get(field_name, {})
                         label = field_labels.get(field_name, field_name.replace("_", " ").title())
-                        confidence = extraction.confidence.get("fields", {}).get(field_name, 0.7)
+                        confidence = field_extraction_confidence(extraction, field_name)
                         proposed_updates.append(ProposedUpdate(
                             field_name=field_name,
                             field_label=label,
@@ -510,7 +511,7 @@ class HubSpotPreviewService:
                     field_label="Contact Name",
                     current_value=None,
                     new_value=extracted_contact_name,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
+                    extraction_confidence=field_extraction_confidence(extraction, "contactName"),
                     object_type="contacts",
                 ))
             if extraction.companyName:
@@ -519,7 +520,7 @@ class HubSpotPreviewService:
                     field_label="Company",
                     current_value=None,
                     new_value=extraction.companyName,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
+                    extraction_confidence=field_extraction_confidence(extraction, "companyName"),
                     object_type="companies",
                 ))
 
@@ -563,7 +564,7 @@ class HubSpotPreviewService:
                 field_label=label,
                 current_value=(current_display or "(empty)") if has_existing_contact else None,
                 new_value=new_display,
-                extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                extraction_confidence=field_extraction_confidence(extraction, field_name),
                 field_type=spec.get("type"),
                 options=spec.get("options"),
                 object_type="contacts",
@@ -607,7 +608,7 @@ class HubSpotPreviewService:
                 field_label="Company",
                 current_value=None,
                 new_value=new_company["name"],
-                extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
+                extraction_confidence=field_extraction_confidence(extraction, "companyName"),
                 object_type="companies",
             ))
         if has_existing_company or new_company:
@@ -632,7 +633,7 @@ class HubSpotPreviewService:
                     field_label=label,
                     current_value=(current_display or "(empty)") if has_existing_company else None,
                     new_value=new_display,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                    extraction_confidence=field_extraction_confidence(extraction, field_name),
                     field_type=spec.get("type"),
                     options=spec.get("options"),
                     object_type="companies",
@@ -657,7 +658,7 @@ class HubSpotPreviewService:
                     field_label=name,
                     current_value=None,
                     new_value=summary,
-                    extraction_confidence=0.7,
+                    extraction_confidence=field_extraction_confidence(extraction, f"line_item_{i}"),
                     object_type="line_items",
                 ))
 

@@ -22,12 +22,12 @@ from .client import PipedriveClient, unwrap_data
 from .exceptions import PipedriveError
 from .notes import PipedriveNoteService, format_note_content
 from .record_urls import build_pipedrive_record_url, company_domain_from_api_domain
-from .schema import (
-    PipedriveSchemaService,
-    company_write_props,
-    contact_write_props,
-    props_changed_from_record,
+from .object_properties import (
+    company_properties_from_extraction,
+    contact_properties_from_extraction,
+    deal_properties_from_extraction,
 )
+from .schema import PipedriveSchemaService, company_write_props, contact_write_props, flatten_record, props_changed_from_record
 from .search import PipedriveSearchService, primary_email
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,8 @@ class PipedriveSyncService:
         deal_id: Optional[str] = None,
         is_new_deal: bool = False,
         allowed_fields: Optional[list[str]] = None,
+        allowed_contact_fields: Optional[list[str]] = None,
+        allowed_company_fields: Optional[list[str]] = None,
         transcript: Optional[str] = None,
         auto_create_contact_company: bool = False,
         auto_create_companies: Optional[bool] = None,
@@ -78,8 +80,6 @@ class PipedriveSyncService:
         create_note: bool = True,
         contact_id: Optional[str] = None,
         company_id: Optional[str] = None,
-        allowed_contact_fields: Optional[list[str]] = None,
-        allowed_company_fields: Optional[list[str]] = None,
         skip_deal: bool = False,
     ) -> SyncResult:
         create_companies = auto_create_companies if auto_create_companies is not None else auto_create_contact_company
@@ -89,10 +89,8 @@ class PipedriveSyncService:
             create_contacts = False
         if allowed_fields is None:
             allowed_fields = list(DEFAULT_DEAL_FIELDS)
-        if allowed_contact_fields is None:
-            allowed_contact_fields = ["name", "emails", "phones"]
-        if allowed_company_fields is None:
-            allowed_company_fields = ["name"]
+        allowed_contact_fields = allowed_contact_fields or ["name", "emails", "phones"]
+        allowed_company_fields = allowed_company_fields or ["name"]
 
         result = SyncResult(memo_id=str(memo_id))
         t0 = time.perf_counter()
@@ -130,6 +128,16 @@ class PipedriveSyncService:
                         resource_type="company",
                         data={"company_id": org_id, "name": extraction.companyName},
                     )
+                    await self._patch_fields(
+                        "organizations",
+                        org_id,
+                        company_properties_from_extraction(
+                            extraction,
+                            allowed_fields=allowed_company_fields,
+                            identity_props={"name": extraction.companyName},
+                        ),
+                        allowed_company_fields,
+                    )
 
             email = real_contact_email_or_none(extraction.contactEmail)
             name = (extraction.contactName or "").strip() or None
@@ -155,21 +163,23 @@ class PipedriveSyncService:
                             resource_type="contact",
                             data={"contact_id": person_id},
                         )
-
-            if org_id:
-                await self._patch_fields(
-                    "organization",
-                    org_id,
-                    company_write_props(extraction, allowed_company_fields),
-                )
-                result.company_id = org_id
-            if person_id:
-                await self._patch_fields(
-                    "person",
-                    person_id,
-                    contact_write_props(extraction, allowed_contact_fields),
-                )
-                result.contact_id = person_id
+                        identity = {}
+                        if name:
+                            identity["name"] = name
+                        if email:
+                            identity["emails"] = [{"value": email, "primary": True, "label": "work"}]
+                        if phone:
+                            identity["phones"] = [{"value": phone, "primary": True, "label": "work"}]
+                        await self._patch_fields(
+                            "persons",
+                            person_id,
+                            contact_properties_from_extraction(
+                                extraction,
+                                allowed_fields=allowed_contact_fields,
+                                identity_props=identity,
+                            ),
+                            allowed_contact_fields,
+                        )
 
             if not skip_deal:
                 title = new_deal_title(extraction) if creating else None
@@ -181,7 +191,12 @@ class PipedriveSyncService:
                     org_id=org_id,
                     person_id=person_id,
                 )
-                filtered = {k: v for k, v in mapped.items() if k in allowed_fields or k in ("title", "stage_id", "pipeline_id", "org_id", "person_id")}
+                deal_props = deal_properties_from_extraction(extraction, mapped, allowed_fields)
+                filtered = {
+                    k: v
+                    for k, v in deal_props.items()
+                    if k in allowed_fields or (creating and k in ("title", "stage_id", "pipeline_id", "org_id", "person_id"))
+                }
                 if creating:
                     payload = self.schema.split_write_payload(filtered)
                     created = unwrap_data(await self.client.post("/deals", json_body=payload))
@@ -288,19 +303,31 @@ class PipedriveSyncService:
             logger.exception("Pipedrive sync failed: %s", e)
             return result
 
-    async def _patch_fields(self, kind: str, record_id: str, props: dict[str, Any]) -> None:
+    async def _patch_fields(
+        self,
+        resource: str,
+        record_id: Optional[str],
+        props: dict[str, Any],
+        allowed: Optional[list[str]],
+    ) -> None:
         if not record_id or not props:
             return
-        getter = self.search.get_person if kind == "person" else self.search.get_organization
         try:
-            current = await getter(record_id)
+            if resource == "organizations":
+                current = flatten_record(await self.search.get_organization(record_id))
+            else:
+                current = flatten_record(await self.search.get_person(record_id))
         except Exception:
             current = {}
-        changed = props_changed_from_record(props, current if isinstance(current, dict) else {})
-        if not changed:
+        changed = props_changed_from_record(props, current)
+        if resource == "organizations":
+            body = company_write_props(changed, allowed)
+        else:
+            body = contact_write_props(changed, allowed)
+        if not body:
             return
-        path = "/persons" if kind == "person" else "/organizations"
-        await self.client.patch(f"{path}/{record_id}", json_body=self.schema.split_write_payload(changed))
+        payload = self.schema.split_write_payload(body)
+        await self.client.patch(f"/{resource}/{record_id}", json_body=payload)
 
     async def _find_or_create_org(self, name: str, existing_id: Optional[str]) -> Optional[str]:
         if existing_id:

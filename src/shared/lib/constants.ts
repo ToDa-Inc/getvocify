@@ -13,10 +13,15 @@ export const AUDIO = {
 
 // Confidence thresholds for extraction
 export const CONFIDENCE = {
-  HIGH: 0.9,    // Auto-approve threshold
+  HIGH: 0.9,    // Confident extraction — green/red in review
   MEDIUM: 0.7,  // Needs review
-  LOW: 0.5,     // Likely wrong, highlight
+  LOW: 0.5,     // Below this, backend drops the field
 } as const;
+
+export function isUncertainExtractionConfidence(confidence: number | null | undefined): boolean {
+  if (confidence == null || !Number.isFinite(confidence)) return false;
+  return confidence >= CONFIDENCE.LOW && confidence < CONFIDENCE.HIGH;
+}
 
 // Memo status display
 export const MEMO_STATUS_CONFIG = {

@@ -7,16 +7,15 @@ from uuid import UUID
 
 from app.models.approval import ApprovalPreview, AvailableField, ContactMatch, DealMatch, ProposedUpdate
 from app.models.memo import MemoExtraction
-from app.services.extraction_policy import drop_call_unsafe_props
+from app.services.extraction_confidence import field_extraction_confidence
 from app.services.hubspot.contact_identity import real_contact_email_or_none
-from app.services.hubspot.preview import include_extracted_field, preview_field_already_applied
 
-from .schema import (
-    PipedriveSchemaService,
-    company_write_props,
-    contact_write_props,
-    flatten_record,
+from .object_properties import (
+    company_properties_from_extraction,
+    contact_properties_from_extraction,
+    deal_properties_from_extraction,
 )
+from .schema import PipedriveSchemaService, flatten_record, props_changed_from_record
 from .search import PipedriveSearchService, primary_email, primary_phone
 
 DEFAULT_DEAL_FIELDS = ["title", "value", "currency", "expected_close_date", "stage_id"]
@@ -26,20 +25,26 @@ def _fmt(v: Any) -> str:
     if v is None:
         return ""
     if isinstance(v, list):
-        return ", ".join(str(x) for x in v)
+        parts = []
+        for item in v:
+            if isinstance(item, dict):
+                parts.append(str(item.get("value") or item.get("label") or item))
+            else:
+                parts.append(str(item))
+        return ", ".join(p for p in parts if p)
     return str(v)
 
 
-def _display_prop(field_name: str, value: Any) -> str:
-    """Person emails/phones are v2 arrays. Show the primary value, same as the record."""
-    if field_name == "emails":
-        if isinstance(value, list):
-            return primary_email({"emails": value})
-        return _fmt(value)
-    if field_name == "phones":
-        if isinstance(value, list):
-            return primary_phone({"phones": value}) or ""
-        return _fmt(value)
+def _display_prop(field_name: str, value: Any, spec: dict) -> str:
+    if value is None or value == "":
+        return ""
+    options = spec.get("options") or []
+    if options and not isinstance(value, list):
+        raw = str(value)
+        for opt in options:
+            if isinstance(opt, dict) and str(opt.get("value")) == raw:
+                return str(opt.get("label") or raw)
+        return raw
     return _fmt(value)
 
 
@@ -58,62 +63,46 @@ class PipedrivePreviewService:
         self.search = search
         self.schema = schema
 
-    async def _specs(self, names: list[str], object_type: str) -> list[dict[str, Any]]:
-        if not names:
-            return []
-        try:
-            return await self.schema.get_curated_field_specs(list(names), object_type)
-        except Exception:
-            return []
+    async def _specs(self, names: list[str], object_type: str) -> tuple[list[dict], dict[str, dict], dict[str, str]]:
+        specs = await self.schema.get_curated_field_specs(names, object_type)
+        spec_map = {s["name"]: s for s in specs}
+        labels = {s["name"]: s.get("label", s["name"]) for s in specs}
+        return specs, spec_map, labels
 
     def _append_object_updates(
         self,
         proposed_updates: list[ProposedUpdate],
+        *,
         extraction: MemoExtraction,
         props: dict[str, Any],
-        specs: dict[str, dict],
         current: dict[str, Any],
-        *,
+        spec_map: dict[str, dict],
+        labels: dict[str, str],
         object_type: str,
-        has_existing: bool,
         include_unchanged: bool,
     ) -> None:
-        fields = dict(props)
-        if has_existing:
-            fields = drop_call_unsafe_props(
-                fields,
-                existing_record=True,
-                current=current,
-                object_type=object_type,
-            )
-        for field_name, new_value in fields.items():
-            new_display = _display_prop(field_name, new_value)
-            current_display = _display_prop(field_name, current.get(field_name)) if has_existing else ""
-            if has_existing:
-                if not include_extracted_field(
-                    new_display=new_display,
-                    current_display=current_display,
-                    include_unchanged=include_unchanged,
-                ):
-                    continue
-            elif not new_display:
+        flat_current = flatten_record(current)
+        changed = props_changed_from_record(
+            props,
+            flat_current,
+            include_unchanged=include_unchanged,
+        )
+        for field_name, new_value in changed.items():
+            spec = spec_map.get(field_name, {})
+            new_disp = _display_prop(field_name, new_value, spec)
+            cur_disp = _display_prop(field_name, flat_current.get(field_name), spec)
+            if not new_disp:
                 continue
-            spec = specs.get(field_name, {})
             proposed_updates.append(
                 ProposedUpdate(
                     field_name=field_name,
-                    field_label=spec.get("label", field_name),
-                    current_value=(current_display or "(empty)") if has_existing else None,
-                    new_value=new_display,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                    field_label=labels.get(field_name, field_name),
+                    current_value=cur_disp or "(empty)",
+                    new_value=new_disp,
+                    extraction_confidence=field_extraction_confidence(extraction, field_name),
                     field_type=spec.get("type"),
                     options=spec.get("options"),
                     object_type=object_type,
-                    already_applied=has_existing and preview_field_already_applied(
-                        current_display=current_display,
-                        new_display=new_display,
-                        include_unchanged=include_unchanged,
-                    ),
                 )
             )
 
@@ -133,8 +122,8 @@ class PipedrivePreviewService:
         default_stage_id: Optional[str] = None,
         selected_contact: Optional[Any] = None,
         contact_candidates: Optional[Any] = None,
-        include_unchanged: bool = False,
         skip_deal: bool = False,
+        include_unchanged: bool = False,
     ) -> ApprovalPreview:
         if allowed_fields is None:
             allowed_fields = list(DEFAULT_DEAL_FIELDS)
@@ -150,6 +139,20 @@ class PipedrivePreviewService:
         contact_match = selected_contact if isinstance(selected_contact, ContactMatch) else None
         candidates = list(contact_candidates or [])
 
+        current_contact: dict[str, Any] = {}
+        current_company: dict[str, Any] = {}
+        if contact_match:
+            try:
+                current_contact = await self.search.get_person(contact_match.contact_id)
+            except Exception:
+                current_contact = {}
+            org_id = contact_match.company_id or current_contact.get("org_id")
+            if org_id:
+                try:
+                    current_company = await self.search.get_organization(str(org_id))
+                except Exception:
+                    current_company = {}
+
         if not skip_deal:
             stage_id = await self.schema.resolve_stage_id(
                 extraction.dealStage, default_stage_id, default_pipeline_id
@@ -160,12 +163,13 @@ class PipedrivePreviewService:
                 )
             title = _new_deal_title(extraction) if is_new_deal else None
             mapped = self.schema.map_extraction_to_deal_fields(
-                extraction, title=title, stage_id=stage_id, pipeline_id=default_pipeline_id
+                extraction,
+                title=title,
+                stage_id=stage_id,
+                pipeline_id=default_pipeline_id,
             )
-            filtered = {k: v for k, v in mapped.items() if k in allowed_fields or (is_new_deal and k == "title")}
-            field_specs = await self.schema.get_curated_field_specs(allowed_fields)
-            field_labels = {s["name"]: s["label"] for s in field_specs}
-            field_specs_map = {s["name"]: s for s in field_specs}
+            deal_props = deal_properties_from_extraction(extraction, mapped, allowed_fields)
+            _, deal_spec_map, deal_labels = await self._specs(allowed_fields, "deals")
 
             current: dict[str, Any] = {}
             if selected_deal_id:
@@ -185,96 +189,103 @@ class PipedrivePreviewService:
                         amount=str(current["value"]) if current.get("value") is not None else None,
                         last_updated=str(current.get("update_time") or ""),
                     )
+                if not current_contact and current.get("person_id"):
+                    try:
+                        current_contact = await self.search.get_person(str(current["person_id"]))
+                    except Exception:
+                        pass
+                if not current_company and current.get("org_id"):
+                    try:
+                        current_company = await self.search.get_organization(str(current["org_id"]))
+                    except Exception:
+                        pass
 
-            for field_name, new_value in filtered.items():
-                if new_value is None or new_value == "":
-                    continue
-                if not is_new_deal and field_name == "title":
-                    continue
-                cur = current.get(field_name)
-                new_disp = _fmt(new_value)
-                cur_disp = _fmt(cur)
-                if not is_new_deal and cur_disp == new_disp:
-                    continue
-                spec = field_specs_map.get(field_name, {})
-                proposed_updates.append(
-                    ProposedUpdate(
-                        field_name=field_name,
-                        field_label=field_labels.get(field_name, field_name),
-                        current_value=None if is_new_deal else (cur_disp or "(empty)"),
-                        new_value=new_disp,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
-                        field_type=spec.get("type"),
-                        options=spec.get("options"),
-                        object_type="deals",
+            if is_new_deal:
+                for field_name, new_value in deal_props.items():
+                    if new_value is None or new_value == "":
+                        continue
+                    if field_name == "title" and not is_new_deal:
+                        continue
+                    spec = deal_spec_map.get(field_name, {})
+                    proposed_updates.append(
+                        ProposedUpdate(
+                            field_name=field_name,
+                            field_label=deal_labels.get(field_name, field_name),
+                            current_value=None,
+                            new_value=_display_prop(field_name, new_value, spec),
+                            extraction_confidence=field_extraction_confidence(extraction, field_name),
+                            field_type=spec.get("type"),
+                            options=spec.get("options"),
+                            object_type="deals",
+                        )
                     )
+            else:
+                self._append_object_updates(
+                    proposed_updates,
+                    extraction=extraction,
+                    props=deal_props,
+                    current=current,
+                    spec_map=deal_spec_map,
+                    labels=deal_labels,
+                    object_type="deals",
+                    include_unchanged=include_unchanged,
                 )
 
-        if extraction.companyName:
-            proposed_updates.insert(
-                0,
-                ProposedUpdate(
-                    field_name="name",
-                    field_label="Organization",
-                    current_value=None,
-                    new_value=extraction.companyName,
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
-                    object_type="companies",
-                ),
-            )
         email = real_contact_email_or_none(extraction.contactEmail)
         name = (extraction.contactName or "").strip() or None
         phone = (extraction.contactPhone or "").strip() or None
-        if name or email or phone:
-            label_bits = [b for b in (name, email, phone) if b]
-            proposed_updates.insert(
-                0 if extraction.companyName else 0,
-                ProposedUpdate(
-                    field_name="name",
-                    field_label="Person",
-                    current_value=None,
-                    new_value=" · ".join(label_bits),
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
-                    object_type="contacts",
-                ),
+        contact_identity = {}
+        if name:
+            contact_identity["name"] = name
+        if email:
+            contact_identity["emails"] = [{"value": email, "primary": True, "label": "work"}]
+        if phone:
+            contact_identity["phones"] = [{"value": phone, "primary": True, "label": "work"}]
+
+        contact_props = contact_properties_from_extraction(
+            extraction,
+            allowed_fields=allowed_contact_fields,
+            identity_props=contact_identity if not contact_match else None,
+        )
+        if contact_match and not contact_props and (name or email or phone):
+            if name and not current_contact.get("name"):
+                contact_props["name"] = name
+            if email and not primary_email(current_contact):
+                contact_props["emails"] = [{"value": email, "primary": True, "label": "work"}]
+            if phone and not primary_phone(current_contact):
+                contact_props["phones"] = [{"value": phone, "primary": True, "label": "work"}]
+
+        _, contact_spec_map, contact_labels = await self._specs(allowed_contact_fields, "contacts")
+        if contact_props:
+            self._append_object_updates(
+                proposed_updates,
+                extraction=extraction,
+                props=contact_props,
+                current=current_contact,
+                spec_map=contact_spec_map,
+                labels=contact_labels,
+                object_type="contacts",
+                include_unchanged=include_unchanged,
             )
 
-        contact_specs = {s["name"]: s for s in await self._specs(allowed_contact_fields, "contacts")}
-        company_specs = {s["name"]: s for s in await self._specs(allowed_company_fields, "companies")}
-        current_contact: dict[str, Any] = {}
-        if contact_match is not None:
-            try:
-                current_contact = flatten_record(await self.search.get_person(contact_match.contact_id))
-            except Exception:
-                current_contact = {}
-        self._append_object_updates(
-            proposed_updates,
+        company_identity = {"name": extraction.companyName} if extraction.companyName else {}
+        company_props = company_properties_from_extraction(
             extraction,
-            contact_write_props(extraction, allowed_contact_fields),
-            contact_specs,
-            current_contact,
-            object_type="contacts",
-            has_existing=contact_match is not None,
-            include_unchanged=include_unchanged,
+            allowed_fields=allowed_company_fields,
+            identity_props=company_identity if not current_company.get("name") else None,
         )
-
-        has_existing_company = bool(contact_match and contact_match.company_id)
-        current_company: dict[str, Any] = {}
-        if has_existing_company and contact_match is not None and contact_match.company_id:
-            try:
-                current_company = flatten_record(await self.search.get_organization(contact_match.company_id))
-            except Exception:
-                current_company = {}
-        self._append_object_updates(
-            proposed_updates,
-            extraction,
-            company_write_props(extraction, allowed_company_fields),
-            company_specs,
-            current_company,
-            object_type="companies",
-            has_existing=has_existing_company,
-            include_unchanged=include_unchanged,
-        )
+        _, company_spec_map, company_labels = await self._specs(allowed_company_fields, "companies")
+        if company_props:
+            self._append_object_updates(
+                proposed_updates,
+                extraction=extraction,
+                props=company_props,
+                current=current_company,
+                spec_map=company_spec_map,
+                labels=company_labels,
+                object_type="companies",
+                include_unchanged=include_unchanged,
+            )
 
         for i, step in enumerate(extraction.nextSteps or []):
             if not str(step).strip():
@@ -285,39 +296,37 @@ class PipedrivePreviewService:
                     field_label="Next step",
                     current_value=None,
                     new_value=str(step).strip(),
-                    extraction_confidence=extraction.confidence.get("fields", {}).get("nextSteps", 0.8),
+                    extraction_confidence=field_extraction_confidence(extraction, "nextSteps"),
                     object_type="task",
                 )
             )
 
-        # Same objects as HubSpot preview: deals + people, or people only when the
-        # page is a person. Organizations join when that person has an org, or when
-        # the extraction names one. hs_lead_status is HubSpot-only and is not added.
         proposed_keys = {
-            f"{u.object_type or 'deals'}:{u.field_name}"
+            (u.object_type or "deals", u.field_name)
             for u in proposed_updates
-            if not str(u.field_name).startswith("next_step_task_")
-        }
-        include_companies = has_existing_company or bool((extraction.companyName or "").strip())
-        object_field_sources: list[tuple[str, list[str]]] = (
-            [("contacts", list(allowed_contact_fields))]
-            if skip_deal
-            else [("deals", list(allowed_fields)), ("contacts", list(allowed_contact_fields))]
-        )
-        if include_companies:
-            object_field_sources.append(("companies", list(allowed_company_fields)))
-        spec_maps = {
-            "deals": {s["name"]: s for s in await self._specs(allowed_fields, "deals")} if not skip_deal else {},
-            "contacts": contact_specs,
-            "companies": company_specs,
+            if u.field_name and u.object_type in {"deals", "contacts", "companies"}
         }
         available_fields_list: list[AvailableField] = []
-        for object_type, names in object_field_sources:
-            specs_map = spec_maps.get(object_type, {})
+
+        async def _available_for(names: list[str], object_type: str) -> None:
+            if not names:
+                return
+            specs, specs_map, _ = await self._specs(names, object_type)
+            current_flat: dict[str, Any] = {}
+            if object_type == "deals" and selected_deal_id:
+                try:
+                    current_flat = flatten_record(await self.search.get_deal(selected_deal_id))
+                except Exception:
+                    current_flat = {}
+            elif object_type == "contacts" and current_contact:
+                current_flat = flatten_record(current_contact)
+            elif object_type == "companies" and current_company:
+                current_flat = flatten_record(current_company)
             for name_f in names:
-                if f"{object_type}:{name_f}" in proposed_keys:
+                if (object_type, name_f) in proposed_keys:
                     continue
                 spec = specs_map.get(name_f, {})
+                cur = current_flat.get(name_f)
                 available_fields_list.append(
                     AvailableField(
                         name=name_f,
@@ -325,14 +334,20 @@ class PipedrivePreviewService:
                         type=spec.get("type", "string"),
                         options=spec.get("options"),
                         object_type=object_type,
+                        current_value=_display_prop(name_f, cur, spec) or None,
                     )
                 )
+
+        if not skip_deal:
+            await _available_for(allowed_fields, "deals")
+        await _available_for(allowed_contact_fields, "contacts")
+        await _available_for(allowed_company_fields, "companies")
 
         new_contact = None
         new_company = None
         if not contact_match and (name or email or phone):
             new_contact = {"name": name, "email": email, "phone": phone}
-        if extraction.companyName:
+        if extraction.companyName and not current_company.get("name"):
             new_company = {"name": extraction.companyName}
 
         return ApprovalPreview(

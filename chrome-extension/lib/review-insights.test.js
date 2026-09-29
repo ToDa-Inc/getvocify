@@ -14,6 +14,7 @@ import {
   addFieldOptionLabel,
   shouldShowCrmFieldsSection,
   crmFieldTone,
+  isUncertainExtractionConfidence,
   withLeadStatusOption,
 } from './review-insights.js';
 
@@ -190,6 +191,17 @@ describe('crm field rows', () => {
         current_value: 'Sales Director',
       }),
       'override',
+    );
+    assert.equal(isUncertainExtractionConfidence(0.65), true);
+    assert.equal(isUncertainExtractionConfidence(0.92), false);
+    assert.equal(
+      crmFieldTone({
+        field_name: 'preu_per_alumne',
+        new_value: '35',
+        current_value: '(empty)',
+        extraction_confidence: 0.65,
+      }),
+      'uncertain',
     );
     assert.equal(
       crmFieldTone({

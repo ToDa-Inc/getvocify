@@ -30,6 +30,7 @@ import {
   proposedFieldKey,
 } from "@/lib/extraction-omit";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { isUncertainExtractionConfidence } from "@/shared/lib/constants";
 import { CopilotNote } from "@/components/dashboard/CopilotNote";
 import {
   clearCachedPreview,
@@ -1182,6 +1183,7 @@ export const HubSpotSyncPreview = ({
                 String(update.current_value).trim() !== "" &&
                 String(update.current_value).trim() !== "(empty)";
               const isOverride = !!hadExisting && !alreadyApplied;
+              const isUncertain = isUncertainExtractionConfidence(update.extraction_confidence);
               const canEditRow = canEditOrRemoveProposedField(update);
               const isEditing = editingIdx === idx;
               const entryPos = sortedUpdateEntries.findIndex((e) => e.idx === idx);
@@ -1211,7 +1213,9 @@ export const HubSpotSyncPreview = ({
                   )}
                   <div
                     className={`group relative rounded-2xl p-4 transition-all flex items-start justify-between gap-4 border ${
-                      isOverride
+                      isUncertain
+                        ? "bg-warning/[0.04] border-warning/30 hover:border-warning/45"
+                        : isOverride
                         ? "bg-destructive/[0.03] border-destructive/25 hover:border-destructive/40"
                         : "bg-card border-border/50 hover:border-beige/40 shadow-xs"
                     }`}
@@ -1222,6 +1226,10 @@ export const HubSpotSyncPreview = ({
                         {alreadyApplied ? (
                           <span className="bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
                             Written
+                          </span>
+                        ) : isUncertain ? (
+                          <span className="bg-warning/10 text-warning text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                            Not sure
                           </span>
                         ) : isOverride ? (
                           <span className="bg-destructive/10 text-destructive text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
@@ -1276,7 +1284,13 @@ export const HubSpotSyncPreview = ({
                         </div>
                       ) : (
                         <p
-                          className="text-sm font-normal leading-relaxed text-[#067647]"
+                          className={`text-sm font-normal leading-relaxed ${
+                            isUncertain
+                              ? "text-warning"
+                              : isOverride
+                              ? "text-destructive"
+                              : "text-[#067647]"
+                          }`}
                         >
                           {isCrmDateField(update)
                             ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"

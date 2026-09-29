@@ -146,9 +146,19 @@ export function crmFieldWasLabel(update) {
   return norm(current);
 }
 
+export const EXTRACTION_CONFIDENCE_HIGH = 0.9;
+export const EXTRACTION_CONFIDENCE_LOW = 0.5;
+
+export function isUncertainExtractionConfidence(confidence) {
+  const value = Number(confidence);
+  if (!Number.isFinite(value)) return false;
+  return value >= EXTRACTION_CONFIDENCE_LOW && value < EXTRACTION_CONFIDENCE_HIGH;
+}
+
 export function crmFieldTone(update) {
   if (update?.already_applied) return 'written';
   if (isLeadStatusField(update)) return leadStatusWillWrite(update) ? 'status' : 'quiet';
+  if (isUncertainExtractionConfidence(update?.extraction_confidence)) return 'uncertain';
   return crmFieldWasLabel(update) ? 'override' : 'new';
 }
 

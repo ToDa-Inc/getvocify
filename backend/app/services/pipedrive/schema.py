@@ -30,120 +30,6 @@ def is_custom_field_code(key: str) -> bool:
     return bool(_CUSTOM_FIELD_CODE.fullmatch(key))
 
 
-# Pipedrive field_type → the types the shared extractor and Jev already understand.
-# Option meanings stay whatever Pipedrive stored as the option label.
-_ENUM_FIELD_TYPES = frozenset({"enum", "set"})
-_NUMBER_FIELD_TYPES = frozenset({"double", "int", "monetary"})
-_DATE_FIELD_TYPES = frozenset({"date", "daterange"})
-_BOOL_FIELD_TYPES = frozenset({"bool"})
-
-
-def extraction_field_type(field_type: Optional[str]) -> str:
-    kind = str(field_type or "").strip().lower()
-    if kind in _ENUM_FIELD_TYPES:
-        return "enumeration"
-    if kind in _NUMBER_FIELD_TYPES:
-        return "number"
-    if kind in _DATE_FIELD_TYPES:
-        return "date"
-    if kind in _BOOL_FIELD_TYPES:
-        return "bool"
-    return "string"
-
-
-def curated_spec_from_field(field: Optional[dict[str, Any]], *, name: str, object_type: str) -> dict[str, Any]:
-    """Spec the extractor and Jev read. Labels and descriptions come only from the field payload."""
-    field = field or {}
-    spec: dict[str, Any] = {
-        "name": name,
-        "label": field_label(field) if field else name,
-        "type": extraction_field_type(field.get("field_type")),
-        "description": str(field.get("description") or "").strip(),
-        "object_type": object_type,
-    }
-    opts = field.get("options") or []
-    parsed = []
-    for option in opts:
-        if not isinstance(option, dict):
-            continue
-        value = option.get("id") if option.get("id") is not None else option.get("label")
-        if value is None or value == "":
-            continue
-        parsed.append({"value": str(value), "label": option.get("label") or str(value)})
-    if parsed:
-        spec["options"] = parsed
-    return spec
-
-
-def flatten_record(record: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """v2 GET nests hashes under `custom_fields`. Field specs use the hash as the key."""
-    flat = dict(record or {})
-    custom = flat.get("custom_fields")
-    if isinstance(custom, dict):
-        for key, value in custom.items():
-            flat.setdefault(key, value)
-    return flat
-
-
-def contact_write_props(extraction: MemoExtraction, allowed_fields: Optional[list[str]]) -> dict[str, Any]:
-    """Allowlisted person fields. `name` stays on the create/identity row, not the field patch."""
-    from app.services.hubspot.contact_identity import real_contact_email_or_none
-    from app.services.hubspot.object_properties import contact_properties_from_extraction
-
-    identity: dict[str, Any] = {}
-    email = real_contact_email_or_none(extraction.contactEmail)
-    phone = (extraction.contactPhone or "").strip() or None
-    if email:
-        identity["emails"] = [{"value": email, "primary": True, "label": "work"}]
-    if phone:
-        identity["phones"] = [{"value": phone, "primary": True, "label": "work"}]
-    props = contact_properties_from_extraction(extraction, allowed_fields, identity)
-    props.pop("name", None)
-    return props
-
-
-def company_write_props(extraction: MemoExtraction, allowed_fields: Optional[list[str]]) -> dict[str, Any]:
-    """Allowlisted organization fields. `name` stays on the create/identity row."""
-    from app.services.hubspot.object_properties import company_properties_from_extraction
-
-    identity: dict[str, Any] = {}
-    if (extraction.companyName or "").strip():
-        identity["name"] = extraction.companyName.strip()
-    props = company_properties_from_extraction(extraction, allowed_fields, identity)
-    props.pop("name", None)
-    return props
-
-
-def props_changed_from_record(props: dict[str, Any], current: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Drop values that already match the live person or organization."""
-    from .search import primary_email, primary_phone
-
-    flat = flatten_record(current)
-    changed: dict[str, Any] = {}
-    for key, value in props.items():
-        if key == "emails":
-            new_email = primary_email({"emails": value}) if isinstance(value, list) else str(value or "")
-            if new_email and new_email.lower() == primary_email(flat).lower():
-                continue
-        elif key == "phones":
-            new_phone = primary_phone({"phones": value}) if isinstance(value, list) else (str(value) if value else None)
-            current_phone = primary_phone(flat)
-            if new_phone and current_phone and new_phone == current_phone:
-                continue
-        elif _same_display(flat.get(key), value):
-            continue
-        changed[key] = value
-    return changed
-
-
-def _same_display(current: Any, proposed: Any) -> bool:
-    if proposed is None or proposed == "":
-        return True
-    if current is None or current == "":
-        return False
-    return str(current).strip() == str(proposed).strip()
-
-
 def expand_schema_fields(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Promote `value.subfields.currency` — official monetary sibling; live vocify2 has field_code=currency."""
     seen = {k for f in fields if (k := field_key(f))}
@@ -267,7 +153,11 @@ class PipedriveSchemaService:
         by_key = {k: f for f in fields if (k := field_key(f))}
         out: list[dict[str, Any]] = []
         for name in field_names:
-            out.append(curated_spec_from_field(by_key.get(name), name=name, object_type=object_type))
+            f = by_key.get(name)
+            if not f:
+                out.append({"name": name, "label": name, "type": "string", "object_type": object_type})
+                continue
+            out.append(curated_spec_from_field(f, object_type))
         return out
 
     async def resolve_stage_id(
@@ -376,3 +266,102 @@ class PipedriveSchemaService:
             ).execute()
         except Exception:
             pass
+
+
+def flatten_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Unpack v2 custom_fields onto the top level for reads."""
+    out = dict(record)
+    custom = out.pop("custom_fields", None)
+    if isinstance(custom, dict):
+        out.update(custom)
+    return out
+
+
+def extraction_field_type(field_type: Optional[str]) -> str:
+    raw = str(field_type or "string").lower()
+    if raw in {"enum", "set", "status"}:
+        return "enumeration"
+    if raw in {"double", "int", "monetary"}:
+        return "number"
+    if raw in {"date", "daterange"}:
+        return "date"
+    return "string"
+
+
+def curated_spec_from_field(field: dict[str, Any], object_type: str) -> dict[str, Any]:
+    name = field_key(field) or ""
+    spec: dict[str, Any] = {
+        "name": name,
+        "label": field_label(field),
+        "type": extraction_field_type(field.get("field_type")),
+        "description": str(field.get("description") or ""),
+        "object_type": object_type,
+    }
+    opts = field.get("options") or []
+    if opts:
+        spec["options"] = [
+            {
+                "value": str(o.get("id") if o.get("id") is not None else o.get("label") or ""),
+                "label": o.get("label") or str(o.get("id") or ""),
+            }
+            for o in opts
+            if isinstance(o, dict)
+        ]
+    return spec
+
+
+def contact_write_props(props: dict[str, Any], allowed: Optional[list[str]] = None) -> dict[str, Any]:
+    """Person PATCH body without overwriting identity name when already set."""
+    allow = set(allowed) if allowed is not None else None
+    out: dict[str, Any] = {}
+    for key, value in props.items():
+        if key == "name":
+            continue
+        if allow is not None and key not in allow:
+            continue
+        if value is None or value == "":
+            continue
+        out[key] = value
+    return out
+
+
+def company_write_props(props: dict[str, Any], allowed: Optional[list[str]] = None) -> dict[str, Any]:
+    allow = set(allowed) if allowed is not None else None
+    out: dict[str, Any] = {}
+    for key, value in props.items():
+        if key == "name":
+            continue
+        if allow is not None and key not in allow:
+            continue
+        if value is None or value == "":
+            continue
+        out[key] = value
+    return out
+
+
+def _same_display(left: Any, right: Any) -> bool:
+    if left is None and right is None:
+        return True
+    if isinstance(left, list) or isinstance(right, list):
+        return str(left) == str(right)
+    return str(left).strip() == str(right).strip()
+
+
+def props_changed_from_record(
+    props: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    include_unchanged: bool = False,
+) -> dict[str, Any]:
+    flat = flatten_record(current)
+    out: dict[str, Any] = {}
+    for key, value in props.items():
+        if value is None or value == "":
+            continue
+        cur = flat.get(key)
+        if _same_display(cur, value):
+            if include_unchanged:
+                out[key] = value
+            continue
+        out[key] = value
+    return out
