@@ -73,7 +73,10 @@ const DashboardLayout = () => {
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
-    playbookTabEnabled: Boolean(user?.company?.features?.includes("PLAYBOOK_TAB_ENABLED")),
+    // Playbooks v2: the rep reads their process on the Playbook tab, so it shows with either flag.
+    playbookTabEnabled: Boolean(
+      user?.company?.features?.includes("PLAYBOOK_TAB_ENABLED") || user?.company?.features?.includes("PLAYBOOK_V2_ENABLED"),
+    ),
   });
 
   useEffect(() => {

@@ -40,7 +40,9 @@ export default function SalesProcessPage() {
         </div>
       ) : null}
       <section aria-labelledby="hos-process-define" className="space-y-4" id="playbooks">
-        <h2 id="hos-process-define" className={THEME_TOKENS.typography.sectionTitle}>{p.hosProcessDefineHeading}</h2>
+        <h2 id="hos-process-define" className={THEME_TOKENS.typography.sectionTitle}>
+          {user?.company?.features?.includes("PLAYBOOK_V2_ENABLED") ? p.pb2.sectionTitle : p.hosProcessDefineHeading}
+        </h2>
         <PlaybooksSection />
       </section>
     </main>

@@ -371,7 +371,7 @@ Todas las rutas bajo `/api/v1`. Errores de validación: `422 {detail: {code, ind
 - Fallos de lectura: `422 {detail:{code: "pdf_encrypted"|"pdf_has_no_text"|"audio_has_no_speech"|"stt_unavailable"|"unsupported_source"|"empty_source"}}`.
 - No crea versión. Guarda la fuente en `playbook_imports` (`kind`, `draft.text`, `draft.name`).
 
-**`GET /playbooks/{key}/editor`** — añade: `updated_at: string|null` (del borrador/versión devuelta), `has_live: bool`, `source: {id, kind, name}|null`.
+**`GET /playbooks/{key}/editor`** — añade: `updated_at: string|null` (del borrador/versión devuelta), `has_live: bool`, `source_doc: {id, kind, name}|null` (`source` ya es el estado `"draft"|"published"|"empty"`).
 
 **`PUT /playbooks/{key}/draft`** — body añade `base_updated_at?: string|null` y `source_id?: string|null`.
 - Si existe un borrador más nuevo que la versión activa → se **actualiza esa fila** (mismo `version_id`); si no, se inserta uno.
@@ -396,6 +396,8 @@ Migración `066_playbook_draft_autosave.sql`: `playbook_versions.updated_at TIME
 **`GET /playbooks/deal-stages`** → `{stages: [{id, label}]}` de la CRM conectada; `[]` si no hay.
 
 **`POST /memos/{memo_id}/playbook`** — body `{sales_motion_key}` (autor o manager). Vuelve a fijar la versión activa de ese tipo, vuelve a correr C04 y scoring → `{sales_motion_key, playbook_version_id, status: "requeued"}`. `409 {code:"not_published"}` si el tipo no tiene versión activa.
+
+**`GET /memos/{memo_id}/playbook`** → `{sales_motion_key: string|null, playbook_version_id: string|null, can_change: bool, options: [{key, label: string|null}]}` (`options` = tipos con versión activa; `can_change` = flag de enrutado y autor u owner/admin).
 
 Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.applies_to JSONB NULL`.
 

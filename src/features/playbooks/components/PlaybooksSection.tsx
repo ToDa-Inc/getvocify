@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth";
 import { PlaybookEditor } from "@/features/playbooks/components/PlaybookEditor";
+import { PlaybookList } from "@/features/playbooks/components/PlaybookList";
 import { PlaybookSetupNotice } from "@/features/playbooks/components/PlaybookSetupNotice";
 import {
   applyFetchedMotions,
@@ -26,7 +27,14 @@ function roleOf(value: string | null | undefined): PlaybookRole {
   return "member";
 }
 
+/** Playbooks v2 (PLAYBOOK_V2_ENABLED): the list of call types as documents. Off: the editor below. */
 export default function PlaybooksSection() {
+  const { user } = useAuth();
+  if (user?.company?.features?.includes("PLAYBOOK_V2_ENABLED")) return <PlaybookList />;
+  return <LegacyPlaybooksSection />;
+}
+
+function LegacyPlaybooksSection() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const role = roleOf(user?.company?.role);
