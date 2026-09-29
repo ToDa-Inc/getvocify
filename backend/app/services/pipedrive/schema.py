@@ -30,6 +30,51 @@ def is_custom_field_code(key: str) -> bool:
     return bool(_CUSTOM_FIELD_CODE.fullmatch(key))
 
 
+# Pipedrive field_type → the types the shared extractor and Jev already understand.
+# Option meanings stay whatever Pipedrive stored as the option label.
+_ENUM_FIELD_TYPES = frozenset({"enum", "set"})
+_NUMBER_FIELD_TYPES = frozenset({"double", "int", "monetary"})
+_DATE_FIELD_TYPES = frozenset({"date", "daterange"})
+_BOOL_FIELD_TYPES = frozenset({"bool"})
+
+
+def extraction_field_type(field_type: Optional[str]) -> str:
+    kind = str(field_type or "").strip().lower()
+    if kind in _ENUM_FIELD_TYPES:
+        return "enumeration"
+    if kind in _NUMBER_FIELD_TYPES:
+        return "number"
+    if kind in _DATE_FIELD_TYPES:
+        return "date"
+    if kind in _BOOL_FIELD_TYPES:
+        return "bool"
+    return "string"
+
+
+def curated_spec_from_field(field: Optional[dict[str, Any]], *, name: str, object_type: str) -> dict[str, Any]:
+    """Spec the extractor and Jev read. Labels and descriptions come only from the field payload."""
+    field = field or {}
+    spec: dict[str, Any] = {
+        "name": name,
+        "label": field_label(field) if field else name,
+        "type": extraction_field_type(field.get("field_type")),
+        "description": str(field.get("description") or "").strip(),
+        "object_type": object_type,
+    }
+    opts = field.get("options") or []
+    parsed = []
+    for option in opts:
+        if not isinstance(option, dict):
+            continue
+        value = option.get("id") if option.get("id") is not None else option.get("label")
+        if value is None or value == "":
+            continue
+        parsed.append({"value": str(value), "label": option.get("label") or str(value)})
+    if parsed:
+        spec["options"] = parsed
+    return spec
+
+
 def flatten_record(record: Optional[dict[str, Any]]) -> dict[str, Any]:
     """v2 GET nests hashes under `custom_fields`. Field specs use the hash as the key."""
     flat = dict(record or {})
@@ -222,24 +267,7 @@ class PipedriveSchemaService:
         by_key = {k: f for f in fields if (k := field_key(f))}
         out: list[dict[str, Any]] = []
         for name in field_names:
-            f = by_key.get(name)
-            if not f:
-                out.append({"name": name, "label": name, "type": "string"})
-                continue
-            spec: dict[str, Any] = {
-                "name": name,
-                "label": field_label(f),
-                "type": f.get("field_type") or "string",
-                "description": "",
-            }
-            opts = f.get("options") or []
-            if opts:
-                spec["options"] = [
-                    {"value": str(o.get("id") if o.get("id") is not None else o.get("label") or ""), "label": o.get("label") or str(o.get("id") or "")}
-                    for o in opts
-                    if isinstance(o, dict)
-                ]
-            out.append(spec)
+            out.append(curated_spec_from_field(by_key.get(name), name=name, object_type=object_type))
         return out
 
     async def resolve_stage_id(

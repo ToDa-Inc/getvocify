@@ -1,7 +1,9 @@
 from app.api.crm_pipedrive import _fields_to_properties
 from app.services.pipedrive.schema import (
     PipedriveSchemaService,
+    curated_spec_from_field,
     expand_schema_fields,
+    extraction_field_type,
     field_key,
     field_label,
     is_custom_field_code,
@@ -62,6 +64,28 @@ def test_live_enum_options_id_label():
     prop = _fields_to_properties([raw])[0]
     assert prop.name == "5f65fa0c38e46e47a59a4721d5b51f21d89fb679"
     assert [(o.value, o.label) for o in prop.options] == [("39", "Hubspot"), ("41", "Pipedrive")]
+
+
+def test_curated_spec_uses_pipedrive_type_label_and_object():
+    spec = curated_spec_from_field(
+        {
+            "field_code": "abc",
+            "field_name": "Stage",
+            "field_type": "set",
+            "description": "Which stage they teach",
+            "options": [{"id": 1, "label": "PE"}],
+        },
+        name="abc",
+        object_type="companies",
+    )
+    assert spec["object_type"] == "companies"
+    assert spec["type"] == "enumeration"
+    assert spec["label"] == "Stage"
+    assert spec["description"] == "Which stage they teach"
+    assert spec["options"] == [{"value": "1", "label": "PE"}]
+    assert extraction_field_type("double") == "number"
+    assert extraction_field_type("enum") == "enumeration"
+    assert curated_spec_from_field(None, name="missing", object_type="contacts")["description"] == ""
 
 
 def test_split_write_uses_official_hash_rule():
