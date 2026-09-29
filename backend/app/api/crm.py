@@ -35,6 +35,7 @@ from app.services.hubspot import (
 )
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
+from app.services.crm_field_permissions import edits_company_fields
 from app.services.preview_targets import unique_associated_contact_id
 from app.services.hubspot.contact_identity import (
     CONTACT_CONTEXT_PROPERTIES,
@@ -1165,7 +1166,9 @@ async def get_hubspot_configuration(
     Returns configuration if exists, 404 if not configured yet.
     """
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id, provider="hubspot")
+    config = await config_service.get_configuration(
+        user_id, provider="hubspot", company_fields_only=edits_company_fields(supabase, user_id)
+    )
 
     if not config:
         raise HTTPException(

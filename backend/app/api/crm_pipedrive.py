@@ -20,6 +20,7 @@ from app.models.hubspot import TestConnectionResponse
 from app.models.pipedrive_crm import PipedriveConnectionOut
 from app.services.company_scope import require_company_id, require_crm_connection, require_crm_write_access
 from app.services.crm_config import CRMConfigurationService
+from app.services.crm_field_permissions import edits_company_fields
 from app.services.hubspot.types import CRMSchema, HubSpotPipeline, HubSpotPipelineStage, HubSpotProperty, PropertyOption
 from app.services.pipedrive.client import PipedriveClient
 from app.services.pipedrive.oauth import (
@@ -377,7 +378,9 @@ async def get_pipedrive_configuration(
     user_id: str = Depends(get_user_id),
 ):
     svc = CRMConfigurationService(supabase)
-    config = await svc.get_configuration(user_id, provider="pipedrive")
+    config = await svc.get_configuration(
+        user_id, provider="pipedrive", company_fields_only=edits_company_fields(supabase, user_id)
+    )
     if not config:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM not configured.")
     return config

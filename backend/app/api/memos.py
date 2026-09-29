@@ -1448,7 +1448,9 @@ async def get_approval_preview(
         )
 
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id, connection_id=str(conn["id"]))
+    config = await config_service.get_configuration(
+        user_id, connection_id=str(conn["id"]), fields_for=str(memo_data.get("user_id") or user_id)
+    )
     if conn.get("provider") == "salesforce":
         default_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
     else:
@@ -1628,7 +1630,9 @@ async def post_approval_preview(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM connection not found")
 
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id, connection_id=str(conn["id"]))
+    config = await config_service.get_configuration(
+        user_id, connection_id=str(conn["id"]), fields_for=str(memo_data.get("user_id") or user_id)
+    )
     if conn.get("provider") == "salesforce":
         default_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
     else:

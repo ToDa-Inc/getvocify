@@ -19,6 +19,7 @@ from app.models.crm_config import CRMConfigurationRequest, CRMConfigurationRespo
 from app.models.salesforce_crm import SalesforceConnectionOut
 from app.models.hubspot import TestConnectionResponse
 from app.services.crm_config import CRMConfigurationService
+from app.services.crm_field_permissions import edits_company_fields
 from app.services.hubspot.types import CRMSchema, HubSpotProperty, PropertyOption
 from app.services.salesforce.client import SalesforceClient
 from app.services.salesforce.oauth import (
@@ -297,7 +298,9 @@ async def get_salesforce_configuration(
     user_id: str = Depends(get_user_id),
 ):
     svc = CRMConfigurationService(supabase)
-    config = await svc.get_configuration(user_id, provider="salesforce")
+    config = await svc.get_configuration(
+        user_id, provider="salesforce", company_fields_only=edits_company_fields(supabase, user_id)
+    )
     if not config:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM not configured.")
     return config

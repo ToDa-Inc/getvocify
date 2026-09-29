@@ -177,8 +177,12 @@ async def approve_memo_core(
         is_new_deal = bool(memo_data.get("is_new_deal", False) if not deal_id else False)
 
     config_service = CRMConfigurationService(supabase)
+    # The memo's author's fields (their own, else their role's): a Head of Sales approving
+    # an SDR's call writes what an SDR may write, not the company list.
     config = await config_service.get_configuration(
-        user_id, connection_id=str(crm_connection["id"])
+        user_id,
+        connection_id=str(crm_connection["id"]),
+        fields_for=str(memo_data.get("user_id") or user_id),
     )
     allowed_fields = (
         config.allowed_deal_fields if config

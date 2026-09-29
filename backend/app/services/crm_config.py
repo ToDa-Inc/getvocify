@@ -40,6 +40,9 @@ class CRMConfigurationService:
         user_id: str,
         connection_id: Optional[str] = None,
         provider: Optional[str] = None,
+        *,
+        fields_for: Optional[str] = None,
+        company_fields_only: bool = False,
     ) -> Optional[CRMConfigurationResponse]:
         """
         Get user's CRM configuration for a connection.
@@ -47,6 +50,12 @@ class CRMConfigurationService:
         Resolution when connection_id is omitted:
         - If provider is set (e.g. \"hubspot\"): first connected row for that provider.
         - Else: primary/single connection via resolve_sync_connection (memo pipeline).
+
+        The allowed_*_fields lists are the ones that apply to `fields_for` (default: user_id):
+        that person's own lists, else their sales role's, else the company's
+        (crm_field_permissions, migration 065). Everything else is company-wide.
+        `company_fields_only` returns the company's lists untouched - the Head of Sales'
+        editor reads and saves those.
         """
         if not connection_id:
             if provider:
@@ -96,8 +105,17 @@ class CRMConfigurationService:
             raise
         
         config_data = result.data
-        
-        return CRMConfigurationResponse(
+        field_overrides: dict = {}
+        if not company_fields_only:
+            from app.services.crm_field_permissions import field_overrides_for
+
+            field_overrides = field_overrides_for(
+                self.supabase,
+                connection_id=str(config_data["connection_id"]),
+                user_id=str(fields_for or user_id),
+            )
+
+        response = CRMConfigurationResponse(
             id=UUID(config_data["id"]),
             connection_id=UUID(config_data["connection_id"]),
             default_pipeline_id=config_data.get("default_pipeline_id") or "",
@@ -123,6 +141,9 @@ class CRMConfigurationService:
             created_at=config_data.get("created_at") or "",
             updated_at=config_data.get("updated_at") or "",
         )
+        # An override replaces the company list as is - an empty list means "none", it does
+        # not fall back to the defaults the way an empty company list does above.
+        return response.model_copy(update=field_overrides) if field_overrides else response
     
     async def save_configuration(
         self,

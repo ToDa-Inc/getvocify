@@ -72,6 +72,51 @@ export const crmKeys = {
   hubspotSetup: () => [...crmKeys.all, "hubspot", "setup"] as const,
   salesforceSetup: () => [...crmKeys.all, "salesforce", "setup"] as const,
   pipedriveSetup: () => [...crmKeys.all, "pipedrive", "setup"] as const,
+  fieldPermissions: () => [...crmKeys.all, "field-permissions"] as const,
+};
+
+export type FieldListKey =
+  | "allowed_deal_fields"
+  | "allowed_contact_fields"
+  | "allowed_company_fields"
+  | "allowed_line_item_fields";
+
+/** null = inherits (a person from their role, a role from the company). */
+export type FieldLists = Record<FieldListKey, string[] | null>;
+
+export type FieldPermissionRole = "sdr" | "ae" | "general";
+
+export interface FieldPermissionMember {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  sales_role: FieldPermissionRole | null;
+  fields: FieldLists | null;
+}
+
+export interface FieldPermissions {
+  sales_roles_enabled: boolean;
+  roles: Record<FieldPermissionRole, FieldLists | null>;
+  members: FieldPermissionMember[];
+}
+
+export const fieldPermissionsApi = {
+  get(): Promise<FieldPermissions> {
+    return api.get("/crm/field-permissions?provider=hubspot");
+  },
+  saveRole(role: FieldPermissionRole, fields: FieldLists) {
+    return api.put(`/crm/field-permissions/roles/${role}?provider=hubspot`, fields);
+  },
+  resetRole(role: FieldPermissionRole) {
+    return api.delete(`/crm/field-permissions/roles/${role}?provider=hubspot`);
+  },
+  saveMember(userId: string, fields: FieldLists) {
+    return api.put(`/crm/field-permissions/members/${userId}?provider=hubspot`, fields);
+  },
+  resetMember(userId: string) {
+    return api.delete(`/crm/field-permissions/members/${userId}?provider=hubspot`);
+  },
 };
 
 export const crmApi = {
