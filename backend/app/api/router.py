@@ -9,6 +9,7 @@ from app.api import (
     captures,
     followup,
     playbooks,
+    playbook_insights,
     ask,
     intelligence,
     contact_priorities,
@@ -52,6 +53,7 @@ api_router.include_router(after_call.router)
 api_router.include_router(followup.router)
 api_router.include_router(followup.listing)
 api_router.include_router(playbooks.router)
+api_router.include_router(playbook_insights.router)
 api_router.include_router(ask.router)
 api_router.include_router(intelligence.router)
 api_router.include_router(contact_priorities.router)
