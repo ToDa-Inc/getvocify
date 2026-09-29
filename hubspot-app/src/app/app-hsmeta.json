@@ -10,6 +10,7 @@
       "redirectUrls": [
         "https://api.getvocify.com/api/v1/crm/hubspot/callback",
         "https://getvocify-production.up.railway.app/api/v1/crm/hubspot/callback",
+        "https://getvocify-staging.up.railway.app/api/v1/crm/hubspot/callback",
         "http://localhost:8888/api/v1/crm/hubspot/callback"
       ],
       "requiredScopes": [
