@@ -54,6 +54,7 @@ api_router.include_router(followup.router)
 api_router.include_router(followup.listing)
 # Before playbooks.router: /catalog and /deal-stages must not be read as /{sales_motion_key}.
 api_router.include_router(playbook_rules.router)
+api_router.include_router(playbook_rules.memo_router)
 api_router.include_router(playbooks.router)
 api_router.include_router(ask.router)
 api_router.include_router(intelligence.router)
