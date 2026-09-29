@@ -322,7 +322,7 @@ def test_suggestions_come_from_the_accounts_data(monkeypatch):
 
     def fake_compute(supabase, **kwargs):
         seen.update(kwargs)
-        return ["open_loops", "objections"]
+        return ["next_actions", "objections"]
 
     monkeypatch.setattr(ask_api.suggestions, "compute", fake_compute)
     monkeypatch.setattr(ask_api, "_member_ids", lambda supabase, membership: ["user-a", "user-c"])
@@ -332,7 +332,7 @@ def test_suggestions_come_from_the_accounts_data(monkeypatch):
     app.dependency_overrides[get_membership] = lambda: Membership(id="m", company_id="co-1", user_id="user-a", role="admin", status="active")
     app.dependency_overrides[get_supabase] = lambda: FakeSupabase()
     body = TestClient(app).get("/api/v1/ask/suggestions").json()
-    assert body == {"suggestions": ["open_loops", "objections"]}
+    assert body == {"suggestions": ["next_actions", "objections"]}
     assert seen["role"] == "admin" and seen["has_crm"] is True and seen["member_ids"] == ["user-a", "user-c"]
 
 

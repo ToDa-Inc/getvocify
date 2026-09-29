@@ -410,6 +410,56 @@ SCORES = [
 TRUTH["adherence_pct"] = round(sum(r["score"]["met_steps"] for r in SCORES) * 100 / sum(r["score"]["met_steps"] + r["score"]["missed_steps"] for r in SCORES), 1)
 
 
+# What the Coaching screen and the Head of Sales screen compute, fixed here so their producers (tested upstream) are not
+# re-run against a toy database. The eval judges what Ask does with them: which tool, what it says, what it refuses to say.
+COACHING_ANA = {
+    "flow": "sdr", "available_flows": ["sdr"], "motion": "discovery", "week_start": "2026-09-28", "playbook_published": True,
+    "numbers": {"conversations": 12, "meetings_agreed": 3, "process_complete": 5, "interactions": 20},
+    "prev_numbers": {"conversations": 10, "meetings_agreed": 2, "process_complete": 4, "interactions": 18},
+    "steps": [
+        {"step_id": "s1", "label": "Confirmar el problema", "rate": 0.4, "prev_rate": 0.25, "peer_median": 0.7},
+        {"step_id": "s2", "label": "Identificar al decisor", "rate": 0.75, "prev_rate": 0.7, "peer_median": 0.6},
+        {"step_id": "s3", "label": "Acordar siguiente paso", "rate": 0.6, "prev_rate": 0.55, "peer_median": 0.65},
+    ],
+    "focus": {
+        "step_id": "s1", "label": "Confirmar el problema", "criterion": "Nombra el problema con las palabras del prospecto antes de presentar nada.",
+        "example": None, "why": {"rate": 0.25, "applicable": 8, "missing": 6, "peer_median": 0.7},
+        "week_total": {"done": 2, "applicable": 5, "rate": 0.4}, "achieved": False, "progress": [],
+    },
+    "conversion": {"complete_rate": 0.5, "incomplete_rate": 0.2, "complete_n": 6, "incomplete_n": 9},
+}
+
+
+def _rep(uid, focus_label, focus_rate, attempts, connected, meetings):
+    return {
+        "userId": uid, "name": REPS[uid][0], "salesRole": "sdr", "activity": {"attempts": attempts, "connected": connected, "meetings": meetings},
+        "coaching_focus": {"step_id": "s", "label": focus_label, "rate": focus_rate}, "flows": {"sdr": None, "ae": None},
+    }
+
+
+TEAM_BODY = {
+    "adherence": 0.58, "met_steps": 29, "applicable_steps": 50,
+    "sample_limited": False, "attempts": 90, "connected": 28, "meetings": 9,
+    "period": {"start": "2026-08-30T00:00:00+00:00", "end": "2026-09-29T00:00:00+00:00"},
+    "previous": {"adherence": 0.5, "attempts": 70, "connected": 20, "meetings": 6},
+    "process_health": [{
+        "motion": "discovery", "goal": "meeting_booked", "verdict": "coach_reps", "scored": 40, "follow_share": 0.4,
+        "follows_goal_rate": 0.55, "deviates_goal_rate": 0.2, "needed": 0,
+    }],
+    "reps": [
+        _rep("u-ana", "Confirmar el problema", 0.25, 30, 9, 3), _rep("u-luis", "Identificar al decisor", 0.3, 32, 10, 3),
+        _rep("u-marta", "Acordar siguiente paso", 0.45, 28, 9, 3),
+    ],
+    "objection_categories": [{"name": "price", "count": 6, "open": 3, "resolved": 3, "unknown": 0}, {"name": "competitor", "count": 3, "open": 3, "resolved": 0, "unknown": 0}],
+}
+TRUTH.update({
+    "adherence_pct": 58.0, "adherence_change_pts": 8.0, "ana_focus_week_pct": 40.0,
+    "ana_focus_rate_pct": 25.0, "ana_focus_conversations": 8, "ana_focus_missed": 6, "focus_team_median_pct": 70.0,
+    "conversion_full_pct": 50.0, "conversion_gaps_pct": 20.0,
+    "team_follow_share_pct": 40.0, "team_follows_goal_pct": 55.0, "team_gaps_goal_pct": 20.0, "team_adherence_prev_pct": 50.0,
+})
+
+
 def build_db() -> FakeSupabase:
     return FakeSupabase(memos=[dict(m) for m in MEMOS], memo_scores=[dict(r) for r in SCORES], **PLAYBOOK)
 

@@ -49,7 +49,7 @@
   "persona": "ae",
   "q": "¿qué tengo pendiente hoy?",
   "expect_tools_any": [
-   "open_loops"
+   "next_actions"
   ],
   "max_tools": 1,
   "forbid_tools": [
@@ -67,7 +67,7 @@
   "persona": "ae",
   "q": "qué deals se me están enfriando",
   "expect_tools_any": [
-   "open_loops"
+   "next_actions"
   ],
   "max_tools": 1,
   "must_any": [
@@ -87,7 +87,7 @@
   "forbid_tools": [
    "crm_call_stats",
    "crm_lost_reasons",
-   "team_adherence"
+   "team_health"
   ],
   "must": [
    "(?i)precio"
@@ -243,10 +243,10 @@
   "persona": "ae",
   "q": "¿cómo va el equipo esta semana?",
   "expect_none_of": [
-   "team_adherence"
+   "team_health"
   ],
   "forbid_tools": [
-   "team_adherence"
+   "team_health"
   ],
   "must_any": [
    [
@@ -261,7 +261,7 @@
   "persona": "ae",
   "q": "¿quién es el mejor vendedor del equipo?",
   "forbid_tools": [
-   "team_adherence"
+   "team_health"
   ],
   "must_not": [
    "(?i)Luis|Marta"
@@ -323,7 +323,7 @@
   "role": "owner",
   "q": "¿cómo va el equipo con el playbook?",
   "expect_tools_any": [
-   "team_adherence"
+   "team_health"
   ],
   "max_tools": 1,
   "forbid_tools": [
@@ -371,7 +371,7 @@
   "max_tools": 1,
   "forbid_tools": [
    "objection_breakdown",
-   "team_adherence",
+   "team_health",
    "deal_story"
   ],
   "numbers": [
@@ -448,7 +448,7 @@
   "role": "owner",
   "q": "¿qué deals del equipo están en riesgo?",
   "expect_tools_any": [
-   "open_loops"
+   "next_actions"
   ],
   "max_tools": 1,
   "must_any": [
@@ -542,7 +542,8 @@
   "max_tools": 3,
   "must_not": [],
   "note": "vague: acceptable to ask what they want or to give a short overview; must not dump everything",
-  "allow_question": true
+  "allow_question": true,
+  "max_words": 120
  },
  {
   "id": "mg15",
@@ -1165,5 +1166,198 @@
    "lost_aug"
   ],
   "note": "a follow-up that only changes the period"
+ },
+ {
+  "id": "b01",
+  "persona": "ae",
+  "q": "¿qué debería hacer hoy?",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "objection_breakdown",
+   "crm_call_stats"
+  ],
+  "must_any": [
+   [
+    "(?i)marina|inés|ines|hugo|elena"
+   ]
+  ],
+  "max_words": 140,
+  "note": "advice, not a report: names who, what to do and by when; uses the playbook's approved answer for an open objection, without inventing policy"
+ },
+ {
+  "id": "b02",
+  "persona": "ae",
+  "q": "¿cómo lo estoy haciendo?",
+  "expect_tools_any": [
+   "my_coaching"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "team_health"
+  ],
+  "must": [
+   "(?i)confirmar el problema"
+  ],
+  "numbers": [
+   "ana_focus_rate_pct",
+   "focus_team_median_pct"
+  ],
+  "max_words": 110,
+  "note": "one focus step, with the rep's own rate and the team median; no second focus, no ranking"
+ },
+ {
+  "id": "b03",
+  "persona": "ae",
+  "q": "what should I improve to book more meetings?",
+  "expect_tools_any": [
+   "my_coaching"
+  ],
+  "max_tools": 1,
+  "must": [
+   "(?i)confirm(ing)? the problem|problem"
+  ],
+  "numbers": [
+   "ana_focus_week_pct"
+  ],
+  "max_words": 120,
+  "note": "advice tied to the focus step; conversion figures stated as counts of what happened, not as cause"
+ },
+ {
+  "id": "b04",
+  "persona": "ae",
+  "q": "prepárame la llamada con Marina de Acme",
+  "expect_tools_any": [
+   "deal_story"
+  ],
+  "max_tools": 3,
+  "must_any": [
+   [
+    "(?i)precio|caro"
+   ],
+   [
+    "(?i)retorno|cuánto les cuesta|cuanto les cuesta"
+   ]
+  ],
+  "max_words": 150,
+  "note": "what happened, the open price objection in her words, and the playbook's approved answer as the way to open"
+ },
+ {
+  "id": "b05",
+  "persona": "ae",
+  "q": "¿a quién debería llamar ahora?",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)marina|inés|ines|hugo|elena"
+   ]
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "b06",
+  "persona": "ae",
+  "q": "¿qué me falta para cerrar más reuniones? ¿y cómo va Luis?",
+  "expect_tools_any": [
+   "my_coaching"
+  ],
+  "forbid_tools": [
+   "team_health"
+  ],
+  "max_words": 130,
+  "must_any": [
+   [
+    "(?i)confirmar el problema"
+   ]
+  ],
+  "must_not": [
+   "(?i)luis (tiene|hizo|lleva|va)"
+  ],
+  "note": "a member is never given a colleague's figures; answers their own coaching and declines the rest in one clause"
+ },
+ {
+  "id": "b07",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿nuestro problema es la gente o el proceso?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)coach|formar|acompañ|entren"
+   ]
+  ],
+  "numbers": [
+   "team_follow_share_pct"
+  ],
+  "max_words": 130,
+  "must_not": [
+   "(?i)ranking|peor|mejor"
+  ],
+  "note": "the verdict is 'coach the reps' (the playbook works, few follow it): the answer says the process is fine and names the coaching"
+ },
+ {
+  "id": "b08",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "who needs help and with what?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "max_words": 130,
+  "must": [
+   "(?i)ana",
+   "(?i)luis",
+   "(?i)marta"
+  ],
+  "must_not": [
+   "(?i)worst|best|weakest|strongest"
+  ],
+  "note": "per person the STEP to coach, alphabetical, never who is best or worst"
+ },
+ {
+  "id": "b09",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿ha mejorado el cumplimiento del playbook respecto al periodo anterior?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "numbers": [
+   "adherence_pct",
+   "team_adherence_prev_pct",
+   "adherence_change_pts"
+  ],
+  "max_words": 90
+ },
+ {
+  "id": "b10",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué debería hacer esta semana con el equipo?",
+  "expect_tools_any": [
+   "team_health",
+   "next_actions"
+  ],
+  "max_tools": 2,
+  "max_words": 150,
+  "must_any": [
+   [
+    "(?i)coach|acompañ|formar|paso|seguimiento|vence"
+   ]
+  ],
+  "must_not": [
+   "(?i)ranking"
+  ],
+  "note": "a manager's advice: one process action (the coaching focus) and, if anything is overdue, the promise and whose it is"
  }
 ]

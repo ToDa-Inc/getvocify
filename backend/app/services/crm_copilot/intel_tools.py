@@ -15,7 +15,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from app.services.activity_scope import author_display_name
-from app.services.crm_copilot import crm_analytics, crm_query
+from app.services.crm_copilot import brain_tools, crm_analytics, crm_query, tool_schema
 from app.services.crm_copilot.actor import AskActor, ScopeError, current_actor, visible_user_ids
 from app.services.hoy.materialize import day_end, fresh_signals
 from app.services.hoy.signals import rank_cards
@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 MAX_PERIOD_DAYS = 180
 DEFAULT_PERIOD_DAYS = 30
-LOOPS_LOOKBACK_DAYS = 60
 MEMO_COLUMNS = (
     "id,user_id,company_id,status,extraction,capture_started_at,created_at,"
     "interaction_kind,hubspot_contact_id,hubspot_deal_id,sales_motion_key,screening_outcome"
@@ -44,11 +43,7 @@ FORBIDDEN = {"ok": False, "error": "forbidden", "coverage": "forbidden"}
 UNAVAILABLE = {"ok": False, "error": "crm_unavailable", "coverage": "unavailable"}
 
 
-def _fn(name: str, description: str, properties: dict, required: Optional[list] = None) -> dict:
-    schema: dict[str, Any] = {"type": "object", "properties": properties}
-    if required:
-        schema["required"] = required
-    return {"type": "function", "function": {"name": name, "description": description, "parameters": schema}}
+_fn = tool_schema.fn
 
 
 _PERIOD = {"type": "integer", "description": "Days back, 1-180. Default 30."}
@@ -93,11 +88,6 @@ _MEMBER_TOOLS = [
         "objection_breakdown",
         "Counts of objections and, separately, obstacles raised in captured calls, by category, and how many stayed open. Not for call activity.",
         {"period_days": _PERIOD, "user_id": _USER, "by_rep": {"type": "boolean", "description": "Per-rep table (managers only)."}},
-    ),
-    _fn(
-        "open_loops",
-        "What needs action now: promises due, warm contacts silent 10+ days, objections still open. A rep sees their own; managers see the team by rep.",
-        {"user_id": _USER},
     ),
     _fn(
         "competitor_mentions",
@@ -170,13 +160,8 @@ _MEMBER_TOOLS = [
     ),
 ]
 
-_TEAM_TOOLS = [
-    _fn(
-        "team_adherence",
-        "Playbook adherence this week: percent, steps met of applicable, sample size. Nothing else.",
-        {"user_id": _USER, "motion": {"type": "string"}},
-    ),
-]
+_TEAM_TOOLS = list(brain_tools.TEAM_TOOLS)
+_MEMBER_TOOLS = _MEMBER_TOOLS[:1] + list(brain_tools.MEMBER_TOOLS) + _MEMBER_TOOLS[1:]
 
 INTEL_TOOL_NAMES = frozenset(t["function"]["name"] for t in _MEMBER_TOOLS + _TEAM_TOOLS)
 
@@ -312,15 +297,19 @@ def _episodes(memo: dict) -> list[dict]:
         if not isinstance(item, dict):
             continue
         kind = item.get("kind") if item.get("kind") in ("objection", "obstacle") else "objection"
+        reply = item.get("response")
+        # C04 stores the rep's reply as {"text": ...} with response_evidence_refs; older blocks held the string.
+        reply_text = str(reply.get("text") or "") if isinstance(reply, dict) else str(reply or "")
+        reply_refs = [r for r in (item.get("response_evidence_refs") or []) if r]
         out.append(
             {
                 "kind": kind,
                 "category": item.get("category") or "other",
                 "state": item.get("resolution") or item.get("state") or "unknown",
                 "quote": item.get("quote") or "",
-                "response": item.get("response") or "",
+                "response": reply_text,
                 "evidence_refs": [r for r in (item.get("evidence_refs") or []) if r],
-                "response_evidence": item.get("response_evidence"),
+                "response_evidence": item.get("response_evidence") or (reply_refs[0] if reply_refs else None),
             }
         )
     if not out:
@@ -452,6 +441,8 @@ async def _deal_story(args: dict, ctx, actor: AskActor) -> dict:
     signals = fresh_signals(memos, now=now, day_end=day_end(now, actor.timezone)) if memos else []
     loops, _ = _signal_items(signals, {str(m["id"]): m for m in memos}, reps, 5)
     analysed = sum(1 for m in memos if _intel(m))
+    approved = _approved_answers(ctx, actor, touches)
+    evidence.extend({"id": a["evidence"], "quote": a["answer"], "speaker": "playbook", "rep": a["motion"]} for a in approved)
     return _envelope(
         n=len(memos),
         n_analysed=analysed,
@@ -459,8 +450,18 @@ async def _deal_story(args: dict, ctx, actor: AskActor) -> dict:
         contact=next((n for n in (_contact_name(m) for m in memos) if n), None),
         touches=touches,
         open_loops=loops,
+        **({"approved_answers": [{k: v for k, v in a.items() if k != "motion"} for a in approved]} if approved else {}),
         evidence=evidence,
     )
+
+
+def _approved_answers(ctx, actor: AskActor, touches: list[dict]) -> list[dict]:
+    """The company's approved answer for each objection still open on this contact, so preparing a call needs no second lookup."""
+    open_categories = {o["category"] for t in touches[:1] for o in t["objections"] if o["state"] in ("open", "unknown")}
+    if not open_categories:
+        return []
+    answers, _ = brain_tools.published_answers(ctx, actor)
+    return [{"category": c, **answers[c]} for c in sorted(open_categories) if c in answers]
 
 
 async def _find_interactions(args: dict, ctx, actor: AskActor) -> dict:
@@ -543,23 +544,6 @@ def _open_obstacles(memos: list[dict], reps: dict) -> list[dict]:
     return out[:10]
 
 
-async def _open_loops(args: dict, ctx, actor: AskActor) -> dict:
-    user_ids = visible_user_ids(actor, _company(ctx, actor), args.get("user_id"))
-    now = datetime.now(timezone.utc)
-    memos = _load_memos(ctx, actor, user_ids, since=now - timedelta(days=LOOPS_LOOKBACK_DAYS), limit=200)
-    signals = fresh_signals(memos, now=now, day_end=day_end(now, actor.timezone)) if memos else []
-    reps = _rep_names(ctx, actor)
-    items, folded = _signal_items(signals, {str(m["id"]): m for m in memos}, reps, 15)
-    if reps:
-        items.sort(key=lambda i: (str(i.get("rep") or "").casefold()))
-    counts: dict[str, int] = {}
-    for s in signals:
-        counts[s.type] = counts.get(s.type, 0) + 1
-    obstacles = _open_obstacles(memos, reps)
-    analysed = sum(1 for m in memos if _intel(m))
-    return _envelope(n=len(memos), n_analysed=analysed, counts=counts, items=items, more=folded, obstacles=obstacles)
-
-
 async def _competitor_mentions(args: dict, ctx, actor: AskActor) -> dict:
     user_ids = visible_user_ids(actor, _company(ctx, actor), args.get("user_id"))
     days, since = _period(args)
@@ -630,57 +614,6 @@ async def _playbook_lookup(args: dict, ctx, actor: AskActor) -> dict:
             entries.append({"category": entry.get("category"), "answer": text, "evidence": ev_id})
         out.append({"motion": view["sales_motion_key"], "entries": entries, "steps": [s.get("label") for s in view["steps"] if isinstance(s, dict)]})
     return _envelope(n=len(out), n_analysed=len(out), coverage="complete", playbooks=out, evidence=evidence, **({} if out else {"note": "no_published_playbook"}))
-
-
-def _playbook_published(ctx, actor: AskActor):
-    """True/False from two plain reads (not the embedded join the aggregate uses). None when the read fails:
-    unknown is not the same as unpublished."""
-    from app.services.playbooks.versions import get_published_playbook
-
-    try:
-        plays = ctx.supabase.table("playbooks").select("id,sales_motion_key,active_version_id").eq("company_id", actor.company_id).execute().data or []
-        ids = [p["active_version_id"] for p in plays if p.get("active_version_id")]
-        if not ids:
-            return False
-        versions = ctx.supabase.table("playbook_versions").select("id,playbook_id,status,steps,entries").in_("id", ids).execute().data or []
-    except Exception:  # noqa: BLE001
-        return None
-    return any(get_published_playbook(p, [v for v in versions if v.get("playbook_id") == p["id"]]) for p in plays)
-
-
-async def _team_adherence(args: dict, ctx, actor: AskActor) -> dict:
-    from app.services.team_insights.aggregate import (
-        TeamAccessError,
-        authorized_scope,
-        load_team_adherence_inputs,
-        team_adherence,
-    )
-
-    try:
-        scope = authorized_scope(role=actor.role, requested_user_id=args.get("user_id"), instruction="", visibility=actor.visibility)
-    except TeamAccessError:
-        return dict(FORBIDDEN)
-    motion = str(args.get("motion") or "").strip() or None
-    inputs = load_team_adherence_inputs(ctx.supabase, actor.company_id, user_id=scope["user_id"], motion=motion)
-    published = _playbook_published(ctx, actor)
-    if published is not None:
-        inputs["playbook_present"] = published
-    metrics = team_adherence(role=actor.role, visibility=actor.visibility, **inputs)
-    keep = ("adherence", "coverage", "met_steps", "applicable_steps", "unknown_steps", "sample_limited", "conclusion")
-    adherence_pct = None if metrics.get("adherence") is None else round(metrics["adherence"] * 100, 1)
-    complete = adherence_pct is not None and not metrics.get("sample_limited")
-    return {
-        "ok": True,
-        "coverage": "complete" if complete else "partial",
-        "observed_at": datetime.now(timezone.utc).isoformat(),
-        "n": metrics.get("applicable_steps") or 0,
-        "scope": scope,
-        "playbook_published": published,
-        "missed_steps": max((metrics.get("applicable_steps") or 0) - (metrics.get("met_steps") or 0), 0),
-        "scored_conversations": inputs.get("sample_size") or 0,
-        "adherence_pct": adherence_pct,
-        **{k: metrics.get(k) for k in keep if k != "adherence"},
-    }
 
 
 # ----- HubSpot tools --------------------------------------------------------------------------
@@ -891,15 +824,14 @@ _HANDLERS = {
     "deal_story": _deal_story,
     "find_interactions": _find_interactions,
     "objection_breakdown": _objection_breakdown,
-    "open_loops": _open_loops,
     "competitor_mentions": _competitor_mentions,
     "meetings_agreed": _meetings_agreed,
     "playbook_lookup": _playbook_lookup,
-    "team_adherence": _team_adherence,
     "crm_call_stats": _crm_call_stats,
     "crm_lost_reasons": _crm_lost_reasons,
     "hubspot_describe": _hubspot_describe,
     "hubspot_query": _hubspot_query,
+    **brain_tools.HANDLERS,
 }
 
 
@@ -908,7 +840,7 @@ async def execute_intel_tool(name: str, args: dict, ctx: Any) -> dict:
     handler = _HANDLERS.get(name)
     if handler is None:
         return {"ok": False, "error": f"unknown tool {name}"}
-    if name == "team_adherence" and not actor.is_team_reader:
+    if name == "team_health" and not actor.is_team_reader:
         return dict(FORBIDDEN)
     try:
         return await handler(args or {}, ctx, actor)

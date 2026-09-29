@@ -33,29 +33,31 @@ def _has_analysed_objection(memos: list[dict]) -> bool:
     return False
 
 
-def _has_playbook_entries(supabase: Any, company_id: str) -> bool:
+def _published_playbook(supabase: Any, company_id: str) -> dict:
+    """What the published playbook holds: {"entries": bool, "steps": bool}."""
     plays = supabase.table("playbooks").select("id,active_version_id").eq("company_id", company_id).execute().data or []
     ids = [p["active_version_id"] for p in plays if p.get("active_version_id")]
     if not ids:
-        return False
-    versions = supabase.table("playbook_versions").select("id,status,entries").in_("id", ids).execute().data or []
-    return any(v.get("status") == "published" and v.get("entries") for v in versions)
+        return {"entries": False, "steps": False}
+    versions = supabase.table("playbook_versions").select("id,status,entries,steps").in_("id", ids).execute().data or []
+    live = [v for v in versions if v.get("status") == "published"]
+    return {"entries": any(v.get("entries") for v in live), "steps": any(v.get("steps") for v in live)}
 
 
 def compute(supabase: Any, *, company_id: str, user_id: str, role: str, member_ids: list[str], has_crm: bool) -> list[str]:
     team = role in ("owner", "admin")
     memos = _recent_memos(supabase, company_id, member_ids, 60) if member_ids else []
     last_30 = [m for m in memos if str(m.get("created_at") or "") >= (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()]
-    playbook = _has_playbook_entries(supabase, company_id)
+    playbook = _published_playbook(supabase, company_id)
     out: list[str] = []
     if memos:
-        out.append("open_loops")
-    if team and playbook and memos:
-        out.append("team_adherence")
+        out.append("next_actions")
+    if memos and playbook["steps"]:
+        out.append("team_health" if team else "my_coaching")
     if _has_analysed_objection(last_30):
         out.append("objections")
     if has_crm:
         out += ["connection_rate", "lost_reasons"]
-    if playbook and not team:
+    if playbook["entries"] and not team:
         out.append("playbook")
     return out[:MAX_SUGGESTIONS]

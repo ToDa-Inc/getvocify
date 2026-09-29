@@ -47,7 +47,7 @@ test("a period the tool chose is stated on its own or after the coverage line", 
 });
 
 test("every tool the server can offer has a readable label in both languages", () => {
-  const tools = ["deal_story", "find_interactions", "objection_breakdown", "open_loops", "competitor_mentions", "meetings_agreed", "playbook_lookup", "team_adherence", "crm_call_stats", "crm_lost_reasons", "hubspot_describe", "hubspot_query"];
+  const tools = ["deal_story", "find_interactions", "objection_breakdown", "next_actions", "my_coaching", "team_health", "competitor_mentions", "meetings_agreed", "playbook_lookup", "crm_call_stats", "crm_lost_reasons", "hubspot_describe", "hubspot_query"];
   for (const tool of tools) {
     assert.notEqual(askToolLabel(tool, en), en.askToolFallback, `EN ${tool}`);
     assert.notEqual(askToolLabel(tool, es), es.askToolFallback, `ES ${tool}`);
@@ -55,7 +55,7 @@ test("every tool the server can offer has a readable label in both languages", (
 });
 
 test("every suggestion id the server can send has copy in both languages", () => {
-  for (const id of ["open_loops", "team_adherence", "objections", "connection_rate", "lost_reasons", "playbook"]) {
+  for (const id of ["next_actions", "my_coaching", "team_health", "objections", "connection_rate", "lost_reasons", "playbook"]) {
     assert.ok((en as Record<string, string>)[`askSuggest_${id}`], `EN ${id}`);
     assert.ok((es as Record<string, string>)[`askSuggest_${id}`], `ES ${id}`);
   }

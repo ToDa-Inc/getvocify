@@ -24,8 +24,8 @@ CASES = Path(__file__).with_name("cases.json")
 META_TOOLS = {"search_contacts", "get_contact", "inspect_record", "load_skill", "remember", "reset_session"}
 ISO_DATE = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
 INTERNALS = re.compile(
-    r"\b(deal_story|find_interactions|objection_breakdown|open_loops|competitor_mentions|meetings_agreed|playbook_lookup|"
-    r"crm_call_stats|crm_lost_reasons|hubspot_query|hubspot_describe|team_adherence|search_contacts|contact_id|memo_id|user_id|ev-[0-9a-f]{4,}|"
+    r"\b(deal_story|find_interactions|objection_breakdown|next_actions|my_coaching|competitor_mentions|meetings_agreed|playbook_lookup|"
+    r"crm_call_stats|crm_lost_reasons|hubspot_query|hubspot_describe|team_health|search_contacts|contact_id|memo_id|user_id|ev-[0-9a-f]{4,}|"
     r"u-[a-z]+|c-[a-z]+|hs_\w+|tool_call|pb-[\w-]+|bad_moment|status_quo|wrong_person|needs_to_consult)\b|\{\"|\bm\d{2}\b"
 )
 RANKING = re.compile(r"(?i)(mejor vendedor|el mejor comercial|la mejor comercial|peor vendedor|ranking|top vendedor|best (rep|seller|salesperson|performer)|worst (rep|seller|salesperson|performer)|leaderboard)")
@@ -125,7 +125,7 @@ def patch_world():
     db, bundle, company = fixtures.build_db(), fixtures.build_bundle(), fixtures.build_company()
     deps.get_supabase = lambda: db
     intel_tools._company = lambda ctx, actor: company
-    tools._bundle = lambda ctx: bundle
+    tools._crm = lambda ctx: bundle
     real = tools.execute_tool
 
     async def execute(name, args, ctx):
@@ -139,6 +139,20 @@ def patch_world():
         return await real(name, args, ctx)
 
     tools.execute_tool = execute
+
+    # The coaching and team screens' own producers are tested upstream; here they return the fixture's fixed answer.
+    from fastapi.responses import JSONResponse
+
+    from app.api import coaching as coaching_api, team_insights as team_api
+
+    async def my_coaching(flow, membership, supabase):
+        return fixtures.COACHING_ANA
+
+    async def team_health(**kwargs):
+        return JSONResponse(fixtures.TEAM_BODY)
+
+    coaching_api.get_my_coaching_summary = my_coaching
+    team_api.get_team_adherence = team_health
     return fixtures
 
 

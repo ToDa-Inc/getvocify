@@ -30,9 +30,9 @@ def test_a_brand_new_account_gets_no_suggestions_at_all():
     assert _ids(FakeSupabase(memos=[])) == []
 
 
-def test_open_loops_appear_once_there_are_recent_conversations():
-    assert "open_loops" in _ids(FakeSupabase(memos=[_memo("a")]))
-    assert "open_loops" not in _ids(FakeSupabase(memos=[_memo("a", days=200)]))
+def test_next_actions_appear_once_there_are_recent_conversations():
+    assert "next_actions" in _ids(FakeSupabase(memos=[_memo("a")]))
+    assert "next_actions" not in _ids(FakeSupabase(memos=[_memo("a", days=200)]))
 
 
 def test_the_objection_question_needs_an_analysed_objection():
@@ -48,11 +48,12 @@ def test_crm_questions_need_a_crm_even_with_no_conversations():
 def test_a_member_never_gets_a_team_question():
     playbook = dict(
         playbooks=[{"id": "p", "company_id": "co", "sales_motion_key": "d", "active_version_id": "v"}],
-        playbook_versions=[{"id": "v", "playbook_id": "p", "status": "published", "steps": [], "entries": [{"category": "price", "approved_answer": "x"}]}],
+        playbook_versions=[{"id": "v", "playbook_id": "p", "status": "published", "steps": [{"step_id": "s1", "label": "Confirmar problema"}], "entries": [{"category": "price", "approved_answer": "x"}]}],
     )
     db = FakeSupabase(memos=[_memo("a", objection=True)], **playbook)
-    assert "team_adherence" not in _ids(db, role="member")
-    assert "team_adherence" in _ids(db, role="admin")
+    member, admin = _ids(db, role="member"), _ids(db, role="admin")
+    assert "team_health" not in member and "my_coaching" in member
+    assert "team_health" in admin and "my_coaching" not in admin
 
 
 def test_the_playbook_question_needs_a_published_playbook_with_entries():
@@ -62,4 +63,4 @@ def test_the_playbook_question_needs_a_published_playbook_with_entries():
 def test_at_most_four_and_in_priority_order():
     db = FakeSupabase(memos=[_memo("a", objection=True)])
     out = _ids(db, crm=True)
-    assert len(out) <= 4 and out[0] == "open_loops"
+    assert len(out) <= 4 and out[0] == "next_actions"

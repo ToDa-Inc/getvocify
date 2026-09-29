@@ -118,13 +118,13 @@ async def test_an_admin_sees_the_team_and_the_rep_name():
 def test_tool_lists_are_role_filtered_so_a_member_never_sees_team_tools():
     member = {t["function"]["name"] for t in intel_tools.intel_tools_for(AskActor("u", "co", "member"))}
     admin = {t["function"]["name"] for t in intel_tools.intel_tools_for(AskActor("u", "co", "admin"))}
-    assert "team_adherence" not in member and "team_adherence" in admin
-    assert {"deal_story", "objection_breakdown", "open_loops", "crm_call_stats", "crm_lost_reasons", "playbook_lookup"} <= member
+    assert "team_health" not in member and "team_health" in admin
+    assert {"deal_story", "objection_breakdown", "next_actions", "my_coaching", "crm_call_stats", "crm_lost_reasons", "playbook_lookup"} <= member
 
 
 @pytest.mark.asyncio
 async def test_a_member_calling_a_team_tool_directly_is_forbidden():
-    out = await run("team_adherence", {}, _ctx(FakeSupabase(memos=[]), role="member"))
+    out = await run("team_health", {}, _ctx(FakeSupabase(memos=[]), role="member"))
     assert out == {"ok": False, "error": "forbidden", "coverage": "forbidden"}
 
 
@@ -152,11 +152,11 @@ async def test_objection_breakdown_keeps_objections_and_obstacles_apart():
 
 
 @pytest.mark.asyncio
-async def test_open_loops_lists_a_promise_that_came_due_with_the_contact_name():
+async def test_next_actions_lists_a_promise_that_came_due_with_the_contact_name():
     due = dict(ANALYSED)
     due["intelligence"] = {**ANALYSED["intelligence"], "commitments": [{"kind": "send", "origin": "rep_promise", "text": "enviar el caso", "due_at": _iso(1), "evidence_refs": []}]}
     db = FakeSupabase(memos=[_memo("m1", "u1", "c1", 3, **due)])
-    out = await run("open_loops", {}, _ctx(db))
+    out = await run("next_actions", {}, _ctx(db))
     assert out["counts"].get("commitment_due") == 1
     assert out["items"][0]["contact"] == "Marina López (Acme)" and out["items"][0]["type"] == "commitment_due"
 
@@ -203,14 +203,6 @@ async def test_playbook_lookup_returns_the_approved_answer_as_citable_evidence()
 async def test_playbook_lookup_says_when_there_is_none():
     out = await run("playbook_lookup", {}, _ctx(FakeSupabase(playbooks=[])))
     assert out["playbooks"] == [] and out["note"] == "no_playbook"
-
-
-@pytest.mark.asyncio
-async def test_team_adherence_returns_adherence_only_not_objections_or_activity():
-    out = await run("team_adherence", {}, _ctx(FakeSupabase(memos=[]), role="admin"))
-    assert out["ok"] is True and "adherence_pct" in out
-    for leaked in ("objection_categories", "attempts", "connected", "reps", "won", "review"):
-        assert leaked not in out
 
 
 # ----- HubSpot tools ------------------------------------------------------------------------
@@ -388,19 +380,6 @@ async def test_find_interactions_quotes_only_the_matching_episodes():
 
 
 @pytest.mark.asyncio
-async def test_team_adherence_knows_a_playbook_is_published_without_relying_on_a_join():
-    db = FakeSupabase(
-        memos=[],
-        playbooks=[{"id": "p1", "company_id": "co", "sales_motion_key": "d", "active_version_id": "v1"}],
-        playbook_versions=[{"id": "v1", "playbook_id": "p1", "status": "published", "steps": [], "entries": []}],
-    )
-    out = await run("team_adherence", {}, _ctx(db, role="admin"))
-    assert out["playbook_published"] is True
-    assert out["scored_conversations"] == 0
-    assert out["adherence_pct"] is None
-
-
-@pytest.mark.asyncio
 async def test_meetings_by_rep_separates_not_judged_from_zero():
     rows = [_memo("m1", "u1", "c1", 2, summary="a", intelligence={"meeting": {"agreed": None}}), _memo("m2", "u2", "c2", 2, summary="b", intelligence={"meeting": {"agreed": True}})]
     out = await run("meetings_agreed", {}, _ctx(FakeSupabase(memos=rows), role="admin"))
@@ -411,21 +390,21 @@ async def test_meetings_by_rep_separates_not_judged_from_zero():
 
 
 @pytest.mark.asyncio
-async def test_open_loops_keeps_open_obstacles_apart_from_open_objections():
+async def test_next_actions_keeps_open_obstacles_apart_from_open_objections():
     memo = _memo("m1", "u1", "c1", 3, **ANALYSED)
-    out = await run("open_loops", {}, _ctx(FakeSupabase(memos=[memo])))
+    out = await run("next_actions", {}, _ctx(FakeSupabase(memos=[memo])))
     assert [o["category"] for o in out["obstacles"]] == ["bad_moment"]
     assert out["obstacles"][0]["contact"] == "Marina López (Acme)"
     types = {i["type"] for i in out["items"]}
     assert "objection_open" in types  # the price objection
-    assert all(i["detail"].get("category") != "bad_moment" for i in out["items"])
+    assert all(i["suggested"].get("category") != "bad_moment" for i in out["items"])
 
 
 @pytest.mark.asyncio
-async def test_a_resolved_obstacle_is_not_a_loop():
+async def test_a_resolved_obstacle_is_not_a_next_action():
     resolved = dict(ANALYSED)
     resolved["intelligence"] = {**ANALYSED["intelligence"], "objections": [{"kind": "obstacle", "category": "bad_moment", "resolution": "resolved", "quote": "conduciendo", "evidence_refs": []}]}
-    out = await run("open_loops", {}, _ctx(FakeSupabase(memos=[_memo("m1", "u1", "c1", 3, **resolved)])))
+    out = await run("next_actions", {}, _ctx(FakeSupabase(memos=[_memo("m1", "u1", "c1", 3, **resolved)])))
     assert out["obstacles"] == []
 
 
@@ -444,30 +423,6 @@ async def test_objection_breakdown_by_rep_is_one_call_alphabetical_with_sample_s
 async def test_a_member_cannot_ask_for_objections_by_rep():
     out = await run("objection_breakdown", {"by_rep": True}, _ctx(FakeSupabase(memos=[]), role="member"))
     assert out["coverage"] == "forbidden"
-
-
-@pytest.mark.asyncio
-async def test_team_adherence_returns_missed_steps_so_the_model_never_subtracts():
-    db = FakeSupabase(
-        memos=[],
-        memo_scores=[{"memo_id": f"m{i}", "created_at": datetime.now(timezone.utc).isoformat(), "score": {"status": "ready", "met_steps": 3, "missed_steps": 1, "unknown_steps": 0, "not_applicable_steps": 0}} for i in range(5)],
-        playbooks=[{"id": "p1", "company_id": "co", "sales_motion_key": "d", "active_version_id": "v1"}],
-        playbook_versions=[{"id": "v1", "playbook_id": "p1", "status": "published", "steps": [], "entries": []}],
-    )
-    db.tables["memos"] = [_memo(f"m{i}", "u1", f"c{i}", 1, summary="x") for i in range(5)]
-    out = await run("team_adherence", {}, _ctx(db, role="admin"))
-    assert (out["met_steps"], out["applicable_steps"], out["missed_steps"]) == (15, 20, 5)
-    assert out["adherence_pct"] == 75.0
-
-
-@pytest.mark.asyncio
-async def test_a_failed_playbook_read_is_unknown_not_unpublished():
-    class Broken:
-        def table(self, name):
-            raise RuntimeError("db down")
-
-    out = await run("team_adherence", {}, _ctx(Broken(), role="admin"))
-    assert out["ok"] is True and out["playbook_published"] is None
 
 
 @pytest.mark.asyncio

@@ -128,10 +128,10 @@ async def test_live_ask_loop_offers_team_tools_only_to_owners_and_admins(monkeyp
     monkeypatch.setattr("app.deps.get_supabase", lambda: MagicMock())
     ws.bind_ask_actor("u1", "co-1", role="member", conversation_id="c")
     await ws.live_ask_loop("hola")
-    assert "team_adherence" not in seen["tools"] and "deal_story" in seen["tools"] and seen["verify"] is True
+    assert "team_health" not in seen["tools"] and "deal_story" in seen["tools"] and seen["verify"] is True
     ws.bind_ask_actor("u2", "co-1", role="owner", conversation_id="c2")
     await ws.live_ask_loop("hola")
-    assert "team_adherence" in seen["tools"]
+    assert "team_health" in seen["tools"]
 
 
 @pytest.mark.asyncio
