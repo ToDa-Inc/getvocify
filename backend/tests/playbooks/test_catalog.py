@@ -157,7 +157,7 @@ def test_a_custom_type_is_visible_by_the_role_of_its_rule():
 
 
 def test_both_flags_exist_off_by_default_and_reach_the_client():
-    assert PLAYBOOK_V2_FLAGS == ("PLAYBOOK_V2_ENABLED", "PLAYBOOK_ROUTING_ENABLED")
+    assert PLAYBOOK_V2_FLAGS == ("PLAYBOOK_V2_ENABLED", "PLAYBOOK_ROUTING_ENABLED", "PLAYBOOK_QUALIFICATION_ENABLED")
     for flag in PLAYBOOK_V2_FLAGS:
         assert flag in CLIENT_FLAGS
         assert getattr(settings, flag) is False

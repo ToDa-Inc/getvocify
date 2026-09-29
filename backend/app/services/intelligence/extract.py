@@ -21,7 +21,18 @@ PROMPT_VERSION = "intelligence_v5"
 # or "obstacle" (a practical block: bad moment, gatekeeper, wrong person, needs to consult).
 OBSERVATIONS_PROMPT_VERSION = "intelligence_v6"
 OBSERVATIONS_FLAG = "PLAYBOOK_OBSERVATIONS_ENABLED"
-CURRENT_PROMPT_VERSIONS = frozenset({PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION})
+# v7 = v6 + one observation per "what has to come out of the call" criterion and a match of each
+# objection to the company's own objections (PLAYBOOK_QUALIFICATION_ENABLED, per company). Same
+# shape as v6 plus `qualification_observations` and `objection_id`; a company turning the flag on
+# gets v7 on new conversations and past v5/v6 blocks are re-read (`_needs_upgrade`). Nothing is
+# ever downgraded when the flag goes off.
+QUALIFICATION_PROMPT_VERSION = "intelligence_v7"
+QUALIFICATION_FLAG = "PLAYBOOK_QUALIFICATION_ENABLED"
+CURRENT_PROMPT_VERSIONS = frozenset({PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION})
+_READS_STEPS = frozenset({OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION})
+_MAX_CRITERIA = 8
+_MAX_CUSTOM_OBJECTIONS = 12
+_CUSTOM_ENTRY_PREFIX = "objection:custom:"
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 PROMPT_PATH = _PROMPTS_DIR / f"{PROMPT_VERSION}.md"
 
@@ -37,6 +48,8 @@ _RESOLUTION = frozenset({"resolved", "open", "unknown"})
 _KIND = frozenset({"call", "email", "send", "meeting", "other"})
 _ORIGIN = frozenset({"rep_promise", "prospect_request"})
 _OBSERVATION = frozenset({"met", "missed", "not_applicable", "unknown"})
+_QUALIFICATION = frozenset({"found", "missing", "not_applicable", "unknown"})
+_VALUE_MAX = 80
 _COMPETITOR_MAX = 60
 _TEXT_MAX = 80
 _DEFAULT_TZ = "Europe/Madrid"
@@ -96,6 +109,22 @@ def _rep_evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
         return ref
     rep_text = " ".join(" ".join(text.split()) for speaker, text in turns if speaker == "You")
     if ref["quote"] not in rep_text:
+        return None
+    return ref
+
+
+def _prospect_evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
+    """v7: a qualification criterion is only found when the PROSPECT said it. With speaker
+    markers the quote must sit inside the prospect's own turns; without them it counts on a
+    plain substring match, as a rep quote does."""
+    ref = _evidence(memo_id, quote, transcript)
+    if ref is None:
+        return None
+    turns = _turns(transcript)
+    if turns is None:
+        return ref
+    prospect_text = " ".join(" ".join(text.split()) for speaker, text in turns if speaker == "Them")
+    if ref["quote"] not in prospect_text:
         return None
     return ref
 
@@ -228,12 +257,61 @@ def _playbook_observations(
     return out
 
 
+def _qualification_observations(
+    memo_id: str,
+    raw: Any,
+    transcript: str,
+    evidence: dict[str, dict],
+    criteria: list[dict],
+) -> list[dict]:
+    """v7: exactly one observation per criterion, in the playbook's order.
+
+    found needs the prospect's own words (and carries what they said as a short value);
+    missing needs the moment it should have come up; a status the transcript does not back
+    becomes unknown. A criterion the model skipped is unknown, so coverage stays honest."""
+    by_id: dict[str, dict] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict) and item.get("criterion_id") and str(item["criterion_id"]) not in by_id:
+            by_id[str(item["criterion_id"])] = item
+    out: list[dict] = []
+    for criterion in criteria:
+        criterion_id = str(criterion.get("criterion_id") or "")
+        if not criterion_id:
+            continue
+        item = by_id.get(criterion_id) or {}
+        status = item.get("status") if item.get("status") in _QUALIFICATION else "unknown"
+        refs: list[str] = []
+        value = None
+        if status in ("found", "missing"):
+            finder = _prospect_evidence if status == "found" else _evidence
+            ref = finder(memo_id, item.get("quote"), transcript)
+            if ref is None:
+                status = "unknown"
+            else:
+                evidence[ref["id"]] = ref
+                refs = [ref["id"]]
+        if status == "found":
+            text = " ".join(str(item.get("value") or "").split())
+            value = text[:_VALUE_MAX].rstrip() or None
+        out.append({
+            "criterion_id": criterion_id,
+            "label": " ".join(str(criterion.get("label") or criterion_id).split()),
+            "status": status,
+            "value": value,
+            "quote": evidence[refs[0]]["quote"] if refs else None,
+            "evidence_refs": refs,
+        })
+    return out
+
+
 def shape_intelligence(
     memo: dict,
     raw: dict,
     *,
     prompt_version: str = PROMPT_VERSION,
     playbook_steps: list[dict] | None = None,
+    playbook_qualification: list[dict] | None = None,
+    playbook_objections: list[dict] | None = None,
 ) -> dict:
     """Keep what the transcript backs. A quote that is not in the text removes its fact."""
     memo_id = str(memo.get("id") or "")
@@ -248,6 +326,9 @@ def shape_intelligence(
     else:
         evidence[pain_ref["id"]] = pain_ref
 
+    custom_ids = {
+        str(item.get("id")) for item in playbook_objections or [] if isinstance(item, dict) and item.get("id")
+    }
     objections = []
     for item in raw.get("objections") or []:
         if not isinstance(item, dict):
@@ -269,7 +350,7 @@ def shape_intelligence(
                 evidence[response_ref["id"]] = response_ref
                 response = {"text": response_ref["quote"]}
                 response_evidence_refs = [response_ref["id"]]
-        objections.append({
+        entry = {
             "id": f"obj-{ref['id'][3:]}",
             "category": category,
             "kind": kind,
@@ -281,7 +362,13 @@ def shape_intelligence(
             "response": response,
             "response_evidence_refs": response_evidence_refs,
             "rep_replied_after": _rep_replied_after(transcript, ref["quote"]),
-        })
+        }
+        if prompt_version == QUALIFICATION_PROMPT_VERSION:
+            # v7: the id of the company's own objection this one clearly is; an id the playbook
+            # does not have (or one on an obstacle) is dropped, the category stays a fixed one.
+            matched = str(item.get("objection_id") or "").strip()
+            entry["objection_id"] = matched if kind == "objection" and matched in custom_ids else None
+        objections.append(entry)
 
     commitments = []
     for item in raw.get("commitments") or []:
@@ -307,14 +394,19 @@ def shape_intelligence(
     meeting = _meeting(memo_id, raw.get("meeting"), transcript, evidence)
     competitors: list[dict] = []
     observations: list[dict] = []
-    if prompt_version == OBSERVATIONS_PROMPT_VERSION:
+    qualification: list[dict] = []
+    if prompt_version in _READS_STEPS:
         competitors = _competitor_mentions(memo_id, raw.get("competitor_mentions"), transcript, evidence)
         if playbook_steps:
             observations = _playbook_observations(
                 memo_id, raw.get("playbook_observations"), transcript, evidence, playbook_steps,
             )
+        if prompt_version == QUALIFICATION_PROMPT_VERSION and playbook_qualification:
+            qualification = _qualification_observations(
+                memo_id, raw.get("qualification_observations"), transcript, evidence, playbook_qualification,
+            )
     backed = bool(objections or commitments or interest in _INTEREST)
-    return {
+    shaped = {
         "version": 1,
         "input_revision": revision_for_memo(memo),
         "status": "ready" if backed else "partial",
@@ -328,6 +420,9 @@ def shape_intelligence(
         "evidence": list(evidence.values()),
         "prompt_version": prompt_version,
     }
+    if prompt_version == QUALIFICATION_PROMPT_VERSION:
+        shaped["qualification_observations"] = qualification
+    return shaped
 
 
 def build_messages(
@@ -335,6 +430,8 @@ def build_messages(
     *,
     prompt_version: str = PROMPT_VERSION,
     playbook_steps: list[dict] | None = None,
+    playbook_qualification: list[dict] | None = None,
+    playbook_objections: list[dict] | None = None,
 ) -> list[dict]:
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     payload = {
@@ -343,7 +440,7 @@ def build_messages(
         "summary": str((extraction or {}).get("summary") or ""),
         "transcript": str(memo.get("transcript") or ""),
     }
-    if prompt_version == OBSERVATIONS_PROMPT_VERSION and playbook_steps:
+    if prompt_version in _READS_STEPS and playbook_steps:
         payload["playbook_steps"] = [
             {
                 "step_id": str(step.get("step_id") or ""),
@@ -353,6 +450,27 @@ def build_messages(
             for step in playbook_steps
             if step.get("step_id")
         ]
+    if prompt_version == QUALIFICATION_PROMPT_VERSION:
+        if playbook_qualification:
+            payload["playbook_qualification"] = [
+                {
+                    key: value
+                    for key, value in (
+                        ("criterion_id", str(item.get("criterion_id") or "")),
+                        ("label", str(item.get("label") or "")),
+                        ("good", str(item.get("good") or "")),
+                    )
+                    if value or key != "good"
+                }
+                for item in playbook_qualification
+                if item.get("criterion_id")
+            ]
+        if playbook_objections:
+            payload["playbook_objections"] = [
+                {"id": str(item.get("id") or ""), "label": str(item.get("label") or ""), "trigger": str(item.get("trigger") or "")}
+                for item in playbook_objections
+                if item.get("id")
+            ]
     return [
         {"role": "system", "content": prompt_path(prompt_version).read_text(encoding="utf-8")},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -388,11 +506,62 @@ def pinned_playbook_steps(supabase: Any, memo: dict) -> list[dict]:
     return [step for step in steps if isinstance(step, dict) and step.get("step_id")]
 
 
+def playbook_qualification_inputs(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(criteria, custom objections) from a pinned version row, tolerant of anything missing:
+    no `qualification` column, an empty one, or an entry without a label."""
+    row = rows[0] if rows else {}
+    criteria: list[dict] = []
+    for item in row.get("qualification") or []:
+        if not isinstance(item, dict):
+            continue
+        criterion_id = str(item.get("criterion_id") or "").strip()
+        label = " ".join(str(item.get("label") or "").split())
+        if not criterion_id or not label or any(c["criterion_id"] == criterion_id for c in criteria):
+            continue
+        criterion = {"criterion_id": criterion_id, "label": label}
+        good = " ".join(str(item.get("good") or "").split())
+        if good:
+            criterion["good"] = good
+        criteria.append(criterion)
+    objections: list[dict] = []
+    for entry in row.get("entries") or []:
+        if not isinstance(entry, dict) or entry.get("category") != "custom":
+            continue
+        entry_id = str(entry.get("entry_id") or "").strip()
+        slug = entry_id[len(_CUSTOM_ENTRY_PREFIX):] if entry_id.startswith(_CUSTOM_ENTRY_PREFIX) else ""
+        label = " ".join(str(entry.get("label") or "").split())
+        if not slug or not label or any(o["id"] == slug for o in objections):
+            continue
+        objections.append({"id": slug, "label": label, "trigger": " ".join(str(entry.get("trigger") or "").split())})
+    return criteria[:_MAX_CRITERIA], objections[:_MAX_CUSTOM_OBJECTIONS]
+
+
+def pinned_qualification_inputs(supabase: Any, memo: dict) -> tuple[list[dict], list[dict]]:
+    """The qualification criteria and the company's own objections of the version pinned on
+    this memo. ([], []) when nothing is pinned, the column is not there yet or the read fails."""
+    version_id = memo.get("playbook_version_id")
+    if not version_id:
+        return [], []
+    rows: list[dict] = []
+    for columns in ("qualification,entries", "entries"):
+        try:
+            rows = (
+                supabase.table("playbook_versions").select(columns).eq("id", str(version_id)).limit(1).execute()
+            ).data or []
+            break
+        except Exception:
+            continue
+    return playbook_qualification_inputs(rows)
+
+
 def _needs_upgrade(memo: dict, planned_version: str) -> bool:
     """A v3 block is re-read once the company is on v4 (so the backfill script can add step
-    observations to past conversations). A v4 block is never downgraded when the flag goes off."""
+    observations to past conversations), and a v3-v6 block once it is on v7 (qualification and
+    the company's own objections). A newer block is never downgraded when the flag goes off."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     stored = ((extraction or {}).get("intelligence") or {}).get("prompt_version")
+    if planned_version == QUALIFICATION_PROMPT_VERSION:
+        return stored in (PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION)
     return planned_version == OBSERVATIONS_PROMPT_VERSION and stored == PROMPT_VERSION
 
 
@@ -400,6 +569,8 @@ def extraction_plan(supabase: Any, memo: dict) -> tuple[str, list[dict]]:
     """(prompt version, playbook steps) for this memo's company."""
     from app.services.feature_flags import is_enabled
 
+    if is_enabled(supabase, memo.get("company_id"), QUALIFICATION_FLAG):
+        return QUALIFICATION_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
     if not is_enabled(supabase, memo.get("company_id"), OBSERVATIONS_FLAG):
         return PROMPT_VERSION, []
     return OBSERVATIONS_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
@@ -419,7 +590,14 @@ async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -
         from app.services.llm import LLMClient
 
         llm = LLMClient()
-    shaped, meta = await extract_intelligence(memo, llm, prompt_version=prompt_version, playbook_steps=playbook_steps)
+    qualification: list[dict] = []
+    objections: list[dict] = []
+    if prompt_version == QUALIFICATION_PROMPT_VERSION:
+        qualification, objections = pinned_qualification_inputs(supabase, memo)
+    shaped, meta = await extract_intelligence(
+        memo, llm, prompt_version=prompt_version, playbook_steps=playbook_steps,
+        playbook_qualification=qualification, playbook_objections=objections,
+    )
     if shaped is None:
         return {"status": "no_transcript"}
     from app.services.intelligence.interpret import extraction_with_intelligence
@@ -486,12 +664,17 @@ async def extract_intelligence(
     *,
     prompt_version: str = PROMPT_VERSION,
     playbook_steps: list[dict] | None = None,
+    playbook_qualification: list[dict] | None = None,
+    playbook_objections: list[dict] | None = None,
 ) -> tuple[dict | None, dict]:
     """None when there is nothing to read. Metadata carries model and tokens for cost."""
     if not str(memo.get("transcript") or "").strip():
         return None, {}
     raw = await llm.chat_json(
-        build_messages(memo, prompt_version=prompt_version, playbook_steps=playbook_steps),
+        build_messages(
+            memo, prompt_version=prompt_version, playbook_steps=playbook_steps,
+            playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
+        ),
         model=settings.INTELLIGENCE_MODEL,
         temperature=0.0,
         timeout=60.0,
@@ -499,5 +682,6 @@ async def extract_intelligence(
     meta = dict(getattr(llm, "last_call_meta", None) or {})
     shaped = shape_intelligence(
         memo, raw if isinstance(raw, dict) else {}, prompt_version=prompt_version, playbook_steps=playbook_steps,
+        playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
     )
     return shaped, meta

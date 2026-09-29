@@ -126,6 +126,7 @@ def _maybe_publish_score(
         screening=memo.get("screening_outcome"),
         objection_credit_enabled=objection_credit_enabled,
         debrief_v2_enabled=debrief_v2_enabled,
+        qualification_enabled=is_enabled(supabase, memo.get("company_id"), "PLAYBOOK_QUALIFICATION_ENABLED"),
     )
     if score is None:
         return
