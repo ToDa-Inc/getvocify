@@ -6,6 +6,8 @@ import uuid
 
 from app.services.playbooks.versions import PublishError, accept_publish
 
+_UNSET = object()
+
 
 class MemoryPlaybookStore:
     def __init__(
@@ -16,6 +18,7 @@ class MemoryPlaybookStore:
         activated: dict | None = None,
         structured: dict | None = None,
         published_versions: dict | None = None,
+        details: dict | None = None,
     ):
         self._motions = motions
         self._imports = imports
@@ -24,6 +27,8 @@ class MemoryPlaybookStore:
         # The API builds a new instance per request: shared dicts keep editor drafts alive.
         self._structured = structured if structured is not None else {}
         self._published_versions = published_versions if published_versions is not None else {}
+        # (company_id, key) -> {"label", "applies_to"}: the type's name and routing rule (T7).
+        self._details = details if details is not None else {}
 
     def get_import(self, company_id: str, import_id: str):
         record = self._imports.get(import_id)
@@ -92,6 +97,23 @@ class MemoryPlaybookStore:
         company.setdefault(cleaned, "missing")
         del name
         return dict(company)
+
+    def details(self, company_id: str) -> dict:
+        """key -> {"label", "applies_to"} as saved for the company (T7)."""
+        return {
+            key: dict(meta)
+            for (company, key), meta in self._details.items()
+            if company == company_id
+        }
+
+    def save_type_meta(self, company_id: str, key: str, *, label=_UNSET, applies_to=_UNSET) -> None:
+        """Saves a type's label and/or routing rule. The type shows up in motions()."""
+        self._motions.setdefault(company_id, {}).setdefault(key, "missing")
+        meta = self._details.setdefault((company_id, key), {"label": None, "applies_to": None})
+        if label is not _UNSET:
+            meta["label"] = label
+        if applies_to is not _UNSET:
+            meta["applies_to"] = applies_to
 
 
 class SupabasePlaybookStore:
@@ -261,3 +283,36 @@ class SupabasePlaybookStore:
         if outcome == "empty":
             raise PublishError("empty_type")
         return self.motions(company_id)
+
+    def details(self, company_id: str) -> dict:
+        """key -> {"label", "applies_to"} as saved for the company (T7). {} when the
+        columns are not there yet (migration 067) or the read fails: types then route by
+        their catalog default."""
+        try:
+            rows = (
+                self.supabase.table("playbooks")
+                .select("sales_motion_key,label,applies_to")
+                .eq("company_id", company_id)
+                .execute()
+            ).data or []
+        except Exception:
+            return {}
+        return {
+            row["sales_motion_key"]: {"label": row.get("label"), "applies_to": row.get("applies_to")}
+            for row in rows
+            if row.get("sales_motion_key")
+        }
+
+    def save_type_meta(self, company_id: str, key: str, *, label=_UNSET, applies_to=_UNSET) -> None:
+        """Saves a type's label and/or routing rule on its playbooks row, creating the row
+        (listed as "missing" by list_playbook_motions) when the type has none yet."""
+        playbook = self._playbook(company_id, key, create=True)
+        if not playbook:
+            raise RuntimeError("playbook row missing after upsert")
+        patch: dict = {}
+        if label is not _UNSET:
+            patch["label"] = label
+        if applies_to is not _UNSET:
+            patch["applies_to"] = applies_to
+        if patch:
+            self.supabase.table("playbooks").update(patch).eq("id", playbook["id"]).execute()
