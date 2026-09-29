@@ -120,9 +120,12 @@ def label_missed_items(missed: list[dict], *, steps: list[dict], entries: list[d
     entry case-insensitively. An id the playbook does not recognise anymore is dropped."""
     step_labels = {str(step.get("step_id")): step for step in steps if isinstance(step, dict)}
     entry_guidance: dict[str, str] = {}
+    custom_entries: dict[str, dict] = {}
     for entry in entries:
         if not isinstance(entry, dict):
             continue
+        if str(entry.get("entry_id") or "").startswith("objection:custom:"):
+            custom_entries.setdefault(str(entry["entry_id"]), entry)
         category = str(entry.get("category") or "").strip().lower()
         if category and category not in entry_guidance:
             entry_guidance[category] = str(entry.get("guidance") or "").strip()
@@ -137,6 +140,13 @@ def label_missed_items(missed: list[dict], *, steps: list[dict], entries: list[d
                 continue
             label = str(step.get("label") or "").strip()
             guidance = str(step.get("criterion") or "").strip()
+        elif kind == "qualification":
+            # C04 v7: a criterion that never came out of the call. It carries its own label.
+            label = str(item.get("label") or "").strip()
+        elif item.get("objection_id") and f"objection:custom:{item['objection_id']}" in custom_entries:
+            custom = custom_entries[f"objection:custom:{item['objection_id']}"]
+            label = str(custom.get("label") or item.get("category") or "").strip()
+            guidance = str(custom.get("guidance") or "").strip()
         else:
             label = str(item.get("category") or "").strip()
             category = label.lower()

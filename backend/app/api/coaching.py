@@ -123,7 +123,10 @@ async def get_memo_score(
             "adherence": None,
             "coverage": None,
         }
-    current = max(scores, key=lambda row: row.get("revision_seq") or 0)
+    # Same revision_seq (a re-read of the same conversation, e.g. a company moving to a newer C04
+    # prompt): the most recently written score wins. `blocks` (PLAYBOOK_QUALIFICATION_ENABLED)
+    # travels inside the stored score, so it reaches the client as is.
+    current = max(scores, key=lambda row: (row.get("revision_seq") or 0, str(row.get("created_at") or "")))
     body = dict(current.get("score") or {})
     body["playbook_version_id"] = current.get("playbook_version_id")
     return body
