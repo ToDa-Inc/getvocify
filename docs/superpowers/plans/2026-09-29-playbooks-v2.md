@@ -407,6 +407,14 @@ Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.app
 - `rate` = met/(met+missed) con ≥ 10 aplicables; si no, `null`. Solo `step_id` de la versión activa.
 - `objections` ordenadas por `count` desc; `best_example` sin nombre de comercial.
 
+### Una sola entrada para toda la empresa
+**`POST /playbooks/structure`** (owner/admin) — body igual que `POST /{key}/structure` (`{kind, payload, name?}`), mismos `422 detail.code` de lectura. Vocify detecta qué tipos de llamada cubre el documento (con `PLAYBOOK_ROUTING_ENABLED`: los 5 del catálogo y los tipos propios con regla; sin él: `discovery` = todo lo de SDR/prospección y `closing` = todo lo de AE), estructura cada uno con UNA llamada al modelo (`playbook_split_v1`, ≤ 2 con el reintento por criterios genéricos, 25 s cada una) y guarda cada tipo como borrador (un borrador pendiente se sobrescribe; una versión activa sigue activa). Un tipo del catálogo que la empresa aún no tiene se crea como en `POST /types`.
+→ `200 {source: {id, kind, name}|null, fallback: bool, reason: null|"no_process", candidates: [{key, label}], types: [{sales_motion_key, reason: null|"grouped"|"too_short", editor: <forma de GET /editor>}]}`
+- `fallback: true` (fallo, timeout o JSON inválido del modelo) → `types: []`, no se adivina el tipo: la UI pregunta cuál es y usa `POST /{key}/structure`.
+- `reason: "no_process"` → `types: []`.
+
+**`GET /playbooks`** — cada `details[key]` añade `step_count`, `answer_count` (de la versión que el editor enseñaría a un manager: borrador pendiente si hay, si no la activa, si no 0) y `has_draft` (hay un borrador pendiente más nuevo que la activa). Para un comercial cuentan solo la versión activa y `has_draft` es siempre `false`.
+
 ---
 
 ## 13. Estado (29 sep 2026)

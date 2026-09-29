@@ -1,6 +1,9 @@
-"""Run "structure with AI" (playbook_structure_v1) against evals/P01/cases.json with the configured model.
+"""Run "structure with AI" against the eval cases with the configured model.
 
-Usage (from backend/): .venv/bin/python -u scripts/eval_playbook_structure.py [--runs 3] [--out runs/<file>.jsonl]
+Two suites: P01 (default) is one call type at a time (playbook_structure_v1, `structure_source`);
+P02 (`--suite P02`) is the whole company's mixed document (playbook_split_v1, `split_source`).
+
+Usage (from backend/): .venv/bin/python -u scripts/eval_playbook_structure.py [--suite P01|P02] [--runs 3] [--out runs/<file>.jsonl]
 The plan runs it 3 times before the flag is switched on (--runs 3): a case passes the run only if every
 run passes it. The output is JSONL: a "run" record (id, start time, prompt, model), one "case" record per
 case and run with its tokens and the checks that failed, and a "summary" record. It goes to --out, or to
@@ -16,6 +19,13 @@ Case expectations (`expect`):
   must_contain_any           at least one of these terms appears in the steps or answers (case-insensitive)
   must_not_contain           none of these appears (case-insensitive)
   language                   "es" | "en": the language the steps come out in
+P02 cases (`routing`: bool, the candidate types offered; `expect`):
+  types                      {call type key: the expectations above for that type}
+  only_types                 the exact set of call types that must come out ([] = none)
+  reason                     "no_process" when nothing is covered
+  categories_in_each         objection categories every returned type must carry ("a|b" = either)
+  language                   "es" | "en"
+A P02 case also fails on: a key that is not a candidate, a fallback, or any per-type check below.
 Always checked: no fallback, labels of 1 to 5 words, no attitude criterion (an empty one is allowed: it
 is what the flow leaves for a person to write), objection categories among the seven, steps <= 7.
 """
@@ -34,16 +44,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import settings  # noqa: E402
 from app.services.llm import LLMClient  # noqa: E402
+from app.services.playbooks.intake import candidate_types  # noqa: E402
 from app.services.playbooks.structure import (  # noqa: E402
     MAX_AI_STEPS,
     PROMPT_VERSION,
+    SPLIT_PROMPT_VERSION,
     detect_language,
+    split_source,
     structure_source,
 )
 from app.services.playbooks.structured import OBJECTION_CATEGORIES, normalize_objections, normalize_steps  # noqa: E402
 from app.services.text_guard import generic_criterion  # noqa: E402
 
-CASES = Path(__file__).resolve().parents[1] / "evals" / "P01" / "cases.json"
+EVALS = Path(__file__).resolve().parents[1] / "evals"
+SUITES = {"P01": EVALS / "P01" / "cases.json", "P02": EVALS / "P02" / "cases.json"}
+CASES = SUITES["P01"]
 ATTEMPTS = 2
 RETRY_DELAY_S = 10.0
 TOKEN_KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
@@ -141,17 +156,81 @@ async def run_case(llm: Recording, case: dict, *, delay: float = RETRY_DELAY_S) 
     return result, errors
 
 
+def check_split(case: dict, result: dict) -> list[str]:
+    """P02: the call types a mixed document came out as, each held to the per-type checks."""
+    expect = case["expect"]
+    failures: list[str] = []
+    if result["fallback"]:
+        failures.append("fallback: the model failed or returned nothing usable")
+    offered = {c["key"] for c in candidate_types(bool(case.get("routing")), {}, {}, case.get("lang", "es"))}
+    got = {item["key"]: item for item in result["types"]}
+    if set(got) - offered:
+        failures.append(f"types outside the candidates: {sorted(set(got) - offered)!r}")
+    if "only_types" in expect and set(got) != set(expect["only_types"]):
+        failures.append(f"types: expected {sorted(expect['only_types'])!r}, got {sorted(got)!r}")
+    if "reason" in expect and result["reason"] != expect["reason"]:
+        failures.append(f"reason: expected {expect['reason']!r}, got {result['reason']!r}")
+    for key, per_type in expect.get("types", {}).items():
+        if key not in got:
+            failures.append(f"{key}: type missing")
+            continue
+        item = got[key]
+        failures += [
+            f"{key}: {failure}"
+            for failure in check(
+                {**{k: v for k, v in per_type.items() if k != "reason"}, "language": expect.get("language")},
+                {**item, "fallback": False},
+            )
+        ]
+    for key, item in got.items():
+        found = {entry["category"] for entry in item["objections"]}
+        for wanted in expect.get("categories_in_each", []):
+            if not found & set(wanted.split("|")):
+                failures.append(f"{key}: objection {wanted!r} missing, got {sorted(found)!r}")
+    return failures
+
+
+async def run_split_case(llm: Recording, case: dict, *, delay: float = RETRY_DELAY_S) -> tuple[dict | None, list[str]]:
+    errors: list[str] = []
+    result = None
+    lang = case.get("lang", "es")
+    candidates = candidate_types(bool(case.get("routing")), {}, {}, lang)
+    for attempt in range(ATTEMPTS):
+        if attempt:
+            await asyncio.sleep(delay)
+        result = await split_source(case["source"], candidates, lang, llm=llm)
+        if not result["fallback"]:
+            return result, errors
+        errors.append("fallback (model error, timeout or unusable JSON)")
+    return result, errors
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _labels(result: dict | None, split: bool) -> dict:
+    """What the JSONL "case" record shows of the answer."""
+    result = result or {}
+    if split:
+        return {"types": {item["key"]: [step["label"] for step in item["steps"]] for item in result.get("types", [])}}
+    return {
+        "steps": [step["label"] for step in result.get("steps", [])],
+        "objections": [item["category"] for item in result.get("objections", [])],
+    }
+
+
 async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--suite", choices=sorted(SUITES), default="P01", help="P01: one call type; P02: the whole company's document")
     parser.add_argument("--out", type=Path)
     parser.add_argument("--runs", type=int, default=1, help="repeat every case (the plan asks for 3)")
     parser.add_argument("--case", action="append", help="only these case ids")
     args = parser.parse_args(argv)
-    cases = json.loads(CASES.read_text(encoding="utf-8"))
+    split = args.suite == "P02"
+    cases_file = SUITES[args.suite]
+    prompt = SPLIT_PROMPT_VERSION if split else PROMPT_VERSION
+    cases = json.loads(cases_file.read_text(encoding="utf-8"))
     if args.case:
         cases = [case for case in cases if case["id"] in args.case]
     llm = Recording(LLMClient())
@@ -163,16 +242,20 @@ async def main(argv: list[str] | None = None) -> int:
 
     run_id = uuid.uuid4().hex
     emit({
-        "type": "run", "run_id": run_id, "started_at": _now(), "prompt": PROMPT_VERSION,
-        "provider": settings.LLM_PROVIDER, "cases_file": CASES.name, "runs": args.runs,
+        "type": "run", "run_id": run_id, "started_at": _now(), "prompt": prompt,
+        "provider": settings.LLM_PROVIDER, "cases_file": f"{args.suite}/{cases_file.name}", "runs": args.runs,
     })
     failed_cases: set[str] = set()
     failed_runs = retried = 0
     for run_number in range(1, args.runs + 1):
         for case in cases:
             before_calls, before_tokens = llm.calls, dict(llm.tokens)
-            result, errors = await run_case(llm, case)
-            failures = check(case["expect"], result) if result else ["no result"]
+            if split:
+                result, errors = await run_split_case(llm, case)
+                failures = check_split(case, result) if result else ["no result"]
+            else:
+                result, errors = await run_case(llm, case)
+                failures = check(case["expect"], result) if result else ["no result"]
             if failures:
                 failed_cases.add(case["id"])
                 failed_runs += 1
@@ -180,13 +263,12 @@ async def main(argv: list[str] | None = None) -> int:
             emit({
                 "type": "case", "id": case["id"], "run": run_number, "pass": not failures,
                 "failures": failures, "errors": errors, "model": llm.model,
-                "steps": [step["label"] for step in (result or {}).get("steps", [])],
-                "objections": [item["category"] for item in (result or {}).get("objections", [])],
+                **_labels(result, split),
                 "reason": (result or {}).get("reason"), "calls": llm.calls - before_calls,
                 **{key: llm.tokens[key] - before_tokens[key] for key in TOKEN_KEYS},
             })
     summary = {
-        "type": "summary", "run_id": run_id, "finished_at": _now(), "prompt": PROMPT_VERSION,
+        "type": "summary", "run_id": run_id, "finished_at": _now(), "prompt": prompt,
         "provider": settings.LLM_PROVIDER, "model": llm.model, "cases": len(cases), "runs": args.runs,
         "failed_cases": len(failed_cases), "failed_case_ids": sorted(failed_cases), "failed_runs": failed_runs,
         "passed_after_retry": retried, "calls": llm.calls, **llm.tokens,

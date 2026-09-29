@@ -85,12 +85,15 @@ def test_list_adds_details_for_every_type(monkeypatch):
         "applies_to": default_applies_to("discovery"),
         "goal": "meeting_booked",
         "catalog": True,
+        "step_count": 0, "answer_count": 0, "has_draft": False,
     }
     assert body["details"]["renewal"] == {
         "label": "Renovación", "role": "ae", "applies_to": rule, "goal": None, "catalog": False,
+        "step_count": 0, "answer_count": 0, "has_draft": False,
     }
     assert body["details"]["qualification"] == {
         "label": None, "role": None, "applies_to": None, "goal": None, "catalog": False,
+        "step_count": 0, "answer_count": 0, "has_draft": False,
     }
 
 

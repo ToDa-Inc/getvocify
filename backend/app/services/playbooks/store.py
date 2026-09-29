@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app.services.playbooks.structured import editor_view
 from app.services.playbooks.versions import (
     PublishError,
     StaleDraftError,
@@ -13,6 +15,8 @@ from app.services.playbooks.versions import (
     parse_ts,
     same_instant,
 )
+
+logger = logging.getLogger(__name__)
 
 SOURCE_PREFIX = "source:"
 _VERSION_COLS = "id,status,steps,entries,created_at,updated_at"
@@ -35,6 +39,17 @@ def _source_view(record: dict | None, source_id: str) -> dict | None:
     return {"id": source_id, "kind": record.get("kind"), "name": str(draft.get("name") or "")}
 
 _UNSET = object()
+
+NO_VERSION_SUMMARY = {"step_count": 0, "answer_count": 0, "has_draft": False}
+
+
+def _summary(version: dict | None, *, has_draft: bool) -> dict:
+    """What the list shows of a playbook: how many steps and objection answers the version
+    the editor opens has (counted the way the editor shows them), and whether a pending
+    draft exists."""
+    view = editor_view(version)
+    return {"step_count": len(view["steps"]), "answer_count": len(view["objections"]), "has_draft": has_draft}
+
 
 
 class MemoryPlaybookStore:
@@ -73,8 +88,9 @@ class MemoryPlaybookStore:
         if sales_motion_key and record.get("status") == "ready":
             self._latest[(company_id, sales_motion_key)] = record
 
-    def save_source(self, company_id: str, key: str, kind: str, name: str | None, text: str) -> dict:
-        """Keeps the original material a playbook was structured from. Creates no version."""
+    def save_source(self, company_id: str, key: str | None, kind: str, name: str | None, text: str) -> dict:
+        """Keeps the original material a playbook was structured from. Creates no version.
+        `key` None = a document for the whole company (not tied to one call type)."""
         del key  # the memory double has no playbook row to attach it to
         source_id = f"{SOURCE_PREFIX}{uuid.uuid4()}"
         self._imports[source_id] = {
@@ -225,6 +241,20 @@ class MemoryPlaybookStore:
             if company == company_id
         }
 
+    def version_summaries(self, company_id: str, *, include_draft: bool = True) -> dict:
+        """key -> {step_count, answer_count, has_draft} for every type that has a version:
+        the pending draft (managers) else the live version."""
+        out: dict = {}
+        keys = {key for (company, key) in list(self._structured) + list(self._published_versions) if company == company_id}
+        for key in keys:
+            draft = self._structured.get((company_id, key))
+            if draft is not None and draft.get("status") != "draft":
+                draft = None
+            live = self._published_versions.get((company_id, key))
+            shown = draft if (include_draft and draft is not None) else live
+            out[key] = _summary(shown, has_draft=include_draft and draft is not None)
+        return out
+
     def save_type_meta(self, company_id: str, key: str, *, label=_UNSET, applies_to=_UNSET) -> None:
         """Saves a type's label and/or routing rule. The type shows up in motions()."""
         self._motions.setdefault(company_id, {}).setdefault(key, "missing")
@@ -294,21 +324,25 @@ class SupabasePlaybookStore:
         ).data or []
         return rows[0] if rows else None
 
-    def save_source(self, company_id: str, key: str, kind: str, name: str | None, text: str) -> dict:
+    def save_source(self, company_id: str, key: str | None, kind: str, name: str | None, text: str) -> dict:
         """Keeps the original material a playbook was structured from (playbook_imports,
-        id `source:{uuid}`). Creates no version."""
-        playbook = self._playbook(company_id, key, create=True)
-        if not playbook:
-            raise RuntimeError("playbook row missing after upsert")
+        id `source:{uuid}`). Creates no version. `key` None = a document for the whole
+        company: the row has no playbook (and no playbook row is created for it, which
+        would list a phantom call type)."""
+        playbook = None
+        if key is not None:
+            playbook = self._playbook(company_id, key, create=True)
+            if not playbook:
+                raise RuntimeError("playbook row missing after upsert")
         source_id = f"{SOURCE_PREFIX}{uuid.uuid4()}"
         self.supabase.table("playbook_imports").insert({
             "id": source_id,
             "company_id": company_id,
-            "playbook_id": playbook["id"],
+            "playbook_id": playbook["id"] if playbook else None,
             "kind": kind,
             "status": "ready",
             "draft": {"text": text, "name": name or "", "source_ref": f"{kind}:{source_id}"},
-            "active_version_id": playbook.get("active_version_id"),
+            "active_version_id": playbook.get("active_version_id") if playbook else None,
         }).execute()
         return {"id": source_id, "kind": kind, "name": name or ""}
 
@@ -571,6 +605,54 @@ class SupabasePlaybookStore:
             for row in rows
             if row.get("sales_motion_key")
         }
+
+    def version_summaries(self, company_id: str, *, include_draft: bool = True) -> dict:
+        """key -> {step_count, answer_count, has_draft} for every type that has a playbook
+        row: the version the editor would open (the pending draft for a manager, else the
+        live one). Three queries however many types there are (the playbook rows, their
+        live versions, their drafts), never one per type. {} when a read fails: the list
+        then shows no counts instead of failing."""
+        try:
+            playbooks = (
+                self.supabase.table("playbooks")
+                .select("id,sales_motion_key,active_version_id")
+                .eq("company_id", company_id)
+                .execute()
+            ).data or []
+            if not playbooks:
+                return {}
+            active = [p["active_version_id"] for p in playbooks if p.get("active_version_id")]
+            live_rows = (
+                self.supabase.table("playbook_versions").select(_VERSION_COLS).in_("id", active).execute()
+            ).data or [] if active else []
+            live_by_id = {row["id"]: row for row in live_rows}
+            drafts_by_playbook: dict = {}
+            draft_rows = (
+                self.supabase.table("playbook_versions")
+                .select(_VERSION_COLS + ",playbook_id")
+                .in_("playbook_id", [p["id"] for p in playbooks])
+                .eq("status", "draft")
+                .execute()
+            ).data or []
+        except Exception:
+            logger.warning("playbook version summaries unavailable", exc_info=True)
+            return {}
+        for row in draft_rows:
+            best = drafts_by_playbook.get(row["playbook_id"])
+            if best is None or is_newer(row.get("created_at"), best.get("created_at")):
+                drafts_by_playbook[row["playbook_id"]] = row
+        out: dict = {}
+        for playbook in playbooks:
+            key = playbook.get("sales_motion_key")
+            if not key:
+                continue
+            live = live_by_id.get(playbook.get("active_version_id"))
+            draft = drafts_by_playbook.get(playbook["id"])
+            if draft is not None and live is not None and not is_newer(draft.get("created_at"), live.get("created_at")):
+                draft = None  # an older draft left behind is not "the draft"
+            pending = include_draft and draft is not None
+            out[key] = _summary(draft if pending else live, has_draft=pending)
+        return out
 
     def save_type_meta(self, company_id: str, key: str, *, label=_UNSET, applies_to=_UNSET) -> None:
         """Saves a type's label and/or routing rule on its playbooks row, creating the row

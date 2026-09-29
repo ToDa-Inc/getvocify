@@ -167,19 +167,12 @@ async def _ask(llm: Any, messages: list[dict]) -> Any:
     return result
 
 
-def _shape(data: Any, folded_source: str) -> dict:
-    """The model's JSON as clipped, de-duplicated raw steps and objections. Raises
-    ValueError when there is nothing usable (not an object, no steps and no
-    "no_process")."""
-    if not isinstance(data, dict):
-        raise ValueError("model output is not an object")
-    raw_steps = data.get("steps")
-    if raw_steps is None:
-        raw_steps = []
-    if not isinstance(raw_steps, list):
-        raise ValueError("steps is not a list")
-    reason = data.get("reason") if data.get("reason") in ("no_process", "grouped") else None
-
+def _shape_content(raw_steps: list, raw_objections: Any, reason: Any, folded_source: str) -> dict:
+    """The rules every path applies to what the model wrote for ONE playbook: clip (never
+    reject), drop an example the source does not contain, at most MAX_AI_STEPS steps
+    (more -> "grouped"), seven objection categories once each. -> {steps, objections,
+    reason: None | "grouped"}. Shared by the per-type and the whole-company flows."""
+    reason = "grouped" if reason == "grouped" else None
     steps: list[dict] = []
     for raw in raw_steps:
         if not isinstance(raw, dict):
@@ -198,7 +191,6 @@ def _shape(data: Any, folded_source: str) -> dict:
 
     objections: list[dict] = []
     seen: set[str] = set()
-    raw_objections = data.get("objections")
     for raw in raw_objections if isinstance(raw_objections, list) else []:
         if not isinstance(raw, dict):
             continue
@@ -208,25 +200,34 @@ def _shape(data: Any, folded_source: str) -> dict:
             continue
         seen.add(category)
         objections.append({"category": category, "guidance": guidance})
+    return {"steps": steps, "objections": objections, "reason": reason}
 
-    if not steps:
-        if reason != "no_process":
+
+def _shape(data: Any, folded_source: str) -> dict:
+    """The model's JSON as clipped, de-duplicated raw steps and objections. Raises
+    ValueError when there is nothing usable (not an object, no steps and no
+    "no_process")."""
+    if not isinstance(data, dict):
+        raise ValueError("model output is not an object")
+    raw_steps = data.get("steps")
+    if raw_steps is None:
+        raw_steps = []
+    if not isinstance(raw_steps, list):
+        raise ValueError("steps is not a list")
+    said = data.get("reason") if data.get("reason") in ("no_process", "grouped") else None
+    content = _shape_content(raw_steps, data.get("objections"), said, folded_source)
+    if not content["steps"]:
+        if said != "no_process":
             raise ValueError("model returned no steps")
         return {"steps": [], "objections": [], "reason": "no_process"}
-    if reason == "no_process":
-        reason = None  # it did find steps: trust them over the label
-    return {"steps": steps, "objections": objections, "reason": reason}
+    return content  # steps found: trusted over a "no_process" label
 
 
 def _generic_indexes(steps: list[dict]) -> list[int]:
     return [i for i, step in enumerate(steps) if generic_criterion(step.get("criterion", ""))]
 
 
-def _retry_note(steps: list[dict], indexes: list[int]) -> str:
-    lines = []
-    for i in indexes:
-        found = ", ".join(f'"{phrase}"' for phrase in generic_phrases(steps[i]["criterion"]))
-        lines.append(f'- step {i + 1} ("{steps[i]["label"]}"): {found}')
+def _retry_message(lines: list[str]) -> str:
     return (
         "These criteria describe an attitude, not something observable in a transcript:\n"
         + "\n".join(lines)
@@ -234,6 +235,18 @@ def _retry_note(steps: list[dict], indexes: list[int]) -> str:
         "what the prospect says or agrees to, using only what the source supports. Keep every "
         "other step exactly as it was."
     )
+
+
+def _retry_lines(steps: list[dict], indexes: list[int], prefix: str = "") -> list[str]:
+    lines = []
+    for i in indexes:
+        found = ", ".join(f'"{phrase}"' for phrase in generic_phrases(steps[i]["criterion"]))
+        lines.append(f'- {prefix}step {i + 1} ("{steps[i]["label"]}"): {found}')
+    return lines
+
+
+def _retry_note(steps: list[dict], indexes: list[int]) -> str:
+    return _retry_message(_retry_lines(steps, indexes))
 
 
 def _finish(shaped: dict, *, fallback: bool, short: bool) -> dict:
@@ -263,6 +276,36 @@ def _line_fallback(source: str, *, short: bool, fallback: bool) -> dict:
     return _finish({"steps": raw, "objections": [], "reason": None}, fallback=fallback, short=short)
 
 
+def _client(llm: Any) -> Any:
+    client = llm if llm is not None else _llm
+    if client is None:
+        from app.services.llm import LLMClient
+
+        client = LLMClient()
+    return client
+
+
+async def _ask_with_retry(client: Any, messages: list[dict], shape, generic_of, note_of, usable) -> Any:
+    """The model call every path shares: ask, shape, and ask ONCE more (the whole call, with
+    a note naming the attitude criteria) when any criterion is generic. At most two calls,
+    each bounded by TIMEOUT_S. A first call that fails raises; a failing retry keeps the
+    first answer. `shape` may raise ValueError for an unusable answer."""
+    first_raw = await asyncio.wait_for(_ask(client, messages), TIMEOUT_S + 5)
+    shaped = shape(first_raw)
+    if generic_of(shaped):
+        try:
+            retry_messages = messages + [
+                {"role": "assistant", "content": json.dumps(first_raw, ensure_ascii=False)},
+                {"role": "user", "content": note_of(shaped)},
+            ]
+            second = shape(await asyncio.wait_for(_ask(client, retry_messages), TIMEOUT_S + 5))
+            if usable(second):
+                shaped = second
+        except Exception as exc:  # the first answer is still usable
+            logger.warning("playbook structure retry failed: %s", type(exc).__name__)
+    return shaped
+
+
 async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = None) -> dict:
     """{steps, objections, reason, fallback} for one source. `reason`: None, "no_process"
     (the source has no process), "too_short" (too little to be one; the steps are what it
@@ -277,30 +320,15 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
     folded_source = _fold(source[:MAX_SOURCE_CHARS])
 
     try:
-        client = llm if llm is not None else _llm
-        if client is None:
-            from app.services.llm import LLMClient
-
-            client = LLMClient()
-        messages = _messages(source, motion_key, lang)
-        first_raw = await asyncio.wait_for(_ask(client, messages), TIMEOUT_S + 5)
-        shaped = _shape(first_raw, folded_source)
-
+        shaped = await _ask_with_retry(
+            _client(llm),
+            _messages(source, motion_key, lang),
+            lambda raw: _shape(raw, folded_source),
+            lambda s: _generic_indexes(s["steps"]),
+            lambda s: _retry_note(s["steps"], _generic_indexes(s["steps"])),
+            lambda s: bool(s["steps"]),
+        )
         generic = _generic_indexes(shaped["steps"])
-        if generic:
-            try:
-                retry_messages = messages + [
-                    {"role": "assistant", "content": json.dumps(first_raw, ensure_ascii=False)},
-                    {"role": "user", "content": _retry_note(shaped["steps"], generic)},
-                ]
-                second = _shape(
-                    await asyncio.wait_for(_ask(client, retry_messages), TIMEOUT_S + 5), folded_source,
-                )
-                if second["steps"]:
-                    shaped = second
-            except Exception as exc:  # the first answer is still usable
-                logger.warning("playbook structure retry failed: %s", type(exc).__name__)
-            generic = _generic_indexes(shaped["steps"])
 
         if not shaped["steps"]:  # no_process
             if short:
@@ -316,3 +344,118 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
     except Exception as exc:  # model error, timeout, bad JSON, nothing usable: never blocks
         logger.warning("playbook structure fell back to the line parser: %s", type(exc).__name__)
         return _line_fallback(source, short=short, fallback=True)
+
+
+# --- the whole company's document: which call types does it cover? ---------------------------
+
+SPLIT_PROMPT_VERSION = "playbook_split_v1"
+_SPLIT_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{SPLIT_PROMPT_VERSION}.md"
+
+
+@lru_cache(maxsize=1)
+def _split_prompt() -> str:
+    return _SPLIT_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def _split_messages(source: str, candidates: list[dict], lang: str) -> list[dict]:
+    listing = "\n".join(
+        f"- key: {c['key']} | name: {c['label']} | {c.get('description') or 'no description'}" for c in candidates
+    )
+    user = (
+        f"Company language: {'English' if lang == 'en' else 'Spanish'}\n\n"
+        f"Candidate call types (use only these keys):\n{listing}\n\n"
+        f'Source:\n"""\n{source[:MAX_SOURCE_CHARS]}\n"""'
+    )
+    return [{"role": "system", "content": _split_prompt()}, {"role": "user", "content": user}]
+
+
+def _shape_split(data: Any, allowed: set[str], folded_source: str) -> dict:
+    """The model's `{"types": [...]}` as clipped raw content per candidate type (first entry
+    wins per key; a key that is not a candidate, or a type with no steps, is dropped).
+    `{"types": []}` is valid: the source has no process. Raises ValueError when the answer
+    is not usable at all (not an object, no list, only unknown keys)."""
+    if not isinstance(data, dict):
+        raise ValueError("model output is not an object")
+    raw_types = data.get("types")
+    if raw_types is None and data.get("reason") == "no_process":
+        raw_types = []
+    if not isinstance(raw_types, list):
+        raise ValueError("types is not a list")
+    out: list[dict] = []
+    seen: set[str] = set()
+    unknown = 0
+    for raw in raw_types:
+        key = str(raw.get("key") or "").strip() if isinstance(raw, dict) else ""
+        if key not in allowed:
+            unknown += 1
+            continue
+        raw_steps = raw.get("steps")
+        if key in seen or not isinstance(raw_steps, list):
+            continue
+        content = _shape_content(raw_steps, raw.get("objections"), raw.get("reason"), folded_source)
+        if not content["steps"]:
+            continue
+        seen.add(key)
+        out.append({"key": key, **content})
+    if raw_types and not out and unknown:
+        raise ValueError("model named no candidate type")
+    return {"types": out}
+
+
+def _split_generic(shaped: dict) -> dict[str, list[int]]:
+    found = {item["key"]: _generic_indexes(item["steps"]) for item in shaped["types"]}
+    return {key: indexes for key, indexes in found.items() if indexes}
+
+
+def _split_note(shaped: dict) -> str:
+    lines: list[str] = []
+    for item in shaped["types"]:
+        indexes = _generic_indexes(item["steps"])
+        lines += _retry_lines(item["steps"], indexes, prefix=f'type "{item["key"]}", ')
+    return _retry_message(lines)
+
+
+async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None) -> dict:
+    """One model call for a whole company's document. `candidates` is [{key, label,
+    description?}]. -> {types: [{key, reason, steps, objections}], reason: None | "no_process",
+    fallback: bool}; each type went through the same rules as structure_source (clip, at most
+    MAX_AI_STEPS steps and "grouped", literal examples, one retry when a criterion is an
+    attitude then blank it, normalize), so it always saves. `fallback` is true when the model
+    failed or returned nothing usable: no type is guessed, the caller asks the manager which
+    call type the source is. Never raises."""
+    source = (text or "").strip()
+    lang = "en" if (lang or "").lower().startswith("en") else "es"
+    if not _letters(source) or not candidates:
+        return {"types": [], "reason": "no_process", "fallback": False}
+    short = _letters(source) < MIN_SOURCE_CHARS
+    folded_source = _fold(source[:MAX_SOURCE_CHARS])
+    allowed = {c["key"] for c in candidates}
+    try:
+        shaped = await _ask_with_retry(
+            _client(llm),
+            _split_messages(source, candidates, lang),
+            lambda raw: _shape_split(raw, allowed, folded_source),
+            _split_generic,
+            _split_note,
+            lambda s: bool(s["types"]),
+        )
+        if not shaped["types"]:
+            if short:  # too little to tell what it is: let the manager pick the call type
+                return {"types": [], "reason": None, "fallback": True}
+            return {"types": [], "reason": "no_process", "fallback": False}
+        types = []
+        for item in shaped["types"]:
+            generic = _generic_indexes(item["steps"])
+            result = _finish(item, fallback=False, short=short)
+            for index in generic:
+                result["steps"][index]["criterion"] = ""
+            types.append({
+                "key": item["key"],
+                "reason": result["reason"],
+                "steps": result["steps"],
+                "objections": result["objections"],
+            })
+        return {"types": types, "reason": None, "fallback": False}
+    except Exception as exc:  # model error, timeout, bad JSON: never a 500, never a guessed type
+        logger.warning("playbook split failed, asking for the call type: %s", type(exc).__name__)
+        return {"types": [], "reason": None, "fallback": True}
