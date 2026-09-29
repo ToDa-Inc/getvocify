@@ -243,41 +243,62 @@ def resolve_motion(
     contact_id: Optional[str] = None,
     deal_id: Optional[str] = None,
     exclude_memo_id: Optional[str] = None,
-) -> tuple[Optional[str], Optional[str]]:
-    """(motion, "rule" | "role_default" | None) with the company's rules and what is known
-    of the contact and deal. Raises on a broken rules read: the caller falls back to D5."""
+) -> tuple[Optional[str], Optional[str], bool]:
+    """(motion, "rule" | "role_default" | None, provisional) with the company's rules and
+    what is known of the contact and deal. `provisional` = a signal some published rule for
+    this role and channel depends on was unknown, so the answer may change once it is known.
+    Raises on a broken rules read: the caller falls back to D5."""
     rules = load_rules(supabase, company_id)
+    need = _needs(rules, sales_role, interaction_kind)
     context = build_context(
         supabase,
         company_id,
-        _needs(rules, sales_role, interaction_kind),
+        need,
         contact_id=contact_id,
         deal_id=deal_id,
         exclude_memo_id=exclude_memo_id,
     )
-    return route(sales_role, interaction_kind, context, rules)
+    provisional = (
+        (need["contact"] and context["contact"] is None)
+        or (need["inbound"] and context["inbound"] is None)
+        or (need["stage"] and context["deal_stage"] is None)
+    )
+    motion, why = route(sales_role, interaction_kind, context, rules)
+    return motion, why, bool(provisional)
 
 
-def merge_pin_meta(existing: Any, source: str, **extra: Any) -> dict:
-    """pipeline_meta with playbook_pin = {source, ...}. Other keys are kept."""
+def merge_pin_meta(existing: Any, source: str, *, provisional: bool = False, **extra: Any) -> dict:
+    """pipeline_meta with playbook_pin = {source, provisional?, ...}. Other keys are kept.
+    source: "rule" | "role_default" | "manual". A "role_default" or provisional pin is one
+    repin_before_c04 may still move; a manual one, or a rule match decided with everything
+    it needed, never moves."""
     meta = dict(existing) if isinstance(existing, dict) else {}
-    meta[PIN_META_KEY] = {"source": source, **extra}
+    pin: dict = {"source": source}
+    if provisional:
+        pin["provisional"] = True
+    meta[PIN_META_KEY] = {**pin, **extra}
     return meta
 
 
+def is_repinnable(pipeline_meta: Any) -> bool:
+    pin = pipeline_meta.get(PIN_META_KEY) if isinstance(pipeline_meta, dict) else None
+    if not isinstance(pin, dict):
+        return False
+    return pin.get("source") == "role_default" or (pin.get("source") == "rule" and bool(pin.get("provisional")))
+
+
 def repin_before_c04(supabase: Any, memo: dict) -> dict:
-    """A memo pinned by the role default at capture time (the deal or contact was not known
-    yet: Recall or desktop meetings) is routed again with what is known now, right before
-    C04 reads its steps. Only a routing-flag pin marked "role_default" moves, and only to a
-    published rule match: an explicit, manual or already re-pinned memo is left alone, which
-    also makes a second run a no-op. Never raises."""
+    """A memo pinned by the role default, or by a rule while the deal or contact was not
+    known yet (Recall or desktop meetings), is routed again with what is known now, right
+    before C04 reads its steps. Only a routing-flag pin marked "role_default" or provisional
+    moves, and only to a published rule match: an explicit, manual or fully decided memo is
+    left alone, and a second run finds the same answer, so it is a no-op. Never raises."""
     try:
         company_id = memo.get("company_id")
         memo_id = memo.get("id")
         if not company_id or not memo_id or not routing_enabled(supabase, company_id):
             return memo
-        pin = (memo.get("pipeline_meta") or {}).get(PIN_META_KEY) if isinstance(memo.get("pipeline_meta"), dict) else None
-        if not isinstance(pin, dict) or pin.get("source") != "role_default":
+        if not is_repinnable(memo.get("pipeline_meta")):
             return memo
         from app.services.captures import active_playbook_version, interaction_kind_of
         from app.services.company import sales_role_for_user
@@ -285,7 +306,7 @@ def repin_before_c04(supabase: Any, memo: dict) -> dict:
 
         if not is_enabled(supabase, company_id, SALES_ROLES_FLAG):
             return memo
-        motion, why = resolve_motion(
+        motion, why, provisional = resolve_motion(
             supabase,
             str(company_id),
             sales_role=sales_role_for_user(supabase, str(memo.get("user_id") or ""), company_id=str(company_id)),
@@ -302,7 +323,9 @@ def repin_before_c04(supabase: Any, memo: dict) -> dict:
         update = {
             "sales_motion_key": motion,
             "playbook_version_id": str(version),
-            "pipeline_meta": merge_pin_meta(memo.get("pipeline_meta"), "rule", repinned_from=memo.get("sales_motion_key")),
+            "pipeline_meta": merge_pin_meta(
+                memo.get("pipeline_meta"), "rule", provisional=provisional, repinned_from=memo.get("sales_motion_key"),
+            ),
         }
         supabase.table("memos").update(update).eq("id", str(memo_id)).execute()
         return {**memo, **update}
