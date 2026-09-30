@@ -43,6 +43,8 @@ Cuando las ventas no van bien, hay dos causas, y el dashboard tiene que distingu
 | **Proceso de venta** | ¿Cuál es mi proceso, y está funcionando? |
 | **Ajustes** | Equipo, permisos, objetivos, integraciones, notificaciones |
 
+> **Actualizado el 2026-09-30:** la navegación es ahora **Inicio · Interacciones · Equipo · Ajustes** (ver «Estado (2026-09-30)» más abajo). Resumen pasa a ser una pestaña de Equipo y Proceso de venta vive en Ajustes. La tabla de arriba es el diseño original.
+
 Lo que en otros dashboards serían pestañas propias se reubica:
 - Objeciones, competidores y motivos de pérdida van dentro de *Proceso de venta → Salud*.
 - El pipeline en riesgo va en el email semanal. La pestaña Pipeline completa, con forecast, queda para V2.
@@ -252,12 +254,31 @@ Gran parte de H0–H4 ya existía en `staging` (Listas 2–4): `sales_role` sdr/
 
 - ✅ **Retirada la página paralela de la fase 1** (`/dashboard/sales-team`): contaba llamadas desde `outbound_calls` mientras Equipo cuenta desde `memos.screening_outcome` — dos productores del mismo hecho.
 - ✅ **064** repara `sales_role` donde se ejecutó a mano el borrador 037 (vuelve al contrato de 054).
-- ✅ **Navegación del Head of Sales (§2):** Resumen · Equipo · Proceso de venta · Ajustes; Preguntar en la barra superior, sin Llamar. Sin Hoy, Notas de voz ni Copiloto (sus rutas siguen, sin enlace). Si el Head of Sales también vende (`repWorkspace`), Resumen enlaza a «Mi día».
-- ✅ **Resumen (§3.1)** en `/dashboard`: una frase de diagnóstico (¿equipo o proceso?), 4 cifras con comparación contra el mismo tramo anterior (por defecto «Este mes») y el embudo intentos → conversaciones → reuniones.
+- ✅ **Navegación del Head of Sales (§2):** Resumen · Equipo · Proceso de venta · Ajustes; Preguntar en la barra superior, sin Llamar. *(Sustituido el 2026-09-30: ver más abajo. Preguntar ya no está en la barra superior.)* Sin Hoy, Notas de voz ni Copiloto (sus rutas siguen, sin enlace). Si el Head of Sales también vende (`repWorkspace`), Resumen enlaza a «Mi día».
+- ✅ **Resumen (§3.1)** en `/dashboard` *(desde el 2026-09-30 está en `/dashboard/insights?tab=summary`)*: una frase de diagnóstico (¿equipo o proceso?), 4 cifras con comparación contra el mismo tramo anterior (por defecto «Este mes») y el embudo intentos → conversaciones → reuniones.
 - ✅ **Equipo (§3.2):** tabla por persona, alfabética, con mediana, total y CSV; enlace a la ficha si `MANAGER_HOME_ENABLED`.
-- ✅ **Proceso de venta (§4–5)** en `/dashboard/process`: «¿Falla el comercial o el playbook?» por flujo (siguen/no siguen × consiguen/no el objetivo, mínimo 10 por grupo; closing no se inventa), objeciones y competidores, y el editor de playbooks (movido desde Ajustes; `/dashboard/settings/playbooks` redirige).
+- ✅ **Proceso de venta (§4–5)** en `/dashboard/process` *(desde el 2026-09-30 redirige a Ajustes; la salud y las objeciones están en Personas)*: «¿Falla el comercial o el playbook?» por flujo (siguen/no siguen × consiguen/no el objetivo, mínimo 10 por grupo; closing no se inventa), objeciones y competidores, y el editor de playbooks (movido desde Ajustes; `/dashboard/settings/playbooks` redirige).
 - Comerciales sin cambios: su menú, su barra superior y Equipo con `visibility=team` son los de la Lista 4.
 - ⏳ Pendiente: impacto por paso del playbook y recomendaciones aplicables (§5.2), objetivos, matriz de permisos.
+
+### Estado (2026-09-30, rama `feat/home-dashboard`)
+
+Diseño y decisiones: `docs/superpowers/specs/2026-09-30-dashboard-home-and-interaction-types-design.md`. Qué cambia para el Head of Sales:
+
+- ✅ **Navegación (sustituye al §2):** **Inicio · Interacciones · Equipo · Ajustes**. Se retiran de la barra superior el botón Preguntar y el icono de salir; queda el menú del avatar (Perfil, Idioma, Tema, Cerrar sesión).
+- ✅ **Resumen dentro de Equipo:** es una pestaña junto a Personas, `/dashboard/insights?tab=summary|people`, con un solo filtro de período y puesto para las dos. `/dashboard/process` ya no existe como página.
+- ✅ **Personas** (`?tab=people`): la tabla por persona y, debajo, cuando hay datos, la salud del proceso (§5) y las objeciones, que estaban en Proceso de venta.
+- ✅ **Ajustes → «Playbooks e interacciones»** (`/dashboard/settings/playbooks`): los playbooks y los tipos de interacción, con su estado. `/dashboard/process` redirige aquí.
+- ✅ **Interacciones** (`/dashboard/interactions`, sustituye a las notas de voz): cada captura con su **canal** (llamada, reunión, visita, nota de voz; automático) y su **tipo** (los de la empresa, o «Interna», que no se puntúa). El tipo se cambia en un clic.
+- ✅ **Inicio** (`/dashboard`): el compositor de Preguntar, hasta 3 sugerencias, las últimas 8 interacciones y, a la derecha, **como mucho 3 señales del equipo**. Hacer clic en una señal rellena el compositor sin enviar. Preguntar también se abre con Cmd/Ctrl+K desde cualquier página. Sin KPIs ni gráficos en Inicio.
+
+**Señales del equipo en Inicio** (calculadas en el cliente con reglas, sin texto escrito por IA, y nunca ordenadas entre personas):
+
+1. **Diagnóstico del proceso** (§0): solo las frases que nombran un problema (arreglar el playbook, el playbook no cambia el resultado, hacer coaching).
+2. **Caída de adherencia:** ≥ 15 puntos, con ≥ 30 llamadas puntuadas en ambos períodos, en las últimas 4 semanas frente a las 4 anteriores (`/team/adherence/trend`). Si la tendencia no está disponible, la regla calla y las demás siguen.
+3. **Comercial sin intentos** en los últimos 30 días.
+
+Si hay más de 3, se conservan las de las reglas anteriores.
 
 **H1 es bloqueante para el plan de coaching**, porque sin proceso no hay nada contra lo que puntuar.
 

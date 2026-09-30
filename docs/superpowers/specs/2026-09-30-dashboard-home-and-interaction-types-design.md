@@ -41,13 +41,18 @@ in the main panel, Today condensed on the side, and Settings reorganised.
 - R7. **Team signals** are built client-side from `GET /team/adherence` with the existing
   `summaryDiagnosis` rules plus a per-rep adherence-drop rule. No AI-written signals.
 - R8. **Dark mode** ships last (own task); the `.dark` variables already exist.
+- R9. **Dark mode is dashboard-only, with a custom `DashboardThemeProvider`, not next-themes.**
+  next-themes is built for the app root and never removes its class on unmount, and its anti-FOUC
+  script does not run in this client-only SPA. The provider wraps `/dashboard`, stores the choice
+  under `vocify-theme` (light, dark, system; garbage or blocked storage gives system) and removes
+  `.dark` on leaving. Login, marketing and auth pages stay light. `next-themes` is now an unused dependency.
 
 ## Design
 
 ### Navigation
 - Manager: Inicio · Interacciones · Equipo · Ajustes.
 - Rep: Inicio · Interacciones · Coaching · Ajustes.
-- Top bar: Llamar (reps who can dial) and avatar menu (Perfil, Idioma, Tema, Salir). No Ask pill.
+- Top bar: Llamar (reps who can dial) and avatar menu (Perfil, Idioma, Tema, Cerrar sesión). No Ask pill.
 - Old routes keep working via redirects: `/dashboard/memos`→`/dashboard/interactions`,
   `/dashboard/process`→`/dashboard/settings/playbooks`, `/dashboard/playbook`→`/dashboard/coach?tab=playbook`.
   `/dashboard/today` (full RepHome) stays as is.
@@ -85,6 +90,13 @@ evidence. One click: `/today`, memo detail, Equipo. Never on Inicio: KPI tiles, 
 New account: composer only, no invented suggestions, one line "Graba tu primera llamada". Nothing
 due: "Todo al día". Feed capped at 8 on Inicio at any volume; Interacciones paginates (0, 12, 80,
 400 rows). No page scroll on Inicio; only the thread scrolls.
+
+## Shipped differently from the design above
+- Signal click prefills the composer without sending, so the manager can edit the question.
+- The rep rail is hidden for reps whose company has the rep workspace off (its reads are gated and would 404). Managers keep the signals rail.
+- The retag menu offers only published types plus Interna, since a draft or paused type cannot score.
+- The adherence-drop rule uses `/team/adherence/trend` (last 4 weeks against the 4 before, adherence as summed met over summed applicable steps), because `/team/adherence` has no per-rep previous period.
+- Rail meetings and counts link to `/dashboard/today`; Inicio's Esc/"Nuevo" leaves a home question and every home question starts a new conversation.
 
 ## Out of scope
 Calls-to-review, KPI strip, manager's own Hoy, memo-type backfill, calendar-attendee detection,
