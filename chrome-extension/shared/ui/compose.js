@@ -21,8 +21,9 @@ export function composeTarget({ channel, to = '', phone = '', subject = '', body
     return { ok: true, url: `https://wa.me/${digits}?${query({ text: body })}` };
   }
 
+  // No address is fine: the draft opens and the rep types the "To" in their mail.
   const address = String(to).trim();
-  if (!EMAIL.test(address)) return { ok: false, reason: 'no_email' };
+  if (address && !EMAIL.test(address)) return { ok: false, reason: 'no_email' };
 
   if (mailClient === 'gmail') {
     return { ok: true, url: `https://mail.google.com/mail/?${query({ view: 'cm', fs: '1', to: address, su: subject, body })}` };

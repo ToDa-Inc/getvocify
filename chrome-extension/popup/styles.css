@@ -2272,3 +2272,17 @@ body {
   width: 14px;
   height: 14px;
 }
+
+/* Post-call review tabs: who/deal scrolls away, the tabs stay, Confirm stays in the footer. */
+.review-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 14px -16px 0;
+  padding: 0 12px;
+  background: var(--cream);
+}
+.call-insights [data-review-panel] { display: flex; flex-direction: column; gap: 8px; }
+.call-insights [data-review-panel][hidden] { display: none; }
+.call-insights .section-rail.section-rail--tab { margin: 0; padding-top: 0; border-top: 0; justify-content: flex-end; }
+.review-panel-empty { margin: 8px 0 0; font-size: 13px; color: var(--muted); }

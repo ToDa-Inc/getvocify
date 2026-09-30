@@ -80,6 +80,10 @@ If the day or time changed during the conversation, use the last one both sides 
   "unknown" when you cannot tell from the transcript; quote is null.
   Judge only against the step's criterion, never against general sales advice. Doing
   something similar is not "met" unless it meets the criterion.
+  A step is the rep's own action. When a criterion also names the prospect's reaction
+  ("and the prospect accepts", "the prospect names a problem"), the step is "met" when the
+  rep did their part as described, whatever the prospect answered; the prospect's answer is
+  the call's outcome (meeting, interest), never a missed step.
 
 - qualification_observations: only when playbook_qualification is present, one entry per
   criterion, in the same order, with its criterion_id exactly as given. It is what the rep

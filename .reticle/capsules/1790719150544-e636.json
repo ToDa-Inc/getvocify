@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "1790719150544-e636",
+  "createdAt": 1790719150545,
+  "origin": "failed-assert",
+  "expected": "declared consequence",
+  "observed": "expected element to be absent but found 1",
+  "steps": [
+    {
+      "tool": "reticle_act",
+      "anchor": {
+        "kind": "testid",
+        "value": "e636",
+        "source": {
+          "file": "src/components/dashboard/memos/ReviewTabs.tsx",
+          "line": 73,
+          "column": 9
+        }
+      },
+      "action": "click"
+    }
+  ]
+}

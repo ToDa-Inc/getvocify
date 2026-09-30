@@ -12,10 +12,13 @@ import {
   shouldApplyBriefResponse,
 } from '../shared/ui/brief.js';
 import { paintBriefBox } from '../lib/contact-brief-box.js';
-import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
+import '../shared/ui/components/v-review-tabs.js';
 import { renderDoneMark } from '../shared/ui/components/done-mark.js';
 import { flashCopied, hydrateAnimIcons } from '../shared/ui/components/anim-icon.js';
+import '../shared/ui/components/v-debrief.js';
+import { debriefNeedsPoll, hasCoaching } from '../shared/ui/components/debrief.js';
+import { activeReviewTab, reviewTabs, showReviewPanel } from '../shared/ui/components/review-tabs.js';
 import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
 import {
@@ -393,6 +396,70 @@ const FOLLOWUP_POLL_MS = 1500;
 const FOLLOWUP_MAX_POLLS = 25;
 let followupTimer = null;
 
+// Post-call review tabs. Who/deal sits above them, Confirm below; panels hide, never unmount.
+const reviewTabsEl = document.getElementById('review-tabs');
+const reviewTabsState = { memoId: null, active: 'note', fields: 0, tasks: 0, followupStatus: null, coaching: false };
+
+function paintReviewTabs() {
+  if (!reviewTabsEl) return;
+  const tabs = reviewTabs({
+    fieldCount: reviewTabsState.fields,
+    taskCount: reviewTabsState.tasks,
+    followupStatus: reviewTabsState.followupStatus,
+    coaching: reviewTabsState.coaching,
+  });
+  reviewTabsState.active = activeReviewTab(tabs, reviewTabsState.active);
+  reviewTabsEl.lang = popupUiLang();
+  reviewTabsEl.data = { tabs, active: reviewTabsState.active };
+  showReviewPanel(document.getElementById('call-insights-section'), reviewTabsState.active);
+}
+
+/** A different call opens on its note; the same call keeps the tab the rep was on. */
+function resetReviewTabsFor(memoId) {
+  if (sameMemoId(reviewTabsState.memoId, memoId)) return;
+  Object.assign(reviewTabsState, { memoId, active: 'note', fields: 0, tasks: 0, followupStatus: null, coaching: false });
+  paintReviewTabs();
+  loadDebrief(memoId);
+}
+
+// Coaching: the debrief arrives after the call; the tab appears when there is something to read.
+const debriefEl = document.getElementById('review-debrief');
+const DEBRIEF_POLL_MS = 2000;
+const DEBRIEF_MAX_POLLS = 40;
+let debriefTimer = null;
+
+async function loadDebrief(memoId, attempt = 0) {
+  clearTimeout(debriefTimer);
+  if (!debriefEl || !sameMemoId(reviewTabsState.memoId, memoId)) return;
+  if (attempt === 0) debriefEl.data = null;
+  let brief = null;
+  try {
+    brief = await api.get(`/memos/${memoId}/brief`);
+  } catch {
+    brief = null;
+  }
+  if (!sameMemoId(reviewTabsState.memoId, memoId)) return;
+  if (brief) {
+    debriefEl.lang = popupUiLang();
+    debriefEl.data = brief;
+  }
+  reviewTabsState.coaching = hasCoaching(brief);
+  paintReviewTabs();
+  if (brief && debriefNeedsPoll(brief) && attempt < DEBRIEF_MAX_POLLS) {
+    debriefTimer = setTimeout(() => loadDebrief(memoId, attempt + 1), DEBRIEF_POLL_MS);
+  }
+}
+
+reviewTabsEl?.addEventListener('v-action', (event) => {
+  const { action, value } = event.detail;
+  if (action !== 'tab' || !value) return;
+  reviewTabsState.active = value;
+  paintReviewTabs();
+  // Switching from deep in a long panel lands at the top of the new one, tabs still in view.
+  const scroller = document.getElementById('proposed-changes-main');
+  if (scroller && scroller.scrollTop > reviewTabsEl.offsetTop) scroller.scrollTop = reviewTabsEl.offsetTop;
+});
+
 function stopFollowup() {
   clearTimeout(followupTimer);
   followupTimer = null;
@@ -400,52 +467,36 @@ function stopFollowup() {
   followupEl.hidden = true;
   followupEl.data = null;
   delete followupEl.dataset.memoId;
-  const noteForm = document.getElementById('review-note');
-  if (noteForm) noteForm.hidden = true;
+  reviewTabsState.followupStatus = null;
+  paintReviewTabs();
 }
-
-document.getElementById('review-note')?.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const memoId = form.dataset.memoId;
-  const field = document.getElementById('review-note-text');
-  const status = document.getElementById('review-note-status');
-  const body = noteSaveBody(
-    field?.value,
-    noteOffsetMsFromReviewAudio(document.getElementById('review-audio')),
-  );
-  if (!memoId || !body) return;
-  try {
-    await api.put(`/memos/${memoId}/annotations/note-${crypto.randomUUID()}`, body);
-    if (field) field.value = '';
-    if (status) status.textContent = 'Nota guardada';
-  } catch {
-    if (status) status.textContent = 'No se pudo guardar la nota';
-  }
-});
 
 async function loadFollowup(memoId, attempt = 0) {
   clearTimeout(followupTimer);
-  const noteForm = document.getElementById('review-note');
-  if (noteForm && isCurrentReviewMemo(memoId)) {
-    noteForm.hidden = false;
-    noteForm.dataset.memoId = memoId;
-  }
   if (!followupEl || !isCurrentReviewMemo(memoId)) return;
   let view;
   try {
     view = await api.get(`/memos/${memoId}/followup`);
   } catch {
     followupEl.hidden = true;
+    reviewTabsState.followupStatus = null;
+    paintReviewTabs();
     return;
   }
   if (!isCurrentReviewMemo(memoId)) return;
   followupEl.dataset.memoId = memoId;
   followupEl.hidden = view.status === 'unavailable';
-  followupEl.data = view;
+  followupEl.data = { ...view, mailClient: savedMailClient() };
+  reviewTabsState.followupStatus = view.status;
+  paintReviewTabs();
   if (view.status === 'generating' && attempt < FOLLOWUP_MAX_POLLS) {
     followupTimer = setTimeout(() => loadFollowup(memoId, attempt + 1), FOLLOWUP_POLL_MS);
   }
+}
+
+const MAIL_CLIENT_KEY = 'vocify_mail_client';
+function savedMailClient() {
+  try { return localStorage.getItem(MAIL_CLIENT_KEY); } catch { return null; }
 }
 
 function openFollowupTarget(url) {
@@ -455,6 +506,10 @@ function openFollowupTarget(url) {
 
 followupEl?.addEventListener('v-action', async (event) => {
   const { action, value, element } = event.detail;
+  if (action === 'client') {
+    try { localStorage.setItem(MAIL_CLIENT_KEY, value); } catch { /* the pick just isn't remembered */ }
+    return;
+  }
   const memoId = element.dataset.memoId;
   const view = element.data;
   if (!memoId || !view) return;
@@ -468,7 +523,7 @@ followupEl?.addEventListener('v-action', async (event) => {
       return;
     }
     const channel = value === 'whatsapp' ? 'whatsapp' : 'email';
-    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
+    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body, mailClient: value });
     const url = target.ok ? target.url : target.fallback;
     if (!url) return;
     if (!target.ok) await navigator.clipboard.writeText(body);
@@ -2037,6 +2092,7 @@ function cachedReviewMemo(memoId) {
 
 async function handleReviewState(memoId, context) {
   startSessionHeartbeat();
+  resetReviewTabsFor(memoId);
   loadFollowup(memoId);
   const gen = ++reviewFetchGen;
   const cached = cachedReviewMemo(memoId);
@@ -2308,9 +2364,12 @@ function renderCopilotNoteView({ force = false } = {}) {
 
 function syncCrmFieldsSection({ updates, availableCount }) {
   const section = document.getElementById('crm-fields-section');
-  if (section) {
-    section.style.display = shouldShowCrmFieldsSection({ updates, availableCount }) ? '' : 'none';
-  }
+  const show = shouldShowCrmFieldsSection({ updates, availableCount });
+  if (section) section.style.display = show ? '' : 'none';
+  const empty = document.getElementById('review-fields-empty');
+  if (empty) empty.hidden = show;
+  reviewTabsState.fields = Array.isArray(updates) ? updates.length : 0;
+  paintReviewTabs();
 }
 
 /** Show a quiet retarget when the live HubSpot tab is no longer this review. */
@@ -3039,6 +3098,10 @@ function renderActionItems() {
     });
     list.appendChild(row);
   });
+  const empty = document.getElementById('review-tasks-empty');
+  if (empty) empty.hidden = reviewActionItems.length > 0;
+  reviewTabsState.tasks = reviewActionItems.length;
+  paintReviewTabs();
 }
 
 function addActionItem(text = '') {

@@ -268,3 +268,127 @@ def test_objection_without_objections_is_not_scored_or_penalized():
     off = build_score_from_extraction(extraction=EASY_EXTRACTION, memo=MEMO, input_revision="rev-easy", objection_credit_enabled=False)
     assert on["value"] == off["value"]
     assert on["applicable_steps"] == off.get("applicable_steps")
+
+
+# Coherence with the playbook: a mark needs enough steps judged, and objections only count
+# against the playbook when the playbook says how to answer them.
+
+def _steps_extraction(statuses: list[str], *, revision: str = "rev-cov") -> dict:
+    observations = [
+        {
+            "step_id": f"s{index}",
+            "label": f"Paso {index}",
+            "criterion": f"Hace el paso {index}",
+            "status": status,
+            "quote": "Quedamos el jueves" if status in {"met", "missed"} else None,
+            "evidence_refs": ["ev-1"] if status in {"met", "missed"} else [],
+        }
+        for index, status in enumerate(statuses, start=1)
+    ]
+    return {
+        "summary": "Llamada",
+        "intelligence": {
+            "version": 1,
+            "input_revision": revision,
+            "objections": [],
+            "playbook_observations": observations,
+            "evidence": _EVIDENCE,
+        },
+    }
+
+
+def test_one_step_judged_out_of_five_is_not_a_ten():
+    score = build_score_from_extraction(
+        extraction=_steps_extraction(["met", "unknown", "unknown", "unknown", "unknown"]),
+        memo=MEMO,
+        input_revision="rev-cov",
+    )
+    assert score["value"] is None
+    assert score["status"] == "partial"
+    assert score["reason"] == "insufficient_evidence"
+    assert score["coverage"] == 0.2
+    # The cited line is still there for the debrief.
+    assert score["strengths"] == ["Paso 1: «Quedamos el jueves»"]
+
+
+def test_half_the_steps_judged_publishes_a_mark():
+    score = build_score_from_extraction(
+        extraction=_steps_extraction(["met", "missed", "unknown", "unknown"]),
+        memo=MEMO,
+        input_revision="rev-cov",
+    )
+    assert score["status"] == "ready"
+    assert score["value"] == 5
+
+
+def test_steps_that_did_not_apply_do_not_lower_coverage():
+    score = build_score_from_extraction(
+        extraction=_steps_extraction(["met", "met", "not_applicable", "not_applicable", "unknown"]),
+        memo=MEMO,
+        input_revision="rev-cov",
+    )
+    assert score["value"] == 10
+
+
+def test_objection_the_playbook_has_no_answer_for_does_not_count():
+    open_objection = build_score_from_extraction(
+        extraction=OBJECTION_OPEN_EXTRACTION,
+        memo=MEMO,
+        input_revision="rev-open",
+        objection_credit_enabled=True,
+        answered_categories=frozenset({"timing"}),
+    )
+    easy = build_score_from_extraction(
+        extraction=EASY_EXTRACTION, memo=MEMO, input_revision="rev-easy", objection_credit_enabled=True,
+    )
+    assert _objection_misses(open_objection) == []
+    assert open_objection["value"] == easy["value"]
+
+
+def test_objection_the_playbook_answers_still_counts():
+    open_objection = build_score_from_extraction(
+        extraction=OBJECTION_OPEN_EXTRACTION,
+        memo=MEMO,
+        input_revision="rev-open",
+        objection_credit_enabled=True,
+        answered_categories=frozenset({"price"}),
+    )
+    assert len(_objection_misses(open_objection)) == 1
+
+
+def test_improvements_from_cited_steps_are_marked_cited():
+    score = build_score_from_extraction(
+        extraction=_steps_extraction(["met", "missed"]), memo=MEMO, input_revision="rev-cov",
+    )
+    assert score["improvements"] == ["Paso 2: Hace el paso 2"]
+    assert score["improvements_cited"] is True
+
+
+def test_answered_categories_come_from_the_pinned_version_entries_with_an_answer():
+    from types import SimpleNamespace
+
+    from app.services.intelligence.extract import pinned_playbook_answer_categories
+
+    class _Query:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def select(self, *_a):
+            return self
+
+        def eq(self, *_a):
+            return self
+
+        def limit(self, *_a):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=self._rows)
+
+    entries = [
+        {"category": "Price", "guidance": "¿Comparado con qué?"},
+        {"category": "timing", "guidance": "  "},
+    ]
+    fake = SimpleNamespace(table=lambda _name: _Query([{"entries": entries}]))
+    assert pinned_playbook_answer_categories(fake, {"playbook_version_id": "pv-1"}) == frozenset({"price"})
+    assert pinned_playbook_answer_categories(fake, {}) is None

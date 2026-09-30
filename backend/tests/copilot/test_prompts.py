@@ -24,10 +24,10 @@ def test_user_prompt_without_playbook_omits_playbook_suffix():
         language="es",
         call_mode="meeting",
     )
-    assert "PLAYBOOK (published entries)" not in prompt
+    assert "PLAYBOOK (the team's approved answers)" not in prompt
 
 
-def test_user_prompt_with_playbook_includes_suffix():
+def test_user_prompt_with_playbook_carries_each_approved_answer():
     prompt = build_user_prompt(
         transcript_window="Them: caro",
         latest_turn="Them: caro",
@@ -35,8 +35,25 @@ def test_user_prompt_with_playbook_includes_suffix():
         language="es",
         call_mode="meeting",
         playbook_snapshot={
-            "entries": [{"entry_id": "entry-1", "category": "price"}],
+            "entries": [
+                {"entry_id": "objection:price", "category": "price", "guidance": "¿Comparado con qué lo estás mirando?"},
+                {"entry_id": "objection:timing", "category": "timing", "guidance": ""},
+            ],
         },
     )
-    assert "PLAYBOOK (published entries)" in prompt
-    assert "entry-1" in prompt
+    assert "PLAYBOOK (the team's approved answers)" in prompt
+    assert "- objection:price · price: ¿Comparado con qué lo estás mirando?" in prompt
+    # An entry with nothing to say out loud is never offered as an answer.
+    assert "objection:timing" not in prompt
+
+
+def test_user_prompt_with_playbook_but_no_answers_says_so():
+    prompt = build_user_prompt(
+        transcript_window="Them: caro",
+        latest_turn="Them: caro",
+        product_context=None,
+        language="es",
+        call_mode="meeting",
+        playbook_snapshot={"entries": []},
+    )
+    assert "(no approved answers yet)" in prompt

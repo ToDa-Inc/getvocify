@@ -16,15 +16,16 @@ import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
 import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteractionBrief";
+import { ReviewPanel, ReviewTabBar, useReviewTabs } from "@/components/dashboard/memos/ReviewTabs";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
-import { AnimIcon } from "@/components/ui/anim-icon";
 import { clearCachedPreview } from "@/lib/preview-cache";
 import { api } from "@/shared/lib/api-client";
 import { useAuth } from "@/features/auth";
 import { memosApi } from "@/features/memos/api";
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 /** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
 function labelsFromDealUrl(dealUrl: string | undefined | null): {
@@ -93,6 +94,11 @@ const MemoDetail = () => {
   const [isReTranscribing, setIsReTranscribing] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
   const [reviewContactName, setReviewContactName] = useState<string | null>(null);
+  const review = useReviewTabs({
+    memoId: id ?? "",
+    own: Boolean(memo) && (!memo.userId || memo.userId === user?.id),
+    role: user?.company?.role ?? "member",
+  });
 
   /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {
@@ -552,32 +558,6 @@ const MemoDetail = () => {
                 </Button>
               </div>
             ) : null}
-            {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
-              <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} />
-            ) : null}
-            {isOwnMemo && id ? (
-              <InteractionObjections
-                memoId={id}
-                canPlaySpan={false}
-                offsetMs={Math.round(currentTime * 1000)}
-              />
-            ) : null}
-            {isOwnMemo && id ? (
-              <MeetingProposalReview
-                memoId={id}
-                extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
-              />
-            ) : null}
-            {isOwnMemo && id ? (
-              <PostInteractionBrief
-                memoId={id}
-                onPlay={memo.audioUrl ? playMemoAtOffset : undefined}
-                markSeen={Boolean(user?.id && memo.userId === user.id)}
-              />
-            ) : null}
-            {id && user?.company?.features?.includes("PLAYBOOK_ROUTING_ENABLED") ? <MemoPlaybookLine memoId={id} /> : null}
-            {isOwnMemo && id ? <CoachingScore memoId={id} /> : null}
-            {isOwnMemo && id ? <FollowupCard memoId={id} /> : null}
             <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
               <HubSpotSyncPreview
                 key={id || ""}
@@ -590,6 +570,49 @@ const MemoDetail = () => {
                 alreadyWritten={memo.status === "approved"}
                 onSuccess={handleSyncSuccess}
                 onContactName={setReviewContactName}
+                activeTab={review.active}
+                tabBar={<ReviewTabBar tabs={review.tabs} active={review.active} onSelect={review.select} />}
+                onTabCounts={review.onTabCounts}
+                noteExtra={
+                  <>
+                    {isOwnMemo && id ? (
+                      <InteractionObjections
+                        memoId={id}
+                        canPlaySpan={false}
+                        offsetMs={Math.round(currentTime * 1000)}
+                      />
+                    ) : null}
+                    {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
+                      <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} />
+                    ) : null}
+                  </>
+                }
+                tasksLead={
+                  isOwnMemo && id ? (
+                    <MeetingProposalReview
+                      memoId={id}
+                      extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
+                    />
+                  ) : null
+                }
+                tabPanels={
+                  isOwnMemo && id ? (
+                    <>
+                      <ReviewPanel id="email" active={review.active}>
+                        <FollowupCard memoId={id} onStatus={review.onFollowupStatus} />
+                      </ReviewPanel>
+                      <ReviewPanel id="coaching" active={review.active}>
+                        <PostInteractionBrief
+                          memoId={id}
+                          onPlay={memo.audioUrl ? playMemoAtOffset : undefined}
+                          markSeen={Boolean(user?.id && memo.userId === user.id) && review.active === "coaching"}
+                        />
+                        {user?.company?.features?.includes("PLAYBOOK_ROUTING_ENABLED") ? <MemoPlaybookLine memoId={id} /> : null}
+                        <CoachingScore memoId={id} />
+                      </ReviewPanel>
+                    </>
+                  ) : null
+                }
               />
             </div>
           </div>

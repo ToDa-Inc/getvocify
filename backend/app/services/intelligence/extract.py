@@ -554,6 +554,31 @@ def pinned_qualification_inputs(supabase: Any, memo: dict) -> tuple[list[dict], 
     return playbook_qualification_inputs(rows)
 
 
+def pinned_playbook_answer_categories(supabase: Any, memo: dict) -> frozenset[str] | None:
+    """Objection categories the pinned playbook version has an answer for. None when there is
+    no pin or it cannot be read (the score then keeps counting every category)."""
+    version_id = memo.get("playbook_version_id")
+    if not version_id:
+        return None
+    try:
+        rows = (
+            supabase.table("playbook_versions")
+            .select("entries")
+            .eq("id", str(version_id))
+            .limit(1)
+            .execute()
+        ).data or []
+    except Exception:
+        return None
+    if not rows:
+        return None
+    return frozenset(
+        str(entry.get("category") or "").strip().lower()
+        for entry in (rows[0].get("entries") or [])
+        if isinstance(entry, dict) and str(entry.get("guidance") or "").strip() and entry.get("category")
+    )
+
+
 def _needs_upgrade(memo: dict, planned_version: str) -> bool:
     """A v3 block is re-read once the company is on v4 (so the backfill script can add step
     observations to past conversations), and a v3-v6 block once it is on v7 (qualification and

@@ -161,18 +161,23 @@ def finalize_suggest_result(
         }
 
     out = dict(suggestion)
+    # A card is "from the playbook" only when it names a published answer: evidence of an
+    # objection alone, without an approved answer to it, is general help, not the playbook.
     source_id = str(out.get("source_id") or "").strip() or None
     entries = grounding.playbook_snapshot.get("entries") or []
-    if entries and source_id:
-        entry_ids = {str(entry.get("entry_id") or "").strip() for entry in entries if isinstance(entry, dict)}
-        if source_id not in entry_ids:
-            return {
-                "suggestion": _strip_advice(suggestion),
-                "playbook_ready": False,
-                "evidence_refs": [],
-                "grounded": False,
-                "playbook_version_id": None,
-            }
+    answer_ids = {
+        str(entry.get("entry_id") or "").strip()
+        for entry in entries
+        if isinstance(entry, dict) and str(entry.get("guidance") or "").strip()
+    }
+    if not source_id or source_id not in answer_ids:
+        return {
+            "suggestion": _strip_advice(suggestion),
+            "playbook_ready": False,
+            "evidence_refs": [],
+            "grounded": False,
+            "playbook_version_id": None,
+        }
 
     return {
         "suggestion": out,

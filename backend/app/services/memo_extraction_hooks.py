@@ -114,6 +114,7 @@ def _maybe_publish_score(
     patterns: list[dict] | None,
 ) -> None:
     from app.services.feature_flags import is_enabled
+    from app.services.intelligence.extract import pinned_playbook_answer_categories
 
     objection_credit_enabled = is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED")
     debrief_v2_enabled = is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED")
@@ -127,6 +128,7 @@ def _maybe_publish_score(
         objection_credit_enabled=objection_credit_enabled,
         debrief_v2_enabled=debrief_v2_enabled,
         qualification_enabled=is_enabled(supabase, memo.get("company_id"), "PLAYBOOK_QUALIFICATION_ENABLED"),
+        answered_categories=pinned_playbook_answer_categories(supabase, memo) if objection_credit_enabled else None,
     )
     if score is None:
         return

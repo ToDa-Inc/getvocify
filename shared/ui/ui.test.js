@@ -45,6 +45,14 @@ test('whatsapp strips formatting; rejects missing numbers and bad emails', () =>
   assert.deepEqual(composeTarget({ channel: 'email', to: 'not-an-email' }), { ok: false, reason: 'no_email' });
 });
 
+test('no address still opens a draft in every mail client', () => {
+  assert.equal(composeTarget({ channel: 'email', to: '', subject: 'S', body: 'B', mailClient: 'gmail' }).url,
+    'https://mail.google.com/mail/?view=cm&fs=1&su=S&body=B');
+  assert.equal(composeTarget({ channel: 'email', subject: 'S', mailClient: 'outlook' }).url,
+    'https://outlook.office.com/mail/deeplink/compose?subject=S');
+  assert.equal(composeTarget({ channel: 'email', subject: 'S' }).url, 'mailto:?subject=S');
+});
+
 const ready = {
   status: 'ready',
   recipientName: 'Marina',
@@ -61,21 +69,28 @@ test('generating state is busy, announces itself, and reserves space', () => {
   assert.match(out, /v-followup__skeleton/);
 });
 
-test('ready state: email is primary, WhatsApp is ghost, copy always present', () => {
+test('ready state: the picked mail client is primary, WhatsApp is ghost, copy always present', () => {
   const out = renderToString(renderFollowup(ready, 'es'));
-  assert.match(out, /class="v-pill v-pill--primary" data-action="send" data-value="email">Abrir en el correo</);
+  assert.match(out, /class="v-pill v-pill--primary" data-role="send-mail" data-action="send" data-value="gmail">Abrir en Gmail</);
+  assert.match(out, /data-action="client" data-value="gmail" aria-pressed="true" aria-label="Gmail"/);
+  assert.match(out, /data-action="client" data-value="outlook" aria-pressed="false" aria-label="Outlook"/);
+  assert.match(out, /data-action="client" data-value="default" aria-pressed="false" aria-label="App de correo"/);
   assert.doesNotMatch(out, />Enviar</);
-  assert.doesNotMatch(out, /delivered/i);
   assert.match(out, /class="v-pill v-pill--ghost" data-action="send" data-value="whatsapp">WhatsApp</);
   assert.match(out, /data-action="copy"><span class="v-ai v-ai--copy"[^>]*>.*?<\/span><span data-v-label>Copiar</);
-  assert.doesNotMatch(out, /v-followup__hint/);
+  const outlook = renderToString(renderFollowup({ ...ready, mailClient: 'outlook' }, 'en'));
+  assert.match(outlook, /data-value="outlook">Open in Outlook</);
+  const app = renderToString(renderFollowup({ ...ready, mailClient: 'default' }, 'es'));
+  assert.match(app, /data-value="default">Abrir en el correo</);
+  assert.match(renderToString(renderFollowup({ ...ready, mailClient: 'nonsense' }, 'es')), /data-value="gmail">Abrir en Gmail</);
 });
 
-test('no email: no send button, hint shown, WhatsApp becomes primary', () => {
+test('no email: no nagging hint, the draft still opens (the rep types the address)', () => {
   const out = renderToString(renderFollowup({ ...ready, to: '' }, 'es'));
-  assert.doesNotMatch(out, /data-value="email"/);
-  assert.match(out, /v-followup__hint/);
-  assert.match(out, /v-pill--primary" data-action="send" data-value="whatsapp"/);
+  assert.doesNotMatch(out, /v-followup__hint/);
+  assert.doesNotMatch(out, /Sin email/);
+  assert.match(out, /v-pill--primary" data-role="send-mail" data-action="send" data-value="gmail"/);
+  assert.match(out, /v-pill--ghost" data-action="send" data-value="whatsapp"/);
 });
 
 test('draft text from a transcript cannot inject markup', () => {

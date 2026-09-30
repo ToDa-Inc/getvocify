@@ -346,20 +346,12 @@ const DashboardLayout = () => {
 
       {askOpen ? (
         <aside
-          className={`fixed inset-y-0 right-0 z-30 flex w-full max-w-md flex-col border-l border-border bg-background ${
-            homeColumn ? "xl:top-14 xl:w-[400px] xl:max-w-none" : ""
+          className={`ask-sheet ask-sheet-enter fixed inset-0 z-30 flex flex-col overflow-hidden sm:inset-y-3 sm:left-auto sm:right-3 sm:w-[min(440px,calc(100%-1.5rem))] sm:rounded-[20px] ${
+            homeColumn ? "xl:top-[4.25rem] xl:w-[388px]" : ""
           }`}
           aria-label={t.product.askTitle}
         >
-          <div className="flex items-center justify-between px-4 py-3">
-            <p className={THEME_TOKENS.typography.sectionTitle}>{t.product.askTitle}</p>
-            <Button variant="ghost" size="icon" aria-label={t.product.cancelAction} onClick={() => setAskOpen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 px-4 pb-4">
-            <AskPanel embedded />
-          </div>
+          <AskPanel onClose={() => setAskOpen(false)} />
         </aside>
       ) : null}
 

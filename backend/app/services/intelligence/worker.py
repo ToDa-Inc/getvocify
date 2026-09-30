@@ -146,16 +146,19 @@ def database_bindings(supabase, sources_for=None):
         from app.services.coaching.score_assembly import attach_score_to_job_payload
         from app.services.coaching.score_jobs import store_coaching_from_job_payload
         from app.services.feature_flags import is_enabled
+        from app.services.intelligence.extract import pinned_playbook_answer_categories
 
+        objection_credit_enabled = is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED")
         coaching_payload = attach_score_to_job_payload(
             memo,
             payload,
             extraction=extraction,
             patterns=patterns,
             crm_outcome=memo.get("crm_outcome"),
-            objection_credit_enabled=is_enabled(supabase, memo.get("company_id"), "SCORING_OBJECTION_CREDIT_ENABLED"),
+            objection_credit_enabled=objection_credit_enabled,
             debrief_v2_enabled=is_enabled(supabase, memo.get("company_id"), "DEBRIEF_V2_ENABLED"),
             qualification_enabled=is_enabled(supabase, memo.get("company_id"), "PLAYBOOK_QUALIFICATION_ENABLED"),
+            answered_categories=pinned_playbook_answer_categories(supabase, memo) if objection_credit_enabled else None,
         )
         store_coaching_from_job_payload(supabase, memo, coaching_payload)
 

@@ -114,7 +114,7 @@ def motion_for(
     return route(sales_role, interaction_kind, context, rules)[0]
 
 
-_MOTION_FLOW = {
+MOTION_FLOW = {
     "discovery": "sdr",
     "inbound": "sdr",
     "closing": "ae",
@@ -125,7 +125,7 @@ _MOTION_FLOW = {
 
 def flow_for_motion(sales_motion_key: Optional[str]) -> Optional[str]:
     """T10: which rep flow a captured motion belongs to, for the post-interaction brief."""
-    return _MOTION_FLOW.get((sales_motion_key or "").strip())
+    return MOTION_FLOW.get((sales_motion_key or "").strip())
 
 
 def goal_for(sales_motion_key: str) -> Optional[str]:

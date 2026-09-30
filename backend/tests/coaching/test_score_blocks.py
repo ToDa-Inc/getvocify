@@ -97,6 +97,8 @@ def test_flag_off_is_byte_identical_to_the_pre_flag_output():
         "status", "value", "reason", "crm_outcome", "playbook_version_id", "input_revision", "prompt_version",
         "met_steps", "missed_steps", "applicable_steps", "unknown_steps", "not_applicable_steps",
         "adherence", "coverage", "strengths", "improvements",
+        # Not a qualification key: a missed step's line is cited, so the brief may show it.
+        "improvements_cited",
     }
 
 
@@ -281,7 +283,9 @@ def test_steps_alone_under_the_flag_keep_the_old_scale(step_statuses, expected):
 # ---------------------------------------------------------------- missed labels and API
 
 def test_missed_labels_for_qualification_and_custom_objections():
-    steps = [{"step_id": "cierre", "label": "Cierre", "criterion": "Propone el paso siguiente"}]
+    # What to say is the step's example phrase; the criterion is only how the step is judged.
+    steps = [{"step_id": "cierre", "label": "Cierre", "criterion": "Propone el paso siguiente",
+              "example": "¿Lo vemos el jueves a las 10?"}]
     entries = [
         {"entry_id": "objection:price", "category": "price", "guidance": "Habla de valor"},
         {"entry_id": "objection:custom:integracion-erp", "category": "custom", "label": "Integración con el ERP",
@@ -298,7 +302,7 @@ def test_missed_labels_for_qualification_and_custom_objections():
         steps=steps, entries=entries,
     )
     assert labeled == [
-        {"id": "cierre", "kind": "step", "label": "Cierre", "guidance": "Propone el paso siguiente"},
+        {"id": "cierre", "kind": "step", "label": "Cierre", "guidance": "¿Lo vemos el jueves a las 10?"},
         {"id": "presupuesto", "kind": "qualification", "label": "Presupuesto"},
         {"id": "obj-1", "kind": "objection", "label": "Integración con el ERP", "guidance": "Tenemos API abierta"},
         {"id": "obj-2", "kind": "objection", "label": "price", "guidance": "Habla de valor"},

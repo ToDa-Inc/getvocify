@@ -9,7 +9,11 @@ export default function ConfirmCard({ card, onConfirm, onCancel }: { card: AskCo
   const { t } = useLanguage();
   const settled = card.status === "succeeded" || card.status === "cancelled";
   return (
-    <div className="space-y-3 rounded-xl border border-border/70 bg-card px-4 py-3" role="group" aria-label={card.summary}>
+    <div
+      className="ask-enter space-y-3 rounded-xl border border-beige/25 bg-card px-4 py-3.5 shadow-[0_0_0_4px_hsl(var(--beige)/0.06),0_10px_24px_-18px_rgb(40_30_20/0.3)]"
+      role="group"
+      aria-label={card.summary}
+    >
       <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground">{card.summary}</p>
       {card.status === "proposed" || card.status === "failed" ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -19,9 +23,9 @@ export default function ConfirmCard({ card, onConfirm, onCancel }: { card: AskCo
         </div>
       ) : null}
       {card.status === "running" ? (
-        <p className="inline-flex items-center gap-2 text-[13px] text-muted-foreground" role="status">
+        <p className="inline-flex items-center gap-2 text-[13px]" role="status">
           <VocifySpinner size={12} />
-          {t.product.askConfirmRunning}
+          <span className="ask-shimmer">{t.product.askConfirmRunning}</span>
         </p>
       ) : null}
       {card.status === "uncertain" ? <p className="text-[13px] text-warning" role="alert">{t.product.askConfirmUncertain}</p> : null}

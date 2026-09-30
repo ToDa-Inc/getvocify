@@ -2,9 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/shared/lib/api-client";
 import type { ScoreView } from "@/lib/coaching-score";
 
-export function useMemoScore(memoId: string) {
+export function useMemoScore(memoId: string, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ["memo-score", memoId],
+    enabled,
     queryFn: () => api.get<ScoreView>(`/memos/${memoId}/score`),
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 1500 : false),
   });

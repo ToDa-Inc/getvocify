@@ -7,7 +7,7 @@
  * Or: npm run start (if added to package.json)
  */
 
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -46,10 +46,52 @@ if (!fs.existsSync('logs')) {
 
 log('blue', '🚀 Starting Vocify...\n');
 
-// Prefer backend virtualenv Python (Homebrew python3 has no project deps installed)
-const backendPython = fs.existsSync(path.join(__dirname, 'backend', '.venv', 'bin', 'python3'))
-  ? path.join(__dirname, 'backend', '.venv', 'bin', 'python3')
-  : 'python3';
+function pythonForVenv() {
+  for (const candidate of ['python3.11', 'python3.12', 'python3']) {
+    const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
+    if (probe.status === 0) return candidate;
+  }
+  return null;
+}
+
+function ensureBackendPython() {
+  const backendDir = path.join(__dirname, 'backend');
+  const venvPython = path.join(backendDir, '.venv', 'bin', 'python3');
+  const hasUvicorn = () =>
+    spawnSync(venvPython, ['-m', 'uvicorn', '--version'], { encoding: 'utf8' }).status === 0;
+
+  if (!fs.existsSync(venvPython)) {
+    const py = pythonForVenv();
+    if (!py) {
+      log('red', '❌ No python3 found. Install Python 3.11+ and retry.');
+      process.exit(1);
+    }
+    log('yellow', '📦 Creating backend/.venv (first run)...');
+    const created = spawnSync(py, ['-m', 'venv', '.venv'], { cwd: backendDir, stdio: 'inherit' });
+    if (created.status !== 0) {
+      log('red', '❌ Failed to create backend/.venv');
+      process.exit(created.status ?? 1);
+    }
+  }
+
+  if (!hasUvicorn()) {
+    log('yellow', '📦 Installing backend dependencies (first run, may take a minute)...');
+    const installed = spawnSync(
+      venvPython,
+      ['-m', 'pip', 'install', '-r', 'requirements.txt'],
+      { cwd: backendDir, stdio: 'inherit' },
+    );
+    if (installed.status !== 0) {
+      log('red', '❌ Failed to install backend requirements');
+      process.exit(installed.status ?? 1);
+    }
+  }
+
+  return venvPython;
+}
+
+// Homebrew python3 often has no project deps; always use backend/.venv (auto-created).
+const backendPython = ensureBackendPython();
 
 // Start backend
 log('green', '🔧 Starting backend server (port 8888)...');

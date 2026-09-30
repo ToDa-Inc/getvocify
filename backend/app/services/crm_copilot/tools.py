@@ -242,6 +242,7 @@ class CopilotContext:
     crm: Any = None
     viewer: Any = None
     call_targets: Optional[list] = None
+    cards: Optional[list] = None  # what a screen shows (coaching, team), from the tool's own producer; one per kind
     actor: Any = None  # AskActor on the web path; None on WhatsApp
     company: Any = None
     describe_calls: int = 0  # hubspot_describe calls this turn, capped in intel_tools

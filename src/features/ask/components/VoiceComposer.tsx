@@ -125,24 +125,35 @@ export default function VoiceComposer({
           {status}
         </span>
       ) : null}
+      {view.composer_state === "recording" ? (
+        <span className="ask-enter mr-1 inline-flex items-center gap-1.5 text-[12.5px] tabular-nums text-foreground" aria-hidden="true">
+          <span className="animate-recording-pulse h-2 w-2 rounded-full bg-destructive" />
+          {`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`}
+        </span>
+      ) : null}
+      {view.composer_state === "transcribing" ? (
+        <span className="ask-shimmer mr-1 text-[12.5px]" aria-hidden="true">
+          {t.product.askTranscribing}
+        </span>
+      ) : null}
       {view.composer_state !== "recording" && view.composer_state !== "transcribing" ? (
         <IconAction label={t.product.askRecord} onClick={() => void record()}>
-          <Microphone size={16} weight="light" />
+          <Microphone size={17} weight="light" />
         </IconAction>
       ) : null}
       {view.composer_state === "recording" ? (
         <>
-          <IconAction label={t.product.askStop} onClick={() => void stop()}>
-            <Square size={16} weight="fill" />
-          </IconAction>
           <IconAction label={t.product.cancelAction} tone="danger" onClick={cancel}>
             <X size={16} weight="light" />
+          </IconAction>
+          <IconAction label={t.product.askStop} onClick={() => void stop()}>
+            <Square size={14} weight="fill" />
           </IconAction>
         </>
       ) : null}
       {view.composer_state === "transcribing" ? (
         <IconAction label={t.product.askTranscribing} disabled pending onClick={() => undefined}>
-          <Microphone size={16} weight="light" />
+          <Microphone size={17} weight="light" />
         </IconAction>
       ) : null}
     </div>

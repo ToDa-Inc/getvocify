@@ -400,7 +400,12 @@ SCORE_READY = {
 }
 
 STEPS = [
-    {"step_id": "confirm_budget", "label": "Confirmar presupuesto", "criterion": "Pregunta el presupuesto disponible"},
+    {
+        "step_id": "confirm_budget",
+        "label": "Confirmar presupuesto",
+        "criterion": "Pregunta el presupuesto disponible",
+        "example": "¿Con qué presupuesto contáis para esto?",
+    },
 ]
 ENTRIES = [
     {"entry_id": "price-1", "category": "price", "guidance": "Compara el coste con lo que ya pierden por no actuar"},
@@ -452,8 +457,9 @@ def test_debrief_v2_adds_flow_missed_phrases_highlights_and_progress():
     )
     assert brief["flow"] == "sdr"
     assert [item["id"] for item in brief["missed"]] == ["confirm_budget", "obj-1"]
+    # A step's phrase is its literal example; its criterion is how it is judged, never "how to say it".
     assert brief["phrases"] == [
-        "Pregunta el presupuesto disponible",
+        "¿Con qué presupuesto contáis para esto?",
         "Compara el coste con lo que ya pierden por no actuar",
     ]
     # earliest first, capped at 5, only evidence with a timestamp
@@ -597,7 +603,8 @@ def test_debrief_v2_context_joins_playbook_evidence_and_progress():
     # Only this company's own history, and never the current memo itself.
     assert context["progress"] == [0.5]
     assert context["meeting_agreed"] is True
-    assert context["next_step_agreed"] is False
+    # A meeting both sides accepted is an agreed next step.
+    assert context["next_step_agreed"] is True
 
 
 def test_debrief_v2_context_never_pulls_a_draft_playbook():
@@ -616,3 +623,133 @@ def test_recent_progress_never_crosses_companies():
     supabase = _DebriefSupabase(_debrief_tables())
     values = recent_progress(supabase, user_id="u1", company_id="co-1", sales_motion_key="discovery", exclude_memo_id="memo-current")
     assert values == [0.5]
+
+
+
+# The coach block: one kept, one fix, in the playbook's words.
+
+from app.services.coaching.briefs import build_coach, next_step_agreed  # noqa: E402
+
+COACH_STEPS = [
+    {"step_id": "opening", "label": "Apertura con permiso", "criterion": "Pide 30 segundos antes de contar nada."},
+    {"step_id": "pain", "label": "Descubrir el dolor", "criterion": "Pregunta cómo lo hacen hoy."},
+    {
+        "step_id": "meeting",
+        "label": "Reunión con día y hora",
+        "criterion": "Propone un día y una hora concretos.",
+        "example": "¿Te va bien el jueves a las 10?",
+    },
+]
+
+
+def _obs(step_id, status, quote=None, refs=("ev-1",)):
+    return {"step_id": step_id, "status": status, "quote": quote, "evidence_refs": list(refs) if status in {"met", "missed"} else []}
+
+
+def test_coach_keeps_the_first_done_step_and_fixes_the_first_missed_one():
+    coach = build_coach(
+        observations=[_obs("opening", "met", "¿Tienes 30 segundos?"), _obs("pain", "missed"), _obs("meeting", "missed")],
+        evidence_ids=["ev-1"],
+        steps=COACH_STEPS,
+        entries=[],
+        missed=[],
+    )
+    assert coach["kept"] == {"step_id": "opening", "label": "Apertura con permiso", "quote": "¿Tienes 30 segundos?"}
+    assert coach["fix"] == {
+        "kind": "step",
+        "id": "pain",
+        "label": "Descubrir el dolor",
+        "criterion": "Pregunta cómo lo hacen hoy.",
+        "say": None,
+        "focus": False,
+    }
+
+
+def test_coach_puts_the_weekly_focus_first_both_ways():
+    missed_focus = build_coach(
+        observations=[_obs("opening", "met", "Hola"), _obs("pain", "missed"), _obs("meeting", "missed")],
+        evidence_ids=["ev-1"], steps=COACH_STEPS, entries=[], missed=[], focus_step_id="meeting",
+    )
+    assert missed_focus["fix"]["id"] == "meeting"
+    assert missed_focus["fix"]["focus"] is True
+    assert missed_focus["fix"]["say"] == "¿Te va bien el jueves a las 10?"
+    kept_focus = build_coach(
+        observations=[_obs("opening", "met", "Hola"), _obs("meeting", "met", "¿El jueves a las 10?")],
+        evidence_ids=["ev-1"], steps=COACH_STEPS, entries=[], missed=[], focus_step_id="meeting",
+    )
+    assert kept_focus["kept"]["step_id"] == "meeting"
+    assert kept_focus["fix"] is None
+
+
+def test_coach_ignores_uncited_observations():
+    coach = build_coach(
+        observations=[_obs("opening", "met", "Hola", refs=("ev-gone",)), _obs("pain", "missed", refs=())],
+        evidence_ids=["ev-1"], steps=COACH_STEPS, entries=[], missed=[],
+    )
+    assert coach == {"kept": None, "fix": None}
+
+
+def test_coach_falls_back_to_an_open_objection_the_playbook_answers():
+    coach = build_coach(
+        observations=[_obs("opening", "met", "Hola")],
+        evidence_ids=["ev-1"],
+        steps=COACH_STEPS,
+        entries=ENTRIES,
+        missed=[{"kind": "objection", "id": "obj-1", "category": "price"}, {"kind": "objection", "id": "obj-2", "category": "timing"}],
+    )
+    assert coach["fix"] == {
+        "kind": "objection",
+        "id": "obj-1",
+        "label": "price",
+        "category": "price",
+        "criterion": None,
+        "say": "Compara el coste con lo que ya pierden por no actuar",
+        "focus": False,
+    }
+
+
+def test_coach_only_reaches_the_body_for_a_measured_conversation():
+    coach = {"kept": {"step_id": "opening", "label": "Apertura", "quote": "Hola"}, "fix": None}
+    ready = aggregate_brief(
+        screening=None, score=SCORE_READY, patterns=PATTERNS, playbook_present=True, job_error=False,
+        input_revision="rev-4", audio_available=False, debrief_v2=True, flow="sdr", coach=coach,
+    )
+    assert ready["coach"] == coach
+    voicemail = aggregate_brief(
+        screening="voicemail", score=SCORE_READY, patterns=PATTERNS, playbook_present=True, job_error=False,
+        input_revision="rev-4", audio_available=False, debrief_v2=True, flow="sdr", coach=coach,
+    )
+    assert voicemail["coach"] is None
+    empty = aggregate_brief(
+        screening=None, score=SCORE_READY, patterns=PATTERNS, playbook_present=True, job_error=False,
+        input_revision="rev-4", audio_available=False, debrief_v2=True, flow="sdr", coach={"kept": None, "fix": None},
+    )
+    assert empty["coach"] is None
+
+
+def test_next_step_is_a_meeting_or_a_dated_call_not_any_promise():
+    assert next_step_agreed({"agreed": True}, []) is True
+    assert next_step_agreed({}, [{"kind": "send", "due_at": "2026-10-01T10:00:00+02:00"}]) is False
+    assert next_step_agreed({}, [{"kind": "call", "due_at": "2026-10-01T10:00:00+02:00"}]) is True
+    assert next_step_agreed({}, [{"kind": "call", "due_at": None}]) is False
+    assert next_step_agreed({}, None) is None
+
+
+def test_cited_step_improvement_shows_without_objection_sections():
+    brief = aggregate_brief(
+        screening=None,
+        score={
+            "input_revision": "rev-4",
+            "status": "ready",
+            "value": 5,
+            "strengths": [],
+            "improvements": ["Reunión con día y hora: Propone un día y una hora concretos."],
+            "improvements_cited": True,
+        },
+        patterns=[],
+        playbook_present=True,
+        job_error=False,
+        input_revision="rev-4",
+        audio_available=False,
+    )
+    assert brief["improvement"] == "Reunión con día y hora: Propone un día y una hora concretos."

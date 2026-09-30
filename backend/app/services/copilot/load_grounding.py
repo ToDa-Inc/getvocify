@@ -9,7 +9,7 @@ from supabase import Client
 
 from app.services.copilot.context import SuggestContext, live_assist_kind_from_call_mode
 from app.services.copilot.grounding import SuggestGrounding, resolve_suggest_grounding
-from app.services.playbooks.live import live_snapshots
+from app.services.playbooks.live import live_snapshots, pinned_snapshot
 from app.services.playbooks.versions import published_snapshot
 
 
@@ -19,19 +19,61 @@ def load_company_suggest_grounding(
     company_id: str,
     call_mode: str = "speakerphone",
     context: Optional[SuggestContext] = None,
+    user_id: Optional[str] = None,
 ) -> Optional[SuggestGrounding]:
-    del context  # contact_id stays on SuggestContext only; no CRM load
-    snapshots = live_snapshots(supabase, company_id)
-    if len(snapshots) != 1:
-        return None
-    snapshot = snapshots[0]
+    """The playbook for a live conversation that has no capture yet.
+
+    With the rep known, it is the playbook their capture would be pinned to (the same routing:
+    role, channel, contact), so live help and the evaluation after the call use one playbook.
+    Without a rep it is the company's single live playbook, as before."""
     kind = live_assist_kind_from_call_mode(call_mode)
+    if user_id:
+        snapshot = _routed_snapshot(supabase, company_id=company_id, user_id=user_id, kind=kind, context=context)
+    else:
+        snapshots = live_snapshots(supabase, company_id)
+        snapshot = snapshots[0] if len(snapshots) == 1 else None
+    if snapshot is None:
+        return None
     return SuggestGrounding(
         interaction_kind=kind,
         playbook_version_id=snapshot["version_id"],
         evidence_ids=frozenset(),
         playbook_snapshot=snapshot,
     )
+
+
+def _routed_snapshot(
+    supabase: Client,
+    *,
+    company_id: str,
+    user_id: str,
+    kind: str,
+    context: Optional[SuggestContext],
+) -> Optional[dict]:
+    """Published snapshot the rep's next capture would be pinned to; None when there is none.
+    A failed lookup is no playbook, never an error in the middle of a call."""
+    from app.services.captures import playbook_fields_for_capture
+    from app.services.company import sales_role_for_user
+
+    try:
+        fields = playbook_fields_for_capture(
+            supabase,
+            company_id,
+            default_when_unspecified=True,
+            sales_role=sales_role_for_user(supabase, user_id, company_id=company_id),
+            interaction_kind=kind,
+            hubspot_contact_id=context.contact_id if context else None,
+        )
+    except Exception:
+        return None
+    motion = str(fields.get("sales_motion_key") or "").strip()
+    version_id = str(fields.get("playbook_version_id") or "").strip()
+    if not motion or not version_id:
+        return None
+    try:
+        return pinned_snapshot(supabase, company_id, motion, version_id)
+    except Exception:
+        return None
 
 
 def load_owned_capture_memo(
