@@ -383,6 +383,10 @@ CREATE TABLE IF NOT EXISTS playbooks (
   company_id UUID NOT NULL,
   sales_motion_key TEXT NOT NULL,
   active_version_id UUID,
+  -- Migration 069: pause (active version moved here) and delete (soft, undoable).
+  paused_version_id UUID NULL,
+  archived_at TIMESTAMPTZ NULL,
+  archived_state TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (company_id, sales_motion_key)
 );
@@ -431,7 +435,12 @@ BEGIN
   END IF;
   PERFORM 1 FROM playbooks WHERE id = pb FOR UPDATE;
   UPDATE playbook_versions SET status = 'published' WHERE id = p_version;
-  UPDATE playbooks SET active_version_id = p_version WHERE id = pb;
+  UPDATE playbooks
+  SET active_version_id = p_version,
+      paused_version_id = NULL,
+      archived_at = NULL,
+      archived_state = NULL
+  WHERE id = pb;
   RETURN p_version;
 END;
 $$;
@@ -534,6 +543,10 @@ BEGIN
   END IF;
 
   PERFORM publish_playbook_version(ver);
+  -- Publishing lifts a pause and a delete (publish_playbook_version does it too; kept explicit).
+  UPDATE playbooks
+  SET paused_version_id = NULL, archived_at = NULL, archived_state = NULL
+  WHERE id = pb;
   RETURN 'published:' || ver::text;
 END;
 $publish_motion$;
@@ -548,6 +561,7 @@ AS $list_motions$
     SELECT p.sales_motion_key AS motion_key,
       CASE
         WHEN p.active_version_id IS NOT NULL THEN 'published'
+        WHEN p.paused_version_id IS NOT NULL THEN 'paused'
         WHEN EXISTS (
           SELECT 1 FROM playbook_versions v
           WHERE v.playbook_id = p.id AND v.status = 'draft'
@@ -556,6 +570,7 @@ AS $list_motions$
       END AS motion_status
     FROM playbooks p
     WHERE p.company_id = p_company
+      AND p.archived_at IS NULL
     UNION
     SELECT t.type_key,
       'missing'
@@ -579,7 +594,13 @@ BEGIN
   END IF;
   INSERT INTO interaction_types (company_id, type_key, name)
   VALUES (p_company, btrim(p_key), COALESCE(NULLIF(btrim(p_name), ''), btrim(p_key)))
-  ON CONFLICT (company_id, type_key) DO NOTHING;
+  ON CONFLICT (company_id, type_key) DO UPDATE SET active = true;
+  -- Creating a deleted type again brings it back empty: the old version is not resurrected.
+  UPDATE playbooks
+  SET archived_at = NULL, paused_version_id = NULL, archived_state = NULL
+  WHERE company_id = p_company
+    AND sales_motion_key = btrim(p_key)
+    AND archived_at IS NOT NULL;
   RETURN btrim(p_key);
 END;
 $add_type$;
