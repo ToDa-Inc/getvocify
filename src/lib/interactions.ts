@@ -1,6 +1,8 @@
 import type { MemoFilters } from "@/features/memos/types";
+import { memoContactName, memoListSubtitle } from "./copilot-note.ts";
 
 export type Channel = "call" | "meeting" | "visit" | "voice_note";
+export const CHANNELS: Channel[] = ["call", "meeting", "visit", "voice_note"];
 export type TypeOption = { key: string; label: string; scored: boolean };
 
 /** The reserved type for internal conversations: it has no playbook and is never scored. */
@@ -55,4 +57,61 @@ export function feedQuery(
 
 export function pageOf<T>(rows: T[], pageSize: number): { items: T[]; hasMore: boolean } {
   return { items: rows.slice(0, pageSize), hasMore: rows.length > pageSize };
+}
+
+/** The row's channel chip: one of the four channels, or none for anything else. */
+export function channelOf(kind: string | null | undefined): Channel | null {
+  return CHANNELS.includes(kind as Channel) ? (kind as Channel) : null;
+}
+
+export type RowStatus = "synced" | "review" | "processing" | "failed" | "voicemail" | "no_answer";
+
+const PROCESSING = new Set(["uploading", "transcribing", "extracting", "pending_transcript"]);
+const BUSY = new Set(["uploading", "transcribing", "extracting"]);
+
+/** What the status pill says. A rejected memo shows none. */
+export function rowStatus(memo: { status: string; screeningOutcome?: string | null }): RowStatus | null {
+  if (memo.status === "pending_review") {
+    if (memo.screeningOutcome === "voicemail") return "voicemail";
+    if (memo.screeningOutcome === "no_response") return "no_answer";
+    return "review";
+  }
+  if (memo.status === "approved") return "synced";
+  if (memo.status === "failed") return "failed";
+  if (PROCESSING.has(memo.status)) return "processing";
+  return null;
+}
+
+/** The feed polls only while a row on screen is still being processed. */
+export function feedBusy(rows: { status: string }[]): boolean {
+  return rows.some((row) => BUSY.has(row.status));
+}
+
+type Named = { extraction?: { contactName?: string | null; companyName?: string | null } | null };
+
+/** The contact, else the company, else the caller's "untitled" copy. */
+export function rowTitle(memo: Named, untitled: string): string {
+  return memoContactName(memo) || String(memo.extraction?.companyName || "").trim() || untitled;
+}
+
+/** "Luis → Acme": who spoke (managers only) and the company when the title is the contact. */
+export function rowPeople(memo: Named, author: string | null): string {
+  return [author?.trim(), memoListSubtitle(memo)].filter(Boolean).join(" → ");
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** "5 min ago", "yesterday" within a week; a short date after it. Empty for a bad date. */
+export function ageLabel(iso: string, now: Date, locale: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const elapsed = Math.max(0, now.getTime() - at.getTime());
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
+  if (elapsed < HOUR) return relative.format(-Math.max(1, Math.floor(elapsed / MINUTE)), "minute");
+  if (elapsed < DAY) return relative.format(-Math.floor(elapsed / HOUR), "hour");
+  if (elapsed < 7 * DAY) return relative.format(-Math.floor(elapsed / DAY), "day");
+  const sameYear = at.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) }).format(at);
 }

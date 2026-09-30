@@ -1,6 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { feedQuery, pageOf, typeChip, typeOptions } from "./interactions.ts";
+import { productCatalog } from "./product-catalog.ts";
+import {
+  CHANNELS,
+  ageLabel,
+  channelOf,
+  feedBusy,
+  feedQuery,
+  pageOf,
+  rowPeople,
+  rowStatus,
+  rowTitle,
+  typeChip,
+  typeOptions,
+} from "./interactions.ts";
 
 const payload = {
   motions: { discovery: "published", closing: "draft", demo_zeta: "paused" },
@@ -95,5 +108,94 @@ describe("pageOf", () => {
 
   it("is empty for no rows", () => {
     assert.deepEqual(pageOf([], 20), { items: [], hasMore: false });
+  });
+});
+
+describe("channelOf", () => {
+  it("keeps the four channels and drops anything else", () => {
+    assert.equal(channelOf("voice_note"), "voice_note");
+    assert.equal(channelOf("visit"), "visit");
+    assert.equal(channelOf("sms"), null);
+    assert.equal(channelOf(null), null);
+  });
+});
+
+describe("rowStatus", () => {
+  it("maps the pipeline status to what the row shows", () => {
+    assert.equal(rowStatus({ status: "approved" }), "synced");
+    assert.equal(rowStatus({ status: "pending_review" }), "review");
+    assert.equal(rowStatus({ status: "extracting" }), "processing");
+    assert.equal(rowStatus({ status: "pending_transcript" }), "processing");
+    assert.equal(rowStatus({ status: "failed" }), "failed");
+    assert.equal(rowStatus({ status: "rejected" }), null);
+  });
+
+  it("names a screened call that never connected", () => {
+    assert.equal(rowStatus({ status: "pending_review", screeningOutcome: "voicemail" }), "voicemail");
+    assert.equal(rowStatus({ status: "pending_review", screeningOutcome: "no_response" }), "no_answer");
+    assert.equal(rowStatus({ status: "approved", screeningOutcome: "voicemail" }), "synced");
+  });
+});
+
+describe("feedBusy", () => {
+  it("is true only while a row is still being processed", () => {
+    assert.equal(feedBusy([{ status: "approved" }, { status: "transcribing" }]), true);
+    assert.equal(feedBusy([{ status: "approved" }, { status: "pending_review" }]), false);
+    assert.equal(feedBusy([]), false);
+  });
+});
+
+describe("rowTitle and rowPeople", () => {
+  const memo = { extraction: { contactName: "Ana Ruiz", companyName: "Acme" } };
+
+  it("titles the row with the contact, then the company, then the fallback", () => {
+    assert.equal(rowTitle(memo, "Untitled"), "Ana Ruiz");
+    assert.equal(rowTitle({ extraction: { companyName: "Acme" } }, "Untitled"), "Acme");
+    assert.equal(rowTitle({ extraction: null }, "Untitled"), "Untitled");
+  });
+
+  it("joins who spoke and who they spoke to, skipping what is missing", () => {
+    assert.equal(rowPeople(memo, "Luis"), "Luis → Acme");
+    assert.equal(rowPeople(memo, null), "Acme");
+    assert.equal(rowPeople({ extraction: { companyName: "Acme" } }, "Luis"), "Luis");
+    assert.equal(rowPeople({ extraction: null }, null), "");
+  });
+});
+
+describe("ageLabel", () => {
+  const now = new Date("2026-09-30T12:00:00Z");
+
+  it("is relative within a week", () => {
+    assert.equal(ageLabel("2026-09-30T11:55:00Z", now, "en-GB"), "5 min ago");
+    assert.equal(ageLabel("2026-09-30T11:59:50Z", now, "en-GB"), "1 min ago");
+    assert.equal(ageLabel("2026-09-30T09:00:00Z", now, "en-GB"), "3 hr ago");
+    assert.equal(ageLabel("2026-09-29T11:00:00Z", now, "en-GB"), "yesterday");
+    assert.equal(ageLabel("2026-09-30T11:55:00Z", now, "es-ES"), "hace 5 min");
+  });
+
+  it("is a date after a week, with the year only when it differs", () => {
+    assert.equal(ageLabel("2026-09-01T12:00:00Z", now, "en-GB"), "1 Sept");
+    assert.equal(ageLabel("2025-09-01T12:00:00Z", now, "en-GB"), "1 Sept 2025");
+  });
+
+  it("is empty for a bad date", () => {
+    assert.equal(ageLabel("nope", now, "en-GB"), "");
+  });
+});
+
+describe("interactions copy", () => {
+  const shape = (value: unknown): unknown =>
+    value && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, shape(inner)]))
+      : typeof value;
+
+  it("has the same keys in Spanish and English, with a label for every channel and status", () => {
+    const es = productCatalog.ES.interactions;
+    const en = productCatalog.EN.interactions;
+    assert.deepEqual(shape(es), shape(en));
+    for (const channel of CHANNELS) assert.ok(es.channel[channel] && es.channels[channel]);
+    for (const status of ["synced", "review", "processing", "failed", "voicemail", "no_answer"] as const) {
+      assert.ok(es.status[status] && en.status[status]);
+    }
   });
 });
