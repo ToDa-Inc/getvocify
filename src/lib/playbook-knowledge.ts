@@ -4,17 +4,11 @@
  * sections have content, the one-line summary on the row, and cleaning before a save.
  */
 
-export type Persona = { name: string; cares_about?: string; language?: string; measured_on?: string };
+// Each list item is its name and ONE line: the one the copilot and briefs use.
+export type Persona = { name: string; cares_about?: string };
 export type Trigger = { signal: string; how_to_use?: string };
-export type Proof = { customer: string; situation?: string; change?: string; number?: string; tags?: string[] };
-export type Competitor = {
-  name: string;
-  win_when?: string;
-  lose_when?: string;
-  they_like?: string;
-  landmines?: string;
-  how_to_talk?: string;
-};
+export type Proof = { customer: string; change?: string };
+export type Competitor = { name: string; how_to_talk?: string };
 
 export type Knowledge = {
   icp?: string;
@@ -46,9 +40,51 @@ export const KNOWLEDGE_SECTIONS = {
 export type KnowledgeSection = keyof typeof KNOWLEDGE_SECTIONS;
 export const SECTION_ORDER = Object.keys(KNOWLEDGE_SECTIONS) as KnowledgeSection[];
 
+/**
+ * "Vuestra empresa" in five tabs instead of seven stacked sections: who the customer is (and
+ * what shows they are ready), the offer (value story and price), customer stories,
+ * competitors and anything else. Each tab lists the sections it shows, in order.
+ */
+export const COMPANY_TABS = {
+  customer: ["audience", "triggers"],
+  value: ["value", "pricing"],
+  proofs: ["proofs"],
+  competitors: ["competitors"],
+  notes: ["notes"],
+} as const satisfies Record<string, readonly KnowledgeSection[]>;
+
+export type CompanyTab = keyof typeof COMPANY_TABS;
+export const COMPANY_TAB_ORDER = Object.keys(COMPANY_TABS) as CompanyTab[];
+
+export function tabFilled(knowledge: Knowledge | null | undefined, tab: CompanyTab): boolean {
+  return COMPANY_TABS[tab].some((section) => sectionFilled(knowledge, section));
+}
+
+/** The number on a list tab ("Casos 3"): named items only. Null for the text tabs. */
+export function tabCount(knowledge: Knowledge | null | undefined, tab: CompanyTab): number | null {
+  if (tab === "proofs") return count(knowledge?.proofs, "customer");
+  if (tab === "competitors") return count(knowledge?.competitors, "name");
+  return null;
+}
+
+/**
+ * Competitors the team's calls mention that "Vuestra empresa" doesn't list yet, most mentioned
+ * first. `known` holds the listed names, lower-cased.
+ */
+export function suggestedCompetitors(
+  mentions: readonly { name: string; count: number }[] | null | undefined,
+  known: ReadonlySet<string>,
+): { name: string; count: number }[] {
+  return (mentions ?? [])
+    .filter((mention) => mention.name?.trim() && !known.has(mention.name.trim().toLowerCase()))
+    .sort((a, b) => b.count - a.count);
+}
+
 /** The field a list item is named by. */
 export const ITEM_TITLE = { personas: "name", triggers: "signal", proofs: "customer", competitors: "name" } as const;
 export type KnowledgeList = keyof typeof ITEM_TITLE;
+/** The one line under an item's name: what a persona cares about, what to do on a signal, what a customer achieved, how to win. */
+export const ITEM_LINE = { personas: "cares_about", triggers: "how_to_use", proofs: "change", competitors: "how_to_talk" } as const;
 
 function filled(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0;
@@ -58,11 +94,6 @@ function filled(value: unknown): boolean {
 
 export function sectionFilled(knowledge: Knowledge | null | undefined, section: KnowledgeSection): boolean {
   return KNOWLEDGE_SECTIONS[section].some((key) => filled(knowledge?.[key]));
-}
-
-/** Sections with content, plus the ones the person just added by hand. Empty ones aren't homework. */
-export function visibleSections(knowledge: Knowledge | null | undefined, added: readonly KnowledgeSection[] = []): KnowledgeSection[] {
-  return SECTION_ORDER.filter((section) => sectionFilled(knowledge, section) || added.includes(section));
 }
 
 export function isEmptyKnowledge(knowledge: Knowledge | null | undefined): boolean {
@@ -114,21 +145,18 @@ export function cleanKnowledge(knowledge: Knowledge): Knowledge {
   if (differentiators.length) out.differentiators = differentiators;
   for (const list of Object.keys(ITEM_TITLE) as KnowledgeList[]) {
     const title = ITEM_TITLE[list];
+    const line = ITEM_LINE[list];
+    // Only the name and its line are kept: older extra fields are dropped on this save.
     const items = ((knowledge[list] ?? []) as Record<string, unknown>[])
       .map((item) => {
-        const clean: Record<string, unknown> = {};
-        for (const [field, value] of Object.entries(item)) {
-          if (Array.isArray(value)) {
-            const tags = value.map(tidy).filter(Boolean);
-            if (tags.length) clean[field] = tags;
-          } else {
-            const text = field === title ? tidy(value) : trimBlock(value);
-            if (text) clean[field] = text;
-          }
-        }
+        const clean: Record<string, string> = {};
+        const name = tidy(item[title]);
+        const text = trimBlock(item[line]);
+        if (name) clean[title] = name;
+        if (text) clean[line] = text;
         return clean;
       })
-      .filter((item) => tidy(item[title]));
+      .filter((item) => item[title]);
     if (items.length) (out as Record<string, unknown>)[list] = items;
   }
   return out;

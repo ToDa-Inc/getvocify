@@ -12,7 +12,25 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[4]
+def _vocify_root() -> Path:
+    for key in ("VOCIFY_REPO", "GETVOCIFY_REPO"):
+        if os.environ.get(key):
+            return Path(os.environ[key]).expanduser().resolve()
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "backend" / "app").is_dir():
+            return parent
+    for candidate in (
+        Path.home() / "getvocify",
+        Path.home() / "Projects" / "getvocify",
+        Path.home() / "Developer" / "getvocify",
+    ):
+        if (candidate / "backend" / "app").is_dir():
+            return candidate.resolve()
+    return here.parents[4]
+
+
+ROOT = _vocify_root()
 ENV_CANDIDATES = [ROOT / "backend" / ".env", ROOT / ".env"]
 DEFAULT_BASE = "https://api.getvocify.com"
 

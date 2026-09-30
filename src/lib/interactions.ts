@@ -1,5 +1,5 @@
 import type { MemoFilters } from "@/features/memos/types";
-import { memoContactName, memoListSubtitle } from "./copilot-note.ts";
+import { memoContactName } from "./copilot-note.ts";
 import { motionLabel } from "./motion-label.ts";
 
 export type Channel = "call" | "meeting" | "visit" | "voice_note";
@@ -134,29 +134,94 @@ export function feedBusy(rows: { status: string }[]): boolean {
 
 type Named = { extraction?: { contactName?: string | null; companyName?: string | null } | null };
 
-/** The contact, else the company, else the caller's "untitled" copy. */
-export function rowTitle(memo: Named, untitled: string): string {
-  return memoContactName(memo) || String(memo.extraction?.companyName || "").trim() || untitled;
+
+export type SummaryParts = { heading: string | null; line: string | null };
+
+const plain = (text: string) =>
+  text
+    .replace(/\*\*|__|`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** A summary is markdown: its first heading is the topic, its first bullet the line worth reading. */
+export function summaryParts(markdown: string | null | undefined): SummaryParts {
+  let heading: string | null = null;
+  let line: string | null = null;
+  for (const raw of String(markdown ?? "").split("\n")) {
+    const text = raw.trim();
+    if (!text) continue;
+    if (text.startsWith("#")) {
+      const topic = plain(text.replace(/^#+/, ""));
+      if (topic && !heading && !line) heading = topic;
+      continue;
+    }
+    const item = plain(text.replace(/^([-*•]|\d+[.)])\s*/, ""));
+    if (item) {
+      line = item;
+      break;
+    }
+  }
+  return { heading, line };
 }
 
-/** "Luis → Acme": who spoke (managers only) and the company when the title is the contact. */
-export function rowPeople(memo: Named, author: string | null): string {
-  return [author?.trim(), memoListSubtitle(memo)].filter(Boolean).join(" → ");
+/** What a row is about: the person and company when known, otherwise the summary's topic. */
+export function rowHeadline(
+  memo: Named & { extraction?: { summary?: string | null } | null },
+  fallback: string,
+): { title: string; preview: string | null } {
+  const contact = memoContactName(memo);
+  const company = String(memo.extraction?.companyName || "").trim();
+  const parts = summaryParts(memo.extraction?.summary);
+  const named = [contact, company && company.toLowerCase() !== contact.toLowerCase() ? company : ""].filter(Boolean).join(" · ");
+  if (named) return { title: named, preview: parts.line ?? parts.heading };
+  if (parts.heading) return { title: parts.heading, preview: parts.line };
+  if (parts.line) return { title: parts.line, preview: null };
+  return { title: fallback, preview: null };
 }
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+const capital = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+const dayKey = (at: Date) => `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
 
-/** "5 min ago", "yesterday" within a week; a short date after it. Empty for a bad date. */
-export function ageLabel(iso: string, now: Date, locale: string): string {
+/** Newest-first rows under "Hoy", "Ayer" and short dates, in the order they come. Bad dates go last. */
+export function groupByDay<T extends { createdAt: string }>(
+  items: T[],
+  now: Date,
+  locale: string,
+): { key: string; label: string; items: T[] }[] {
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const groups = new Map<string, { key: string; label: string; items: T[] }>();
+  const undated: T[] = [];
+  for (const item of items) {
+    const at = new Date(item.createdAt);
+    if (Number.isNaN(at.getTime())) {
+      undated.push(item);
+      continue;
+    }
+    const key = dayKey(at);
+    if (!groups.has(key)) {
+      const label =
+        key === dayKey(now)
+          ? relative.format(0, "day")
+          : key === dayKey(yesterday)
+            ? relative.format(-1, "day")
+            : new Intl.DateTimeFormat(locale, {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                ...(at.getFullYear() !== now.getFullYear() && { year: "numeric" }),
+              }).format(at);
+      groups.set(key, { key, label: capital(label.replace(/\.(?=\s|,|$)/g, "")), items: [] });
+    }
+    groups.get(key)!.items.push(item);
+  }
+  const out = [...groups.values()];
+  if (undated.length) out.push({ key: "undated", label: "", items: undated });
+  return out;
+}
+
+/** "17:05" / "5:05 PM", the way the viewer's language writes a time. Empty for a bad date. */
+export function timeLabel(iso: string, locale: string): string {
   const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  const elapsed = Math.max(0, now.getTime() - at.getTime());
-  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
-  if (elapsed < HOUR) return relative.format(-Math.max(1, Math.floor(elapsed / MINUTE)), "minute");
-  if (elapsed < DAY) return relative.format(-Math.floor(elapsed / HOUR), "hour");
-  if (elapsed < 7 * DAY) return relative.format(-Math.floor(elapsed / DAY), "day");
-  const sameYear = at.getFullYear() === now.getFullYear();
-  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) }).format(at);
+  return Number.isNaN(at.getTime()) ? "" : new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(at);
 }

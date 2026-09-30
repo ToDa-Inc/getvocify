@@ -72,11 +72,8 @@ export type StructureResult = {
     id?: string;
     label?: string;
     trigger?: string;
-    meaning?: string;
-    question?: string;
-    proof?: string;
   }[];
-  qualification?: { criterion_id?: string | null; label: string; why?: string; good?: string; bad?: string }[];
+  qualification?: { criterion_id?: string | null; label: string; good?: string }[];
   reason: null | "no_process" | "too_short" | "grouped";
   fallback: boolean;
   source: PlaybookSource | null;
@@ -132,6 +129,28 @@ export function publishBlocker(steps: EditorStep[], objections: EditorObjection[
   if (!code) return null;
   const index = steps.findIndex((step) => stepError(step) !== null);
   return { code, stepIndex: index >= 0 ? index : null };
+}
+
+/**
+ * The qualification method the criteria on screen are exactly (every criterion carries one of its
+ * ids, and all of them are there), so its card reads as chosen; null once they were adapted.
+ */
+export function matchedMethod(
+  criteria: { criterion_id?: string | null }[],
+  templates: { key: string; criteria: { es: { criterion_id: string }[] } }[],
+): string | null {
+  const ids = criteria.map((item) => item.criterion_id).filter(Boolean) as string[];
+  if (ids.length === 0 || ids.length !== criteria.length) return null;
+  const match = templates.find((template) => {
+    const own = new Set(template.criteria.es.map((item) => item.criterion_id));
+    return ids.length === own.size && ids.every((id) => own.has(id));
+  });
+  return match?.key ?? null;
+}
+
+/** An objection the team hears that has no answer yet: offered as a suggestion, not imposed. */
+export function isSuggestion(row: ObjectionRow, added: readonly string[]): boolean {
+  return row.count > 0 && !row.objection.guidance.trim() && row.objection.category !== "custom" && !added.includes(row.key);
 }
 
 export type ObjectionRow = {
@@ -193,11 +212,6 @@ export function customObjectionId(label: string, taken: readonly string[]): stri
   return id;
 }
 
-/** Whether an objection has any of the "on demand" detail filled. */
-export function hasObjectionDetail(item: EditorObjection): boolean {
-  return Boolean(item.meaning?.trim() || item.question?.trim() || item.proof?.trim());
-}
-
 /** "62 %" for a step, or null while there aren't enough calls to say. */
 export function stepRate(insights: PlaybookInsights | null | undefined, stepId: string | null | undefined): number | null {
   if (!insights || !stepId) return null;
@@ -237,16 +251,20 @@ export function editorFromStructure(
         ? Boolean(item.label?.trim())
         : (OBJECTION_CATEGORIES as readonly string[]).includes(item.category) && Boolean(item.guidance?.trim()),
     )
-    .map((item) => ({ ...item, category: item.category as EditorObjection["category"], guidance: item.guidance ?? "" }));
+    .map((item) => ({
+      category: item.category as EditorObjection["category"],
+      guidance: item.guidance ?? "",
+      ...(item.id ? { id: item.id } : {}),
+      ...(item.label ? { label: item.label } : {}),
+      ...(item.trigger ? { trigger: item.trigger } : {}),
+    }));
   const qualification = (result.qualification ?? [])
     .filter((item) => item.label?.trim())
     .map((item) => ({
       key: newKey(),
       criterion_id: item.criterion_id ?? null,
       label: item.label,
-      why: item.why ?? "",
       good: item.good ?? "",
-      bad: item.bad ?? "",
     }));
   return { steps, objections, qualification };
 }
@@ -311,12 +329,24 @@ export function rowState(status: MotionStatus, detail: PlaybookDetail | null | u
   return (detail?.step_count ?? 0) > 0 ? "pending" : "empty";
 }
 
-/** The call types "Activar para el equipo" publishes. */
-export function pendingKeys(
-  motions: Record<string, MotionStatus>,
-  details: Record<string, PlaybookDetail> | null | undefined,
-): string[] {
-  return Object.keys(motions).filter((key) => rowState(motions[key], details?.[key]) === "pending");
+/**
+ * What a call type's header and the list say, in words: active, changes the team doesn't have
+ * yet (over a live or paused version), never published, paused, or nothing yet. "changes" and
+ * "unpublished" are the two that offer "Publicar".
+ */
+export type PublishState = "live" | "changes" | "unpublished" | "paused" | "empty";
+
+export function publishState(status: MotionStatus, detail: PlaybookDetail | null | undefined): PublishState {
+  const state = rowState(status, detail);
+  if (state !== "pending") return state;
+  return status === "published" || status === "paused" || detail?.paused ? "changes" : "unpublished";
+}
+
+/** The on/off switch: only once a version was published; off while paused. */
+export function publishSwitch(status: MotionStatus, detail: PlaybookDetail | null | undefined): boolean | null {
+  if (status === "paused" || detail?.paused) return false;
+  if (status === "published") return true;
+  return null;
 }
 
 /** Nothing created anywhere yet: the whole section is the intake box. */
@@ -383,6 +413,32 @@ export function ruleSummary(rule: AppliesTo | null | undefined, copy: RuleCopy):
   return parts.join(" · ");
 }
 
+/**
+ * The header sentence of a call type: where it is used and what success is ("Se usa en
+ * llamadas · SDR · contacto nuevo · éxito = reunión con día y hora"). With routing off, the two
+ * base flows say who they are for; a type no rule sends a call to says so.
+ */
+export function usedForLine(
+  key: string,
+  rule: AppliesTo | null | undefined,
+  routing: boolean,
+  goal: string | null,
+  copy: RuleCopy & {
+    usedFor: string;
+    usedForBase: Record<string, string>;
+    usedForNone: string;
+    success: string;
+    goalShort: Record<string, string>;
+  },
+): string {
+  const summary = routing ? ruleSummary(rule, copy) : null;
+  const used = summary
+    ? copy.usedFor.replace("{rule}", summary.charAt(0).toLowerCase() + summary.slice(1))
+    : (!routing && copy.usedForBase[key]) || copy.usedForNone;
+  const success = goal && copy.goalShort[goal] ? copy.success.replace("{goal}", copy.goalShort[goal]) : null;
+  return success ? `${used} · ${success}` : used;
+}
+
 export function blankRule(role: SalesRoleKey = "any"): AppliesTo {
   return { role, channels: ["call"], contact: "any", deal_stages: [] };
 }
@@ -401,13 +457,6 @@ export function typeKeyFromName(name: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
-}
-
-/** The switch on a row: on when active, off when paused; no switch before it was ever turned on. */
-export function switchState(state: RowState): boolean | null {
-  if (state === "live") return true;
-  if (state === "paused") return false;
-  return null;
 }
 
 /** Local status after a pause/resume/delete, before the server answers (it confirms or rolls back). */

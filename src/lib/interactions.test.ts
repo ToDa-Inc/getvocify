@@ -3,18 +3,18 @@ import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
 import {
   CHANNELS,
-  ageLabel,
   channelOf,
   feedBusy,
   feedQuery,
+  groupByDay,
   interactionsAuthor,
   memoTypeLine,
   memoTypeName,
   pageOf,
   retagOptions,
-  rowPeople,
+  summaryParts,
+  rowHeadline,
   rowStatus,
-  rowTitle,
   typeChip,
   typeOptions,
 } from "./interactions.ts";
@@ -185,43 +185,7 @@ describe("feedBusy", () => {
   });
 });
 
-describe("rowTitle and rowPeople", () => {
-  const memo = { extraction: { contactName: "Ana Ruiz", companyName: "Acme" } };
 
-  it("titles the row with the contact, then the company, then the fallback", () => {
-    assert.equal(rowTitle(memo, "Untitled"), "Ana Ruiz");
-    assert.equal(rowTitle({ extraction: { companyName: "Acme" } }, "Untitled"), "Acme");
-    assert.equal(rowTitle({ extraction: null }, "Untitled"), "Untitled");
-  });
-
-  it("joins who spoke and who they spoke to, skipping what is missing", () => {
-    assert.equal(rowPeople(memo, "Luis"), "Luis → Acme");
-    assert.equal(rowPeople(memo, null), "Acme");
-    assert.equal(rowPeople({ extraction: { companyName: "Acme" } }, "Luis"), "Luis");
-    assert.equal(rowPeople({ extraction: null }, null), "");
-  });
-});
-
-describe("ageLabel", () => {
-  const now = new Date("2026-09-30T12:00:00Z");
-
-  it("is relative within a week", () => {
-    assert.equal(ageLabel("2026-09-30T11:55:00Z", now, "en-GB"), "5 min ago");
-    assert.equal(ageLabel("2026-09-30T11:59:50Z", now, "en-GB"), "1 min ago");
-    assert.equal(ageLabel("2026-09-30T09:00:00Z", now, "en-GB"), "3 hr ago");
-    assert.equal(ageLabel("2026-09-29T11:00:00Z", now, "en-GB"), "yesterday");
-    assert.equal(ageLabel("2026-09-30T11:55:00Z", now, "es-ES"), "hace 5 min");
-  });
-
-  it("is a date after a week, with the year only when it differs", () => {
-    assert.equal(ageLabel("2026-09-01T12:00:00Z", now, "en-GB"), "1 Sept");
-    assert.equal(ageLabel("2025-09-01T12:00:00Z", now, "en-GB"), "1 Sept 2025");
-  });
-
-  it("is empty for a bad date", () => {
-    assert.equal(ageLabel("nope", now, "en-GB"), "");
-  });
-});
 
 describe("interactions copy", () => {
   const shape = (value: unknown): unknown =>
@@ -280,5 +244,65 @@ describe("memo detail type line", () => {
   it("uses the Interna copy", () => {
     assert.equal(productCatalog.ES.pb2.memoPlaybookInternal, "Interna · no se puntúa");
     assert.equal(productCatalog.EN.pb2.memoPlaybookInternal, "Internal · not scored");
+  });
+});
+
+describe("summaryParts", () => {
+  it("takes the first heading as the topic and the first bullet as the line", () => {
+    const md = "### Situación actual del CRM\n* El cliente usa un **CRM propio** y complejo.\n* Otra cosa";
+    assert.deepEqual(summaryParts(md), { heading: "Situación actual del CRM", line: "El cliente usa un CRM propio y complejo." });
+  });
+  it("handles numbered lists, dashes and a summary with no heading", () => {
+    assert.deepEqual(summaryParts("1. Primer punto\n2. Segundo"), { heading: null, line: "Primer punto" });
+    assert.deepEqual(summaryParts("## Tema\n- punto"), { heading: "Tema", line: "punto" });
+  });
+  it("is empty for nothing", () => {
+    assert.deepEqual(summaryParts(""), { heading: null, line: null });
+    assert.deepEqual(summaryParts(null), { heading: null, line: null });
+    assert.deepEqual(summaryParts("###   \n-  "), { heading: null, line: null });
+  });
+});
+
+describe("rowHeadline", () => {
+  const summary = "### Prueba de audio\n- Se comprueba que el audio se escucha bien.";
+  it("names the person and company, and previews the summary", () => {
+    const memo = { extraction: { contactName: "Juan Poblet", companyName: "Dextail", summary } };
+    assert.deepEqual(rowHeadline(memo, "Llamada de 12 min"), {
+      title: "Juan Poblet · Dextail",
+      preview: "Se comprueba que el audio se escucha bien.",
+    });
+  });
+  it("uses the summary's topic when nobody is named", () => {
+    assert.deepEqual(rowHeadline({ extraction: { summary } }, "Llamada de 12 min"), {
+      title: "Prueba de audio",
+      preview: "Se comprueba que el audio se escucha bien.",
+    });
+  });
+  it("does not repeat a company equal to the contact", () => {
+    const memo = { extraction: { contactName: "Raffo", companyName: "raffo", summary: "" } };
+    assert.deepEqual(rowHeadline(memo, "x"), { title: "Raffo", preview: null });
+  });
+  it("falls back when there is nothing to say", () => {
+    assert.deepEqual(rowHeadline({ extraction: null }, "Llamada de 12 min"), { title: "Llamada de 12 min", preview: null });
+  });
+});
+
+describe("groupByDay", () => {
+  const now = new Date(2026, 8, 30, 18, 0);
+  const at = (d: number, h: number) => ({ createdAt: new Date(2026, 8, d, h, 0).toISOString() });
+  it("groups in order under Hoy, Ayer and a short date", () => {
+    const groups = groupByDay([at(30, 17), at(30, 9), at(29, 22), at(28, 10)], now, "es-ES");
+    assert.deepEqual(groups.map((group) => [group.label, group.items.length]), [["Hoy", 2], ["Ayer", 1], ["Lun, 28 sept", 1]]);
+  });
+  it("speaks English too, and puts bad dates last", () => {
+    const groups = groupByDay([at(30, 9), { createdAt: "nope" }], now, "en-GB");
+    assert.deepEqual(groups.map((group) => group.label), ["Today", ""]);
+  });
+  it("adds the year only for another year", () => {
+    const groups = groupByDay([{ createdAt: new Date(2025, 11, 31, 10).toISOString() }], now, "es-ES");
+    assert.match(groups[0].label, /2025/);
+  });
+  it("is empty for no items", () => {
+    assert.deepEqual(groupByDay([], now, "es-ES"), []);
   });
 });

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Playbook simple</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: hsl(40 33% 96%);
+    --fg: hsl(0 0% 7%);
+    --muted: hsl(30 7% 44%);
+    --faint: hsl(30 8% 64%);
+    --line: hsl(38 22% 90%);
+    --soft: hsl(38 30% 94.5%);
+    --brand: hsl(35 25% 35%);
+    --beige: hsl(35 38% 52%);
+    --beige-soft: hsl(35 50% 93%);
+    --ok: hsl(142 40% 34%);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; color: var(--fg); font: 14px/1.55 Geist, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+    /* The app's warm canvas: a little colour behind the glass so it reads as glass. */
+    background: radial-gradient(900px 500px at 85% -10%, hsl(35 60% 88%), transparent 60%),
+      radial-gradient(700px 500px at -10% 110%, hsl(28 45% 90%), transparent 60%), var(--bg);
+    min-height: 100vh;
+  }
+  /* Vocify's own materials (src/lib/theme/materials.css), copied as they are. */
+  .glass-panel {
+    isolation: isolate;
+    background: radial-gradient(120% 80% at 18% -20%, rgb(255 255 255 / 0.7), transparent 46%),
+      linear-gradient(180deg, rgb(255 255 255 / 0.56) 0%, rgb(255 255 255 / 0.28) 100%);
+    backdrop-filter: blur(22px) saturate(1.65); -webkit-backdrop-filter: blur(22px) saturate(1.65);
+    border: 1px solid rgb(255 255 255 / 0.55);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.78), inset 0 -1px 0 rgb(40 30 20 / 0.04), 0 1px 1px rgb(40 30 20 / 0.03), 0 16px 40px -22px rgb(40 30 20 / 0.28);
+  }
+  .glass-nav {
+    background: radial-gradient(120% 80% at 20% -30%, rgb(255 255 255 / 0.5), transparent 48%),
+      linear-gradient(180deg, rgb(255 255 255 / 0.38) 0%, rgb(255 255 255 / 0.14) 100%);
+    backdrop-filter: blur(16px) saturate(1.35); -webkit-backdrop-filter: blur(16px) saturate(1.35);
+    border: 1px solid rgb(255 255 255 / 0.45);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.65), 0 1px 2px rgb(40 30 20 / 0.06);
+  }
+
+  .page { max-width: 1060px; margin: 0 auto; padding: 36px 16px 60px; }
+  .h1 { font-size: 30px; font-weight: 500; letter-spacing: -0.02em; margin: 0; }
+  .sub { color: var(--muted); margin: 4px 0 24px; }
+  .shell { display: grid; grid-template-columns: 220px 1fr; gap: 28px; align-items: start; }
+  @media (max-width: 760px) { .shell { grid-template-columns: 1fr; } .rail { display: flex; overflow-x: auto; gap: 6px; } }
+
+  /* rail */
+  .rail { position: sticky; top: 20px; display: grid; gap: 2px; }
+  .rail button { display: flex; align-items: center; gap: 10px; width: 100%; border: 1px solid transparent; background: none; font: inherit; color: var(--muted); padding: 9px 12px; border-radius: 12px; cursor: pointer; text-align: left; white-space: nowrap; }
+  .rail button:hover { color: var(--fg); }
+  .rail button[aria-current="true"] { color: var(--fg); font-weight: 500; }
+  .rail .st { margin-left: auto; font-size: 11px; font-weight: 400; }
+  .rail .st.live { color: var(--ok); } .rail .st.draft { color: var(--beige); }
+  .rail hr { border: 0; height: 1px; background: var(--line); margin: 6px 12px; }
+  .ico { width: 16px; height: 16px; flex: none; opacity: .75; }
+
+  /* paper */
+  .paper { background: #fff; border-radius: 20px; box-shadow: 0 0 0 1px hsl(38 18% 28% / 0.08), 0 18px 40px -28px rgb(40 30 20 / 0.25); padding: 28px 28px 20px; position: relative; min-height: 560px; }
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .name { font-size: 22px; font-weight: 600; letter-spacing: -0.015em; margin: 0; display: flex; align-items: center; gap: 10px; }
+  .role { font-size: 11px; font-weight: 500; color: var(--muted); background: var(--soft); border-radius: 999px; padding: 3px 9px; letter-spacing: .02em; }
+  .line { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .publish { display: flex; align-items: center; gap: 12px; flex: none; }
+  .publish .st { font-size: 13px; color: var(--beige); }
+  .btn { border: 0; border-radius: 999px; padding: 9px 18px; font: inherit; font-weight: 500; background: var(--brand); color: #fff; cursor: pointer; box-shadow: inset 0 1px 0 rgb(255 255 255 / .22); }
+
+  .tabs { display: flex; gap: 22px; margin: 26px 0 6px; border-bottom: 1px solid var(--line); }
+  .tabs button { border: 0; background: none; font: inherit; color: var(--muted); padding: 0 0 12px; margin-bottom: -1px; cursor: pointer; border-bottom: 2px solid transparent; display: inline-flex; gap: 6px; align-items: baseline; }
+  .tabs button[aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--brand); }
+  .tabs .n { font-size: 11px; color: var(--faint); font-weight: 400; }
+
+  /* the one pattern every list uses: bold name, one plain line */
+  .list { margin: 0; padding: 0; list-style: none; }
+  .row { display: grid; grid-template-columns: 28px 1fr auto; gap: 4px 14px; padding: 16px 0; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .lead { grid-row: span 2; padding-top: 2px; }
+  .num { width: 24px; height: 24px; border-radius: 50%; background: var(--soft); display: grid; place-items: center; font-size: 12px; font-weight: 600; }
+  .q { color: var(--beige); font-size: 22px; line-height: 20px; font-family: Georgia, serif; }
+  .t { font-size: 15.5px; font-weight: 600; letter-spacing: -0.005em; }
+  .d { grid-column: 2; color: hsl(30 6% 28%); }
+  .d.empty { color: var(--faint); }
+  .side { display: flex; align-items: center; gap: 8px; }
+  .pill { font-size: 11.5px; color: var(--muted); background: var(--soft); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .more { opacity: 0; border: 0; background: none; color: var(--muted); font-size: 17px; padding: 0 6px; border-radius: 999px; cursor: pointer; }
+  .row:hover .more, .row:focus-within .more { opacity: 1; }
+  [contenteditable] { outline: none; border-radius: 6px; }
+  [contenteditable]:focus { background: var(--soft); box-shadow: 0 0 0 4px var(--soft); }
+  [contenteditable]:empty::before { content: attr(data-ph); color: var(--faint); }
+  .ai { display: inline-flex; align-items: center; gap: 6px; border: 0; background: var(--beige-soft); color: var(--fg); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12.5px; cursor: pointer; justify-self: start; }
+  .ai .sp { color: var(--beige); }
+  .spin { width: 10px; height: 10px; border: 1.5px solid var(--beige); border-right-color: transparent; border-radius: 50%; display: inline-block; animation: s .7s linear infinite; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .add { border: 0; background: none; color: var(--muted); font: inherit; padding: 14px 0 0; cursor: pointer; }
+  .add:hover { color: var(--fg); }
+
+  /* qualification methods */
+  .methods { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 6px; }
+  .m { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 10px 14px; font: inherit; cursor: pointer; text-align: left; min-width: 150px; }
+  .m b { display: block; font-weight: 600; }
+  .m span { font-size: 12px; color: var(--muted); }
+  .m[aria-pressed="true"] { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+  .hint { font-size: 12.5px; color: var(--muted); margin: 14px 0 2px; }
+
+  /* floating composer: sticks to the bottom of the screen and content scrolls under it (that is when glass earns its place) */
+  .composer { position: sticky; bottom: 20px; margin: 28px -8px 0; z-index: 2; border-radius: 999px; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 18px; }
+  .composer .sp { color: var(--beige); }
+  .composer input { flex: 1; border: 0; background: none; font: inherit; font-size: 14.5px; outline: none; color: var(--fg); }
+  .composer input::placeholder { color: var(--muted); }
+  .composer .send { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--brand); color: #fff; cursor: pointer; font-size: 15px; }
+  .composer .ic { color: var(--muted); margin: 0 4px; flex: none; }
+  .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); border-radius: 14px; padding: 10px 14px; display: none; gap: 14px; align-items: center; font-size: 13.5px; }
+  .toast button { border: 0; background: none; font: inherit; font-weight: 600; color: var(--brand); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="h1">Proceso de venta</p>
+  <p class="sub">Tu proceso de SDR y de AE, y si está funcionando.</p>
+  <div class="shell">
+    <nav class="rail" id="rail"></nav>
+    <main class="paper">
+      <div class="head">
+        <div>
+          <p class="name" id="name"></p>
+          <p class="line" id="usedfor"></p>
+        </div>
+        <div class="publish"><span class="st">3 cambios sin publicar</span><button class="btn">Publicar</button></div>
+      </div>
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div id="panel"></div>
+      <div class="composer glass-panel">
+        <span class="sp">✦</span>
+        <input id="ask" placeholder="Dile a Vocify qué añadir o cambiar" />
+        <svg class="ic" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-label="Dictar"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2"/></svg>
+        <svg class="ic" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-label="Adjuntar"><path d="M13 7.5 8.2 12.3a3 3 0 0 1-4.3-4.3l5-5a2 2 0 0 1 2.9 2.9l-5 5a1 1 0 0 1-1.5-1.5L10 4.8"/></svg>
+        <button class="send" aria-label="Enviar">↑</button>
+      </div>
+    </main>
+  </div>
+</div>
+<div class="toast glass-panel" id="toast"><span id="toastText"></span><button>Deshacer</button></div>
+
+<script>
+const TYPES = {
+  sdr: { name: "Llamada en frío", role: "SDR", usedfor: "Se usa en las llamadas de SDR antes de la reunión · éxito = reunión con día y hora" },
+  ae: { name: "Demo y cierre", role: "AE", usedfor: "Se usa en las reuniones de AE · éxito = siguiente paso con fecha" },
+};
+const METHODS = {
+  sdr: [
+    { key: "bant", name: "BANT", sub: "Presupuesto, autoridad, necesidad, plazo", items: [["Necesidad", "Nombra un problema concreto y a quién afecta."], ["Autoridad", "Dice quién decide o cómo se decide."], ["Presupuesto", "Da un rango o dice de dónde saldría."], ["Plazo", "Dice cuándo quiere resolverlo."]] },
+    { key: "champ", name: "CHAMP", sub: "Primero el problema, luego el dinero", items: [["Retos", "Cuenta qué le frena hoy, con un ejemplo."], ["Autoridad", "Dice quién más participa en la decisión."], ["Dinero", "Hay presupuesto o se puede conseguir."], ["Prioridad", "Explica por qué ahora y no dentro de seis meses."]] },
+    { key: "anum", name: "ANUM", sub: "Hablar con quien decide", items: [["Autoridad", "Es quien decide o te lleva a esa persona."], ["Necesidad", "Reconoce el problema con sus palabras."], ["Urgencia", "Hay una fecha o un coste de esperar."], ["Dinero", "Puede pagarlo."]] },
+    { key: "gpct", name: "GPCT", sub: "Objetivos y plan del cliente", items: [["Objetivos", "Nombra el objetivo con número."], ["Plan", "Cuenta cómo pensaba conseguirlo."], ["Retos", "Dice qué se lo impide."], ["Plazo", "Pone una fecha al objetivo."]] },
+  ],
+  ae: [
+    { key: "meddic", name: "MEDDIC", sub: "Ventas complejas, varios decisores", items: [["Métricas", "El número que quiere mover y de cuánto a cuánto."], ["Comprador económico", "Quién firma y si ya ha hablado con él."], ["Criterios de decisión", "Con qué va a comparar."], ["Proceso de decisión", "Los pasos hasta la firma, con fechas."], ["Dolor identificado", "El problema y lo que cuesta hoy."], ["Champion", "Quién lo defiende dentro."]] },
+    { key: "meddpicc", name: "MEDDPICC", sub: "MEDDIC + papeleo y competencia", items: [["Métricas", "El número que quiere mover."], ["Comprador económico", "Quién firma."], ["Proceso de papeleo", "Legal, compras, seguridad: quién y cuánto tarda."], ["Competencia", "Con quién más está hablando."]] },
+    { key: "spiced", name: "SPICED", sub: "Situación, dolor, impacto, evento", items: [["Situación", "Cómo lo hacen hoy."], ["Dolor", "Qué no funciona, con un ejemplo."], ["Impacto", "Lo que les cuesta en tiempo o dinero."], ["Evento crítico", "La fecha que obliga a decidir."], ["Decisión", "Quién decide y cómo."]] },
+    { key: "bant", name: "BANT", sub: "Rápido y conocido", items: [["Presupuesto", "Da un rango."], ["Autoridad", "Quién decide."], ["Necesidad", "El problema concreto."], ["Plazo", "Cuándo lo quiere."]] },
+  ],
+};
+const DATA = {
+  sdr: {
+    steps: [["Apertura con permiso", "Se presenta y pregunta si tiene un minuto antes de contar nada."], ["Motivo de la llamada", "Conecta la llamada con algo concreto de su empresa."], ["Descubrir el dolor", "Pregunta cómo lo hacen hoy y el prospecto nombra un problema."], ["Agendar la reunión", "Propone día y hora y el prospecto acepta."]],
+    objections: [["Es muy caro para nosotros", "Precio", "¿Comparado con qué? Mira cuántas horas pierde tu equipo actualizando el CRM cada semana."], ["Ahora no es buen momento", "Timing", "Lo entiendo. ¿Te llamo el martes a las 10 y son cinco minutos?"], ["Ya lo tenemos resuelto con HubSpot", "Le va bien como está", ""]],
+    method: "bant",
+  },
+  ae: {
+    steps: [["Agenda y objetivo", "Abre con la agenda y lo que se quiere decidir al final."], ["Repasar el dolor", "Confirma con el prospecto el problema que se habló antes."], ["Demo enfocada", "Enseña solo lo que resuelve el problema confirmado."], ["Siguiente paso", "Propone el siguiente paso con fecha."]],
+    objections: [["Se nos sale de presupuesto", "Precio", "Compara lo que cuesta con el tiempo que el equipo pierde en el CRM en cada llamada."], ["No lo decido yo", "No es quien decide", "¿Quién más debería ver esto? Propón una llamada de 15 minutos con los dos."]],
+    method: "meddic",
+  },
+};
+let type = "sdr", tab = "objections";
+
+function rail() {
+  document.getElementById("rail").innerHTML = `
+    <button><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor"><rect x="2.5" y="4" width="11" height="9.5" rx="1"/><path d="M5.5 4V2.5h5V4M5 7.5h6M5 10h6"/></svg>Vuestra empresa</button>
+    <hr/>
+    ${Object.entries(TYPES).map(([k, v]) => `<button data-type="${k}" aria-current="${k === type}" class="${k === type ? "glass-nav" : ""}">
+      <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor"><path d="M4 2.5h2l1 3-1.5 1a7 7 0 0 0 3.5 3.5l1-1.5 3 1v2A1.5 1.5 0 0 1 11.5 13 9.5 9.5 0 0 1 2.5 4 1.5 1.5 0 0 1 4 2.5Z"/></svg>
+      ${v.name}<span class="st draft">Sin publicar</span></button>`).join("")}
+    <button style="font-size:13px">＋ Importar documento</button>`;
+}
+function head() {
+  const v = TYPES[type];
+  document.getElementById("name").innerHTML = `${v.name}<span class="role">${v.role}</span>`;
+  document.getElementById("usedfor").textContent = v.usedfor;
+  const d = DATA[type];
+  const tabs = [["steps", "Pasos", d.steps.length], ["qualification", "Cualificación", METHODS[type].find((m) => m.key === d.method).items.length], ["objections", "Objeciones", d.objections.length]];
+  document.getElementById("tabs").innerHTML = tabs.map(([k, l, n]) => `<button role="tab" data-tab="${k}" aria-selected="${k === tab}">${l}<span class="n">${n}</span></button>`).join("");
+}
+const aiBtn = (label, i) => `<button class="ai" data-ai="${i}"><span class="sp">✦</span>${label}</button>`;
+const more = `<button class="more" title="Mover · Eliminar">···</button>`;
+
+function panel() {
+  const d = DATA[type];
+  let html = "";
+  if (tab === "steps") {
+    html = `<ol class="list">${d.steps.map(([t, c], i) => `<li class="row"><span class="lead"><span class="num">${i + 1}</span></span>
+      <span class="t" contenteditable data-ph="Nombre del paso">${t}</span><span class="side">${more}</span>
+      <span class="d" contenteditable data-ph="Cuenta como hecho cuando…">${c}</span></li>`).join("")}</ol>
+      <button class="add">＋ Paso</button>`;
+  } else if (tab === "objections") {
+    html = `<ul class="list">${d.objections.map(([q, kind, a], i) => `<li class="row"><span class="lead q">“</span>
+      <span class="t" contenteditable data-ph="Lo que dice el cliente">${q}</span><span class="side"><span class="pill">${kind}</span>${more}</span>
+      ${a ? `<span class="d" contenteditable data-ph="Tu respuesta">${a}</span>` : `<span class="d">${aiBtn("Escribir la respuesta", i)}</span>`}</li>`).join("")}</ul>
+      <button class="add">＋ Objeción</button>`;
+  } else {
+    const methods = METHODS[type];
+    const m = methods.find((x) => x.key === d.method);
+    html = `<p class="hint">Métodos habituales para ${TYPES[type].role === "SDR" ? "una llamada de SDR" : "una reunión de AE"}. Elige uno y adáptalo.</p>
+      <div class="methods">${methods.map((x) => `<button class="m" data-method="${x.key}" aria-pressed="${x.key === d.method}"><b>${x.name}</b><span>${x.sub}</span></button>`).join("")}
+      <button class="m" style="border-style:dashed"><b>＋ Propio</b><span>Con tus criterios</span></button></div>
+      <ul class="list">${m.items.map(([t, c]) => `<li class="row"><span class="lead"><span class="num" style="font-size:13px">?</span></span>
+        <span class="t" contenteditable>${t}</span><span class="side">${more}</span>
+        <span class="d" contenteditable data-ph="Cómo suena una buena respuesta">${c}</span></li>`).join("")}</ul>`;
+  }
+  document.getElementById("panel").innerHTML = html;
+}
+function render() { rail(); head(); panel(); }
+function toast(text) {
+  const t = document.getElementById("toast");
+  document.getElementById("toastText").textContent = text;
+  t.style.display = "flex";
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = "none"), 3500);
+}
+document.addEventListener("click", (e) => {
+  const tb = e.target.closest("[data-type]"); if (tb) { type = tb.dataset.type; render(); return; }
+  const tt = e.target.closest("[data-tab]"); if (tt) { tab = tt.dataset.tab; head(); panel(); return; }
+  const mm = e.target.closest("[data-method]"); if (mm) { DATA[type].method = mm.dataset.method; head(); panel(); toast(`Cualificación: ${mm.textContent.trim().split(/\s/)[0]}`); return; }
+  const ai = e.target.closest("[data-ai]");
+  if (ai && !ai.dataset.busy) {
+    ai.dataset.busy = "1"; ai.innerHTML = `<span class="spin"></span>Escribiendo…`;
+    setTimeout(() => { DATA[type].objections[+ai.dataset.ai][2] = "Genial. ¿Y qué pasa con lo que se dice después de colgar? Eso es lo que Vocify rellena solo."; panel(); toast("Respuesta añadida"); }, 1300);
+  }
+});
+document.getElementById("ask").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.value.trim()) { e.target.value = ""; toast("Vocify añadió 1 objeción"); }
+});
+render();
+</script>
+</body>
+</html>

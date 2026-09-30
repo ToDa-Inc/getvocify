@@ -29,7 +29,8 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 /**
  * Inicio (/dashboard), one page for every role: ask on top, the latest interactions under it, the
  * day (rep) or the team (Head of Sales) on the side. Sending a question turns the main column into
- * the conversation; Esc or "Nuevo" brings the home back. Only the thread and the feed scroll.
+ * the conversation; Esc or "Nuevo" brings the home back. At home the page scrolls as one piece (the
+ * side column stays put); in the chat only the thread scrolls.
  */
 export function InicioPage() {
   const { t } = useLanguage();
@@ -87,12 +88,12 @@ export function InicioPage() {
   }, [inChat]);
 
   return (
-    <div className={cn("flex flex-col gap-6 md:h-full md:flex-row", inChat && "h-full")}>
-      <div className={cn("relative flex min-w-0 flex-col md:min-h-0 md:flex-1", inChat && "min-h-0 flex-1")}>
+    <div className={cn("flex flex-col gap-6 md:flex-row md:items-start", inChat && "h-full md:items-stretch")}>
+      <div className={cn("relative flex min-w-0 flex-col md:flex-1", inChat && "min-h-0 flex-1")}>
         <div
           aria-hidden={inChat || undefined}
           className={cn(
-            "flex flex-col gap-6 transition-opacity duration-200 motion-reduce:transition-none md:min-h-0 md:flex-1",
+            "flex flex-col gap-8 transition-opacity duration-200 motion-reduce:transition-none",
             inChat && "pointer-events-none invisible absolute inset-0 overflow-hidden opacity-0",
           )}
         >
@@ -162,7 +163,7 @@ export function InicioPage() {
       </div>
 
       {rail ? (
-        <aside className={cn("md:w-[320px] md:min-h-0 md:shrink-0 md:overflow-y-auto", inChat && "max-md:hidden")}>
+        <aside className={cn("md:sticky md:top-0 md:w-[320px] md:shrink-0", inChat && "max-md:hidden md:max-h-full md:overflow-y-auto")}>
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5`}>{rail}</div>
         </aside>
       ) : null}

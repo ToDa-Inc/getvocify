@@ -10,6 +10,9 @@ description: >
 
 # Debug Vocify on Railway
 
+**Global install:** `~/.agents/skills/debug-vocify-railway/` (Claude, Codex, Cursor).
+Repo copy: `getvocify/.cursor/skills/debug-vocify-railway/`.
+
 Leaf of the Vocify debug pipeline ([debug-vocify](../debug-vocify/SKILL.md)).
 Use when the user asked to debug **Railway / API infra**, or when the parent
 pipeline reaches Phase 2.

@@ -17,7 +17,7 @@ import { INTERNAL_KEY, retagOptions, type TypeOption } from "@/lib/interactions"
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-export const chipClass = "inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium";
+export const chipClass = "inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-xs font-medium";
 
 /**
  * The row's type, as a menu: one click retags the memo to another active type or to "Interna". The chip
@@ -27,10 +27,13 @@ export function TypeChip({
   memoId,
   chip,
   options,
+  untyped = false,
 }: {
   memoId: string;
   chip: { key: string; label: string };
   options: TypeOption[];
+  /** No type yet: the chip reads quieter and offers the types to tag it with. */
+  untyped?: boolean;
 }) {
   const { t } = useLanguage();
   const copy = t.product.interactions;
@@ -81,7 +84,10 @@ export function TypeChip({
               disabled={retag.isPending}
               className={cn(
                 chipClass,
-                "max-w-[12rem] bg-beige/10 text-beige transition-colors duration-150 hover:bg-beige/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none disabled:opacity-60",
+                "max-w-[12rem] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none disabled:opacity-60",
+                untyped
+                  ? "border border-dashed border-border text-muted-foreground hover:text-foreground"
+                  : "bg-beige/10 text-beige hover:bg-beige/20",
               )}
             >
               <span className="truncate">{chip.label}</span>

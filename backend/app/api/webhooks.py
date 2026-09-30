@@ -1464,14 +1464,17 @@ RECALL_FAILED_MESSAGES = {
     "transcript.failed": "Recall no pudo transcribir la reunión",
 }
 RECALL_FAILED_EVENTS = frozenset(RECALL_FAILED_MESSAGES)
+RECALL_CALENDAR_EVENTS = frozenset({"calendar.sync_events", "calendar.update"})
 
 
 @router.post("/recall")
-async def recall_webhook(request: Request):
+async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
     """Recall.ai meeting bot events (T14). `bot.done` fetches the finished transcript
     and completes the capture reserved by POST /meetings/bot; `bot.status_change` and
     any other event are acknowledged as a no-op - there is nothing to do until the
-    transcript is ready."""
+    transcript is ready. A calendar bot (Calendar V2) has no capture until its meeting
+    happens: it is reserved here from the bot's metadata. `calendar.*` events
+    (re)schedule a rep's bots after the 200 is sent - Recall gives up after 15s."""
     cid = f"rc_{uuid4().hex[:8]}"
     set_correlation_id(cid)
     raw_body = await request.body()
@@ -1510,6 +1513,21 @@ async def recall_webhook(request: Request):
         return JSONResponse(content={"status": "error", "message": "Invalid JSON"}, status_code=400)
 
     event = str(payload.get("event") or "")
+
+    if event in RECALL_CALENDAR_EVENTS:
+        data = payload.get("data") or {}
+        calendar_id = str(data.get("calendar_id") or "")
+        if not calendar_id:
+            inc_webhook_message("recall", "skipped")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
+        from app.services.meetings.calendar_bots import handle_calendar_webhook
+
+        background_tasks.add_task(
+            handle_calendar_webhook, get_supabase(), event, calendar_id, data.get("last_updated_ts")
+        )
+        inc_webhook_message("recall", "processed")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
     bot = ((payload.get("data") or {}).get("bot")) or {}
     bot_id = str(bot.get("id") or "")
 
@@ -1529,14 +1547,18 @@ async def recall_webhook(request: Request):
         transcript_download_url_from_bot,
         turns_from_recall_transcript,
     )
+    from app.services.meetings.calendar_bots import rep_calendar_email
     from app.services.meetings.recall_bot import (
         complete_recall_capture,
         find_capture_by_bot_id,
         rep_full_name,
+        reserve_calendar_bot_capture,
     )
 
     supabase = get_supabase()
     memo_row = find_capture_by_bot_id(supabase, bot_id)
+    if not memo_row and completing:
+        memo_row = await reserve_calendar_bot_capture(supabase, RecallClient(), bot_id, bot.get("metadata") or {})
     if not memo_row:
         logger.warning(
             "Recall webhook: no capture reserved for bot %s", bot_id,
@@ -1586,7 +1608,8 @@ async def recall_webhook(request: Request):
             return JSONResponse(content={"status": "ok"}, status_code=200)
         segments = await client.download_transcript(download_url)
         rep_name = rep_full_name(supabase, memo_row["user_id"])
-        transcript, turns = turns_from_recall_transcript(segments, rep_name=rep_name)
+        rep_email = rep_calendar_email(supabase, memo_row["user_id"])
+        transcript, turns = turns_from_recall_transcript(segments, rep_name=rep_name, rep_email=rep_email)
     except Exception as exc:
         logger.exception(
             "Recall webhook: transcript fetch failed for bot %s", bot_id,

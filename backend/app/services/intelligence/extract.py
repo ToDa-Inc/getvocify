@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.services.usage import scoped
 from app.config import settings
 from app.services.intelligence.worker import revision_for_memo
 
@@ -601,6 +602,7 @@ def extraction_plan(supabase: Any, memo: dict) -> tuple[str, list[dict]]:
     return OBSERVATIONS_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
 
 
+@scoped("intelligence")
 async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -> dict:
     """Idempotent per revision. A failure leaves the memo as it was."""
     result = supabase.table("memos").select("*").eq("id", str(memo_id)).limit(1).execute()

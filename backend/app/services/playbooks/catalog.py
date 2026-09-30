@@ -414,31 +414,120 @@ _COMPETITION = _crit(
      "\"We're not looking at anything else\" without saying how they do it today."),
 )
 
+_CHALLENGES = _crit(
+    "challenges",
+    ("Retos", "Se empieza por el problema, no por el dinero.",
+     "Cuenta qué le frena hoy, con un ejemplo concreto.",
+     "«Todo va bien, solo miramos opciones»."),
+    ("Challenges", "Start from the problem, not from the money.",
+     "Describes what holds them back today, with a concrete example.",
+     "\"Everything's fine, we're just looking\"."),
+)
+_PRIORITY = _crit(
+    "priority",
+    ("Prioridad", "Un problema real pero no prioritario no se compra este trimestre.",
+     "Explica por qué ahora y qué pasa si lo dejan seis meses.",
+     "«Está en la lista» sin fecha ni motivo."),
+    ("Priority", "A real problem that isn't a priority doesn't get bought this quarter.",
+     "Explains why now and what happens if it waits six months.",
+     "\"It's on the list\" with no date or reason."),
+)
+_URGENCY = _crit(
+    "urgency",
+    ("Urgencia", "Sin un motivo para decidir pronto, la compra se aplaza.",
+     "Hay una fecha, un evento o un coste de esperar.",
+     "«Cuando tengamos tiempo»."),
+    ("Urgency", "Without a reason to decide soon, the purchase gets pushed.",
+     "There is a date, an event or a cost of waiting.",
+     "\"When we have time\"."),
+)
+_GOALS = _crit(
+    "goals",
+    ("Objetivos", "Lo que quieren conseguir dice qué venderles.",
+     "Nombra un objetivo con número (más reuniones, menos horas, más cierres).",
+     "Objetivos generales sin número."),
+    ("Goals", "What they want to achieve says what to sell them.",
+     "Names a goal with a number (more meetings, fewer hours, more closes).",
+     "General goals with no number."),
+)
+_PLANS = _crit(
+    "plans",
+    ("Plan", "Si ya tienen un plan, hay que encajar en él.",
+     "Cuenta cómo pensaban conseguir el objetivo y con qué.",
+     "No tiene plan ni lo ha pensado."),
+    ("Plans", "If they already have a plan, you have to fit into it.",
+     "Describes how they planned to reach the goal and with what.",
+     "Has no plan and hasn't thought about it."),
+)
+_SITUATION = _crit(
+    "situation",
+    ("Situación", "Sin saber cómo lo hacen hoy no se puede proponer nada.",
+     "Describe cómo lo hacen hoy: equipo, herramientas y proceso.",
+     "Respuestas vagas sobre su día a día."),
+    ("Situation", "Without knowing how they do it today you can't propose anything.",
+     "Describes how they do it today: team, tools and process.",
+     "Vague answers about their day to day."),
+)
+_IMPACT = _crit(
+    "impact",
+    ("Impacto", "El dolor solo justifica la compra si cuesta algo medible.",
+     "Pone un coste en horas, dinero u oportunidades perdidas.",
+     "Reconoce el problema pero no sabe lo que cuesta."),
+    ("Impact", "Pain only justifies the purchase if it costs something measurable.",
+     "Puts a cost on it in hours, money or lost opportunities.",
+     "Admits the problem but doesn't know what it costs."),
+)
+_CRITICAL_EVENT = _crit(
+    "critical_event",
+    ("Evento crítico", "Una fecha que obliga a decidir mueve la compra.",
+     "Nombra un hecho con fecha: una renovación, un lanzamiento, un cierre.",
+     "No hay ninguna fecha que les obligue."),
+    ("Critical event", "A date that forces a decision moves the purchase.",
+     "Names a dated event: a renewal, a launch, a quarter close.",
+     "No date forces them to decide."),
+)
+
+# Each method is offered for the role it is usually used in: SDRs qualify a first conversation
+# (BANT, CHAMP, ANUM, GPCT); AEs run a longer, multi-person sale (MEDDIC, MEDDPICC, SPICED, BANT).
 _QUALIFICATION_TEMPLATES: tuple[dict, ...] = (
-    {"key": "bant", "label": "BANT", "criteria": (_BUDGET, _AUTHORITY, _NEED, _TIMELINE)},
-    {
-        "key": "meddic",
-        "label": "MEDDIC",
-        "criteria": (_METRICS, _ECONOMIC_BUYER, _DECISION_CRITERIA, _DECISION_PROCESS, _IDENTIFY_PAIN, _CHAMPION),
-    },
-    {
-        "key": "meddpicc",
-        "label": "MEDDPICC",
-        "criteria": (
-            _METRICS, _ECONOMIC_BUYER, _DECISION_CRITERIA, _DECISION_PROCESS,
-            _PAPER_PROCESS, _IDENTIFY_PAIN, _CHAMPION, _COMPETITION,
-        ),
-    },
+    {"key": "bant", "label": "BANT", "roles": ("sdr", "ae"),
+     "summary": ("Presupuesto, autoridad, necesidad y plazo", "Budget, authority, need and timeline"),
+     "criteria": (_BUDGET, _AUTHORITY, _NEED, _TIMELINE)},
+    {"key": "champ", "label": "CHAMP", "roles": ("sdr",),
+     "summary": ("Primero el problema, luego el dinero", "Problem first, money later"),
+     "criteria": (_CHALLENGES, _AUTHORITY, _BUDGET, _PRIORITY)},
+    {"key": "anum", "label": "ANUM", "roles": ("sdr",),
+     "summary": ("Llegar a quien decide", "Get to who decides"),
+     "criteria": (_AUTHORITY, _NEED, _URGENCY, _BUDGET)},
+    {"key": "gpct", "label": "GPCT", "roles": ("sdr",),
+     "summary": ("Objetivos y plan del cliente", "The buyer's goals and plan"),
+     "criteria": (_GOALS, _PLANS, _CHALLENGES, _TIMELINE)},
+    {"key": "meddic", "label": "MEDDIC", "roles": ("ae",),
+     "summary": ("Ventas con varios decisores", "Sales with several decision makers"),
+     "criteria": (_METRICS, _ECONOMIC_BUYER, _DECISION_CRITERIA, _DECISION_PROCESS, _IDENTIFY_PAIN, _CHAMPION)},
+    {"key": "meddpicc", "label": "MEDDPICC", "roles": ("ae",),
+     "summary": ("MEDDIC con trámites y competencia", "MEDDIC plus paperwork and competition"),
+     "criteria": (
+         _METRICS, _ECONOMIC_BUYER, _DECISION_CRITERIA, _DECISION_PROCESS,
+         _PAPER_PROCESS, _IDENTIFY_PAIN, _CHAMPION, _COMPETITION,
+     )},
+    {"key": "spiced", "label": "SPICED", "roles": ("ae",),
+     "summary": ("Situación, dolor, impacto y fecha", "Situation, pain, impact and date"),
+     "criteria": (_SITUATION, _IDENTIFY_PAIN, _IMPACT, _CRITICAL_EVENT, _DECISION_PROCESS)},
 )
 QUALIFICATION_TEMPLATE_KEYS: tuple[str, ...] = tuple(entry["key"] for entry in _QUALIFICATION_TEMPLATES)
 
 
 def qualification_criteria(key: str, lang: str = "es") -> list[dict]:
-    """The criteria of one template ("bant" | "meddic" | "meddpicc") in `lang`; [] for any other key."""
+    """The criteria of one template (a QUALIFICATION_TEMPLATE_KEYS key) in `lang`; [] for any other key."""
     lang = "en" if lang == "en" else "es"
     for entry in _QUALIFICATION_TEMPLATES:
         if entry["key"] == (key or "").strip().lower():
-            return [dict(criterion[lang]) for criterion in entry["criteria"]]
+            # What the editor shows and the scoring reads: what to find out and how a good answer sounds.
+            return [
+                {name: criterion[lang][name] for name in ("criterion_id", "label", "good") if name in criterion[lang]}
+                for criterion in entry["criteria"]
+            ]
     return []
 
 
@@ -448,6 +537,8 @@ def qualification_templates() -> list[dict]:
         {
             "key": entry["key"],
             "label": entry["label"],
+            "roles": list(entry["roles"]),
+            "summary": {"es": entry["summary"][0], "en": entry["summary"][1]},
             "criteria": {"es": qualification_criteria(entry["key"], "es"), "en": qualification_criteria(entry["key"], "en")},
         }
         for entry in _QUALIFICATION_TEMPLATES

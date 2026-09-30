@@ -112,6 +112,19 @@ def test_one_call_with_a_short_timeout_and_no_client_retries():
     assert SCRIPT in user["content"]
 
 
+
+def test_a_whole_document_gets_the_longer_timeout():
+    llm = FakeLLM(GOOD)
+    run(SCRIPT + " " + "Seguimos con el proceso habitual del equipo. " * 80, llm)
+    assert llm.calls[0]["timeout"] == 60.0
+
+
+def test_markdown_the_model_copies_never_reaches_a_step():
+    answer = {**GOOD, "steps": [{"label": "**Apertura** con permiso", "criterion": "Se presenta y pide **un minuto**."}]}
+    result = run(SCRIPT, FakeLLM(answer))
+    assert result["steps"][0]["label"] == "Apertura con permiso"
+    assert result["steps"][0]["criterion"] == "Se presenta y pide un minuto."
+
 def test_the_prompt_names_only_the_seven_categories():
     prompt = structure_module._system_prompt()
     for category in OBJECTION_CATEGORIES:
@@ -376,6 +389,55 @@ def test_parser_handles_windows_newlines_and_empty_input():
     assert parse_playbook_text("") == []
     assert parse_playbook_text("  \n\n ") == []
 
+
+
+_OUTLINE = """# Playbook SDR
+
+## Objetivo del rol
+
+Abrir conversaciones y detectar **un problema específico**.
+
+### 1. Elegir y preparar la cuenta
+
+- Priorizar startups B2B con SDRs
+- Revisar en el CRM la relación previa y elegir **un motivo concreto**
+
+### 2. Apertura
+
+Abrir con nombre y una pregunta.
+
+### 3. Cualificar
+
+1. **Equipo y volumen:** quién llama y cuántos son
+2. **Flujo actual:** CRM y telefonía
+"""
+
+
+def test_parser_an_outline_gives_one_step_per_numbered_heading():
+    steps = parse_playbook_text(_OUTLINE)
+    assert [s["label"] for s in steps] == ["Elegir y preparar la cuenta", "Apertura", "Cualificar"]
+    assert steps[0]["criterion"] == (
+        "Priorizar startups B2B con SDRs. Revisar en el CRM la relación previa y elegir un motivo concreto"
+    )
+    assert steps[1]["criterion"] == "Abrir con nombre y una pregunta."
+    assert steps[2]["criterion"] == "Equipo y volumen: quién llama y cuántos son. Flujo actual: CRM y telefonía"
+
+
+def test_parser_drops_markdown_and_never_cuts_a_label_mid_word():
+    steps = parse_playbook_text(
+        "Priorizar startups B2B con SDRs o equipo comercial activo y alta frecuencia de llamadas.\n\n**Cerrar**"
+    )
+    assert steps[0]["label"] == "Priorizar startups B2B con SDRs o equipo comercial activo"
+    assert steps[1]["label"] == "Cerrar"
+    assert all("*" not in s["label"] + s["criterion"] for s in steps)
+
+
+def test_parser_numbered_lines_with_lines_under_them_are_an_outline():
+    steps = parse_playbook_text("1. Apertura\n- Se presenta\n- Pide un minuto\n2. Cierre\n- Agenda")
+    assert steps == [
+        {"label": "Apertura", "criterion": "Se presenta. Pide un minuto"},
+        {"label": "Cierre", "criterion": "Agenda"},
+    ]
 
 # --- HTTP ---
 

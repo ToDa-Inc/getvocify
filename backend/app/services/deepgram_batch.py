@@ -14,6 +14,7 @@ import httpx
 
 from app.config import settings
 from app.logging_config import DOMAIN_TRANSCRIPTION, log_domain
+from app.services.usage import record_stt_usage
 from app.services.session_entities import (
     EntityTerm,
     deepgram_keyterms_for_job,
@@ -287,7 +288,17 @@ class DeepgramBatchService:
         text, confidence = format_deepgram_transcript(data, multichannel=multichannel)
         if not text:
             raise RuntimeError("Deepgram returned an empty transcript")
-        request_id = ((data.get("metadata") or {}).get("request_id")) or ""
+        metadata = data.get("metadata") or {}
+        request_id = metadata.get("request_id") or ""
+        if metadata.get("duration"):
+            record_stt_usage(
+                "deepgram",
+                "batch",
+                float(metadata["duration"]),
+                channels=2 if multichannel else 1,
+                model=DEEPGRAM_MODEL,
+                meta={"request_id": request_id, "language": lang},
+            )
         logger.info(
             "Deepgram listen complete",
             extra=log_domain(

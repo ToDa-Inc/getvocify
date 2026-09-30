@@ -124,7 +124,7 @@ def test_no_api_key_is_503():
 
 @respx.mock
 def test_recall_error_is_502_not_500():
-    respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(return_value=httpx.Response(422, text="bad url"))
+    respx.post("https://eu-central-1.recall.ai/api/v1/bot/").mock(return_value=httpx.Response(422, text="bad url"))
     client = _client()
     response = client.post("/api/v1/meetings/bot", json={"meeting_url": "https://zoom.us/j/1"})
     assert response.status_code == 502
@@ -144,7 +144,7 @@ def test_a_non_https_meeting_url_is_422():
 
 @respx.mock
 def test_successful_create_reserves_the_capture():
-    respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(
+    respx.post("https://eu-central-1.recall.ai/api/v1/bot/").mock(
         return_value=httpx.Response(201, json={"id": "bot-77", "status": "joining_call"})
     )
     client = _client()
@@ -166,10 +166,10 @@ def test_successful_create_reserves_the_capture():
 
 @respx.mock
 def test_a_reserve_failure_deletes_the_orphan_bot_and_returns_502():
-    respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(
+    respx.post("https://eu-central-1.recall.ai/api/v1/bot/").mock(
         return_value=httpx.Response(201, json={"id": "bot-orphan"})
     )
-    delete_route = respx.delete("https://us-west-2.recall.ai/api/v1/bot/bot-orphan/").mock(
+    delete_route = respx.delete("https://eu-central-1.recall.ai/api/v1/bot/bot-orphan/").mock(
         return_value=httpx.Response(204)
     )
     # An empty client_capture_id makes reserve_recall_capture's underlying
@@ -186,7 +186,7 @@ def test_a_reserve_failure_deletes_the_orphan_bot_and_returns_502():
 def test_a_retry_with_the_same_meeting_reuses_the_same_bot_capture_when_ids_match():
     """Recall issues a fresh bot_id per create_bot call, so this is really about the
     reservation itself being keyed by bot_id (idempotent per bot, T3-style)."""
-    respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(
+    respx.post("https://eu-central-1.recall.ai/api/v1/bot/").mock(
         return_value=httpx.Response(201, json={"id": "bot-1"})
     )
     client = _client()

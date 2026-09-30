@@ -113,8 +113,6 @@
         ],
         "competitor_empty_fields": {
           "Factorial": [
-            "they_like",
-            "landmines",
             "how_to_talk"
           ]
         },
@@ -145,7 +143,6 @@
             "price"
           ],
           "min_custom": 3,
-          "min_objection_extras": 2,
           "must_contain_any": [
             "histórico",
             "legal"

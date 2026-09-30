@@ -71,7 +71,7 @@ const SettingsLayout = () => {
   }, [queryClient, paywalled]);
 
   return (
-    <div className={`max-w-5xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
+    <div className={`max-w-[1400px] mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
       <div className="mb-6">
         <h1 className={THEME_TOKENS.typography.pageTitle}>
           {paywalled ? t.product.settingsPageTitleBilling : t.product.settingsPageTitle}

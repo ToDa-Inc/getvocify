@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
+import { FilterMenu } from "@/features/interactions/components/FilterMenu";
 import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
 import { AdherenceTrend } from "@/features/team-insights/components/AdherenceTrend";
 import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
@@ -21,7 +23,6 @@ import {
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
 
-const field = "mt-1 block w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground";
 
 const EMPTY_FILTERS: TeamFilters = { period: "week", motion: null, userId: null };
 
@@ -120,53 +121,31 @@ export default function TeamInsightsPage() {
       {view.kind === "denied" ? <p>{view.title}</p> : null}
       {view.kind === "new" ? <p>{view.title}</p> : null}
       {allowed ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className={THEME_TOKENS.typography.capsLabel}>
-            {t.product.teamFilterRep}
-            <select
-              className={field}
-              value={filters.userId ?? ""}
-              onChange={(event) =>
-                setFilters((prev) => ({
-                  ...prev,
-                  userId: event.target.value ? event.target.value : null,
-                }))
-              }
-            >
-              <option value="">{t.product.teamFilterAllReps}</option>
-              {reps.map((rep) => (
-                <option key={rep.userId} value={rep.userId}>
-                  {rep.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={THEME_TOKENS.typography.capsLabel}>
-            {t.product.teamFilterMotion}
-            <select
-              className={field}
-              value={filters.motion ?? ""}
-              onChange={(event) =>
-                setFilters((prev) => ({
-                  ...prev,
-                  motion: event.target.value ? event.target.value : null,
-                }))
-              }
-            >
-              <option value="">{t.product.teamFilterAllMotions}</option>
-              {motionKeys.map((key) => (
-                <option key={key} value={key}>
-                  {teamFlowFilterLabel(key, t.product, t.product.motions)}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div role="group" aria-label={t.product.teamTitle} className="flex flex-wrap items-center gap-2">
+          <FilterMenu
+            label={t.product.teamFilterRep}
+            value={filters.userId ?? ""}
+            choices={[
+              { value: "", label: t.product.teamFilterAllReps },
+              ...reps.map((rep) => ({ value: rep.userId, label: rep.name })),
+            ]}
+            onChange={(next) => setFilters((prev) => ({ ...prev, userId: next || null }))}
+          />
+          <FilterMenu
+            label={t.product.teamFilterMotion}
+            value={filters.motion ?? ""}
+            choices={[
+              { value: "", label: t.product.teamFilterAllMotions },
+              ...motionKeys.map((key) => ({ value: key, label: teamFlowFilterLabel(key, t.product, t.product.motions) })),
+            ]}
+            onChange={(next) => setFilters((prev) => ({ ...prev, motion: next || null }))}
+          />
         </div>
       ) : null}
       {view.kind === "empty" ? (
         <div>
           <p>{view.title}</p>
-          <button type="button" className="mt-3 rounded-full border border-border px-3 py-1.5 text-sm" onClick={() => setFilters(EMPTY_FILTERS)}>{t.product.teamResetFilters}</button>
+          <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setFilters(EMPTY_FILTERS)}>{t.product.teamResetFilters}</Button>
         </div>
       ) : null}
       {view.kind === "ready" && view.metrics ? (

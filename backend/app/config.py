@@ -308,13 +308,20 @@ class Settings(BaseSettings):
     PLAYBOOK_QUALIFICATION_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
-    # Recall's per-region API host (https://{region}.recall.ai). us-west-2 is Recall's
-    # default region for accounts that haven't picked one.
-    RECALL_REGION: str = "us-west-2"
+    # Recall's per-region API host (https://{region}.recall.ai). Our workspace is in the EU
+    # region (Frankfurt); regions are separate accounts, so the key only works there.
+    RECALL_REGION: str = "eu-central-1"
     # Recall webhook signing secret (Svix-style, prefixed "whsec_"), from the Recall
     # dashboard's webhook settings. Unset -> POST /webhooks/recall accepts unsigned
     # requests with a warning (dev only), same as UNIPILE_WEBHOOK_SECRET.
     RECALL_WEBHOOK_SECRET: Optional[str] = None
+    # OAuth clients for connecting a rep's calendar (Recall Calendar V2). Our own apps: the
+    # refresh token is handed to Recall, which keeps the calendar synced. Unset -> that
+    # provider is not offered. Redirect URI: {BACKEND_PUBLIC_URL}/api/v1/calendar/{provider}/callback
+    GOOGLE_CALENDAR_CLIENT_ID: Optional[str] = None
+    GOOGLE_CALENDAR_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_CALENDAR_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CALENDAR_CLIENT_SECRET: Optional[str] = None
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
@@ -339,6 +346,18 @@ class Settings(BaseSettings):
     # only genuine Unipile events are processed - without it, anyone who finds
     # the webhook URL can POST fake WhatsApp messages.
     UNIPILE_WEBHOOK_SECRET: Optional[str] = None
+
+    # Cost ledger (usage_events). STT is billed by audio time, so cost = seconds x rate.
+    # Rates are list prices (speechmatics.com/pricing); override here if the contract differs.
+    # A provider/mode with no rate is recorded unpriced (NULL), never guessed.
+    USAGE_LEDGER_ENABLED: bool = True
+    STT_RATE_SPEECHMATICS_REALTIME_ENHANCED_USD_HR: Optional[float] = 0.43
+    STT_RATE_SPEECHMATICS_REALTIME_STANDARD_USD_HR: Optional[float] = 0.24
+    STT_RATE_SPEECHMATICS_BATCH_ENHANCED_USD_HR: Optional[float] = 0.40
+    STT_RATE_SPEECHMATICS_BATCH_STANDARD_USD_HR: Optional[float] = 0.24
+    STT_RATE_DEEPGRAM_BATCH_USD_HR: Optional[float] = None
+    # Unverified whether Speechmatics bills each channel of a multi-channel session separately.
+    STT_BILL_PER_CHANNEL: bool = False
 
     # Metrics (optional - required for Grafana Cloud Metrics Endpoint integration)
     METRICS_TOKEN: Optional[str] = None  # Bearer token; if set, /metrics requires Authorization

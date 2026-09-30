@@ -321,8 +321,14 @@ export const HubSpotSyncPreview = ({
     ],
   );
 
+  // Init reads the latest fetchPreview through a ref: depending on it would re-run init (and
+  // snap back to the initial contact) every time the rep picks a contact or deal.
+  const fetchPreviewRef = useRef(fetchPreview);
+  fetchPreviewRef.current = fetchPreview;
+
   useEffect(() => {
     let cancelled = false;
+    const fetchPreview: typeof fetchPreviewRef.current = (...args) => fetchPreviewRef.current(...args);
     const init = async () => {
       setPreview(null);
       setEditedUpdates(null);
@@ -408,7 +414,7 @@ export const HubSpotSyncPreview = ({
     return () => {
       cancelled = true;
     };
-  }, [memoId, retryKey, initialDealId, initialContactId, previewRefreshKey, fetchPreview, applyPreviewDecisions]);
+  }, [memoId, retryKey, initialDealId, initialContactId, previewRefreshKey, applyPreviewDecisions]);
 
   const handleReExtract = async () => {
     setReExtracting(true);
@@ -503,12 +509,21 @@ export const HubSpotSyncPreview = ({
     });
   };
 
-  const selectContact = async (contactId: string) => {
+  const selectContact = async (contact: { contact_id: string }) => {
+    const contactId = contact.contact_id;
+    const before = preview;
+    const beforeId = selectedContactId;
     setSelectedContactId(contactId);
     setContactPickerOpen(false);
     setContactSearchQuery("");
     setContactSearchResults([]);
+    // Show the pick now; the refreshed preview replaces it when it lands.
+    setPreview((prev: any) => (prev ? { ...prev, selected_contact: contact } : prev));
     const data = await fetchPreview(selectedDealId, { contactId });
+    if (!data && memoIdRef.current === memoId) {
+      setPreview(before);
+      setSelectedContactId(beforeId);
+    }
     if (data?.selected_contact) {
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
@@ -1039,7 +1054,7 @@ export const HubSpotSyncPreview = ({
                   <button
                     key={c.contact_id}
                     type="button"
-                    onClick={() => selectContact(c.contact_id)}
+                    onClick={() => selectContact(c)}
                     className={`w-full text-left p-4 rounded-xl border transition-all ${
                       isSelected
                         ? "bg-beige/15 border-beige text-foreground shadow-sm"

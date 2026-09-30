@@ -659,6 +659,22 @@ CREATE TABLE IF NOT EXISTS report_preferences (
 );
 ALTER TABLE report_preferences ENABLE ROW LEVEL SECURITY;
 
+-- Migration 070: a rep's connected calendar (Recall.ai Calendar V2) and their switch for
+-- whether the Vocify bot joins their meetings. One per rep. Service role only.
+CREATE TABLE IF NOT EXISTS calendar_connections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL CHECK (platform IN ('google_calendar', 'microsoft_outlook')),
+  recall_calendar_id UUID NOT NULL UNIQUE,
+  email TEXT,
+  status TEXT NOT NULL DEFAULT 'connecting' CHECK (status IN ('connecting', 'connected', 'disconnected')),
+  auto_join BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE calendar_connections ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS team_outcome_observations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL,

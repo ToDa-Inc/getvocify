@@ -36,10 +36,35 @@ export type IntakeResult = {
   company: (KnowledgeDoc & { filled: string[] }) | null;
 };
 
+/** POST /playbooks/{key}/fill: the playbook with the manager's request applied. Not saved: the editor drafts it. */
+export type FillResult = Pick<StructureResult, "steps" | "objections" | "qualification"> & {
+  changes: number;
+  summary: string;
+};
+
+/** POST /playbooks/company/fill: saved at once, like a PUT. */
+export type CompanyFillResult = KnowledgeDoc & { filled: string[]; summary: string };
+
+/** A "Completar" on one item: only it may change (1-based indexes into what is sent as `current`). */
+export type FillScope = {
+  steps?: number[];
+  qualification?: number[];
+  objections?: { category: string; label?: string }[];
+};
+
+/** A "Completar" in "Vuestra empresa": one list item (by its name) or some text fields. */
+export type CompanyFillScope = { list?: string; name?: string; texts?: string[] };
+
+/** What the manager gives Vocify: text, or a PDF / audio in base64. */
+export type FillSource = { kind: SourceKind; payload: string; name?: string };
+
+/** A ready-made qualification method, offered for the roles it is usually used in. */
 export type QualificationTemplate = {
-  key: "bant" | "meddic" | "meddpicc";
+  key: string;
   label: string;
-  criteria: Record<"es" | "en", { criterion_id: string; label: string; why?: string; good?: string; bad?: string }[]>;
+  roles: ("sdr" | "ae")[];
+  summary: Record<"es" | "en", string>;
+  criteria: Record<"es" | "en", { criterion_id: string; label: string; good?: string }[]>;
 };
 
 export type PlaybookList = {
@@ -92,6 +117,15 @@ export const playbooksApi = {
     ),
   intake: (kind: SourceKind, payload: string, name?: string) =>
     api.post<IntakeResult>("/playbooks/structure", { kind, payload, ...(name ? { name } : {}) }, { timeoutMs: 120_000 }),
+  // "Dile a Vocify": waits on transcription (audio) and a model call.
+  fill: (key: string, source: FillSource, current: ReturnType<typeof draftPayload>, scope?: FillScope) =>
+    api.post<FillResult>(`${path(key)}/fill`, { ...source, current, ...(scope ? { scope } : {}) }, { timeoutMs: 120_000 }),
+  fillCompany: (source: FillSource, baseUpdatedAt: string | null, scope?: CompanyFillScope) =>
+    api.post<CompanyFillResult>(
+      "/playbooks/company/fill",
+      { ...source, base_updated_at: baseUpdatedAt, ...(scope ? { scope } : {}) },
+      { timeoutMs: 120_000 },
+    ),
   // Plan §16: switch a playbook off and on, delete it, and undo the delete.
   pause: (key: string) => api.post<PlaybookList>(`${path(key)}/pause`),
   resume: (key: string) => api.post<PlaybookList>(`${path(key)}/resume`),

@@ -229,7 +229,7 @@ const DashboardLayout = () => {
 
         {homeColumn ? (
           <div className="flex min-h-0 flex-1">
-            <main className="min-w-0 flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
+            <main className="app-scroll min-w-0 flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
               <Outlet />
             </main>
             <div
@@ -242,7 +242,7 @@ const DashboardLayout = () => {
             />
           </div>
         ) : (
-          <main className="flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
+          <main className="app-scroll flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
             <Outlet />
           </main>
         )}

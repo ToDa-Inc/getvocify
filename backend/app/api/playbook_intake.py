@@ -6,17 +6,22 @@ one call type when the caller already knows which. Neither publishes anything.""
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends
 from supabase import Client
 
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
-from app.services.playbooks.api_support import audio_text, editor_response, require_manager
-from app.services.playbooks.imports import start_import
+from app.services.playbooks.api_support import (
+    StructureRequest,
+    company_context,
+    editor_response,
+    fill_failed,
+    read_source,
+    require_manager,
+)
+from app.services.playbooks.fill import FillError, fill_playbook
 from app.services.playbooks.intake import candidate_types, ensure_payload, public_candidates
 from app.services.playbooks.knowledge import merge_knowledge, sections
 from app.services.playbooks.repository import PlaybookRepository, get_playbook_repository
@@ -35,42 +40,10 @@ __all__ = ["router", "set_playbook_structure_llm"]
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbook-intake"])
 
-class StructureRequest(BaseModel):
-    kind: str
-    payload: str = ""
-    name: Optional[str] = None
-
-
 _DEFAULT_SOURCE_NAMES = {
     "es": {"text": "Texto pegado", "pdf": "PDF", "audio": "Audio"},
     "en": {"text": "Pasted text", "pdf": "PDF", "audio": "Audio"},
 }
-
-
-def _unreadable(code: str) -> HTTPException:
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": code})
-
-
-async def _read_source(body: StructureRequest) -> str:
-    """The text of what the manager gave us (pasted text, a PDF or an audio recording, read
-    the way imports read them). 422 `detail.code`: pdf_encrypted, pdf_has_no_text,
-    audio_has_no_speech, stt_unavailable, unsupported_source, empty_source."""
-    stt = None
-    if body.kind == "audio":
-        try:
-            spoken = await audio_text(body.payload)
-            stt = lambda _raw, spoken=spoken: spoken
-        except Exception:
-            stt = None
-    record = start_import(
-        import_id=f"source:{uuid.uuid4()}", kind=body.kind, payload=body.payload, active_version_id=None, stt=stt,
-    )
-    if record.get("status") != "ready":
-        raise _unreadable(str(record.get("reason") or "unsupported_source"))
-    text = str((record.get("draft") or {}).get("text") or "").strip()
-    if not text:
-        raise _unreadable("empty_source")
-    return text
 
 
 def _keep_source(repository: PlaybookRepository, membership: Membership, key: Optional[str], body: StructureRequest, text: str, lang: str):
@@ -96,7 +69,7 @@ async def structure_company_source(
     POST /{key}/structure."""
     require_manager(membership)
     repository = get_playbook_repository()
-    text = await _read_source(body)
+    text = await read_source(body)
     lang = detect_language(text)
     routing = routing_enabled(supabase, membership.company_id)
     motions, stored = motions_and_stored(repository.list_types(membership.company_id, include_draft=False))
@@ -188,8 +161,43 @@ async def structure_playbook_source(
     model fails the steps come from the line parser and `fallback` is true."""
     require_manager(membership)
     repository = get_playbook_repository()
-    text = await _read_source(body)
+    text = await read_source(body)
     lang = detect_language(text)
     source = _keep_source(repository, membership, sales_motion_key, body, text, lang)
     result = await structure_source(text, sales_motion_key, lang)
     return {"sales_motion_key": sales_motion_key, **result, "source": source}
+
+
+class FillRequest(StructureRequest):
+    """What the manager asked for (text, a PDF or an audio note) and the editor's current content
+    ({steps, objections, qualification}, as PUT /draft takes it), so unsaved edits are the base."""
+
+    current: dict = {}
+    # A "Completar" on one item: only that item may change (see fill.restrict_to).
+    scope: Optional[dict] = None
+
+
+@router.post("/{sales_motion_key}/fill")
+async def fill_playbook_draft(
+    sales_motion_key: str,
+    body: FillRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """"Dile a Vocify": the request applied to this call type's content -> {steps, objections,
+    qualification, changes, summary}. Saves nothing: the editor takes it as its draft (autosave,
+    conflict check, nothing reaches the team until it is published). 422 `fill_failed` when the
+    model could not do it; the content is untouched."""
+    require_manager(membership)
+    text = await read_source(body)
+    try:
+        return await fill_playbook(
+            sales_motion_key,
+            text,
+            body.current,
+            company_context(supabase, get_playbook_repository(), membership.company_id),
+            scope=body.scope,
+        )
+    except FillError as exc:
+        raise fill_failed() from exc
+

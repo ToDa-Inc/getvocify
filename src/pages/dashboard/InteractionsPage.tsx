@@ -4,11 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth";
 import { companyApi, companyKeys } from "@/features/company/api";
 import { InteractionFilters } from "@/features/interactions/components/InteractionFilters";
-import { InteractionRow } from "@/features/interactions/components/InteractionRow";
+import { InteractionList, InteractionSkeleton } from "@/features/interactions/components/InteractionRow";
 import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import type { Memo } from "@/features/memos/types";
@@ -65,37 +64,28 @@ const InteractionsPage = () => {
   };
   // Who recorded it, for a manager looking at more than one person; a single author is already the filter.
   const authorOf = (memo: Memo) =>
-    canViewCompany && !feed.authorUserId ? (memo.userId === user?.id ? copy.you : memo.authorName?.trim() || null) : null;
+    canViewCompany && !feed.authorUserId && memo.userId !== user?.id ? memo.authorName?.trim() || null : null;
 
   return (
     <div className={cn("mx-auto max-w-4xl space-y-6", THEME_TOKENS.motion.fadeIn, "motion-reduce:animate-none")}>
-      <h1 className={THEME_TOKENS.typography.pageTitle}>{copy.title}</h1>
-
-      <InteractionFilters
-        channel={feed.channel}
-        onChannel={feed.setChannel}
-        typeKey={feed.typeKey}
-        onType={feed.setTypeKey}
-        options={options}
-        authors={canViewCompany ? authors : null}
-        authorUserId={feed.authorUserId}
-        onAuthor={feed.setAuthorUserId}
-        currentUserId={user?.id}
-      />
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{copy.title}</h1>
+        <InteractionFilters
+          channel={feed.channel}
+          onChannel={feed.setChannel}
+          typeKey={feed.typeKey}
+          onType={feed.setTypeKey}
+          options={options}
+          authors={canViewCompany ? authors : null}
+          authorUserId={feed.authorUserId}
+          onAuthor={feed.setAuthorUserId}
+          currentUserId={user?.id}
+        />
+      </div>
 
       <div ref={listRef} className="scroll-mt-6">
         {feed.isLoading ? (
-          <ul aria-busy className={listClass}>
-            {Array.from({ length: 6 }, (_, index) => (
-              <li key={index} className="flex items-center gap-4 border-b border-border/40 px-4 py-3.5 last:border-b-0">
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-1/2 motion-reduce:animate-none" />
-                  <Skeleton className="h-3 w-1/4 motion-reduce:animate-none" />
-                </div>
-                <Skeleton className="h-5 w-24 motion-reduce:animate-none" />
-              </li>
-            ))}
-          </ul>
+          <InteractionSkeleton rows={6} />
         ) : feed.isError && feed.items.length === 0 ? (
           <div className={cn(listClass, "flex flex-col items-center gap-3 px-6 py-12 text-center")}>
             <p className={THEME_TOKENS.typography.body}>{copy.loadFailed}</p>
@@ -111,7 +101,7 @@ const InteractionsPage = () => {
                 {copy.clearFilters}
               </Button>
             ) : (
-              <Button asChild size="sm">
+              <Button asChild variant="outline" size="sm">
                 <Link to="/dashboard/record">
                   <Mic aria-hidden />
                   {copy.record}
@@ -120,17 +110,13 @@ const InteractionsPage = () => {
             )}
           </div>
         ) : (
-          <ul
-            className={cn(
-              listClass,
-              "transition-opacity duration-150 motion-reduce:transition-none",
-              feed.isPlaceholderData && "opacity-60",
-            )}
-          >
-            {feed.items.map((memo) => (
-              <InteractionRow key={memo.id} memo={memo} options={options} labelOf={labelOf} author={authorOf(memo)} />
-            ))}
-          </ul>
+          <InteractionList
+            items={feed.items}
+            options={options}
+            labelOf={labelOf}
+            authorOf={authorOf}
+            stale={feed.isPlaceholderData}
+          />
         )}
       </div>
 
@@ -138,7 +124,7 @@ const InteractionsPage = () => {
         <Pagination aria-label={copy.pages}>
           <PaginationContent className="gap-3">
             <PaginationItem>
-              <Button variant="ghost" size="sm" disabled={feed.page === 0 || feed.isPlaceholderData} onClick={() => goTo(feed.page - 1)}>
+              <Button variant="outline" size="sm" disabled={feed.page === 0 || feed.isPlaceholderData} onClick={() => goTo(feed.page - 1)}>
                 <ChevronLeft aria-hidden />
                 {copy.previous}
               </Button>
@@ -147,7 +133,7 @@ const InteractionsPage = () => {
               {copy.page.replace("{n}", String(feed.page + 1))}
             </PaginationItem>
             <PaginationItem>
-              <Button variant="ghost" size="sm" disabled={!feed.hasMore || feed.isPlaceholderData} onClick={() => goTo(feed.page + 1)}>
+              <Button variant="outline" size="sm" disabled={!feed.hasMore || feed.isPlaceholderData} onClick={() => goTo(feed.page + 1)}>
                 {copy.next}
                 <ChevronRight aria-hidden />
               </Button>

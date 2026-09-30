@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Trash } from "@phosphor-icons/react";
+import { Plus } from "@phosphor-icons/react";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,83 +7,203 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { IconAction } from "@/components/ui/icon-action";
-import { linkButton } from "@/features/playbooks/styles";
+import { CompleteButton, DocRow, ItemMenu, QuoteMark, TypeTag } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
+import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
-import { hasObjectionDetail, hiddenObjectionCategories, percent, type ObjectionRow } from "@/lib/playbook-doc";
-import {
-  MAX_GUIDANCE,
-  MAX_MEANING,
-  MAX_OBJECTION_LABEL,
-  MAX_PROOF,
-  MAX_QUESTION,
-  MAX_TRIGGER,
-  type EditorObjection,
-  type ObjectionCategory,
-} from "@/lib/playbook-editor";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { hiddenObjectionCategories, isSuggestion, percent, type ObjectionRow } from "@/lib/playbook-doc";
+import { MAX_OBJECTION_LABEL, MAX_TRIGGER, type EditorObjection, type ObjectionCategory } from "@/lib/playbook-editor";
 import { cn } from "@/lib/utils";
 
 type Patch = Partial<Omit<EditorObjection, "category" | "id">>;
-const DETAILS = [
-  ["meaning", MAX_MEANING],
-  ["question", MAX_QUESTION],
-  ["proof", MAX_PROOF],
-] as const;
+const STARTERS: ObjectionCategory[] = ["price", "timing", "authority"];
 
 /**
- * "Cuando el cliente dice… / El comercial ve": the company's own objections first, then the
- * ones the team hears, most frequent first. The answer is on screen; what the objection
- * usually means, the question to ask and the proof to use are one click away.
+ * "Cuando el cliente dice…": each objection is three things. What the prospect says, in bold;
+ * its kind, as a tag; and the answer the rep sees. Objections the team hears without an answer
+ * come as suggestions (the best rep's answer, or one Vocify writes); with nothing written or heard
+ * yet, the three every team gets.
  */
 export function PlaybookObjections({
   rows,
+  added,
+  dismissed,
   editable,
+  completingKey,
+  busy,
+  onComplete,
   onChange,
   onAdd,
   onAddCustom,
   onRemove,
+  onDismiss,
 }: {
   rows: ObjectionRow[];
+  /** Categories the manager added by hand: an entry to fill, not a suggestion. */
+  added: readonly string[];
+  dismissed: readonly string[];
   editable: boolean;
+  /** The objection Vocify is writing for; `busy` while it writes anything. */
+  completingKey?: string | null;
+  busy?: boolean;
+  onComplete?: (row: ObjectionRow) => void;
   onChange: (key: string, patch: Patch) => void;
   onAdd: (category: ObjectionCategory) => void;
   onAddCustom: () => void;
   onRemove: (key: string) => void;
+  onDismiss: (key: string) => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
+  const kinds = t.product.playbookObjectionCategories;
   const hidden = hiddenObjectionCategories(rows);
+  const answered = rows.filter((row) => !isSuggestion(row, added));
   const shown = editable
-    ? rows
-    : rows.filter((row) => row.objection.guidance.trim() || (row.objection.category === "custom" && row.objection.label?.trim()));
+    ? answered
+    : answered.filter((row) => row.objection.guidance.trim() || (row.objection.category === "custom" && row.objection.label?.trim()));
+  const heard = editable ? rows.filter((row) => isSuggestion(row, added) && !dismissed.includes(row.key)) : [];
+  // Nothing written and nothing heard yet: the objections every team gets, to answer in one click.
+  const starters: ObjectionRow[] =
+    editable && shown.length === 0 && heard.length === 0
+      ? STARTERS.filter((category) => !dismissed.includes(category)).map((category) => ({
+          key: category,
+          objection: { category, guidance: "" },
+          count: 0,
+          share: 0,
+          bestExample: null,
+        }))
+      : [];
+  const suggestions = [...heard, ...starters];
 
   if (!editable && shown.length === 0) return null;
 
+  const kindOf = (item: EditorObjection) => (item.category === "custom" ? item.label ?? "" : kinds[item.category as ObjectionCategory]);
+  const usual = (item: EditorObjection) =>
+    item.category === "custom" ? copy.objTriggerPlaceholder : copy.objectionSays[item.category] ?? kindOf(item);
+
   return (
-    <section className="space-y-1" aria-label={copy.objections}>
-      {/* The two columns say what the answers are for: what the prospect says, what the rep gets. */}
-      <div className="grid gap-x-5 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-        <h3 className={THEME_TOKENS.typography.capsLabel}>{copy.whenClientSays}</h3>
-        <p className={cn(THEME_TOKENS.typography.capsLabel, "hidden md:block")} aria-hidden>
-          {copy.repSees}
-        </p>
-      </div>
-      {shown.length > 0 ? (
-        <ul>
-          {shown.map((row) => (
-            <ObjectionItem key={row.key} row={row} editable={editable} onChange={onChange} onRemove={onRemove} />
-          ))}
-        </ul>
-      ) : null}
+    <section aria-label={copy.objections}>
+      <ul>
+        {shown.map((row) => {
+          const item = row.objection;
+          const custom = item.category === "custom";
+          const set = (patch: Patch) => onChange(row.key, patch);
+          return (
+            <DocRow
+              key={row.key}
+              lead={<QuoteMark muted={!item.guidance.trim()} />}
+              title={
+                editable ? (
+                  <InlineTextarea
+                    // Until someone writes the prospect's words, how it usually sounds reads as text.
+                    className={cn(itemTitle, "placeholder:text-foreground/70")}
+                    value={item.trigger ?? ""}
+                    maxLength={MAX_TRIGGER + 20}
+                    placeholder={usual(item)}
+                    aria-label={copy.objTriggerShort}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.preventDefault();
+                    }}
+                    onChange={(event) => set({ trigger: event.target.value.replace(/\n/g, " ") })}
+                  />
+                ) : (
+                  <p className={itemTitle}>{item.trigger?.trim() || usual(item)}</p>
+                )
+              }
+              side={
+                <>
+                  {custom && editable ? (
+                    <InlineTextarea
+                      className="w-36 rounded-full bg-secondary px-2.5 py-0.5 text-[11.5px] text-muted-foreground focus:text-foreground"
+                      value={item.label ?? ""}
+                      maxLength={MAX_OBJECTION_LABEL + 20}
+                      placeholder={copy.objCustomName}
+                      aria-label={copy.objCustomName}
+                      autoFocus={!item.label}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.preventDefault();
+                      }}
+                      onChange={(event) => set({ label: event.target.value.replace(/\n/g, " ") })}
+                    />
+                  ) : (
+                    <TypeTag>{kindOf(item)}</TypeTag>
+                  )}
+                  {row.count > 0 ? (
+                    <span className="text-xs tabular-nums text-muted-foreground" title={copy.heardShare.replace("{share}", percent(row.share))}>
+                      {percent(row.share)}
+                    </span>
+                  ) : null}
+                  {editable ? (
+                    <ItemMenu
+                      label={copy.itemMenu.replace("{name}", kindOf(item) || copy.objCustomName)}
+                      actions={[{ label: t.product.playbookEditorRemove, onSelect: () => onRemove(row.key), danger: true }]}
+                    />
+                  ) : null}
+                </>
+              }
+            >
+              {editable ? (
+                <InlineTextarea
+                  className={itemBody}
+                  value={item.guidance}
+                  placeholder={copy.objectionPlaceholder}
+                  aria-label={copy.objAnswer}
+                  onChange={(event) => set({ guidance: event.target.value })}
+                />
+              ) : (
+                <p className={itemBody}>{item.guidance}</p>
+              )}
+              {editable && !item.guidance.trim() && onComplete && (!custom || item.label?.trim()) ? (
+                <div className="pt-1">
+                  <CompleteButton label={copy.writeAnswer} pending={completingKey === row.key} disabled={busy} onClick={() => onComplete(row)} />
+                </div>
+              ) : null}
+            </DocRow>
+          );
+        })}
+
+        {suggestions.map((row) => (
+          // A ghost of an objection: the same row as a written one, muted until it has an answer.
+          <DocRow
+            key={row.key}
+            lead={<QuoteMark muted />}
+            title={<p className={cn(itemTitle, "text-muted-foreground")}>{usual(row.objection)}</p>}
+            side={<TypeTag>{kindOf(row.objection)}</TypeTag>}
+          >
+            {row.count > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {copy.heardShare.replace("{share}", percent(row.share))} · {copy.noAnswerYet}
+              </p>
+            ) : null}
+            {row.bestExample ? (
+              <p className={itemBody}>
+                {copy.bestCall} «{row.bestExample}»
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-1 pt-1">
+              {row.bestExample ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => onChange(row.key, { guidance: row.bestExample ?? "" })}>
+                  {copy.useSuggestion}
+                </Button>
+              ) : onComplete ? (
+                <CompleteButton label={copy.writeAnswer} pending={completingKey === row.key} disabled={busy} onClick={() => onComplete(row)} />
+              ) : null}
+              <button
+                type="button"
+                className="rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                onClick={() => onDismiss(row.key)}
+              >
+                {copy.dismiss}
+              </button>
+            </div>
+          </DocRow>
+        ))}
+      </ul>
+
       {editable ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={cn(linkButton, "mt-1")}
-            >
+            <button type="button" className={cn(linkButton, "mt-2")}>
               <Plus size={12} weight="light" />
               {copy.addObjection}
             </button>
@@ -91,7 +211,7 @@ export function PlaybookObjections({
           <DropdownMenuContent align="start">
             {hidden.map((category) => (
               <DropdownMenuItem key={category} onSelect={() => onAdd(category)}>
-                {t.product.playbookObjectionCategories[category]}
+                {kinds[category]}
               </DropdownMenuItem>
             ))}
             {hidden.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -100,143 +220,5 @@ export function PlaybookObjections({
         </DropdownMenu>
       ) : null}
     </section>
-  );
-}
-
-function ObjectionItem({
-  row,
-  editable,
-  onChange,
-  onRemove,
-}: {
-  row: ObjectionRow;
-  editable: boolean;
-  onChange: (key: string, patch: Patch) => void;
-  onRemove: (key: string) => void;
-}) {
-  const { t } = useLanguage();
-  const copy = t.product.pb2;
-  const item = row.objection;
-  const custom = item.category === "custom";
-  const [open, setOpen] = useState(false);
-  const showDetails = open || hasObjectionDetail(item);
-  const unanswered = !item.guidance.trim();
-  const name = custom ? item.label ?? "" : t.product.playbookObjectionCategories[item.category as ObjectionCategory];
-  const set = (patch: Patch) => onChange(row.key, patch);
-
-  return (
-    <li className="group grid items-start gap-x-5 gap-y-0.5 border-t border-border/40 py-2.5 first:border-t-0 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-      <div className="min-w-0 space-y-0.5 pt-1">
-        {custom && editable ? (
-          <InlineTextarea
-            className="text-[15px]"
-            value={item.label ?? ""}
-            maxLength={MAX_OBJECTION_LABEL + 20}
-            placeholder={copy.objCustomName}
-            aria-label={copy.objCustomName}
-            autoFocus={!item.label}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.preventDefault();
-            }}
-            onChange={(event) => set({ label: event.target.value.replace(/\n/g, " ") })}
-          />
-        ) : (
-          <p className="text-[15px] text-foreground">{name}</p>
-        )}
-        {custom && editable ? (
-          <InlineTextarea
-            className="text-xs text-muted-foreground"
-            value={item.trigger ?? ""}
-            maxLength={MAX_TRIGGER + 20}
-            placeholder={copy.objTriggerPlaceholder}
-            aria-label={copy.objTrigger}
-            onChange={(event) => set({ trigger: event.target.value })}
-          />
-        ) : custom && item.trigger ? (
-          <p className="text-xs text-muted-foreground">
-            {copy.objTrigger}: «{item.trigger}»
-          </p>
-        ) : null}
-        {row.count > 0 && editable ? (
-          <p className={cn("text-xs", unanswered ? "text-warning" : "text-muted-foreground")}>
-            {(unanswered ? copy.heardUnanswered : copy.heard).replace("{share}", percent(row.share))}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="min-w-0 space-y-1">
-        <div className="flex items-start gap-1">
-          {editable ? (
-            <InlineTextarea
-              className="flex-1 text-sm"
-              value={item.guidance}
-              placeholder={copy.objectionPlaceholder}
-              aria-label={name || copy.objCustomName}
-              aria-invalid={item.guidance.length > MAX_GUIDANCE}
-              onChange={(event) => set({ guidance: event.target.value })}
-            />
-          ) : (
-            <p className="flex-1 pt-1 text-sm leading-relaxed text-foreground">{item.guidance}</p>
-          )}
-          {editable && custom ? (
-            <span className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-              <IconAction label={t.product.playbookEditorRemove} tone="danger" onClick={() => onRemove(row.key)}>
-                <Trash size={14} weight="light" />
-              </IconAction>
-            </span>
-          ) : null}
-        </div>
-
-        {editable && unanswered && row.bestExample ? (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            title={row.bestExample}
-            onClick={() => set({ guidance: row.bestExample ?? "" })}
-          >
-            {copy.useTeamAnswer}
-          </button>
-        ) : null}
-
-        {showDetails ? (
-          <dl className={cn("space-y-0.5", THEME_TOKENS.motion.fadeIn)}>
-            {DETAILS.map(([field, max]) => {
-              const value = item[field] ?? "";
-              const label = field === "meaning" ? copy.objMeaning : field === "question" ? copy.objQuestion : copy.objProof;
-              // Only what is filled, unless the person asked for the rest ("+ detalles").
-              if (!value.trim() && (!editable || !open)) return null;
-              return (
-                <div key={field} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] items-start gap-x-3">
-                  <dt className="pt-1 text-xs text-muted-foreground">{label}</dt>
-                  <dd className="min-w-0">
-                    {editable ? (
-                      <InlineTextarea
-                        className="text-sm text-muted-foreground focus:text-foreground"
-                        value={value}
-                        aria-label={label}
-                        aria-invalid={value.length > max}
-                        onChange={(event) => set({ [field]: event.target.value })}
-                      />
-                    ) : (
-                      <p className="pt-1 text-sm text-muted-foreground">{value}</p>
-                    )}
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
-        ) : null}
-        {editable && !open && DETAILS.some(([field]) => !(item[field] ?? "").trim()) ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => setOpen(true)}
-          >
-            <Plus size={10} weight="light" />
-            {copy.objDetails}
-          </button>
-        ) : null}
-      </div>
-    </li>
   );
 }

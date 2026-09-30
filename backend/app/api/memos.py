@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional, List, Union
+from app.services.usage import scoped
 from app.deps import get_supabase, get_user_id
 from app.services.activity_scope import (
     UnknownCompanyAuthor,
@@ -280,6 +281,7 @@ def _call_date_from_memo(memo_data: Optional[dict]) -> Optional[str]:
     return str(created)[:10] if created else None
 
 
+@scoped("extract")
 async def extract_memo_async(
     memo_id: str,
     user_id: str,

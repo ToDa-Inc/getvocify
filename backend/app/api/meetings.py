@@ -68,7 +68,10 @@ async def create_meeting_bot(
 
     client = RecallClient()
     try:
-        bot = await client.create_bot(body.meeting_url)
+        bot = await client.create_bot(
+            body.meeting_url,
+            metadata={"source": "manual", "user_id": membership.user_id, "company_id": membership.company_id},
+        )
     except RecallClientError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

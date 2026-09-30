@@ -5,11 +5,12 @@ import {
   appendDictation,
   countLine,
   optimisticStatus,
-  switchState,
+  matchedMethod,
+  publishState,
+  publishSwitch,
+  usedForLine,
   customObjectionId,
-  hasObjectionDetail,
   nothingYet,
-  pendingKeys,
   ruleNeeded,
   rowState,
   showProcessAnalytics,
@@ -91,8 +92,6 @@ describe("playbook document", () => {
     );
     assert.deepEqual(rows.map((row) => row.key), ["custom:excel", "price"]);
     assert.equal(customObjectionId("Ya lo hacemos con Excel", ["ya_lo_hacemos_con_excel"]), "ya_lo_hacemos_con_excel_2");
-    assert.equal(hasObjectionDetail({ category: "price", guidance: "x", question: " ¿Comparado con qué? " }), true);
-    assert.equal(hasObjectionDetail({ category: "price", guidance: "x" }), false);
   });
 
   it("gives a step rate only when there is one, and names the weakest step", () => {
@@ -171,7 +170,7 @@ describe("playbook document", () => {
     assert.equal(ruleSummary(null, copy), null);
   });
 
-  it("tells empty, pending and live rows apart and lists what Activate publishes", () => {
+  it("tells empty, pending and live rows apart", () => {
     const detail = (extra: object) => ({ label: null, role: null, applies_to: null, goal: null, catalog: true, ...extra });
     assert.equal(rowState("missing", null), "empty");
     assert.equal(rowState("missing", detail({ step_count: 4 })), "pending");
@@ -179,7 +178,6 @@ describe("playbook document", () => {
     assert.equal(rowState("published", detail({ has_draft: true })), "pending");
     assert.equal(rowState("published", detail({ has_draft: false })), "live");
     const motions = { discovery: "published", closing: "draft", inbound: "missing" } as const;
-    assert.deepEqual(pendingKeys({ ...motions }, {}), ["closing"]);
     assert.equal(nothingYet({ discovery: "missing", closing: "missing" }, {}), true);
     assert.equal(nothingYet({ ...motions }, {}), false);
   });
@@ -227,15 +225,65 @@ describe("playbook document", () => {
   });
 });
 
+describe("qualification methods", () => {
+  const templates = [
+    { key: "bant", criteria: { es: [{ criterion_id: "budget" }, { criterion_id: "authority" }] } },
+    { key: "anum", criteria: { es: [{ criterion_id: "authority" }, { criterion_id: "need" }] } },
+  ];
+
+  it("marks a method as chosen only while the criteria are exactly it", () => {
+    assert.equal(matchedMethod([{ criterion_id: "authority" }, { criterion_id: "budget" }], templates), "bant");
+    assert.equal(matchedMethod([{ criterion_id: "authority" }], templates), null);
+    assert.equal(matchedMethod([{ criterion_id: "budget" }, { criterion_id: "authority" }, { criterion_id: null }], templates), null);
+    assert.equal(matchedMethod([], templates), null);
+  });
+});
+
+describe("what a call type's header says", () => {
+  const detail = (extra: object) => ({ label: null, role: null, applies_to: null, goal: null, catalog: true, ...extra });
+
+  it("names the state in words and offers Publicar only when there is something to publish", () => {
+    assert.equal(publishState("published", detail({})), "live");
+    assert.equal(publishState("published", detail({ has_draft: true })), "changes");
+    assert.equal(publishState("paused", detail({ paused: true, has_draft: true })), "changes");
+    assert.equal(publishState("draft", null), "unpublished");
+    assert.equal(publishState("missing", detail({ step_count: 3 })), "unpublished");
+    assert.equal(publishState("paused", detail({ paused: true })), "paused");
+    assert.equal(publishState("missing", null), "empty");
+  });
+
+  it("says where it is used and what success is, in one sentence", () => {
+    const copy = {
+      roles: { sdr: "SDR", ae: "AE", any: "Todos" },
+      channels: { call: "Llamadas", meeting: "Reuniones", visit: "Visitas" },
+      contacts: { new: "contacto nuevo", contacted: "ya contactado", inbound: "lead inbound", any: "cualquier contacto" },
+      stages: "{count} etapas",
+      join: " y ",
+      usedFor: "Se usa en {rule}",
+      usedForBase: { discovery: "Se usa en las llamadas de SDR antes de la reunión" },
+      usedForNone: "Aún no se usa en ninguna llamada",
+      success: "éxito = {goal}",
+      goalShort: { meeting_booked: "reunión con día y hora" },
+    };
+    const rule = { role: "sdr", channels: ["call"], contact: "inbound", deal_stages: [] } as const;
+    assert.equal(
+      usedForLine("inbound", { ...rule, channels: [...rule.channels], deal_stages: [] }, true, "meeting_booked", copy),
+      "Se usa en llamadas · SDR · lead inbound · éxito = reunión con día y hora",
+    );
+    assert.equal(usedForLine("discovery", null, false, null, copy), "Se usa en las llamadas de SDR antes de la reunión");
+    assert.equal(usedForLine("mi_tipo", null, true, null, copy), "Aún no se usa en ninguna llamada");
+  });
+});
+
 describe("pause, resume and delete", () => {
   it("shows a paused row with its switch off, and new changes on a paused one as pending", () => {
     const detail = (extra: object) => ({ label: null, role: null, applies_to: null, goal: null, catalog: true, ...extra });
     assert.equal(rowState("paused", detail({ paused: true, step_count: 5 })), "paused");
     assert.equal(rowState("paused", detail({ paused: true, has_draft: true })), "pending");
-    assert.equal(switchState("live"), true);
-    assert.equal(switchState("paused"), false);
-    assert.equal(switchState("pending"), null);
-    assert.equal(switchState("empty"), null);
+    assert.equal(publishSwitch("published", detail({ has_draft: true })), true);
+    assert.equal(publishSwitch("paused", detail({ paused: true })), false);
+    assert.equal(publishSwitch("draft", null), null);
+    assert.equal(publishSwitch("missing", null), null);
     assert.equal(nothingYet({ discovery: "paused" }, {}), false);
   });
 

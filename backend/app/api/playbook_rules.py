@@ -55,7 +55,8 @@ async def get_catalog(membership: Membership = Depends(get_membership)):
 
 @router.get("/qualification-templates")
 async def get_qualification_templates(membership: Membership = Depends(get_membership)):
-    """BANT, MEDDIC and MEDDPICC as ready-made "what has to come out of the call" criteria (es/en)."""
+    """Ready-made "what has to come out of the call" methods (BANT, CHAMP, ANUM, GPCT for SDRs; MEDDIC,
+    MEDDPICC, SPICED, BANT for AEs), each with the roles it is offered for and its criteria (es/en)."""
     del membership
     return {"templates": qualification_templates()}
 
