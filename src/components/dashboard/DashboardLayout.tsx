@@ -29,7 +29,7 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, navItemsFor, topBarActions, type NavItemId } from "@/lib/nav";
+import { isManagerRole, isNavActive, navItemsFor, topBarActions, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
@@ -91,13 +91,6 @@ const DashboardLayout = () => {
     return <Navigate to={BILLING_PATH} replace />;
   }
 
-  const isActive = (path: string) => {
-    if (path === "/dashboard") {
-      return location.pathname === "/dashboard";
-    }
-    return location.pathname.startsWith(path);
-  };
-
   return (
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
     <HomeColumnContext.Provider value={column}>
@@ -137,11 +130,12 @@ const DashboardLayout = () => {
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
           {!paywalled && menu.items.map((item) => {
             const Icon = NAV_ICONS[item.id];
-            const active = isActive(item.path);
+            const active = isNavActive(location.pathname, item);
             return (
               <Link
                 key={item.id}
                 to={item.path}
+                aria-current={active ? "page" : undefined}
                 onClick={() => setSidebarOpen(false)}
                 className={`
                   flex items-center gap-3 px-3 py-2 text-[13.5px]

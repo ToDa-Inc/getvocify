@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isManagerRole, navItemsFor, topBarActions, usesRepHome, type NavItem } from "./nav.ts";
+import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItem } from "./nav.ts";
 
 const home: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
 const interactions: NavItem = { id: "interactions", labelKey: "navInteractions", path: "/dashboard/interactions" };
@@ -80,5 +80,29 @@ describe("isManagerRole / usesRepHome", () => {
     assert.equal(usesRepHome({ repWorkspace: true }), true);
     assert.equal(usesRepHome({ repWorkspace: false }), false);
     assert.equal(usesRepHome(null), false);
+  });
+});
+
+describe("isNavActive", () => {
+  it("lights Interacciones on the list and on a memo's detail", () => {
+    assert.equal(isNavActive("/dashboard/interactions", interactions), true);
+    assert.equal(isNavActive("/dashboard/interactions/anything", interactions), true);
+    assert.equal(isNavActive("/dashboard/memos/123", interactions), true);
+    assert.equal(isNavActive("/dashboard/memos", interactions), true);
+    assert.equal(isNavActive("/dashboard/memos/123", home), false);
+  });
+
+  it("lights Inicio only on /dashboard itself", () => {
+    assert.equal(isNavActive("/dashboard", home), true);
+    assert.equal(isNavActive("/dashboard/today", home), false);
+    assert.equal(isNavActive("/dashboard/interactions", home), false);
+  });
+
+  it("lights the other items on their path and below it, not on a longer sibling", () => {
+    assert.equal(isNavActive("/dashboard/settings/playbooks", settings), true);
+    assert.equal(isNavActive("/dashboard/insights/rep/u1", insights), true);
+    assert.equal(isNavActive("/dashboard/coach", coach), true);
+    assert.equal(isNavActive("/dashboard/coaching", coach), false);
+    assert.equal(isNavActive("/dashboard/today", interactions), false);
   });
 });

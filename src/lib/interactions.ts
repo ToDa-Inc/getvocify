@@ -1,5 +1,6 @@
 import type { MemoFilters } from "@/features/memos/types";
 import { memoContactName, memoListSubtitle } from "./copilot-note.ts";
+import { motionLabel } from "./motion-label.ts";
 
 export type Channel = "call" | "meeting" | "visit" | "voice_note";
 export const CHANNELS: Channel[] = ["call", "meeting", "visit", "voice_note"];
@@ -52,6 +53,27 @@ export function retagOptions(options: TypeOption[]): TypeOption[] {
   const types = options.filter((option) => option.key !== INTERNAL_KEY && option.status === "published");
   const internal = options.filter((option) => option.key === INTERNAL_KEY);
   return [...types, ...internal];
+}
+
+/**
+ * The author filter the Interacciones page opens on: a manager sees everyone unless `?author=`
+ * names a person (rep detail links here); a member's list is already their own.
+ */
+export function interactionsAuthor(canViewCompany: boolean, authorParam: string | null | undefined): string | null {
+  return canViewCompany ? authorParam || null : null;
+}
+
+type TypeNameCopy = { typeLabels: Record<string, string>; motions: Record<string, string>; internal: string };
+
+/** A type's name on the memo detail: Interna from the catalog, else the stored label, the catalog label, the key. */
+export function memoTypeName(key: string, label: string | null | undefined, copy: TypeNameCopy): string {
+  if (key === INTERNAL_KEY) return copy.internal;
+  return label || copy.typeLabels[key] || motionLabel(key, copy.motions);
+}
+
+/** "Evaluada como Demo", or "Interna · no se puntúa" for an internal memo, which has no playbook. */
+export function memoTypeLine(key: string, name: string, copy: { memoPlaybook: string; memoPlaybookInternal: string }): string {
+  return key === INTERNAL_KEY ? copy.memoPlaybookInternal : copy.memoPlaybook.replace("{name}", name);
 }
 
 /** The chip on a feed row: null without a type; a type that is no longer listed shows its key. */

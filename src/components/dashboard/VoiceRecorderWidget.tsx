@@ -107,7 +107,8 @@ export const VoiceRecorderWidget = ({
 
     isSubmitLocked.current = true;
     try {
-      const memoId = await uploadTranscriptAndExtract(textToSubmit);
+      // Recorded on the dashboard mic: a voice note, not a call.
+      const memoId = await uploadTranscriptAndExtract(textToSubmit, { interactionKind: "voice_note" });
       resetTranscription();
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("AI is extracting CRM fields...");
@@ -200,7 +201,7 @@ export const VoiceRecorderWidget = ({
   const handleUploadAudio = async () => {
     if (!audio) return;
     try {
-      const memoId = await upload(audio);
+      const memoId = await upload(audio, undefined, { interactionKind: "voice_note" });
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("Recording uploaded! AI is extracting CRM fields...");
       onComplete(memoId);

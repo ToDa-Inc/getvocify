@@ -40,7 +40,7 @@ export function CoachingScore({ memoId }: { memoId: string }) {
           )}
         </div>
       ) : null}
-      {surface.kind === "waiting" ? <p className={THEME_TOKENS.typography.body}>{surface.title}</p> : null}
+      {surface.kind === "waiting" || surface.kind === "internal" ? <p className={THEME_TOKENS.typography.body}>{surface.title}</p> : null}
       {surface.kind === "unscored" ? (
         <div className="space-y-2">
           <p className={THEME_TOKENS.typography.body}>{surface.title}</p>

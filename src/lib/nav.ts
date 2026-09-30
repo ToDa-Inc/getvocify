@@ -40,6 +40,17 @@ export function navItemsFor({
   return { items: [HOME, INTERACTIONS, COACH, SETTINGS], showPlans: !repWorkspace };
 }
 
+/** Paths an item also owns: a memo's detail still lives under Interacciones (MemosPage used to hold it). */
+const ALSO_UNDER: Partial<Record<NavItemId, string[]>> = { interactions: ["/dashboard/memos"] };
+
+const within = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`);
+
+/** The sidebar item is lit on its own path and below it; Inicio only on /dashboard itself. */
+export function isNavActive(pathname: string, item: Pick<NavItem, "id" | "path">): boolean {
+  if (item.path === "/dashboard") return pathname === "/dashboard";
+  return [item.path, ...(ALSO_UNDER[item.id] ?? [])].some((path) => within(pathname, path));
+}
+
 /** Llamar sits in the top bar for reps; the Head of Sales doesn't dial. */
 export function topBarActions(role?: string | null): boolean {
   return !isManagerRole(role);

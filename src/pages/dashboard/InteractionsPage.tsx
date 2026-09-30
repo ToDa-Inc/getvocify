@@ -12,7 +12,8 @@ import { InteractionRow } from "@/features/interactions/components/InteractionRo
 import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import type { Memo } from "@/features/memos/types";
-import { authorDisplayName, canViewCompanyActivity, defaultActivityAuthorId } from "@/lib/activity-authors";
+import { authorDisplayName, canViewCompanyActivity } from "@/lib/activity-authors";
+import { interactionsAuthor } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
@@ -25,12 +26,12 @@ const InteractionsPage = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
   const copy = t.product.interactions;
-  // A member always lists their own; a manager lists the company, starting on themselves when
-  // there is a team, or on the person `?author=` names (rep detail links here).
+  // A member always lists their own; a manager lists the whole company, or the person `?author=`
+  // names (rep detail links here).
   const canViewCompany = canViewCompanyActivity(user?.company?.role);
   const [searchParams] = useSearchParams();
 
-  const { data: membersData, isPending: membersPending } = useQuery({
+  const { data: membersData } = useQuery({
     queryKey: companyKeys.members(),
     queryFn: companyApi.listMembers,
     enabled: canViewCompany,
@@ -38,14 +39,11 @@ const InteractionsPage = () => {
   const authors = (membersData?.members ?? [])
     .filter((member) => member.status === "active")
     .map((member) => ({ userId: member.userId, label: authorDisplayName(member.fullName, member.email), email: member.email }));
-  const authorParam = canViewCompany ? searchParams.get("author") : null;
 
   const feed = useInteractionFeed({
     scope: canViewCompany ? "company" : "me",
     pageSize: PAGINATION.DEFAULT_PAGE_SIZE,
-    defaultAuthorUserId: authorParam ?? defaultActivityAuthorId(canViewCompany, user?.id, authors.length),
-    // The default author depends on the team size: wait for it rather than load the list twice.
-    enabled: !canViewCompany || Boolean(authorParam) || !membersPending,
+    defaultAuthorUserId: interactionsAuthor(canViewCompany, searchParams.get("author")),
   });
   const { options, labelOf } = useTypeOptions();
   // Your own list with nothing in it is an empty account, not a filter: offer to record.

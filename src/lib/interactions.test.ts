@@ -7,6 +7,9 @@ import {
   channelOf,
   feedBusy,
   feedQuery,
+  interactionsAuthor,
+  memoTypeLine,
+  memoTypeName,
   pageOf,
   retagOptions,
   rowPeople,
@@ -234,5 +237,48 @@ describe("interactions copy", () => {
     for (const status of ["synced", "review", "processing", "failed", "voicemail", "no_answer"] as const) {
       assert.ok(es.status[status] && en.status[status]);
     }
+  });
+});
+
+describe("interactionsAuthor", () => {
+  it("opens a manager on everyone, not on their own list", () => {
+    assert.equal(interactionsAuthor(true, null), null);
+    assert.equal(interactionsAuthor(true, ""), null);
+  });
+
+  it("keeps a ?author= deep link for a manager", () => {
+    assert.equal(interactionsAuthor(true, "rep-2"), "rep-2");
+  });
+
+  it("never filters by author for a member, whose list is already their own", () => {
+    assert.equal(interactionsAuthor(false, "rep-2"), null);
+    assert.equal(interactionsAuthor(false, null), null);
+  });
+});
+
+describe("memo detail type line", () => {
+  for (const [lang, catalog] of [["ES", productCatalog.ES], ["EN", productCatalog.EN]] as const) {
+    const copy = { ...catalog.pb2, motions: catalog.motions, internal: catalog.interactions.internal };
+
+    it(`names internal from the catalog, never the raw key (${lang})`, () => {
+      assert.equal(memoTypeName("internal", null, copy), catalog.interactions.internal);
+      assert.notEqual(memoTypeName("internal", null, copy), "internal");
+    });
+
+    it(`says an internal memo is not scored instead of "scored as" (${lang})`, () => {
+      assert.equal(memoTypeLine("internal", "x", copy), catalog.pb2.memoPlaybookInternal);
+      assert.equal(memoTypeLine("discovery", "Demo", copy), catalog.pb2.memoPlaybook.replace("{name}", "Demo"));
+    });
+
+    it(`keeps a stored label, then the catalog label, then the key (${lang})`, () => {
+      assert.equal(memoTypeName("renewal", "Renovación", copy), "Renovación");
+      assert.equal(memoTypeName("discovery", null, copy), catalog.pb2.typeLabels.discovery || catalog.motions.discovery);
+      assert.equal(memoTypeName("enterprise", null, copy), "enterprise");
+    });
+  }
+
+  it("uses the Interna copy", () => {
+    assert.equal(productCatalog.ES.pb2.memoPlaybookInternal, "Interna · no se puntúa");
+    assert.equal(productCatalog.EN.pb2.memoPlaybookInternal, "Internal · not scored");
   });
 });

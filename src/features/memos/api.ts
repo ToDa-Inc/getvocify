@@ -16,6 +16,7 @@ import type {
   FollowupSendPayload,
 } from './types';
 import type { AfterCallContext, AfterCallHint, OutcomePayload } from '@/lib/after-call-flow';
+import type { Channel } from '@/lib/interactions';
 
 /**
  * Query keys for TanStack Query
@@ -96,10 +97,14 @@ export const memosApi = {
   /**
    * Upload transcript and start AI extraction in one call.
    * Use when recording stops with live STT text.
-   * Returns memo ID with status "extracting".
+   * Returns memo ID with status "extracting". `interactionKind` is stored on the memo
+   * (the web recorder sends voice_note); absent, the backend derives it as before.
    */
-  uploadTranscriptAndExtract: (transcript: string): Promise<UploadMemoResponse> => {
-    return api.post<UploadMemoResponse>('/memos/upload-and-extract', { transcript });
+  uploadTranscriptAndExtract: (transcript: string, interactionKind?: Channel): Promise<UploadMemoResponse> => {
+    return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
+      transcript,
+      ...(interactionKind && { interaction_kind: interactionKind }),
+    });
   },
 
   /**
@@ -117,21 +122,24 @@ export const memosApi = {
    * @param audioBlob - Audio file (ignored when transcript provided)
    * @param onProgress - Progress callback (0-100)
    * @param transcript - Optional pre-transcribed text (from real-time) - starts extraction when set
+   * @param interactionKind - Optional channel stored on the memo (voice_note from the web recorder)
    */
   uploadWithProgress: (
     audioBlob: Blob,
     onProgress: (progress: number) => void,
-    transcript?: string
+    transcript?: string,
+    interactionKind?: Channel,
   ): Promise<UploadMemoResponse> => {
     if (transcript?.trim()) {
       onProgress(100);
-      return api.post<UploadMemoResponse>('/memos/upload-and-extract', { transcript: transcript.trim() });
+      return memosApi.uploadTranscriptAndExtract(transcript.trim(), interactionKind);
     }
     return api.uploadWithProgress<UploadMemoResponse>(
       '/memos/upload',
       audioBlob,
       'audio',
-      onProgress
+      onProgress,
+      interactionKind ? { interaction_kind: interactionKind } : undefined,
     );
   },
 
