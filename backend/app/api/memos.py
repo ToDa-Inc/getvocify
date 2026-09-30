@@ -21,7 +21,13 @@ from app.services.activity_scope import (
     readable_memo_or_none,
     resolve_list_user_ids,
 )
-from app.services.captures import MEMO_PIPELINE_STATUSES, insert_memo_row, interaction_kind_of
+from app.services.captures import (
+    INTERACTION_KINDS,
+    MEMO_PIPELINE_STATUSES,
+    insert_memo_row,
+    interaction_kind_filter,
+    interaction_kind_of,
+)
 from app.services.handoff_visibility import (
     handoff_sdr_map_for_viewer,
     sdr_ids_for_contact,
@@ -253,6 +259,7 @@ def _memo_from_row(
             hubspotDealId=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
             screeningOutcome=memo_data.get("screening_outcome"),
             interactionKind=interaction_kind_of(memo_data),
+            salesMotionKey=memo_data.get("sales_motion_key"),
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -605,16 +612,28 @@ async def process_memo_async(
 async def upload_memo(
     audio: UploadFile = File(...),
     transcript: Optional[str] = Form(None),
+    interaction_kind: Optional[str] = Form(None),
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
     """
     Upload audio and/or transcript. No audio storage - transcript only.
+
+    Optional interaction_kind (call, meeting, visit, voice_note) is stored on the memo;
+    absent, the channel is derived as before.
     
     Flow:
     - If transcript provided: Create memo with transcript, go directly to extraction (no storage)
     - If no transcript: Transcribe from bytes in memory → Extract (no storage)
     """
+    kind = (interaction_kind or "").strip()
+    if kind and kind not in INTERACTION_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown interaction kind",
+        )
+    stored_kind = {"interaction_kind": kind} if kind else {}
+
     # Read audio bytes (needed for transcription when no transcript)
     audio_bytes = await audio.read()
     
@@ -646,6 +665,7 @@ async def upload_memo(
             "transcript": transcript,
             "processing_started_at": datetime.utcnow().isoformat(),
             "source_type": "voice_memo",
+            **stored_kind,
         })
         
         memo_id = created["id"]
@@ -698,6 +718,7 @@ async def upload_memo(
             "audio_duration": estimated_duration,
             "status": "uploading",
             "source_type": "voice_memo",
+            **stored_kind,
         })
         
         memo_id = created["id"]
@@ -862,6 +883,8 @@ async def list_memos(
     author_user_id: Optional[str] = None,
     memo_status: Optional[str] = Query(None, alias="status"),
     reached_only: bool = False,
+    interaction_kind: Optional[str] = Query(None),
+    sales_motion_key: Optional[str] = Query(None),
 ):
     """
     List memos.
@@ -881,6 +904,9 @@ async def list_memos(
     Optional status: exact pipeline status (e.g. pending_review). Screened-out
     calls (voicemail, no answer) are pending_review too; reached_only=true
     drops them and keeps memos with no screening outcome.
+
+    Optional interaction_kind (call, meeting, visit, voice_note) and sales_motion_key (the
+    memo's type): rows from before interaction_kind was stamped are matched by their origin.
     """
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -890,6 +916,13 @@ async def list_memos(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Unknown memo status",
         )
+    kind_value = (interaction_kind if isinstance(interaction_kind, str) else "").strip() or None
+    if kind_value and kind_value not in INTERACTION_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown interaction kind",
+        )
+    motion_value = (sales_motion_key if isinstance(sales_motion_key, str) else "").strip() or None
     membership, members, authors = load_viewer_scope(supabase, user_id)
     role = membership.role if membership else None
     visibility = effective_visibility(supabase, membership)
@@ -961,6 +994,10 @@ async def list_memos(
         q = q.eq("hubspot_contact_id", contact_id)
     if status_value:
         q = q.eq("status", status_value)
+    if kind_value:
+        q = q.or_(interaction_kind_filter(kind_value))
+    if motion_value:
+        q = q.eq("sales_motion_key", motion_value)
     if reached_only is True:
         # Repeated `or` params are ANDed by PostgREST, so this composes with the deal filter.
         unreached = ",".join(sorted(SKIPPED_SCREENING))

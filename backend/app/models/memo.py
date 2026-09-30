@@ -151,6 +151,7 @@ class Memo(MemoBase):
     hubspotDealId: Optional[str] = None
     screeningOutcome: Optional[str] = None
     interactionKind: Optional[str] = None
+    salesMotionKey: Optional[str] = None
     # Lista 4 T4: what the after-call outcome did (stored date, handoff hint). Approve only.
     after_call: Optional[dict] = None
     
