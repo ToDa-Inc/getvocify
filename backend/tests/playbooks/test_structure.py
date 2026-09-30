@@ -14,8 +14,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.playbook_intake import router as playbook_intake_router
 from app.api.playbooks import router as playbooks_router
-from app.api.playbooks import set_playbook_structure_llm, set_playbook_transcriber
+from app.services.playbooks.api_support import set_playbook_transcriber
+from app.services.playbooks.structure import set_playbook_structure_llm
 from app.deps import get_membership
 from app.services.company import Membership
 from app.services.playbooks import structure as structure_module
@@ -386,6 +388,7 @@ def client_for():
     def make(role="owner"):
         app = FastAPI()
         app.include_router(playbooks_router)
+        app.include_router(playbook_intake_router)
         app.dependency_overrides[get_membership] = lambda: Membership(
             id="m", company_id="co-1", user_id="u", role=role, status="active", sales_role=None,
         )

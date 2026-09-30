@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from supabase import Client
 
-from app.api.playbooks import MANAGE_ROLES
+from app.services.playbooks.api_support import MANAGE_ROLES
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.playbooks.catalog import (

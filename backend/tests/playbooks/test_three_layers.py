@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from app.api.playbooks import set_playbook_structure_llm, set_playbook_transcriber
+from app.services.playbooks.api_support import set_playbook_transcriber
+from app.services.playbooks.structure import set_playbook_structure_llm
 from app.config import settings
 from app.services import feature_flags
 from app.services.playbooks import structure as structure_module

@@ -10,6 +10,7 @@ from app.api import (
     followup,
     playbook_rules,
     playbooks,
+    playbook_intake,
     playbook_insights,
     ask,
     intelligence,
@@ -57,6 +58,7 @@ api_router.include_router(followup.listing)
 api_router.include_router(playbook_rules.router)
 api_router.include_router(playbook_rules.memo_router)
 api_router.include_router(playbooks.router)
+api_router.include_router(playbook_intake.router)
 api_router.include_router(playbook_insights.router)
 api_router.include_router(ask.router)
 api_router.include_router(intelligence.router)

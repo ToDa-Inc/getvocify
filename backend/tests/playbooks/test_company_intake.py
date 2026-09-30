@@ -19,8 +19,10 @@ from fastapi.testclient import TestClient
 
 from app.api import playbook_rules
 from app.api.playbook_rules import router as rules_router
+from app.api.playbook_intake import router as playbook_intake_router
 from app.api.playbooks import router as playbooks_router
-from app.api.playbooks import set_playbook_structure_llm, set_playbook_transcriber
+from app.services.playbooks.api_support import set_playbook_transcriber
+from app.services.playbooks.structure import set_playbook_structure_llm
 from app.config import settings
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
@@ -100,6 +102,7 @@ def _client(store=None, role="owner", sales_role=None, company="co-1", rules_fir
     if rules_first:
         app.include_router(rules_router)
     app.include_router(playbooks_router)
+    app.include_router(playbook_intake_router)
     app.dependency_overrides[get_membership] = lambda: Membership(
         id="m", company_id=company, user_id="u-1", role=role, status="active", sales_role=sales_role,
     )

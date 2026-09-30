@@ -188,7 +188,7 @@ def test_audio_import_uses_stt_and_does_not_create_a_memo():
     from fastapi import FastAPI
 
     from app.api.playbooks import router as playbooks_router
-    from app.api.playbooks import set_playbook_transcriber
+    from app.services.playbooks.api_support import set_playbook_transcriber
 
     seen = {}
 
