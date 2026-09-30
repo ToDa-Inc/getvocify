@@ -116,16 +116,16 @@ const TEMPLATES: Record<string, TemplateStep[]> = {
   discovery: [
     { step_id: "opening", es: ["Apertura", "Se presenta, dice por qué llama y pide un momento para hablar."], en: ["Opening", "Introduces themselves, says why they are calling and asks for a moment to talk."] },
     { step_id: "reason", es: ["Motivo de la llamada", "Conecta la llamada con algo concreto del prospecto: su sector, su rol o algo que haya hecho."], en: ["Reason for the call", "Ties the call to something specific about the prospect: their industry, role or something they did."] },
-    { step_id: "pain", es: ["Descubrir el dolor", "Pregunta cómo lo hacen hoy y consigue que el prospecto nombre un problema concreto."], en: ["Find the pain", "Asks how they do it today and gets the prospect to name a concrete problem."] },
+    { step_id: "pain", es: ["Descubrir el dolor", "Pregunta cómo lo hacen hoy y repregunta por lo que no les funciona."], en: ["Find the pain", "Asks how they do it today and follows up on what isn't working."] },
     { step_id: "qualify", es: ["Cualificar", "Confirma quién decide, cuándo quieren resolverlo y si es una prioridad."], en: ["Qualify", "Confirms who decides, when they want to solve it and whether it is a priority."] },
-    { step_id: "meeting", es: ["Agendar la reunión", "Propone una reunión con día y hora y el prospecto la acepta."], en: ["Book the meeting", "Proposes a meeting with a day and time and the prospect accepts it."] },
+    { step_id: "meeting", es: ["Agendar la reunión", "Propone una reunión con un día y una hora concretos."], en: ["Book the meeting", "Proposes a meeting with a specific day and time."] },
   ],
   closing: [
     { step_id: "agenda", es: ["Agenda y objetivo", "Abre con la agenda y con lo que se quiere decidir al final de la reunión."], en: ["Agenda and goal", "Opens with the agenda and what should be decided by the end of the meeting."] },
     { step_id: "recap_pain", es: ["Repasar el dolor", "Confirma con el prospecto el problema que se habló antes."], en: ["Recap the pain", "Confirms with the prospect the problem discussed before."] },
     { step_id: "demo", es: ["Demo enfocada", "Enseña solo lo que resuelve el problema confirmado."], en: ["Focused demo", "Shows only what solves the confirmed problem."] },
-    { step_id: "objections", es: ["Resolver dudas", "Responde las dudas del prospecto hasta que quedan resueltas o claras."], en: ["Handle concerns", "Answers the prospect's concerns until they are resolved or clear."] },
-    { step_id: "next_step", es: ["Siguiente paso", "Acuerda el siguiente paso con fecha: propuesta, prueba o firma."], en: ["Next step", "Agrees the next step with a date: proposal, trial or signature."] },
+    { step_id: "objections", es: ["Resolver dudas", "Responde cada duda del prospecto y comprueba si queda resuelta."], en: ["Handle concerns", "Answers each of the prospect's concerns and checks it is resolved."] },
+    { step_id: "next_step", es: ["Siguiente paso", "Propone el siguiente paso con fecha: propuesta, prueba o firma."], en: ["Next step", "Proposes the next step with a date: proposal, trial or signature."] },
   ],
 };
 

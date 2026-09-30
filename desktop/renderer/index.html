@@ -135,14 +135,28 @@
             <button id="btn-approve" class="primary" type="button" data-desktop-i18n="confirm"></button>
             <button id="btn-review-dashboard" class="ghost" type="button" hidden data-i18n="desktopOpenDashboard"></button>
           </div>
-          <p id="followup-error" class="error" hidden></p>
-          <button id="followup-retry" class="ghost" type="button" hidden data-desktop-i18n="retry"></button>
-          <v-followup id="review-followup" hidden></v-followup>
-          <label><span data-i18n="desktopReviewSummary"></span><textarea id="review-summary" rows="4"></textarea></label>
-          <label><span data-i18n="desktopReviewNext"></span><textarea id="review-next" rows="3"></textarea></label>
-          <details class="review-details"><summary id="review-fields-label" data-desktop-i18n="fields"></summary><div id="review-fields" class="field-list"></div></details>
-          <div id="review-checklist" class="overlay-checklist card paper" hidden></div>
-          <details class="review-details"><summary data-desktop-i18n="transcript"></summary><div id="review-note" class="transcript review-note" aria-readonly="true"></div></details>
+          <v-review-tabs id="review-tabs" class="review-tabs"></v-review-tabs>
+          <div id="review-panels">
+            <div id="review-panel-note" data-review-panel="note" role="tabpanel" aria-labelledby="review-tab-note">
+              <label><span class="v-sr" data-i18n="desktopReviewSummary"></span><textarea id="review-summary" rows="6"></textarea></label>
+              <div id="review-checklist" class="overlay-checklist card paper" hidden></div>
+              <details class="review-details"><summary data-desktop-i18n="transcript"></summary><div id="review-note" class="transcript review-note" aria-readonly="true"></div></details>
+            </div>
+            <div id="review-panel-tasks" data-review-panel="tasks" role="tabpanel" aria-labelledby="review-tab-tasks" hidden>
+              <label><span class="v-sr" data-i18n="desktopReviewNext"></span><textarea id="review-next" rows="6"></textarea></label>
+            </div>
+            <div id="review-panel-fields" data-review-panel="fields" role="tabpanel" aria-labelledby="review-tab-fields" hidden>
+              <div id="review-fields" class="field-list"></div>
+            </div>
+            <div id="review-panel-email" data-review-panel="email" role="tabpanel" aria-labelledby="review-tab-email" hidden>
+              <p id="followup-error" class="error" hidden></p>
+              <button id="followup-retry" class="ghost" type="button" hidden data-desktop-i18n="retry"></button>
+              <v-followup id="review-followup" hidden></v-followup>
+            </div>
+            <div id="review-panel-coaching" data-review-panel="coaching" role="tabpanel" aria-labelledby="review-tab-coaching" hidden>
+              <v-debrief id="review-debrief"></v-debrief>
+            </div>
+          </div>
         </section>
       </main>
     </div>

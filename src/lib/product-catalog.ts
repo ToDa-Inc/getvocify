@@ -26,6 +26,7 @@ export const productCatalog = {
     sampleLimited: "Fewer than five conversations is not enough for a conclusion.",
     unavailable: "Not available",
     briefNotReady: "The summary is not ready yet",
+    briefCoachTitle: "Feedback on this call",
     briefReadFailed: "The summary could not be loaded",
     briefTitlePending: "Preparing the summary",
     briefTitlePartial: "Partial summary",
@@ -1158,6 +1159,10 @@ export const productCatalog = {
     askClearAll: "Delete all",
     askClearAllTitle: "Delete all conversations?",
     askClearAllBody: "This removes every Ask conversation on all your devices. It can't be undone.",
+    askGreeting: "What do you want to know?",
+    askPlaybookSource: "From the playbook",
+    askPoints: "{value} pts",
+    askMoreReps: "+{count} more",
   },
   ES: {
     hourLocale: "es-ES",
@@ -1184,6 +1189,7 @@ export const productCatalog = {
     sampleLimited: "Con menos de cinco conversaciones no hay conclusión.",
     unavailable: "No disponible",
     briefNotReady: "El resumen todavía no está listo",
+    briefCoachTitle: "Feedback de esta llamada",
     briefReadFailed: "No se pudo leer el resumen",
     briefTitlePending: "Preparando el resumen",
     briefTitlePartial: "Resumen parcial",
@@ -2316,6 +2322,10 @@ export const productCatalog = {
     askClearAll: "Borrar todo",
     askClearAllTitle: "¿Borrar todas las conversaciones?",
     askClearAllBody: "Esto elimina todas tus conversaciones de Preguntar en todos tus dispositivos. No se puede deshacer.",
+    askGreeting: "¿Qué quieres saber?",
+    askPlaybookSource: "Del playbook",
+    askPoints: "{value} pts",
+    askMoreReps: "+{count} más",
   },
 } as const;
 

@@ -570,5 +570,10 @@ h2 { font-size: 18px; font-weight: 450; margin: 0 0 18px; }
 #review-panel .deal-option { display: flex; flex-direction: row-reverse; justify-content: flex-end; }
 #login-panel { max-width: 460px; margin: 50px auto 0; }
 
+/* Post-call review tabs: deal + Confirm above, one panel below. */
+#review-panel .review-tabs { margin: 4px 0 16px; }
+#review-panels [data-review-panel] { display: grid; gap: 12px; }
+#review-panels [data-review-panel][hidden] { display: none; }
+#review-panels .review-details { margin-top: 8px; }
 .review-status-row { display: flex; align-items: center; gap: 10px; }
 .review-status-row .lede { margin: 0; }

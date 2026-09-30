@@ -194,12 +194,6 @@ declare module "@shared/ui/home.js" {
   export function snoozeUntil(now: number, timeZone?: string): string;
 }
 
-declare namespace JSX {
-  interface IntrinsicElements {
-    "v-followup": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
-  }
-}
-
 declare module "@shared/ui/html.js" {
   export type HtmlFragment = { readonly __vocifyRaw?: never };
   export function html(strings: TemplateStringsArray, ...values: unknown[]): HtmlFragment;
@@ -233,4 +227,61 @@ declare module "@shared/ui/components/anim-icon.js" {
   ): HtmlFragment;
   export function playAnimIcon(el: Element | null, play?: string): void;
   export function flashCopied(button: Element | null, copiedLabel?: string, ms?: number): void;
+}
+
+declare module "@shared/ui/components/review-tabs.js" {
+  export type ReviewTabId = "note" | "fields" | "tasks" | "email" | "coaching";
+  export type ReviewTab = { id: ReviewTabId; count: number | null; dot: boolean };
+  export const REVIEW_TAB_IDS: ReviewTabId[];
+  export function reviewTabs(input?: {
+    fieldCount?: number;
+    taskCount?: number;
+    followupStatus?: string | null;
+    coaching?: boolean;
+  }): ReviewTab[];
+  export function activeReviewTab(tabs: ReviewTab[], current: string | null | undefined): ReviewTabId;
+  export function stepReviewTab(tabs: ReviewTab[], current: string, key: string): string;
+}
+
+declare module "@shared/ui/components/debrief.js" {
+  export type DebriefLang = "es" | "en";
+  export type DebriefBar = { value: number | null; current: boolean };
+  export type DebriefView =
+    | { state: "hidden" | "pending" | "no_playbook" | "empty" }
+    | {
+        state: "ready";
+        kept: { label: string; quote: string | null } | null;
+        fix: { label: string; criterion: string | null; say: string | null; focus: boolean } | null;
+        bars: DebriefBar[];
+        outcome: { label: string; value: boolean } | null;
+        missed: { id: string; label: string }[];
+        moments: string[];
+      };
+  export type DebriefCopy = Record<
+    | "debriefPreparing"
+    | "debriefNoPlaybook"
+    | "debriefEmpty"
+    | "debriefKept"
+    | "debriefFix"
+    | "debriefFocus"
+    | "debriefTry"
+    | "debriefTrend"
+    | "debriefYes"
+    | "debriefNo"
+    | "debriefDetail"
+    | "debriefMissed"
+    | "debriefMoments",
+    string
+  >;
+  export function hasCoaching(brief: unknown): boolean;
+  export function debriefNeedsPoll(brief: unknown): boolean;
+  export function debriefView(brief: unknown, lang: DebriefLang): DebriefView;
+  export function debriefCopy(lang: DebriefLang): DebriefCopy;
+}
+
+declare namespace JSX {
+  interface IntrinsicElements {
+    "v-followup": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+    "v-review-tabs": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+  }
 }

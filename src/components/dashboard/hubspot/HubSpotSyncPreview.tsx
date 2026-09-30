@@ -29,7 +29,6 @@ import {
   proposedFieldKey,
 } from "@/lib/extraction-omit";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
-import { AnimIcon } from "@/components/ui/anim-icon";
 import { CopilotNote } from "@/components/dashboard/CopilotNote";
 import {
   clearCachedPreview,
@@ -37,6 +36,7 @@ import {
   previewCacheKey,
   setCachedPreview,
 } from "@/lib/preview-cache";
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 interface HubSpotSyncPreviewProps {
   memoId: string;
@@ -64,6 +64,17 @@ interface HubSpotSyncPreviewProps {
   confirmBlockedLabel?: string | null;
   /** Replaces the confirm button's label when nothing blocks it. */
   confirmLabel?: string | null;
+  /** Post-call tabs: the panel on show. Unset keeps everything stacked (Hoy's side panel). */
+  activeTab?: string | null;
+  /** The tab bar, under who/deal: tabs never hide the target or the confirm. */
+  tabBar?: ReactNode;
+  /** Bottom of the note panel. */
+  noteExtra?: ReactNode;
+  /** Top of the tasks panel. */
+  tasksLead?: ReactNode;
+  /** Panels the page owns (email, coaching). Hidden, never unmounted, so drafts survive. */
+  tabPanels?: ReactNode;
+  onTabCounts?: (counts: { fields: number; tasks: number }) => void;
 }
 
 /**
@@ -135,6 +146,12 @@ export const HubSpotSyncPreview = ({
   approveExtra = null,
   confirmBlockedLabel = null,
   confirmLabel = null,
+  activeTab = null,
+  tabBar = null,
+  noteExtra = null,
+  tasksLead = null,
+  tabPanels = null,
+  onTabCounts,
 }: HubSpotSyncPreviewProps) => {
   const { user } = useAuth();
   const loggedAs = user?.fullName || user?.email;
@@ -168,7 +185,7 @@ export const HubSpotSyncPreview = ({
   // Field edits
   const [editedUpdates, setEditedUpdates] = useState<any[] | null>(null);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
-  const [showAddField, setShowAddField] = useState(false);
+  const [showAddField, setShowAddField] = useState<"fields" | "tasks" | null>(null);
   const [omittedKeys, setOmittedKeys] = useState<string[]>([]);
 
   // Weak matches and manual deal naming
@@ -324,7 +341,7 @@ export const HubSpotSyncPreview = ({
       setContactSearchResults([]);
       setContactSearchQuery("");
       setEditingIdx(null);
-      setShowAddField(false);
+      setShowAddField(null);
 
       const cacheKey = previewCacheKey({
         memoId,
@@ -594,6 +611,14 @@ export const HubSpotSyncPreview = ({
       const bo = OBJECT_ORDER.indexOf(b.u?.object_type || "deals");
       return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
     });
+  const tabbed = activeTab != null;
+  const isTaskEntry = ({ u }: { u: any }) =>
+    (u?.object_type || "deals") === "task" || String(u?.field_name || "").startsWith("next_step_task_");
+  const fieldEntries = tabbed ? sortedUpdateEntries.filter((entry) => !isTaskEntry(entry)) : sortedUpdateEntries;
+  const taskEntries = tabbed ? sortedUpdateEntries.filter(isTaskEntry) : [];
+  useEffect(() => {
+    onTabCounts?.({ fields: fieldEntries.length, tasks: taskEntries.length });
+  }, [onTabCounts, fieldEntries.length, taskEntries.length]);
 
   const buildExtractionForSync = async (): Promise<Record<string, unknown> | undefined> => {
     const memo = await memosApi.get(memoId);
@@ -685,7 +710,7 @@ export const HubSpotSyncPreview = ({
     };
     const list = editedUpdates ?? updates.map((u) => ({ ...u }));
     setEditedUpdates([...list, newUpdate]);
-    setShowAddField(false);
+    setShowAddField(null);
     setEditingIdx(list.length);
   };
 
@@ -727,6 +752,207 @@ export const HubSpotSyncPreview = ({
       </div>
     );
   }
+
+  const renderUpdateRows = (entries: Array<{ u: any; idx: number }>, showHeaders = true) =>
+    entries.map(({ u: update, idx }) => {
+      const alreadyApplied = !!update.already_applied;
+      const hasCurrent =
+        update.current_value != null &&
+        String(update.current_value).trim() !== "" &&
+        String(update.current_value).trim() !== "(empty)";
+      const unchanged =
+        hasCurrent &&
+        !alreadyApplied &&
+        String(update.current_value).trim() === String(update.new_value ?? "").trim();
+      const hadExisting = hasCurrent && !unchanged;
+      const isOverride = !!hadExisting && !alreadyApplied;
+      const canEditRow = canEditOrRemoveProposedField(update);
+      const isEditing = editingIdx === idx;
+      const entryPos = entries.findIndex((e) => e.idx === idx);
+      const prevObject = entryPos > 0 ? entries[entryPos - 1].u?.object_type || "deals" : null;
+      const currentObject = update.object_type || "deals";
+      const showSection = showHeaders && (entryPos === 0 || prevObject !== currentObject);
+      const sectionLabel =
+        {
+          deals: "Deal Properties",
+          contacts: "Contact Properties",
+          companies: preview?.new_company && !selectedContact?.company_id
+            ? "New Company"
+            : "Company Properties",
+          line_items: "Line Items",
+          task: "Tasks",
+        }[String(currentObject)] || currentObject;
+
+      return (
+        <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-2">
+          {showSection && (
+            <div className="flex items-center gap-2 px-1 pt-2">
+              <span className="text-[11px] font-medium tracking-wider uppercase text-beige">
+                {sectionLabel}
+              </span>
+              <span className="h-px flex-1 bg-border/40" />
+            </div>
+          )}
+          <div
+            className={`group relative rounded-2xl p-4 transition-all flex items-start justify-between gap-4 border ${
+              isOverride
+                ? "bg-destructive/[0.03] border-destructive/25 hover:border-destructive/40"
+                : "bg-card border-border/50 hover:border-beige/40 shadow-xs"
+            }`}
+          >
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-muted-foreground">{update.field_label}</span>
+                {alreadyApplied ? (
+                  <span className="bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                    Written
+                  </span>
+                ) : isOverride ? (
+                  <span className="bg-destructive/10 text-destructive text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                    Override
+                  </span>
+                ) : unchanged ? null : (
+                  <span className="bg-success/10 text-success text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                    New
+                  </span>
+                )}
+              </div>
+
+              {hadExisting && (
+                <p className="text-[10px] text-[#b42318] line-through">
+                  {optionLabelFor(update.current_value, update.options) || "—"}
+                </p>
+              )}
+
+              {isEditing ? (
+                <div className="pt-1">
+                  {update.options && update.options.length > 0 && !isCrmDateField(update) ? (
+                    <select
+                      autoFocus
+                      value={String(update.new_value ?? "")}
+                      onChange={(e) => updateField(idx, e.target.value)}
+                      className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-beige"
+                    >
+                      <option value="">—</option>
+                      {update.options.map((o: { value: string; label?: string }) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label ?? o.value}
+                        </option>
+                      ))}
+                    </select>
+                  ) : isCrmDateField(update) ? (
+                    <ExtractionDatePicker
+                      value={String(update.new_value ?? "")}
+                      onChange={(iso) => updateField(idx, iso, false)}
+                      onClose={() => setEditingIdx(null)}
+                    />
+                  ) : (
+                    <Input
+                      autoFocus
+                      type={update.field_type === "number" ? "number" : "text"}
+                      value={String(update.new_value ?? "")}
+                      onChange={(e) => updateField(idx, e.target.value, false)}
+                      onBlur={() => setEditingIdx(null)}
+                      onKeyDown={(e) => e.key === "Enter" && setEditingIdx(null)}
+                      className="h-9 rounded-xl text-xs"
+                    />
+                  )}
+                </div>
+              ) : (
+                <p
+                  className="text-sm font-normal leading-relaxed text-[#067647]"
+                >
+                  {isCrmDateField(update)
+                    ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
+                    : optionLabelFor(update.new_value, update.options)}
+                </p>
+              )}
+            </div>
+
+            {canEditRow && !isEditing && !readOnly && (
+              <div className="flex items-center gap-1 shrink-0 pt-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-beige"
+                  onClick={() => setEditingIdx(idx)}
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                  onClick={() => removeField(idx)}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    });
+
+  const renderFieldRail = (scope: "fields" | "tasks", heading: string | null) => {
+    const addable = availableFields.filter((f: { object_type?: string }) =>
+      !tabbed ? true : scope === "tasks" ? f.object_type === "task" : f.object_type !== "task",
+    );
+    if (!heading && (addable.length === 0 || loading || readOnly) && !isSwitchingTarget) return null;
+    return (
+      <div className="relative flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          {heading ? <h5 className={THEME_TOKENS.typography.sectionRail}>{heading}</h5> : null}
+          {isSwitchingTarget && <VocifySpinner size={13} className="text-beige" />}
+        </div>
+        {addable.length > 0 && !loading && !readOnly && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAddField(showAddField === scope ? null : scope)}
+            className="h-auto px-2 py-1 text-xs font-normal text-beige hover:bg-beige/10 rounded-full"
+          >
+            <Plus className="h-3 w-3 mr-1" />
+            {scope === "tasks" ? "Add task" : "Add field"}
+          </Button>
+        )}
+
+        {/* Add Field Dropdown */}
+        {showAddField === scope && addable.length > 0 && (
+          <div className="absolute right-1 top-full mt-2 z-20 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-popover border border-border/60 shadow-xl">
+            {(() => {
+              const unused = addable.filter((f: { name: string; object_type?: string }) => {
+                const ot = f.object_type || "deals";
+                return !updates.some((u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot);
+              });
+              const OBJECT_LABELS: Record<string, string> = {
+                deals: "Deal",
+                contacts: "Contact",
+                companies: "Company",
+              };
+              if (unused.length === 0) {
+                return <p className="px-4 py-2 text-xs text-muted-foreground">All available fields added</p>;
+              }
+              return unused.map(
+                (f: { name: string; label: string; type?: string; options?: unknown[]; object_type?: string }) => (
+                  <button
+                    key={`${f.object_type || "deals"}:${f.name}`}
+                    onClick={() => addField(f)}
+                    className="w-full text-left px-4 py-2 text-xs hover:bg-beige/10 transition-colors flex items-center justify-between"
+                  >
+                    <span className="font-medium text-foreground truncate">{f.label || f.name}</span>
+                    <span className="text-[10px] text-muted-foreground/60 ml-2 shrink-0">
+                      {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
+                    </span>
+                  </button>
+                ),
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className={`${compact ? "space-y-5" : "space-y-8"} animate-in fade-in duration-300`}>
@@ -1125,219 +1351,72 @@ export const HubSpotSyncPreview = ({
         )}
       </div>
 
+      {tabBar}
+
       {/* 3. CALL NOTE / COPILOT SUMMARY */}
-      {callSummary ? (
-        <div className="space-y-3 pt-2">
-          <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>
-          <div className="p-5 rounded-2xl bg-secondary/5 border border-border/30">
-            <CopilotNote markdown={callSummary} />
+      <div
+        id={tabbed ? "review-panel-note" : undefined}
+        role={tabbed ? "tabpanel" : undefined}
+        aria-labelledby={tabbed ? "review-tab-note" : undefined}
+        hidden={tabbed && activeTab !== "note"}
+        className={tabbed ? "space-y-6" : undefined}
+      >
+        {callSummary ? (
+          <div className={tabbed ? "" : "space-y-3 pt-2"}>
+            {tabbed ? null : <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>}
+            <div className="p-5 rounded-2xl bg-secondary/5 border border-border/30">
+              <CopilotNote markdown={callSummary} />
+            </div>
           </div>
+        ) : tabbed ? (
+          <p className="text-sm text-muted-foreground px-1">No note from this call.</p>
+        ) : null}
+        {tabbed ? noteExtra : null}
+      </div>
+
+      {/* 4. CRM FIELDS SECTION */}
+      <div
+        id={tabbed ? "review-panel-fields" : undefined}
+        role={tabbed ? "tabpanel" : undefined}
+        aria-labelledby={tabbed ? "review-tab-fields" : undefined}
+        hidden={tabbed && activeTab !== "fields"}
+        className={tabbed ? "space-y-4" : "space-y-4 pt-2"}
+      >
+        {renderFieldRail("fields", tabbed ? null : "Fields")}
+
+        {/* Fields List */}
+        {fieldEntries.length === 0 ? (
+          <div className="p-6 text-center rounded-2xl bg-secondary/5 border border-dashed border-border/40">
+            <p className="text-xs text-muted-foreground">
+              {tabbed ? "Nothing to update on this record." : "No field updates extracted for this record."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">{renderUpdateRows(fieldEntries)}</div>
+        )}
+      </div>
+
+      {tabbed ? (
+        <div
+          id="review-panel-tasks"
+          role="tabpanel"
+          aria-labelledby="review-tab-tasks"
+          hidden={activeTab !== "tasks"}
+          className="space-y-4"
+        >
+          {tasksLead}
+          {renderFieldRail("tasks", null)}
+          {taskEntries.length === 0 ? (
+            <div className="p-6 text-center rounded-2xl bg-secondary/5 border border-dashed border-border/40">
+              <p className="text-xs text-muted-foreground">No tasks from this call.</p>
+            </div>
+          ) : (
+            <div className="grid gap-3">{renderUpdateRows(taskEntries, false)}</div>
+          )}
         </div>
       ) : null}
 
-      {/* 4. CRM FIELDS SECTION */}
-      <div className="space-y-4 pt-2">
-        <div className="relative flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <h5 className={THEME_TOKENS.typography.sectionRail}>Fields</h5>
-            {isSwitchingTarget && <VocifySpinner size={13} className="text-beige" />}
-          </div>
-          {availableFields.length > 0 && !loading && !readOnly && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowAddField(!showAddField)}
-              className="h-auto px-2 py-1 text-xs font-normal text-beige hover:bg-beige/10 rounded-full"
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Add field
-            </Button>
-          )}
-
-          {/* Add Field Dropdown */}
-          {showAddField && availableFields.length > 0 && (
-            <div className="absolute right-1 top-full mt-2 z-20 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-popover border border-border/60 shadow-xl">
-              {(() => {
-                const unused = availableFields.filter((f: { name: string; object_type?: string }) => {
-                  const ot = f.object_type || "deals";
-                  return !updates.some((u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot);
-                });
-                const OBJECT_LABELS: Record<string, string> = {
-                  deals: "Deal",
-                  contacts: "Contact",
-                  companies: "Company",
-                };
-                if (unused.length === 0) {
-                  return <p className="px-4 py-2 text-xs text-muted-foreground">All available fields added</p>;
-                }
-                return unused.map(
-                  (f: { name: string; label: string; type?: string; options?: unknown[]; object_type?: string }) => (
-                    <button
-                      key={`${f.object_type || "deals"}:${f.name}`}
-                      onClick={() => addField(f)}
-                      className="w-full text-left px-4 py-2 text-xs hover:bg-beige/10 transition-colors flex items-center justify-between"
-                    >
-                      <span className="font-medium text-foreground truncate">{f.label || f.name}</span>
-                      <span className="text-[10px] text-muted-foreground/60 ml-2 shrink-0">
-                        {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
-                      </span>
-                    </button>
-                  ),
-                );
-              })()}
-            </div>
-          )}
-        </div>
-
-        {/* Fields List */}
-        {updates.length === 0 ? (
-          <div className="p-6 text-center rounded-2xl bg-secondary/5 border border-dashed border-border/40">
-            <p className="text-xs text-muted-foreground">No field updates extracted for this record.</p>
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {sortedUpdateEntries.map(({ u: update, idx }) => {
-              const alreadyApplied = !!update.already_applied;
-              const hasCurrent =
-                update.current_value != null &&
-                String(update.current_value).trim() !== "" &&
-                String(update.current_value).trim() !== "(empty)";
-              const unchanged =
-                hasCurrent &&
-                !alreadyApplied &&
-                String(update.current_value).trim() === String(update.new_value ?? "").trim();
-              const hadExisting = hasCurrent && !unchanged;
-              const isOverride = !!hadExisting && !alreadyApplied;
-              const canEditRow = canEditOrRemoveProposedField(update);
-              const isEditing = editingIdx === idx;
-              const entryPos = sortedUpdateEntries.findIndex((e) => e.idx === idx);
-              const prevObject = entryPos > 0 ? sortedUpdateEntries[entryPos - 1].u?.object_type || "deals" : null;
-              const currentObject = update.object_type || "deals";
-              const showSection = entryPos === 0 || prevObject !== currentObject;
-              const sectionLabel =
-                {
-                  deals: "Deal Properties",
-                  contacts: "Contact Properties",
-                  companies: preview?.new_company && !selectedContact?.company_id
-                    ? "New Company"
-                    : "Company Properties",
-                  line_items: "Line Items",
-                  task: "Tasks",
-                }[String(currentObject)] || currentObject;
-
-              return (
-                <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-2">
-                  {showSection && (
-                    <div className="flex items-center gap-2 px-1 pt-2">
-                      <span className="text-[11px] font-medium tracking-wider uppercase text-beige">
-                        {sectionLabel}
-                      </span>
-                      <span className="h-px flex-1 bg-border/40" />
-                    </div>
-                  )}
-                  <div
-                    className={`group relative rounded-2xl p-4 transition-all flex items-start justify-between gap-4 border ${
-                      isOverride
-                        ? "bg-destructive/[0.03] border-destructive/25 hover:border-destructive/40"
-                        : "bg-card border-border/50 hover:border-beige/40 shadow-xs"
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">{update.field_label}</span>
-                        {alreadyApplied ? (
-                          <span className="bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
-                            Written
-                          </span>
-                        ) : isOverride ? (
-                          <span className="bg-destructive/10 text-destructive text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
-                            Override
-                          </span>
-                        ) : unchanged ? null : (
-                          <span className="bg-success/10 text-success text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
-                            New
-                          </span>
-                        )}
-                      </div>
-
-                      {hadExisting && (
-                        <p className="text-[10px] text-[#b42318] line-through">
-                          {optionLabelFor(update.current_value, update.options) || "—"}
-                        </p>
-                      )}
-
-                      {isEditing ? (
-                        <div className="pt-1">
-                          {update.options && update.options.length > 0 && !isCrmDateField(update) ? (
-                            <select
-                              autoFocus
-                              value={String(update.new_value ?? "")}
-                              onChange={(e) => updateField(idx, e.target.value)}
-                              className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-beige"
-                            >
-                              <option value="">—</option>
-                              {update.options.map((o: { value: string; label?: string }) => (
-                                <option key={o.value} value={o.value}>
-                                  {o.label ?? o.value}
-                                </option>
-                              ))}
-                            </select>
-                          ) : isCrmDateField(update) ? (
-                            <ExtractionDatePicker
-                              value={String(update.new_value ?? "")}
-                              onChange={(iso) => updateField(idx, iso, false)}
-                              onClose={() => setEditingIdx(null)}
-                            />
-                          ) : (
-                            <Input
-                              autoFocus
-                              type={update.field_type === "number" ? "number" : "text"}
-                              value={String(update.new_value ?? "")}
-                              onChange={(e) => updateField(idx, e.target.value, false)}
-                              onBlur={() => setEditingIdx(null)}
-                              onKeyDown={(e) => e.key === "Enter" && setEditingIdx(null)}
-                              className="h-9 rounded-xl text-xs"
-                            />
-                          )}
-                        </div>
-                      ) : (
-                        <p
-                          className="text-sm font-normal leading-relaxed text-[#067647]"
-                        >
-                          {isCrmDateField(update)
-                            ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
-                            : optionLabelFor(update.new_value, update.options)}
-                        </p>
-                      )}
-                    </div>
-
-                    {canEditRow && !isEditing && !readOnly && (
-                      <div className="flex items-center gap-1 shrink-0 pt-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-beige"
-                          onClick={() => setEditingIdx(idx)}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
-                          onClick={() => removeField(idx)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {tabbed ? tabPanels : null}
 
       {beforeConfirm}
 

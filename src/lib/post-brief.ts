@@ -10,6 +10,21 @@ export type BriefHighlight = {
 
 export type BriefMissedItem = { id: string; kind: string | null; label: string | null };
 
+/** One thing done well and one to change, decided by the server from the call's playbook. */
+export type BriefCoach = {
+  kept: { step_id: string; label: string; quote: string | null } | null;
+  fix: {
+    kind: "step" | "objection";
+    id: string;
+    label: string;
+    category?: string;
+    criterion: string | null;
+    say: string | null;
+    focus: boolean;
+  } | null;
+  adherence?: number | null;
+};
+
 /** T10/DEBRIEF_V2_ENABLED: present only when the company has the flag on. */
 export type BriefView = {
   status: "pending" | "partial" | "ready" | "skipped" | "unavailable" | "failed";
@@ -28,6 +43,7 @@ export type BriefView = {
   progress?: Array<number | null>;
   meeting_booked?: boolean | null;
   next_step_agreed?: boolean | null;
+  coach?: BriefCoach | null;
 };
 
 export type BriefSurface = {

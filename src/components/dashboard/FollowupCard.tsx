@@ -1,5 +1,5 @@
 import "@shared/ui/components/v-followup.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { composeTarget } from "@shared/ui/compose.js";
@@ -12,6 +12,15 @@ import { useLanguage } from "@/lib/i18n";
 import { htmlLang } from "@/lib/app-language";
 
 const POLL_MS = 1500;
+const MAIL_CLIENT_KEY = "vocify_mail_client";
+
+function savedMailClient(): string | null {
+  try {
+    return localStorage.getItem(MAIL_CLIENT_KEY);
+  } catch {
+    return null;
+  }
+}
 
 type FollowupElement = HTMLElement & { value: { subject: string; body: string } };
 
@@ -27,9 +36,12 @@ function openTarget(url: string) {
 export function FollowupCard({
   memoId,
   onSendReady,
+  onStatus,
 }: {
   memoId: string;
   onSendReady?: (send: (() => void) | null) => void;
+  /** The draft's status, for the review's Email tab (shown while writing, ready or sent). */
+  onStatus?: (status: FollowupView["status"] | null) => void;
 }) {
   const { language, t } = useLanguage();
   const { user } = useAuth();
@@ -45,6 +57,14 @@ export function FollowupCard({
 
   const onAction = useCallback(
     async ({ action, value, element }: VAction) => {
+      if (action === "client") {
+        try {
+          if (value) localStorage.setItem(MAIL_CLIENT_KEY, value);
+        } catch {
+          // the pick just isn't remembered
+        }
+        return;
+      }
       if (isSending) return; // a send is already in flight: never fire a second one
       const view = queryClient.getQueryData<FollowupView>(["memo-followup", memoId]);
       if (!view) return;
@@ -68,7 +88,7 @@ export function FollowupCard({
           }
           return;
         }
-        const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body });
+        const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body, mailClient: (value ?? undefined) as "default" | "gmail" | "outlook" | undefined });
         const url = target.ok ? target.url : target.fallback;
         if (!url) return;
         if (!target.ok) {
@@ -85,7 +105,8 @@ export function FollowupCard({
     [memoId, queryClient, t.product, sendFromVocify, isSending],
   );
 
-  const setElement = useVElement(data, onAction);
+  const view = useMemo(() => (data ? { ...data, mailClient: savedMailClient() } : data), [data]);
+  const setElement = useVElement(view, onAction);
   const elementRef = useRef<FollowupElement | null>(null);
   const bindRef = useCallback(
     (node: FollowupElement | null) => {
@@ -94,6 +115,10 @@ export function FollowupCard({
     },
     [setElement],
   );
+
+  useEffect(() => {
+    onStatus?.(data?.status ?? null);
+  }, [onStatus, data?.status]);
 
   const canSend = data?.status === "ready" && Boolean(data.to || data.phone) && !isSending;
 

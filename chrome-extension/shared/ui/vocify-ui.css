@@ -93,6 +93,34 @@ v-followup[hidden] { display: none; }
   margin-top: 4px;
 }
 
+.v-mail-clients {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--v-border);
+  border-radius: var(--v-radius-pill);
+}
+
+.v-mail-client {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--v-radius-pill);
+  background: transparent;
+  color: var(--v-muted-foreground);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 150ms ease, background-color 150ms ease;
+}
+
+.v-mail-client:hover { opacity: 1; }
+.v-mail-client[aria-pressed="true"] { opacity: 1; background: var(--v-muted); color: var(--v-foreground); }
+.v-mail-client:focus-visible { outline: 2px solid var(--v-beige); outline-offset: 1px; }
+
 .v-chip {
   font-size: 12px;
   color: var(--v-muted-foreground);
@@ -171,6 +199,172 @@ v-followup[hidden] { display: none; }
 
 .v-today-card.is-leaving {
   transition: opacity 180ms ease, transform 180ms ease, height 180ms ease;
+}
+
+
+v-review-tabs { display: block; }
+
+.v-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--v-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.v-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 8px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  height: auto;
+  width: auto;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--v-muted-foreground);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.v-tab:hover { color: var(--v-foreground); }
+
+.v-tab[aria-selected="true"] {
+  color: var(--v-foreground);
+  font-weight: 500;
+  border-bottom-color: var(--v-beige);
+}
+
+.v-tab:focus-visible {
+  outline: 2px solid var(--v-beige);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.v-tab__count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--v-muted-foreground);
+}
+
+.v-tab__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--v-beige);
+}
+
+.v-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-tab { transition: none; }
+}
+
+/* Coaching after the call (v-debrief): one kept, one next time, the trend. */
+v-debrief { display: block; }
+v-debrief[hidden] { display: none; }
+
+.v-debrief {
+  display: grid;
+  gap: 14px;
+  color: var(--v-foreground);
+  animation: v-debrief-in 180ms ease both;
+}
+
+.v-debrief__row { display: grid; gap: 3px; }
+
+.v-debrief__caps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--v-muted-foreground);
+}
+
+.v-debrief__kept { margin: 0; font-size: 14px; }
+.v-debrief__fix { margin: 0; font-size: 15px; font-weight: 450; }
+
+.v-debrief__muted { margin: 0; font-size: 13px; color: var(--v-muted-foreground); }
+
+.v-debrief__say { margin: 2px 0 0; font-size: 14px; color: var(--v-foreground); }
+.v-debrief q { font-style: italic; }
+
+.v-debrief__focus {
+  padding: 1px 7px;
+  border-radius: var(--v-radius-pill);
+  background: var(--v-muted);
+  color: var(--v-beige-dark);
+  letter-spacing: 0.04em;
+}
+
+.v-debrief__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.v-debrief__trend {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+}
+
+.v-debrief__bar {
+  width: 5px;
+  height: calc(var(--v-bar, 0.12) * 100%);
+  border-radius: 2px;
+  background: var(--v-border);
+}
+
+.v-debrief__bar.is-current { background: var(--v-beige); }
+.v-debrief__bar.is-empty { opacity: 0.5; }
+
+.v-debrief__detail summary {
+  width: fit-content;
+  font-size: 13px;
+  color: var(--v-muted-foreground);
+  cursor: pointer;
+  list-style: none;
+}
+
+.v-debrief__detail summary::-webkit-details-marker { display: none; }
+.v-debrief__detail summary::after { content: ' ›'; }
+.v-debrief__detail[open] summary::after { content: ' ‹'; }
+.v-debrief__detail summary:hover { color: var(--v-foreground); }
+
+.v-debrief__detail summary:focus-visible {
+  outline: 2px solid var(--v-beige);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.v-debrief__detail[open] { display: grid; gap: 6px; }
+.v-debrief__detail ul { margin: 0; padding-left: 16px; font-size: 13px; }
+
+@keyframes v-debrief-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-debrief { animation: none; }
 }
 
 /* The "written to your CRM" mark (components/done-mark.js). Plays once, then rests. */
