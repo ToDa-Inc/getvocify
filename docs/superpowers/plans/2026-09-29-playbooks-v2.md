@@ -516,3 +516,20 @@ Hecho: migración 068, cualificación por versión con plantillas BANT/MEDDIC/ME
 Pruebas: backend 3289 passed / 32 skipped; frontend 462; build OK; recorrido en navegador con la API simulada.
 
 Pendiente antes de encender `PLAYBOOK_QUALIFICATION_ENABLED`: correr con clave `scripts/eval_intelligence.py --v7` y `scripts/eval_playbook_structure.py --suite P01|P02|P03 --runs 3`. Migraciones 066, 067 y 068 obligatorias antes de desplegar (`2026-09-29-activacion-playbooks-v2.sql`).
+
+---
+
+## 16. Pausar, reanudar y eliminar (30 sep 2026)
+
+Un Head of Sales tiene que poder, en un gesto y viéndolo: **pausar** un playbook (las llamadas nuevas dejan de evaluarse con él; el contenido se queda), **reanudarlo**, y **eliminarlo** (desaparece de la lista; se puede deshacer). Las llamadas ya evaluadas no cambian nunca: siguen apuntando a su versión.
+
+**UX:** interruptor en la fila (Activo / Pausado); «···» en la fila con «Eliminar playbook» (confirmación + toast «Deshacer»). Un tipo de llamada propio vacío (p. ej. los «sdr»/«sales» del editor viejo) también se elimina así.
+
+**Datos (migración `069_playbook_pause_archive.sql`):** `playbooks.paused_version_id UUID NULL`, `playbooks.archived_at TIMESTAMPTZ NULL`, `playbooks.archived_state TEXT NULL` (estado previo, para deshacer). `list_playbook_motions` excluye los archivados y devuelve `paused` cuando `active_version_id IS NULL AND paused_version_id IS NOT NULL`. Pausar = mover `active_version_id` a `paused_version_id` (así todo lo que lee la versión activa —fijar a la llamada, copiloto, brief, insights, enrutado— la ignora sin cambios).
+
+**API (owner/admin; 409 `{code}` cuando no aplica):**
+- `POST /playbooks/{key}/pause` (solo si está publicado; `not_published`) · `POST /playbooks/{key}/resume` (`not_paused`) → `{motions, details}`.
+- `DELETE /playbooks/{key}` → archiva, guarda `archived_state`, pasa la versión activa a `paused_version_id`, borra los borradores pendientes, desactiva `interaction_types` de ese tipo → `{motions, details}`. Tipos sin fila en `playbooks` (solo `interaction_types`) también.
+- `POST /playbooks/{key}/restore` (deshacer) → vuelve a `archived_state` (publicado → activo de nuevo) → `{motions, details}`.
+- Guardar un borrador o crear el tipo sobre uno archivado lo desarchiva sin traer el contenido viejo. Publicar limpia `paused_version_id`.
+- `GET /playbooks` `details[key]` añade `paused: bool`. `GET /{key}/editor` de uno pausado devuelve esa versión como `source: "published"` con `paused: true`.
