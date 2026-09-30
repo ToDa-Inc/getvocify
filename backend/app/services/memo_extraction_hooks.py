@@ -327,11 +327,14 @@ def _is_internal(memo: dict) -> bool:
 
 def _tag_internal(supabase, memo: dict, extraction: dict) -> dict:
     """Extraction found no customer in the conversation: tag it `internal` before C04 and
-    scoring read the pin (a manual pin is never moved). Best-effort: a failed write leaves
-    the memo as it was."""
+    scoring read the pin (a manual pin is never moved). Per company behind
+    INTERNAL_DETECTION_ENABLED. Best-effort: a failed write leaves the memo as it was."""
+    from app.services.feature_flags import is_enabled
     from app.services.playbooks.routing import apply_internal_detection
 
     if not apply_internal_detection(memo, extraction):
+        return memo
+    if not is_enabled(supabase, memo.get("company_id"), "INTERNAL_DETECTION_ENABLED"):
         return memo
     # `memo` may have been read before the model call (re-extract): decide on the pin as it is
     # stored now, so a manual retag made in that window is never overwritten.

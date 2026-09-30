@@ -204,3 +204,30 @@ def test_upload_rejects_unknown_kind(_upload_stubs):
     store = _Store()
     assert _upload(_client(store), interaction_kind="fax").status_code == 422
     assert store.inserted == []
+
+
+# The web recorder creates its memo from the live transcript through these two (JSON body).
+TRANSCRIPT_PATHS = ("/api/v1/memos/upload-transcript", "/api/v1/memos/upload-and-extract")
+
+
+@pytest.mark.parametrize("path", TRANSCRIPT_PATHS)
+def test_transcript_uploads_store_voice_note_kind(_upload_stubs, path):
+    store = _Store()
+    response = _client(store).post(path, json={"transcript": "Hola, hablé con el cliente.", "interaction_kind": "voice_note"})
+    assert response.status_code == 200, response.text
+    assert store.inserted[0]["interaction_kind"] == "voice_note"
+    assert store.inserted[0]["source_type"] == "voice_memo"
+
+
+@pytest.mark.parametrize("path", TRANSCRIPT_PATHS)
+def test_transcript_uploads_without_a_kind_are_unchanged(_upload_stubs, path):
+    store = _Store()
+    assert _client(store).post(path, json={"transcript": "Hola, hablé con el cliente."}).status_code == 200
+    assert store.inserted[0]["interaction_kind"] == "call"  # derived, as before
+
+
+@pytest.mark.parametrize("path", TRANSCRIPT_PATHS)
+def test_transcript_uploads_reject_unknown_kind(_upload_stubs, path):
+    store = _Store()
+    assert _client(store).post(path, json={"transcript": "Hola.", "interaction_kind": "fax"}).status_code == 422
+    assert store.inserted == []

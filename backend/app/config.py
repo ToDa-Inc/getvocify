@@ -255,6 +255,9 @@ class Settings(BaseSettings):
     # Lista 3 (roles, flujos SDR/AE y Head of Sales). All per company, off by default.
     # T1: company_members.sales_role/handoff_ae_user_id/visibility, exposed via /company and /auth/me.
     SALES_ROLES_ENABLED: bool = False
+    # The AI tags a memo `internal` when extraction reports customerPresent=false. Per company,
+    # off until real transcripts are checked; a manual retag to `internal` works either way.
+    INTERNAL_DETECTION_ENABLED: bool = False
     # T3: SDR->AE handoff on meeting booked (deal_handoffs).
     HANDOFF_ENABLED: bool = False
     # T3: writes the CRM owner (deal/contact) to the AE on handoff.

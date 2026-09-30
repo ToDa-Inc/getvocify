@@ -608,6 +608,18 @@ async def process_memo_async(
         release_pipeline_run(supabase, memo_id, run_id)
 
 
+def _stored_interaction_kind(interaction_kind: Optional[str]) -> dict:
+    """{"interaction_kind": kind} for a known kind, {} when absent (the channel is derived as
+    before); 422 for an unknown one."""
+    kind = (interaction_kind or "").strip()
+    if kind and kind not in INTERACTION_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown interaction kind",
+        )
+    return {"interaction_kind": kind} if kind else {}
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_memo(
     audio: UploadFile = File(...),
@@ -626,13 +638,7 @@ async def upload_memo(
     - If transcript provided: Create memo with transcript, go directly to extraction (no storage)
     - If no transcript: Transcribe from bytes in memory → Extract (no storage)
     """
-    kind = (interaction_kind or "").strip()
-    if kind and kind not in INTERACTION_KINDS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unknown interaction kind",
-        )
-    stored_kind = {"interaction_kind": kind} if kind else {}
+    stored_kind = _stored_interaction_kind(interaction_kind)
 
     # Read audio bytes (needed for transcription when no transcript)
     audio_bytes = await audio.read()
@@ -748,6 +754,7 @@ class UploadTranscriptRequest(BaseModel):
     """Transcript-only upload (from real-time transcription or meeting transcript paste)"""
     transcript: str
     source_type: Optional[str] = None  # 'voice_memo' | 'meeting_transcript', default voice_memo
+    interaction_kind: Optional[str] = None  # call | meeting | visit | voice_note; absent = derived
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -766,6 +773,7 @@ async def upload_transcript_only(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transcript is required",
         )
+    stored_kind = _stored_interaction_kind(body.interaction_kind)
     from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
     transcript_raw = transcript
@@ -789,6 +797,7 @@ async def upload_transcript_only(
         "transcript": transcript,
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
+        **stored_kind,
     })
     
     memo_id = created["id"]
@@ -826,6 +835,7 @@ async def upload_transcript_and_extract(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transcript is required",
         )
+    stored_kind = _stored_interaction_kind(body.interaction_kind)
     from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
     transcript_raw = transcript
@@ -850,6 +860,7 @@ async def upload_transcript_and_extract(
         "transcript": transcript,
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
+        **stored_kind,
     })
 
     memo_id = created["id"]

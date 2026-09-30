@@ -108,8 +108,9 @@ async def get_memo_score(
     memo = _require_readable_memo(supabase, membership, memo_id)
     # An `internal` memo is never scored: a score stored before it was retagged is not shown
     # (the row stays, so retagging it back to a real type shows it again).
+    internal = memo.get("sales_motion_key") == INTERNAL_KEY
     scores = []
-    if memo.get("sales_motion_key") != INTERNAL_KEY:
+    if not internal:
         stored = (
             supabase.table("memo_scores")
             .select("*")
@@ -121,7 +122,8 @@ async def get_memo_score(
         return {
             "status": "unavailable",
             "value": None,
-            "reason": "not_scored",
+            # "internal" is never scored; "not_scored" may still get a score.
+            "reason": "internal" if internal else "not_scored",
             "strengths": [],
             "improvements": [],
             "crm_outcome": None,

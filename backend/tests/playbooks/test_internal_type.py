@@ -35,6 +35,14 @@ def _flags():
     feature_flags.clear_cache()
 
 
+@pytest.fixture
+def detection_on(monkeypatch):
+    """INTERNAL_DETECTION_ENABLED on (off by default): the AI's customerPresent=false tags."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "INTERNAL_DETECTION_ENABLED", True, raising=False)
+
+
 class _Query:
     def __init__(self, tables: dict, name: str):
         self.tables, self.name = tables, name
@@ -172,7 +180,25 @@ def test_manual_pin_is_never_overwritten():
     assert apply_internal_detection(already, {"customerPresent": False}) == {}
 
 
-def test_the_hooks_persist_the_tag_and_leave_a_manual_pin_alone():
+def test_detection_is_off_by_default_and_per_company():
+    from app.config import settings
+
+    assert settings.INTERNAL_DETECTION_ENABLED is False
+    db = _Db(memos=[_memo("role_default")])
+    run_post_extraction_hooks(db, memo_id=MEMO, extraction={"summary": "x", "customerPresent": False})
+    assert db.tables["memos"][0]["sales_motion_key"] == "discovery"
+
+    # A company override turns it on for that company only.
+    feature_flags.clear_cache()
+    on = _Db(
+        memos=[_memo("role_default")],
+        company_feature_flags=[{"company_id": "co-1", "flag": "INTERNAL_DETECTION_ENABLED", "enabled": True}],
+    )
+    run_post_extraction_hooks(on, memo_id=MEMO, extraction={"summary": "x", "customerPresent": False})
+    assert on.tables["memos"][0]["sales_motion_key"] == "internal"
+
+
+def test_the_hooks_persist_the_tag_and_leave_a_manual_pin_alone(detection_on):
     db = _Db(memos=[_memo("role_default")])
     run_post_extraction_hooks(db, memo_id=MEMO, extraction={"summary": "x", "customerPresent": False})
     row = db.tables["memos"][0]
@@ -187,7 +213,7 @@ def test_the_hooks_persist_the_tag_and_leave_a_manual_pin_alone():
 # -- skip rules ------------------------------------------------------------------------------
 
 
-def test_internal_memo_is_not_scored():
+def test_internal_memo_is_not_scored(detection_on):
     # The same extraction with a customer in it is scored, so the skip is the type's doing.
     scored = _Db(memos=[_memo()])
     run_post_extraction_hooks(scored, memo_id=MEMO, extraction=_scoreable(True))
@@ -202,7 +228,7 @@ def test_internal_memo_is_not_scored():
 
 
 @pytest.mark.asyncio
-async def test_internal_memo_makes_no_crm_proposals():
+async def test_internal_memo_makes_no_crm_proposals(detection_on):
     # A meeting said out loud still makes no meeting proposal for an internal conversation.
     with_customer = _Db(memos=[_memo()])
     run_post_extraction_hooks(with_customer, memo_id=MEMO, extraction={"summary": "", "customerPresent": True})
@@ -235,6 +261,10 @@ async def test_internal_memo_makes_no_crm_proposals():
 
 
 def test_manual_retag_accepts_internal(monkeypatch):
+    # INTERNAL_DETECTION_ENABLED gates only the AI tag: a person can retag with it off.
+    from app.config import settings
+
+    assert settings.INTERNAL_DETECTION_ENABLED is False
     from app.api.playbook_rules import memo_router
     from app.deps import get_membership, get_supabase
     from app.services.company import Membership
@@ -324,10 +354,14 @@ def test_a_scored_memo_retagged_internal_leaves_team_adherence_and_the_memo_scor
         id="m", company_id="co-1", user_id="author", role="member", status="active",
     )
     body = TestClient(app).get("/api/v1/memos/m1/score").json()
-    assert (body["status"], body["value"], body["reason"]) == ("unavailable", None, "not_scored")
+    # reason "internal", not "not_scored": the memo detail says it is never scored instead of waiting.
+    assert (body["status"], body["value"], body["reason"]) == ("unavailable", None, "internal")
     assert len(db.tables["memo_scores"]) == 1
     memo["sales_motion_key"] = "discovery"
     assert TestClient(app).get("/api/v1/memos/m1/score").json()["value"] == 7
+    # A real type with no score yet keeps "not_scored".
+    db.tables["memo_scores"].clear()
+    assert TestClient(app).get("/api/v1/memos/m1/score").json()["reason"] == "not_scored"
 
 
 def test_a_retag_to_internal_closes_its_pending_meeting_proposals(monkeypatch):
@@ -351,7 +385,7 @@ def test_a_retag_to_internal_closes_its_pending_meeting_proposals(monkeypatch):
     assert [row["proposal_id"] for row in db.tables["meeting_proposals"]] == ["p2"]
 
 
-def test_a_manual_retag_made_while_extracting_is_not_overwritten():
+def test_a_manual_retag_made_while_extracting_is_not_overwritten(detection_on):
     # The hooks were handed the memo as it was read before the model call; a manager retagged
     # it in between, so the stored pin is manual now.
     stale = _memo("role_default")

@@ -180,7 +180,8 @@ async def get_memo_playbook(
         "sales_motion_key": memo.get("sales_motion_key") or None,
         "playbook_version_id": memo.get("playbook_version_id") or None,
         "can_change": bool(can_edit and routing_enabled(supabase, membership.company_id)),
-        "options": _published_options(membership),
+        # Interna last, as on the list chip: it has no playbook, so it needs no published one.
+        "options": [*_published_options(membership), {"key": INTERNAL_KEY, "label": None}],
     }
 
 
