@@ -18,6 +18,7 @@ from app.services.coaching.rep_focus import FLOW_WEEKS, motion_for_flow, publish
 from app.services.activity_scope import effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
+from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
 from app.services.team_insights.objections import objection_counts
 
@@ -54,13 +55,13 @@ def _attach_highlight(body: dict, *, user_id: str, ready_at: datetime) -> dict:
     }
 
 
-def _require_readable_memo(supabase, membership: Membership, memo_id: str) -> None:
+def _require_readable_memo(supabase, membership: Membership, memo_id: str) -> dict:
     """404 unless the memo is in the caller's company AND readable by the caller: their own,
     a manager's / visibility=team reader's view of the company, or (T4/D8) an AE reading the
     SDR's memo of a handed-off contact. Same rule as GET /memos/{id}."""
     result = (
         supabase.table("memos")
-        .select("id,company_id,user_id,hubspot_contact_id")
+        .select("id,company_id,user_id,hubspot_contact_id,sales_motion_key")
         .eq("id", memo_id)
         .execute()
     )
@@ -82,7 +83,7 @@ def _require_readable_memo(supabase, membership: Membership, memo_id: str) -> No
         )
 
     if readable():
-        return
+        return memo
     contact_id = str(memo.get("hubspot_contact_id") or "") or None
     if contact_id:
         from app.api.memos import _active_handoff_sdr_ids_for_contact
@@ -94,7 +95,7 @@ def _require_readable_memo(supabase, membership: Membership, memo_id: str) -> No
         if readable(_active_handoff_sdr_ids_for_contact(
             supabase, membership=membership, members=members, contact_id=contact_id, viewer_id=viewer_id,
         )):
-            return
+            return memo
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
 
 
@@ -104,14 +105,18 @@ async def get_memo_score(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    _require_readable_memo(supabase, membership, memo_id)
-    stored = (
-        supabase.table("memo_scores")
-        .select("*")
-        .eq("memo_id", memo_id)
-        .execute()
-    )
-    scores = stored.data or []
+    memo = _require_readable_memo(supabase, membership, memo_id)
+    # An `internal` memo is never scored: a score stored before it was retagged is not shown
+    # (the row stays, so retagging it back to a real type shows it again).
+    scores = []
+    if memo.get("sales_motion_key") != INTERNAL_KEY:
+        stored = (
+            supabase.table("memo_scores")
+            .select("*")
+            .eq("memo_id", memo_id)
+            .execute()
+        )
+        scores = stored.data or []
     if not scores:
         return {
             "status": "unavailable",

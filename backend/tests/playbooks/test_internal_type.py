@@ -257,3 +257,106 @@ def test_manual_retag_accepts_internal(monkeypatch):
     assert row["pipeline_meta"]["playbook_pin"] == {"source": "manual", "changed_from": "discovery", "changed_by": "author"}
     assert row["pipeline_meta"]["stages"] == [{"name": "extract"}]
     assert [memo["sales_motion_key"] for memo in requeued] == ["internal"]
+
+
+# -- review round 1: readers, pending proposals, the retag race ------------------------------
+
+
+def test_a_scored_memo_retagged_internal_leaves_the_adherence_trend_and_comes_back():
+    from datetime import datetime, timezone
+
+    from app.services.team_insights.adherence_trend import build_adherence_trend, week_starts
+
+    at = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc)
+    starts = week_starts(now=at, weeks=1)
+    score = {"memo_id": "m1", "revision_seq": 1, "score": {"status": "ready", "met_steps": 2, "missed_steps": 1}}
+
+    def team_week(motion):
+        memo = {"id": "m1", "user_id": "u1", "sales_motion_key": motion, "status": "ready",
+                "screening_outcome": "connected", "capture_started_at": at.isoformat()}
+        body = build_adherence_trend(memos=[memo], scores=[score], reps=[{"userId": "u1", "name": "Ana"}], starts=starts)
+        return body["team"]["weeks"][0]
+
+    assert (team_week("discovery")["interactions"], team_week("discovery")["scored"]) == (1, 1)
+    internal = team_week("internal")
+    assert (internal["interactions"], internal["scored"], internal["adherence"]) == (0, 0, None)
+    # Retagged back to a real type, the same stored score counts again.
+    assert team_week("closing")["scored"] == 1
+
+
+def test_a_scored_memo_retagged_internal_leaves_team_adherence_and_the_memo_score(monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.api import coaching as coaching_api
+    from app.deps import get_membership, get_supabase
+    from app.services.company import Membership
+    from app.services.team_insights import aggregate
+    from tests.reporting.fake_db import FakeDB
+    from tests.team_insights.test_adherence_filters import COMPANY, _store
+
+    week = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc)
+    real = aggregate.madrid_week_bounds
+    monkeypatch.setattr(aggregate, "madrid_week_bounds", lambda *, now=None: real(now=now or week))
+    store = _store()  # memo-a and memo-b, both discovery and scored
+    store.tables["interaction_patterns"] = [
+        {"memo_id": "memo-a", "category": "price", "kind": "objection", "resolution": "open", "created_at": week.isoformat()},
+    ]
+    before = aggregate.load_team_adherence_inputs(store, COMPANY)
+    assert (before["sample_size"], len(before["pattern_rows"])) == (2, 1)
+
+    store.tables["memos"][0]["sales_motion_key"] = "internal"
+    inside = aggregate.load_team_adherence_inputs(store, COMPANY)
+    assert (inside["sample_size"], inside["pattern_rows"]) == (1, [])
+    assert {part["user_id"] for part in inside["rep_motion_parts"]} == {store.tables["memos"][1]["user_id"]}
+
+    store.tables["memos"][0]["sales_motion_key"] = "discovery"
+    assert aggregate.load_team_adherence_inputs(store, COMPANY)["sample_size"] == 2
+
+    # The memo's own score reads as not scored while it is internal; the row is not deleted.
+    memo = {"id": "m1", "company_id": "co-1", "user_id": "author", "sales_motion_key": "internal"}
+    db = FakeDB({"memos": [memo], "memo_scores": [
+        {"memo_id": "m1", "revision_seq": 1, "playbook_version_id": "pv-1", "score": {"status": "ready", "value": 7}},
+    ]})
+    app = FastAPI()
+    app.include_router(coaching_api.router)
+    app.dependency_overrides[get_supabase] = lambda: db
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id="author", role="member", status="active",
+    )
+    body = TestClient(app).get("/api/v1/memos/m1/score").json()
+    assert (body["status"], body["value"], body["reason"]) == ("unavailable", None, "not_scored")
+    assert len(db.tables["memo_scores"]) == 1
+    memo["sales_motion_key"] = "discovery"
+    assert TestClient(app).get("/api/v1/memos/m1/score").json()["value"] == 7
+
+
+def test_a_retag_to_internal_closes_its_pending_meeting_proposals(monkeypatch):
+    from app.api.playbook_rules import memo_router
+    from app.deps import get_membership, get_supabase
+    from app.services.company import Membership
+
+    monkeypatch.setattr("app.services.intelligence.extract.schedule_intelligence", lambda *_a, **_k: False)
+    monkeypatch.setattr("app.services.intelligence.worker.record_enqueue", lambda *_a, **_k: None)
+    pending = {"proposal_id": "p1", "memo_id": MEMO, "decision": "pending", "crm_status": "not_requested"}
+    decided = {"proposal_id": "p2", "memo_id": MEMO, "decision": "corrected", "crm_status": "succeeded"}
+    db = _Db(memos=[_memo("rule", extraction={"summary": ""})], meeting_proposals=[pending, decided])
+    app = FastAPI()
+    app.include_router(memo_router)
+    app.dependency_overrides[get_supabase] = lambda: db
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id="author", role="member", status="active",
+    )
+    assert TestClient(app).post(f"/api/v1/memos/{MEMO}/playbook", json={"sales_motion_key": "internal"}).status_code == 200
+    # The undecided machine proposal goes; a decision a person already made stays.
+    assert [row["proposal_id"] for row in db.tables["meeting_proposals"]] == ["p2"]
+
+
+def test_a_manual_retag_made_while_extracting_is_not_overwritten():
+    # The hooks were handed the memo as it was read before the model call; a manager retagged
+    # it in between, so the stored pin is manual now.
+    stale = _memo("role_default")
+    db = _Db(memos=[_memo("manual", sales_motion_key="closing", playbook_version_id="v-closing")])
+    run_post_extraction_hooks(db, memo_id=MEMO, memo=stale, extraction={"summary": "x", "customerPresent": False})
+    row = db.tables["memos"][0]
+    assert (row["sales_motion_key"], row["playbook_version_id"]) == ("closing", "v-closing")
+    assert row["pipeline_meta"]["playbook_pin"]["source"] == "manual"

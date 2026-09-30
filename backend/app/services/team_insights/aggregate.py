@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from app.services.activity_scope import author_display_name, can_view_company_activity
 from app.services.coaching.metrics import aggregate_adherence
 from app.services.company import CompanyService
+from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.playbooks.live import has_published_playbook, live_snapshots
 from app.services.team_insights.competitors import competitor_counts
 from app.services.team_insights.objections import objection_counts
@@ -370,9 +371,12 @@ def load_team_adherence_inputs(
             row = activity_row_from_memo(memo)
             if row is not None:
                 activity_rows.append(row)
-        if memo_ids:
+        # An `internal` memo (no customer in it) is never scored: a score it had before it was
+        # retagged, and its objection patterns, stay out of the team's numbers.
+        scored_ids = [memo_id for memo_id in memo_ids if memo_meta[memo_id]["motion"] != INTERNAL_KEY]
+        if scored_ids:
             scores = _paged_in(
-                supabase, "memo_scores", "memo_id,revision_seq,score,created_at", "memo_id", memo_ids,
+                supabase, "memo_scores", "memo_id,revision_seq,score,created_at", "memo_id", scored_ids,
                 ("memo_id", "revision_seq"),
             )
             for item in _current_scores(scores).values():
@@ -395,7 +399,7 @@ def load_team_adherence_inputs(
                 "interaction_patterns",
                 "category,kind,resolution,response,superseded,created_at",
                 "memo_id",
-                memo_ids,
+                scored_ids,
                 ("memo_id", "pattern_id", "input_revision"),
             )
         # The guidance of what applies to calls now: a paused or deleted flow contributes nothing, but the

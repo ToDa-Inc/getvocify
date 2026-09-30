@@ -164,6 +164,18 @@ def _insert_proposal(supabase, *, memo_id: str, input_revision: str, proposal: d
     supabase.table("meeting_proposals").insert(row).execute()
 
 
+def _drop_undecided_proposals(supabase, memo_id: str) -> None:
+    """Machine proposals nobody has decided on or sent to the CRM. A human decision stays."""
+    (
+        supabase.table("meeting_proposals")
+        .delete()
+        .eq("memo_id", memo_id)
+        .eq("decision", "pending")
+        .eq("crm_status", "not_requested")
+        .execute()
+    )
+
+
 def _apply_meeting_fact(supabase, *, memo_id: str, memo: dict, meeting: dict, input_revision: str) -> None:
     """C04 supersedes machine proposals nobody has decided on. A human decision is never replaced."""
     rows = (
@@ -176,14 +188,7 @@ def _apply_meeting_fact(supabase, *, memo_id: str, memo: dict, meeting: dict, in
     )
     if decided:
         return
-    (
-        supabase.table("meeting_proposals")
-        .delete()
-        .eq("memo_id", memo_id)
-        .eq("decision", "pending")
-        .eq("crm_status", "not_requested")
-        .execute()
-    )
+    _drop_undecided_proposals(supabase, memo_id)
     proposal = proposal_from_meeting(
         proposal_id=_stable_proposal_id(memo_id, input_revision),
         meeting=meeting,
@@ -201,7 +206,10 @@ def _maybe_insert_meeting_proposal(
     extraction: dict,
 ) -> None:
     if _is_internal(memo):
-        return  # nobody outside the team to meet: never proposed to the CRM
+        # Nobody outside the team to meet: never proposed to the CRM, and a proposal made
+        # before it was tagged or retagged internal is closed.
+        _drop_undecided_proposals(supabase, memo_id)
+        return
     input_revision = _meeting_revision(memo, extraction)
     meeting = _current_meeting(memo, extraction)
     if meeting is not None:
@@ -323,7 +331,12 @@ def _tag_internal(supabase, memo: dict, extraction: dict) -> dict:
     the memo as it was."""
     from app.services.playbooks.routing import apply_internal_detection
 
-    update = apply_internal_detection(memo, extraction)
+    if not apply_internal_detection(memo, extraction):
+        return memo
+    # `memo` may have been read before the model call (re-extract): decide on the pin as it is
+    # stored now, so a manual retag made in that window is never overwritten.
+    current = _load_memo(supabase, str(memo["id"]))
+    update = apply_internal_detection(current, extraction) if current else {}
     if not update:
         return memo
     try:
