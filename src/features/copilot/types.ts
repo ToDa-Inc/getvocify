@@ -29,6 +29,8 @@ export interface SuggestRequest {
   language?: "auto" | "en" | "es";
   call_mode?: CallMode;
   speaker_role?: "prospect" | "rep" | "unknown";
+  /** HubSpot contact on the call; the backend adds what earlier calls with them left behind. */
+  contact_id?: string;
 }
 
 export interface SuggestResultEvent {
