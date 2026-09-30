@@ -387,6 +387,20 @@ def _finish(shaped: dict, *, fallback: bool, short: bool) -> dict:
     }
 
 
+def failure_of(exc: BaseException) -> dict:
+    """Why the model path failed, for the person who is waiting: {kind, detail}. kind is
+    "timeout", "invalid_answer" (not the JSON asked for) or "model_error" (the provider said
+    no: key, model, quota). detail is the provider's own message, short; it never carries the key."""
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        kind = "timeout"
+    elif isinstance(exc, (ValueError, json.JSONDecodeError, KeyError, TypeError)):
+        kind = "invalid_answer"
+    else:
+        kind = "model_error"
+    detail = " ".join(str(exc).split())[:200]
+    return {"kind": kind, "detail": f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__}
+
+
 def _line_fallback(source: str, *, short: bool, fallback: bool) -> dict:
     """The deterministic parser's steps. Same clipping as the model path, so they save."""
     raw = [
@@ -472,8 +486,8 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
             result["steps"][index]["criterion"] = ""
         return result
     except Exception as exc:  # model error, timeout, bad JSON, nothing usable: never blocks
-        logger.warning("playbook structure fell back to the line parser: %s", type(exc).__name__)
-        return _line_fallback(source, short=short, fallback=True)
+        logger.warning("playbook structure fell back to the line parser: %s: %s", type(exc).__name__, exc)
+        return {**_line_fallback(source, short=short, fallback=True), "error": failure_of(exc)}
 
 
 # --- the whole company's document: which call types does it cover? ---------------------------
@@ -641,7 +655,8 @@ async def _split_by_titles(
         if result["steps"] and not result.get("fallback")
     ]
     if not types:
-        return {"types": [], "company": normalize_knowledge({}), "reason": None, "fallback": True}
+        error = next((result["error"] for result in results if result.get("error")), None)
+        return {"types": [], "company": normalize_knowledge({}), "reason": None, "fallback": True, "error": error}
     return {"types": types, "company": company, "reason": None, "fallback": False}
 
 
@@ -700,5 +715,5 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
             })
         return {"types": types, "company": shaped["company"], "reason": None, "fallback": False}
     except Exception as exc:  # model error, timeout, bad JSON: never a 500, never a guessed type
-        logger.warning("playbook split failed, asking for the call type: %s", type(exc).__name__)
-        return {"types": [], "company": empty_company, "reason": None, "fallback": True}
+        logger.warning("playbook split failed, asking for the call type: %s: %s", type(exc).__name__, exc)
+        return {"types": [], "company": empty_company, "reason": None, "fallback": True, "error": failure_of(exc)}

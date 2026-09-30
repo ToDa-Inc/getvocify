@@ -45,6 +45,10 @@ export function useIntake({ refresh, onDone }: { refresh: () => Promise<unknown>
     const result = await playbooksApi.intake(input.kind, input.payload, input.name);
     if (result.fallback) {
       setFallback({ candidates: result.candidates, input });
+      if (result.error) {
+        const why = copy.fallbackWhy[result.error.kind] ?? copy.fallbackWhy.model_error;
+        setNotice(`${why} (${result.error.detail})`);
+      }
       return;
     }
     const companyFilled = (result.company?.filled.length ?? 0) > 0;

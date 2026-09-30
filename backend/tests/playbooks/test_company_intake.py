@@ -135,7 +135,8 @@ def test_a_mixed_document_saves_one_draft_per_call_type():
     response = _post(client, name="playbook.txt")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"source", "fallback", "reason", "candidates", "types", "company"}
+    assert set(body) == {"source", "fallback", "error", "reason", "candidates", "types", "company"}
+    assert body["error"] is None
     assert body["fallback"] is False and body["reason"] is None
     assert [t["sales_motion_key"] for t in body["types"]] == ["discovery", "closing"]
     assert all(set(t) == {"sales_motion_key", "reason", "editor"} for t in body["types"])
@@ -743,3 +744,18 @@ def test_titled_sections_that_all_fail_ask_for_the_call_type():
     candidates = [{"key": key, "label": key} for key in ["discovery", "ae_discovery", "closing", "negotiation"]]
     result = asyncio.run(split_source(TITLED, candidates, "es", llm=FakeLLM(RuntimeError())))
     assert result["fallback"] is True and result["types"] == []
+
+
+def test_a_failed_split_says_why():
+    from app.services.playbooks.structure import failure_of
+
+    assert failure_of(asyncio.TimeoutError())["kind"] == "timeout"
+    assert failure_of(ValueError("model output is not an object"))["kind"] == "invalid_answer"
+    boom = failure_of(RuntimeError("404 model not found"))
+    assert boom == {"kind": "model_error", "detail": "RuntimeError: 404 model not found"}
+
+    llm = FakeLLM(RuntimeError("401 bad key"))
+    set_playbook_structure_llm(llm)
+    body = _post(_client()).json()
+    assert body["fallback"] is True
+    assert body["error"]["kind"] == "model_error" and "401 bad key" in body["error"]["detail"]
