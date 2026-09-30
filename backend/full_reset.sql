@@ -383,6 +383,9 @@ CREATE TABLE IF NOT EXISTS playbooks (
   company_id UUID NOT NULL,
   sales_motion_key TEXT NOT NULL,
   active_version_id UUID,
+  -- Migration 067: the type's name and the rule for which calls it applies to.
+  label TEXT,
+  applies_to JSONB,
   -- Migration 069: pause (active version moved here) and delete (soft, undoable).
   paused_version_id UUID NULL,
   archived_at TIMESTAMPTZ NULL,
