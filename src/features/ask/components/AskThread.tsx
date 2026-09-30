@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown } from "@phosphor-icons/react";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
@@ -10,14 +10,18 @@ const STICK_PX = 64;
 
 /**
  * The conversation and its composer, without any chrome: it fills its parent's height and scrolls internally.
- * The caller owns the conversation, so the sheet and the home can share one. `empty` shows while there are no turns.
+ * The caller owns the conversation, so the sheet and the home can share one. `empty` renders while there are no
+ * turns and gets the thread's own `submit`, so a picked suggestion behaves like a typed message. A caller that hides
+ * the thread without unmounting it (to keep the draft) passes `visible`; coming back lands at the end and refocuses.
  */
 export default function AskThread({
   conversation,
   empty,
+  visible = true,
 }: {
   conversation: ReturnType<typeof useAskConversation>;
-  empty?: ReactNode;
+  empty?: (submit: (text: string) => void) => ReactNode;
+  visible?: boolean;
 }) {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -40,6 +44,14 @@ export default function AskThread({
     const el = scroller.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior });
   }
+
+  // display:none drops the scroll offset without a scroll event, so coming back re-lands at the end.
+  useLayoutEffect(() => {
+    if (!visible) return;
+    stick.current = true;
+    setUnread(false);
+    toBottom("auto");
+  }, [visible]);
 
   useEffect(() => {
     const count = thread.messages.length;
@@ -87,7 +99,7 @@ export default function AskThread({
               ))}
             </div>
           ) : (
-            empty
+            empty?.(submit)
           )}
         </div>
         {unread ? (
@@ -109,7 +121,7 @@ export default function AskThread({
         <Composer
           value={draft}
           onChange={setDraft}
-          autoFocus
+          autoFocus={visible}
           busy={busy && last?.role === "assistant" && last.phase !== "pending"}
           onStop={conversation.stop}
           onSend={() => {

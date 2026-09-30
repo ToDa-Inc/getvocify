@@ -121,7 +121,8 @@ export default function AskPanel({ onClose }: { onClose?: () => void }) {
       <div className={showHistory ? "hidden" : "min-h-0 flex-1"}>
         <AskThread
           conversation={conversation}
-          empty={<EmptyState suggestions={suggestions} onPick={conversation.send} />}
+          visible={!showHistory}
+          empty={(submit) => <EmptyState suggestions={suggestions} onPick={submit} />}
         />
       </div>
       <ConfirmAction

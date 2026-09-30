@@ -8,6 +8,7 @@ test("Cmd+K and Ctrl+K open Ask, in either case", () => {
   assert.equal(isAskShortcut({ ...chord, metaKey: true }), true);
   assert.equal(isAskShortcut({ ...chord, ctrlKey: true }), true);
   assert.equal(isAskShortcut({ ...chord, key: "K", metaKey: true }), true);
+  assert.equal(isAskShortcut({ ...chord, metaKey: true, ctrlKey: true }), true);
 });
 
 test("K alone, another key, or an extra modifier does not", () => {
@@ -15,6 +16,8 @@ test("K alone, another key, or an extra modifier does not", () => {
   assert.equal(isAskShortcut({ ...chord, key: "j", metaKey: true }), false);
   assert.equal(isAskShortcut({ ...chord, metaKey: true, shiftKey: true }), false);
   assert.equal(isAskShortcut({ ...chord, ctrlKey: true, altKey: true }), false);
+  assert.equal(isAskShortcut({ ...chord, ctrlKey: true, shiftKey: true }), false);
+  assert.equal(isAskShortcut({ ...chord, key: "K", metaKey: true, shiftKey: true }), false);
 });
 
 test("a keydown without a key (browser autofill) is ignored, not a crash", () => {
