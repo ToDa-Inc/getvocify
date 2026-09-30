@@ -205,16 +205,20 @@ def _followup_due(last: Touch, *, now: datetime, day_end: datetime, overrides: d
     )
 
 
-def never_contacted_signal(*, contact_id: str, connection_id: Optional[str], deal_id: Optional[str] = None) -> Signal:
+def never_contacted_signal(
+    *, contact_id: str, connection_id: Optional[str], deal_id: Optional[str] = None,
+    contact_name: Optional[str] = None,
+) -> Signal:
     """T5: an assigned contact with no calls and no memos, full coverage. Not touch-based -
-    there is no last Touch, so this is built directly rather than via signals_for_contact."""
+    there is no last Touch, so this is built directly rather than via signals_for_contact.
+    `contact_name` comes from the CRM read: with no memo there is no other place to name it."""
     return Signal(
         "never_contacted",
         contact_id=contact_id,
         deal_id=deal_id,
         source_memo_id="",
         due_at=None,
-        payload={},
+        payload={"contact_name": contact_name} if contact_name else {},
         dedupe_key=f"never_contacted:{connection_id or ''}:{contact_id}",
         connection_id=connection_id,
     )

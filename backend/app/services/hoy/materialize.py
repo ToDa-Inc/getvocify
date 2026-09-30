@@ -253,6 +253,7 @@ def never_contacted_signals(
             contact_id=contact_id,
             connection_id=row.get("connection_id"),
             deal_id=row.get("deal_id"),
+            contact_name=row.get("contact_name"),
         ))
         if len(out) >= limit:
             break

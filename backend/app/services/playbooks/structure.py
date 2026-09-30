@@ -31,6 +31,7 @@ import inspect
 import json
 import logging
 import re
+import time
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
@@ -71,6 +72,14 @@ MAX_AI_STEPS = 7
 # Same posture as the glossary hints: a short timeout and one attempt at the client. The
 # Head of Sales waits on this call, so a slow model becomes the line parser, not a spinner.
 TIMEOUT_S = 25.0
+# The whole company's document writes every call type and the company block in ONE answer:
+# a real playbook (4 types, ~20 steps, objections, criteria) takes the model well over 25 s,
+# and fell back to "¿Para qué llamada es?" every time. The screen waits 120 s for this call
+# (src/features/playbooks/api.ts), so the split gets 85 s and the whole call stays under 110 s:
+# the attitude retry only runs when there is still time for it.
+SPLIT_TIMEOUT_S = 85.0
+SPLIT_BUDGET_S = 110.0
+_clock = time.monotonic
 MAX_RETRIES = 0
 TEMPERATURE = 0.2
 MAX_SOURCE_CHARS = 40_000
@@ -188,9 +197,9 @@ def _messages(source: str, motion_key: str, lang: str) -> list[dict]:
     return [{"role": "system", "content": _system_prompt()}, {"role": "user", "content": user}]
 
 
-async def _ask(llm: Any, messages: list[dict]) -> Any:
+async def _ask(llm: Any, messages: list[dict], timeout: float = TIMEOUT_S) -> Any:
     result = llm.chat_json(
-        messages=messages, temperature=TEMPERATURE, timeout=TIMEOUT_S, max_retries=MAX_RETRIES,
+        messages=messages, temperature=TEMPERATURE, timeout=timeout, max_retries=MAX_RETRIES,
     )
     if inspect.isawaitable(result):
         result = await result
@@ -378,6 +387,20 @@ def _finish(shaped: dict, *, fallback: bool, short: bool) -> dict:
     }
 
 
+def failure_of(exc: BaseException) -> dict:
+    """Why the model path failed, for the person who is waiting: {kind, detail}. kind is
+    "timeout", "invalid_answer" (not the JSON asked for) or "model_error" (the provider said
+    no: key, model, quota). detail is the provider's own message, short; it never carries the key."""
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        kind = "timeout"
+    elif isinstance(exc, (ValueError, json.JSONDecodeError, KeyError, TypeError)):
+        kind = "invalid_answer"
+    else:
+        kind = "model_error"
+    detail = " ".join(str(exc).split())[:200]
+    return {"kind": kind, "detail": f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__}
+
+
 def _line_fallback(source: str, *, short: bool, fallback: bool) -> dict:
     """The deterministic parser's steps. Same clipping as the model path, so they save."""
     raw = [
@@ -399,20 +422,26 @@ def _client(llm: Any) -> Any:
     return client
 
 
-async def _ask_with_retry(client: Any, messages: list[dict], shape, generic_of, note_of, usable) -> Any:
+async def _ask_with_retry(
+    client: Any, messages: list[dict], shape, generic_of, note_of, usable,
+    *, timeout: float = TIMEOUT_S, budget: float | None = None,
+) -> Any:
     """The model call every path shares: ask, shape, and ask ONCE more (the whole call, with
     a note naming the attitude criteria) when any criterion is generic. At most two calls,
-    each bounded by TIMEOUT_S. A first call that fails raises; a failing retry keeps the
-    first answer. `shape` may raise ValueError for an unusable answer."""
-    first_raw = await asyncio.wait_for(_ask(client, messages), TIMEOUT_S + 5)
+    each bounded by `timeout`; with a `budget`, the retry only runs if a whole call still fits
+    in it. A first call that fails raises; a failing retry keeps the first answer. `shape`
+    may raise ValueError for an unusable answer."""
+    started = _clock()
+    first_raw = await asyncio.wait_for(_ask(client, messages, timeout), timeout + 5)
     shaped = shape(first_raw)
-    if generic_of(shaped):
+    out_of_time = budget is not None and _clock() - started + timeout > budget
+    if generic_of(shaped) and not out_of_time:
         try:
             retry_messages = messages + [
                 {"role": "assistant", "content": json.dumps(first_raw, ensure_ascii=False)},
                 {"role": "user", "content": note_of(shaped)},
             ]
-            second = shape(await asyncio.wait_for(_ask(client, retry_messages), TIMEOUT_S + 5))
+            second = shape(await asyncio.wait_for(_ask(client, retry_messages, timeout), timeout + 5))
             if usable(second):
                 shaped = second
         except Exception as exc:  # the first answer is still usable
@@ -457,8 +486,8 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
             result["steps"][index]["criterion"] = ""
         return result
     except Exception as exc:  # model error, timeout, bad JSON, nothing usable: never blocks
-        logger.warning("playbook structure fell back to the line parser: %s", type(exc).__name__)
-        return _line_fallback(source, short=short, fallback=True)
+        logger.warning("playbook structure fell back to the line parser: %s: %s", type(exc).__name__, exc)
+        return {**_line_fallback(source, short=short, fallback=True), "error": failure_of(exc)}
 
 
 # --- the whole company's document: which call types does it cover? ---------------------------
@@ -534,7 +563,104 @@ def _split_note(shaped: dict) -> str:
     return _retry_message(lines)
 
 
-async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None) -> dict:
+# --- a document that already says which section is which call type ---------------------------
+
+_HEADING = re.compile(r"^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$")
+# Words in a section title, in the order they decide (a "Discovery (se puede combinar con la
+# Demo)" title is a discovery). Each maps to catalog keys, best first; the first one that is a
+# candidate wins (routing off only has `discovery` and `closing`).
+_TITLE_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("inbound",), ("inbound", "discovery")),
+    (("frio", "cold call", "cold-call", "prospeccion", "captacion"), ("discovery",)),
+    (("propuesta", "proposal", "negociacion", "negotiation", "decision"), ("negotiation", "closing")),
+    (("discovery", "descubrimiento"), ("ae_discovery", "closing")),
+    (("demo", "cierre", "closing"), ("closing",)),
+)
+
+
+def _title_key(title: str, allowed: set[str]) -> str | None:
+    """The candidate a section title names, or None. A title that only names the role (SDR or
+    AE) falls back to that role's first type."""
+    folded = _fold(unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode())
+    words = set(folded.split())
+    is_sdr, is_ae = "sdr" in words, "ae" in words or "closer" in words
+    for needles, keys in _TITLE_RULES:
+        if any(needle in folded for needle in needles):
+            if needles[0] == "discovery" and is_sdr and not is_ae:
+                keys = ("discovery",)  # an SDR's "discovery" call is their cold call
+            for key in keys:
+                if key in allowed:
+                    return key
+    if is_sdr and "discovery" in allowed:
+        return "discovery"
+    if is_ae and "closing" in allowed:
+        return "closing"
+    return None
+
+
+def titled_sections(text: str, allowed: set[str]) -> tuple[list[tuple[str, str]], str] | None:
+    """([(key, section text)], everything else) when the document's own titles name at least
+    two call types, else None. The level of the first typed title is the section level; the
+    text under a title of that level that names no type (the company, the funnel) and the text
+    before the first section go to "everything else". Two sections for one key are merged."""
+    lines = text.splitlines()
+    heads: list[tuple[int, int, str | None]] = []  # (line, level, key)
+    for index, line in enumerate(lines):
+        match = _HEADING.match(line)
+        if match:
+            heads.append((index, len(match.group(1)), _title_key(match.group(2), allowed)))
+    typed = [head for head in heads if head[2]]
+    if len({head[2] for head in typed}) < 2:
+        return None
+    level = min(head[1] for head in typed)
+    cuts = [head for head in heads if head[1] <= level]
+    order: list[str] = []
+    by_key: dict[str, list[str]] = {}
+    rest: list[str] = ["\n".join(lines[: cuts[0][0]])]
+    for position, (start, _level, key) in enumerate(cuts):
+        end = cuts[position + 1][0] if position + 1 < len(cuts) else len(lines)
+        chunk = "\n".join(lines[start:end]).strip()
+        if key:
+            if key not in by_key:
+                order.append(key)
+            by_key.setdefault(key, []).append(chunk)
+        else:
+            rest.append(chunk)
+    return [(key, "\n\n".join(by_key[key])) for key in order], "\n\n".join(p for p in rest if p.strip())
+
+
+async def _split_by_titles(
+    sections: list[tuple[str, str]], rest: str, candidates: list[dict], lang: str, llm: Any,
+) -> dict:
+    """Each titled section through structure_source (one short answer each, in parallel) and
+    the rest through the company split, which only has the company to write. Same result
+    shape as split_source; `fallback` only when no section got steps from the model."""
+    client = _client(llm)
+    calls = [structure_source(body, key, lang, llm=client) for key, body in sections]
+    with_company = _letters(rest) >= MIN_SOURCE_CHARS
+    if with_company:
+        calls.append(split_source(rest, candidates, lang, llm=client, by_titles=False))
+    answers = await asyncio.gather(*calls)
+    results = answers[: len(sections)]
+    company = answers[-1]["company"] if with_company else normalize_knowledge({})
+    types = [
+        {
+            "key": key,
+            "reason": result["reason"],
+            "steps": result["steps"],
+            "objections": result["objections"],
+            "qualification": result["qualification"],
+        }
+        for (key, _body), result in zip(sections, results)
+        if result["steps"] and not result.get("fallback")
+    ]
+    if not types:
+        error = next((result["error"] for result in results if result.get("error")), None)
+        return {"types": [], "company": normalize_knowledge({}), "reason": None, "fallback": True, "error": error}
+    return {"types": types, "company": company, "reason": None, "fallback": False}
+
+
+async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None, by_titles: bool = True) -> dict:
     """One model call for a whole company's document. `candidates` is [{key, label,
     description?}]. -> {types: [{key, reason, steps, objections, qualification}], company:
     knowledge shape (empty when the source says nothing about the company), reason: None |
@@ -551,6 +677,14 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
     short = _letters(source) < MIN_SOURCE_CHARS
     folded_source = _fold(source[:MAX_SOURCE_CHARS])
     allowed = {c["key"] for c in candidates}
+    # The document already names its call types in its titles: split there, not with one huge
+    # answer that has to write every type at once (it does not fit in the time the screen waits).
+    titled = titled_sections(source[:MAX_SOURCE_CHARS], allowed) if by_titles else None
+    if titled:
+        try:
+            return await _split_by_titles(titled[0], titled[1], candidates, lang, llm)
+        except Exception as exc:  # never a 500: fall through to the one-answer split
+            logger.warning("playbook split by titles failed: %s", type(exc).__name__)
     try:
         shaped = await _ask_with_retry(
             _client(llm),
@@ -559,6 +693,8 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
             _split_generic,
             _split_note,
             lambda s: bool(s["types"]),
+            timeout=SPLIT_TIMEOUT_S,
+            budget=SPLIT_BUDGET_S,
         )
         if not shaped["types"]:
             if short:  # too little to tell what it is: let the manager pick the call type
@@ -579,5 +715,5 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
             })
         return {"types": types, "company": shaped["company"], "reason": None, "fallback": False}
     except Exception as exc:  # model error, timeout, bad JSON: never a 500, never a guessed type
-        logger.warning("playbook split failed, asking for the call type: %s", type(exc).__name__)
-        return {"types": [], "company": empty_company, "reason": None, "fallback": True}
+        logger.warning("playbook split failed, asking for the call type: %s: %s", type(exc).__name__, exc)
+        return {"types": [], "company": empty_company, "reason": None, "fallback": True, "error": failure_of(exc)}

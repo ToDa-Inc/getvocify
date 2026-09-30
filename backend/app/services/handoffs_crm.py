@@ -59,7 +59,9 @@ class CrmOwnerWriter:
         self._provider = provider
         self._access_token = access_token
         self._api_domain = (api_domain or "").rstrip("/")
-        self._client = httpx.Client(transport=transport, timeout=timeout)
+        from app.services.hubspot.read_only import sync_transport
+
+        self._client = httpx.Client(transport=sync_transport(transport), timeout=timeout)
         self._fetch = fetch
 
     def _headers(self) -> dict[str, str]:

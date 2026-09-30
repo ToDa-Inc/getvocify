@@ -64,7 +64,8 @@ def _hubspot(payload: dict, owners: dict[str, str], *, connection_id: str, obser
         props = row.get("properties") or {}
         first = str(props.get("firstname") or "").strip()
         last = str(props.get("lastname") or "").strip()
-        contact_name = " ".join(part for part in (first, last) if part).strip() or None
+        # A contact with only an email is still somebody: name the card with it, not "Contacto".
+        contact_name = " ".join(part for part in (first, last) if part).strip() or str(props.get("email") or "").strip() or None
         last_contacted = props.get("notes_last_contacted") or None
         items.append({
             "contact_id": str(row["id"]),
@@ -265,7 +266,7 @@ def assigned_request(provider: str, cursor: str | None, owner_ids: list[str]) ->
             filters.append({"propertyName": "hs_object_id", "operator": "GT", "value": cursor})
         body: dict[str, Any] = {
             "limit": _HUBSPOT_PAGE,
-            "properties": ["firstname", "lastname", "hubspot_owner_id", "notes_last_contacted"],
+            "properties": ["firstname", "lastname", "email", "hubspot_owner_id", "notes_last_contacted"],
             "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
             "filterGroups": [{"filters": filters}],
         }
@@ -321,12 +322,18 @@ def collect_assigned(
     observed_at: str,
     member_emails: set[str],
     max_pages: int | None = None,
+    owner_overrides: dict[str, str] | None = None,
 ) -> dict:
-    """Walk contacts owned by company members. A failed read returns no items, so the previous cache can stay."""
+    """Walk contacts owned by company members. A failed read returns no items, so the previous cache can stay.
+
+    `owner_overrides` maps a CRM owner id to a member's email: the connection already knows
+    that owner is that member (the HubSpot owner cache), whatever email the CRM holds."""
     max_pages = max_pages or _MAX_PAGES
-    wanted_emails = {str(email).strip().lower() for email in member_emails if email}
+    overrides = {str(oid): str(email).strip().lower() for oid, email in (owner_overrides or {}).items() if oid and email}
+    wanted_emails = {str(email).strip().lower() for email in member_emails if email} | set(overrides.values())
     try:
         owners = _owner_emails(provider, fetch, connection_id=connection_id, observed_at=observed_at, max_pages=max_pages)
+        owners.update(overrides)
         owner_ids = sorted(oid for oid, email in owners.items() if email in wanted_emails)
         scopes = [owner_ids] if provider == "hubspot" else [[oid] for oid in owner_ids]
         items: list[dict] = []

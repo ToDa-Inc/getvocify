@@ -204,7 +204,9 @@ class HubSpotClient:
         headers = self._get_headers()
         
         try:
-            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+            from app.services.hubspot.read_only import async_transport
+
+            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT, transport=async_transport()) as client:
                 response = await client.request(
                     method=method,
                     url=url,

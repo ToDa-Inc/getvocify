@@ -27,6 +27,8 @@ export type EditorDoc = EditorSnapshot & {
 export type IntakeResult = {
   source: PlaybookSource | null;
   fallback: boolean;
+  /** Why the AI path failed when `fallback` is true: shown under the question, not guessed. */
+  error?: { kind: "timeout" | "invalid_answer" | "model_error"; detail: string } | null;
   reason: null | "no_process";
   candidates: { key: string; label: string }[];
   types: { sales_motion_key: string; reason: null | "grouped" | "too_short"; editor: EditorDoc }[];

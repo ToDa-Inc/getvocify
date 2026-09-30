@@ -666,6 +666,7 @@ class ExtractionService:
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
 It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
 Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
+A speaker labelled "You" is the sales rep (the Vocify user); other names are the customer side. Attribute what was said to who said it.
 **summary**: structured markdown (headings + bullets). Do NOT recap the pitch. Do NOT include next steps in the note. **nextSteps**: fill when the call created a real follow-up; prefer [] only if nothing actionable. Never invent.
 """
         elif source_context == "hubspot_call":
@@ -675,9 +676,11 @@ This transcript is from a short phone or VoIP call logged in HubSpot CRM.
 It was transcribed by Speechmatics with speaker diarization enabled.
 
 Speaker labels:
-- **S1** = typically the sales rep (the Vocify user who owns this account).
-- **S2** = typically the prospect or customer.
-- If more than 2 speakers appear, treat S1 as the rep and all others as the customer side.
+- **You** = the sales rep (the Vocify user who owns this account). Lines Vocify already named keep this label.
+- Any other name (e.g. "Pablo:") = the prospect or customer side.
+- Unnamed labels: **S1** = typically the sales rep, **S2** = typically the prospect or customer.
+- If more than 2 speakers appear, treat You/S1 as the rep and all others as the customer side.
+- Attribute what was said to who said it: never write that the customer did something the rep said (a delay, an emergency, a request to pause).
 
 Key characteristics:
 - Typically 2–15 minutes. Many calls are brief check-ins with little extractable data.

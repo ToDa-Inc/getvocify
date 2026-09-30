@@ -84,14 +84,17 @@ def open_manual_tasks(provider: str, payload: dict, *, connection_id: str) -> tu
     raise ValueError(f"proveedor no soportado: {provider}")
 
 
-def task_request(provider: str, cursor: str | None) -> dict:
+def task_request(provider: str, cursor: str | None, owner_id: str | None = None) -> dict:
+    """`owner_id`: the rep's HubSpot owner - only their tasks. None reads the whole portal
+    (a rep whose owner is not known yet)."""
     if provider == "hubspot":
+        filters = [{"propertyName": "hs_task_status", "operator": "NEQ", "value": "COMPLETED"}]
+        if owner_id:
+            filters.append({"propertyName": "hubspot_owner_id", "operator": "EQ", "value": str(owner_id)})
         body = {
             "limit": 100,
             "properties": ["hs_task_subject", "hs_task_status", "vocify_dedupe_key"],
-            "filterGroups": [{"filters": [
-                {"propertyName": "hs_task_status", "operator": "NEQ", "value": "COMPLETED"},
-            ]}],
+            "filterGroups": [{"filters": filters}],
         }
         if cursor:
             body["after"] = cursor
@@ -118,13 +121,15 @@ def _next_cursor(provider: str, payload: dict) -> str | None:
     return None
 
 
-def collect_open_tasks(provider: str, fetch, *, connection_id: str, max_pages: int = 3) -> tuple[list[dict], str]:
+def collect_open_tasks(
+    provider: str, fetch, *, connection_id: str, max_pages: int = 3, owner_id: str | None = None,
+) -> tuple[list[dict], str]:
     """Walk open-task pages. A failed later page keeps what was already read and stays partial."""
     items: list[dict] = []
     cursor = None
     for _ in range(max_pages):
         try:
-            payload = fetch(task_request(provider, cursor)) or {}
+            payload = fetch(task_request(provider, cursor, owner_id)) or {}
         except (TimeoutError, OSError):
             return (items, "partial") if items else ([], "unavailable")
         page, coverage = open_manual_tasks(provider, payload, connection_id=connection_id)

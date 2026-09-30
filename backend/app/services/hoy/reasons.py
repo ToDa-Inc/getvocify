@@ -192,14 +192,20 @@ def _followup_due(payload: dict, lang: str, now: datetime) -> str:
 
 
 def _callback_no_answer(payload: dict, lang: str, now: datetime) -> str:
+    """`outcome` "voicemail" is how the call ended (the voicemail picked up), not a message the
+    rep left: Vocify does not know that, so it never says it."""
     at = _as_dt(payload.get("at"))
     days = max(0, (now.date() - at.date()).days) if at else 0
     voicemail = payload.get("outcome") == "voicemail"
     if lang == "es":
-        verb = "Le dejaste un mensaje de voz" if voicemail else "Le llamaste"
-        return f"{verb} hace {days} días y no contestó."
-    verb = "You left a voicemail" if voicemail else "You called"
-    return f"{verb} {days} days ago and they did not pick up."
+        when = "hoy" if days == 0 else "ayer" if days == 1 else f"hace {days} días"
+        if voicemail:
+            return f"Saltó el buzón de voz {when}. Vuelve a llamar."
+        return f"Le llamaste {when} y no contestó."
+    when = "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
+    if voicemail:
+        return f"It went to voicemail {when}. Call again."
+    return f"You called {when} and they did not pick up."
 
 
 def _as_dt(value) -> datetime | None:

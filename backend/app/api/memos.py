@@ -243,7 +243,8 @@ def _memo_from_row(
             authorName=(author or {}).get("name"),
             authorEmail=(author or {}).get("email"),
             audioUrl=sign_memo_audio(memo_data, supabase) if supabase is not None else (memo_data.get("audio_url") or ""),
-            audioDuration=memo_data["audio_duration"],
+            # NULL on some rows (a capture that never measured its audio): 0, not a failed list.
+            audioDuration=memo_data.get("audio_duration") or 0.0,
             status=memo_data["status"],
             transcript=memo_data.get("transcript"),
             transcriptConfidence=memo_data.get("transcript_confidence"),
@@ -1015,10 +1016,13 @@ async def list_memos(
         q = q.or_(f"screening_outcome.is.null,screening_outcome.not.in.({unreached})")
 
     result = q.execute()
-    memos = [
-        _memo_from_row(memo_data, authors.get(str(memo_data.get("user_id"))))
-        for memo_data in (result.data or [])
-    ]
+    memos = []
+    for memo_data in result.data or []:
+        try:
+            memos.append(_memo_from_row(memo_data, authors.get(str(memo_data.get("user_id")))))
+        except HTTPException:
+            # One unreadable row (already logged with its id) must not empty the whole list.
+            continue
     return memos
 
 
@@ -2138,7 +2142,21 @@ async def re_extract_memo(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot re-extract an approved memo. Please reject it first if you need to change the extraction.",
         )
-    
+
+    await reextract_memo_row(supabase, memo_data)
+    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
+    return _memo_from_row(updated_result.data)
+
+
+async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str = "re_extract") -> None:
+    """Run today's extraction pipeline on a memo's stored transcript, as its author: CRM
+    fields (their role's), post-extraction hooks (score, meeting proposal, patterns),
+    follow-up and the intelligence queue. Raises HTTPException 409 when the memo is already
+    being processed and 500 when extraction fails (the memo is then marked failed).
+    Callers check the transcript and the approved status first."""
+    memo_id = str(memo_data["id"])
+    user_id = str(memo_data["user_id"])
+    transcript = memo_data.get("transcript")
     field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
 
     from app.services.pipeline_lease import (
@@ -2148,7 +2166,7 @@ async def re_extract_memo(
         update_memo_row,
     )
 
-    run_id = acquire_pipeline_run(supabase, str(memo_id), "re_extract")
+    run_id = acquire_pipeline_run(supabase, str(memo_id), trigger)
     if not run_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -2191,7 +2209,7 @@ async def re_extract_memo(
             supabase, user_id, memo_data=memo_data, field_specs=field_specs
         )
         profile = load_stt_profile(supabase, user_id)
-        with pipeline_run(run_id=run_id, trigger="re_extract") as stages:
+        with pipeline_run(run_id=run_id, trigger=trigger) as stages:
             transcript, glossary_text = prepare_transcript_for_extraction(
                 transcript,
                 glossary,
@@ -2220,7 +2238,7 @@ async def re_extract_memo(
             supabase,
             str(memo_id),
             stages,
-            run=run_record(run_id, "re_extract", started_at, t0, "failed"),
+            run=run_record(run_id, trigger, started_at, t0, "failed"),
         )
         release_pipeline_run(supabase, str(memo_id), run_id)
         raise HTTPException(
@@ -2239,7 +2257,7 @@ async def re_extract_memo(
         supabase,
         str(memo_id),
         stages,
-        run=run_record(run_id, "re_extract", started_at, t0, "ok"),
+        run=run_record(run_id, trigger, started_at, t0, "ok"),
     )
     schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
     schedule_followup(supabase, str(memo_id), company_id=memo_data.get("company_id"))
@@ -2257,9 +2275,6 @@ async def re_extract_memo(
         {"id": str(memo_id), "user_id": user_id, "extraction": extraction.model_dump()},
     )
     release_pipeline_run(supabase, str(memo_id), run_id)
-
-    updated_result = supabase.table("memos").select("*").eq("id", str(memo_id)).single().execute()
-    return _memo_from_row(updated_result.data)
 
 
 @router.post("/{memo_id}/re-transcribe", response_model=Memo)

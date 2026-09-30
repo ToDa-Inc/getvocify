@@ -88,7 +88,8 @@ def test_the_ae_split_puts_meetings_in_demos_by_start_time_and_drops_prospecting
     sections, folded = hoy_sections(items, "ae")
     assert list(sections) == ["tasks", "followups", "demos"]
     assert [item["contact_id"] for item in sections["demos"]] == ["early", "late"]
-    assert [item["contact_id"] for item in sections["tasks"]] == ["a", "r", "t"]
+    # A loose CRM task has no block: the rep's home never paints it (E7/E13).
+    assert [item["contact_id"] for item in sections["tasks"]] == ["a", "r"]
     assert [item["contact_id"] for item in sections["followups"]] == ["f"]
     assert folded == {"tasks": 0, "followups": 0, "demos": 0}
 

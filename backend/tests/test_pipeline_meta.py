@@ -103,15 +103,24 @@ class ReExtractLayoutTests(unittest.TestCase):
         tree = ast.parse(
             Path(__file__).resolve().parents[1].joinpath("app/api/memos.py").read_text()
         )
-        fn = next(
+        endpoint = next(
             n for n in tree.body
             if isinstance(n, ast.AsyncFunctionDef) and n.name == "re_extract_memo"
+        )
+        # The endpoint delegates to reextract_memo_row (shared with the admin reprocess).
+        self.assertTrue(
+            any(isinstance(n, ast.Name) and n.id == "reextract_memo_row" for n in ast.walk(endpoint)),
+            "re_extract_memo must run reextract_memo_row",
+        )
+        fn = next(
+            n for n in tree.body
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "reextract_memo_row"
         )
         extract_calls = [
             n for n in ast.walk(fn)
             if isinstance(n, ast.Attribute) and n.attr == "extract"
         ]
-        self.assertTrue(extract_calls, "re_extract_memo must call extraction_service.extract")
+        self.assertTrue(extract_calls, "reextract_memo_row must call extraction_service.extract")
         gated = [
             n for n in ast.walk(fn)
             if isinstance(n, ast.Compare)

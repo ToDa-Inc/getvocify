@@ -135,7 +135,8 @@ def test_a_mixed_document_saves_one_draft_per_call_type():
     response = _post(client, name="playbook.txt")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"source", "fallback", "reason", "candidates", "types", "company"}
+    assert set(body) == {"source", "fallback", "error", "reason", "candidates", "types", "company"}
+    assert body["error"] is None
     assert body["fallback"] is False and body["reason"] is None
     assert [t["sales_motion_key"] for t in body["types"]] == ["discovery", "closing"]
     assert all(set(t) == {"sales_motion_key", "reason", "editor"} for t in body["types"])
@@ -307,12 +308,16 @@ def test_a_client_that_cannot_be_built_is_a_fallback_too(monkeypatch):
     assert body["fallback"] is True and body["types"] == []
 
 
-def test_one_model_call_bounded_to_25_seconds_with_no_client_retries():
+def test_one_model_call_bounded_to_the_split_timeout_with_no_client_retries():
+    # 25 s made every real company playbook fall back (4 types is a long answer); the split
+    # gets SPLIT_TIMEOUT_S, still one call and no client retries.
+    from app.services.playbooks.structure import SPLIT_TIMEOUT_S
+
     llm = FakeLLM(MIXED_ANSWER)
     set_playbook_structure_llm(llm)
     _post(_client())
     assert len(llm.calls) == 1
-    assert llm.calls[0]["timeout"] == 25.0 and llm.calls[0]["max_retries"] == 0
+    assert llm.calls[0]["timeout"] == SPLIT_TIMEOUT_S == 85.0 and llm.calls[0]["max_retries"] == 0
 
 
 # --- the same deterministic pipeline as one type ----------------------------------------------
@@ -627,3 +632,130 @@ def test_the_p02_cases_are_well_formed_and_the_script_scores_them():
     invented = dict(empty, types=[dict(result["types"][0], key="negotiation")])
     assert any("outside the candidates" in f for f in module.check_split(brochure, invented))
     assert module.check_split(five, {"types": [], "reason": "no_process", "fallback": True})  # a fallback never passes
+
+
+# --- time: a whole company's playbook is a long answer -----------------------------------------
+
+def test_the_company_split_gets_the_long_timeout_and_one_type_keeps_the_short_one():
+    from app.services.playbooks import structure
+
+    candidates = [{"key": "discovery", "label": "Frío", "description": "x"}, {"key": "closing", "label": "Cierre"}]
+    llm = FakeLLM(MIXED_ANSWER)
+    asyncio.run(split_source(MIXED, candidates, "es", llm=llm))
+    assert llm.calls[0]["timeout"] == structure.SPLIT_TIMEOUT_S > structure.TIMEOUT_S
+    # The screen waits 120 s for POST /playbooks/structure.
+    assert structure.SPLIT_BUDGET_S < 120
+
+    one = FakeLLM({"steps": [{"label": "Apertura", "criterion": "Se presenta y pide 30 segundos"}]})
+    asyncio.run(structure.structure_source(MIXED, "discovery", "es", llm=one))
+    assert one.calls[0]["timeout"] == structure.TIMEOUT_S
+
+
+def test_the_attitude_retry_is_skipped_when_it_would_not_fit_in_the_budget(monkeypatch):
+    from app.services.playbooks import structure
+
+    clock = iter([0.0, 60.0])  # the first answer took 60 s
+    monkeypatch.setattr(structure, "_clock", lambda: next(clock))
+    llm = FakeLLM({"a": 1}, {"a": 2})
+    shaped = asyncio.run(structure._ask_with_retry(
+        llm, [], lambda raw: raw, lambda s: True, lambda s: "note", lambda s: True,
+        timeout=85.0, budget=110.0,
+    ))
+    assert shaped == {"a": 1} and len(llm.calls) == 1
+
+
+def test_the_attitude_retry_still_runs_with_time_left(monkeypatch):
+    from app.services.playbooks import structure
+
+    clock = iter([0.0, 10.0])
+    monkeypatch.setattr(structure, "_clock", lambda: next(clock))
+    llm = FakeLLM({"a": 1}, {"a": 2})
+    shaped = asyncio.run(structure._ask_with_retry(
+        llm, [], lambda raw: raw, lambda s: True, lambda s: "note", lambda s: True,
+        timeout=25.0, budget=110.0,
+    ))
+    assert shaped == {"a": 2} and len(llm.calls) == 2
+
+
+# --- a document whose titles already name its call types --------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+from app.services.playbooks.structure import titled_sections  # noqa: E402
+
+TITLED = (Path(__file__).parent / "fixtures" / "titled_company_playbook.md").read_text(encoding="utf-8")
+ROUTING_KEYS = {"discovery", "inbound", "ae_discovery", "closing", "negotiation"}
+
+
+def test_titles_split_a_real_company_playbook_into_its_four_call_types():
+    sections, rest = titled_sections(TITLED, ROUTING_KEYS)
+    assert [key for key, _ in sections] == ["discovery", "ae_discovery", "closing", "negotiation"]
+    assert sections[0][1].startswith("## 1. SDR · Llamada en frío")
+    assert "Apertura con motivo" in sections[0][1] and "Marcar el marco" not in sections[0][1]
+    assert "Confirmar decisores" in sections[3][1]
+    # The company and the funnel go to the rest, never into a call type.
+    assert "Vuestra empresa" in rest and "Funnel:" in rest
+    assert all("Vuestra empresa" not in body for _, body in sections)
+
+
+def test_titles_with_routing_off_fold_the_ae_sections_into_closing():
+    sections, _rest = titled_sections(TITLED, {"discovery", "closing"})
+    assert [key for key, _ in sections] == ["discovery", "closing"]
+    assert "Marcar el marco" in sections[1][1] and "Confirmar decisores" in sections[1][1]
+
+
+def test_a_document_without_typed_titles_keeps_the_one_answer_split():
+    assert titled_sections(MIXED, ROUTING_KEYS) is None
+    assert titled_sections("# Nuestro proceso\nLlamamos y agendamos.", ROUTING_KEYS) is None
+
+
+class _ByType:
+    """chat_json stand-in that answers each call from what it was asked for."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def chat_json(self, messages, **kwargs):
+        user = messages[-1]["content"]
+        self.calls.append(user)
+        if "Call type:" in user:
+            key = user.split("(key: ")[1].split(")")[0]
+            return {"steps": [
+                {"label": f"Paso {key} uno", "criterion": "El prospecto acepta un día y una hora"},
+                {"label": f"Paso {key} dos", "criterion": "Pregunta cómo lo hacen hoy y el prospecto nombra un problema"},
+                {"label": f"Paso {key} tres", "criterion": "Se presenta y pide 30 segundos antes de contar nada"},
+            ]}
+        return {"types": [], "company": {"icp": "Empresas B2B que quieren acelerar su crecimiento"}}
+
+
+def test_a_titled_document_is_structured_one_short_answer_per_type_plus_the_company():
+    candidates = [{"key": key, "label": key} for key in ["discovery", "inbound", "ae_discovery", "closing", "negotiation"]]
+    llm = _ByType()
+    result = asyncio.run(split_source(TITLED, candidates, "es", llm=llm))
+    assert result["fallback"] is False
+    assert [t["key"] for t in result["types"]] == ["discovery", "ae_discovery", "closing", "negotiation"]
+    assert result["company"]["icp"].startswith("Empresas B2B")
+    # four per-type calls and one company call, none of them the whole document
+    assert len(llm.calls) == 5
+    assert sum("Vuestra empresa" in call for call in llm.calls) == 1
+
+
+def test_titled_sections_that_all_fail_ask_for_the_call_type():
+    candidates = [{"key": key, "label": key} for key in ["discovery", "ae_discovery", "closing", "negotiation"]]
+    result = asyncio.run(split_source(TITLED, candidates, "es", llm=FakeLLM(RuntimeError())))
+    assert result["fallback"] is True and result["types"] == []
+
+
+def test_a_failed_split_says_why():
+    from app.services.playbooks.structure import failure_of
+
+    assert failure_of(asyncio.TimeoutError())["kind"] == "timeout"
+    assert failure_of(ValueError("model output is not an object"))["kind"] == "invalid_answer"
+    boom = failure_of(RuntimeError("404 model not found"))
+    assert boom == {"kind": "model_error", "detail": "RuntimeError: 404 model not found"}
+
+    llm = FakeLLM(RuntimeError("401 bad key"))
+    set_playbook_structure_llm(llm)
+    body = _post(_client()).json()
+    assert body["fallback"] is True
+    assert body["error"]["kind"] == "model_error" and "401 bad key" in body["error"]["detail"]

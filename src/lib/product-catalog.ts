@@ -885,6 +885,11 @@ export const productCatalog = {
       foundOne: "We found one process in your document. Review it and turn it on.",
       foundMany: "We found {count} processes in your document. Review them and turn them on.",
       fallbackAsk: "We couldn't split it on our own. Which call is it for?",
+      fallbackWhy: {
+        timeout: "The AI took too long to answer.",
+        invalid_answer: "The AI answered, but not in the format Vocify needs.",
+        model_error: "The AI service returned an error.",
+      },
       checks: "{count} checks",
       checkOne: "1 check",
       answers: "{count} answers",
@@ -2091,6 +2096,11 @@ export const productCatalog = {
       foundOne: "Hemos encontrado un proceso en vuestro documento. Revísalo y actívalo.",
       foundMany: "Hemos encontrado {count} procesos en vuestro documento. Revísalos y actívalos.",
       fallbackAsk: "No hemos podido separarlo solos. ¿Para qué llamada es?",
+      fallbackWhy: {
+        timeout: "La IA ha tardado demasiado en responder.",
+        invalid_answer: "La IA ha respondido, pero no en el formato que Vocify necesita.",
+        model_error: "El servicio de IA ha devuelto un error.",
+      },
       checks: "{count} comprobaciones",
       checkOne: "1 comprobación",
       answers: "{count} respuestas",

@@ -639,6 +639,43 @@ async def revoke_company_invite_admin(
     return {"success": True}
 
 
+class AdminReprocessRequest(BaseModel):
+    limit: int = 50
+    only_unprocessed: bool = True
+
+
+@router.post("/companies/{company_id}/reprocess-memos")
+async def reprocess_company_memos_admin(
+    company_id: UUID,
+    body: AdminReprocessRequest,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    """Run the company's stored conversations through this backend's pipeline again
+    (playbook pin, extraction as the author, score, intelligence). For testing on real
+    history copied into a test company; approved memos are never touched."""
+    from app.services.memo_reprocess import start_reprocess
+
+    cid = str(company_id)
+    run = start_reprocess(supabase, cid, limit=body.limit, only_unprocessed=body.only_unprocessed)
+    _write_audit(
+        supabase,
+        "admin_reprocess_memos",
+        metadata={"company_id": cid, "total": run.get("total"), "only_unprocessed": body.only_unprocessed},
+    )
+    return run
+
+
+@router.get("/companies/{company_id}/reprocess-memos")
+async def reprocess_company_memos_progress_admin(
+    company_id: UUID,
+    _: str = Depends(require_master_key),
+):
+    from app.services.memo_reprocess import progress
+
+    return progress(str(company_id))
+
+
 @router.post("/members/{user_id}/transfer")
 async def transfer_member_admin(
     user_id: UUID,

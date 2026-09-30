@@ -96,6 +96,9 @@ async def _current_contact_properties(
 ) -> dict[str, Any]:
     if not contact_id:
         return {}
+    if properties:
+        # The lead status is always read: the write gate needs it to never move a contact back.
+        properties = list(dict.fromkeys([*properties, "hs_lead_status"]))
     try:
         row = await contacts.get(
             str(contact_id),

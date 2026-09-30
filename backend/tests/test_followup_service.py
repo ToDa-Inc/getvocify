@@ -471,8 +471,9 @@ def test_re_extract_passes_the_memo_company_so_scheduling_skips_the_lookup():
     from pathlib import Path
 
     source = (Path(__file__).resolve().parents[1] / "app" / "api" / "memos.py").read_text(encoding="utf-8")
+    # re_extract_memo delegates the pipeline to reextract_memo_row (shared with admin reprocess).
     fn = next(node for node in ast.walk(ast.parse(source))
-              if isinstance(node, ast.AsyncFunctionDef) and node.name == "re_extract_memo")
+              if isinstance(node, ast.AsyncFunctionDef) and node.name == "reextract_memo_row")
     calls = [node for node in ast.walk(fn) if isinstance(node, ast.Call)
              and getattr(node.func, "id", None) == "schedule_followup"]
     assert calls

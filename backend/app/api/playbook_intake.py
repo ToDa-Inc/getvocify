@@ -140,6 +140,8 @@ async def structure_company_source(
     return {
         "source": source,
         "fallback": bool(result["fallback"]),
+        # Why the model path failed ({kind, detail}), so the screen can say it instead of guessing.
+        "error": result.get("error") if result["fallback"] else None,
         "reason": result["reason"],
         "candidates": public_candidates(candidates),
         "types": types,

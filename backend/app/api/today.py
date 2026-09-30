@@ -243,12 +243,22 @@ def _http_task_page(connection: dict, request: dict, client=None) -> dict:
     return body if isinstance(body, dict) else {"error_kind": "transport"}
 
 
-def _read_tasks(connection: dict) -> tuple[list[dict], str]:
+def _task_owner_id(connection: dict, user_id: str) -> str | None:
+    """The rep's HubSpot owner from the connection's owner cache; None when not known."""
+    if str(connection.get("provider") or "") != "hubspot":
+        return None
+    from app.services.hubspot.sync import owner_id_from_connection_metadata
+
+    return owner_id_from_connection_metadata(connection.get("metadata") or {}, user_id)
+
+
+def _read_tasks(connection: dict, user_id: str | None = None) -> tuple[list[dict], str]:
     provider = str(connection.get("provider") or "")
     connection_id = str(connection.get("id") or "")
+    owner_id = _task_owner_id(connection, user_id) if user_id else None
     fetch = _FETCH if _FETCH is not None else (lambda request: _http_task_page(connection, request))
     try:
-        tasks, coverage = collect_open_tasks(provider, fetch, connection_id=connection_id)
+        tasks, coverage = collect_open_tasks(provider, fetch, connection_id=connection_id, owner_id=owner_id)
     except (ValueError, TimeoutError, OSError):
         return [], "unavailable"
     if provider == "hubspot" and _FETCH is None:
@@ -632,7 +642,7 @@ async def get_today(
         if connection is None:
             manual_tasks, task_coverage = [], "unavailable"
         else:
-            manual_tasks, task_coverage = _read_tasks(connection)
+            manual_tasks, task_coverage = _read_tasks(connection, membership.user_id)
     meta = (connection or {}).get("metadata") or {}
     portal = meta.get("portal_id") or meta.get("hub_id") or meta.get("portalId")
     domain = str(meta.get("company_domain") or "").strip() or None
