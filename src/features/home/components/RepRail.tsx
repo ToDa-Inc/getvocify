@@ -8,7 +8,7 @@ import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/
 import { useContactPriorities } from "@/features/today/hooks/useContactPriorities";
 import { useHomeReads } from "@/features/today/hooks/useHomeReads";
 import { useTodayCardActions } from "@/features/today/hooks/useTodayCardActions";
-import { railCounts, type RailCounts } from "@/lib/home-rail";
+import { railState, type RailCounts } from "@/lib/home-rail";
 import { useLanguage } from "@/lib/i18n";
 import type { ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -33,6 +33,9 @@ function countRows(counts: RailCounts, copy: ProductTranslations) {
 }
 
 /**
+ * Only for a company with the rep workspace (REP_WORKSPACE_ENABLED): /followups, /today/upcoming and
+ * /today/done 404 without it, and so does the Hoy these rows link to.
+ *
  * The rep's day, condensed: today's meetings and how much waits in each part of Hoy. Built from the
  * same reads and the same composition as /dashboard/today, so the numbers match what Hoy shows there.
  */
@@ -61,11 +64,16 @@ export function RepRail() {
     locale: copy.hourLocale,
     sdrSections: Boolean(user?.company?.features?.includes("HOY_SDR_SECTIONS_ENABLED")),
   });
-  const counts = railCounts(view);
+  const { state, counts, incomplete } = railState(view);
   const rows = countRows(counts, copy);
+  const retryAll = () => {
+    void query.refetch();
+    void priorities.refetch();
+    for (const read of Object.values(reads)) void read.refetch();
+  };
 
   let body;
-  if (view.state === "loading") {
+  if (state === "loading") {
     body = (
       <div className="space-y-2" aria-busy="true">
         {[0, 1, 2].map((key) => (
@@ -73,18 +81,18 @@ export function RepRail() {
         ))}
       </div>
     );
-  } else if (view.state === "error") {
+  } else if (state === "error" || state === "partial") {
     body = (
       <div className="space-y-3" role="alert">
-        <p className={THEME_TOKENS.typography.body}>{copy.today_prepare_failed}</p>
-        <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
+        <p className={THEME_TOKENS.typography.body}>{state === "error" ? copy.today_prepare_failed : copy.today_incomplete}</p>
+        <Button type="button" variant="outline" size="sm" onClick={retryAll}>
           {copy.retry}
         </Button>
       </div>
     );
-  } else if (view.state === "connect" || view.state === "no_assigned") {
+  } else if (state === "connect" || state === "no_assigned") {
     // The same card Hoy shows: whoever can fix it gets the button, a rep is told who can.
-    const connect = view.state === "connect";
+    const connect = state === "connect";
     body = (
       <div className="space-y-3">
         <p className="text-[14px] text-foreground">{connect ? copy.today_connect_title : copy.title_no_assigned}</p>
@@ -97,11 +105,17 @@ export function RepRail() {
         )}
       </div>
     );
-  } else if (!counts.meetings.length && !rows.length) {
+  } else if (state === "clear") {
     body = <p className={THEME_TOKENS.typography.body}>{copy.home.allClear}</p>;
   } else {
     body = (
       <div className="space-y-3">
+        {incomplete ? (
+          <p className="text-[13px] text-muted-foreground">
+            {copy.today_incomplete}
+            {view.incompleteAt ? ` · ${view.incompleteAt}` : ""}
+          </p>
+        ) : null}
         {counts.meetings.length ? (
           <ul aria-label={copy.home_meetings} className="-mx-2">
             {counts.meetings.map(({ item, time, past }) => {

@@ -7,7 +7,7 @@ import HistoryList from "@/features/ask/components/HistoryList";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
 import { useLanguage } from "@/lib/i18n";
-import { isManagerRole } from "@/lib/nav";
+import { isManagerRole, usesRepHome } from "@/lib/nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useHomeChat } from "../hooks/useHomeChat";
@@ -39,7 +39,6 @@ export function InicioPage() {
   const chat = useHomeChat();
   const { conversation } = chat;
   const inChat = chat.mode === "chat";
-  const [draft, setDraft] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   // Leaving the chat (Esc included) closes the history with it.
   const historyOpen = inChat && showHistory;
@@ -59,7 +58,6 @@ export function InicioPage() {
 
   const send = (text: string) => {
     glideFrom.current = composer.current?.rect() ?? null;
-    setDraft("");
     chat.send(text);
   };
 
@@ -68,9 +66,12 @@ export function InicioPage() {
   // A signal's question lands in the home composer to edit or send, never sent on its own.
   const prefill = (question: string) => {
     if (inChat) goHome();
-    setDraft(question);
-    composer.current?.focus();
+    composer.current?.prefill(question);
   };
+
+  // A rep without the rep workspace has no Hoy to condense (its reads and /dashboard/today 404
+  // server-side): composer and feed only.
+  const rail = manager ? <SignalsRail onAsk={prefill} /> : usesRepHome(user?.company) ? <RepRail /> : null;
 
   // The composer glides from the middle of the page to the bottom of the thread, which fades in.
   useLayoutEffect(() => {
@@ -101,7 +102,7 @@ export function InicioPage() {
               {/* A narrow column keeps the greeting on one line; the date is the first thing to go. */}
               <span className="ml-2.5 hidden whitespace-nowrap text-[15px] tracking-normal text-muted-foreground xl:inline">{date}</span>
             </h1>
-            <HomeComposer ref={composer} value={draft} onChange={setDraft} onSend={send} autoFocus={wide && !inChat} />
+            <HomeComposer ref={composer} onSend={send} autoFocus={wide && !inChat} />
           </div>
           <LatestInteractions manager={manager} />
         </div>
@@ -119,7 +120,7 @@ export function InicioPage() {
               >
                 <ClockCounterClockwise size={16} weight={historyOpen ? "fill" : "light"} />
               </IconAction>
-              <IconAction label={p.home.newChat} onClick={goHome}>
+              <IconAction label={p.home.newChat} shortcut={p.home.newChatKey} onClick={goHome}>
                 <Plus size={16} weight="light" />
               </IconAction>
             </div>
@@ -160,11 +161,11 @@ export function InicioPage() {
         ) : null}
       </div>
 
-      <aside className={cn("md:w-[320px] md:min-h-0 md:shrink-0 md:overflow-y-auto", inChat && "max-md:hidden")}>
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5`}>
-          {manager ? <SignalsRail onAsk={prefill} /> : <RepRail />}
-        </div>
-      </aside>
+      {rail ? (
+        <aside className={cn("md:w-[320px] md:min-h-0 md:shrink-0 md:overflow-y-auto", inChat && "max-md:hidden")}>
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5`}>{rail}</div>
+        </aside>
+      ) : null}
 
       <ConfirmAction
         open={clearing}

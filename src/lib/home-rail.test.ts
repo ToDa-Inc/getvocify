@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { HomeSection } from "@shared/ui/home.js";
 import type { TodayItem } from "./today.ts";
-import { RAIL_MEETINGS, railCounts } from "./home-rail.ts";
+import { RAIL_MEETINGS, railCounts, railState } from "./home-rail.ts";
 
 function item(id: string, overrides: Partial<TodayItem> = {}): TodayItem {
   return { type: "meeting_today", dedupe_key: id, id, reason: id, origins: [], supporting: [], ...overrides };
@@ -88,5 +88,44 @@ describe("railCounts", () => {
     assert.equal(out.needsOk, 1);
     assert.equal(out.calls, 6);
     assert.equal(out.tasks, 0);
+  });
+});
+
+describe("railState", () => {
+  const tasks: HomeSection[] = [{ id: "tasks", items: cards(2, "t") }];
+  const base = { incompleteAt: null, sections: [] as HomeSection[] };
+
+  it("waits while Hoy's reads are loading", () => {
+    assert.equal(railState({ ...base, state: "loading" }).state, "loading");
+  });
+
+  it("keeps waiting while nothing is due yet but the side reads have not answered (composeHome still says day)", () => {
+    assert.equal(railState({ ...base, state: "day" }).state, "loading");
+  });
+
+  it("says it could not load everything when a side read failed and nothing is due, never all clear", () => {
+    const out = railState({ ...base, state: "day", incompleteAt: "15:55" });
+    assert.equal(out.state, "partial");
+    assert.notEqual(out.state, "clear");
+  });
+
+  it("is all clear only when Hoy decided it is", () => {
+    assert.equal(railState({ ...base, state: "clear" }).state, "clear");
+  });
+
+  it("shows the rows when something is due, flagged incomplete when a read failed", () => {
+    const full = railState({ state: "day", incompleteAt: null, sections: tasks });
+    assert.equal(full.state, "day");
+    assert.equal(full.incomplete, false);
+    assert.equal(full.counts.tasks, 2);
+    const partial = railState({ state: "day", incompleteAt: "15:55", sections: tasks });
+    assert.equal(partial.state, "day");
+    assert.equal(partial.incomplete, true);
+  });
+
+  it("passes error, connect and no-assigned through", () => {
+    for (const state of ["error", "connect", "no_assigned"] as const) {
+      assert.equal(railState({ ...base, state }).state, state);
+    }
   });
 });

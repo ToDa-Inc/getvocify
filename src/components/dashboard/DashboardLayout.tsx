@@ -29,7 +29,7 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
+import { isManagerRole, navItemsFor, topBarActions, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
@@ -78,8 +78,9 @@ const DashboardLayout = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [paywalled]);
   const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
-  // The full Hoy (/dashboard/today) keeps its contact column; Inicio (/dashboard) has its own rail.
-  const homeColumn = usesRepHome(user?.company) && location.pathname === "/dashboard/today";
+  // The full Hoy (/dashboard/today) keeps its contact column whoever opens it, so its ContactPanel
+  // always has somewhere to go on xl (its sheet is xl:hidden). Inicio (/dashboard) has its own rail.
+  const homeColumn = location.pathname === "/dashboard/today";
   const closeAsk = useCallback(() => setAskOpen(false), []);
   const column = useMemo(
     () => ({ target: homeColumn ? columnNode : null, askOpen, closeAsk, canDial: showDialer }),

@@ -59,3 +59,23 @@ export function railCounts(view: Pick<HomeView, "sections">): RailCounts {
   out.meetings = meetings.sort(soonest).slice(0, RAIL_MEETINGS);
   return out;
 }
+
+export type RailState = "loading" | "error" | "connect" | "no_assigned" | "clear" | "partial" | "day";
+
+/**
+ * What the rail may claim, from the state `composeHome` decided. "All clear" only when Hoy says
+ * so: composeHome keeps "day" while the side reads have not answered or one failed, and zero
+ * counts then mean "not known yet" or "could not read", never "nothing due".
+ */
+export function railState(view: Pick<HomeView, "state" | "incompleteAt" | "sections">): {
+  state: RailState;
+  counts: RailCounts;
+  incomplete: boolean;
+} {
+  const counts = railCounts(view);
+  const incomplete = Boolean(view.incompleteAt);
+  if (view.state !== "day") return { state: view.state, counts, incomplete };
+  const due = counts.meetings.length + counts.needsOk + counts.tasks + counts.followups + counts.fresh + counts.calls > 0;
+  if (due) return { state: "day", counts, incomplete };
+  return { state: incomplete ? "partial" : "loading", counts, incomplete };
+}

@@ -11,6 +11,8 @@ type IconActionProps = {
   disabled?: boolean;
   /** Shown while pending instead of the spinner, e.g. `<AnimIcon name="refresh" state="busy" />`. */
   pendingIcon?: React.ReactNode;
+  /** A keyboard shortcut shown in the tooltip only; the accessible name stays `label`. */
+  shortcut?: string;
   onClick: () => void;
   children: React.ReactNode;
 };
@@ -23,6 +25,7 @@ export function IconAction({
   tone = "default",
   disabled = false,
   pendingIcon,
+  shortcut,
   onClick,
   children,
 }: IconActionProps) {
@@ -47,7 +50,10 @@ export function IconAction({
           </button>
         </span>
       </TooltipTrigger>
-      <TooltipContent side="top">{tip}</TooltipContent>
+      <TooltipContent side="top">
+        {tip}
+        {shortcut && !pending ? <kbd className="ml-1.5 font-sans text-muted-foreground">{shortcut}</kbd> : null}
+      </TooltipContent>
     </Tooltip>
   );
 }

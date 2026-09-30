@@ -10,6 +10,7 @@ import {
   type AskMessage,
   type TurnBody,
 } from "@/lib/ask-thread";
+import { landingConversation, type Landing } from "@/lib/ask-landing";
 
 const CONVERSATION_KEY = "vocify-ask-conversation";
 const POLL_FAST_MS = 2000;
@@ -18,20 +19,11 @@ const POLL_SLOW_AFTER_MS = 30000;
 
 export type ConversationSummary = { id: string; title: string; turns: number; updated_at: string | null };
 
-/** `fresh` means this tab has no conversation yet, so there is nothing to restore from the server. */
-function readConversation(restoreId?: string | null): { id: string; fresh: boolean } {
-  if (restoreId) {
-    rememberConversationId(restoreId);
-    return { id: restoreId, fresh: false };
-  }
+function storedConversation(): string | null {
   try {
-    const existing = sessionStorage.getItem(CONVERSATION_KEY);
-    if (existing) return { id: existing, fresh: false };
-    const id = crypto.randomUUID();
-    sessionStorage.setItem(CONVERSATION_KEY, id);
-    return { id, fresh: true };
+    return sessionStorage.getItem(CONVERSATION_KEY);
   } catch {
-    return { id: crypto.randomUUID(), fresh: true };
+    return null;
   }
 }
 
@@ -45,13 +37,23 @@ function rememberConversationId(id: string) {
 
 /**
  * One conversation: streams a turn, recovers it if the reader drops, runs confirmations, lists history.
- * `restoreId` opens that conversation instead of this tab's last one (a `?c=` link); `onMissing` hears
- * when the conversation restored on mount could not be read.
+ * `restoreId` opens that conversation instead of this tab's last one (a `?c=` link); if it cannot be
+ * read, the hook lands on the tab's last one (not read back) and `onMissing` hears it.
+ * `restoreStored: false` keeps the tab's last conversation id without reading it back (Inicio's home).
  */
-export function useAskConversation({ restoreId, onMissing }: { restoreId?: string | null; onMissing?: () => void } = {}) {
+export function useAskConversation({
+  restoreId = null,
+  restoreStored = true,
+  onMissing,
+}: { restoreId?: string | null; restoreStored?: boolean; onMissing?: () => void } = {}) {
   const [thread, dispatch] = useReducer(reduceThread, undefined, emptyThread);
-  const initial = useRef<{ id: string; fresh: boolean } | null>(null);
-  if (initial.current === null) initial.current = readConversation(restoreId);
+  const initial = useRef<Landing | null>(null);
+  if (initial.current === null) {
+    initial.current = landingConversation({ linked: restoreId, stored: storedConversation(), restoreStored, newId: crypto.randomUUID() });
+    if (initial.current.remember) rememberConversationId(initial.current.id);
+  }
+  // Each open (and a new conversation) supersedes the ones before: a late read never replaces it.
+  const openSeq = useRef(0);
   const missing = useRef(onMissing);
   missing.current = onMissing;
   const [conversationId, setConversationId] = useState(initial.current.id);
@@ -213,17 +215,21 @@ export function useAskConversation({ restoreId, onMissing }: { restoreId?: strin
     }
   }, []);
 
+  /** Resolves false when something newer (another open, a new conversation) took over meanwhile. */
   const openConversation = useCallback(
     async (id: string) => {
       stopPolling();
       abort.current?.abort();
+      const seq = ++openSeq.current;
       const body = await api.get<{ turns: TurnBody[] }>(`/ask/conversations/${id}`);
+      if (seq !== openSeq.current || !alive.current) return false;
       rememberConversationId(id);
       setConversationId(id);
       conversationRef.current = id;
       dispatch({ type: "restore", messages: messagesFromTurns(body.turns) });
       const last = body.turns[body.turns.length - 1];
       if (last && (last.status === "pending" || last.status === "running")) pollTurn(last.turn_id);
+      return true;
     },
     [pollTurn, stopPolling],
   );
@@ -231,6 +237,7 @@ export function useAskConversation({ restoreId, onMissing }: { restoreId?: strin
   const newConversation = useCallback(() => {
     stopPolling();
     abort.current?.abort();
+    openSeq.current += 1;
     const id = crypto.randomUUID();
     rememberConversationId(id);
     setConversationId(id);
@@ -283,7 +290,17 @@ export function useAskConversation({ restoreId, onMissing }: { restoreId?: strin
   // Reload: bring back this tab's conversation, and keep waiting for a turn that was still running.
   useEffect(() => {
     alive.current = true;
-    if (!initial.current?.fresh) void openConversation(conversationRef.current).catch(() => missing.current?.());
+    const landing = initial.current;
+    if (landing?.fetch) {
+      void openConversation(landing.id).catch(() => {
+        // A dead link never stays the conversation on screen: land on the tab's own, unread.
+        if (landing.fallback && conversationRef.current === landing.id) {
+          conversationRef.current = landing.fallback;
+          setConversationId(landing.fallback);
+        }
+        missing.current?.();
+      });
+    }
     return () => {
       alive.current = false;
       abort.current?.abort();

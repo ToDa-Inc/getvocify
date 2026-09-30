@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAskConversation } from "@/features/ask/hooks/useAskConversation";
+import { homeSendConversation } from "@/lib/ask-landing";
 
 const PARAM = "c";
 
@@ -23,7 +24,8 @@ export function useHomeChat() {
   const linked = params.get(PARAM);
   const [landing] = useState(linked);
   const gone = useRef<() => void>(() => undefined);
-  const conversation = useAskConversation({ restoreId: landing, onMissing: () => gone.current() });
+  // Only a `?c=` link is read back; home never reopens the tab's last conversation.
+  const conversation = useAskConversation({ restoreId: landing, restoreStored: false, onMissing: () => gone.current() });
   const mode: "home" | "chat" = linked ? "chat" : "home";
   const { conversationId, newConversation, openConversation, send: ask } = conversation;
   const current = useRef(conversationId);
@@ -52,17 +54,16 @@ export function useHomeChat() {
   const send = useCallback(
     (text: string) => {
       if (!text.trim()) return;
-      const id = mode === "home" && conversation.thread.messages.length > 0 ? newConversation() : current.current;
+      const id = homeSendConversation(mode, current.current, newConversation);
       ask(text);
       if (mode === "home") setLinked(id, false);
     },
-    [mode, conversation.thread.messages.length, newConversation, ask, setLinked],
+    [mode, newConversation, ask, setLinked],
   );
 
   const open = useCallback(
     async (id: string) => {
-      await openConversation(id);
-      setLinked(id, true);
+      if (await openConversation(id)) setLinked(id, true);
     },
     [openConversation, setLinked],
   );
