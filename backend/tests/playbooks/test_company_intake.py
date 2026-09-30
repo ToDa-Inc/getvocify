@@ -307,12 +307,16 @@ def test_a_client_that_cannot_be_built_is_a_fallback_too(monkeypatch):
     assert body["fallback"] is True and body["types"] == []
 
 
-def test_one_model_call_bounded_to_25_seconds_with_no_client_retries():
+def test_one_model_call_bounded_to_the_split_timeout_with_no_client_retries():
+    # 25 s made every real company playbook fall back (4 types is a long answer); the split
+    # gets SPLIT_TIMEOUT_S, still one call and no client retries.
+    from app.services.playbooks.structure import SPLIT_TIMEOUT_S
+
     llm = FakeLLM(MIXED_ANSWER)
     set_playbook_structure_llm(llm)
     _post(_client())
     assert len(llm.calls) == 1
-    assert llm.calls[0]["timeout"] == 25.0 and llm.calls[0]["max_retries"] == 0
+    assert llm.calls[0]["timeout"] == SPLIT_TIMEOUT_S == 85.0 and llm.calls[0]["max_retries"] == 0
 
 
 # --- the same deterministic pipeline as one type ----------------------------------------------
@@ -627,3 +631,46 @@ def test_the_p02_cases_are_well_formed_and_the_script_scores_them():
     invented = dict(empty, types=[dict(result["types"][0], key="negotiation")])
     assert any("outside the candidates" in f for f in module.check_split(brochure, invented))
     assert module.check_split(five, {"types": [], "reason": "no_process", "fallback": True})  # a fallback never passes
+
+
+# --- time: a whole company's playbook is a long answer -----------------------------------------
+
+def test_the_company_split_gets_the_long_timeout_and_one_type_keeps_the_short_one():
+    from app.services.playbooks import structure
+
+    candidates = [{"key": "discovery", "label": "Frío", "description": "x"}, {"key": "closing", "label": "Cierre"}]
+    llm = FakeLLM(MIXED_ANSWER)
+    asyncio.run(split_source(MIXED, candidates, "es", llm=llm))
+    assert llm.calls[0]["timeout"] == structure.SPLIT_TIMEOUT_S > structure.TIMEOUT_S
+    # The screen waits 120 s for POST /playbooks/structure.
+    assert structure.SPLIT_BUDGET_S < 120
+
+    one = FakeLLM({"steps": [{"label": "Apertura", "criterion": "Se presenta y pide 30 segundos"}]})
+    asyncio.run(structure.structure_source(MIXED, "discovery", "es", llm=one))
+    assert one.calls[0]["timeout"] == structure.TIMEOUT_S
+
+
+def test_the_attitude_retry_is_skipped_when_it_would_not_fit_in_the_budget(monkeypatch):
+    from app.services.playbooks import structure
+
+    clock = iter([0.0, 60.0])  # the first answer took 60 s
+    monkeypatch.setattr(structure, "_clock", lambda: next(clock))
+    llm = FakeLLM({"a": 1}, {"a": 2})
+    shaped = asyncio.run(structure._ask_with_retry(
+        llm, [], lambda raw: raw, lambda s: True, lambda s: "note", lambda s: True,
+        timeout=85.0, budget=110.0,
+    ))
+    assert shaped == {"a": 1} and len(llm.calls) == 1
+
+
+def test_the_attitude_retry_still_runs_with_time_left(monkeypatch):
+    from app.services.playbooks import structure
+
+    clock = iter([0.0, 10.0])
+    monkeypatch.setattr(structure, "_clock", lambda: next(clock))
+    llm = FakeLLM({"a": 1}, {"a": 2})
+    shaped = asyncio.run(structure._ask_with_retry(
+        llm, [], lambda raw: raw, lambda s: True, lambda s: "note", lambda s: True,
+        timeout=25.0, budget=110.0,
+    ))
+    assert shaped == {"a": 2} and len(llm.calls) == 2

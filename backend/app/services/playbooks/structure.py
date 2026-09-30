@@ -31,6 +31,7 @@ import inspect
 import json
 import logging
 import re
+import time
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
@@ -71,6 +72,14 @@ MAX_AI_STEPS = 7
 # Same posture as the glossary hints: a short timeout and one attempt at the client. The
 # Head of Sales waits on this call, so a slow model becomes the line parser, not a spinner.
 TIMEOUT_S = 25.0
+# The whole company's document writes every call type and the company block in ONE answer:
+# a real playbook (4 types, ~20 steps, objections, criteria) takes the model well over 25 s,
+# and fell back to "¿Para qué llamada es?" every time. The screen waits 120 s for this call
+# (src/features/playbooks/api.ts), so the split gets 85 s and the whole call stays under 110 s:
+# the attitude retry only runs when there is still time for it.
+SPLIT_TIMEOUT_S = 85.0
+SPLIT_BUDGET_S = 110.0
+_clock = time.monotonic
 MAX_RETRIES = 0
 TEMPERATURE = 0.2
 MAX_SOURCE_CHARS = 40_000
@@ -188,9 +197,9 @@ def _messages(source: str, motion_key: str, lang: str) -> list[dict]:
     return [{"role": "system", "content": _system_prompt()}, {"role": "user", "content": user}]
 
 
-async def _ask(llm: Any, messages: list[dict]) -> Any:
+async def _ask(llm: Any, messages: list[dict], timeout: float = TIMEOUT_S) -> Any:
     result = llm.chat_json(
-        messages=messages, temperature=TEMPERATURE, timeout=TIMEOUT_S, max_retries=MAX_RETRIES,
+        messages=messages, temperature=TEMPERATURE, timeout=timeout, max_retries=MAX_RETRIES,
     )
     if inspect.isawaitable(result):
         result = await result
@@ -399,20 +408,26 @@ def _client(llm: Any) -> Any:
     return client
 
 
-async def _ask_with_retry(client: Any, messages: list[dict], shape, generic_of, note_of, usable) -> Any:
+async def _ask_with_retry(
+    client: Any, messages: list[dict], shape, generic_of, note_of, usable,
+    *, timeout: float = TIMEOUT_S, budget: float | None = None,
+) -> Any:
     """The model call every path shares: ask, shape, and ask ONCE more (the whole call, with
     a note naming the attitude criteria) when any criterion is generic. At most two calls,
-    each bounded by TIMEOUT_S. A first call that fails raises; a failing retry keeps the
-    first answer. `shape` may raise ValueError for an unusable answer."""
-    first_raw = await asyncio.wait_for(_ask(client, messages), TIMEOUT_S + 5)
+    each bounded by `timeout`; with a `budget`, the retry only runs if a whole call still fits
+    in it. A first call that fails raises; a failing retry keeps the first answer. `shape`
+    may raise ValueError for an unusable answer."""
+    started = _clock()
+    first_raw = await asyncio.wait_for(_ask(client, messages, timeout), timeout + 5)
     shaped = shape(first_raw)
-    if generic_of(shaped):
+    out_of_time = budget is not None and _clock() - started + timeout > budget
+    if generic_of(shaped) and not out_of_time:
         try:
             retry_messages = messages + [
                 {"role": "assistant", "content": json.dumps(first_raw, ensure_ascii=False)},
                 {"role": "user", "content": note_of(shaped)},
             ]
-            second = shape(await asyncio.wait_for(_ask(client, retry_messages), TIMEOUT_S + 5))
+            second = shape(await asyncio.wait_for(_ask(client, retry_messages, timeout), timeout + 5))
             if usable(second):
                 shaped = second
         except Exception as exc:  # the first answer is still usable
@@ -559,6 +574,8 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
             _split_generic,
             _split_note,
             lambda s: bool(s["types"]),
+            timeout=SPLIT_TIMEOUT_S,
+            budget=SPLIT_BUDGET_S,
         )
         if not shaped["types"]:
             if short:  # too little to tell what it is: let the manager pick the call type
