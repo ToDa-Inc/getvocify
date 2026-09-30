@@ -58,3 +58,77 @@ def test_loose_crm_tasks_get_no_block_and_no_folded_count():
         sections, folded = hoy_sections(items, role)
         assert [i["contact_id"] for i in sections["tasks"]] == ["c"]
         assert sum(folded.values()) == 0
+
+
+# --- assigned contacts through the owner cache ------------------------------------------
+
+from app.services.hoy.assigned import collect_assigned  # noqa: E402
+from app.services.hoy.context import maybe_refresh_assigned_context  # noqa: E402
+
+
+def _portal_fetch(asked: list[dict]):
+    """One owner (id 77, the rep's real work email) owning two contacts."""
+    def fetch(request: dict) -> dict:
+        asked.append(request)
+        if request["path"] == "/crm/v3/owners":
+            return {"results": [{"id": "77", "email": "alvaro@motordeventas.io"}]}
+        return {"results": [
+            {"id": "1", "properties": {"firstname": "Lead", "lastname": "Uno", "hubspot_owner_id": "77"}},
+            {"id": "2", "properties": {"firstname": "Lead", "lastname": "Dos", "hubspot_owner_id": "77"}},
+        ]}
+    return fetch
+
+
+def test_the_owner_cache_matches_a_member_whose_email_differs_from_the_crm():
+    asked: list[dict] = []
+    page = collect_assigned(
+        "hubspot", _portal_fetch(asked), connection_id="c", observed_at="2026-09-30T10:00:00Z",
+        member_emails={"toni+alvaro@gmail.com"}, owner_overrides={"77": "toni+alvaro@gmail.com"},
+    )
+    assert [item["owner_email"] for item in page["items"]] == ["toni+alvaro@gmail.com"] * 2
+    search = asked[-1]["json"]["filterGroups"][0]["filters"][0]
+    assert search == {"propertyName": "hubspot_owner_id", "operator": "IN", "values": ["77"]}
+
+
+def test_without_the_cache_a_different_email_still_matches_nobody():
+    asked: list[dict] = []
+    page = collect_assigned(
+        "hubspot", _portal_fetch(asked), connection_id="c", observed_at="2026-09-30T10:00:00Z",
+        member_emails={"toni+alvaro@gmail.com"},
+    )
+    assert page["items"] == []
+
+
+class _NoWrites:
+    def table(self, _name):
+        return self
+
+    def upsert(self, *_a, **_k):
+        return self
+
+    def delete(self):
+        return self
+
+    def eq(self, *_a):
+        return self
+
+    def in_(self, *_a):
+        return self
+
+    def execute(self):
+        return None
+
+
+def test_refresh_assigns_the_contacts_to_the_cached_member():
+    connection = {
+        "id": "c", "provider": "hubspot", "access_token": "t",
+        "metadata": {"hubspot_owners": {"sdr-1": "77", "gone": "88"}},
+    }
+    members = [{"user_id": "sdr-1", "email": "toni+alvaro@gmail.com"}]
+    rows, hint = maybe_refresh_assigned_context(
+        _NoWrites(), "co", connection, [], members,
+        observed_at="2026-09-30T10:00:00Z", fetch_factory=lambda _c: _portal_fetch([]),
+    )
+    assert hint is None
+    assert {row["owner_user_id"] for row in rows} == {"sdr-1"}
+    assert len(rows) == 2

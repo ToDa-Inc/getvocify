@@ -187,6 +187,16 @@ def delete_context_rows(supabase, company_id: str, rows: list[dict]) -> None:
             )
 
 
+def _cached_owner_emails(connection: dict, members: list[dict]) -> dict[str, str]:
+    """HubSpot owner id -> member email, from the connection's owner cache
+    (metadata.hubspot_owners = {user_id: owner_id}), for current members only."""
+    cached = (connection.get("metadata") or {}).get("hubspot_owners")
+    if not isinstance(cached, dict):
+        return {}
+    emails = {str(member.get("user_id")): str(member.get("email") or "") for member in members}
+    return {str(owner_id): emails[str(uid)] for uid, owner_id in cached.items() if owner_id and emails.get(str(uid))}
+
+
 def maybe_refresh_assigned_context(
     supabase,
     company_id: str,
@@ -213,6 +223,7 @@ def maybe_refresh_assigned_context(
         connection_id=connection_id,
         observed_at=observed_at,
         member_emails={str(member.get("email") or "") for member in members},
+        owner_overrides=_cached_owner_emails(connection, members) if provider == "hubspot" else None,
     )
     if page.get("coverage") == "complete" and not page.get("next_cursor"):
         others = [row for row in rows if row.get("connection_id") != connection_id]
